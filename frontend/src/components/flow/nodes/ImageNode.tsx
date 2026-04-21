@@ -28,6 +28,7 @@ import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
+import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -199,6 +200,8 @@ const CanvasCropPreview = React.memo(({
   isResizing?: boolean;
 }) => {
   const { lowDetailMode } = useFlowRenderMode();
+  const isFlowDark = useFlowNodeDarkTheme();
+  const letterboxBg = flowLetterboxBackground(isFlowDark);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -254,7 +257,7 @@ const CanvasCropPreview = React.memo(({
       canvas.height = Math.max(1, Math.round(h * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = "#f3f4f6";
+      ctx.fillStyle = isFlowDark ? "#161616" : "#f3f4f6";
       ctx.fillRect(0, 0, w, h);
     };
 
@@ -306,7 +309,7 @@ const CanvasCropPreview = React.memo(({
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
       ctx.clearRect(0, 0, sw, sh);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = letterboxBg;
       ctx.fillRect(0, 0, sw, sh);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     };
@@ -335,6 +338,8 @@ const CanvasCropPreview = React.memo(({
     sourceHeight,
     sourceWidth,
     lowDetailMode,
+    isFlowDark,
+    letterboxBg,
     src,
   ]);
 
@@ -344,7 +349,7 @@ const CanvasCropPreview = React.memo(({
         style={{
           width: "100%",
           height: "100%",
-          background: "#e5e7eb",
+          background: isFlowDark ? "#252525" : "#e5e7eb",
         }}
       />
     );
@@ -359,14 +364,14 @@ const CanvasCropPreview = React.memo(({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#fff",
+        background: letterboxBg,
       }}
     >
       <canvas
         ref={canvasRef}
         style={{
           display: "block",
-          background: "#fff",
+          background: letterboxBg,
           transform: isResizing ? "translateZ(0)" : undefined,
         }}
       />
@@ -374,7 +379,7 @@ const CanvasCropPreview = React.memo(({
   );
 });
 
-const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick, lt }: {
+const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick, isFlowDark, lt }: {
   displaySrc?: string;
   isResizing?: boolean;
   uploading?: boolean;
@@ -388,6 +393,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
+  isFlowDark: boolean;
   lt: (zhText: string, enText: string) => string;
 }) => (
   <div
@@ -398,14 +404,14 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
     style={{
       flex: 1,
       minHeight: 120,
-      background: "#fff",
+      background: flowLetterboxBackground(isFlowDark),
       borderRadius: 6,
       position: "relative",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
-      border: "1px solid #e5e7eb",
+      border: `1px solid ${isFlowDark ? "#2f2f2f" : "#e5e7eb"}`,
       cursor: "pointer",
     }}
     title={lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
@@ -419,10 +425,10 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
           alignItems: "center",
           justifyContent: "center",
           pointerEvents: "none",
-          background: "rgba(255,255,255,0.6)",
+          background: isFlowDark ? "rgba(17,17,17,0.62)" : "rgba(255,255,255,0.6)",
           zIndex: 10,
           fontSize: 12,
-          color: "#374151",
+          color: isFlowDark ? "#d1d5db" : "#374151",
         }}
       >
         {lt('正在上传…', 'Uploading...')}
@@ -439,8 +445,8 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
           pointerEvents: "none",
           fontSize: 12,
           color: "#b91c1c",
-          background: "rgba(255,255,255,0.9)",
-          border: "1px solid #fecaca",
+          background: isFlowDark ? "rgba(127,29,29,0.28)" : "rgba(255,255,255,0.9)",
+          border: `1px solid ${isFlowDark ? "rgba(248,113,113,0.45)" : "#fecaca"}`,
           borderRadius: 6,
           padding: "6px 8px",
           overflow: "hidden",
@@ -470,12 +476,12 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
           width: "100%",
           height: "100%",
           objectFit: "contain",
-          background: "#fff",
+          background: flowLetterboxBackground(isFlowDark),
           transform: isResizing ? "translateZ(0)" : undefined,
         }}
       />
     ) : (
-      <span style={{ fontSize: 12, color: "#9ca3af" }}>
+      <span style={{ fontSize: 12, color: isFlowDark ? "#6b7280" : "#9ca3af" }}>
         {lt('拖拽图片到此或双击上传', 'Drag image here or double click to upload')}
       </span>
     )}
@@ -484,6 +490,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading
 
 function ImageNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const rf = useReactFlow();
   const normalizedNodeLabel =
     typeof data.label === "string" && data.label.trim().length
@@ -1649,6 +1656,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={handleDoubleClick}
+        isFlowDark={isFlowDark}
         lt={lt}
       />
 

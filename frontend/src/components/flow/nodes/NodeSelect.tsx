@@ -93,7 +93,7 @@ export default function NodeSelect({
         className={cn(
           isFlowDark
             ? "min-w-[160px] rounded-xl border border-[#404040] bg-[#1e1e1e]/95 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.45)] backdrop-blur-md"
-            : "min-w-[160px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md",
+            : "min-w-[160px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95",
           contentClassName
         )}
       >
@@ -126,8 +126,8 @@ export default function NodeSelect({
                     ? "bg-blue-500/20 text-blue-100 hover:bg-blue-500/25"
                     : "text-[#e5e7eb] hover:bg-[#2a2a2a]"
                   : isActive
-                  ? "bg-gray-100 text-gray-800"
-                  : "text-slate-600"
+                  ? "bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800"
+                  : "text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100"
               )}
             >
               <div className='flex-1 space-y-0.5'>
@@ -136,7 +136,9 @@ export default function NodeSelect({
                   <div
                     className={cn(
                       "text-[11px] leading-snug",
-                      isFlowDark ? "text-[#9ca3af]" : "text-slate-400"
+                      isFlowDark
+                        ? "text-[#9ca3af]"
+                        : "text-slate-400 dark:!text-slate-400"
                     )}
                   >
                     {option.description}
@@ -147,7 +149,9 @@ export default function NodeSelect({
                 <Check
                   className={cn(
                     "h-3.5 w-3.5",
-                    isFlowDark ? "text-blue-200" : "text-slate-700"
+                    isFlowDark
+                      ? "text-blue-200"
+                      : "text-slate-700 dark:!text-slate-700"
                   )}
                 />
               ) : null}

@@ -2555,15 +2555,15 @@ const AIChatDialog: React.FC = () => {
     cancelPendingHistoryToggle();
     suppressHistoryClickRef.current = true;
     const target = e.target as HTMLElement;
+    if (!shouldToggleByDblClick(e.clientX, e.clientY, target)) {
+      suppressHistoryClickRef.current = false;
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     // 尽力阻断同层监听
     // @ts-ignore
     e.nativeEvent?.stopImmediatePropagation?.();
-    if (!shouldToggleByDblClick(e.clientX, e.clientY, target)) {
-      suppressHistoryClickRef.current = false;
-      return;
-    }
 
     toggleMaximize();
     suppressHistoryClickRef.current = false;
@@ -3090,32 +3090,6 @@ const AIChatDialog: React.FC = () => {
               isMaximized && "mt-auto",
               shouldShowHistoryPanel && "pt-2"
             )}
-            onMouseDownCapture={(e) => {
-              // 捕获阶段拦截，避免文本选中/聚焦导致的蓝色高亮
-              try {
-                const t = textareaRef.current;
-                if (!t) return;
-                const r = t.getBoundingClientRect();
-                const x = (e as any).clientX,
-                  y = (e as any).clientY;
-                const inside =
-                  x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-                if (!inside) return;
-
-                const edgeDist = Math.min(
-                  x - r.left,
-                  r.right - x,
-                  y - r.top,
-                  r.bottom - y
-                );
-                // 只在真正的边缘区域（比如边框）才阻止默认行为，减小阈值到8px
-                if (edgeDist <= 8) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }
-                // 对于文本区域内部，允许正常的聚焦行为
-              } catch {}
-            }}
             onDoubleClick={(e) => {
               try {
                 const t = textareaRef.current;
@@ -3386,9 +3360,9 @@ const AIChatDialog: React.FC = () => {
                       align='start'
                       side={dropdownSide}
                       sideOffset={8}
-                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                      className='dropdown-menu-root min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
                     >
-                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
                         {t("chat.labels.quickSwitchModel")}
                       </DropdownMenuLabel>
                       {providerToggleOptions.map((option) => {
@@ -3417,20 +3391,20 @@ const AIChatDialog: React.FC = () => {
                             className={cn(
                               "flex items-start gap-2 px-3 py-2 text-xs",
                               isActive
-                                ? "bg-gray-100 text-gray-800"
-                                : "text-slate-600"
+                                ? "bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800"
+                                : "text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100"
                             )}
                           >
                             <div className='flex-1 space-y-0.5'>
                               <div className='font-medium leading-none'>
                                 {option.label}
                               </div>
-                              <div className='text-[11px] text-slate-400 leading-snug'>
+                              <div className='text-[11px] text-slate-400 leading-snug dark:!text-slate-400'>
                                 {option.description}
                               </div>
                             </div>
                             {isActive && (
-                              <Check className='h-3.5 w-3.5 text-white' />
+                              <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />
                             )}
                           </DropdownMenuItem>
                         );

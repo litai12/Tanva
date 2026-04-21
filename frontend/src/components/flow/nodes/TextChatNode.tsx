@@ -1,6 +1,15 @@
 import React from 'react';
 import { Check } from 'lucide-react';
-import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import {
+  Handle,
+  Position,
+  NodeResizer,
+  useReactFlow,
+  useStore,
+  useUpdateNodeInternals,
+  type ReactFlowState,
+  type Edge,
+} from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
@@ -61,6 +70,7 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
@@ -231,6 +241,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     : DEFAULT_NODE_HEIGHT;
   const nodeHeight = Math.max(MIN_NODE_HEIGHT, normalizedHeight);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = React.useState(nodeHeight);
 
   const updateAutoHeight = React.useCallback(() => {
@@ -264,6 +275,32 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   }, [updateAutoHeight]);
 
   const computedHeight = Math.max(nodeHeight, contentHeight);
+  React.useLayoutEffect(() => {
+    updateNodeInternals(id);
+  }, [computedHeight, id, updateNodeInternals]);
+
+  React.useEffect(() => {
+    const element = nodeRootRef.current;
+    if (!element || typeof ResizeObserver !== 'function') return;
+    let rafId = 0;
+    const observer = new ResizeObserver(() => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (
+          typeof document !== 'undefined' &&
+          document.body?.classList.contains('tanva-flow-node-dragging')
+        ) {
+          return;
+        }
+        updateNodeInternals(id);
+      });
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [id, updateNodeInternals]);
 
   const incomingTexts = React.useMemo(() => {
     return edges
@@ -436,6 +473,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   return (
     <div
+      ref={nodeRootRef}
       style={{
         width: data.boxW || 320,
         height: computedHeight,
@@ -568,9 +606,9 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
                 align='start'
                 side='bottom'
                 sideOffset={8}
-                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
               >
-                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
                   {lt('模型切换', 'Model switch')}
                 </DropdownMenuLabel>
                 {providerToggleOptions.map((option) => {
@@ -590,14 +628,16 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
                       }}
                       onPointerDownCapture={stopFlowPan}
                       className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-                        isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                        isActive
+                          ? 'bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800'
+                          : 'text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100'
                       }`}
                     >
                       <div className='flex-1 space-y-0.5'>
                         <div className='font-medium leading-none'>{option.label}</div>
-                        <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                        <div className='text-[11px] leading-snug text-slate-400 dark:!text-slate-400'>{option.description}</div>
                       </div>
-                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />}
                     </DropdownMenuItem>
                   );
                 })}

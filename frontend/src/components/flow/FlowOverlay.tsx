@@ -223,6 +223,9 @@ const FLOW_EDGE_COLOR_BY_KIND = {
 } as const;
 const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
+const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
+const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
+const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
@@ -3168,6 +3171,14 @@ function FlowInner() {
   const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const nodesRef = React.useRef<RFNode[]>([]);
+  const edgesRef = React.useRef<Edge[]>([]);
+  React.useEffect(() => {
+    nodesRef.current = nodes as RFNode[];
+  }, [nodes]);
+  React.useEffect(() => {
+    edgesRef.current = edges as Edge[];
+  }, [edges]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -3460,7 +3471,8 @@ function FlowInner() {
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
   const isLargeGraphForSnapAlignment =
-    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD;
+    nodes.length >= FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD ||
+    edges.length >= FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD;
   const effectiveSnapAlignmentEnabled =
     snapAlignmentEnabled && !isLargeGraphForSnapAlignment;
   const [flowSnapAlignments, setFlowSnapAlignments] = React.useState<
@@ -3468,11 +3480,22 @@ function FlowInner() {
   >([]);
   const flowSnapTargetsRef = React.useRef<ObjectBounds[]>([]);
   const flowDragAnchorNodeIdRef = React.useRef<string | null>(null);
+  const flowDragAnchorSizeRef = React.useRef<{
+    width: number;
+    height: number;
+  } | null>(null);
   const flowSnapSignatureRef = React.useRef<string>("");
 
   const updateFlowSnapAlignments = React.useCallback(
     (alignments: AlignmentLine[]) => {
       const next = Array.isArray(alignments) ? alignments : [];
+      if (
+        !FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING &&
+        nodeDraggingRef.current &&
+        next.length > 0
+      ) {
+        return;
+      }
       const signature = buildAlignmentSignature(next);
       if (signature === flowSnapSignatureRef.current) return;
       flowSnapSignatureRef.current = signature;
@@ -3484,6 +3507,7 @@ function FlowInner() {
   const clearFlowSnapState = React.useCallback(() => {
     flowSnapTargetsRef.current = [];
     flowDragAnchorNodeIdRef.current = null;
+    flowDragAnchorSizeRef.current = null;
     updateFlowSnapAlignments([]);
   }, [updateFlowSnapAlignments]);
 
@@ -3493,6 +3517,7 @@ function FlowInner() {
         typeof anchorNodeId === "string" ? anchorNodeId : null;
       if (!effectiveSnapAlignmentEnabled) {
         flowSnapTargetsRef.current = [];
+        flowDragAnchorSizeRef.current = null;
         updateFlowSnapAlignments([]);
         return;
       }
@@ -3504,6 +3529,23 @@ function FlowInner() {
         getGroupChildIds(node).forEach((childId) => draggingIdSet.add(String(childId)));
       });
       const allNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+      const anchorId = flowDragAnchorNodeIdRef.current;
+      const anchorNode =
+        (anchorId
+          ? (draggingNodes || []).find(
+              (node) => String(node?.id || "") === anchorId
+            )
+          : null) ||
+        (draggingNodes || [])[0] ||
+        (anchorId
+          ? allNodes.find((node) => String(node.id) === anchorId)
+          : undefined);
+      if (anchorNode) {
+        const { width, height } = getNodeRenderSize(anchorNode);
+        flowDragAnchorSizeRef.current = { width, height };
+      } else {
+        flowDragAnchorSizeRef.current = null;
+      }
       flowSnapTargetsRef.current = allNodes
         .filter((node) => !draggingIdSet.has(String(node.id)))
         .map((node) => toFlowSnapBounds(node))
@@ -3516,6 +3558,12 @@ function FlowInner() {
   const applyFlowSnappingToChanges = React.useCallback(
     (changes: any[]) => {
       if (!Array.isArray(changes) || changes.length === 0) return changes;
+      if (FLOW_DISABLE_SNAP_DURING_NODE_DRAG && nodeDraggingRef.current) {
+        if (flowSnapSignatureRef.current) {
+          updateFlowSnapAlignments([]);
+        }
+        return changes;
+      }
       const hasDraggingPositionChange = changes.some(
         (change) => change?.type === "position" && change?.dragging
       );
@@ -3555,21 +3603,28 @@ function FlowInner() {
         return changes;
       }
 
-      const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
-      const nodeMap = new Map(currentNodes.map((node) => [String(node.id), node]));
-      const anchorNode = nodeMap.get(String(anchorChange.id));
-      if (!anchorNode) {
+      let anchorSize = flowDragAnchorSizeRef.current;
+      if (!anchorSize) {
+        const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
+        const anchorNode = currentNodes.find(
+          (node) => String(node.id) === String(anchorChange.id)
+        );
+        if (anchorNode) {
+          const { width, height } = getNodeRenderSize(anchorNode);
+          anchorSize = { width, height };
+          flowDragAnchorSizeRef.current = anchorSize;
+        }
+      }
+      if (!anchorSize) {
         updateFlowSnapAlignments([]);
         return changes;
       }
-
-      const { width, height } = getNodeRenderSize(anchorNode);
       const draggingBounds: ObjectBounds = {
         id: String(anchorChange.id),
         x: Number(anchorChange.position.x),
         y: Number(anchorChange.position.y),
-        width,
-        height,
+        width: anchorSize.width,
+        height: anchorSize.height,
       };
 
       const viewportZoom = Number(rfRef.current.getViewport?.()?.zoom);
@@ -3583,8 +3638,12 @@ function FlowInner() {
         flowSnapTargetsRef.current,
         threshold
       );
-      const alignments = deduplicateAlignments(result.alignments || []);
-      updateFlowSnapAlignments(alignments);
+      if (FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING || !nodeDraggingRef.current) {
+        const alignments = deduplicateAlignments(result.alignments || []);
+        updateFlowSnapAlignments(alignments);
+      } else if (flowSnapSignatureRef.current) {
+        updateFlowSnapAlignments([]);
+      }
 
       const deltaX = Number(result?.snapDelta?.x || 0);
       const deltaY = Number(result?.snapDelta?.y || 0);
@@ -3716,7 +3775,11 @@ function FlowInner() {
         }
       }
 
-      if (Array.isArray(processedChanges) && processedChanges.length > 0) {
+      if (
+        draggingGroupNodeRef.current &&
+        Array.isArray(processedChanges) &&
+        processedChanges.length > 0
+      ) {
         try {
           const currentNodes = (rfRef.current.getNodes?.() || []) as RFNode[];
           if (currentNodes.length) {
@@ -4571,6 +4634,7 @@ function FlowInner() {
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
   const nodeDraggingRef = React.useRef(false);
+  const draggingGroupNodeRef = React.useRef(false);
   const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
 
@@ -18995,6 +19059,10 @@ function FlowInner() {
     },
     [edges, collapsedChildToGroupId, edgeColorMode, isFlowLowDetailMode]
   );
+  const edgesForInteraction = React.useMemo(
+    () => edgesForRender,
+    [edgesForRender]
+  );
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -20325,7 +20393,7 @@ function FlowInner() {
       y: Number(fallback.y || 0),
       zoom: Number(fallback.zoom || 1) || 1,
     };
-  }, [flowSnapAlignments, initialViewport]);
+  }, [initialViewport]);
 
   return (
     <FlowRenderModeProvider value={flowRenderModeValue}>
@@ -20344,7 +20412,7 @@ function FlowInner() {
         {FlowToolbar}
         <ReactFlow
         nodes={nodesForRender}
-        edges={edgesForRender}
+        edges={edgesForInteraction}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
@@ -20354,6 +20422,9 @@ function FlowInner() {
           const allNodes = rf.getNodes();
           const selectedNodes = allNodes.filter(
             (n: any) => n.selected || n.id === node.id
+          );
+          draggingGroupNodeRef.current = selectedNodes.some(
+            (n: any) => isGroupNode(n) || Boolean((n as any).parentId)
           );
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
@@ -20462,6 +20533,7 @@ function FlowInner() {
         }}
         onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
+          draggingGroupNodeRef.current = false;
           setIsNodeDragging(false);
           clearFlowSnapState();
 
@@ -20476,8 +20548,8 @@ function FlowInner() {
             } catch {}
 
             // 提交到项目内容
-            const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
-            const es = rfEdgesToTplEdges(rf.getEdges?.() || edges);
+            const ns = rfNodesToTplNodes(nodesRef.current as any);
+            const es = rfEdgesToTplEdges(edgesRef.current);
             scheduleCommit(ns, es);
 
             // 不要立刻清理：ReactFlow 可能会在 dragStop 之后再派发一次 position(dragging:false)，
@@ -20496,8 +20568,8 @@ function FlowInner() {
           altDragStartRef.current = null;
 
           // 普通拖拽：提交位置变化
-          const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
-          const es = rfEdgesToTplEdges(rf.getEdges?.() || edges);
+          const ns = rfNodesToTplNodes(nodesRef.current as any);
+          const es = rfEdgesToTplEdges(edgesRef.current);
           scheduleCommit(ns, es);
           syncViewportToCanvasStore();
         }}

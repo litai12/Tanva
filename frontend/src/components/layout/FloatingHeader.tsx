@@ -864,6 +864,7 @@ const FloatingHeader: React.FC = () => {
     return "--";
   }, [creditsInfo, creditsLoading]);
   const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
+  const isDarkTheme = chatTheme === "black";
   const themeToggleLabel =
     chatTheme === "black"
       ? isEnglish
@@ -1944,16 +1945,24 @@ const FloatingHeader: React.FC = () => {
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className='tanva-project-selector flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none hover:bg-slate-100'
+                  className={cn(
+                    "tanva-project-selector flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none",
+                    isDarkTheme ? "hover:bg-slate-700/45" : "hover:bg-slate-100"
+                  )}
                   onDoubleClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     setEditingTitle(true);
                   }}
                 >
-                  <ChevronDown className='w-4 h-4 text-slate-500' />
+                  <ChevronDown
+                    className={cn("w-4 h-4", isDarkTheme ? "text-slate-300" : "text-slate-500")}
+                  />
                   <span
-                    className='truncate text-sm text-gray-800 max-w-[260px]'
+                    className={cn(
+                      "truncate text-sm max-w-[260px]",
+                      isDarkTheme ? "text-slate-100" : "text-gray-800"
+                    )}
                     title={t("workspace.header.renameHint")}
                   >
                     {localizeProjectName(currentProject?.name)}
@@ -1962,17 +1971,40 @@ const FloatingHeader: React.FC = () => {
                 <DropdownMenuContent
                   align='start'
                   sideOffset={12}
-                  className='min-w-[220px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg overflow-hidden'
+                  className={cn(
+                    "tanva-project-dropdown-content min-w-[220px] rounded-xl px-2 py-1.5 overflow-hidden",
+                    isDarkTheme
+                      ? "border border-slate-700 bg-slate-800"
+                      : "border border-slate-200 bg-white shadow-lg"
+                  )}
+                  style={
+                    isDarkTheme
+                      ? {
+                          boxShadow: "0 20px 44px rgba(0, 0, 0, 0.5)",
+                        }
+                      : undefined
+                  }
                 >
-                  <DropdownMenuLabel className='px-2 pb-1 text-[11px] font-medium text-slate-400'>
+                  <DropdownMenuLabel
+                    className={cn(
+                      "px-2 pb-1 text-[11px] font-medium",
+                      isDarkTheme ? "text-slate-400" : "text-slate-400"
+                    )}
+                  >
                     {t("workspace.header.switchProject")}
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator className='mb-1' />
+                  <DropdownMenuSeparator
+                    className='mb-1'
+                    style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                  />
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
                     {recentProjects.length === 0 ? (
                       <DropdownMenuItem
                         disabled
-                        className='cursor-default text-slate-400'
+                        className={cn(
+                          "cursor-default",
+                          isDarkTheme ? "text-slate-500" : "text-slate-400"
+                        )}
                       >
                         {t("workspace.header.noProjects")}
                       </DropdownMenuItem>
@@ -1984,9 +2016,19 @@ const FloatingHeader: React.FC = () => {
                             event.preventDefault();
                             handleQuickSwitch(project.id);
                           }}
-                          className='flex items-center justify-between gap-3 px-2 py-1 text-sm'
+                          className={cn(
+                            "flex items-center justify-between gap-3 px-2 py-1 text-sm",
+                            isDarkTheme
+                              ? "text-slate-100 hover:!bg-slate-700/70"
+                              : "text-slate-700"
+                          )}
                         >
-                          <span className='truncate text-slate-700'>
+                          <span
+                            className={cn(
+                              "truncate",
+                              isDarkTheme ? "text-slate-100" : "text-slate-700"
+                            )}
+                          >
                             {localizeProjectName(project.name)}
                           </span>
                           {project.id === currentProject?.id && (
@@ -1996,13 +2038,21 @@ const FloatingHeader: React.FC = () => {
                       ))
                     )}
                   </div>
-                  <DropdownMenuSeparator className='my-1' />
+                  <DropdownMenuSeparator
+                    className='my-1'
+                    style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                  />
                   <DropdownMenuItem
                     onClick={(event) => {
                       event.preventDefault();
                       openModal();
                     }}
-                    className='flex items-center gap-2 px-2 py-1 text-sm text-blue-600 hover:text-blue-700'
+                    className={cn(
+                      "flex items-center gap-2 px-2 py-1 text-sm",
+                      isDarkTheme
+                        ? "text-blue-300 hover:text-blue-200 hover:!bg-slate-700/70"
+                        : "text-blue-600 hover:text-blue-700"
+                    )}
                   >
                     <FolderOpen className='w-4 h-4' />
                     {t("workspace.header.openManageFile")}
@@ -2013,7 +2063,12 @@ const FloatingHeader: React.FC = () => {
                       void handleQuickCreateProject();
                     }}
                     disabled={isQuickCreatingProject}
-                    className='flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700'
+                    className={cn(
+                      "flex items-center justify-between gap-3 px-2 py-1 text-sm",
+                      isDarkTheme
+                        ? "text-blue-300 hover:text-blue-200 hover:!bg-slate-700/70"
+                        : "text-blue-600 hover:text-blue-700"
+                    )}
                   >
                     <span className='flex items-center gap-2'>
                       <span className='inline-flex items-center justify-center w-4 h-4 text-xs border border-current rounded-full'>
