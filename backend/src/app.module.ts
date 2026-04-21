@@ -19,6 +19,7 @@ import { ReferralModule } from './referral/referral.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { MembershipModule } from './membership/membership.module';
+import { VolcAssetModule } from './volc-asset/volc-asset.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { MembershipModule } from './membership/membership.module';
     ReferralModule,
     TelemetryModule,
     UserTemplatesModule,
+    VolcAssetModule,
   ],
 })
 export class AppModule {}
