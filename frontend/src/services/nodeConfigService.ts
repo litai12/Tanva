@@ -154,6 +154,7 @@ function getDefaultConfigs(): NodeConfig[] {
           googleImageSearch: false,
         },
       },
+      description: "Gpt-Imgae-2 生图，支持文生图/图生图，最多 16 张参考图",
     },
 
     // 视频节点

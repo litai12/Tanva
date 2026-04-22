@@ -2425,13 +2425,21 @@ const mergeNodePaletteConfig = (
 
 const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefined => {
   const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const normalizeCaption = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (String(config.nodeKey || "").trim().toLowerCase() === "gptimage2") {
+      return trimmed.replace(/^apimart\s*/i, "").trim();
+    }
+    return trimmed;
+  };
   const nodeConfig =
     metadata.nodeConfig && typeof metadata.nodeConfig === "object"
       ? (metadata.nodeConfig as Record<string, any>)
       : undefined;
   const vod = metadata.vod && typeof metadata.vod === "object" ? metadata.vod : undefined;
   if (typeof nodeConfig?.description === "string" && nodeConfig.description.trim()) {
-    return nodeConfig.description.trim();
+    const caption = normalizeCaption(nodeConfig.description);
+    return caption || undefined;
   }
   if (vod) {
     const segments = [
@@ -2447,7 +2455,8 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
     if (segments.length > 0) return segments.join(" · ");
   }
   if (typeof config.description === "string" && config.description.trim()) {
-    return config.description.trim();
+    const caption = normalizeCaption(config.description);
+    return caption || undefined;
   }
   return undefined;
 };
