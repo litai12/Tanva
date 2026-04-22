@@ -134,7 +134,7 @@ function getDefaultConfigs(): NodeConfig[] {
       category: "image",
       status: "normal",
       sortOrder: 18,
-      creditsPerCall: 30,
+      creditsPerCall: 40,
       metadata: {
         type: "gptImage2",
         flowNodeType: "gptImage2",

@@ -860,9 +860,9 @@ export class NodeConfigService {
         nameEn: 'Gpt-Imgae-2',
         category: 'image',
         sortOrder: 16,
-        creditsPerCall: 30,
+        creditsPerCall: 40,
         serviceType: 'gpt-image-2',
-        priceYuan: 0.3,
+        priceYuan: 0.4,
         description: 'Gpt-Imgae-2，支持文生图/图生图，最多 16 张参考图',
         metadata: {
           type: 'gptImage2',
@@ -1421,9 +1421,9 @@ export class NodeConfigService {
         nameEn: 'Gpt-Imgae-2',
         category: 'image',
         sortOrder: 16,
-        creditsPerCall: 30,
+        creditsPerCall: 40,
         serviceType: 'gpt-image-2',
-        priceYuan: 0.3,
+        priceYuan: 0.4,
         description: 'Gpt-Imgae-2 生图，支持文生图/图生图，最多 16 张参考图',
         metadata: {
           type: 'gptImage2',

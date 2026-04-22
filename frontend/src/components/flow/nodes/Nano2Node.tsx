@@ -335,7 +335,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     enabled: true,
   });
   const resolvedRunCredits =
-    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+    resolvedNodeType === "gptImage2"
+      ? data.creditsPerCall
+      : typeof backendCredits === "number"
+      ? backendCredits
+      : data.creditsPerCall;
 
   const handleImageChange = React.useCallback(
     (imageId: string) => {

@@ -1252,7 +1252,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
-  gptImage2: 30, // APIMart Gpt-Imgae-2 生图
+  gptImage2: 40, // Gpt-Imgae-2 生图
   seedream5: 30, // Seedream 5.0 生图
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
