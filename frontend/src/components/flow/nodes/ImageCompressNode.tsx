@@ -678,6 +678,20 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
       )}
 
       <Handle type='target' position={Position.Left} id='img' />
+      {/* Legacy compatibility: older/newer flows may reference image/img as output handle */}
+      <Handle
+        type='source'
+        position={Position.Right}
+        id='img'
+        style={{
+          width: 1,
+          height: 1,
+          opacity: 0,
+          border: 'none',
+          background: 'transparent',
+          pointerEvents: 'none',
+        }}
+      />
       <Handle type='source' position={Position.Right} id='image' />
     </div>
   );

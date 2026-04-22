@@ -213,6 +213,23 @@ const normalizeFlowTargetHandle = (
   return handle;
 };
 
+// 兼容历史输出句柄：将 sourceHandle image/image1/image-1 归一化到 img/img1
+const normalizeFlowSourceHandle = (
+  handle?: string | null
+): string | undefined => {
+  if (typeof handle !== "string") return handle ?? undefined;
+  const trimmed = handle.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (lower === "omniimage") return "omniImage";
+  if (lower === "image") return "img";
+  const imageIndexMatch = lower.match(/^image[-_]?(\d+)$/);
+  if (imageIndexMatch?.[1]) {
+    return `img${imageIndexMatch[1]}`;
+  }
+  return trimmed;
+};
+
 const FLOW_EDGE_STANDARD_COLOR = "#9ca3af";
 const FLOW_EDGE_COLOR_BY_KIND = {
   text: "#22c55e",
@@ -4794,7 +4811,7 @@ function FlowInner() {
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle,
+        sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
         targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: typeof e.label === "string" ? e.label : undefined,
@@ -4895,7 +4912,7 @@ function FlowInner() {
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle,
+        sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
         targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: e.label,
@@ -5232,7 +5249,7 @@ function FlowInner() {
       return {
         source,
         target,
-        sourceHandle: edge.sourceHandle,
+        sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle),
         targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
         type: edge.type || "default",
         label: edge.label,
@@ -6696,8 +6713,8 @@ function FlowInner() {
           id: e.id,
           source: e.source,
           target: e.target,
-          sourceHandle: (e as any).sourceHandle,
-          targetHandle: (e as any).targetHandle,
+          sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
+          targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
           type: e.type || "default",
         })),
       };
@@ -6805,8 +6822,8 @@ function FlowInner() {
             id: String(e.id || `e_${now}_${idx}`),
             source: sid,
             target: tid,
-            sourceHandle: e.sourceHandle,
-            targetHandle: e.targetHandle,
+            sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
+            targetHandle: normalizeFlowTargetHandle(e.targetHandle),
             type: e.type || "default",
           } as any;
         })
@@ -20177,8 +20194,8 @@ function FlowInner() {
         id: generateId("e"),
         source: idMap.get(e.source) || e.source,
         target: idMap.get(e.target) || e.target,
-        sourceHandle: (e as any).sourceHandle,
-        targetHandle: (e as any).targetHandle,
+        sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
+        targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
         type: e.type || "default",
         label: e.label,
       })) as any[];
@@ -20403,8 +20420,8 @@ function FlowInner() {
           id: e.id,
           source: e.source,
           target: e.target,
-          sourceHandle: (e as any).sourceHandle,
-          targetHandle: (e as any).targetHandle,
+          sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
+          targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
           type: e.type || "default",
           label: typeof e.label === "string" ? e.label : undefined,
         })) as any,
@@ -20547,8 +20564,8 @@ function FlowInner() {
                     id: generateId("e"),
                     source,
                     target,
-                    sourceHandle: edge.sourceHandle,
-                    targetHandle: edge.targetHandle,
+                    sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle),
+                    targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
                     type: edge.type || "default",
                     label: edge.label,
                   };

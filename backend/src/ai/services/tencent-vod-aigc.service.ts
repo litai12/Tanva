@@ -119,7 +119,7 @@ export class TencentVodAigcService {
     );
     this.maxPollAttempts = this.parsePositiveInt(
       this.configService.get<string>('TENCENT_VOD_AIGC_MAX_POLL_ATTEMPTS'),
-      120,
+      300,
     );
   }
 
