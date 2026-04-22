@@ -649,7 +649,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     const stored = typeof data.modelProvider === "string" ? data.modelProvider.trim() : "";
     if (stored && stored !== "banana-2.5") return;
-    const defaultProvider: ProviderToggleValue = stored === "banana-2.5" ? "banana" : currentProviderValue;
+    const defaultProvider: ProviderToggleValue = "banana";
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: { id, patch: { modelProvider: defaultProvider } },
