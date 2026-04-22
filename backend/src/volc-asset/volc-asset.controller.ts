@@ -38,7 +38,7 @@ export class VolcAssetController {
     } catch (err: any) {
       const msg = err?.message || 'Volc upload failed';
       if (/Group not found/i.test(msg)) {
-        this.svc.invalidateUserGroup(userId);
+        this.svc.invalidateTodayGroup();
       }
       this.logger.error(`upload failed for user ${userId}: ${msg}`);
       throw new BadGatewayException(msg);

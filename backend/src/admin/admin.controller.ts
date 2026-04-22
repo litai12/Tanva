@@ -28,6 +28,7 @@ import {
 } from './services/node-config.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
+import { VolcAssetService } from '../volc-asset/volc-asset.service';
 import { MembershipService } from '../membership/membership.service';
 import {
   UsersQueryDto,
@@ -90,6 +91,7 @@ export class AdminController {
     private readonly nodeConfigService: NodeConfigService,
     private readonly businessPolicyService: BusinessPolicyService,
     private readonly membershipService: MembershipService,
+    private readonly volcAssetService: VolcAssetService,
   ) {}
 
   /**
@@ -783,5 +785,24 @@ export class AdminController {
   async syncNodeConfigs(@Request() req: AuthenticatedRequest) {
     this.checkAdmin(req);
     return this.nodeConfigService.syncAllConfigs();
+  }
+
+  // ── Volc 审核素材组管理 ─────────────────────────────────────────────────────
+
+  @Get('volc-review/groups')
+  @ApiOperation({ summary: '查询所有审核素材组记录' })
+  async listVolcReviewGroups(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.volcAssetService.listReviewGroups();
+  }
+
+  @Post('volc-review/cleanup')
+  @ApiOperation({ summary: '手动清除指定日期的审核素材组（不传 date 则清除 3 天前的那组）' })
+  async cleanupVolcReviewGroup(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { date?: string },
+  ) {
+    this.checkAdmin(req);
+    return this.volcAssetService.cleanupGroupByDate(body?.date);
   }
 }

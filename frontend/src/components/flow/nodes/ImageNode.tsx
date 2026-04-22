@@ -1012,6 +1012,17 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
   const volcAssetStatus: VolcAssetStatus | undefined = (data as any)?.volcAssetStatus;
   const volcAssetError: string | undefined = (data as any)?.volcAssetError;
+  const volcReviewDate: string | undefined = (data as any)?.volcReviewDate;
+
+  const REVIEW_VALID_DAYS = 3;
+  const isReviewExpired = React.useMemo(() => {
+    if (volcAssetStatus !== "active" || !volcReviewDate) return false;
+    const expiresAt = new Date(volcReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000;
+    return Date.now() > expiresAt;
+  }, [volcAssetStatus, volcReviewDate]);
+
+  // Effective status: expired active → treat as unreviewed
+  const effectiveVolcStatus: VolcAssetStatus | undefined = isReviewExpired ? undefined : volcAssetStatus;
 
   const patchNode = React.useCallback((patch: Record<string, any>) => {
     window.dispatchEvent(
@@ -1023,9 +1034,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   useVolcAssetPolling({
     assetId: volcAssetId,
-    status: volcAssetStatus,
+    status: effectiveVolcStatus,
     onUpdate: ({ status, errorMessage }) => {
-      patchNode({ volcAssetStatus: status, volcAssetError: errorMessage });
+      patchNode({
+        volcAssetStatus: status,
+        volcAssetError: errorMessage,
+        ...(status === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
+      });
     },
   });
 
@@ -1055,14 +1070,15 @@ function ImageNodeInner({ id, data, selected }: Props) {
       );
       return;
     }
-    if (volcAssetStatus === "processing" || volcAssetStatus === "active") return;
-    patchNode({ volcAssetStatus: "processing", volcAssetError: undefined });
+    if (effectiveVolcStatus === "processing") return;
+    patchNode({ volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined });
     try {
       const r = await uploadVolcAsset(sourceUrl);
       patchNode({
         volcAssetId: r.assetId,
         volcAssetStatus: r.status,
         volcAssetError: r.errorMessage,
+        ...(r.status === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
       });
     } catch (err: any) {
       patchNode({
@@ -1071,7 +1087,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         volcAssetError: err?.message || "上传失败",
       });
     }
-  }, [data.imageUrl, volcAssetStatus, patchNode]);
+  }, [data.imageUrl, effectiveVolcStatus, patchNode]);
   // ────────────────────────────────────────────────────────────────────────────
 
   React.useEffect(() => {
@@ -1454,6 +1470,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               volcAssetId: undefined,
               volcAssetStatus: undefined,
               volcAssetError: undefined,
+              volcReviewDate: undefined,
             },
           },
         })
@@ -1620,9 +1637,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
         <div style={{ display: "flex", gap: 6 }}>
           {(() => {
             const reviewTitle =
-              volcAssetStatus === "active" ? "已通过审核，sd2 将使用 asset://"
-              : volcAssetStatus === "processing" ? "审核中…"
-              : volcAssetStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
+              isReviewExpired ? "审核已过期，点击重新审核"
+              : effectiveVolcStatus === "active" ? "已通过审核，sd2 将使用 asset://（点击可重新审核）"
+              : effectiveVolcStatus === "processing" ? "审核中…"
+              : effectiveVolcStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
               : "审核通过可用于sd2";
             return (
           <button
@@ -1630,19 +1648,20 @@ function ImageNodeInner({ id, data, selected }: Props) {
             onClick={handleReviewClick}
             title={reviewTitle}
             aria-label={reviewTitle}
-            disabled={volcAssetStatus === "processing" || volcAssetStatus === "active"}
+            disabled={effectiveVolcStatus === "processing"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
               borderRadius: 6,
               border: "1px solid #e5e7eb",
               background: "#fff",
-              cursor: (volcAssetStatus === "processing" || volcAssetStatus === "active") ? "not-allowed" : "pointer",
+              cursor: effectiveVolcStatus === "processing" ? "not-allowed" : "pointer",
             }}
           >
-            {volcAssetStatus === "active" ? <ShieldCheck size={14} className="text-green-600" />
-             : volcAssetStatus === "processing" ? <Loader2 size={14} className="animate-spin text-amber-500" />
-             : volcAssetStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
+            {isReviewExpired ? <ShieldAlert size={14} className="text-orange-400" />
+             : effectiveVolcStatus === "active" ? <ShieldCheck size={14} className="text-green-600" />
+             : effectiveVolcStatus === "processing" ? <Loader2 size={14} className="animate-spin text-amber-500" />
+             : effectiveVolcStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
              : <Shield size={14} className="text-gray-400" />}
           </button>
             );

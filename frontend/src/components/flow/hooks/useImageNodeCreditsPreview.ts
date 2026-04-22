@@ -67,7 +67,8 @@ const normalizeSeedreamSize = (value?: string | null): string | undefined => {
 
 const resolveBananaServiceType = (
   provider: string,
-  mode: "generate" | "blend" | "analysis"
+  mode: "generate" | "blend" | "analysis",
+  nodeType?: ImageNodeType
 ): string => {
   if (mode === "analysis") {
     if (provider === "banana-2.5") return "gemini-2.5-image-analyze";
@@ -83,6 +84,12 @@ const resolveBananaServiceType = (
       return "gemini-3.1-image-blend";
     }
     return "gemini-image-blend";
+  }
+
+  // generatePro 节点执行时始终走 Pro 模型（不随 fast provider 降级），预览需与执行一致
+  if (nodeType === "generatePro") {
+    if (provider === "banana-3.1" || provider === "nano2") return "gemini-3.1-image";
+    return "gemini-3-pro-image";
   }
 
   if (provider === "banana-2.5") return "gemini-2.5-image";
@@ -183,7 +190,7 @@ export const useImageNodeCreditsPreview = ({
         : nodeType === "analysis"
         ? "analysis"
         : "generate";
-    const serviceType = resolveBananaServiceType(provider, mode);
+    const serviceType = resolveBananaServiceType(provider, mode, nodeType);
     const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
     const normalizedImageSize = normalizeBananaImageSize(imageSize);
 

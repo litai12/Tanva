@@ -1,6 +1,7 @@
 // backend/src/volc-asset/volc-asset.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import { signVolcRequest } from './volc-sign.util';
 import type { VolcAssetStatus } from './volc-asset.dto';
 
@@ -31,9 +32,13 @@ interface GetAssetResp {
 export class VolcAssetService implements OnModuleInit {
   private readonly logger = new Logger(VolcAssetService.name);
   private env!: VolcEnv;
+  // date string (YYYY-MM-DD) → groupId
   private readonly groupCache = new Map<string, string>();
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   onModuleInit() {
     this.env = {
@@ -57,6 +62,11 @@ export class VolcAssetService implements OnModuleInit {
     if (u === 'active') return 'active';
     if (u === 'failed') return 'failed';
     return 'processing';
+  }
+
+  // 北京时间 YYYY-MM-DD
+  private todayDate(): string {
+    return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   }
 
   private async call<T>(action: string, body: Record<string, any>): Promise<T> {
@@ -105,8 +115,6 @@ export class VolcAssetService implements OnModuleInit {
     if (err?.Code) {
       throw new Error(`Volc ${action} error [${err.Code}]: ${err.Message || 'unknown'}`);
     }
-    // Volc Open API V3 wraps payload in a Result envelope; fall back to top-level
-    // fields for any action that returns data inline.
     const unwrapped =
       parsed && typeof parsed === 'object' && parsed.Result !== undefined
         ? parsed.Result
@@ -114,23 +122,32 @@ export class VolcAssetService implements OnModuleInit {
     return unwrapped as T;
   }
 
-  async ensureUserGroup(userId: string): Promise<string> {
-    const cached = this.groupCache.get(userId);
+  async ensureTodayGroup(): Promise<string> {
+    const date = this.todayDate();
+    const cached = this.groupCache.get(date);
     if (cached) return cached;
+
+    const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+    if (existing) {
+      this.groupCache.set(date, existing.groupId);
+      return existing.groupId;
+    }
+
     const resp = await this.call<CreateAssetGroupResp>('CreateAssetGroup', {
-      Name: `tanva-user-${userId}`,
-      Description: `Auto-created group for Tanva user ${userId}`,
+      Name: `tanva-review-${date}`,
+      Description: `Review group for ${date}`,
       GroupType: 'AIGC',
       ProjectName: this.env.projectName,
     });
     const groupId = resp?.Id;
     if (!groupId) throw new Error('Volc CreateAssetGroup: empty Id');
-    this.groupCache.set(userId, groupId);
+    await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    this.groupCache.set(date, groupId);
     return groupId;
   }
 
-  invalidateUserGroup(userId: string) {
-    this.groupCache.delete(userId);
+  invalidateTodayGroup() {
+    this.groupCache.delete(this.todayDate());
   }
 
   async uploadAsset(
@@ -138,11 +155,11 @@ export class VolcAssetService implements OnModuleInit {
     sourceUrl: string,
     assetType: 'image',
   ): Promise<{ assetId: string; status: VolcAssetStatus; errorMessage?: string }> {
-    const groupId = await this.ensureUserGroup(userId);
+    const groupId = await this.ensureTodayGroup();
     const resp = await this.call<CreateAssetResp>('CreateAsset', {
       GroupId: groupId,
       URL: sourceUrl,
-      AssetType: assetType === 'image' ? 'Image' : 'Image',
+      AssetType: 'Image',
       ProjectName: this.env.projectName,
     });
     if (!resp?.Id) throw new Error('Volc CreateAsset: empty Id');
@@ -164,5 +181,39 @@ export class VolcAssetService implements OnModuleInit {
       status: this.normalizeStatus(resp?.Status),
       errorMessage: undefined,
     };
+  }
+
+  async deleteAssetGroup(groupId: string): Promise<void> {
+    await this.call<Record<string, unknown>>('DeleteAssetGroup', {
+      Id: groupId,
+      ProjectName: this.env.projectName,
+    });
+  }
+
+  async listReviewGroups() {
+    return this.prisma.volcReviewGroup.findMany({
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  // date: YYYY-MM-DD（北京时间）。不传则取 3 天前。
+  async cleanupGroupByDate(date?: string): Promise<{ date: string; deleted: boolean }> {
+    const targetDate = date ?? (() => {
+      const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
+      d.setDate(d.getDate() - 3);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    const record = await this.prisma.volcReviewGroup.findUnique({ where: { date: targetDate } });
+    if (!record) return { date: targetDate, deleted: false };
+
+    await this.deleteAssetGroup(record.groupId);
+    await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+    this.groupCache.delete(targetDate);
+    return { date: targetDate, deleted: true };
+  }
+
+  async cleanupExpiredGroup(): Promise<{ date: string; deleted: boolean }> {
+    return this.cleanupGroupByDate();
   }
 }

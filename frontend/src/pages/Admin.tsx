@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
@@ -64,6 +64,8 @@ import {
   type AdminUserCreditTransaction,
   type CreditAnomalyRecord,
   type NodeConfig,
+  listVolcReviewGroups,
+  cleanupVolcReviewGroup,
 } from "@/services/adminApi";
 import { notifyNodeConfigsUpdated } from "@/services/nodeConfigService";
 import {
@@ -90,7 +92,8 @@ type AdminTabKey =
   | "watermark"
   | "node-configs"
   | "settings"
-  | "templates";
+  | "templates"
+  | "volc-review";
 
 const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "dashboard",
@@ -6964,6 +6967,106 @@ function TemplatesTab() {
   );
 }
 
+// 审核素材组管理 Tab
+function VolcReviewTab() {
+  const [groups, setGroups] = useState<{ id: string; date: string; groupId: string; createdAt: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [dateInput, setDateInput] = useState("");
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listVolcReviewGroups();
+      setGroups(data);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handleCleanup = async () => {
+    const date = dateInput.trim() || undefined;
+    setMsg(null);
+    try {
+      const result = await cleanupVolcReviewGroup(date);
+      setMsg({ text: result.deleted ? `已删除 ${result.date} 的素材组` : `${result.date} 无记录，无需清除`, ok: result.deleted });
+      void load();
+    } catch (e: any) {
+      setMsg({ text: e?.message || "操作失败", ok: false });
+    }
+  };
+
+  return (
+    <div className="rounded-lg border bg-white p-6 shadow-sm space-y-4">
+      <h2 className="text-lg font-semibold">审核素材组管理</h2>
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          placeholder="日期（如 2026-04-19），空则清除 3 天前"
+          value={dateInput}
+          onChange={(e) => setDateInput(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm w-64"
+        />
+        <button
+          onClick={handleCleanup}
+          className="px-4 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+        >
+          清除素材组
+        </button>
+        <button onClick={load} className="px-4 py-1.5 border rounded text-sm hover:bg-gray-50">
+          刷新
+        </button>
+      </div>
+      {msg && (
+        <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-500"}`}>{msg.text}</p>
+      )}
+      {loading ? (
+        <p className="text-sm text-gray-400">加载中…</p>
+      ) : (
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b text-left text-gray-500">
+              <th className="py-2 pr-4">日期</th>
+              <th className="py-2 pr-4">素材组 ID</th>
+              <th className="py-2 pr-4">创建时间</th>
+              <th className="py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.length === 0 ? (
+              <tr><td colSpan={4} className="py-4 text-center text-gray-400">暂无记录</td></tr>
+            ) : groups.map((g) => (
+              <tr key={g.id} className="border-b hover:bg-gray-50">
+                <td className="py-2 pr-4 font-mono">{g.date}</td>
+                <td className="py-2 pr-4 font-mono text-xs text-gray-500">{g.groupId}</td>
+                <td className="py-2 pr-4 text-gray-400">{new Date(g.createdAt).toLocaleString("zh-CN")}</td>
+                <td className="py-2">
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`确认删除 ${g.date} 的素材组？`)) return;
+                      try {
+                        await cleanupVolcReviewGroup(g.date);
+                        void load();
+                      } catch (e: any) {
+                        setMsg({ text: e?.message || "删除失败", ok: false });
+                      }
+                    }}
+                    className="px-2 py-1 text-xs text-red-600 border border-red-300 rounded hover:bg-red-50"
+                  >
+                    删除
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // 水印白名单管理 Tab
 function WatermarkWhitelistTab() {
   const [whitelistUsers, setWhitelistUsers] = useState<WatermarkWhitelistUser[]>([]);
@@ -12861,7 +12964,7 @@ export default function Admin() {
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<AdminTabKey>("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<
-    "system" | "vip-management" | "model-management" | "unified-model-management"
+    "system" | "vip-management" | "model-management" | "unified-model-management" | "volc-review"
   >("system");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -13054,6 +13157,7 @@ export default function Admin() {
                   { key: "vip-management", label: "VIP管理" },
                   { key: "unified-model-management", label: "统一模型管理" },
                   { key: "model-management", label: "视频模型管理" },
+                  { key: "volc-review", label: "审核素材组" },
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -13064,6 +13168,7 @@ export default function Admin() {
                           | "vip-management"
                           | "model-management"
                           | "unified-model-management"
+                          | "volc-review"
                       )
                     }
                     className={`rounded-md px-4 py-2 text-sm font-medium transition ${
@@ -13082,6 +13187,7 @@ export default function Admin() {
             {settingsSubTab === "vip-management" && <VipManagementTab />}
             {settingsSubTab === "unified-model-management" && <UnifiedModelManagementTab />}
             {settingsSubTab === "model-management" && <ModelManagementTab />}
+            {settingsSubTab === "volc-review" && <VolcReviewTab />}
           </div>
         )}
       </main>

@@ -1488,3 +1488,17 @@ export async function syncNodeConfigs(): Promise<{ created: number; updated: num
   });
   return response.json();
 }
+
+export async function listVolcReviewGroups() {
+  const response = await request("/api/admin/volc-review/groups");
+  return response.json() as Promise<{ id: string; date: string; groupId: string; createdAt: string }[]>;
+}
+
+export async function cleanupVolcReviewGroup(date?: string) {
+  const response = await request("/api/admin/volc-review/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date }),
+  });
+  return response.json() as Promise<{ date: string; deleted: boolean }>;
+}

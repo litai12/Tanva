@@ -9,9 +9,10 @@ import { BusinessPolicyModule } from '../business-policy/business-policy.module'
 import { MembershipModule } from '../membership/membership.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
+import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule, MembershipModule],
+  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule, MembershipModule, VolcAssetModule],
   controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],
   exports: [AdminService, TemplateService, NodeConfigService],

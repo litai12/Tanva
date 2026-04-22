@@ -562,6 +562,13 @@ model ImageTask {
   @@index([status, createdAt])
 }
 
+model VolcReviewGroup {
+  id        String   @id @default(uuid())
+  date      String   @unique
+  groupId   String   @unique
+  createdAt DateTime @default(now())
+}
+
 /// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
