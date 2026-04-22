@@ -854,6 +854,36 @@ export class NodeConfigService {
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 160, serviceType: 'gemini-3-pro-image', priceYuan: 1.6, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 40, serviceType: 'gemini-image-blend', priceYuan: 0.4, description: '参考图生成' },
       { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
+      {
+        nodeKey: 'gptImage2',
+        nameZh: 'Gpt-Imgae-2',
+        nameEn: 'Gpt-Imgae-2',
+        category: 'image',
+        sortOrder: 16,
+        creditsPerCall: 30,
+        serviceType: 'gpt-image-2',
+        priceYuan: 0.3,
+        description: 'APIMart Gpt-Imgae-2，支持文生图/图生图，最多 16 张参考图',
+        metadata: {
+          type: 'gptImage2',
+          flowNodeType: 'gptImage2',
+          provider: 'nano2',
+          model: 'gpt-image-2',
+          aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
+          showResolutionSelector: false,
+          showGoogleSearch: false,
+          showGoogleImageSearch: false,
+          maxReferenceImages: 16,
+          defaultData: {
+            modelProvider: 'nano2',
+            model: 'gpt-image-2',
+            aspectRatio: '1:1',
+            maxReferenceImages: 16,
+            googleSearch: false,
+            googleImageSearch: false,
+          },
+        },
+      },
 
       // 视频生成节点
       // {
@@ -1385,6 +1415,36 @@ export class NodeConfigService {
       { nodeKey: 'generatePro4', nameZh: '高级四图', nameEn: 'Generate Pro 4', category: 'image', sortOrder: 13, creditsPerCall: 160, serviceType: 'gemini-3-pro-image', priceYuan: 1.6, description: '高质量一次4张' },
       { nodeKey: 'generateReference', nameZh: '参考生成', nameEn: 'Reference', category: 'image', sortOrder: 14, creditsPerCall: 40, serviceType: 'gemini-image-blend', priceYuan: 0.4, description: '参考图生成' },
       { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
+      {
+        nodeKey: 'gptImage2',
+        nameZh: 'Gpt-Imgae-2',
+        nameEn: 'Gpt-Imgae-2',
+        category: 'image',
+        sortOrder: 16,
+        creditsPerCall: 30,
+        serviceType: 'gpt-image-2',
+        priceYuan: 0.3,
+        description: 'APIMart Gpt-Imgae-2 生图，支持文生图/图生图，最多 16 张参考图',
+        metadata: {
+          type: 'gptImage2',
+          flowNodeType: 'gptImage2',
+          provider: 'nano2',
+          model: 'gpt-image-2',
+          aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '5:4', '4:5', '2:1', '1:2', '21:9', '9:21'],
+          showResolutionSelector: false,
+          showGoogleSearch: false,
+          showGoogleImageSearch: false,
+          maxReferenceImages: 16,
+          defaultData: {
+            modelProvider: 'nano2',
+            model: 'gpt-image-2',
+            aspectRatio: '1:1',
+            maxReferenceImages: 16,
+            googleSearch: false,
+            googleImageSearch: false,
+          },
+        },
+      },
 
       // 视频生成节点
       // {

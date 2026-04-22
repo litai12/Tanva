@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
@@ -769,6 +769,7 @@ const rawNodeTypes = {
   midjourneyV7: MidjourneyNode,
   niji7: MidjourneyNode,
   nano2: Nano2Node,
+  gptImage2: Nano2Node,
   seedream5: Seedream5Node,
   video: VideoNode,
   audioUpload: AudioNode,
@@ -904,6 +905,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "midjourneyV7",
   "niji7",
   "nano2",
+  "gptImage2",
   "seedream5",
   "image",
   "imagePro",
@@ -1105,6 +1107,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "midjourney", targetHandle: "text" },
     { nodeType: "nano2", targetHandle: "text" },
+    { nodeType: "gptImage2", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
@@ -1119,6 +1122,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
     { nodeType: "nano2", targetHandle: "img" },
+    { nodeType: "gptImage2", targetHandle: "img" },
     { nodeType: "imageGrid", targetHandle: "images" },
     { nodeType: "imageSplit", targetHandle: "img" },
     { nodeType: "imageCompress", targetHandle: "img" },
@@ -1168,6 +1172,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "niji7", sourceHandle: "img" },
     { nodeType: "seedream5", sourceHandle: "img" },
     { nodeType: "nano2", sourceHandle: "img" },
+    { nodeType: "gptImage2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
   video: [
@@ -1247,6 +1252,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
+  gptImage2: 30, // APIMart Gpt-Imgae-2 生图
   seedream5: 30, // Seedream 5.0 生图
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
@@ -1293,6 +1299,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
+  { key: "gptImage2", zh: "Gpt-Imgae-2", en: "Gpt-Imgae-2", category: "image" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
@@ -1405,6 +1412,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   midjourneyV7: "image",
   niji7: "image",
   nano2: "image",
+  gptImage2: "image",
   analysis: "image",
   imageGrid: "image",
   imageSplit: "image",
@@ -1482,6 +1490,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   midjourneyV7: { w: 300, h: 760 },
   niji7: { w: 300, h: 700 },
   nano2: { w: 260, h: 200 },
+  gptImage2: { w: 260, h: 200 },
   seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
   audioUpload: { w: 320, h: 128 },
@@ -1552,6 +1561,9 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "audio-node": "audioUpload",
   minimaxmusic: "minimaxMusic",
   "minimax-music": "minimaxMusic",
+  gptimage2: "gptImage2",
+  "gpt-image-2": "gptImage2",
+  gpt2image: "gptImage2",
 };
 
 const canonicalizeNodeTypeKey = (value: string): string =>
@@ -1655,6 +1667,7 @@ const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
   "midjourneyV7",
   "niji7",
   "nano2",
+  "gptImage2",
   "seedream5",
 ]);
 
@@ -8797,6 +8810,7 @@ function FlowInner() {
           "midjourneyV7",
           "niji7",
           "nano2",
+          "gptImage2",
           "seedream5",
         ];
         if (imageNodeTypes.includes(node.type || "")) return true;
@@ -9088,7 +9102,7 @@ function FlowInner() {
       }
 
       // Nano2 节点连接验证 - 支持文本和图片输入
-      if (targetNode.type === "nano2") {
+      if (targetNode.type === "nano2" || targetNode.type === "gptImage2") {
         if (targetHandle === "text") {
           return canSourceProvideText(sourceNode, sourceHandle);
         }
@@ -9527,7 +9541,7 @@ function FlowInner() {
         )
           return true;
       }
-      if (targetNode?.type === "nano2") {
+      if (targetNode?.type === "nano2" || targetNode?.type === "gptImage2") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle === "img") return true; // 图片输入
       }
@@ -16263,7 +16277,33 @@ function FlowInner() {
         return;
       }
 
-      if (node.type === "nano2") {
+      if (node.type === "nano2" || node.type === "gptImage2") {
+        const nodeData =
+          node.data && typeof node.data === "object"
+            ? (node.data as Record<string, any>)
+            : {};
+        const metadata =
+          nodeData.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
+            ? (nodeData.nodeConfigMetadata as Record<string, any>)
+            : undefined;
+        const defaultData =
+          metadata?.defaultData && typeof metadata.defaultData === "object"
+            ? (metadata.defaultData as Record<string, any>)
+            : undefined;
+        const maxReferenceImagesRaw = Number(
+          nodeData.maxReferenceImages ??
+            metadata?.maxReferenceImages ??
+            defaultData?.maxReferenceImages
+        );
+        const maxReferenceImages =
+          Number.isFinite(maxReferenceImagesRaw) && maxReferenceImagesRaw > 0
+            ? Math.max(1, Math.min(16, Math.floor(maxReferenceImagesRaw)))
+            : 14;
+        const requestedModel =
+          (typeof nodeData.model === "string" && nodeData.model.trim()) ||
+          (typeof metadata?.model === "string" && metadata.model.trim()) ||
+          (typeof defaultData?.model === "string" && defaultData.model.trim()) ||
+          "gemini-3.1-flash-image-preview";
         const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
         if (!hasText || !promptText) {
           setNodes((ns) =>
@@ -16279,7 +16319,7 @@ function FlowInner() {
         // 获取输入图片
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
-          .slice(0, 14); // Nano2 最多支持 14 张参考图
+          .slice(0, maxReferenceImages);
         const imageDatas = await resolveEdgesAsDataUrls(imgEdges);
 
         setNodes((ns) =>
@@ -16294,26 +16334,39 @@ function FlowInner() {
           const latestBananaImageRoute =
             useAIChatStore.getState().bananaImageRoute || bananaImageRoute;
           const nano2AspectRatio = (() => {
-            const raw = (node.data as any)?.aspectRatio;
+            const raw = nodeData?.aspectRatio ?? defaultData?.aspectRatio;
             return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
           })();
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
+            model: requestedModel,
             providerOptions: {
               banana: {
                 imageRoute: latestBananaImageRoute,
               },
             },
             aspectRatio: nano2AspectRatio,
-            imageSize: (node.data as any)?.resolution || "1K",
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
-            googleSearch: (node.data as any)?.googleSearch,
-            googleImageSearch: (node.data as any)?.googleImageSearch,
+            ...(node.type !== "gptImage2"
+              ? {
+                  imageSize: nodeData?.resolution || defaultData?.resolution || "1K",
+                  googleSearch:
+                    typeof nodeData?.googleSearch === "boolean"
+                      ? nodeData.googleSearch
+                      : defaultData?.googleSearch,
+                  googleImageSearch:
+                    typeof nodeData?.googleImageSearch === "boolean"
+                      ? nodeData.googleImageSearch
+                      : defaultData?.googleImageSearch,
+                }
+              : {}),
           });
 
           if (!result.success || !result.data) {
-            const msg = result.error?.message || "Nano2 生成失败";
+            const msg =
+              result.error?.message ||
+              (node.type === "gptImage2" ? "Gpt-Imgae-2 生成失败" : "Nano2 生成失败");
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -16339,7 +16392,7 @@ function FlowInner() {
             if (rawPreview) {
               stableImageRef = await uploadImageToStableUrl(
                 rawPreview,
-                `flow_nano2_${nodeId}_${Date.now()}.png`,
+                `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${nodeId}_${Date.now()}.png`,
                 { reuploadUnstableRemote: true }
               );
             }
@@ -16386,20 +16439,20 @@ function FlowInner() {
               const historyId = `${nodeId}-${Date.now()}`;
               const historyRemote =
                 !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
+              const historyPrefix = node.type === "gptImage2" ? "Gpt-Imgae-2" : "Nano2";
               void recordImageHistoryEntry({
                 id: historyId,
                 base64: historyRemote ? undefined : stableImageRef,
                 remoteUrl: historyRemote ? stableImageRef : undefined,
-                title: `Nano2 ${new Date().toLocaleTimeString()}`,
+                title: `${historyPrefix} ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
-                fileName: `flow_nano2_${historyId}.png`,
+                fileName: `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
                 metadata: {
                   ...(result.data.metadata || {}),
-                  model:
-                    result.data.model || "gemini-3.1-flash-image-preview",
+                  model: result.data.model || requestedModel,
                   aiProvider: "nano2",
                   provider: "nano2",
                 },
@@ -16407,7 +16460,12 @@ function FlowInner() {
             } catch {}
           }
         } catch (error) {
-          const msg = error instanceof Error ? error.message : "Nano2 生成失败";
+          const msg =
+            error instanceof Error
+              ? error.message
+              : node.type === "gptImage2"
+              ? "Gpt-Imgae-2 生成失败"
+              : "Nano2 生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -17891,7 +17949,7 @@ function FlowInner() {
       }
 
       // nano2 单图节点：与 generate4 相同的上传优先策略，确保远程 URL 先上传到 OSS 再派发画板事件
-      if (node.type === "nano2") {
+      if (node.type === "nano2" || node.type === "gptImage2") {
         const rawImageUrl =
           ((node.data as any)?.imageUrl as string | undefined) ||
           ((node.data as any)?.imageData as string | undefined);
@@ -17909,7 +17967,7 @@ function FlowInner() {
           return;
         }
 
-        const fileName = `flow_nano2_${id}_${Date.now()}.png`;
+        const fileName = `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${id}_${Date.now()}.png`;
         const pid = useProjectContentStore.getState().projectId;
 
         try {
@@ -18962,6 +19020,7 @@ function FlowInner() {
           n.type === "midjourneyV7" ||
           n.type === "niji7" ||
           n.type === "nano2" ||
+          n.type === "gptImage2" ||
           n.type === "seedream5" ||
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||

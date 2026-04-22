@@ -8,6 +8,7 @@ type ImageNodeType =
   | "analysis"
   | "seedream5"
   | "nano2"
+  | "gptImage2"
   | "midjourney"
   | "midjourneyV7"
   | "niji7";

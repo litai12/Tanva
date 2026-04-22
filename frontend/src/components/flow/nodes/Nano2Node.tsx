@@ -10,36 +10,92 @@ import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
-import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import {
+  flowImagePreviewWell,
+  flowLetterboxBackground,
+  useFlowNodeDarkTheme,
+} from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
+type NodeConfigMetadata = {
+  type?: string;
+  flowNodeType?: string;
+  provider?: string;
+  model?: string;
+  aspectRatios?: string[];
+  resolutions?: string[];
+  showResolutionSelector?: boolean;
+  showGoogleSearch?: boolean;
+  showGoogleImageSearch?: boolean;
+  maxReferenceImages?: number;
+  defaultData?: Record<string, any>;
+};
+
+type NodeData = {
+  status?: "idle" | "running" | "succeeded" | "failed";
+  imageData?: string;
+  imageUrl?: string;
+  thumbnail?: string;
+  error?: string;
+  aspectRatio?: string;
+  resolution?: string;
+  presetPrompt?: string;
+  googleSearch?: boolean;
+  googleImageSearch?: boolean;
+  model?: string;
+  modelProvider?: string;
+  maxReferenceImages?: number;
+  nodeConfigKey?: string;
+  nodeConfigNameZh?: string;
+  nodeConfigNameEn?: string;
+  nodeConfigMetadata?: Record<string, any>;
+  creditsPerCall?: number;
+  managedModelKey?: string;
+  vendorKey?: string;
+  platformKey?: string;
+  onRun?: (id: string) => void;
+  onSend?: (id: string) => void;
+};
+
+type CreditNodeType =
+  | "generate"
+  | "generatePro"
+  | "generateRef"
+  | "analysis"
+  | "seedream5"
+  | "nano2"
+  | "gptImage2"
+  | "midjourney"
+  | "midjourneyV7"
+  | "niji7";
+
 type Props = {
   id: string;
-  data: {
-    status?: "idle" | "running" | "succeeded" | "failed";
-    imageData?: string;
-    imageUrl?: string;
-    thumbnail?: string;
-    error?: string;
-    aspectRatio?: string;
-    resolution?: string;
-    presetPrompt?: string;
-    googleSearch?: boolean;
-    googleImageSearch?: boolean;
-    creditsPerCall?: number;
-    managedModelKey?: string;
-    vendorKey?: string;
-    platformKey?: string;
-    onRun?: (id: string) => void;
-    onSend?: (id: string) => void;
-  };
+  data: NodeData;
   selected?: boolean;
 };
 
-// 构建图片 src
+const DEFAULT_ASPECT_RATIOS = [
+  "1:1",
+  "3:2",
+  "2:3",
+  "4:3",
+  "3:4",
+  "16:9",
+  "9:16",
+  "5:4",
+  "4:5",
+  "21:9",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+];
+const DEFAULT_RESOLUTIONS = ["0.5K", "1K", "2K", "4K"];
+
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -47,26 +103,111 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
+const toStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+};
+
+const resolveBool = (primary: unknown, fallback: boolean): boolean => {
+  if (typeof primary === "boolean") return primary;
+  return fallback;
+};
+
+const normalizeCreditNodeType = (value: string): CreditNodeType => {
+  switch (value) {
+    case "generate":
+    case "generatePro":
+    case "generateRef":
+    case "analysis":
+    case "seedream5":
+    case "nano2":
+    case "gptImage2":
+    case "midjourney":
+    case "midjourneyV7":
+    case "niji7":
+      return value;
+    default:
+      return "nano2";
+  }
+};
+
 function Nano2NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
 
-  // 参数值
-  const aspectRatioValue = data.aspectRatio ?? "";
-  const resolutionValue = data.resolution ?? "1K";
-  const googleSearchValue = data.googleSearch ?? false;
-  const googleImageSearchValue = data.googleImageSearch ?? false;
+  const metadata = React.useMemo<NodeConfigMetadata | undefined>(() => {
+    if (!data.nodeConfigMetadata || typeof data.nodeConfigMetadata !== "object") return undefined;
+    return data.nodeConfigMetadata as NodeConfigMetadata;
+  }, [data.nodeConfigMetadata]);
+  const defaultData = React.useMemo<Record<string, any> | undefined>(() => {
+    if (!metadata?.defaultData || typeof metadata.defaultData !== "object") return undefined;
+    return metadata.defaultData as Record<string, any>;
+  }, [metadata]);
+
+  const titleZh = data.nodeConfigNameZh || "Nano2";
+  const titleEn = data.nodeConfigNameEn || "Nano2";
+  const resolvedNodeType = normalizeCreditNodeType(
+    metadata?.flowNodeType || metadata?.type || data.nodeConfigKey || "nano2"
+  );
+  const resolvedProvider =
+    data.modelProvider ||
+    metadata?.provider ||
+    (typeof defaultData?.modelProvider === "string" ? defaultData.modelProvider : undefined) ||
+    "nano2";
+
+  const aspectRatioOptions = React.useMemo(() => {
+    const fromMeta = toStringList(metadata?.aspectRatios);
+    return fromMeta.length > 0 ? fromMeta : DEFAULT_ASPECT_RATIOS;
+  }, [metadata?.aspectRatios]);
+  const resolutionOptions = React.useMemo(() => {
+    const fromMeta = toStringList(metadata?.resolutions);
+    return fromMeta.length > 0 ? fromMeta : DEFAULT_RESOLUTIONS;
+  }, [metadata?.resolutions]);
+
+  const showResolutionSelector = resolveBool(metadata?.showResolutionSelector, true);
+  const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
+  const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
+  const maxReferenceImages = React.useMemo(() => {
+    const raw = Number(
+      data.maxReferenceImages ??
+        metadata?.maxReferenceImages ??
+        defaultData?.maxReferenceImages
+    );
+    return Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.floor(raw)) : undefined;
+  }, [data.maxReferenceImages, metadata?.maxReferenceImages, defaultData?.maxReferenceImages]);
+
+  const aspectRatioValue =
+    data.aspectRatio ??
+    (typeof defaultData?.aspectRatio === "string" ? defaultData.aspectRatio : "") ??
+    "";
+  const resolutionValue =
+    data.resolution ||
+    (typeof defaultData?.resolution === "string" ? defaultData.resolution : "") ||
+    resolutionOptions[0] ||
+    "1K";
+  const googleSearchValue =
+    typeof data.googleSearch === "boolean"
+      ? data.googleSearch
+      : Boolean(defaultData?.googleSearch);
+  const googleImageSearchValue =
+    typeof data.googleImageSearch === "boolean"
+      ? data.googleImageSearch
+      : Boolean(defaultData?.googleImageSearch);
 
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
-  const fullSrc = fullAssetId ? (fullAssetUrl || undefined) : buildImageSrc(rawFullValue);
+  const fullSrc = fullAssetId ? fullAssetUrl || undefined : buildImageSrc(rawFullValue);
 
   const rawThumbValue = data.thumbnail;
   const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
   const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
-  const displaySrc = thumbAssetId ? (thumbAssetUrl || fullSrc) : (buildImageSrc(rawThumbValue) || fullSrc);
+  const displaySrc = thumbAssetId
+    ? thumbAssetUrl || fullSrc
+    : buildImageSrc(rawThumbValue) || fullSrc;
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -79,12 +220,9 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const isFlowDark = useFlowNodeDarkTheme();
   const imageInputCount = useStore((state) => {
     const edges = state.edges || [];
-    return edges.filter(
-      (edge) => edge.target === id && edge.targetHandle === "img"
-    ).length;
+    return edges.filter((edge) => edge.target === id && edge.targetHandle === "img").length;
   });
 
-  // 使用全局图片历史记录
   const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
   const projectHistory = React.useMemo(() => {
@@ -104,19 +242,23 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             src: item.src,
             title: item.title,
             timestamp: item.timestamp,
-          } as ImageItem)
+          }) as ImageItem
       ),
     [projectHistory]
   );
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>)
-      .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & {
+      stopImmediatePropagation?: () => void;
+    };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
-  const presetPromptValue = data.presetPrompt ?? "";
+  const presetPromptValue =
+    data.presetPrompt ??
+    (typeof defaultData?.presetPrompt === "string" ? defaultData.presetPrompt : "") ??
+    "";
   const updatePresetPrompt = React.useCallback(
     (value: string) => {
       window.dispatchEvent(
@@ -181,8 +323,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   }, [data, id]);
 
   const { credits: backendCredits } = useImageNodeCreditsPreview({
-    nodeType: "nano2",
-    aiProvider: "nano2",
+    nodeType: resolvedNodeType,
+    aiProvider: resolvedProvider,
     bananaImageRoute,
     imageSize: resolutionValue || undefined,
     aspectRatio: aspectRatioValue || undefined,
@@ -207,8 +349,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (!preview) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPreview(false);
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreview(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -235,7 +377,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>Nano2</div>
+        <div style={{ fontWeight: 600 }}>{lt(titleZh, titleEn)}</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onRun}
@@ -263,7 +405,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? lt("无可发送的图像", "No image to send") : lt("发送到画布", "Send to canvas")}
+            title={
+              !(data.imageData || data.imageUrl)
+                ? lt("无可发送的图像", "No image to send")
+                : lt("发送到画布", "Send to canvas")
+            }
             style={{
               fontSize: 12,
               padding: "4px 8px",
@@ -293,7 +439,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         <input
           value={presetPromptValue}
           onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder={lt("生成时自动拼接在提示词前", "Auto-prepended before the prompt during generation")}
+          placeholder={lt(
+            "生成时自动拼接在提示词前",
+            "Auto-prepended before the prompt during generation"
+          )}
           style={{
             width: "100%",
             fontSize: 12,
@@ -309,18 +458,20 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onMouseDown={stopNodeDrag}
         />
         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          {lt("会在 TextPrompt 输入前自动添加", "Will be automatically added before TextPrompt input")}
+          {lt(
+            "会在 TextPrompt 输入前自动添加",
+            "Will be automatically added before TextPrompt input"
+          )}
         </div>
       </div>
 
-      {/* 宽高比选择 */}
       <div style={{ marginBottom: 6 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
           {lt("宽高比", "Aspect ratio")}
         </label>
         <select
           value={aspectRatioValue}
-          onChange={(e) => updateAspectRatio(e.target.value)}
+          onChange={(event) => updateAspectRatio(event.target.value)}
           style={{
             width: "100%",
             fontSize: 12,
@@ -334,65 +485,75 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onMouseDownCapture={stopNodeDrag}
         >
           <option value="">{lt("自动", "Auto")}</option>
-          <option value="1:1">{lt("1:1 正方形", "1:1 Square")}</option>
-          <option value="3:2">{lt("3:2 横向照片", "3:2 Landscape photo")}</option>
-          <option value="2:3">{lt("2:3 竖向照片", "2:3 Portrait photo")}</option>
-          <option value="4:3">{lt("4:3 传统横向", "4:3 Classic landscape")}</option>
-          <option value="3:4">{lt("3:4 传统竖向", "3:4 Classic portrait")}</option>
-          <option value="16:9">{lt("16:9 宽屏", "16:9 Widescreen")}</option>
-          <option value="9:16">{lt("9:16 竖屏", "9:16 Vertical")}</option>
-          <option value="5:4">{lt("5:4 Instagram横", "5:4 Instagram landscape")}</option>
-          <option value="4:5">{lt("4:5 Instagram竖", "4:5 Instagram portrait")}</option>
-          <option value="21:9">{lt("21:9 超宽横幅", "21:9 Ultra-wide")}</option>
-          <option value="4:1">{lt("4:1 长横幅", "4:1 Panorama")}</option>
-          <option value="1:4">{lt("1:4 长海报", "1:4 Tall poster")}</option>
-          <option value="8:1">{lt("8:1 极长横幅", "8:1 Ultra panorama")}</option>
-          <option value="1:8">{lt("1:8 极长海报", "1:8 Ultra tall poster")}</option>
+          {aspectRatioOptions.map((ratio) => (
+            <option key={ratio} value={ratio}>
+              {ratio}
+            </option>
+          ))}
         </select>
       </div>
 
-      {/* 分辨率选择 */}
-	      <div style={{ marginBottom: 6 }}>
-	        <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-	          {lt("分辨率", "Resolution")}
-	        </label>
-	        <NodeSelect
-	          value={resolutionValue}
-	          options={[
-	            { value: "0.5K", label: lt("0.5K", "0.5K"), description: lt("~512px 预览", "~512px Preview") },
-	            { value: "1K", label: lt("1K", "1K"), description: lt("~1024px 标准", "~1024px Standard") },
-	            { value: "2K", label: lt("2K", "2K"), description: lt("~2048px 高清", "~2048px HD") },
-	            { value: "4K", label: lt("4K", "4K"), description: lt("~4096px 超清", "~4096px Ultra HD") },
-	          ]}
-	          onChange={updateResolution}
-	          menuLabel={lt("分辨率", "Resolution")}
-	          title={lt("选择分辨率", "Select resolution")}
-	        />
-	      </div>
+      {showResolutionSelector && resolutionOptions.length > 0 ? (
+        <div style={{ marginBottom: 6 }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+            {lt("分辨率", "Resolution")}
+          </label>
+          <NodeSelect
+            value={resolutionValue}
+            options={resolutionOptions.map((value) => ({ value, label: value }))}
+            onChange={updateResolution}
+            menuLabel={lt("分辨率", "Resolution")}
+            title={lt("选择分辨率", "Select resolution")}
+          />
+        </div>
+      ) : null}
 
-      {/* Google 搜索增强选项 */}
-      <div style={{ marginBottom: 8, display: "flex", gap: 12 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={googleSearchValue}
-            onChange={(e) => updateGoogleSearch(e.target.checked)}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-          />
-          {lt("文本搜索", "Text search")}
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={googleImageSearchValue}
-            onChange={(e) => updateGoogleImageSearch(e.target.checked)}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-          />
-          {lt("图片搜索", "Image search")}
-        </label>
-      </div>
+      {(showGoogleSearch || showGoogleImageSearch) && (
+        <div style={{ marginBottom: 8, display: "flex", gap: 12 }}>
+          {showGoogleSearch ? (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 12,
+                color: "#6b7280",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={googleSearchValue}
+                onChange={(event) => updateGoogleSearch(event.target.checked)}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+              {lt("文本搜索", "Text search")}
+            </label>
+          ) : null}
+          {showGoogleImageSearch ? (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 12,
+                color: "#6b7280",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={googleImageSearchValue}
+                onChange={(event) => updateGoogleImageSearch(event.target.checked)}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+              {lt("图片搜索", "Image search")}
+            </label>
+          ) : null}
+        </div>
+      )}
 
       <div
         onDoubleClick={() => fullSrc && setPreview(true)}
@@ -426,7 +587,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar status={status} simulateDurationMs={15 * 60 * 1000} />
       {status === "failed" && error && (
         <div
           style={{
@@ -440,7 +601,6 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 输入：img 在上，text 在下；输出：img */}
       <Handle
         type="target"
         position={Position.Left}
@@ -495,9 +655,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         isOpen={preview}
         imageSrc={
           allImages.length > 0 && currentImageId
-            ? allImages.find((item) => item.id === currentImageId)?.src ||
-              fullSrc ||
-              ""
+            ? allImages.find((item) => item.id === currentImageId)?.src || fullSrc || ""
             : fullSrc || ""
         }
         imageTitle={lt("全局图片预览", "Global image preview")}
@@ -506,6 +664,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         currentImageId={currentImageId}
         onImageChange={handleImageChange}
       />
+      {typeof maxReferenceImages === "number" ? (
+        <div style={{ marginTop: 4, fontSize: 11, color: "#9ca3af" }}>
+          {lt("参考图上限", "Reference max")}: {maxReferenceImages}
+        </div>
+      ) : null}
     </div>
   );
 }
