@@ -459,6 +459,10 @@ export class CreditsService {
 
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
 
+    if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
+      creditsToDeduct = GPT_IMAGE2_CREDITS;
+    }
+
     const serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
       pricing.serviceName,

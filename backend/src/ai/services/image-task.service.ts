@@ -16,18 +16,20 @@ export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
  * 根据任务类型和模型映射到 ServiceType
  */
 function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string {
+  const normalizedModel = model?.trim().toLowerCase();
   switch (taskType) {
     case 'generate':
-      if (model?.includes('3.1')) return 'gemini-3.1-image';
-      if (model?.includes('2.5')) return 'gemini-2.5-image';
+      if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
+      if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image';
+      if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image';
       return 'gemini-3-pro-image';
     case 'edit':
-      if (model?.includes('3.1')) return 'gemini-3.1-image-edit';
-      if (model?.includes('2.5')) return 'gemini-2.5-image-edit';
+      if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image-edit';
+      if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-edit';
       return 'gemini-image-edit';
     case 'blend':
-      if (model?.includes('3.1')) return 'gemini-3.1-image-blend';
-      if (model?.includes('2.5')) return 'gemini-2.5-image-blend';
+      if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image-blend';
+      if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-blend';
       return 'gemini-image-blend';
     default:
       return 'gemini-3-pro-image';
