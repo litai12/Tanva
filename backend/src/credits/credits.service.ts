@@ -257,12 +257,12 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
-  // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K
+  // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K；尊享通道 30 积分
   fast: {
-    '0.5K': 20,
-    '1K': 20,
-    '2K': 20,
-    '4K': 20,
+    '0.5K': 30,
+    '1K': 30,
+    '2K': 30,
+    '4K': 30,
   },
   // Pro: gemini-3-pro-image (Nano Banana-Pro)
   pro: {

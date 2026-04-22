@@ -86,8 +86,8 @@ const resolveBananaServiceType = (
     return "gemini-image-blend";
   }
 
-  // generatePro 节点执行时始终走 Pro 模型（不随 fast provider 降级），预览需与执行一致
   if (nodeType === "generatePro") {
+    if (provider === "banana-2.5") return "gemini-2.5-image";
     if (provider === "banana-3.1" || provider === "nano2") return "gemini-3.1-image";
     return "gemini-3-pro-image";
   }

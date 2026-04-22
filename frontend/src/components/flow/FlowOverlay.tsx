@@ -16835,10 +16835,13 @@ function FlowInner() {
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
-        // 专业生图节点：默认走 Pro；Ultra(3.1) 时切到 3.1 链路
+        // 专业生图节点：按 provider 选择对应模型
         if (node.type === "generatePro" || node.type === "generatePro4") {
           if (runProvider === "banana-3.1" || runProvider === "nano2") {
             return "gemini-3.1-flash-image-preview";
+          }
+          if (runProvider === "banana-2.5") {
+            return "gemini-2.5-flash-image-preview";
           }
           return "gemini-3-pro-image-preview";
         }

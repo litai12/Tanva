@@ -616,13 +616,18 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     [aiProvider, data.modelProvider]
   );
 
-  type ProviderToggleValue = 'banana' | 'banana-3.1';
+  type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
   const providerToggleOptions = React.useMemo<Array<{
     value: ProviderToggleValue;
     label: string;
     description: string;
   }>>(
     () => [
+      {
+        value: 'banana-2.5',
+        label: 'Fast',
+        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+      },
       {
         value: 'banana',
         label: 'Pro',
@@ -642,17 +647,20 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const currentProviderOption = React.useMemo(
     () =>
       providerToggleOptions.find((option) => option.value === currentProviderValue) ??
-      providerToggleOptions[0],
+      providerToggleOptions[1],
     [currentProviderValue, providerToggleOptions]
   );
 
   React.useEffect(() => {
-    const stored = typeof data.modelProvider === "string" ? data.modelProvider.trim() : "";
-    if (stored && stored !== "banana-2.5") return;
-    const defaultProvider: ProviderToggleValue = "banana";
+    if (
+      typeof data.modelProvider === "string" &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { modelProvider: defaultProvider } },
+        detail: { id, patch: { modelProvider: currentProviderValue } },
       })
     );
   }, [currentProviderValue, data.modelProvider, id]);
@@ -958,6 +966,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       size: '0.5K' | '1K' | '2K' | '4K' | null | undefined
     ): '0.5K' | '1K' | '2K' | '4K' | null => {
       if (!size) return null;
+      if (provider === 'banana-2.5') {
+        return '1K';
+      }
       if (provider === 'banana') {
         if (size === '1K' || size === '2K' || size === '4K') return size;
         return '1K';
@@ -988,6 +999,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+    if (currentProviderValue === 'banana-2.5') {
+      return [
+        { label: lt('自动', 'Auto'), value: null },
+        { label: '1K', value: '1K' },
+      ];
+    }
     if (currentProviderValue === 'banana-3.1') {
       return [
         { label: lt('自动', 'Auto'), value: null },
