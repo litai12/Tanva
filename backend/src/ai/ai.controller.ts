@@ -660,21 +660,27 @@ export class AiController {
    * 确定图像生成服务类型
    */
   private getImageGenerationServiceType(model?: string, provider?: string): ServiceType {
+    const normalizedModel = model?.trim().toLowerCase();
+
+    if (normalizedModel?.includes('gpt-image-2')) {
+      return 'gpt-image-2';
+    }
+
     // 根据 provider 和 model 确定服务类型
     if (provider === 'midjourney') {
       return 'midjourney-imagine';
     }
 
-    if (provider === 'seedream5' || model?.includes('seedream')) {
+    if (provider === 'seedream5' || normalizedModel?.includes('seedream')) {
       return 'doubao-seedream-5-0-260128';
     }
 
-    if (model?.includes('gemini-3.1')) {
+    if (normalizedModel?.includes('gemini-3.1')) {
       return 'gemini-3.1-image';
     }
 
     // Gemini 模型
-    if (model?.includes('gemini-3') || model?.includes('imagen-3')) {
+    if (normalizedModel?.includes('gemini-3') || normalizedModel?.includes('imagen-3')) {
       return 'gemini-3-pro-image';
     }
 

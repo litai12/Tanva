@@ -11,6 +11,9 @@ enum AspectRatio {
   'PORTRAIT_ULTRA' = '9:16',
   'LANDSCAPE_ULTRA' = '16:9',
   'CINEMA' = '21:9',
+  'WIDE' = '2:1',
+  'TALL' = '1:2',
+  'PORTRAIT_CINEMA' = '9:21',
   'LONG_LANDSCAPE' = '4:1',
   'LONG_PORTRAIT' = '1:4',
   'ULTRA_LONG_LANDSCAPE' = '8:1',
@@ -62,6 +65,9 @@ export class GenerateImageDto {
     | '9:16'
     | '16:9'
     | '21:9'
+    | '2:1'
+    | '1:2'
+    | '9:21'
     | '4:1'
     | '1:4'
     | '8:1'
@@ -103,6 +109,10 @@ export class GenerateImageDto {
   @IsOptional()
   @IsNumber()
   batchCount?: number; // Seedream5 批量生成数量 (2-10)
+
+  @IsOptional()
+  @IsBoolean()
+  officialFallback?: boolean; // gpt-image-2 是否使用官方渠道兜底
 }
 
 export class EditImageDto {
@@ -149,6 +159,9 @@ export class EditImageDto {
     | '9:16'
     | '16:9'
     | '21:9'
+    | '2:1'
+    | '1:2'
+    | '9:21'
     | '4:1'
     | '1:4'
     | '8:1'
@@ -213,6 +226,9 @@ export class BlendImagesDto {
     | '9:16'
     | '16:9'
     | '21:9'
+    | '2:1'
+    | '1:2'
+    | '9:21'
     | '4:1'
     | '1:4'
     | '8:1'

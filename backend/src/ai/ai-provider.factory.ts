@@ -94,7 +94,11 @@ export class AIProviderFactory implements OnModuleInit {
           this.providers.get('banana') ||
           this.providers.get('gemini')!
         );
-      } else if (model.includes('nano2') || model.includes('gemini-3.1-flash-image')) {
+      } else if (
+        model.includes('nano2') ||
+        model.includes('gemini-3.1-flash-image') ||
+        model.includes('gpt-image-2')
+      ) {
         return this.providers.get('nano2') || this.providers.get('gemini')!;
       } else if (model.includes('seedream') || model.includes('doubao-seedream')) {
         return this.providers.get('seedream5') || this.providers.get('gemini')!;

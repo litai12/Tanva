@@ -24,39 +24,67 @@ export class Nano2Provider implements IAIProvider {
   }
 
   getProviderInfo(): any {
-    return { name: 'nano2', model: 'gemini-3.1-flash-image-preview' };
+    return { name: 'nano2', model: 'gpt-image-2' };
   }
 
   async generateImage(request: any): Promise<any> {
-    // 1. 提交任务
+    const requestedModel =
+      typeof request.model === 'string' && request.model.trim()
+        ? request.model.trim()
+        : 'gemini-3.1-flash-image-preview';
+    const isGptImage2Model = requestedModel.toLowerCase() === 'gpt-image-2';
+    const requestedSize = request.aspectRatio || (isGptImage2Model ? '1:1' : '16:9');
+
+    const normalizedResolution = (() => {
+      const rawResolution = request.resolution || request.imageSize || '1K';
+      const normalized = String(rawResolution).trim().toUpperCase();
+      if (normalized === '2K') return isGptImage2Model ? '2k' : '2K';
+      if (normalized === '4K') return isGptImage2Model ? '4k' : '4K';
+      return isGptImage2Model ? '1k' : '1K';
+    })();
+
+    // 1. 鎻愪氦浠诲姟
     const result = await this.nano2Service.generateImage({
       prompt: request.prompt,
-      size: request.aspectRatio || '16:9',
-      resolution: request.resolution || request.imageSize || '1K',
+      model: requestedModel,
+      size: requestedSize,
       n: 1,
       image_urls: request.imageUrls || request.image_urls,
-      google_search: request.googleSearch,
-      google_image_search: request.googleImageSearch,
+      resolution: normalizedResolution,
+      official_fallback:
+        typeof request.officialFallback === 'boolean'
+          ? request.officialFallback
+          : true,
+      ...(!isGptImage2Model
+        ? {
+            google_search: request.googleSearch,
+            google_image_search: request.googleImageSearch,
+          }
+        : {}),
     });
 
     this.logger.log(`Nano2 task submitted: ${result.taskId}`);
 
-    // 2. 轮询等待任务完成
-    const maxAttempts = 300; // 最多轮询 300 次
-    const pollInterval = 3000; // 每 3 秒轮询一次，总计最长约 15 分钟
+    // 2. 杞绛夊緟浠诲姟瀹屾垚
+    const pollingWindowMs = 15 * 60 * 1000;
+    const pollIntervalMs = 3000;
+    const initialDelayMs = 10000;
+    const startedAt = Date.now();
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // 初始等待 10 秒，让任务有时间开始处理
-    await new Promise((resolve) => setTimeout(resolve, 10000));
+    await sleep(initialDelayMs);
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let attempt = 0;
+    while (Date.now() - startedAt < pollingWindowMs) {
+      attempt += 1;
       let taskResult;
       try {
         taskResult = await this.nano2Service.queryTask(result.taskId);
       } catch (err: any) {
-        // 如果是 404，任务可能还未注册，继续等待
+        // 濡傛灉鏄?404锛屼换鍔″彲鑳借繕鏈敞鍐岋紝缁х画绛夊緟
         if (err.message?.includes('404')) {
           this.logger.warn(`Nano2 task ${result.taskId} not found yet (attempt ${attempt}), retrying...`);
-          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          await sleep(pollIntervalMs);
           continue;
         }
         throw err;
@@ -77,12 +105,12 @@ export class Nano2Provider implements IAIProvider {
                 imageUrl: taskResult.imageUrl,
                 provider: 'nano2',
                 aiProvider: 'nano2',
-                model: 'gemini-3.1-flash-image-preview',
+                model: requestedModel,
               },
             },
           };
         } else {
-          // 任务成功但没有图片 URL，视为失败
+          // 浠诲姟鎴愬姛浣嗘病鏈夊浘鐗?URL锛岃涓哄け璐?
           this.logger.warn(`Nano2 task ${result.taskId} succeeded but no imageUrl found`);
           return {
             success: false,
@@ -98,8 +126,8 @@ export class Nano2Provider implements IAIProvider {
         };
       }
 
-      // 等待后再进行下一次轮询
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      // 绛夊緟鍚庡啀杩涜涓嬩竴娆¤疆璇?
+      await sleep(pollIntervalMs);
     }
 
     return {
@@ -132,3 +160,5 @@ export class Nano2Provider implements IAIProvider {
     throw new Error('Nano2 does not support PaperJS generation');
   }
 }
+
+

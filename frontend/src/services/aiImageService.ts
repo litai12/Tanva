@@ -43,7 +43,7 @@ const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
 // 网络错误重试配置
 const MAX_NETWORK_RETRIES = 3;
 const RETRY_DELAY_MS = 1000; // 固定1秒延迟
-const REQUEST_TIMEOUT_MS = 300000; // 5分钟超时（一键分层需要更长时间）
+const REQUEST_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 type BananaImageRoute = "normal" | "stable";
 
 const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {

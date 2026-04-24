@@ -70,6 +70,8 @@ const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
 const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
+const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
+const GPT_IMAGE2_CREDITS = 40;
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -380,16 +382,19 @@ export class CreditsService {
     });
 
     if (nodeConfig) {
+      const nodeConfigCredits =
+        typeof nodeConfig.creditsPerCall === 'number'
+          ? nodeConfig.creditsPerCall
+          : staticPricing?.creditsPerCall ?? 0;
+      const effectiveCredits =
+        serviceType === GPT_IMAGE2_SERVICE_TYPE ? GPT_IMAGE2_CREDITS : nodeConfigCredits;
       return {
         ...(staticPricing || {
           provider: 'custom',
           description: `Node-managed pricing for ${serviceType}`,
         }),
         serviceName: nodeConfig.nameZh || staticPricing?.serviceName || serviceType,
-        creditsPerCall:
-          typeof nodeConfig.creditsPerCall === 'number'
-            ? nodeConfig.creditsPerCall
-            : staticPricing?.creditsPerCall ?? 0,
+        creditsPerCall: effectiveCredits,
       };
     }
 
@@ -453,6 +458,10 @@ export class CreditsService {
     );
 
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
+
+    if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
+      creditsToDeduct = GPT_IMAGE2_CREDITS;
+    }
 
     const serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
@@ -2523,7 +2532,9 @@ export class CreditsService {
         serviceName: item.nameZh || fallback?.serviceName || serviceType,
         provider: fallback?.provider || 'custom',
         creditsPerCall:
-          typeof item.creditsPerCall === 'number'
+          serviceType === GPT_IMAGE2_SERVICE_TYPE
+            ? GPT_IMAGE2_CREDITS
+            : typeof item.creditsPerCall === 'number'
             ? item.creditsPerCall
             : (fallback?.creditsPerCall ?? 0),
         description:

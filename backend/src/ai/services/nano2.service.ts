@@ -3,12 +3,14 @@ import { ConfigService } from '@nestjs/config';
 
 interface Nano2GenerateRequest {
   prompt: string;
+  model?: string;
   size?: string;
   resolution?: string;
   n?: number;
   image_urls?: string[];
   google_search?: boolean;
   google_image_search?: boolean;
+  official_fallback?: boolean;
 }
 
 interface Nano2TaskResponse {
@@ -37,18 +39,32 @@ export class Nano2Service {
       throw new ServiceUnavailableException('Nano2 API key not configured');
     }
 
-    const payload = {
-      model: 'gemini-3.1-flash-image-preview',
+    const payload: Record<string, any> = {
+      model: request.model?.trim() || 'gemini-3.1-flash-image-preview',
       prompt: request.prompt,
-      size: request.size || '16:9',
-      resolution: request.resolution || '1K',
+      size: request.size || '1:1',
       n: request.n || 1,
       ...(request.image_urls && { image_urls: request.image_urls }),
-      ...(request.google_search && { google_search: request.google_search }),
-      ...(request.google_image_search && { google_image_search: request.google_image_search }),
     };
+    if (typeof request.resolution === 'string' && request.resolution.trim()) {
+      payload.resolution = request.resolution.trim();
+    }
+    if (typeof request.google_search === 'boolean') {
+      payload.google_search = request.google_search;
+    }
+    if (typeof request.google_image_search === 'boolean') {
+      payload.google_image_search = request.google_image_search;
+    }
+    if (typeof request.official_fallback === 'boolean') {
+      payload.official_fallback = request.official_fallback;
+    }
 
-    this.logger.log(`Nano2 request: ${JSON.stringify({ ...payload, prompt: payload.prompt.substring(0, 50) })}`);
+    this.logger.log(
+      `Nano2 request: ${JSON.stringify({
+        ...payload,
+        prompt: payload.prompt.substring(0, 50),
+      })}`,
+    );
 
     const response = await fetch(this.baseUrl, {
       method: 'POST',
