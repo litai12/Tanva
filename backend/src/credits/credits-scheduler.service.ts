@@ -26,6 +26,13 @@ export class CreditsSchedulerService {
       this.logger.log(
         `签到积分过期清理完成: 处理 ${result.processedUsers} 个用户, 清除 ${result.totalExpiredCredits} 积分`
       );
+
+      const freeQuotaResult = await this.creditsService.cleanupExpiredFreeUserMonthlyQuotaCredits();
+      if (freeQuotaResult.expiredLots > 0 || freeQuotaResult.expiredCredits > 0) {
+        this.logger.log(
+          `免费用户月度额度过期清理完成: accounts=${freeQuotaResult.processedAccounts}, lots=${freeQuotaResult.expiredLots}, credits=${freeQuotaResult.expiredCredits}`,
+        );
+      }
     } catch (error) {
       this.logger.error('签到积分过期清理失败:', error);
     }

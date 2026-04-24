@@ -5,6 +5,9 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Changed
+- Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
+
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 

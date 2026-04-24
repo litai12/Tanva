@@ -129,6 +129,7 @@
   - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
 - 会员 P1 权益调度：
   - `CreditsService.issueFreeUserMonthlyQuotaCredits()` 会按 `membershipRefreshCycleDays` 为非会员用户发放 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_monthly_quota` 流水；按用户注册时间锚定周期、按周期幂等。
+  - 免费用户月度额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；发放新周期前会先清理旧周期额度，定时清理任务也会兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
   - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水；衰减值改为读取 `SystemSetting[membership_credit_policy].dailyGiftDecayCredits`。
   - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按配置窗口计算的月度额度，并记录 `membership_refresh` 流水；窗口天数来自 `membershipRefreshCycleDays`。
