@@ -319,12 +319,12 @@ const enUS = {
           banana25Desc: "1st-gen model, fast and stable",
         },
         bananaRoute: {
-          title: "Nano Banana Image Route",
-          desc: "Choose between normal and stable channels",
-          normal: "Normal Channel",
-          normalDesc: "Speed first for daily generation",
-          stable: "Stable Channel",
-          stableDesc: "Stability first for peak hours",
+          title: "Nano Banana/Gemini Text+Image Route",
+          desc: "Use one route policy for both text and image generation",
+          normal: "Normal Route",
+          normalDesc: "Image/text use normal third-party channels (147 / Apimart by admin)",
+          stable: "Premium Route",
+          stableDesc: "Image/text use Tencent direct channel (stability first)",
           hint: "Only applies when Nano Banana providers are selected",
         },
         googleKey: {

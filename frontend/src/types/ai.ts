@@ -384,6 +384,7 @@ export interface ToolSelectionRequest {
   prompt?: string;
   aiProvider?: SupportedAIProvider;
   model?: string;
+  providerOptions?: AIProviderOptions;
 }
 
 // 工具选择结果

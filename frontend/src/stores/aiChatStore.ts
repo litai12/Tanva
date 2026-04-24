@@ -559,7 +559,7 @@ const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
-const BANANA_PRO_TEXT_MODEL = "gemini-3-pro-preview";
+const BANANA_PRO_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
 const BANANA_31_TEXT_MODEL = "gemini-3.1-pro-preview";
@@ -6193,6 +6193,11 @@ export const useAIChatStore = create<AIChatState>()(
             const state = get();
             const modelToUse = getTextModelForProvider(state.aiProvider);
             const contextPrompt = contextManager.buildContextPrompt(prompt);
+            const providerOptions = withBananaRouteProviderOptions(
+              state.aiProvider,
+              undefined,
+              state.bananaImageRoute
+            );
 
             logProcessStep(
               metrics,
@@ -6204,6 +6209,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               enableWebSearch: state.enableWebSearch,
               thinkingLevel: state.thinkingLevel || undefined,
+              providerOptions,
             });
             logProcessStep(
               metrics,

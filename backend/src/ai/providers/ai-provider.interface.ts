@@ -179,6 +179,7 @@ export interface ToolSelectionRequest {
   hasCachedImage?: boolean;
   context?: string;
   model?: string;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface ToolSelectionResult {
