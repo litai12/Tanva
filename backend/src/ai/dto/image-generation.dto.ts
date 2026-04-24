@@ -109,6 +109,10 @@ export class GenerateImageDto {
   @IsOptional()
   @IsNumber()
   batchCount?: number; // Seedream5 批量生成数量 (2-10)
+
+  @IsOptional()
+  @IsBoolean()
+  officialFallback?: boolean; // gpt-image-2 是否使用官方渠道兜底
 }
 
 export class EditImageDto {

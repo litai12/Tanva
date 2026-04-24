@@ -35,6 +35,14 @@ export class Nano2Provider implements IAIProvider {
     const isGptImage2Model = requestedModel.toLowerCase() === 'gpt-image-2';
     const requestedSize = request.aspectRatio || (isGptImage2Model ? '1:1' : '16:9');
 
+    const normalizedResolution = (() => {
+      const rawResolution = request.resolution || request.imageSize || '1K';
+      const normalized = String(rawResolution).trim().toUpperCase();
+      if (normalized === '2K') return isGptImage2Model ? '2k' : '2K';
+      if (normalized === '4K') return isGptImage2Model ? '4k' : '4K';
+      return isGptImage2Model ? '1k' : '1K';
+    })();
+
     // 1. 鎻愪氦浠诲姟
     const result = await this.nano2Service.generateImage({
       prompt: request.prompt,
@@ -42,9 +50,13 @@ export class Nano2Provider implements IAIProvider {
       size: requestedSize,
       n: 1,
       image_urls: request.imageUrls || request.image_urls,
+      resolution: normalizedResolution,
+      official_fallback:
+        typeof request.officialFallback === 'boolean'
+          ? request.officialFallback
+          : true,
       ...(!isGptImage2Model
         ? {
-            resolution: request.resolution || request.imageSize || '1K',
             google_search: request.googleSearch,
             google_image_search: request.googleImageSearch,
           }

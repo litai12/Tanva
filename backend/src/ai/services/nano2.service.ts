@@ -10,6 +10,7 @@ interface Nano2GenerateRequest {
   image_urls?: string[];
   google_search?: boolean;
   google_image_search?: boolean;
+  official_fallback?: boolean;
 }
 
 interface Nano2TaskResponse {
@@ -54,8 +55,16 @@ export class Nano2Service {
     if (typeof request.google_image_search === 'boolean') {
       payload.google_image_search = request.google_image_search;
     }
+    if (typeof request.official_fallback === 'boolean') {
+      payload.official_fallback = request.official_fallback;
+    }
 
-    this.logger.log(`Nano2 request: ${JSON.stringify({ ...payload, prompt: payload.prompt.substring(0, 50) })}`);
+    this.logger.log(
+      `Nano2 request: ${JSON.stringify({
+        ...payload,
+        prompt: payload.prompt.substring(0, 50),
+      })}`,
+    );
 
     const response = await fetch(this.baseUrl, {
       method: 'POST',

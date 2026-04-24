@@ -136,6 +136,7 @@ export interface AIImageGenerateRequest {
   googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
   batchMode?: boolean; // Seedream5 批量模式
   batchCount?: number; // Seedream5 批量数量
+  officialFallback?: boolean; // gpt-image-2: whether to enable official upstream fallback
 }
 
 // AI图像编辑请求参数

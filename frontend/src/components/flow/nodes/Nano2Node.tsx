@@ -16,7 +16,6 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
-import NodeSelect from "./NodeSelect";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
@@ -98,6 +97,17 @@ const DEFAULT_ASPECT_RATIOS = [
   "1:8",
 ];
 const DEFAULT_RESOLUTIONS = ["0.5K", "1K", "2K", "4K"];
+const GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS = [
+  "16:9",
+  "9:16",
+  "2:1",
+  "1:2",
+  "21:9",
+  "9:21",
+] as const;
+const GPT_IMAGE_2_4K_ASPECT_RATIO_SET = new Set<string>(
+  GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS
+);
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
@@ -136,6 +146,47 @@ const normalizeCreditNodeType = (value: string): CreditNodeType => {
   }
 };
 
+const inferNanoImageNodeType = (
+  metadata: NodeConfigMetadata | undefined,
+  data: NodeData,
+  defaultData: Record<string, any> | undefined
+): CreditNodeType => {
+  const explicitType = normalizeCreditNodeType(
+    metadata?.flowNodeType || metadata?.type || data.nodeConfigKey || ""
+  );
+  if (explicitType === "gptImage2") return "gptImage2";
+
+  const candidateValues = [
+    data.nodeConfigKey,
+    data.nodeConfigNameZh,
+    data.nodeConfigNameEn,
+    data.managedModelKey,
+    data.model,
+    metadata?.model,
+    metadata?.flowNodeType,
+    metadata?.type,
+    metadata?.provider,
+    defaultData?.model,
+    defaultData?.modelProvider,
+  ];
+
+  const normalized = candidateValues
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase());
+
+  const isGptImage2 = normalized.some((value) =>
+    value === "gptimage2" ||
+    value === "gpt2" ||
+    value === "gpt-image-2" ||
+    value === "gpt image 2" ||
+    value === "gpt 2" ||
+    value.includes("gpt2") ||
+    value.includes("gptimage2") ||
+    value.includes("gpt-image-2")
+  );
+  return isGptImage2 ? "gptImage2" : explicitType;
+};
+
 function Nano2NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
@@ -152,9 +203,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
   const titleZh = data.nodeConfigNameZh || "Nano2";
   const titleEn = data.nodeConfigNameEn || "Nano2";
-  const resolvedNodeType = normalizeCreditNodeType(
-    metadata?.flowNodeType || metadata?.type || data.nodeConfigKey || "nano2"
-  );
+  const resolvedNodeType = inferNanoImageNodeType(metadata, data, defaultData);
   const resolvedProvider =
     data.modelProvider ||
     metadata?.provider ||
@@ -166,11 +215,17 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     return fromMeta.length > 0 ? fromMeta : DEFAULT_ASPECT_RATIOS;
   }, [metadata?.aspectRatios]);
   const resolutionOptions = React.useMemo(() => {
+    if (resolvedNodeType === "gptImage2") {
+      return ["1K", "2K", "4K"];
+    }
     const fromMeta = toStringList(metadata?.resolutions);
     return fromMeta.length > 0 ? fromMeta : DEFAULT_RESOLUTIONS;
-  }, [metadata?.resolutions]);
+  }, [metadata?.resolutions, resolvedNodeType]);
 
-  const showResolutionSelector = resolveBool(metadata?.showResolutionSelector, true);
+  const showResolutionSelector =
+    resolvedNodeType === "gptImage2"
+      ? true
+      : resolveBool(metadata?.showResolutionSelector, true);
   const showGoogleSearch = resolveBool(metadata?.showGoogleSearch, true);
   const showGoogleImageSearch = resolveBool(metadata?.showGoogleImageSearch, true);
   const maxReferenceImages = React.useMemo(() => {
@@ -191,6 +246,31 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     (typeof defaultData?.resolution === "string" ? defaultData.resolution : "") ||
     resolutionOptions[0] ||
     "1K";
+  const isGptImage2Node = resolvedNodeType === "gptImage2";
+  const normalizedResolutionValue =
+    typeof resolutionValue === "string" ? resolutionValue.trim().toUpperCase() : "";
+  const isGptImage24K =
+    isGptImage2Node &&
+    normalizedResolutionValue === "4K";
+  const resolvedAspectRatioOptions = React.useMemo(() => {
+    if (!isGptImage24K) return aspectRatioOptions;
+    const filtered = aspectRatioOptions.filter((ratio) =>
+      GPT_IMAGE_2_4K_ASPECT_RATIO_SET.has(ratio)
+    );
+    return filtered.length > 0
+      ? filtered
+      : [...GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS];
+  }, [aspectRatioOptions, isGptImage24K]);
+  const aspectRatioSelectOptions = React.useMemo(() => {
+    const base = resolvedAspectRatioOptions.map((ratio) => ({
+      value: ratio,
+      label: ratio,
+    }));
+    if (!isGptImage2Node && !isGptImage24K) {
+      return [{ value: "", label: lt("自动", "Auto") }, ...base];
+    }
+    return base;
+  }, [isGptImage24K, isGptImage2Node, lt, resolvedAspectRatioOptions]);
   const googleSearchValue =
     typeof data.googleSearch === "boolean"
       ? data.googleSearch
@@ -215,6 +295,8 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
+  const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
+  const [resolutionMenuOpen, setResolutionMenuOpen] = React.useState(false);
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -286,14 +368,75 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
   const updateResolution = React.useCallback(
     (value: string) => {
+      const patch: Record<string, unknown> = { resolution: value };
+      const normalizedResolution =
+        typeof value === "string" ? value.trim().toUpperCase() : "";
+      if (resolvedNodeType === "gptImage2" && normalizedResolution === "4K") {
+        const currentAspectRatio =
+          typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
+        if (!GPT_IMAGE_2_4K_ASPECT_RATIO_SET.has(currentAspectRatio)) {
+          patch.aspectRatio = GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS[0];
+        }
+      }
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
-          detail: { id, patch: { resolution: value } },
+          detail: { id, patch },
         })
       );
     },
-    [id]
+    [aspectRatioValue, id, resolvedNodeType]
   );
+
+  React.useEffect(() => {
+    if (!isGptImage24K) return;
+    const currentAspectRatio =
+      typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
+    if (GPT_IMAGE_2_4K_ASPECT_RATIO_SET.has(currentAspectRatio)) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: { aspectRatio: GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS[0] },
+        },
+      })
+    );
+  }, [aspectRatioValue, id, isGptImage24K]);
+
+  React.useEffect(() => {
+    if (!isGptImage2Node) return;
+    if (normalizedResolutionValue === "1K" || normalizedResolutionValue === "2K" || normalizedResolutionValue === "4K") {
+      return;
+    }
+    const fallbackResolution =
+      resolutionOptions.find((value) => {
+        const normalized = value.trim().toUpperCase();
+        return normalized === "1K" || normalized === "2K" || normalized === "4K";
+      }) || "1K";
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: { resolution: fallbackResolution },
+        },
+      })
+    );
+  }, [id, isGptImage2Node, normalizedResolutionValue, resolutionOptions]);
+
+  React.useEffect(() => {
+    if (!isGptImage2Node) return;
+    const currentAspectRatio =
+      typeof aspectRatioValue === "string" ? aspectRatioValue.trim() : "";
+    if (currentAspectRatio) return;
+    const fallbackAspectRatio = resolvedAspectRatioOptions[0] || "1:1";
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: { aspectRatio: fallbackAspectRatio },
+        },
+      })
+    );
+  }, [aspectRatioValue, id, isGptImage2Node, resolvedAspectRatioOptions]);
 
   const updateGoogleSearch = React.useCallback(
     (value: boolean) => {
@@ -362,6 +505,57 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
+
+  React.useEffect(() => {
+    const handleGlobalMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest?.(".video-dropdown")) {
+        setAspectMenuOpen(false);
+        setResolutionMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleGlobalMouseDown);
+    return () => window.removeEventListener("mousedown", handleGlobalMouseDown);
+  }, []);
+
+  const currentAspectLabel = React.useMemo(() => {
+    const current = aspectRatioSelectOptions.find((option) => option.value === aspectRatioValue);
+    return current?.label || aspectRatioValue || lt("自动", "Auto");
+  }, [aspectRatioSelectOptions, aspectRatioValue, lt]);
+
+  const currentResolutionLabel = React.useMemo(() => {
+    const current = resolutionOptions.find(
+      (option) => option.trim().toUpperCase() === normalizedResolutionValue
+    );
+    return current || resolutionValue || "1K";
+  }, [normalizedResolutionValue, resolutionOptions, resolutionValue]);
+  const getDropdownItemStyle = React.useCallback(
+    (isActive: boolean): React.CSSProperties => {
+      if (isFlowDark) {
+        return {
+          padding: "6px 10px",
+          borderRadius: 8,
+          border: `1px solid ${isActive ? "#6b7280" : "#4b5563"}`,
+          background: isActive ? "#5b5b5b" : "#2f3136",
+          color: "#f3f4f6",
+          fontSize: 12,
+          textAlign: "left",
+          cursor: "pointer",
+        };
+      }
+      return {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+        background: isActive ? "#eff6ff" : "#fff",
+        color: isActive ? "#1d4ed8" : "#111827",
+        fontSize: 12,
+        textAlign: "left",
+        cursor: "pointer",
+      };
+    },
+    [isFlowDark]
+  );
 
   return (
     <div
@@ -446,10 +640,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         <input
           value={presetPromptValue}
           onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder={lt(
-            "生成时自动拼接在提示词前",
-            "Auto-prepended before the prompt during generation"
-          )}
+          placeholder={lt("生成时自动拼接在提示词前", "Auto-prepended before the prompt during generation")}
           style={{
             width: "100%",
             fontSize: 12,
@@ -465,53 +656,152 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           onMouseDown={stopNodeDrag}
         />
         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-          {lt(
-            "会在 TextPrompt 输入前自动添加",
-            "Will be automatically added before TextPrompt input"
-          )}
+          {lt("会在 TextPrompt 输入前自动添加", "Will be automatically added before TextPrompt input")}
         </div>
       </div>
 
-      <div style={{ marginBottom: 6 }}>
+      <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
           {lt("宽高比", "Aspect ratio")}
         </label>
-        <select
-          value={aspectRatioValue}
-          onChange={(event) => updateAspectRatio(event.target.value)}
-          style={{
-            width: "100%",
-            fontSize: 12,
-            padding: "4px 6px",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            outline: "none",
-            background: "#fff",
+        <button
+          type='button'
+          onClick={(event) => {
+            event.stopPropagation();
+            setResolutionMenuOpen(false);
+            setAspectMenuOpen((open) => !open);
           }}
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            background: "#fff",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+          title={lt("选择宽高比", "Select aspect ratio")}
         >
-          <option value="">{lt("自动", "Auto")}</option>
-          {aspectRatioOptions.map((ratio) => (
-            <option key={ratio} value={ratio}>
-              {ratio}
-            </option>
-          ))}
-        </select>
+          <span>{currentAspectLabel}</span>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>{aspectMenuOpen ? "▴" : "▾"}</span>
+        </button>
+        {aspectMenuOpen && (
+          <div
+            className='video-dropdown-menu'
+            onClick={(event) => event.stopPropagation()}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              position: "absolute",
+              zIndex: 20,
+              top: "calc(100% + 4px)",
+              left: 0,
+              right: 0,
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              borderRadius: 8,
+              padding: 8,
+              boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {aspectRatioSelectOptions.map((option) => {
+                const isActive = option.value === aspectRatioValue;
+                return (
+                  <button
+                    key={option.value || "auto"}
+                    type='button'
+                    onClick={() => {
+                      updateAspectRatio(option.value);
+                      setAspectMenuOpen(false);
+                    }}
+                    style={getDropdownItemStyle(isActive)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {showResolutionSelector && resolutionOptions.length > 0 ? (
-        <div style={{ marginBottom: 6 }}>
+        <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
             {lt("分辨率", "Resolution")}
           </label>
-          <NodeSelect
-            value={resolutionValue}
-            options={resolutionOptions.map((value) => ({ value, label: value }))}
-            onChange={updateResolution}
-            menuLabel={lt("分辨率", "Resolution")}
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setAspectMenuOpen(false);
+              setResolutionMenuOpen((open) => !open);
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
             title={lt("选择分辨率", "Select resolution")}
-          />
+          >
+            <span>{currentResolutionLabel}</span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>{resolutionMenuOpen ? "▴" : "▾"}</span>
+          </button>
+          {resolutionMenuOpen && (
+            <div
+              className='video-dropdown-menu'
+              onClick={(event) => event.stopPropagation()}
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {resolutionOptions.map((option) => {
+                  const normalizedOption = option.trim().toUpperCase();
+                  const isActive = normalizedOption === normalizedResolutionValue;
+                  return (
+                    <button
+                      key={option}
+                      type='button'
+                      onClick={() => {
+                        updateResolution(option);
+                        setResolutionMenuOpen(false);
+                      }}
+                      style={getDropdownItemStyle(isActive)}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 

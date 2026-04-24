@@ -16346,6 +16346,18 @@ function FlowInner() {
             const raw = nodeData?.aspectRatio ?? defaultData?.aspectRatio;
             return typeof raw === "string" && raw.trim().length ? raw.trim() : undefined;
           })();
+          const nano2Resolution = (() => {
+            const raw = nodeData?.resolution ?? defaultData?.resolution;
+            if (typeof raw !== "string") return "1K";
+            const normalized = raw.trim().toUpperCase();
+            return normalized || "1K";
+          })();
+          const gptImage2OfficialFallback =
+            typeof nodeData?.officialFallback === "boolean"
+              ? nodeData.officialFallback
+              : typeof defaultData?.officialFallback === "boolean"
+              ? defaultData.officialFallback
+              : true;
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
@@ -16357,9 +16369,14 @@ function FlowInner() {
             },
             aspectRatio: nano2AspectRatio,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
+            imageSize: nano2Resolution,
+            ...(node.type === "gptImage2"
+              ? {
+                  officialFallback: gptImage2OfficialFallback,
+                }
+              : {}),
             ...(node.type !== "gptImage2"
               ? {
-                  imageSize: nodeData?.resolution || defaultData?.resolution || "1K",
                   googleSearch:
                     typeof nodeData?.googleSearch === "boolean"
                       ? nodeData.googleSearch

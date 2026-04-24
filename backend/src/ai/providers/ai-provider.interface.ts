@@ -98,6 +98,7 @@ export interface ImageGenerationRequest {
   googleImageSearch?: boolean;
   batchMode?: boolean;
   batchCount?: number;
+  officialFallback?: boolean;
 }
 
 export interface ImageEditRequest {
