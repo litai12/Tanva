@@ -51,10 +51,14 @@ export class Nano2Provider implements IAIProvider {
       n: 1,
       image_urls: request.imageUrls || request.image_urls,
       resolution: normalizedResolution,
-      official_fallback:
-        typeof request.officialFallback === 'boolean'
-          ? request.officialFallback
-          : true,
+      ...(isGptImage2Model
+        ? {
+            official_fallback:
+              typeof request.officialFallback === 'boolean'
+                ? request.officialFallback
+                : false,
+          }
+        : {}),
       ...(!isGptImage2Model
         ? {
             google_search: request.googleSearch,

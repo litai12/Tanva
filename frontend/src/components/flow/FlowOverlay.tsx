@@ -16357,7 +16357,7 @@ function FlowInner() {
               ? nodeData.officialFallback
               : typeof defaultData?.officialFallback === "boolean"
               ? defaultData.officialFallback
-              : true;
+              : false;
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",

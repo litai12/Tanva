@@ -54,5 +54,5 @@
 - Banana/Apimart 文本与图像：`BANANA_API_KEY`�?47）、`NANO2_API_KEY`（Apimart�?
 
 ## 2026-04-24 Update
-- Nano2/GPT-Image-2 request passthrough now supports `official_fallback` boolean; backend defaults this flag to `true` for `gpt-image-2` route when frontend does not specify it.
+- Nano2/GPT-Image-2 request passthrough supports `official_fallback` boolean; backend default fallback for `gpt-image-2` is now `false` when frontend does not specify it.
 - Backend node default metadata for `gptImage2` now exposes `resolutions: [1K,2K,4K]` and enables `showResolutionSelector`.

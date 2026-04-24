@@ -542,3 +542,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Backend/Frontend default node config metadata for `gptImage2` updated to enable resolution selector and carry default `officialFallback=true`.
 - Frontend `gptImage2` now hard-fixes resolution options to `1K/2K/4K` (ignores incomplete metadata subsets such as only `1K`) and uses video-node style dropdown menus for both aspect ratio and resolution.
 - Backend `nano2` provider now normalizes GPT-Image-2 `resolution` to APIMart-required lowercase values (`1k/2k/4k`) before upstream submission, preventing silent fallback to default 1k when frontend selects 2K/4K.
+- GPT-Image-2 `official_fallback` default changed to `false` across frontend fallback config, flow runtime fallback, backend node defaults, and nano2 provider request fallback.
