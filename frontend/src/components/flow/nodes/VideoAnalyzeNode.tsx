@@ -36,6 +36,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
+  const analyzeBananaImageRoute: "normal" | "stable" =
+    bananaImageRoute === "stable" ? "stable" : "normal";
   const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
 
   const { status, error } = data;
@@ -140,6 +143,12 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           videoUrl: effectiveVideoUrl,
           aiProvider,
           model: textModel,
+          providerOptions: {
+            banana: {
+              imageRoute: analyzeBananaImageRoute,
+            },
+            bananaImageRoute: analyzeBananaImageRoute,
+          },
         }),
       });
 
@@ -174,7 +183,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
+  }, [aiProvider, analyzeBananaImageRoute, data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {

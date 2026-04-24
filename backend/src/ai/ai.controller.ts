@@ -111,7 +111,7 @@ export class AiController {
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3-pro-preview',
+    banana: 'gemini-3-flash-preview',
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro-preview',
     runninghub: 'gemini-3.1-pro',
@@ -122,7 +122,7 @@ export class AiController {
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3-pro-image-preview',
+    banana: 'gemini-3-flash-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'gemini-3.1-pro',
@@ -2233,15 +2233,16 @@ export class AiController {
           });
 
           const provider = this.factory.getProvider(normalizedModel, providerName);
-          const result = await provider.selectTool({
-            prompt: dto.prompt,
-            availableTools,
-            hasImages: dto.hasImages,
-            imageCount: dto.imageCount,
-            hasCachedImage: dto.hasCachedImage,
-            context: dto.context,
-            model: normalizedModel,
-          });
+        const result = await provider.selectTool({
+          prompt: dto.prompt,
+          availableTools,
+          hasImages: dto.hasImages,
+          imageCount: dto.imageCount,
+          hasCachedImage: dto.hasCachedImage,
+          context: dto.context,
+          model: normalizedModel,
+          providerOptions: (dto as any).providerOptions,
+        });
 
           if (result.success && result.data) {
             const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
@@ -5112,10 +5113,23 @@ export class AiController {
       let stage = 'download_video';
 
       try {
-        // 147(Banana) 直接视频理解：优先走 /v1/chat/completions + image_url=videoUrl，不需要先下载视频
-        // 若失败（不支持该 URL/格式/模型），再降级到抽帧方案（需要下载+ffmpeg）。
+        // 147(Banana) direct video understanding is only used on legacy 147 text route.
+        // For normal/stable routes, always use the unified frame-based pipeline so routing
+        // follows providerOptions + backend supplier settings consistently.
+        const bananaVideoMode =
+          providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
+            ? await this.getBananaImageProviderMode(dto.providerOptions)
+            : null;
+        const allow147DirectVideoUnderstanding =
+          bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
+
         if (providerName && providerName !== 'gemini-pro') {
-          if (providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1') {
+          if (
+            (providerName === 'banana' ||
+              providerName === 'banana-2.5' ||
+              providerName === 'banana-3.1') &&
+            allow147DirectVideoUnderstanding
+          ) {
             stage = 'direct_video_understanding';
             try {
               const analysisText = await this.analyzeVideoVia147ChatCompletions({

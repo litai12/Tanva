@@ -1,4 +1,4 @@
-import {
+﻿import {
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -37,13 +37,13 @@ const DEFAULT_TOOLS = [
 ] as const;
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
-  generateImage: "生成新的图像",
-  editImage: "编辑现有图像",
-  blendImages: "融合多张图像",
-  analyzeImage: "分析图像内容",
-  chatResponse: "文本对话或聊天",
-  generateVideo: "生成视频",
-  generatePaperJS: "生成 Paper.js 矢量图形代码",
+  generateImage: "Generate new images",
+  editImage: "Edit an existing image",
+  blendImages: "Blend multiple images",
+  analyzeImage: "Analyze image content",
+  chatResponse: "Text chat response",
+  generateVideo: "Generate videos",
+  generatePaperJS: "Generate Paper.js vector code",
 };
 
 const VECTOR_KEYWORDS = [
@@ -75,13 +75,14 @@ export type BananaTextProvider =
   | "auto"
   | "legacy_auto"
   | "apimart"
+  | "tencent"
   | "legacy";
 export const BANANA_TEXT_PROVIDER_SETTING_KEY = "banana_text_provider";
 
 /**
- * Banana API Provider - 使用HTTP直接调用Google Gemini API的代理
- * 文档: https://147api.apifox.cn/
- * API地址: https://147ai.com/v1beta/models
+ * Banana API Provider - 浣跨敤HTTP鐩存帴璋冪敤Google Gemini API鐨勪唬鐞?
+ * 鏂囨。: https://147api.apifox.cn/
+ * API鍦板潃: https://147ai.com/v1beta/models
  */
 @Injectable()
 export class BananaProvider implements IAIProvider {
@@ -92,24 +93,35 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartGenerateUrl = "https://api.apimart.ai/v1/images/generations";
   private readonly apimartTaskBaseUrl = "https://api.apimart.ai/v1/tasks";
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
+  private readonly tencentTextUrl =
+    "https://text-aigc.vod-qcloud.com/v1/chat/completions";
   private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
-  private readonly DEFAULT_TIMEOUT = 900000; // 15分钟
-  private readonly TEXT_TIMEOUT = 45000; // 文本接口更快失败，便于通道快速切换
+  private readonly DEFAULT_TENCENT_TEXT_MODEL = "gemini-3-flash-preview";
+  private readonly TENCENT_TEXT_FALLBACK_MODELS: Record<string, string> = {
+    "gemini-3-pro-preview": "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview": "gemini-3-flash-preview",
+    "gemini-3.1-pro": "gemini-3-flash-preview",
+    "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
+    "banana-gemini-3.1-pro-preview": "gemini-3-flash-preview",
+    "banana-gemini-3.1-pro": "gemini-3-flash-preview",
+  };
+  private readonly DEFAULT_TIMEOUT = 900000; // 15鍒嗛挓
+  private readonly TEXT_TIMEOUT = 45000; // 鏂囨湰鎺ュ彛鏇村揩澶辫触锛屼究浜庨€氶亾蹇€熷垏鎹?
   private readonly MAX_RETRIES = 3;
-  private readonly MAX_MODEL_ATTEMPTS = 3; // 主模型 + 两级降级（Ultra -> Pro -> Fast）
-  private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
+  private readonly MAX_MODEL_ATTEMPTS = 3; // 涓绘ā鍨?+ 涓ょ骇闄嶇骇锛圲ltra -> Pro -> Fast锛?
+  private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 閫掑寤惰繜: 2s, 5s, 10s
   private readonly APIMART_INITIAL_DELAY_MS = 8000;
   private readonly APIMART_POLL_INTERVAL_MS = 3000;
-  private readonly APIMART_POLL_MAX_ATTEMPTS = 300; // 3秒一次，约15分钟窗口
+  private readonly APIMART_POLL_MAX_ATTEMPTS = 300; // 3绉掍竴娆★紝绾?5鍒嗛挓绐楀彛
 
-  // 降级模型映射：优先同代/同能力降级，再降到更保守模型
+  // 闄嶇骇妯″瀷鏄犲皠锛氫紭鍏堝悓浠?鍚岃兘鍔涢檷绾э紝鍐嶉檷鍒版洿淇濆畧妯″瀷
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3.1-pro": "gemini-3-pro-image-preview",
     "banana-gemini-3.1-pro": "gemini-3-pro-image-preview",
-    "gemini-3.1-pro-preview": "gemini-3-pro-preview",
-    "banana-gemini-3.1-pro-preview": "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview": "gemini-3-flash-preview",
+    "banana-gemini-3.1-pro-preview": "gemini-3-flash-preview",
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
     "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
     "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
@@ -187,20 +199,47 @@ export class BananaProvider implements IAIProvider {
     return null;
   }
 
-  private mapUserBananaRouteToProvider(
-    route: BananaImageRoute
+  private normalizeImageProviderForNormalRoute(
+    mode: BananaImageProvider
   ): BananaImageProvider {
-    return route === "stable" ? "tencent" : "legacy";
+    if (mode === "legacy" || mode === "legacy_auto" || mode === "apimart") {
+      return mode;
+    }
+    if (mode === "auto") {
+      this.logger.warn(
+        "[Banana/Image] deprecated backend mode=auto ignored for normal route, fallback to apimart"
+      );
+      return "apimart";
+    }
+    if (mode === "tencent" || mode === "tencent_auto") {
+      this.logger.warn(
+        `[Banana/Image] deprecated backend mode=${mode} ignored for normal route, fallback to apimart`
+      );
+      return "apimart";
+    }
+    return "apimart";
+  }
+
+  private normalizeTextProviderForNormalRoute(
+    mode: BananaTextProvider
+  ): BananaTextProvider {
+    if (mode === "legacy" || mode === "legacy_auto" || mode === "apimart") {
+      return mode;
+    }
+    if (mode === "auto" || mode === "tencent") {
+      this.logger.warn(
+        `[Banana/Text] deprecated backend mode=${mode} ignored for normal route, fallback to apimart`
+      );
+      return "apimart";
+    }
+    return "apimart";
   }
 
   private async getConfiguredImageProvider(
     providerOptions?: ProviderOptionsPayload
   ): Promise<BananaImageProvider> {
     const userRoute = this.getUserBananaImageRoute(providerOptions);
-    if (userRoute) {
-      return this.mapUserBananaRouteToProvider(userRoute);
-    }
-
+    let configuredMode: BananaImageProvider = "auto";
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: BANANA_PROVIDER_SETTING_KEY },
@@ -211,41 +250,64 @@ export class BananaProvider implements IAIProvider {
           setting.value
         )
       ) {
-        return setting.value as BananaImageProvider;
+        configuredMode = setting.value as BananaImageProvider;
       }
     } catch (error) {
       this.logger.warn(
-        `读取 banana provider 设置失败: ${
+        `璇诲彇 banana provider 璁剧疆澶辫触: ${
           error instanceof Error ? error.message : error
         }`
       );
     }
-    return "auto";
+    if (userRoute === "stable") {
+      this.logger.log("[Banana/Image] userRoute=stable -> providerMode=tencent");
+      return "tencent";
+    }
+    if (userRoute === "normal") {
+      const normalMode = this.normalizeImageProviderForNormalRoute(configuredMode);
+      this.logger.log(
+        `[Banana/Image] userRoute=normal -> providerMode=${normalMode}`
+      );
+      return normalMode;
+    }
+    return configuredMode;
   }
 
-  private async getConfiguredTextProvider(): Promise<BananaTextProvider> {
+  private async getConfiguredTextProvider(
+    providerOptions?: ProviderOptionsPayload
+  ): Promise<BananaTextProvider> {
+    const userRoute = this.getUserBananaImageRoute(providerOptions);
+    let configuredMode: BananaTextProvider = "auto";
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: BANANA_TEXT_PROVIDER_SETTING_KEY },
       });
       if (
         setting &&
-        ["auto", "legacy_auto", "apimart", "legacy"].includes(setting.value)
+        ["auto", "legacy_auto", "apimart", "tencent", "legacy"].includes(
+          setting.value
+        )
       ) {
-        return setting.value as BananaTextProvider;
+        configuredMode = setting.value as BananaTextProvider;
       }
     } catch (error) {
       this.logger.warn(
-        `读取 banana text provider 设置失败: ${
+        `璇诲彇 banana text provider 璁剧疆澶辫触: ${
           error instanceof Error ? error.message : error
         }`
       );
     }
-    return "auto";
+    if (userRoute === "stable") {
+      return "tencent";
+    }
+    if (userRoute === "normal") {
+      return this.normalizeTextProviderForNormalRoute(configuredMode);
+    }
+    return configuredMode;
   }
 
   private normalizeModelName(model: string): string {
-    // 移除banana-前缀，确保API能识别模型名称
+    // 绉婚櫎banana-鍓嶇紑锛岀‘淇滱PI鑳借瘑鍒ā鍨嬪悕绉?
     // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
     return model.startsWith("banana-") ? model.substring(7) : model;
   }
@@ -268,6 +330,9 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeLegacyTextModel(model: string): string {
     const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-3-pro-preview") {
+      return "gemini-3-flash-preview";
+    }
     if (normalized.endsWith("-apimart")) {
       return normalized.slice(0, -"-apimart".length);
     }
@@ -276,6 +341,9 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeApimartTextModel(model: string): string {
     const normalized = this.normalizeModelName(model);
+    if (normalized === "gemini-3-pro-preview") {
+      return "gemini-3-flash-preview";
+    }
     if (normalized === "gemini-3.1-pro") {
       return this.DEFAULT_APIMART_TEXT_MODEL;
     }
@@ -291,10 +359,33 @@ export class BananaProvider implements IAIProvider {
     return normalized;
   }
 
+  private normalizeTencentTextModel(model: string): string {
+    const normalized = this.normalizeModelName(model);
+    if (
+      normalized === "gemini-3-pro-preview" ||
+      normalized === "gemini-3.1-pro-preview" ||
+      normalized === "gemini-3.1-pro"
+    ) {
+      return "gemini-3-flash-preview";
+    }
+    if (normalized.endsWith("-apimart")) {
+      return normalized.slice(0, -"-apimart".length);
+    }
+    if (!normalized || normalized === this.DEFAULT_TEXT_MODEL) {
+      return this.DEFAULT_TENCENT_TEXT_MODEL;
+    }
+    return normalized;
+  }
+
   private resolveTextModelForChannel(
     requestedModel: string | undefined,
-    channel: "legacy" | "apimart"
+    channel: "legacy" | "apimart" | "tencent"
   ): string {
+    if (channel === "tencent") {
+      return this.normalizeTencentTextModel(
+        requestedModel || this.DEFAULT_TENCENT_TEXT_MODEL
+      );
+    }
     if (channel === "apimart") {
       return this.normalizeApimartTextModel(
         requestedModel || this.DEFAULT_APIMART_TEXT_MODEL
@@ -312,11 +403,11 @@ export class BananaProvider implements IAIProvider {
   }
 
   /**
-   * 判断错误是否应该触发降级
-   * - 500系列服务器错误
-   * - 超时错误
-   * - 模型不可用错误
-   * - 速率限制错误
+   * 鍒ゆ柇閿欒鏄惁搴旇瑙﹀彂闄嶇骇
+   * - 500绯诲垪鏈嶅姟鍣ㄩ敊璇?
+   * - 瓒呮椂閿欒
+   * - 妯″瀷涓嶅彲鐢ㄩ敊璇?
+   * - 閫熺巼闄愬埗閿欒
    */
   private shouldFallback(error: Error): boolean {
     const message = error.message.toLowerCase();
@@ -357,18 +448,28 @@ export class BananaProvider implements IAIProvider {
 
   private mapAnalyzeErrorMessage(error: Error, currentModel: string): string {
     if (this.isModelUnavailableError(error)) {
-      return `147渠道当前分组未开通模型 ${currentModel}（model_not_found）。请检查147 API Key绑定分组，建议使用 banana 分组。`;
+      return `147 channel model is unavailable: ${currentModel} (model_not_found). Please check 147 API key and model access.`;
     }
     return error.message;
   }
 
   /**
-   * 获取降级模型
-   * 如果当前模型有对应的降级模型，返回降级模型名称
-   * 否则返回 null
+   * 鑾峰彇闄嶇骇妯″瀷
+   * 濡傛灉褰撳墠妯″瀷鏈夊搴旂殑闄嶇骇妯″瀷锛岃繑鍥為檷绾фā鍨嬪悕绉?
+   * 鍚﹀垯杩斿洖 null
    */
-  private getFallbackModel(currentModel: string): string | null {
+  private getFallbackModel(
+    currentModel: string,
+    channel?: "legacy" | "apimart" | "tencent"
+  ): string | null {
     const normalized = this.normalizeModelName(currentModel);
+    if (channel === "tencent") {
+      const tencentFallback =
+        this.TENCENT_TEXT_FALLBACK_MODELS[normalized] ||
+        this.TENCENT_TEXT_FALLBACK_MODELS[currentModel];
+      if (tencentFallback) return tencentFallback;
+      return null;
+    }
     return (
       this.FALLBACK_MODELS[normalized] ||
       this.FALLBACK_MODELS[currentModel] ||
@@ -383,7 +484,7 @@ export class BananaProvider implements IAIProvider {
       { prefix: "R0lGOD", mime: "image/gif" },
       { prefix: "UklGR", mime: "image/webp" },
       { prefix: "Qk", mime: "image/bmp" },
-      { prefix: "JVBERi", mime: "application/pdf" }, // PDF 文件 (%PDF-)
+      { prefix: "JVBERi", mime: "application/pdf" }, // PDF 鏂囦欢 (%PDF-)
     ];
 
     const head = data.substring(0, 20);
@@ -406,7 +507,7 @@ export class BananaProvider implements IAIProvider {
 
     let trimmed = fileInput.trim();
 
-    // 🔥 拒绝无效的 MIME 类型（如 text/html）
+    // 馃敟 鎷掔粷鏃犳晥鐨?MIME 绫诲瀷锛堝 text/html锛?
     const invalidMimeTypes = [
       "data:text/html",
       "data:text/plain",
@@ -425,15 +526,15 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 添加调试日志
+    // 娣诲姞璋冭瘯鏃ュ織
     this.logger.debug(
       `[normalizeFileInputAsync] ${context}: input length=${
         trimmed.length
       }, starts with: ${trimmed.substring(0, 80)}...`
     );
 
-    // 🔥 修复：处理前端错误格式 data:image/xxx;base64,https://...
-    // 前端可能错误地将 URL 包装成 data URL 格式
+    // 馃敟 淇锛氬鐞嗗墠绔敊璇牸寮?data:image/xxx;base64,https://...
+    // 鍓嶇鍙兘閿欒鍦板皢 URL 鍖呰鎴?data URL 鏍煎紡
     const malformedDataUrlMatch = trimmed.match(
       /^data:image\/[\w.+-]+;base64,(https?:\/\/.+)$/i
     );
@@ -444,7 +545,7 @@ export class BananaProvider implements IAIProvider {
       trimmed = malformedDataUrlMatch[1];
     }
 
-    // 支持 HTTP/HTTPS URL - 自动下载并转换为 Base64
+    // 鏀寔 HTTP/HTTPS URL - 鑷姩涓嬭浇骞惰浆鎹负 Base64
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
       this.logger.log(
         `[normalizeFileInputAsync] Fetching image from URL for ${context}: ${trimmed.substring(
@@ -466,7 +567,7 @@ export class BananaProvider implements IAIProvider {
         const contentType = response.headers.get("content-type") || "image/png";
         const mimeType = contentType.split(";")[0].trim().toLowerCase();
 
-        // 🔥 验证返回的内容类型是图片
+        // 馃敟 楠岃瘉杩斿洖鐨勫唴瀹圭被鍨嬫槸鍥剧墖
         const invalidContentTypes = [
           "text/html",
           "text/plain",
@@ -504,7 +605,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 支持 data:image/* 和 data:application/pdf 格式
+    // 鏀寔 data:image/* 鍜?data:application/pdf 鏍煎紡
     if (
       trimmed.startsWith("data:image/") ||
       trimmed.startsWith("data:application/pdf")
@@ -566,7 +667,7 @@ export class BananaProvider implements IAIProvider {
 
         const canRetry = attempt < maxRetries && (shouldRetry ? shouldRetry(lastError, attempt) : true);
         if (canRetry) {
-          // 使用递增延迟
+          // 浣跨敤閫掑寤惰繜
           const delay =
             this.RETRY_DELAYS[attempt - 1] ||
             this.RETRY_DELAYS[this.RETRY_DELAYS.length - 1];
@@ -617,7 +718,7 @@ export class BananaProvider implements IAIProvider {
   }
 
   private buildContents(input: any): Array<{ role: string; parts: any[] }> {
-    // 已经是完整的 content 结构时直接返回
+    // 宸茬粡鏄畬鏁寸殑 content 缁撴瀯鏃剁洿鎺ヨ繑鍥?
     if (Array.isArray(input)) {
       const allContentObjects = input.every(
         (item) =>
@@ -674,7 +775,7 @@ export class BananaProvider implements IAIProvider {
   }
 
   private sanitizeApiKey(apiKey: string): string {
-    // 147 API 要求直接使用 sk- 开头的密钥，如果误带 Bearer 则去掉
+    // 147 API 瑕佹眰鐩存帴浣跨敤 sk- 寮€澶寸殑瀵嗛挜锛屽鏋滆甯?Bearer 鍒欏幓鎺?
     return apiKey.replace(/^Bearer\s+/i, "").trim();
   }
 
@@ -689,7 +790,7 @@ export class BananaProvider implements IAIProvider {
         const upper = raw.toUpperCase();
         if (upper === "TEXT" || upper === "IMAGE")
           return upper as "TEXT" | "IMAGE";
-        // 兼容旧写法：Text/Image
+        // 鍏煎鏃у啓娉曪細Text/Image
         if (raw === "Text") return "TEXT";
         if (raw === "Image") return "IMAGE";
         this.logger.warn(
@@ -705,14 +806,14 @@ export class BananaProvider implements IAIProvider {
 
   private supportsImageSize(model: string): boolean {
     const normalized = this.normalizeModelName(model);
-    // 经验：gemini-2.5-flash-image 在 147 API 上不支持 imageSize（会触发 400 invalid argument）
-    // gemini-3 / imagen-3 系列通常支持 imageSize
+    // 缁忛獙锛歡emini-2.5-flash-image 鍦?147 API 涓婁笉鏀寔 imageSize锛堜細瑙﹀彂 400 invalid argument锛?
+    // gemini-3 / imagen-3 绯诲垪閫氬父鏀寔 imageSize
     return normalized.startsWith("gemini-3") || normalized.startsWith("imagen-3");
   }
 
   private supportsThinkingLevel(model: string): boolean {
     const normalized = this.normalizeModelName(model);
-    // thinking_level 属于 Gemini 3 特性
+    // thinking_level 灞炰簬 Gemini 3 鐗规€?
     return normalized.startsWith("gemini-3");
   }
 
@@ -729,15 +830,15 @@ export class BananaProvider implements IAIProvider {
       "Content-Type": "application/json",
     };
 
-    // 构建请求体，更好地支持Gemini API格式
-    // 147 API 可能不支持 safetySettings，暂时移除
+    // 鏋勫缓璇锋眰浣擄紝鏇村ソ鍦版敮鎸丟emini API鏍煎紡
+    // 147 API 鍙兘涓嶆敮鎸?safetySettings锛屾殏鏃剁Щ闄?
     const body: any = {
       contents: this.buildContents(contents),
     };
 
-    // 添加生成配置
+    // 娣诲姞鐢熸垚閰嶇疆
     if (config) {
-      // 构建 generationConfig（包含 responseModalities, imageConfig, thinking_level）
+      // 鏋勫缓 generationConfig锛堝寘鍚?responseModalities, imageConfig, thinking_level锛?
       const generationConfig: any = {};
 
       if (config.responseModalities) {
@@ -752,7 +853,7 @@ export class BananaProvider implements IAIProvider {
       if (config.imageConfig) {
         const imageConfig: Record<string, any> = { ...config.imageConfig };
 
-        // 兼容：147 的 gemini-2.5-flash-image 不支持 imageSize 参数，避免直接 400
+        // 鍏煎锛?47 鐨?gemini-2.5-flash-image 涓嶆敮鎸?imageSize 鍙傛暟锛岄伩鍏嶇洿鎺?400
         if (!this.supportsImageSize(model) && "imageSize" in imageConfig) {
           this.logger.warn(
             `[BananaProvider] Dropping unsupported imageSize for model ${model}`
@@ -775,7 +876,7 @@ export class BananaProvider implements IAIProvider {
         }
       }
 
-      // 只有在有内容时才添加 generationConfig
+      // 鍙湁鍦ㄦ湁鍐呭鏃舵墠娣诲姞 generationConfig
       if (Object.keys(generationConfig).length > 0) {
         body.generationConfig = generationConfig;
       }
@@ -785,7 +886,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 🔍 详细调试日志：请求URL
+    // 馃攳 璇︾粏璋冭瘯鏃ュ織锛氳姹俇RL
     this.logger.debug(`Making request to ${url}`);
 
     const response = await fetch(url, {
@@ -838,17 +939,17 @@ export class BananaProvider implements IAIProvider {
         } chars, has image: ${!!imageBytes}`
       );
 
-      // 🔍 检查返回图片的实际分辨率
+      // 馃攳 妫€鏌ヨ繑鍥炲浘鐗囩殑瀹為檯鍒嗚鲸鐜?
       if (imageBytes) {
         try {
           const sharp = require("sharp");
           const buffer = Buffer.from(imageBytes, "base64");
           const metadata = await sharp(buffer).metadata();
           this.logger.log(
-            `📐 [Image Resolution] ${operationType}: ${metadata.width}x${metadata.height} pixels`
+            `馃搻 [Image Resolution] ${operationType}: ${metadata.width}x${metadata.height} pixels`
           );
         } catch (err) {
-          this.logger.warn(`⚠️ Failed to read image dimensions: ${err}`);
+          this.logger.warn(`鈿狅笍 Failed to read image dimensions: ${err}`);
         }
       }
 
@@ -1023,12 +1124,87 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
+  private getTencentTextApiKey(): string {
+    const candidates = [
+      this.config.get<string>("TENCENT_VOD_AIGC_API_TOKEN"),
+      this.config.get<string>("TENCENT_VOD_TEXT_API_TOKEN"),
+      this.config.get<string>("TENCENT_VOD_TEXT_API_KEY"),
+      this.config.get<string>("TENCENT_VOD_API_TOKEN"),
+    ];
+    for (const candidate of candidates) {
+      const value = typeof candidate === "string" ? candidate.trim() : "";
+      if (value) return value;
+    }
+    throw new ServiceUnavailableException(
+      "Tencent text token not configured (set TENCENT_VOD_AIGC_API_TOKEN or TENCENT_VOD_TEXT_API_TOKEN)."
+    );
+  }
+
+  private async makeTencentTextRequest(
+    model: string,
+    contents: any,
+    _config?: any
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    const apiKey = this.getTencentTextApiKey();
+    const payload = {
+      model,
+      stream: false,
+      messages: this.buildApimartChatMessages(contents),
+    };
+
+    this.logger.log(
+      `[Banana/Tencent/Text] request start model=${model}, messages=${payload.messages.length}`
+    );
+    const response = await fetch(this.tencentTextUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text();
+    let parsed: any = null;
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok) {
+      const message =
+        parsed?.error?.message ||
+        parsed?.message ||
+        rawText ||
+        `HTTP ${response.status}`;
+      throw new Error(
+        `Tencent text request failed: ${response.status} ${response.statusText} - ${message}`
+      );
+    }
+
+    const data = parsed?.data ?? parsed;
+    const textResponse = this.extractTextFromApimartMessageContent(
+      data?.choices?.[0]?.message?.content
+    );
+    if (!textResponse) {
+      throw new Error("Tencent text response was empty");
+    }
+    return {
+      imageBytes: null,
+      textResponse,
+    };
+  }
+
   private async makeTextRequest(
     model: string,
     contents: any,
     config: any,
-    channel: "legacy" | "apimart"
+    channel: "legacy" | "apimart" | "tencent"
   ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    if (channel === "tencent") {
+      return this.makeTencentTextRequest(model, contents, config);
+    }
     if (channel === "apimart") {
       return this.makeApimartTextRequest(model, contents, config);
     }
@@ -1575,7 +1751,7 @@ export class BananaProvider implements IAIProvider {
     let currentModel = originalModel;
     let usedFallback = false;
 
-    // 尝试使用主模型，失败后降级
+    // 灏濊瘯浣跨敤涓绘ā鍨嬶紝澶辫触鍚庨檷绾?
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
@@ -1591,20 +1767,20 @@ export class BananaProvider implements IAIProvider {
                   : ["Text", "Image"],
               };
 
-              // 配置 imageConfig（aspectRatio 和 imageSize）
+              // 閰嶇疆 imageConfig锛坅spectRatio 鍜?imageSize锛?
               if (request.aspectRatio || request.imageSize) {
                 config.imageConfig = {};
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
-                  // 不需要转换，直接使用原始值
+                  // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
+                  // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
                   config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
-              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              // 閰嶇疆 thinking_level锛圙emini 3 鐗规€э紝闄嶇骇鍚庝笉浣跨敤锛?
               if (request.thinkingLevel && !usedFallback) {
                 config.thinking_level = request.thinkingLevel;
               }
@@ -1626,7 +1802,7 @@ export class BananaProvider implements IAIProvider {
 
         if (usedFallback) {
           this.logger.log(
-            `🔄 [FALLBACK SUCCESS] Image generation succeeded with fallback model: ${currentModel}`
+            `馃攧 [FALLBACK SUCCESS] Image generation succeeded with fallback model: ${currentModel}`
           );
         }
 
@@ -1661,20 +1837,20 @@ export class BananaProvider implements IAIProvider {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
-        // 检查是否应该降级
+        // 妫€鏌ユ槸鍚﹀簲璇ラ檷绾?
         if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
-              `⚠️ [FALLBACK] Image generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              `鈿狅笍 [FALLBACK] Image generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
             currentModel = fallbackModel;
             usedFallback = true;
-            continue; // 重试使用降级模型
+            continue; // 閲嶈瘯浣跨敤闄嶇骇妯″瀷
           }
         }
 
-        // 无法降级或降级后仍然失败
+        // 鏃犳硶闄嶇骇鎴栭檷绾у悗浠嶇劧澶辫触
         this.logger.error("Image generation failed:", error);
         return {
           success: false,
@@ -1687,7 +1863,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 不应该到达这里，但为了类型安全
+    // 涓嶅簲璇ュ埌杈捐繖閲岋紝浣嗕负浜嗙被鍨嬪畨鍏?
     return {
       success: false,
       error: {
@@ -1804,7 +1980,7 @@ export class BananaProvider implements IAIProvider {
   private async editImageViaLegacy(
     request: ImageEditRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    // 使用异步版本支持 HTTP URL
+    // 浣跨敤寮傛鐗堟湰鏀寔 HTTP URL
     const { data: imageData, mimeType } = await this.normalizeFileInputAsync(
       request.sourceImage,
       "edit"
@@ -1815,7 +1991,7 @@ export class BananaProvider implements IAIProvider {
     let currentModel = originalModel;
     let usedFallback = false;
 
-    // 尝试使用主模型，失败后降级
+    // 灏濊瘯浣跨敤涓绘ā鍨嬶紝澶辫触鍚庨檷绾?
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
@@ -1831,20 +2007,20 @@ export class BananaProvider implements IAIProvider {
                   : ["Text", "Image"],
               };
 
-              // 配置 imageConfig（aspectRatio 和 imageSize）
+              // 閰嶇疆 imageConfig锛坅spectRatio 鍜?imageSize锛?
               if (request.aspectRatio || request.imageSize) {
                 config.imageConfig = {};
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
-                  // 不需要转换，直接使用原始值
+                  // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
+                  // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
                   config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
-              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              // 閰嶇疆 thinking_level锛圙emini 3 鐗规€э紝闄嶇骇鍚庝笉浣跨敤锛?
               if (request.thinkingLevel && !usedFallback) {
                 config.thinking_level = request.thinkingLevel;
               }
@@ -1870,7 +2046,7 @@ export class BananaProvider implements IAIProvider {
 
         if (usedFallback) {
           this.logger.log(
-            `🔄 [FALLBACK SUCCESS] Image edit succeeded with fallback model: ${currentModel}`
+            `馃攧 [FALLBACK SUCCESS] Image edit succeeded with fallback model: ${currentModel}`
           );
         }
 
@@ -1892,20 +2068,20 @@ export class BananaProvider implements IAIProvider {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
-        // 检查是否应该降级
+        // 妫€鏌ユ槸鍚﹀簲璇ラ檷绾?
         if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
-              `⚠️ [FALLBACK] Image edit failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              `鈿狅笍 [FALLBACK] Image edit failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
             currentModel = fallbackModel;
             usedFallback = true;
-            continue; // 重试使用降级模型
+            continue; // 閲嶈瘯浣跨敤闄嶇骇妯″瀷
           }
         }
 
-        // 无法降级或降级后仍然失败
+        // 鏃犳硶闄嶇骇鎴栭檷绾у悗浠嶇劧澶辫触
         this.logger.error("Image edit failed:", error);
         return {
           success: false,
@@ -1918,7 +2094,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 不应该到达这里，但为了类型安全
+    // 涓嶅簲璇ュ埌杈捐繖閲岋紝浣嗕负浜嗙被鍨嬪畨鍏?
     return {
       success: false,
       error: {
@@ -2035,7 +2211,7 @@ export class BananaProvider implements IAIProvider {
   private async blendImagesViaLegacy(
     request: ImageBlendRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    // 使用异步版本支持 HTTP URL
+    // 浣跨敤寮傛鐗堟湰鏀寔 HTTP URL
     const normalizedImages = await Promise.all(
       request.sourceImages.map((imageData, index) =>
         this.normalizeFileInputAsync(imageData, `blend source #${index + 1}`)
@@ -2055,7 +2231,7 @@ export class BananaProvider implements IAIProvider {
     let currentModel = originalModel;
     let usedFallback = false;
 
-    // 尝试使用主模型，失败后降级
+    // 灏濊瘯浣跨敤涓绘ā鍨嬶紝澶辫触鍚庨檷绾?
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.debug(
@@ -2071,20 +2247,20 @@ export class BananaProvider implements IAIProvider {
                   : ["Text", "Image"],
               };
 
-              // 配置 imageConfig（aspectRatio 和 imageSize）
+              // 閰嶇疆 imageConfig锛坅spectRatio 鍜?imageSize锛?
               if (request.aspectRatio || request.imageSize) {
                 config.imageConfig = {};
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 根据官方文档，imageSize 必须是字符串 "0.5K"、"1K"、"2K" 或 "4K"（大写K）
-                  // 不需要转换，直接使用原始值
+                  // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
+                  // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
                   config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
-              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              // 閰嶇疆 thinking_level锛圙emini 3 鐗规€э紝闄嶇骇鍚庝笉浣跨敤锛?
               if (request.thinkingLevel && !usedFallback) {
                 config.thinking_level = request.thinkingLevel;
               }
@@ -2102,7 +2278,7 @@ export class BananaProvider implements IAIProvider {
 
         if (usedFallback) {
           this.logger.log(
-            `🔄 [FALLBACK SUCCESS] Image blend succeeded with fallback model: ${currentModel}`
+            `馃攧 [FALLBACK SUCCESS] Image blend succeeded with fallback model: ${currentModel}`
           );
         }
 
@@ -2124,20 +2300,20 @@ export class BananaProvider implements IAIProvider {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
-        // 检查是否应该降级
+        // 妫€鏌ユ槸鍚﹀簲璇ラ檷绾?
         if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
-              `⚠️ [FALLBACK] Image blend failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              `鈿狅笍 [FALLBACK] Image blend failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
             currentModel = fallbackModel;
             usedFallback = true;
-            continue; // 重试使用降级模型
+            continue; // 閲嶈瘯浣跨敤闄嶇骇妯″瀷
           }
         }
 
-        // 无法降级或降级后仍然失败
+        // 鏃犳硶闄嶇骇鎴栭檷绾у悗浠嶇劧澶辫触
         this.logger.error("Image blend failed:", error);
         return {
           success: false,
@@ -2150,7 +2326,7 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    // 不应该到达这里，但为了类型安全
+    // 涓嶅簲璇ュ埌杈捐繖閲岋紝浣嗕负浜嗙被鍨嬪畨鍏?
     return {
       success: false,
       error: {
@@ -2269,11 +2445,22 @@ export class BananaProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    const providerMode = await this.getConfiguredImageProvider(
+    const providerMode = await this.getConfiguredTextProvider(
       request.providerOptions
     );
+    const channel: "legacy" | "apimart" | "tencent" =
+      providerMode === "tencent"
+        ? "tencent"
+        : providerMode === "legacy"
+        ? "legacy"
+        : "apimart";
     this.logger.log(
-      `🔍 Analyzing file with Banana API... mode=${providerMode}`
+      `[Banana/Analyze] userRoute=${
+        this.getUserBananaImageRoute(request.providerOptions) || "normal"
+      } -> channel=${channel}`
+    );
+    this.logger.log(
+      `Analyzing file with Banana API... mode=${providerMode}, channel=${channel}`
     );
 
     try {
@@ -2296,59 +2483,60 @@ export class BananaProvider implements IAIProvider {
           },
         };
       }
-      if (providerMode === "tencent") {
-        return {
-          success: false,
-          error: {
-            code: "ANALYSIS_UNSUPPORTED_ON_TENCENT",
-            message:
-              "稳定通道（腾讯）当前暂不支持图片分析，请切换到普通通道后重试。",
-          },
-        };
-      }
 
-      if (providerMode === "tencent_auto") {
-        this.logger.warn(
-          "[Banana/Analyze] tencent_auto does not support analysis on Tencent, fallback to 147 legacy channel."
-        );
-      }
-      // 使用异步版本支持 HTTP URL
       const normalizedInputs = await Promise.all(
-        sourceInputs.map((source) => this.normalizeFileInputAsync(source, "analysis"))
+        sourceInputs.map((source) =>
+          this.normalizeFileInputAsync(source, "analysis")
+        )
       );
-      // 分析链路优先语言模型（3.1 Pro），并保留 2.5 Fast 显式请求能力
+
       const modelName = request.model?.trim() || "";
-      const isFastModel = modelName.includes("2.5") || modelName.includes("gemini-2.5");
-      const defaultModel = isFastModel ? "gemini-2.5-flash-image-preview" : "gemini-3.1-pro";
-      const originalModel = this.normalizeLegacyImageModel(modelName || defaultModel);
+      const isFastModel =
+        modelName.includes("2.5") || modelName.includes("gemini-2.5");
+      const defaultModel = isFastModel
+        ? "gemini-2.5-flash"
+        : "gemini-3.1-pro-preview";
+      const originalModel = this.resolveTextModelForChannel(
+        modelName || defaultModel,
+        channel
+      );
       let currentModel = originalModel;
       let usedFallback = false;
       const mimeSummary = normalizedInputs.map((item) => item.mimeType).join(", ");
       this.logger.log(
-        `📊 Analyze request: model=${currentModel}, files=${normalizedInputs.length}, mimeType=${mimeSummary}, mode=${providerMode}`
+        `Analyze request: model=${currentModel}, files=${normalizedInputs.length}, mimeType=${mimeSummary}, mode=${providerMode}`
       );
 
-      // 根据文件类型生成不同的提示词
-      const hasPdf = normalizedInputs.some((item) => item.mimeType === "application/pdf");
-      const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith("image/"));
+      const hasPdf = normalizedInputs.some(
+        (item) => item.mimeType === "application/pdf"
+      );
+      const hasImage = normalizedInputs.some((item) =>
+        item.mimeType.startsWith("image/")
+      );
       const fileTypeDesc =
-        normalizedInputs.length > 1 ? "files" : hasPdf && !hasImage ? "PDF document" : "image";
+        normalizedInputs.length > 1
+          ? "files"
+          : hasPdf && !hasImage
+          ? "PDF document"
+          : "image";
 
       const analysisPrompt = request.prompt
-        ? `请详细分析这张${fileTypeDesc}，请用中文输出分析结果：${request.prompt}`
-        : `请详细分析这张${fileTypeDesc}，请用中文输出分析结果`;
+        ? `请详细分析这份${fileTypeDesc}，请用中文输出分析结果：${request.prompt}`
+        : `请详细分析这份${fileTypeDesc}，请用中文输出分析结果`;
 
       for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
         try {
           this.logger.debug(
-            `[Banana/Analyze] using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+            `[Banana/Analyze] using model: ${currentModel}${
+              usedFallback ? " (fallback)" : ""
+            }, channel=${channel}`
           );
 
           const result = await this.withRetry(
             () =>
               this.withTimeout(
                 (async () => {
-                  return await this.makeRequest(
+                  return await this.makeTextRequest(
                     currentModel,
                     [
                       { text: analysisPrompt },
@@ -2359,7 +2547,8 @@ export class BananaProvider implements IAIProvider {
                         },
                       })),
                     ],
-                    {}
+                    {},
+                    channel
                   );
                 })(),
                 this.DEFAULT_TIMEOUT,
@@ -2373,11 +2562,11 @@ export class BananaProvider implements IAIProvider {
           );
 
           this.logger.log(
-            `✅ File analysis succeeded: ${result.textResponse.length} characters`
+            `File analysis succeeded: ${result.textResponse.length} characters`
           );
           if (usedFallback) {
             this.logger.log(
-              `🔄 [FALLBACK SUCCESS] File analysis succeeded with fallback model: ${currentModel}`
+              `[FALLBACK SUCCESS] File analysis succeeded with fallback model: ${currentModel}`
             );
           }
 
@@ -2390,22 +2579,26 @@ export class BananaProvider implements IAIProvider {
           };
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
-          const fallbackModel = this.getFallbackModel(currentModel);
+          const fallbackModel = this.getFallbackModel(currentModel, channel);
           if (
             fallbackModel &&
             fallbackModel !== currentModel &&
             !this.isModelUnavailableError(err) &&
             (this.isRateLimitedOrQuotaError(err) || this.shouldFallback(err))
           ) {
-            this.logger.warn(
-              `⚠️ [FALLBACK] File analysis failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            const nextModel = this.resolveTextModelForChannel(
+              fallbackModel,
+              channel
             );
-            currentModel = fallbackModel;
+            this.logger.warn(
+              `[FALLBACK] File analysis failed with ${currentModel}, falling back to ${nextModel}. Error: ${err.message}`
+            );
+            currentModel = nextModel;
             usedFallback = true;
             continue;
           }
 
-          this.logger.error("❌ File analysis failed:", error);
+          this.logger.error("File analysis failed:", error);
           return {
             success: false,
             error: {
@@ -2425,7 +2618,7 @@ export class BananaProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error("❌ File analysis failed:", error);
+      this.logger.error("File analysis failed:", error);
       return {
         success: false,
         error: {
@@ -2440,7 +2633,7 @@ export class BananaProvider implements IAIProvider {
 
   private async generateTextViaChannel(
     request: TextChatRequest,
-    channel: "legacy" | "apimart"
+    channel: "legacy" | "apimart" | "tencent"
   ): Promise<AIProviderResponse<TextResult>> {
     const originalModel = this.resolveTextModelForChannel(request.model, channel);
     let currentModel = originalModel;
@@ -2449,7 +2642,7 @@ export class BananaProvider implements IAIProvider {
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
-          `📝 [${channel}] Using model: ${currentModel}${
+          `馃摑 [${channel}] Using model: ${currentModel}${
             usedFallback ? " (fallback)" : ""
           }`
         );
@@ -2460,7 +2653,7 @@ export class BananaProvider implements IAIProvider {
 
         if (request.enableWebSearch && channel === "legacy") {
           apiConfig.tools = [{ googleSearch: {} }];
-          this.logger.log("🔍 Web search enabled");
+          this.logger.log("馃攳 Web search enabled");
         }
 
         const result = await this.withTimeout(
@@ -2478,11 +2671,11 @@ export class BananaProvider implements IAIProvider {
 
         if (usedFallback) {
           this.logger.log(
-            `🔄 [FALLBACK SUCCESS] Text generation succeeded with fallback model: ${currentModel}`
+            `馃攧 [FALLBACK SUCCESS] Text generation succeeded with fallback model: ${currentModel}`
           );
         } else {
           this.logger.log(
-            `✅ Text generation succeeded with ${result.textResponse.length} characters`
+            `鉁?Text generation succeeded with ${result.textResponse.length} characters`
           );
         }
 
@@ -2491,7 +2684,12 @@ export class BananaProvider implements IAIProvider {
           data: {
             text: result.textResponse,
             metadata: {
-              provider: channel === "apimart" ? "apimart" : "147",
+              provider:
+                channel === "apimart"
+                  ? "apimart"
+                  : channel === "tencent"
+                  ? "tencent"
+                  : "147",
               ...(usedFallback
                 ? {
                     fallbackUsed: true,
@@ -2507,7 +2705,7 @@ export class BananaProvider implements IAIProvider {
 
         if (this.isRateLimitedOrQuotaError(err)) {
           this.logger.warn(
-            `⚠️ [FAST-SWITCH] Text generation hit rate/quota limit on ${channel}: ${err.message}`
+            `鈿狅笍 [FAST-SWITCH] Text generation hit rate/quota limit on ${channel}: ${err.message}`
           );
           return {
             success: false,
@@ -2519,9 +2717,12 @@ export class BananaProvider implements IAIProvider {
           };
         }
 
-        if (channel === "apimart" && this.shouldFallback(err)) {
+        if (
+          (channel === "apimart" || channel === "tencent") &&
+          this.shouldFallback(err)
+        ) {
           this.logger.warn(
-            `⚠️ [FAST-SWITCH] Apimart text channel unavailable, skip same-channel retries: ${err.message}`
+            `鈿狅笍 [FAST-SWITCH] ${channel} text channel unavailable, skip same-channel retries: ${err.message}`
           );
           return {
             success: false,
@@ -2534,7 +2735,7 @@ export class BananaProvider implements IAIProvider {
         }
 
         if (this.shouldFallback(err)) {
-          const fallbackModel = this.getFallbackModel(currentModel);
+          const fallbackModel = this.getFallbackModel(currentModel, channel);
           if (fallbackModel) {
             const nextModel = this.resolveTextModelForChannel(
               fallbackModel,
@@ -2542,11 +2743,11 @@ export class BananaProvider implements IAIProvider {
             );
             if (nextModel === currentModel) {
               this.logger.warn(
-                `⚠️ [FAST-SWITCH] Fallback model equals current model (${currentModel}), skip redundant retry`
+                `鈿狅笍 [FAST-SWITCH] Fallback model equals current model (${currentModel}), skip redundant retry`
               );
             } else {
             this.logger.warn(
-              `⚠️ [FALLBACK] Text generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              `鈿狅笍 [FALLBACK] Text generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
             currentModel = nextModel;
             usedFallback = true;
@@ -2555,7 +2756,7 @@ export class BananaProvider implements IAIProvider {
           }
         }
 
-        this.logger.error("❌ Text generation failed:", error);
+        this.logger.error("鉂?Text generation failed:", error);
         return {
           success: false,
           error: {
@@ -2579,8 +2780,22 @@ export class BananaProvider implements IAIProvider {
   async generateText(
     request: TextChatRequest
   ): Promise<AIProviderResponse<TextResult>> {
-    this.logger.log(`🤖 Generating text response using Banana provider...`);
-    const providerMode = await this.getConfiguredTextProvider();
+    this.logger.log(`Generating text response using Banana provider...`);
+    const userRoute = this.getUserBananaImageRoute(request.providerOptions);
+    if (userRoute === "stable") {
+      this.logger.log(
+        "[Banana/Text] userRoute=stable -> channel=tencent (respect AI settings)"
+      );
+      return this.generateTextViaChannel(request, "tencent");
+    }
+    if (userRoute === "normal") {
+      this.logger.log(
+        "[Banana/Text] userRoute=normal -> follow backend normal-channel policy"
+      );
+    }
+    const providerMode = await this.getConfiguredTextProvider(
+      request.providerOptions
+    );
 
     if (providerMode === "legacy_auto") {
       let legacyResult: AIProviderResponse<TextResult> | null = null;
@@ -2601,6 +2816,11 @@ export class BananaProvider implements IAIProvider {
         )}`
       );
       return this.generateTextViaChannel(request, "apimart");
+    }
+
+    if (providerMode === "tencent") {
+      this.logger.log("[Banana/Text] backend mode=tencent -> channel=tencent");
+      return this.generateTextViaChannel(request, "tencent");
     }
 
     if (providerMode !== "legacy") {
@@ -2662,7 +2882,7 @@ export class BananaProvider implements IAIProvider {
 
   private formatToolList(tools: string[]): string {
     return tools
-      .map((tool) => `- ${tool}: ${TOOL_DESCRIPTIONS[tool] || "辅助对话"}`)
+      .map((tool) => `- ${tool}: ${TOOL_DESCRIPTIONS[tool] || "杈呭姪瀵硅瘽"}`)
       .join("\n");
   }
 
@@ -2932,9 +3152,16 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
   "confidence": 0.0-1.0
 }`;
 
-      const providerMode = await this.getConfiguredTextProvider();
-      const channelSequence: Array<"legacy" | "apimart"> =
-        providerMode === "legacy"
+      const userRoute = this.getUserBananaImageRoute(request.providerOptions);
+      const providerMode = await this.getConfiguredTextProvider(
+        request.providerOptions
+      );
+      const channelSequence: Array<"legacy" | "apimart" | "tencent"> =
+        userRoute === "stable"
+          ? ["tencent"]
+          : providerMode === "tencent"
+          ? ["tencent"]
+          : providerMode === "legacy"
           ? ["legacy"]
           : providerMode === "apimart"
           ? ["apimart"]
@@ -3057,7 +3284,6 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
       version: "1.0",
       supportedModels: [
         "gemini-3.1-pro-preview",
-        "gemini-3-pro-preview",
         "gemini-2.5-flash",
         // Backward-compatible aliases still accepted by parts of legacy stack.
         "gemini-3.1-pro",
@@ -3084,10 +3310,10 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
       model: string;
     }>
   > {
-    this.logger.log("🖼️ Converting image to vector with Banana (147) API...");
+    this.logger.log("馃柤锔?Converting image to vector with Banana (147) API...");
 
     try {
-      // 使用异步版本支持 HTTP URL
+      // 浣跨敤寮傛鐗堟湰鏀寔 HTTP URL
       const { data: sourceData, mimeType } = await this.normalizeFileInputAsync(
         request.sourceImage,
         "analysis"
@@ -3098,22 +3324,22 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
       let currentModel = originalModel;
       let usedFallback = false;
 
-      // 尝试主模型，失败时按降级模型重试
+      // 灏濊瘯涓绘ā鍨嬶紝澶辫触鏃舵寜闄嶇骇妯″瀷閲嶈瘯
       for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
         try {
           this.logger.debug(
             `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
           );
 
-          // Step 1: 图像分析
-          const analysisPrompt = `请详细分析这个图像，并用中文描述以下内容（用于生成矢量图）：
-1. 主要形状和轮廓
-2. 颜色和配色方案
-3. 结构和布局
-4. 风格特征
-5. 关键细节和元素
+          // Step 1: 鍥惧儚鍒嗘瀽
+          const analysisPrompt = `璇疯缁嗗垎鏋愯繖涓浘鍍忥紝骞剁敤涓枃鎻忚堪浠ヤ笅鍐呭锛堢敤浜庣敓鎴愮煝閲忓浘锛夛細
+1. 涓昏褰㈢姸鍜岃疆寤?
+2. 棰滆壊鍜岄厤鑹叉柟妗?
+3. 缁撴瀯鍜屽竷灞€
+4. 椋庢牸鐗瑰緛
+5. 鍏抽敭缁嗚妭鍜屽厓绱?
 
-${request.prompt ? `额外要求：${request.prompt}` : ""}`;
+${request.prompt ? `棰濆瑕佹眰锛?{request.prompt}` : ""}`;
 
           const analysisResult = await this.withRetry(
             () =>
@@ -3142,20 +3368,20 @@ ${request.prompt ? `额外要求：${request.prompt}` : ""}`;
             throw new Error("Image analysis returned empty response");
           }
 
-          // Step 2: 生成 Paper.js 代码
+          // Step 2: 鐢熸垚 Paper.js 浠ｇ爜
           const styleGuide = this.getStyleGuide(request.style || "detailed");
-          const vectorPrompt = `你是一个paper.js代码专家。根据以下图像分析结果，生成纯净的paper.js矢量代码。
+          const vectorPrompt = `浣犳槸涓€涓猵aper.js浠ｇ爜涓撳銆傛牴鎹互涓嬪浘鍍忓垎鏋愮粨鏋滐紝鐢熸垚绾噣鐨刾aper.js鐭㈤噺浠ｇ爜銆?
 
 ${styleGuide}
 
-图像分析结果：
+鍥惧儚鍒嗘瀽缁撴灉锛?
 ${imageAnalysis}
 
-要求：
-- 只输出纯净的paper.js代码，不要其他解释
-- 使用view.center作为中心，围绕中心绘图
-- 代码应该能直接执行
-- 保留图像的主要特征和风格`;
+瑕佹眰锛?
+- 鍙緭鍑虹函鍑€鐨刾aper.js浠ｇ爜锛屼笉瑕佸叾浠栬В閲?
+- 浣跨敤view.center浣滀负涓績锛屽洿缁曚腑蹇冪粯鍥?
+- 浠ｇ爜搴旇鑳界洿鎺ユ墽琛?
+- 淇濈暀鍥惧儚鐨勪富瑕佺壒寰佸拰椋庢牸`;
 
           const vectorResult = await this.withRetry(
             () =>
@@ -3180,10 +3406,10 @@ ${imageAnalysis}
 
           if (usedFallback) {
             this.logger.log(
-              `🔄 [FALLBACK SUCCESS] img2vector succeeded with fallback model: ${currentModel}`
+              `馃攧 [FALLBACK SUCCESS] img2vector succeeded with fallback model: ${currentModel}`
             );
           } else {
-            this.logger.log("✅ img2vector conversion succeeded");
+            this.logger.log("鉁?img2vector conversion succeeded");
           }
 
           return {
@@ -3191,7 +3417,7 @@ ${imageAnalysis}
             data: {
               code: cleanedCode,
               imageAnalysis,
-              explanation: "矢量图已根据图像分析结果生成",
+              explanation: "鐭㈤噺鍥惧凡鏍规嵁鍥惧儚鍒嗘瀽缁撴灉鐢熸垚",
               model: currentModel,
             },
           };
@@ -3202,15 +3428,15 @@ ${imageAnalysis}
             const fallbackModel = this.getFallbackModel(currentModel);
             if (fallbackModel) {
               this.logger.warn(
-                `⚠️ [FALLBACK] img2vector failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+                `鈿狅笍 [FALLBACK] img2vector failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
               );
               currentModel = fallbackModel;
               usedFallback = true;
-              continue; // 重试降级模型
+              continue; // 閲嶈瘯闄嶇骇妯″瀷
             }
           }
 
-          this.logger.error("❌ img2vector conversion failed:", error);
+          this.logger.error("鉂?img2vector conversion failed:", error);
           return {
             success: false,
             error: {
@@ -3222,7 +3448,7 @@ ${imageAnalysis}
         }
       }
 
-      // 不应该到这里，为类型安全保底
+      // 涓嶅簲璇ュ埌杩欓噷锛屼负绫诲瀷瀹夊叏淇濆簳
       return {
         success: false,
         error: {
@@ -3231,7 +3457,7 @@ ${imageAnalysis}
         },
       };
     } catch (error) {
-      this.logger.error("❌ img2vector conversion failed:", error);
+      this.logger.error("鉂?img2vector conversion failed:", error);
       return {
         success: false,
         error: {
@@ -3247,40 +3473,40 @@ ${imageAnalysis}
   }
 
   private getStyleGuide(style: "simple" | "detailed" | "artistic"): string {
-    const guides = {
-      simple: `风格指南：简洁风格
-- 使用基本形状（圆形、矩形、线条）
-- 最少化细节
-- 清晰的轮廓
-- 适合图标或简化设计`,
-      detailed: `风格指南：详细风格
-- 保留大部分细节
-- 使用多个图层和形状
-- 精确的比例和位置
-- 适合精确的矢量表现`,
-      artistic: `风格指南：艺术风格
-- 创意解释和变形
-- 使用渐变和复杂形状
-- 强调美学效果
-- 适合艺术和创意表现`,
+    const guides: Record<"simple" | "detailed" | "artistic", string> = {
+      simple: `Style guide: simple
+- Use basic shapes (circle, rectangle, line)
+- Keep details minimal
+- Prefer clear outlines
+- Suitable for icon-like output`,
+      detailed: `Style guide: detailed
+- Preserve as much detail as possible
+- Use layered paths and shapes
+- Keep proportions accurate
+- Suitable for precise vector output`,
+      artistic: `Style guide: artistic
+- Allow creative interpretation
+- Use gradients and richer shapes
+- Focus on visual aesthetics
+- Suitable for artistic vector output`,
     };
     return guides[style];
   }
 
   /**
-   * 清理代码响应，移除 markdown 代码块包装
+   * 娓呯悊浠ｇ爜鍝嶅簲锛岀Щ闄?markdown 浠ｇ爜鍧楀寘瑁?
    */
   private cleanCodeResponse(text: string): string {
     let cleaned = text.trim();
 
-    // 移除 markdown 代码块
+    // 绉婚櫎 markdown 浠ｇ爜鍧?
     if (cleaned.startsWith("```")) {
-      // 匹配 ```javascript, ```js, ```paperjs 等
+      // 鍖归厤 ```javascript, ```js, ```paperjs 绛?
       cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, "");
       cleaned = cleaned.replace(/\s*```$/i, "");
     }
 
-    // 再次清理，以防多层包装
+    // 鍐嶆娓呯悊锛屼互闃插灞傚寘瑁?
     cleaned = cleaned.trim();
     if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, "");
@@ -3293,12 +3519,12 @@ ${imageAnalysis}
   async generatePaperJS(
     request: PaperJSGenerateRequest
   ): Promise<AIProviderResponse<PaperJSResult>> {
-    this.logger.log(`📐 Generating Paper.js code using Banana (147) API...`);
+    this.logger.log(`馃搻 Generating Paper.js code using Banana (147) API...`);
 
-    // 系统提示词
-    const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
+    // 绯荤粺鎻愮ず璇?
+    const systemPrompt = `浣犳槸涓€涓猵aper.js浠ｇ爜涓撳锛岃鏍规嵁鎴戠殑闇€姹傚府鎴戠敓鎴愮函鍑€鐨刾aper.js浠ｇ爜锛屼笉鐢ㄥ叾浠栬В閲婃垨鏃犳晥浠ｇ爜锛岀‘淇濅娇鐢╲iew.center浣滀负涓績锛屽苟鍥寸粫涓績缁樺浘`;
 
-    // 将系统提示词和用户输入拼接
+    // 灏嗙郴缁熸彁绀鸿瘝鍜岀敤鎴疯緭鍏ユ嫾鎺?
     const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
     const originalModel = this.normalizeModelName(
@@ -3307,18 +3533,18 @@ ${imageAnalysis}
     let currentModel = originalModel;
     let usedFallback = false;
 
-    // 尝试使用主模型，失败后降级
+    // 灏濊瘯浣跨敤涓绘ā鍨嬶紝澶辫触鍚庨檷绾?
     for (let round = 0; round < this.MAX_MODEL_ATTEMPTS; round++) {
       try {
         this.logger.log(
-          `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+          `馃摑 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
         );
 
         const apiConfig: any = {
           responseModalities: ["Text"],
         };
 
-        // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+        // 閰嶇疆 thinking_level锛圙emini 3 鐗规€э紝闄嶇骇鍚庝笉浣跨敤锛?
         if (request.thinkingLevel && !usedFallback) {
           apiConfig.thinking_level = request.thinkingLevel;
         }
@@ -3341,16 +3567,16 @@ ${imageAnalysis}
           throw new Error("No code response from API");
         }
 
-        // 清理响应，移除 markdown 代码块包装
+        // 娓呯悊鍝嶅簲锛岀Щ闄?markdown 浠ｇ爜鍧楀寘瑁?
         const cleanedCode = this.cleanCodeResponse(result.textResponse);
 
         if (usedFallback) {
           this.logger.log(
-            `🔄 [FALLBACK SUCCESS] Paper.js code generation succeeded with fallback model: ${currentModel}`
+            `馃攧 [FALLBACK SUCCESS] Paper.js code generation succeeded with fallback model: ${currentModel}`
           );
         } else {
           this.logger.log(
-            `✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`
+            `鉁?Paper.js code generation succeeded with ${cleanedCode.length} characters`
           );
         }
 
@@ -3370,21 +3596,21 @@ ${imageAnalysis}
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
 
-        // 检查是否应该降级
+        // 妫€鏌ユ槸鍚﹀簲璇ラ檷绾?
         if (this.shouldFallback(err)) {
           const fallbackModel = this.getFallbackModel(currentModel);
           if (fallbackModel) {
             this.logger.warn(
-              `⚠️ [FALLBACK] Paper.js code generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              `鈿狅笍 [FALLBACK] Paper.js code generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
             );
             currentModel = fallbackModel;
             usedFallback = true;
-            continue; // 重试使用降级模型
+            continue; // 閲嶈瘯浣跨敤闄嶇骇妯″瀷
           }
         }
 
-        // 无法降级或降级后仍然失败
-        this.logger.error("❌ Paper.js code generation failed:", error);
+        // 鏃犳硶闄嶇骇鎴栭檷绾у悗浠嶇劧澶辫触
+        this.logger.error("鉂?Paper.js code generation failed:", error);
         return {
           success: false,
           error: {
@@ -3396,7 +3622,7 @@ ${imageAnalysis}
       }
     }
 
-    // 不应该到达这里，但为了类型安全
+    // 涓嶅簲璇ュ埌杈捐繖閲岋紝浣嗕负浜嗙被鍨嬪畨鍏?
     return {
       success: false,
       error: {
@@ -3406,3 +3632,4 @@ ${imageAnalysis}
     };
   }
 }
+

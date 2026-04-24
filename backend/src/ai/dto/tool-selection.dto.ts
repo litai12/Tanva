@@ -4,6 +4,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
 } from 'class-validator';
@@ -46,4 +47,8 @@ export class ToolSelectionRequestDto {
   @IsOptional()
   @IsString()
   context?: string;
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 }

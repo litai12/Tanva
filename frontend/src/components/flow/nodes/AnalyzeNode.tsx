@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Check } from 'lucide-react';
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edge, type Node } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
@@ -50,7 +50,7 @@ const normalizeAnalysisProvider = (value?: string): ProviderToggleValue => {
   return 'banana-2.5';
 };
 
-// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
+// 鏋勫缓鍥剧墖 src - 浼樺厛浣跨敤 OSS URL锛岄伩鍏?proxy 闄嶇骇
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -205,7 +205,7 @@ function InputImageThumb({
   return (
     <div
       style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}
-      title={lt(`输入图 ${order}`, `Input ${order}`)}
+      title={lt(`杈撳叆鍥?${order}`, `Input ${order}`)}
       className="nodrag nopan"
     >
       <button
@@ -592,15 +592,15 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   }, []);
 
   const defaultAnalysisPrompt = lt(
-    '分析一下这张图的内容，尽可能描述场景中的物体和特点，用一段提示词方式输出。',
+    '分析这张图片内容，尽可能描述场景中的物体和特征，并输出一段提示词。',
     'Analyze this image. Describe the scene objects and characteristics in one prompt-style paragraph.'
   );
   const promptInput = data.analysisPrompt ?? defaultAnalysisPrompt;
 
-  // 用于追踪分析进行中的状态
+  // 鐢ㄤ簬杩借釜鍒嗘瀽杩涜涓殑鐘舵€?
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
 
-  // 初始化节点提示词
+  // 鍒濆鍖栬妭鐐规彁绀鸿瘝
   React.useEffect(() => {
     if (typeof data.analysisPrompt === 'undefined') {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -654,13 +654,13 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       return;
     }
 
-    // 更新节点状态为运行中
+    // 鏇存柊鑺傜偣鐘舵€佷负杩愯涓?
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { status: 'running', error: undefined, prompt: '', text: '' } }
     }));
 
     try {
-      // 标记正在分析
+      // 鏍囪姝ｅ湪鍒嗘瀽
       setIsAnalyzing(true);
 
       const resolveFirstCandidateDataUrl = async (
@@ -727,7 +727,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             const ctx = canvas.getContext('2d');
             if (!ctx) return null;
             try {
-              // @ts-ignore - 部分环境无此字段
+              // @ts-ignore - 閮ㄥ垎鐜鏃犳瀛楁
               ctx.imageSmoothingEnabled = true;
             } catch {}
             ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -743,7 +743,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const img = new Image();
           await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
-            img.onerror = () => reject(new Error(lt('图片解码失败', 'Image decode failed')));
+            img.onerror = () => reject(new Error(lt('鍥剧墖瑙ｇ爜澶辫触', 'Image decode failed')));
             img.src = objectUrl;
           });
 
@@ -768,7 +768,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const ctx = canvas.getContext('2d');
           if (!ctx) return null;
           try {
-            // @ts-ignore - 部分环境无此字段
+            // @ts-ignore - 閮ㄥ垎鐜鏃犳瀛楁
             ctx.imageSmoothingEnabled = true;
           } catch {}
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -855,7 +855,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             }
           }
 
-          // 作为显示节点时，图片可能来自上游连线（例如 ImageSplit -> Image）
+          // 浣滀负鏄剧ず鑺傜偣鏃讹紝鍥剧墖鍙兘鏉ヨ嚜涓婃父杩炵嚎锛堜緥濡?ImageSplit -> Image锛?
           if (upstream) {
             const src = rf.getNode(upstream.source);
             if (src) {
@@ -918,23 +918,14 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         }
 
         const dataUrl = await resolveFirstCandidateDataUrl(data.imageData, data.imageUrl);
-        if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
+        if (!dataUrl) throw new Error(lt('鍥剧墖鍔犺浇澶辫触', 'Image load failed'));
         return [dataUrl];
       };
 
       const analysisSources = await resolveAnalyzeSources();
       const primarySource = analysisSources[0];
       if (!primarySource) {
-        throw new Error(lt('缺少图片输入', 'Missing image input'));
-      }
-
-      if (analyzeBananaImageRoute === 'stable') {
-        throw new Error(
-          lt(
-            '尊享路线暂不支持图片分析，请切换到普通路线后重试',
-            'Stable route does not support image analysis yet. Switch to Normal route and retry.'
-          )
-        );
+        throw new Error(lt('缂哄皯鍥剧墖杈撳叆', 'Missing image input'));
       }
 
       const result = await aiImageService.analyzeImage({
@@ -964,13 +955,13 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'succeeded', error: undefined, prompt: finalAnalysis, text: finalAnalysis } }
       }));
-      console.log('✅ Analysis finished. Result synced to node:', finalAnalysis.substring(0, 50) + '...');
+      console.log('鉁?Analysis finished. Result synced to node:', finalAnalysis.substring(0, 50) + '...');
 
     } catch (err: any) {
       const msg = err?.message || String(err);
-      console.error('❌ Analysis failed:', msg);
+      console.error('鉂?Analysis failed:', msg);
 
-      // 更新节点状态为失败
+      // 鏇存柊鑺傜偣鐘舵€佷负澶辫触
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'failed', error: msg, prompt: '', text: '' } }
       }));
@@ -1043,7 +1034,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
                   event.stopPropagation();
                 }}
                 className='nodrag nopan tanva-flow-provider-mode-badge'
-                title={lt('切换模型模式', 'Switch model mode')}
+                title={lt('鍒囨崲妯″瀷妯″紡', 'Switch model mode')}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -1082,7 +1073,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
               className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
             >
               <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                {lt('模型切换', 'Model switch')}
+                {lt('妯″瀷鍒囨崲', 'Model switch')}
               </DropdownMenuLabel>
               {providerToggleOptions.map((option) => {
                 const isActive = currentProviderValue === option.value;
@@ -1137,7 +1128,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
               ? 'Running...'
               : resolvedRunCredits
               ? `${lt('本次消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
-              : lt('运行分析', 'Run analysis')
+              : lt('杩愯鍒嗘瀽', 'Run analysis')
           }
         >
           {status === 'running' || isAnalyzing ? (
@@ -1171,7 +1162,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             overflowX: 'auto',
             paddingBottom: 2,
           }}
-          title={lt('输入图顺序会影响分析结果', 'Input order affects analysis results')}
+          title={lt('杈撳叆鍥鹃『搴忎細褰卞搷鍒嗘瀽缁撴灉', 'Input order affects analysis results')}
         >
           {inputPreviews.map((item, idx) => (
             <InputImageThumb
@@ -1319,3 +1310,4 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 }
 
 export default React.memo(AnalysisNodeInner);
+
