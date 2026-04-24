@@ -8085,7 +8085,7 @@ function SettingsTab() {
       await upsertSetting({
         key: "banana_text_provider",
         value: bananaTextProvider,
-        description: "Banana 语言底层 API 供应商选择",
+        description: "Gemini 生文普通渠道供应商路线（147 / Apimart）",
       });
       alert("保存成功");
       loadSettings();
@@ -8181,10 +8181,10 @@ function SettingsTab() {
         </div>
       </div>
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
-        <h3 className='text-lg font-semibold mb-4'>Banana 语言生成设置</h3>
+        <h3 className='text-lg font-semibold mb-4'>Gemini 生文普通渠道供应商路线</h3>
         <p className='text-sm text-gray-500 mb-4'>
-          选择 Banana 语言类能力（文本对话、工具选择、提示词优化）底层使用的 API
-          供应商。支持两种自动模式：Apimart 优先或 147 优先。
+          仅控制普通渠道下的 Gemini 生文供应商（文本对话、工具选择、提示词优化等）。
+          尊享渠道固定走腾讯；普通渠道按这里配置使用 147 / Apimart（可自动切换）。
         </p>
         <div className='space-y-3'>
           {BANANA_TEXT_PROVIDER_OPTIONS.map((option) => (
