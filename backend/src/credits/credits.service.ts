@@ -1298,6 +1298,105 @@ export class CreditsService {
     };
   }
 
+  private async expireFreeUserMonthlyQuotaLotsForAccount(
+    tx: Prisma.TransactionClient,
+    params: {
+      accountId: string;
+      now: Date;
+      excludeCurrentCycleStartAt?: Date;
+      excludeCurrentCycleEndAt?: Date;
+    },
+  ): Promise<{ expiredLots: number; expiredCredits: number }> {
+    const expiredLots = await tx.creditLot.findMany({
+      where: {
+        accountId: params.accountId,
+        status: 'active',
+        sourceType: 'subscription',
+        validityType: 'fixed_window',
+        remainingAmount: { gt: 0 },
+        expiresAt: { lte: params.now },
+        metadata: {
+          path: ['grantedBy'],
+          equals: 'free_user_monthly_quota',
+        },
+      },
+      orderBy: [{ expiresAt: 'asc' }, { grantedAt: 'asc' }],
+    });
+
+    let expiredLotCount = 0;
+    let expiredCredits = 0;
+
+    for (const lot of expiredLots) {
+      const metadata = this.asJsonObject(lot.metadata);
+      const lotCycleStartAt = typeof metadata?.cycleStartAt === 'string'
+        ? new Date(metadata.cycleStartAt)
+        : null;
+      const lotCycleEndAt = typeof metadata?.cycleEndAt === 'string'
+        ? new Date(metadata.cycleEndAt)
+        : null;
+
+      if (
+        params.excludeCurrentCycleStartAt &&
+        params.excludeCurrentCycleEndAt &&
+        lotCycleStartAt &&
+        lotCycleEndAt &&
+        lotCycleStartAt.getTime() === params.excludeCurrentCycleStartAt.getTime() &&
+        lotCycleEndAt.getTime() === params.excludeCurrentCycleEndAt.getTime()
+      ) {
+        continue;
+      }
+
+      const account = await tx.creditAccount.findUnique({
+        where: { id: params.accountId },
+        select: { id: true, balance: true },
+      });
+      if (!account) {
+        continue;
+      }
+
+      const amountToExpire = Math.min(lot.remainingAmount, account.balance);
+      const balanceBefore = account.balance;
+      const balanceAfter = Math.max(0, balanceBefore - amountToExpire);
+
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: { balance: balanceAfter },
+      });
+
+      await tx.creditLot.update({
+        where: { id: lot.id },
+        data: {
+          remainingAmount: 0,
+          status: 'expired',
+        },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.EXPIRE,
+          amount: -amountToExpire,
+          balanceBefore,
+          balanceAfter,
+          description: '免费用户月度额度过期清除',
+          creditLotId: lot.id,
+          businessType: 'free_monthly_quota_expire',
+          metadata: {
+            expiredAt: params.now.toISOString(),
+            originalRemainingAmount: lot.remainingAmount,
+            cycleStartAt: lotCycleStartAt?.toISOString() ?? metadata?.cycleStartAt ?? null,
+            cycleEndAt: lotCycleEndAt?.toISOString() ?? metadata?.cycleEndAt ?? null,
+          },
+        },
+      });
+
+      expiredLotCount += 1;
+      expiredCredits += amountToExpire;
+    }
+
+    return { expiredLots: expiredLotCount, expiredCredits };
+  }
+
   private async grantFreeUserMonthlyQuotaIfNeeded(params: {
     userId: string;
     account: {
@@ -1359,9 +1458,25 @@ export class CreditsService {
         return false;
       }
 
+      await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, {
+        accountId: account.id,
+        now,
+        excludeCurrentCycleStartAt: cycleStartAt,
+        excludeCurrentCycleEndAt: cycleEndAt,
+      });
+
+      const accountAfterExpiry = await tx.creditAccount.findUniqueOrThrow({
+        where: { id: account.id },
+        select: {
+          id: true,
+          balance: true,
+          totalEarned: true,
+        },
+      });
+
       const existingGrant = await tx.creditTransaction.findFirst({
         where: {
-          accountId: account.id,
+          accountId: accountAfterExpiry.id,
           businessType: 'free_monthly_quota',
           createdAt: {
             gte: cycleStartAt,
@@ -1376,7 +1491,7 @@ export class CreditsService {
 
       const lot = await tx.creditLot.create({
         data: buildFreeMonthlyQuotaCreditLotData({
-          accountId: account.id,
+          accountId: accountAfterExpiry.id,
           amount: policy.freeUserMonthlyQuotaCredits,
           grantedAt: now,
           activeAt: now,
@@ -1393,20 +1508,20 @@ export class CreditsService {
         }),
       });
 
-      const balanceBefore = account.balance;
+      const balanceBefore = accountAfterExpiry.balance;
       const balanceAfter = balanceBefore + policy.freeUserMonthlyQuotaCredits;
 
       await tx.creditAccount.update({
-        where: { id: account.id },
+        where: { id: accountAfterExpiry.id },
         data: {
           balance: balanceAfter,
-          totalEarned: account.totalEarned + policy.freeUserMonthlyQuotaCredits,
+          totalEarned: accountAfterExpiry.totalEarned + policy.freeUserMonthlyQuotaCredits,
         },
       });
 
       await tx.creditTransaction.create({
         data: {
-          accountId: account.id,
+          accountId: accountAfterExpiry.id,
           type: TransactionType.EARN,
           amount: policy.freeUserMonthlyQuotaCredits,
           balanceBefore,
@@ -1423,6 +1538,53 @@ export class CreditsService {
 
       return true;
     });
+  }
+
+  async cleanupExpiredFreeUserMonthlyQuotaCredits(now = new Date()): Promise<{
+    processedAccounts: number;
+    expiredLots: number;
+    expiredCredits: number;
+  }> {
+    const accountsWithExpiredQuota = await this.prisma.creditLot.findMany({
+      where: {
+        status: 'active',
+        sourceType: 'subscription',
+        validityType: 'fixed_window',
+        remainingAmount: { gt: 0 },
+        expiresAt: { lte: now },
+        metadata: {
+          path: ['grantedBy'],
+          equals: 'free_user_monthly_quota',
+        },
+      },
+      select: { accountId: true },
+      distinct: ['accountId'],
+    });
+
+    let processedAccounts = 0;
+    let expiredLots = 0;
+    let expiredCredits = 0;
+
+    for (const item of accountsWithExpiredQuota) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${item.accountId} FOR UPDATE`,
+        );
+
+        return this.expireFreeUserMonthlyQuotaLotsForAccount(tx, {
+          accountId: item.accountId,
+          now,
+        });
+      });
+
+      if (result.expiredLots > 0) {
+        processedAccounts += 1;
+        expiredLots += result.expiredLots;
+        expiredCredits += result.expiredCredits;
+      }
+    }
+
+    return { processedAccounts, expiredLots, expiredCredits };
   }
 
   private extractChannelFromApiUsage(apiUsage?: {
