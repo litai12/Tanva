@@ -6187,35 +6187,14 @@ const SEEDREAM5_PROVIDER_OPTIONS = [
 
 const BANANA_PROVIDER_OPTIONS = [
   {
-    value: "auto",
-    label: "自动切换",
-    description: "优先使用 Apimart，失败后自动切换到 147",
-  },
-  {
-    value: "tencent_auto",
-    label: "自动切换（腾讯优先）",
-    description:
-      "优先使用腾讯 Nano Banana，失败后自动切换到 Apimart/147",
-  },
-  {
-    value: "tencent",
-    label: "腾讯 Nano Banana",
-    description: "强制使用腾讯 Nano Banana",
-  },
-  {
-    value: "legacy_auto",
-    label: "自动切换（147优先）",
-    description: "优先使用 147，失败后自动切换到 Apimart",
-  },
-  {
     value: "apimart",
-    label: "Apimart",
-    description: "强制使用 Apimart (api.apimart.ai)",
+    label: "Apimart（推荐）",
+    description: "普通路线使用 Apimart (api.apimart.ai)",
   },
   {
     value: "legacy",
     label: "147",
-    description: "强制使用 147 (api1.147ai.com)",
+    description: "普通路线使用 147 (api1.147ai.com)",
   },
 ];
 
@@ -7988,7 +7967,11 @@ function SettingsTab() {
       }
       const bananaSetting = result.find((s) => s.key === "banana_provider");
       if (bananaSetting) {
-        setBananaProvider(bananaSetting.value);
+        const normalizedProvider =
+          bananaSetting.value === "legacy" ? "legacy" : "apimart";
+        setBananaProvider(normalizedProvider);
+      } else {
+        setBananaProvider("apimart");
       }
       const bananaTextSetting = result.find(
         (s) => s.key === "banana_text_provider"
@@ -8064,10 +8047,11 @@ function SettingsTab() {
   const handleSaveBananaProvider = async () => {
     setSaving(true);
     try {
+      const normalizedProvider = bananaProvider === "legacy" ? "legacy" : "apimart";
       await upsertSetting({
         key: "banana_provider",
-        value: bananaProvider,
-        description: "Banana 图像底层 API 供应商选择",
+        value: normalizedProvider,
+        description: "Banana 普通路线图像供应商（147 / Apimart）",
       });
       alert("保存成功");
       loadSettings();
@@ -8160,8 +8144,8 @@ function SettingsTab() {
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Banana 图像生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
-          选择 Banana 图像能力底层使用的 API 供应商。支持两种自动模式：
-          Apimart 优先或 147 优先。
+          仅控制画板 AI 设置中「普通路线」使用的供应商（147 / Apimart）。
+          尊享路线由用户在画板侧选择后走腾讯直连，不在此处配置。
         </p>
         <div className='space-y-3'>
           {BANANA_PROVIDER_OPTIONS.map((option) => (

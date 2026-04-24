@@ -1166,6 +1166,8 @@ export async function generateTextResponseViaAPI(
   request: AITextChatRequest
 ): Promise<AIServiceResponse<AITextChatResult>> {
   const startedAt = getTimestamp();
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
   const controller = new AbortController();
   const timeoutId =
     typeof window !== "undefined"
@@ -1176,8 +1178,11 @@ export async function generateTextResponseViaAPI(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithRoute),
       signal: controller.signal,
     });
 
@@ -1186,8 +1191,8 @@ export async function generateTextResponseViaAPI(
       logApiTiming("text-chat", startedAt, {
         success: false,
         status: response.status,
-        provider: request.aiProvider,
-        model: request.model,
+        provider: requestWithRoute.aiProvider,
+        model: requestWithRoute.model,
       });
       return {
         success: false,
@@ -1203,8 +1208,8 @@ export async function generateTextResponseViaAPI(
 
     logApiTiming("text-chat", startedAt, {
       success: true,
-      provider: request.aiProvider,
-      model: request.model || "gemini-3-flash-preview",
+      provider: requestWithRoute.aiProvider,
+      model: requestWithRoute.model || "gemini-3-flash-preview",
       textLength: typeof data?.text === "string" ? data.text.length : undefined,
     });
 
@@ -1212,7 +1217,7 @@ export async function generateTextResponseViaAPI(
       success: true,
       data: {
         text: data.text,
-        model: request.model || "gemini-3-flash-preview",
+        model: requestWithRoute.model || "gemini-3-flash-preview",
         webSearchResult: data.webSearchResult || undefined,
       },
     };
@@ -1220,8 +1225,8 @@ export async function generateTextResponseViaAPI(
     const isTimeout = error instanceof Error && error.name === "AbortError";
     logApiTiming("text-chat", startedAt, {
       success: false,
-      provider: request.aiProvider,
-      model: request.model,
+      provider: requestWithRoute.aiProvider,
+      model: requestWithRoute.model,
       error: isTimeout
         ? `Request timeout (${TEXT_CHAT_TIMEOUT_MS}ms)`
         : error instanceof Error

@@ -4,7 +4,7 @@ import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edg
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
-import { getTextModelForProvider } from '@/stores/aiChatStore';
+import { getTextModelForProvider, useAIChatStore } from '@/stores/aiChatStore';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
@@ -571,7 +571,9 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     [currentProviderValue, providerToggleOptions]
   );
   const effectiveProvider = currentProviderValue;
-  const analyzeBananaImageRoute: 'normal' = 'normal';
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
+  const analyzeBananaImageRoute: 'normal' | 'stable' =
+    bananaImageRoute === 'stable' ? 'stable' : 'normal';
   const analysisModel = React.useMemo(
     () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
@@ -924,6 +926,15 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       const primarySource = analysisSources[0];
       if (!primarySource) {
         throw new Error(lt('缺少图片输入', 'Missing image input'));
+      }
+
+      if (analyzeBananaImageRoute === 'stable') {
+        throw new Error(
+          lt(
+            '尊享路线暂不支持图片分析，请切换到普通路线后重试',
+            'Stable route does not support image analysis yet. Switch to Normal route and retry.'
+          )
+        );
       }
 
       const result = await aiImageService.analyzeImage({

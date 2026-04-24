@@ -6193,6 +6193,11 @@ export const useAIChatStore = create<AIChatState>()(
             const state = get();
             const modelToUse = getTextModelForProvider(state.aiProvider);
             const contextPrompt = contextManager.buildContextPrompt(prompt);
+            const providerOptions = withBananaRouteProviderOptions(
+              state.aiProvider,
+              undefined,
+              state.bananaImageRoute
+            );
 
             logProcessStep(
               metrics,
@@ -6204,6 +6209,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               enableWebSearch: state.enableWebSearch,
               thinkingLevel: state.thinkingLevel || undefined,
+              providerOptions,
             });
             logProcessStep(
               metrics,

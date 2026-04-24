@@ -369,11 +369,14 @@ class AIImageService {
       hasCachedImage: request.hasCachedImage,
       availableTools: request.availableTools,
       context: request.context,
+      providerOptions: request.providerOptions,
     };
+    const { request: backendRequestWithRoute } =
+      attachBananaRouteToProviderOptions(backendRequest);
 
     const response = await this.callAPI<ToolSelectionResult>(
       `${this.API_BASE}/ai/tool-selection`,
-      backendRequest,
+      backendRequestWithRoute,
       "Tool selection"
     );
 
