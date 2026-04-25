@@ -212,7 +212,7 @@ function DetectingStep({
   onRetry,
   onCancel,
 }: {
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   cameraError?: string;
   onRetry: () => void;
   onCancel: () => void;
