@@ -325,10 +325,20 @@ function VerifyingStep({
 
   const copyLink = React.useCallback(() => {
     if (!h5Link) return;
-    navigator.clipboard.writeText(h5Link).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    const finish = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(h5Link).then(finish).catch(() => {});
+    } else {
+      try {
+        const el = document.createElement("textarea");
+        el.value = h5Link;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+        finish();
+      } catch {}
+    }
   }, [h5Link]);
 
   if (authError) {
