@@ -1118,11 +1118,16 @@ function ImageNodeInner({ id, data, selected }: Props) {
   useBioAuthPolling({
     taskId: bioAuthId,
     status: effectiveBioStatus,
-    onUpdate: ({ status, errorMessage }) => {
+    onUpdate: ({ status, errorMessage, assetId }) => {
       patchNode({
         bioAuthStatus: status,
         bioAuthError: errorMessage,
-        ...(status === "active" ? { bioAuthDate: new Date().toISOString() } : {}),
+        ...(status === "active" ? {
+          bioAuthDate: new Date().toISOString(),
+          volcAssetId: assetId,
+          volcAssetStatus: "active",
+          volcReviewDate: new Date().toISOString(),
+        } : {}),
       });
     },
   });
@@ -1960,12 +1965,15 @@ function ImageNodeInner({ id, data, selected }: Props) {
             bioAuthDate: undefined,
           });
         }}
-        onSuccess={(taskId) => {
+        onSuccess={(taskId, assetId, groupId) => {
           patchNode({
             bioAuthId: taskId,
             bioAuthStatus: "active",
             bioAuthError: undefined,
             bioAuthDate: new Date().toISOString(),
+            volcAssetId: assetId,
+            volcAssetStatus: "active",
+            volcReviewDate: new Date().toISOString(),
           });
           setBioAuthModalOpen(false);
         }}
