@@ -66,6 +66,7 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onSuccess, onFail }: B
   }, [isOpen]);
 
   const startDetecting = React.useCallback(async () => {
+    stopCamera();
     setCameraError(undefined);
     setStep("detecting");
     // 启动摄像头
@@ -86,10 +87,11 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onSuccess, onFail }: B
       setTaskId(result.taskId);
       setPollStatus("processing");
     } catch (err: any) {
+      const msg = err?.message || "启动认证失败";
       stopCamera();
-      setPollError(err?.message || "启动认证失败");
+      setPollError(msg);
       setStep("result");
-      onFail(err?.message);
+      onFail(msg);
     }
   }, [imageUrl, onFail, stopCamera]);
 
