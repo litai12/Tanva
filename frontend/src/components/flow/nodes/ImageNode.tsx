@@ -36,6 +36,7 @@ import type { BioAuthStatus } from "@/services/bioAuthAPI";
 import { BioAuthModal } from "./BioAuthModal";
 
 const RESIZE_EDGE_THICKNESS = 8;
+const BIO_AUTH_VALID_DAYS = 30;
 
 const lineControlConfigs = [
   {
@@ -1098,7 +1099,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const bioAuthDate: string | undefined = (data as any)?.bioAuthDate;
   const bioAuthError: string | undefined = (data as any)?.bioAuthError;
 
-  const BIO_AUTH_VALID_DAYS = 30;
   const isBioAuthExpired = React.useMemo(() => {
     if (bioAuthStatus !== "active" || !bioAuthDate) return false;
     const expiresAt = new Date(bioAuthDate).getTime() + BIO_AUTH_VALID_DAYS * 24 * 60 * 60 * 1000;
@@ -1134,7 +1134,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // ─────────────────────────────────────────────────────────────────────────
   // ────────────────────────────────────────────────────────────────────────────
 
   React.useEffect(() => {
@@ -1813,6 +1812,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
                       volcAssetId: undefined,
                       volcAssetStatus: undefined,
                       volcAssetError: undefined,
+                      bioAuthId: undefined,
+                      bioAuthStatus: undefined,
+                      bioAuthError: undefined,
+                      bioAuthDate: undefined,
                     },
                   },
                 });
