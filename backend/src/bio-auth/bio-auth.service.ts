@@ -6,7 +6,6 @@ import type {
   BioAuthStatus,
   BioAuthStatusResponse,
   StartBioAuthResponse,
-  BioAuthGroupItem,
   ListGroupsResponse,
   CreateAssetInGroupResponse,
 } from './bio-auth.dto';
