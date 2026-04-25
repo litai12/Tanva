@@ -3,7 +3,7 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
-import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
+import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -31,6 +31,9 @@ import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
+import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
+import type { BioAuthStatus } from "@/services/bioAuthAPI";
+import { BioAuthModal } from "./BioAuthModal";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -1088,6 +1091,50 @@ function ImageNodeInner({ id, data, selected }: Props) {
       });
     }
   }, [data.imageUrl, effectiveVolcStatus, patchNode]);
+
+  // ── Bio Auth state ────────────────────────────────────────────────────────
+  const bioAuthId: string | undefined = (data as any)?.bioAuthId;
+  const bioAuthStatus: BioAuthStatus | undefined = (data as any)?.bioAuthStatus;
+  const bioAuthDate: string | undefined = (data as any)?.bioAuthDate;
+  const bioAuthError: string | undefined = (data as any)?.bioAuthError;
+
+  const BIO_AUTH_VALID_DAYS = 30;
+  const isBioAuthExpired = React.useMemo(() => {
+    if (bioAuthStatus !== "active" || !bioAuthDate) return false;
+    const expiresAt = new Date(bioAuthDate).getTime() + BIO_AUTH_VALID_DAYS * 24 * 60 * 60 * 1000;
+    return Date.now() > expiresAt;
+  }, [bioAuthStatus, bioAuthDate]);
+
+  const effectiveBioStatus: BioAuthStatus | undefined = isBioAuthExpired ? undefined : bioAuthStatus;
+
+  const bioAuthDaysLeft = React.useMemo(() => {
+    if (effectiveBioStatus !== "active" || !bioAuthDate) return 0;
+    const expiresAt = new Date(bioAuthDate).getTime() + BIO_AUTH_VALID_DAYS * 24 * 60 * 60 * 1000;
+    return Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+  }, [effectiveBioStatus, bioAuthDate]);
+
+  const [bioAuthModalOpen, setBioAuthModalOpen] = React.useState(false);
+
+  useBioAuthPolling({
+    taskId: bioAuthId,
+    status: effectiveBioStatus,
+    onUpdate: ({ status, errorMessage }) => {
+      patchNode({
+        bioAuthStatus: status,
+        bioAuthError: errorMessage,
+        ...(status === "active" ? { bioAuthDate: new Date().toISOString() } : {}),
+      });
+    },
+  });
+
+  // Recover stuck "processing" state with no taskId — means the request was interrupted
+  React.useEffect(() => {
+    if (bioAuthStatus === "processing" && !bioAuthId) {
+      patchNode({ bioAuthStatus: "failed", bioAuthError: "认证中断，请重试" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // ─────────────────────────────────────────────────────────────────────────
   // ────────────────────────────────────────────────────────────────────────────
 
   React.useEffect(() => {
@@ -1471,6 +1518,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
               volcAssetStatus: undefined,
               volcAssetError: undefined,
               volcReviewDate: undefined,
+              // Clear bio auth state when source image changes
+              bioAuthId: undefined,
+              bioAuthStatus: undefined,
+              bioAuthError: undefined,
+              bioAuthDate: undefined,
             },
           },
         })
@@ -1666,6 +1718,46 @@ function ImageNodeInner({ id, data, selected }: Props) {
           </button>
             );
           })()}
+          {/* Bio Auth Badge */}
+          {(() => {
+            const bioTitle =
+              isBioAuthExpired ? "认证已过期，点击重新认证"
+              : effectiveBioStatus === "active" ? `已认证（${bioAuthDaysLeft} 天后过期，点击重新认证）`
+              : effectiveBioStatus === "processing" ? "认证中…"
+              : effectiveBioStatus === "failed" ? (bioAuthError || "认证失败，点击重试")
+              : "点击进行生物认证";
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!data.imageUrl) {
+                    window.dispatchEvent(new CustomEvent("toast", {
+                      detail: { message: "请先上传图片再认证", type: "warning" },
+                    }));
+                    return;
+                  }
+                  setBioAuthModalOpen(true);
+                }}
+                title={bioTitle}
+                aria-label={bioTitle}
+                disabled={effectiveBioStatus === "processing"}
+                style={{
+                  fontSize: 12,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  cursor: effectiveBioStatus === "processing" ? "not-allowed" : "pointer",
+                }}
+              >
+                {isBioAuthExpired ? <ShieldAlert size={14} className="text-orange-400" />
+                 : effectiveBioStatus === "active" ? <UserRound size={14} className="text-green-600" />
+                 : effectiveBioStatus === "processing" ? <Loader2 size={14} className="animate-spin text-blue-500" />
+                 : effectiveBioStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
+                 : <UserRound size={14} className="text-gray-400" />}
+              </button>
+            );
+          })()}
           <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
@@ -1851,6 +1943,22 @@ function ImageNodeInner({ id, data, selected }: Props) {
             setCurrentImageId(imageId);
           }
         }}
+      />
+      {/* Bio Auth Modal */}
+      <BioAuthModal
+        isOpen={bioAuthModalOpen}
+        imageUrl={data.imageUrl || ""}
+        onClose={() => setBioAuthModalOpen(false)}
+        onSuccess={(taskId) => {
+          patchNode({
+            bioAuthId: taskId,
+            bioAuthStatus: "processing",
+            bioAuthError: undefined,
+            bioAuthDate: undefined,
+          });
+          setBioAuthModalOpen(false);
+        }}
+        onFail={() => setBioAuthModalOpen(false)}
       />
     </div>
   );
