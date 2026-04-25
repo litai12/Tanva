@@ -202,6 +202,7 @@ export class BioAuthService implements OnModuleInit {
         const s = (resp?.Status || '').toLowerCase();
         if (s === 'active') {
           task.status = 'active';
+          task.assetId = assetId;
           this.logger.log(`bio-auth asset active: ${assetId}`);
         } else if (s === 'failed') {
           task.status = 'failed';
@@ -268,6 +269,7 @@ export class BioAuthService implements OnModuleInit {
       userId,
       status: 'processing',
       groupId,
+      assetId: taskId,
       createdAt: Date.now(),
     };
     this.tasks.set(taskId, record);
