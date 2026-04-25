@@ -573,7 +573,7 @@ model BioAuthGroup {
   id        String   @id @default(uuid())
   userId    String
   groupId   String   @unique
-  imageUrl  String
+  imageUrl  String   @db.Text
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
