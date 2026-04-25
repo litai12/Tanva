@@ -120,7 +120,7 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, on
         style={{
           background: "#fff",
           borderRadius: 16,
-          width: 420,
+          width: 470,
           maxWidth: "90vw",
           padding: 28,
           position: "relative",
@@ -373,7 +373,7 @@ function VerifyingStep({
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <button
           onClick={copyLink}
-          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", fontSize: 13, color: "#374151" }}
+          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}
         >
           {copied ? <Check size={14} style={{ color: "#16a34a" }} /> : <Copy size={14} />}
           {copied ? "已复制" : "复制链接"}
@@ -382,7 +382,7 @@ function VerifyingStep({
           href={h5Link}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 8, border: "none", background: "#111827", color: "#fff", cursor: "pointer", fontSize: 13, textDecoration: "none" }}
+          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 12px", borderRadius: 8, border: "none", background: "#111827", color: "#fff", cursor: "pointer", fontSize: 13, textDecoration: "none", whiteSpace: "nowrap" }}
         >
           <Smartphone size={14} />
           在手机上打开
