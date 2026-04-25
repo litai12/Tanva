@@ -1124,9 +1124,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
         bioAuthError: errorMessage,
         ...(status === "active" ? {
           bioAuthDate: new Date().toISOString(),
-          volcAssetId: assetId,
-          volcAssetStatus: "active",
-          volcReviewDate: new Date().toISOString(),
+          ...(assetId ? {
+            volcAssetId: assetId,
+            volcAssetStatus: "active",
+            volcReviewDate: new Date().toISOString(),
+          } : {}),
         } : {}),
       });
     },
@@ -1965,7 +1967,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             bioAuthDate: undefined,
           });
         }}
-        onSuccess={(taskId, assetId, groupId) => {
+        onSuccess={(taskId, assetId, _groupId) => {
           patchNode({
             bioAuthId: taskId,
             bioAuthStatus: "active",
