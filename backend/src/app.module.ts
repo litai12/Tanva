@@ -20,6 +20,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
 import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { MembershipModule } from './membership/membership.module';
 import { VolcAssetModule } from './volc-asset/volc-asset.module';
+import { BioAuthModule } from './bio-auth/bio-auth.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { VolcAssetModule } from './volc-asset/volc-asset.module';
     TelemetryModule,
     UserTemplatesModule,
     VolcAssetModule,
+    BioAuthModule,
   ],
 })
 export class AppModule {}
