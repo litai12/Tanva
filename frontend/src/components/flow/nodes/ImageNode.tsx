@@ -1952,16 +1952,30 @@ function ImageNodeInner({ id, data, selected }: Props) {
         isOpen={bioAuthModalOpen}
         imageUrl={data.imageUrl || ""}
         onClose={() => setBioAuthModalOpen(false)}
-        onSuccess={(taskId) => {
+        onStart={(taskId) => {
           patchNode({
             bioAuthId: taskId,
             bioAuthStatus: "processing",
             bioAuthError: undefined,
             bioAuthDate: undefined,
           });
+        }}
+        onSuccess={(taskId) => {
+          patchNode({
+            bioAuthId: taskId,
+            bioAuthStatus: "active",
+            bioAuthError: undefined,
+            bioAuthDate: new Date().toISOString(),
+          });
           setBioAuthModalOpen(false);
         }}
-        onFail={() => setBioAuthModalOpen(false)}
+        onFail={(errorMessage) => {
+          patchNode({
+            bioAuthStatus: "failed",
+            bioAuthError: errorMessage,
+          });
+          setBioAuthModalOpen(false);
+        }}
       />
     </div>
   );

@@ -9,13 +9,14 @@ export interface BioAuthModalProps {
   isOpen: boolean;
   imageUrl: string;
   onClose: () => void;
+  onStart?: (taskId: string) => void;
   onSuccess: (taskId: string) => void;
   onFail: (errorMessage?: string) => void;
 }
 
 type WizardStep = "consent" | "detecting" | "result";
 
-export function BioAuthModal({ isOpen, imageUrl, onClose, onSuccess, onFail }: BioAuthModalProps) {
+export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, onFail }: BioAuthModalProps) {
   const [step, setStep] = React.useState<WizardStep>("consent");
   const [taskId, setTaskId] = React.useState<string | undefined>(undefined);
   const [pollStatus, setPollStatus] = React.useState<BioAuthStatus | undefined>(undefined);
@@ -86,6 +87,7 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onSuccess, onFail }: B
       const result = await startBioAuth(imageUrl);
       setTaskId(result.taskId);
       setPollStatus("processing");
+      onStart?.(result.taskId);
     } catch (err: any) {
       const msg = err?.message || "启动认证失败";
       stopCamera();
@@ -93,7 +95,7 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onSuccess, onFail }: B
       setStep("result");
       onFail(msg);
     }
-  }, [imageUrl, onFail, stopCamera]);
+  }, [imageUrl, onFail, onStart, stopCamera]);
 
   if (!isOpen) return null;
 
