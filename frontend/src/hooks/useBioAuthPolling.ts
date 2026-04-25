@@ -10,6 +10,10 @@ export interface BioAuthPollingOptions {
   onUpdate: (next: { status: BioAuthStatus; errorMessage?: string }) => void;
 }
 
+/**
+ * status === 'processing' 时自动轮询至 terminal；其他状态不工作。
+ * 超时强制置 failed。
+ */
 export function useBioAuthPolling({ taskId, status, onUpdate }: BioAuthPollingOptions) {
   const onUpdateRef = React.useRef(onUpdate);
   onUpdateRef.current = onUpdate;
