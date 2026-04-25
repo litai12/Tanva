@@ -4,10 +4,17 @@ import { getBioAuthStatus, type BioAuthStatus } from "../services/bioAuthAPI";
 const POLL_INTERVAL_MS = 5000;
 const POLL_TIMEOUT_MS = 2 * 60 * 1000;
 
+export interface BioAuthPollUpdate {
+  status: BioAuthStatus;
+  errorMessage?: string;
+  assetId?: string;
+  groupId?: string;
+}
+
 export interface BioAuthPollingOptions {
   taskId?: string;
   status?: BioAuthStatus;
-  onUpdate: (next: { status: BioAuthStatus; errorMessage?: string }) => void;
+  onUpdate: (next: BioAuthPollUpdate) => void;
 }
 
 /**
@@ -35,7 +42,12 @@ export function useBioAuthPolling({ taskId, status, onUpdate }: BioAuthPollingOp
           }
           setTimeout(tick, POLL_INTERVAL_MS);
         } else {
-          onUpdateRef.current({ status: result.status, errorMessage: result.errorMessage });
+          onUpdateRef.current({
+            status: result.status,
+            errorMessage: result.errorMessage,
+            assetId: result.assetId,
+            groupId: result.groupId,
+          });
         }
       } catch (err: any) {
         if (cancelled) return;
