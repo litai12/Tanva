@@ -1842,7 +1842,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                     color: storyboardPanelTheme.panelTitle,
                   }}
                 >
-                  {lt("腾讯自定义分镜", "Tencent Storyboard")}
+                  {lt("自定义分镜", "Custom Storyboard")}
                 </div>
                 <button
                   type="button"

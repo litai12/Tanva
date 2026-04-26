@@ -318,7 +318,7 @@ function TencentSpeechNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
           <Mic size={20} color="#0ea5e9" strokeWidth={2.2} />
-          <span>{lt('腾讯语音合成', 'Tencent Speech')}</span>
+          <span>{lt('语音合成', 'Speech Synthesis')}</span>
         </div>
         <button
           className="run-btn-with-credit"
@@ -731,9 +731,9 @@ function TencentSpeechNode({ id, data, selected }: Props) {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                       }}
-                      title={item.prompt || lt('腾讯语音任务', 'Tencent speech task')}
+                      title={item.prompt || lt('语音任务', 'Speech task')}
                     >
-                      {item.prompt || lt('腾讯语音任务', 'Tencent speech task')}
+                      {item.prompt || lt('语音任务', 'Speech task')}
                     </div>
                   </div>
                   <button

@@ -137,6 +137,11 @@ export interface AIImageGenerateRequest {
   batchMode?: boolean; // Seedream5 批量模式
   batchCount?: number; // Seedream5 批量数量
   officialFallback?: boolean; // gpt-image-2: whether to enable official upstream fallback
+  quality?: 'auto' | 'low' | 'medium' | 'high';
+  background?: 'auto' | 'opaque' | 'transparent';
+  moderation?: 'auto' | 'low';
+  outputCompression?: number;
+  maskUrl?: string;
 }
 
 // AI图像编辑请求参数

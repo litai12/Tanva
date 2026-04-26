@@ -1160,12 +1160,12 @@ const FloatingHeader: React.FC = () => {
             </div>
 
             {/* 界面语言 */}
-            <div className='flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
+            <div className='flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800'>
               <div>
-                <div className='text-sm font-medium text-slate-700'>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                   {t("workspace.appearance.languageTitle")}
                 </div>
-                <div className='text-xs text-slate-400 mt-0.5'>
+                <div className='text-xs text-slate-400 mt-0.5 dark:text-slate-500'>
                   {t("workspace.appearance.languageDesc")}
                 </div>
               </div>
@@ -1176,10 +1176,10 @@ const FloatingHeader: React.FC = () => {
             <div className='flex items-start justify-between gap-10'>
               <div className='flex items-center gap-4 flex-1'>
                 <div className='flex-1'>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.appearanceTab.gridRender.title")}
                   </div>
-                  <div className='text-xs text-slate-400 mt-0.5'>
+                  <div className='text-xs text-slate-400 mt-0.5 dark:text-slate-500'>
                     {t("workspace.settings.appearanceTab.gridRender.desc")}
                   </div>
                 </div>
@@ -1191,10 +1191,10 @@ const FloatingHeader: React.FC = () => {
               </div>
               <div className='flex items-center gap-4 flex-1'>
                 <div className='flex-1'>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.appearanceTab.snap.title")}
                   </div>
-                  <div className='text-xs text-slate-400 mt-0.5'>
+                  <div className='text-xs text-slate-400 mt-0.5 dark:text-slate-500'>
                     {t("workspace.settings.appearanceTab.snap.desc")}
                   </div>
                 </div>
@@ -1209,10 +1209,10 @@ const FloatingHeader: React.FC = () => {
             {/* 风格样式 + 网格单位 */}
             <div className='flex items-start justify-between gap-8'>
               <div className='flex-1'>
-                <div className='text-sm font-medium text-slate-700 pb-3'>
+                <div className='text-sm font-medium text-slate-700 pb-3 dark:text-slate-200'>
                   {t("workspace.settings.appearanceTab.style.title")}
                 </div>
-                <div className='inline-flex rounded-full bg-slate-100 p-1'>
+                <div className='inline-flex rounded-full bg-slate-100 p-1 dark:bg-slate-700'>
                   {[
                     {
                       value: GridStyle.LINES,
@@ -1230,8 +1230,8 @@ const FloatingHeader: React.FC = () => {
                       className={cn(
                         "px-4 py-2 rounded-full text-sm transition-all",
                         gridStyle === option.value
-                          ? "bg-white text-slate-700 shadow-sm"
-                          : "text-slate-400 hover:text-slate-600"
+                          ? "bg-white text-slate-700 shadow-sm dark:bg-slate-600 dark:text-slate-100"
+                          : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
                       )}
                     >
                       {option.label}
@@ -1240,10 +1240,10 @@ const FloatingHeader: React.FC = () => {
                 </div>
               </div>
               <div className='flex-1'>
-                <div className='text-sm font-medium text-slate-700 pb-3'>
+                <div className='text-sm font-medium text-slate-700 pb-3 dark:text-slate-200'>
                   {t("workspace.settings.appearanceTab.gridUnit.title")}
                 </div>
-                <div className='flex items-center gap-2 border border-slate-200 w-28 rounded-3xl'>
+                <div className='flex items-center gap-2 border border-slate-200 w-28 rounded-3xl dark:border-slate-600'>
                   <input
                     type='number'
                     min={1}
@@ -1257,22 +1257,22 @@ const FloatingHeader: React.FC = () => {
                         setGridSizeInput(String(gridSize));
                       e.stopPropagation();
                     }}
-                    className='w-18 px-3 py-2 text-sm text-center  focus:border-blue-500 focus:outline-none bg-transparent'
+                    className='w-18 px-3 py-2 text-sm text-center focus:border-blue-500 focus:outline-none bg-transparent text-slate-700 dark:text-slate-200'
                   />
-                  <span className='text-xs text-slate-400'>px</span>
+                  <span className='text-xs text-slate-400 dark:text-slate-500'>px</span>
                 </div>
               </div>
             </div>
 
             {/* 分隔线 */}
-            <div className='border-b border-slate-100'></div>
+            <div className='border-b border-slate-100 dark:border-slate-700'></div>
 
             {/* 缩放反馈速度 */}
             <div>
-              <div className='text-sm font-medium text-slate-700'>
+              <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                 {t("workspace.settings.appearanceTab.zoom.title")}
               </div>
-              <div className='text-xs text-slate-400 mt-0.5 mb-4'>
+              <div className='text-xs text-slate-400 mt-0.5 mb-4 dark:text-slate-500'>
                 {t("workspace.settings.appearanceTab.zoom.desc")}
               </div>
               <div className='flex items-center gap-4'>
@@ -1283,21 +1283,21 @@ const FloatingHeader: React.FC = () => {
                   step={1}
                   value={zoomSensitivity}
                   onChange={(e) => setZoomSensitivity(Number(e.target.value))}
-                  className='flex-1 h-1 rounded-full appearance-none cursor-pointer bg-slate-200 accent-slate-400'
+                  className='flex-1 h-1 rounded-full appearance-none cursor-pointer bg-slate-200 accent-slate-400 dark:bg-slate-600'
                 />
-                <span className='text-sm text-slate-500 w-6 text-right'>
+                <span className='text-sm text-slate-500 w-6 text-right dark:text-slate-400'>
                   {zoomSensitivity}
                 </span>
               </div>
             </div>
 
             {/* 分隔线 */}
-            <div className='border-b border-slate-100'></div>
+            <div className='border-b border-slate-100 dark:border-slate-700'></div>
 
             {/* 色彩模式 */}
             <div className='flex items-center justify-between'>
               <div>
-                <div className='text-sm font-medium text-slate-700'>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                   {t("workspace.settings.appearanceTab.gridColor.title")}
                 </div>
               </div>
@@ -1313,25 +1313,25 @@ const FloatingHeader: React.FC = () => {
             </div>
 
             {/* 分隔线 */}
-            <div className='border-b border-slate-100'></div>
+            <div className='border-b border-slate-100 dark:border-slate-700'></div>
 
             {/* 连线颜色 */}
             <div>
-              <div className='text-sm font-medium text-slate-700'>
+              <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                 {t("workspace.settings.appearanceTab.edgeColorMode.title")}
               </div>
-              <div className='text-xs text-slate-400 mt-0.5 mb-3'>
+              <div className='text-xs text-slate-400 mt-0.5 mb-3 dark:text-slate-500'>
                 {t("workspace.settings.appearanceTab.edgeColorMode.desc")}
               </div>
-              <div className='inline-flex rounded-full bg-slate-100 p-1'>
+              <div className='inline-flex rounded-full bg-slate-100 p-1 dark:bg-slate-700'>
                 <button
                   type='button'
                   onClick={() => setEdgeColorMode(FlowEdgeColorMode.STANDARD)}
                   className={cn(
                     "px-4 py-1 rounded-full text-sm transition-all",
                     edgeColorMode === FlowEdgeColorMode.STANDARD
-                      ? "bg-white text-slate-700 shadow-sm"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-white text-slate-700 shadow-sm dark:bg-slate-600 dark:text-slate-100"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
                   )}
                 >
                   {t("workspace.settings.appearanceTab.edgeColorMode.standard")}
@@ -1342,8 +1342,8 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "px-4 py-1 rounded-full text-sm transition-all",
                     edgeColorMode === FlowEdgeColorMode.HANDLE
-                      ? "bg-white text-slate-700 shadow-sm"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-white text-slate-700 shadow-sm dark:bg-slate-600 dark:text-slate-100"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
                   )}
                 >
                   {t("workspace.settings.appearanceTab.edgeColorMode.handle")}
@@ -1352,22 +1352,22 @@ const FloatingHeader: React.FC = () => {
             </div>
 
             {/* 分隔线 */}
-            <div className='border-b border-slate-100'></div>
+            <div className='border-b border-slate-100 dark:border-slate-700'></div>
 
             {/* AI 对话框样式 */}
             <div>
-              <div className='text-sm font-medium text-slate-700 mb-3'>
+              <div className='text-sm font-medium text-slate-700 mb-3 dark:text-slate-200'>
                 {t("workspace.settings.appearanceTab.chatStyle.title")}
               </div>
-              <div className='inline-flex rounded-full bg-slate-100 p-1'>
+              <div className='inline-flex rounded-full bg-slate-100 p-1 dark:bg-slate-700'>
                 <button
                   type='button'
                   onClick={() => setExpandedPanelStyle("transparent")}
                   className={cn(
                     "px-4 py-1 rounded-full text-sm transition-all",
                     expandedPanelStyle === "transparent"
-                      ? "bg-white text-slate-700 shadow-sm"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-white text-slate-700 shadow-sm dark:bg-slate-600 dark:text-slate-100"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
                   )}
                 >
                   {t("workspace.settings.appearanceTab.chatStyle.transparent")}
@@ -1378,8 +1378,8 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "px-5 py-2 rounded-full text-sm transition-all",
                     expandedPanelStyle === "solid"
-                      ? "bg-white text-slate-700 shadow-sm"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-white text-slate-700 shadow-sm dark:bg-slate-600 dark:text-slate-100"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-300"
                   )}
                 >
                   {t("workspace.settings.appearanceTab.chatStyle.solid")}
@@ -1392,12 +1392,12 @@ const FloatingHeader: React.FC = () => {
       case "ai":
         return (
           <div className='pb-6 space-y-6'>
-            <div className='flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
+            <div className='flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
               <div>
-                <div className='text-sm font-medium text-slate-700'>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                   {t("workspace.settings.aiTab.imageOnly.title")}
                 </div>
-                <div className='text-xs text-slate-500'>
+                <div className='text-xs text-slate-500 dark:text-slate-400'>
                   {t("workspace.settings.aiTab.imageOnly.desc")}
                 </div>
               </div>
@@ -1408,14 +1408,14 @@ const FloatingHeader: React.FC = () => {
               />
             </div>
 
-            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90'>
               <div className='flex items-start gap-2 mb-3'>
-                <Send className='w-4 h-4 text-blue-600' />
+                <Send className='w-4 h-4 text-blue-600 dark:text-blue-400' />
                 <div>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.aiTab.shortcuts.title")}
                   </div>
-                  <div className='text-xs text-slate-500'>
+                  <div className='text-xs text-slate-500 dark:text-slate-400'>
                     {t("workspace.settings.aiTab.shortcuts.desc")}
                   </div>
                 </div>
@@ -1431,17 +1431,17 @@ const FloatingHeader: React.FC = () => {
                       className={cn(
                         "w-full rounded-xl border px-3 py-3 text-left transition-all",
                         active
-                          ? "border-blue-500 bg-blue-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+                          ? "border-blue-500 bg-blue-50 shadow-sm dark:border-blue-400 dark:bg-blue-900/30"
+                          : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-blue-500 dark:hover:bg-blue-900/20"
                       )}
                     >
                       <div className='flex items-center justify-between gap-2'>
-                        <div className='text-sm font-medium text-slate-700'>
+                        <div className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {option.label}
                         </div>
-                        {active && <Check className='w-4 h-4 text-blue-600' />}
+                        {active && <Check className='w-4 h-4 text-blue-600 dark:text-blue-400' />}
                       </div>
-                      <div className='mt-1 text-xs text-slate-500'>
+                      <div className='mt-1 text-xs text-slate-500 dark:text-slate-400'>
                         {option.description}
                       </div>
                     </button>
@@ -1450,14 +1450,14 @@ const FloatingHeader: React.FC = () => {
               </div>
             </div>
 
-            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90'>
               <div className='flex items-start gap-2 mb-3'>
-                <Globe className='w-4 h-4 text-indigo-600' />
+                <Globe className='w-4 h-4 text-indigo-600 dark:text-indigo-400' />
                 <div>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.aiTab.wheel.title")}
                   </div>
-                  <div className='text-xs text-slate-500'>
+                  <div className='text-xs text-slate-500 dark:text-slate-400'>
                     {t("workspace.settings.aiTab.wheel.desc")}
                   </div>
                 </div>
@@ -1473,17 +1473,17 @@ const FloatingHeader: React.FC = () => {
                       className={cn(
                         "w-full rounded-xl border px-3 py-3 text-left transition-all",
                         active
-                          ? "border-indigo-500 bg-indigo-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
+                          ? "border-indigo-500 bg-indigo-50 shadow-sm dark:border-indigo-400 dark:bg-indigo-900/30"
+                          : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20"
                       )}
                     >
                       <div className='flex items-center justify-between gap-2'>
-                        <div className='text-sm font-medium text-slate-700'>
+                        <div className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {option.label}
                         </div>
-                        {active && <Check className='w-4 h-4 text-indigo-600' />}
+                        {active && <Check className='w-4 h-4 text-indigo-600 dark:text-indigo-400' />}
                       </div>
-                      <div className='mt-1 text-xs text-slate-500'>
+                      <div className='mt-1 text-xs text-slate-500 dark:text-slate-400'>
                         {option.description}
                       </div>
                     </button>
@@ -1492,8 +1492,8 @@ const FloatingHeader: React.FC = () => {
               </div>
             </div>
 
-            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
-              <div className='mb-4 text-sm font-medium text-slate-700'>
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90'>
+              <div className='mb-4 text-sm font-medium text-slate-700 dark:text-slate-200'>
                 {t("workspace.settings.aiTab.provider.title")}
               </div>
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
@@ -1531,24 +1531,24 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana"
-                      ? "border-amber-500 bg-amber-50"
-                      : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/30"
+                      ? "border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-900/30"
+                      : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-amber-500 dark:hover:bg-amber-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Zap className='w-4 h-4 text-amber-600' />
-                        <span className='text-sm font-medium text-slate-700'>
+                        <Zap className='w-4 h-4 text-amber-600 dark:text-amber-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.provider.banana")}
                         </span>
                       </div>
-                      <div className='text-xs text-slate-500'>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
                         {t("workspace.settings.aiTab.provider.bananaDesc")}
                       </div>
                     </div>
                     {aiProvider === "banana" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-amber-600' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-amber-600 dark:text-amber-400' />
                     )}
                   </div>
                 </button>
@@ -1558,24 +1558,24 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana-3.1"
-                      ? "border-rose-500 bg-rose-50"
-                      : "border-slate-200 bg-white hover:border-rose-300 hover:bg-rose-50/30"
+                      ? "border-rose-500 bg-rose-50 dark:border-rose-400 dark:bg-rose-900/30"
+                      : "border-slate-200 bg-white hover:border-rose-300 hover:bg-rose-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-rose-500 dark:hover:bg-rose-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Sparkles className='w-4 h-4 text-rose-600' />
-                        <span className='text-sm font-medium text-slate-700'>
+                        <Sparkles className='w-4 h-4 text-rose-600 dark:text-rose-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.provider.banana31")}
                         </span>
                       </div>
-                      <div className='text-xs text-slate-500'>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
                         {t("workspace.settings.aiTab.provider.banana31Desc")}
                       </div>
                     </div>
                     {aiProvider === "banana-3.1" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-rose-600' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-rose-600 dark:text-rose-400' />
                     )}
                   </div>
                 </button>
@@ -1585,36 +1585,36 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     aiProvider === "banana-2.5"
-                      ? "border-orange-500 bg-orange-50"
-                      : "border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/30"
+                      ? "border-orange-500 bg-orange-50 dark:border-orange-400 dark:bg-orange-900/30"
+                      : "border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-orange-500 dark:hover:bg-orange-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Zap className='w-4 h-4 text-orange-600' />
-                        <span className='text-sm font-medium text-slate-700'>
+                        <Zap className='w-4 h-4 text-orange-600 dark:text-orange-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.provider.banana25")}
                         </span>
                       </div>
-                      <div className='text-xs text-slate-500'>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
                         {t("workspace.settings.aiTab.provider.banana25Desc")}
                       </div>
                     </div>
                     {aiProvider === "banana-2.5" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-orange-600' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-orange-600 dark:text-orange-400' />
                     )}
                   </div>
                 </button>
               </div>
             </div>
 
-            {/* Google API Key 设置 - 已隐藏 */}
-            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur'>
-              <div className='mb-1 text-sm font-medium text-slate-700'>
+            {/* Nano Banana/Gemini 路线设置 */}
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90'>
+              <div className='mb-1 text-sm font-medium text-slate-700 dark:text-slate-200'>
                 {t("workspace.settings.aiTab.bananaRoute.title")}
               </div>
-              <div className='mb-4 text-xs text-slate-500'>
+              <div className='mb-4 text-xs text-slate-500 dark:text-slate-400'>
                 {t("workspace.settings.aiTab.bananaRoute.desc")}
               </div>
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
@@ -1624,24 +1624,24 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     bananaImageRoute === "normal"
-                      ? "border-sky-500 bg-sky-50"
-                      : "border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50/30"
+                      ? "border-sky-500 bg-sky-50 dark:border-sky-400 dark:bg-sky-900/30"
+                      : "border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-sky-500 dark:hover:bg-sky-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Zap className='w-4 h-4 text-sky-600' />
-                        <span className='text-sm font-medium text-slate-700'>
+                        <Zap className='w-4 h-4 text-sky-600 dark:text-sky-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.bananaRoute.normal")}
                         </span>
                       </div>
-                      <div className='text-xs text-slate-500'>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
                         {t("workspace.settings.aiTab.bananaRoute.normalDesc")}
                       </div>
                     </div>
                     {bananaImageRoute === "normal" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-sky-600' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-sky-600 dark:text-sky-400' />
                     )}
                   </div>
                 </button>
@@ -1652,30 +1652,30 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     bananaImageRoute === "stable"
-                      ? "border-emerald-500 bg-emerald-50"
-                      : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"
+                      ? "border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-900/30"
+                      : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Star className='w-4 h-4 text-emerald-600' />
-                        <span className='text-sm font-medium text-slate-700'>
+                        <Star className='w-4 h-4 text-emerald-600 dark:text-emerald-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.bananaRoute.stable")}
                         </span>
                       </div>
-                      <div className='text-xs text-slate-500'>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
                         {t("workspace.settings.aiTab.bananaRoute.stableDesc")}
                       </div>
                     </div>
                     {bananaImageRoute === "stable" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-emerald-600' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-emerald-600 dark:text-emerald-400' />
                     )}
                   </div>
                 </button>
               </div>
               {!bananaProviderSelected && (
-                <div className='mt-3 text-xs text-amber-600'>
+                <div className='mt-3 text-xs text-amber-600 dark:text-amber-400'>
                   {t("workspace.settings.aiTab.bananaRoute.hint")}
                 </div>
               )}
@@ -1799,12 +1799,12 @@ const FloatingHeader: React.FC = () => {
         return (
           <div className='pb-6 space-y-6'>
             {import.meta.env.DEV && (
-              <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.advancedTab.memory.title")}
                   </div>
-                  <div className='text-xs text-slate-500'>
+                  <div className='text-xs text-slate-500 dark:text-slate-400'>
                     {t("workspace.settings.advancedTab.memory.desc")}
                   </div>
                 </div>
@@ -1821,12 +1821,12 @@ const FloatingHeader: React.FC = () => {
               </div>
             )}
             {import.meta.env.DEV && (
-              <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
-                  <div className='text-sm font-medium text-slate-700'>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                     {t("workspace.settings.advancedTab.history.title")}
                   </div>
-                  <div className='text-xs text-slate-500'>
+                  <div className='text-xs text-slate-500 dark:text-slate-400'>
                     {t("workspace.settings.advancedTab.history.desc")}
                   </div>
                 </div>
@@ -1842,18 +1842,18 @@ const FloatingHeader: React.FC = () => {
                 </Button>
               </div>
             )}
-            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
+            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
               <div>
-                <div className='text-sm font-medium text-slate-700'>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                   {t("workspace.settings.advancedTab.sandbox.title")}
                 </div>
-                <div className='text-xs text-slate-500'>
+                <div className='text-xs text-slate-500 dark:text-slate-400'>
                   {t("workspace.settings.advancedTab.sandbox.desc")}
                 </div>
               </div>
               <Button
                 variant='outline'
-                className='text-sm text-gray-900 rounded-xl border-gray-800/20 hover:bg-gray-800/10'
+                className='text-sm text-gray-900 rounded-xl border-gray-800/20 hover:bg-gray-800/10 dark:text-gray-100 dark:border-gray-600 dark:hover:bg-gray-800'
                 onClick={() => {
                   const { toggleSandboxPanel } = useUIStore.getState();
                   toggleSandboxPanel();
@@ -1864,19 +1864,19 @@ const FloatingHeader: React.FC = () => {
                 {t("workspace.settings.advancedTab.sandbox.open")}
               </Button>
             </div>
-            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between'>
+            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
               <div>
-                <div className='text-sm font-medium text-slate-700'>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
                   {t("workspace.settings.advancedTab.logout.title")}
                 </div>
-                <div className='text-xs text-slate-500'>
+                <div className='text-xs text-slate-500 dark:text-slate-400'>
                   {t("workspace.settings.advancedTab.logout.desc")}
                 </div>
               </div>
               <Button
                 variant='outline'
                 className={cn(
-                  "rounded-xl text-sm border-red-200 text-red-600 hover:bg-red-50",
+                  "rounded-xl text-sm border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20",
                   loading ? "opacity-70" : ""
                 )}
                 disabled={loading}

@@ -3,6 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './ai-provider.interface';
 import { Nano2Service } from '../services/nano2.service';
 
+type BananaImageRoute = 'normal' | 'stable';
+type GptImage2Quality = 'auto' | 'low' | 'medium' | 'high';
+type GptImage2Background = 'auto' | 'opaque' | 'transparent';
+type GptImage2Moderation = 'auto' | 'low';
+type GptImage2OutputFormat = 'png' | 'jpeg' | 'webp';
+
+const GPT_IMAGE_2_OFFICIAL_MODEL = 'gpt-image-2-official';
+const GPT_IMAGE_2_4K_SIZE_SET = new Set(['16:9', '9:16', '2:1', '1:2', '21:9', '9:21']);
+
 @Injectable()
 export class Nano2Provider implements IAIProvider {
   private readonly logger = new Logger(Nano2Provider.name);
@@ -27,49 +36,188 @@ export class Nano2Provider implements IAIProvider {
     return { name: 'nano2', model: 'gpt-image-2' };
   }
 
+  private normalizeRoute(raw: unknown): BananaImageRoute | null {
+    if (typeof raw !== 'string') return null;
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'normal' || normalized === 'apimart') return 'normal';
+    if (normalized === 'stable' || normalized === 'tencent') return 'stable';
+    return null;
+  }
+
+  private resolveUserRoute(providerOptions?: Record<string, any>): BananaImageRoute {
+    const nested = this.normalizeRoute(providerOptions?.banana?.imageRoute);
+    if (nested) return nested;
+    const legacy = this.normalizeRoute(providerOptions?.bananaImageRoute);
+    if (legacy) return legacy;
+    return 'normal';
+  }
+
+  private isGptImage2Model(model: string): boolean {
+    return model.toLowerCase().includes('gpt-image-2');
+  }
+
+  private normalizeResolution(rawResolution: unknown, isGptImage2Model: boolean): string {
+    const normalized = String(rawResolution || '1K').trim().toUpperCase();
+    if (normalized === '2K') return isGptImage2Model ? '2k' : '2K';
+    if (normalized === '4K') return isGptImage2Model ? '4k' : '4K';
+    return isGptImage2Model ? '1k' : '1K';
+  }
+
+  private normalizeOutputFormat(raw: unknown): GptImage2OutputFormat | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'png' || normalized === 'jpeg' || normalized === 'webp') {
+      return normalized as GptImage2OutputFormat;
+    }
+    return undefined;
+  }
+
+  private normalizeQuality(raw: unknown): GptImage2Quality | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'auto' || normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+      return normalized as GptImage2Quality;
+    }
+    return undefined;
+  }
+
+  private normalizeBackground(raw: unknown): GptImage2Background | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'auto' || normalized === 'opaque' || normalized === 'transparent') {
+      return normalized as GptImage2Background;
+    }
+    return undefined;
+  }
+
+  private normalizeModeration(raw: unknown): GptImage2Moderation | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'auto' || normalized === 'low') {
+      return normalized as GptImage2Moderation;
+    }
+    return undefined;
+  }
+
+  private normalizeOutputCompression(raw: unknown): number | undefined {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+    return Math.max(0, Math.min(100, Math.trunc(raw)));
+  }
+
+  private validateGptImage24kResolution(size: string, resolution: string): void {
+    if (resolution !== '4k') return;
+    if (GPT_IMAGE_2_4K_SIZE_SET.has(size)) return;
+    throw new Error(
+      `gpt-image-2-official does not support 4k with size=${size}. Supported 4k ratios: ${Array.from(
+        GPT_IMAGE_2_4K_SIZE_SET,
+      ).join(', ')}`,
+    );
+  }
+
+  private isUpstream5xxError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return /HTTP\s5\d\d/.test(message);
+  }
+
   async generateImage(request: any): Promise<any> {
     const requestedModel =
       typeof request.model === 'string' && request.model.trim()
         ? request.model.trim()
         : 'gemini-3.1-flash-image-preview';
-    const isGptImage2Model = requestedModel.toLowerCase() === 'gpt-image-2';
-    const requestedSize = request.aspectRatio || (isGptImage2Model ? '1:1' : '16:9');
-
-    const normalizedResolution = (() => {
-      const rawResolution = request.resolution || request.imageSize || '1K';
-      const normalized = String(rawResolution).trim().toUpperCase();
-      if (normalized === '2K') return isGptImage2Model ? '2k' : '2K';
-      if (normalized === '4K') return isGptImage2Model ? '4k' : '4K';
-      return isGptImage2Model ? '1k' : '1K';
+    const isGptImage2Model = this.isGptImage2Model(requestedModel);
+    const userRoute = this.resolveUserRoute(request.providerOptions);
+    const useOfficialProfile = isGptImage2Model && userRoute === 'stable';
+    const upstreamModel = useOfficialProfile ? GPT_IMAGE_2_OFFICIAL_MODEL : requestedModel;
+    const requestedSize = (() => {
+      const raw = request.aspectRatio ?? (isGptImage2Model ? '1:1' : '16:9');
+      return typeof raw === 'string' && raw.trim() ? raw.trim() : (isGptImage2Model ? '1:1' : '16:9');
     })();
 
-    // 1. 鎻愪氦浠诲姟
-    const result = await this.nano2Service.generateImage({
+    const normalizedResolution = this.normalizeResolution(
+      request.resolution || request.imageSize || '1K',
+      isGptImage2Model,
+    );
+
+    if (useOfficialProfile) {
+      this.validateGptImage24kResolution(requestedSize, normalizedResolution);
+    }
+
+    this.logger.log(
+      `[Nano2/Image] route=${userRoute}, requestedModel=${requestedModel}, upstreamModel=${upstreamModel}, size=${requestedSize}, resolution=${normalizedResolution}`,
+    );
+
+    const outputFormat = this.normalizeOutputFormat(request.outputFormat ?? request.output_format);
+    const outputCompression = this.normalizeOutputCompression(
+      request.outputCompression ?? request.output_compression,
+    );
+    const maskUrl =
+      typeof request.maskUrl === 'string'
+        ? request.maskUrl.trim()
+        : typeof request.mask_url === 'string'
+          ? request.mask_url.trim()
+          : '';
+
+    const officialBackground = this.normalizeBackground(request.background) ?? 'auto';
+    const sanitizedOfficialBackground = officialBackground === 'transparent' ? 'auto' : officialBackground;
+    if (useOfficialProfile && officialBackground === 'transparent') {
+      this.logger.warn(
+        '[Nano2/Image] gpt-image-2-official does not support transparent background, downgraded to auto',
+      );
+    }
+
+    const buildSubmitRequest = (resolution: string) => ({
       prompt: request.prompt,
-      model: requestedModel,
+      model: upstreamModel,
       size: requestedSize,
       n: 1,
       image_urls: request.imageUrls || request.image_urls,
-      resolution: normalizedResolution,
+      resolution,
       ...(isGptImage2Model
-        ? {
-            official_fallback:
-              typeof request.officialFallback === 'boolean'
-                ? request.officialFallback
-                : false,
-          }
-        : {}),
-      ...(!isGptImage2Model
-        ? {
+        ? useOfficialProfile
+          ? {
+              quality: this.normalizeQuality(request.quality) ?? 'auto',
+              background: sanitizedOfficialBackground,
+              moderation: this.normalizeModeration(request.moderation) ?? 'auto',
+              output_format: outputFormat ?? 'png',
+              ...((outputFormat === 'jpeg' || outputFormat === 'webp') &&
+              typeof outputCompression === 'number'
+                ? { output_compression: outputCompression }
+                : {}),
+              ...(maskUrl ? { mask_url: maskUrl } : {}),
+            }
+          : {
+              official_fallback:
+                typeof request.officialFallback === 'boolean' ? request.officialFallback : false,
+            }
+        : {
             google_search: request.googleSearch,
             google_image_search: request.googleImageSearch,
-          }
-        : {}),
+          }),
     });
+
+    let finalResolution = normalizedResolution;
+    let result;
+    try {
+      result = await this.nano2Service.generateImage(buildSubmitRequest(finalResolution));
+    } catch (error) {
+      const shouldFallbackTo2k =
+        useOfficialProfile &&
+        finalResolution === '4k' &&
+        this.isUpstream5xxError(error);
+      if (!shouldFallbackTo2k) {
+        throw error;
+      }
+
+      finalResolution = '2k';
+      this.logger.warn(
+        `[Nano2/Image] Official 4k request failed with upstream 5xx, retrying once with 2k. size=${requestedSize}, model=${upstreamModel}`,
+      );
+      result = await this.nano2Service.generateImage(buildSubmitRequest(finalResolution));
+    }
 
     this.logger.log(`Nano2 task submitted: ${result.taskId}`);
 
-    // 2. 杞绛夊緟浠诲姟瀹屾垚
     const pollingWindowMs = 15 * 60 * 1000;
     const pollIntervalMs = 3000;
     const initialDelayMs = 10000;
@@ -85,7 +233,6 @@ export class Nano2Provider implements IAIProvider {
       try {
         taskResult = await this.nano2Service.queryTask(result.taskId);
       } catch (err: any) {
-        // 濡傛灉鏄?404锛屼换鍔″彲鑳借繕鏈敞鍐岋紝缁х画绛夊緟
         if (err.message?.includes('404')) {
           this.logger.warn(`Nano2 task ${result.taskId} not found yet (attempt ${attempt}), retrying...`);
           await sleep(pollIntervalMs);
@@ -109,18 +256,19 @@ export class Nano2Provider implements IAIProvider {
                 imageUrl: taskResult.imageUrl,
                 provider: 'nano2',
                 aiProvider: 'nano2',
-                model: requestedModel,
+                model: upstreamModel,
+                route: userRoute,
+                resolution: finalResolution,
               },
             },
           };
-        } else {
-          // 浠诲姟鎴愬姛浣嗘病鏈夊浘鐗?URL锛岃涓哄け璐?
-          this.logger.warn(`Nano2 task ${result.taskId} succeeded but no imageUrl found`);
-          return {
-            success: false,
-            error: { message: 'Nano2 task completed but no image URL returned' },
-          };
         }
+
+        this.logger.warn(`Nano2 task ${result.taskId} succeeded but no imageUrl found`);
+        return {
+          success: false,
+          error: { message: 'Nano2 task completed but no image URL returned' },
+        };
       }
 
       if (taskResult.status === 'failed' || taskResult.status === 'error') {
@@ -130,7 +278,6 @@ export class Nano2Provider implements IAIProvider {
         };
       }
 
-      // 绛夊緟鍚庡啀杩涜涓嬩竴娆¤疆璇?
       await sleep(pollIntervalMs);
     }
 
@@ -164,5 +311,3 @@ export class Nano2Provider implements IAIProvider {
     throw new Error('Nano2 does not support PaperJS generation');
   }
 }
-
-

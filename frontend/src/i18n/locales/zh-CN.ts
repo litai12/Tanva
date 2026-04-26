@@ -322,9 +322,9 @@ const zhCN = {
           title: "Nano Banana/Gemini 生文/图路线",
           desc: "生文与生图统一走路线策略，可在普通与尊享间切换",
           normal: "普通路线",
-          normalDesc: "生图/生文走普通三方渠道（由后台控制 147 / Apimart）",
+          normalDesc: "生图/生文走普通三方渠道",
           stable: "尊享路线",
-          stableDesc: "生图/生文走腾讯直连链路（稳定优先）",
+          stableDesc: "生图/生文走直连链路（稳定优先）",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {
