@@ -2109,7 +2109,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           onMouseLeave={() => setHover(null)}
         />
       )}
-      {/* image-2 句柄: Seedance/Vidu 与 Kling(腾讯2.6或Pro模式)可见 */}
+      {/* image-2 句柄: Seedance/Vidu 与 Kling(2.6或Pro模式)可见 */}
       {((isSeedanceModel && seedanceModeSpec?.visibleHandles.includes("image-2")) ||
         canUseKlingImage2Input ||
         isViduNode) && (
@@ -2404,7 +2404,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               <div style={{ marginBottom: 3 }}>
                 <strong>
                   {isTencentKling26Route
-                    ? lt("首尾帧（腾讯通道）", "Start-End (Tencent route)")
+                    ? lt("首尾帧（稳定通道）", "Start-End (Stable route)")
                     : lt("首尾帧（Pro）", "Start-End (Pro)")}
                   :
                 </strong>{" "}
@@ -2415,10 +2415,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
                 提示：
                 {isTencentKling26Route
-                  ? lt(
-                      "腾讯通道下 Kling 2.6：Std/Pro 均支持 1-2 张图，首尾帧按无声规则发送",
-                      "Tencent Kling 2.6: Std/Pro both support 1-2 images; start-end follows no-audio rule"
-                    )
+                  ? lt("Kling 2.6：Std/Pro 均支持 1-2 张图，首尾帧按无声规则发送", "Kling 2.6: Std/Pro both support 1-2 images; start-end follows no-audio rule")
                   : lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
               </div>
             </>

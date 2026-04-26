@@ -1328,7 +1328,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
-  { key: "tencentSpeech", zh: "腾讯语音合成", en: "Tencent Speech", category: "audio" },
+  { key: "tencentSpeech", zh: "语音合成", en: "Speech Synthesis", category: "audio" },
   { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
 ];
 
@@ -14657,8 +14657,8 @@ function FlowInner() {
           if (isTencentKlingO3Route && klingStoryboardMode === "intelligence" && !finalPrompt) {
             failCurrentVideoNode(
               lt(
-                "腾讯 Kling 智能分镜模式需要提示词输入",
-                "Tencent Kling intelligent storyboard mode requires prompt input"
+                "智能分镜模式需要提示词输入",
+                "Intelligent storyboard mode requires prompt input"
               )
             );
             return;
@@ -15370,7 +15370,7 @@ function FlowInner() {
           });
 
           if (!response.ok) {
-            let message = "腾讯语音合成失败";
+            let message = "语音合成失败";
             try {
               const errorData = await response.json();
               message = errorData?.message || errorData?.error || message;
@@ -15383,7 +15383,7 @@ function FlowInner() {
           const videoUrl = result?.videoUrl;
 
           if (!audioUrl && !videoUrl) {
-            throw new Error("腾讯语音合成返回缺少结果");
+            throw new Error("语音合成返回缺少结果");
           }
 
           const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -15428,7 +15428,7 @@ function FlowInner() {
           );
         } catch (error) {
           console.error("[tencentSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "腾讯语音合成失败";
+          const msg = error instanceof Error ? error.message : "语音合成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -16358,6 +16358,54 @@ function FlowInner() {
               : typeof defaultData?.officialFallback === "boolean"
               ? defaultData.officialFallback
               : false;
+          const pickStringValue = (value: unknown): string | undefined => {
+            if (typeof value !== "string") return undefined;
+            const normalized = value.trim();
+            return normalized.length > 0 ? normalized : undefined;
+          };
+          const pickNumberValue = (value: unknown): number | undefined => {
+            if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+            return value;
+          };
+          const gptImage2Quality = (() => {
+            const value = pickStringValue(
+              nodeData?.quality ?? defaultData?.quality
+            )?.toLowerCase();
+            return value === "auto" ||
+              value === "low" ||
+              value === "medium" ||
+              value === "high"
+              ? value
+              : undefined;
+          })();
+          const gptImage2Background = (() => {
+            const value = pickStringValue(
+              nodeData?.background ?? defaultData?.background
+            )?.toLowerCase();
+            return value === "auto" || value === "opaque" || value === "transparent"
+              ? value
+              : undefined;
+          })();
+          const gptImage2Moderation = (() => {
+            const value = pickStringValue(
+              nodeData?.moderation ?? defaultData?.moderation
+            )?.toLowerCase();
+            return value === "auto" || value === "low" ? value : undefined;
+          })();
+          const gptImage2OutputFormat = (() => {
+            const value = pickStringValue(
+              nodeData?.outputFormat ?? defaultData?.outputFormat
+            )?.toLowerCase();
+            return value === "png" || value === "jpeg" || value === "webp"
+              ? value
+              : undefined;
+          })();
+          const gptImage2OutputCompression = pickNumberValue(
+            nodeData?.outputCompression ?? defaultData?.outputCompression
+          );
+          const gptImage2MaskUrl = pickStringValue(
+            nodeData?.maskUrl ?? defaultData?.maskUrl
+          );
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
@@ -16373,6 +16421,20 @@ function FlowInner() {
             ...(node.type === "gptImage2"
               ? {
                   officialFallback: gptImage2OfficialFallback,
+                  ...(gptImage2Quality ? { quality: gptImage2Quality } : {}),
+                  ...(gptImage2Background
+                    ? { background: gptImage2Background }
+                    : {}),
+                  ...(gptImage2Moderation
+                    ? { moderation: gptImage2Moderation }
+                    : {}),
+                  ...(gptImage2OutputFormat
+                    ? { outputFormat: gptImage2OutputFormat }
+                    : {}),
+                  ...(typeof gptImage2OutputCompression === "number"
+                    ? { outputCompression: gptImage2OutputCompression }
+                    : {}),
+                  ...(gptImage2MaskUrl ? { maskUrl: gptImage2MaskUrl } : {}),
                 }
               : {}),
             ...(node.type !== "gptImage2"
