@@ -2080,6 +2080,140 @@ export class AiController {
     return next;
   }
 
+  /**
+   * 共用：轮询 DashScope 异步视频任务，返回最终视频 URL 或失败/超时错误。
+   * 仅供新接入的 endpoint 使用；现有 wan26-* / wan27-* 各自的 inline 轮询保持不变（避免连带回归）。
+   */
+  private async pollDashScopeVideoTask(
+    dashKey: string,
+    taskId: string,
+    label: string,
+  ): Promise<
+    | { success: true; data: any }
+    | { success: false; error: { message: string; details?: any } }
+  > {
+    const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
+    const intervalMs = 15000;
+    const maxAttempts = 40;
+
+    const extractVideoUrl = (obj: any) =>
+      obj?.output?.video_url ||
+      obj?.video_url ||
+      obj?.videoUrl ||
+      (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
+      undefined;
+
+    this.logger.log(
+      `🔁 Start polling DashScope ${label} task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`,
+    );
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      try {
+        const statusResp = await fetch(statusUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${dashKey}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!statusResp.ok) {
+          const errBody = await statusResp.text().catch(() => '');
+          this.logger.warn(`DashScope ${label} status check non-OK`, {
+            status: statusResp.status,
+            body: errBody,
+          });
+          continue;
+        }
+        const statusData = await statusResp.json().catch(() => ({}));
+        this.logger.debug(
+          `🔎 DashScope ${label} status (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`,
+        );
+        const statusValue = (
+          statusData?.output?.task_status ||
+          statusData?.status ||
+          statusData?.state ||
+          statusData?.task_status ||
+          ''
+        )
+          .toString()
+          .toLowerCase();
+
+        if (statusValue === 'succeeded' || statusValue === 'success') {
+          const finalVideoUrl =
+            extractVideoUrl(statusData) ||
+            extractVideoUrl(statusData?.result) ||
+            extractVideoUrl(statusData?.output) ||
+            undefined;
+          if (!finalVideoUrl) {
+            this.logger.warn(
+              `DashScope ${label} task ${taskId} succeeded but no video URL`,
+              { dataPreview: JSON.stringify(statusData).slice(0, 400) },
+            );
+            return {
+              success: false,
+              error: {
+                message: 'DashScope 任务已完成但未返回视频地址',
+                details: statusData,
+              },
+            };
+          }
+          this.logger.log(
+            `✅ DashScope ${label} task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`,
+          );
+          return {
+            success: true,
+            data: {
+              taskId,
+              status: statusValue,
+              videoUrl: finalVideoUrl,
+              video_url: finalVideoUrl,
+              output: { video_url: finalVideoUrl },
+              raw: statusData,
+            },
+          };
+        }
+        if (statusValue === 'failed' || statusValue === 'error') {
+          const failureCode =
+            statusData?.output?.code ||
+            statusData?.code ||
+            statusData?.output?.error_code ||
+            statusData?.output?.error?.code;
+          const failureMessage =
+            statusData?.output?.message ||
+            statusData?.message ||
+            statusData?.output?.error?.message ||
+            statusData?.output?.error_message ||
+            statusData?.output?.error?.msg ||
+            statusData?.output?.reason;
+          const message =
+            typeof failureMessage === 'string' && failureMessage.trim().length > 0
+              ? failureCode
+                ? `${String(failureCode)}: ${failureMessage}`
+                : failureMessage
+              : `DashScope ${label} task failed`;
+          this.logger.error(`❌ DashScope ${label} task ${taskId} failed`, {
+            message,
+            raw: statusData,
+          });
+          return {
+            success: false,
+            error: { message, details: statusData },
+          };
+        }
+      } catch (err: any) {
+        this.logger.warn(`DashScope ${label} polling exception, will retry`, err);
+      }
+    }
+    this.logger.warn(
+      `⏳ DashScope ${label} task ${taskId} polling timed out after ${maxAttempts} attempts`,
+    );
+    return {
+      success: false,
+      error: { message: `DashScope ${label} task polling timed out` },
+    };
+  }
+
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
     const candidates = this.buildImageFetchCandidates(parsed);
