@@ -396,6 +396,20 @@ const inferUpstreamRequestType = (params: {
   return 'text';
 };
 
+/**
+ * 从已解析的 request body 中尝试取出 `model` 字段（顶层）。
+ * 上游 AI API 通常把模型 ID 放在 body.model（DashScope/OpenAI/Anthropic 风格）。
+ * 提取后挂到日志的顶层 `model` 字段，方便 OpenObserve 直接查询，
+ * 不再依赖各平台单独配置 stream function 抽取嵌套字段。
+ */
+const extractModelFromBody = (body: unknown): string | null => {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const value = (body as Record<string, unknown>).model;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
 const tryParseBody = (bodyText: string, contentType: string | null): unknown => {
   if (!bodyText) return null;
 
@@ -574,6 +588,7 @@ export const installUpstreamFetchLogger = (): void => {
         response_headers: responseHeaders,
         response_body: responseBody,
         type: requestType,
+        model: extractModelFromBody(requestBody),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
@@ -603,6 +618,7 @@ export const installUpstreamFetchLogger = (): void => {
         request_body: requestBody,
         response_headers: null,
         type: requestType,
+        model: extractModelFromBody(requestBody),
         error: error instanceof Error ? error.message : String(error),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
