@@ -88,6 +88,11 @@ export interface ImageGenerationRequest {
   model?: string;
   aspectRatio?: string;
   imageSize?: string;
+  quality?: 'auto' | 'low' | 'medium' | 'high';
+  background?: 'auto' | 'opaque' | 'transparent';
+  moderation?: 'auto' | 'low';
+  outputCompression?: number;
+  maskUrl?: string;
   thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;

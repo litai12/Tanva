@@ -11,6 +11,12 @@ interface Nano2GenerateRequest {
   google_search?: boolean;
   google_image_search?: boolean;
   official_fallback?: boolean;
+  quality?: 'auto' | 'low' | 'medium' | 'high';
+  background?: 'auto' | 'opaque' | 'transparent';
+  moderation?: 'auto' | 'low';
+  output_format?: 'png' | 'jpeg' | 'webp';
+  output_compression?: number;
+  mask_url?: string;
 }
 
 interface Nano2TaskResponse {
@@ -26,12 +32,58 @@ export class Nano2Service {
   private readonly logger = new Logger(Nano2Service.name);
   private readonly apiKey: string;
   private readonly baseUrl = 'https://api.apimart.ai/v1/images/generations';
+  private readonly maxSubmitAttempts = 2;
+  private readonly submitRetryDelayMs = 1200;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('NANO2_API_KEY') || '';
     if (!this.apiKey) {
       this.logger.warn('NANO2_API_KEY not configured');
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async extractErrorDetails(response: Response): Promise<{
+    message: string;
+    rawBody: string;
+    requestId?: string;
+  }> {
+    const requestId =
+      response.headers.get('x-request-id') ||
+      response.headers.get('request-id') ||
+      response.headers.get('x-trace-id') ||
+      response.headers.get('trace-id') ||
+      undefined;
+
+    const rawBody = await response.text().catch(() => '');
+    let parsed: Record<string, any> | null = null;
+    if (rawBody) {
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    const candidateMessage =
+      parsed?.error?.message ||
+      parsed?.message ||
+      rawBody ||
+      `HTTP ${response.status}`;
+
+    const message =
+      typeof candidateMessage === 'string'
+        ? candidateMessage
+        : JSON.stringify(candidateMessage);
+
+    return {
+      message,
+      rawBody,
+      requestId,
+    };
   }
 
   async generateImage(request: Nano2GenerateRequest): Promise<{ taskId: string; status: string }> {
@@ -58,6 +110,24 @@ export class Nano2Service {
     if (typeof request.official_fallback === 'boolean') {
       payload.official_fallback = request.official_fallback;
     }
+    if (typeof request.quality === 'string' && request.quality.trim()) {
+      payload.quality = request.quality.trim();
+    }
+    if (typeof request.background === 'string' && request.background.trim()) {
+      payload.background = request.background.trim();
+    }
+    if (typeof request.moderation === 'string' && request.moderation.trim()) {
+      payload.moderation = request.moderation.trim();
+    }
+    if (typeof request.output_format === 'string' && request.output_format.trim()) {
+      payload.output_format = request.output_format.trim();
+    }
+    if (typeof request.output_compression === 'number' && Number.isFinite(request.output_compression)) {
+      payload.output_compression = Math.max(0, Math.min(100, Math.trunc(request.output_compression)));
+    }
+    if (typeof request.mask_url === 'string' && request.mask_url.trim()) {
+      payload.mask_url = request.mask_url.trim();
+    }
 
     this.logger.log(
       `Nano2 request: ${JSON.stringify({
@@ -66,25 +136,64 @@ export class Nano2Service {
       })}`,
     );
 
-    const response = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= this.maxSubmitAttempts; attempt += 1) {
+      try {
+        const response = await fetch(this.baseUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error?.message || `HTTP ${response.status}`);
+        if (!response.ok) {
+          const details = await this.extractErrorDetails(response);
+          const errorMessage = `HTTP ${response.status}${
+            details.requestId ? ` [requestId=${details.requestId}]` : ''
+          } - ${details.message}`;
+
+          const shouldRetry = response.status >= 500 && attempt < this.maxSubmitAttempts;
+          if (shouldRetry) {
+            this.logger.warn(
+              `Nano2 submit attempt ${attempt}/${this.maxSubmitAttempts} failed with upstream ${response.status}, retrying in ${this.submitRetryDelayMs}ms. ${errorMessage}`,
+            );
+            await this.sleep(this.submitRetryDelayMs);
+            continue;
+          }
+
+          this.logger.error(
+            `Nano2 submit failed: ${errorMessage}. rawBody=${details.rawBody?.slice(0, 1500) || '(empty)'}`,
+          );
+          throw new Error(errorMessage);
+        }
+
+        const data: Nano2TaskResponse = await response.json();
+        if (!Array.isArray(data?.data) || data.data.length === 0 || !data.data[0]?.task_id) {
+          throw new Error(`Nano2 submit succeeded but task_id missing. payload=${JSON.stringify(data)}`);
+        }
+        return {
+          taskId: data.data[0].task_id,
+          status: data.data[0].status,
+        };
+      } catch (error: any) {
+        lastError =
+          error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
+        const isHttpError = /^HTTP\s\d{3}/.test(lastError.message);
+        const shouldRetryNetworkLike = !isHttpError && attempt < this.maxSubmitAttempts;
+        if (shouldRetryNetworkLike) {
+          this.logger.warn(
+            `Nano2 submit attempt ${attempt}/${this.maxSubmitAttempts} failed with network/unknown error (${lastError.message}), retrying in ${this.submitRetryDelayMs}ms`,
+          );
+          await this.sleep(this.submitRetryDelayMs);
+          continue;
+        }
+        throw lastError;
+      }
     }
 
-    const data: Nano2TaskResponse = await response.json();
-    return {
-      taskId: data.data[0].task_id,
-      status: data.data[0].status,
-    };
+    throw lastError ?? new Error('Nano2 submit failed: unknown error');
   }
 
   async queryTask(taskId: string): Promise<{ status: string; imageUrl?: string }> {

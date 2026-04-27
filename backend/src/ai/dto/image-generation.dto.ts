@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber, ArrayMinSize } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject, ValidateIf, IsNumber, ArrayMinSize, IsInt, Min, Max } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -28,6 +28,24 @@ enum OutputFormat {
 
 enum ThinkingLevel {
   HIGH = 'high',
+  LOW = 'low',
+}
+
+enum GptImage2Quality {
+  AUTO = 'auto',
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+}
+
+enum GptImage2Background {
+  AUTO = 'auto',
+  OPAQUE = 'opaque',
+  TRANSPARENT = 'transparent',
+}
+
+enum GptImage2Moderation {
+  AUTO = 'auto',
   LOW = 'low',
 }
 
@@ -113,6 +131,28 @@ export class GenerateImageDto {
   @IsOptional()
   @IsBoolean()
   officialFallback?: boolean; // gpt-image-2 是否使用官方渠道兜底
+
+  @IsOptional()
+  @IsEnum(GptImage2Quality)
+  quality?: 'auto' | 'low' | 'medium' | 'high';
+
+  @IsOptional()
+  @IsEnum(GptImage2Background)
+  background?: 'auto' | 'opaque' | 'transparent';
+
+  @IsOptional()
+  @IsEnum(GptImage2Moderation)
+  moderation?: 'auto' | 'low';
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  outputCompression?: number;
+
+  @IsOptional()
+  @IsString()
+  maskUrl?: string;
 }
 
 export class EditImageDto {

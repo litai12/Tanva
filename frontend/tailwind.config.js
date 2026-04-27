@@ -48,6 +48,7 @@ export default {
       }
     },
   },
+  darkMode: ['class', '.tanva-premium-black-theme'],
   plugins: [],
 }
 

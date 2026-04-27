@@ -151,6 +151,7 @@ function getDefaultConfigs(): NodeConfig[] {
           model: "gpt-image-2",
           aspectRatio: "1:1",
           resolution: "1K",
+          quality: "auto",
           officialFallback: false,
           maxReferenceImages: 16,
           googleSearch: false,
@@ -177,7 +178,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "audioUpload", nameZh: "语音节点", nameEn: "Audio Node", category: "audio", status: "normal", sortOrder: 41, creditsPerCall: 0 },
     { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "audio", status: "normal", sortOrder: 42, creditsPerCall: 10, serviceType: "minimax-speech" },
     { nodeKey: "videoToGif", nameZh: "视频转GIF", nameEn: "Video to GIF", category: "other", status: "normal", sortOrder: 43, creditsPerCall: 30, serviceType: "video-to-gif", priceYuan: 0.3 },
-    { nodeKey: "tencentSpeech", nameZh: "腾讯语音合成", nameEn: "Tencent Speech", category: "audio", status: "normal", sortOrder: 44, creditsPerCall: 10, serviceType: "tencent-speech" },
+    { nodeKey: "tencentSpeech", nameZh: "语音合成", nameEn: "Speech Synthesis", category: "audio", status: "normal", sortOrder: 44, creditsPerCall: 10, serviceType: "tencent-speech" },
     { nodeKey: "minimaxMusic", nameZh: "MiniMax音乐生成", nameEn: "MiniMax Music", category: "audio", status: "normal", sortOrder: 45, creditsPerCall: 30, serviceType: "minimax-music" },
   ];
 }

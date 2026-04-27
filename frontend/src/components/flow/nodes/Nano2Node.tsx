@@ -41,6 +41,7 @@ type NodeData = {
   error?: string;
   aspectRatio?: string;
   resolution?: string;
+  quality?: "auto" | "low" | "medium" | "high";
   presetPrompt?: string;
   googleSearch?: boolean;
   googleImageSearch?: boolean;
@@ -108,6 +109,32 @@ const GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS = [
 const GPT_IMAGE_2_4K_ASPECT_RATIO_SET = new Set<string>(
   GPT_IMAGE_2_4K_SUPPORTED_ASPECT_RATIOS
 );
+const GPT_IMAGE_2_QUALITY_OPTIONS = [
+  {
+    value: "auto" as const,
+    title: "auto",
+    descZh: "自动（默认，通常等同 low）",
+    descEn: "Automatic (default, usually similar to low)",
+  },
+  {
+    value: "low" as const,
+    title: "low",
+    // descZh: "快速省钱，轮廓够用",
+    // descEn: "Fast and cheap",
+  },
+  {
+    value: "medium" as const,
+    title: "medium",
+    // descZh: "平衡",
+    // descEn: "Balanced",
+  },
+  {
+    value: "high" as const,
+    title: "high",
+    // descZh: "最高精度（4K + high 耗时 >120s）",
+    // descEn: "Highest quality (4K + high may take >120s)",
+  },
+];
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
@@ -247,6 +274,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     resolutionOptions[0] ||
     "1K";
   const isGptImage2Node = resolvedNodeType === "gptImage2";
+  const showGptImage2QualitySelector = isGptImage2Node && bananaImageRoute === "stable";
   const normalizedResolutionValue =
     typeof resolutionValue === "string" ? resolutionValue.trim().toUpperCase() : "";
   const isGptImage24K =
@@ -297,6 +325,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const [resolutionMenuOpen, setResolutionMenuOpen] = React.useState(false);
+  const [qualityMenuOpen, setQualityMenuOpen] = React.useState(false);
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -385,6 +414,33 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       );
     },
     [aspectRatioValue, id, resolvedNodeType]
+  );
+
+  const normalizedQualityValue = React.useMemo<
+    "auto" | "low" | "medium" | "high"
+  >(() => {
+    const candidate =
+      typeof data.quality === "string"
+        ? data.quality
+        : typeof defaultData?.quality === "string"
+        ? defaultData.quality
+        : "auto";
+    const normalized = candidate.trim().toLowerCase();
+    if (normalized === "low") return "low";
+    if (normalized === "medium") return "medium";
+    if (normalized === "high") return "high";
+    return "auto";
+  }, [data.quality, defaultData?.quality]);
+
+  const updateQuality = React.useCallback(
+    (value: "auto" | "low" | "medium" | "high") => {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { quality: value } },
+        })
+      );
+    },
+    [id]
   );
 
   React.useEffect(() => {
@@ -512,6 +568,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       if (!target?.closest?.(".video-dropdown")) {
         setAspectMenuOpen(false);
         setResolutionMenuOpen(false);
+        setQualityMenuOpen(false);
       }
     };
     window.addEventListener("mousedown", handleGlobalMouseDown);
@@ -529,6 +586,12 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     );
     return current || resolutionValue || "1K";
   }, [normalizedResolutionValue, resolutionOptions, resolutionValue]);
+  const currentQualityOption = React.useMemo(() => {
+    return (
+      GPT_IMAGE_2_QUALITY_OPTIONS.find((option) => option.value === normalizedQualityValue) ||
+      GPT_IMAGE_2_QUALITY_OPTIONS[0]
+    );
+  }, [normalizedQualityValue]);
   const getDropdownItemStyle = React.useCallback(
     (isActive: boolean): React.CSSProperties => {
       if (isFlowDark) {
@@ -666,11 +729,12 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         </label>
         <button
           type='button'
-          onClick={(event) => {
-            event.stopPropagation();
-            setResolutionMenuOpen(false);
-            setAspectMenuOpen((open) => !open);
-          }}
+            onClick={(event) => {
+              event.stopPropagation();
+              setQualityMenuOpen(false);
+              setResolutionMenuOpen(false);
+              setAspectMenuOpen((open) => !open);
+            }}
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
           style={{
@@ -740,6 +804,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
             type='button'
             onClick={(event) => {
               event.stopPropagation();
+              setQualityMenuOpen(false);
               setAspectMenuOpen(false);
               setResolutionMenuOpen((open) => !open);
             }}
@@ -796,6 +861,94 @@ function Nano2NodeInner({ id, data, selected }: Props) {
                       style={getDropdownItemStyle(isActive)}
                     >
                       {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {showGptImage2QualitySelector ? (
+        <div className='video-dropdown' style={{ marginBottom: 8, position: "relative" }}>
+          <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
+            {lt("图片质量", "Image quality")}
+          </label>
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setAspectMenuOpen(false);
+              setResolutionMenuOpen(false);
+              setQualityMenuOpen((open) => !open);
+            }}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+            title={lt("选择图片质量", "Select image quality")}
+          >
+            <span>{currentQualityOption.title}</span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 16,
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >
+              {qualityMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {qualityMenuOpen && (
+            <div
+              className='video-dropdown-menu'
+              onClick={(event) => event.stopPropagation()}
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {GPT_IMAGE_2_QUALITY_OPTIONS.map((option) => {
+                  const isActive = option.value === normalizedQualityValue;
+                  return (
+                    <button
+                      key={option.value}
+                      type='button'
+                      onClick={() => {
+                        updateQuality(option.value);
+                        setQualityMenuOpen(false);
+                      }}
+                      style={getDropdownItemStyle(isActive)}
+                    >
+                      <div style={{ fontWeight: 600 }}>{option.title}</div>
+                      <div style={{ fontSize: 11, opacity: 0.85 }}>
+                        {/* {lt(option.descZh ?? option.descEn, option.descEn)} */}
+                      </div>
                     </button>
                   );
                 })}

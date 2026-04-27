@@ -1338,7 +1338,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
   { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
   { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
-  { key: "tencentSpeech", zh: "腾讯语音合成", en: "Tencent Speech", category: "audio" },
+  { key: "tencentSpeech", zh: "语音合成", en: "Speech Synthesis", category: "audio" },
   { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
 ];
 
@@ -1769,6 +1769,18 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   },
 };
 
+// GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
+const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
+  "1K": 45,
+  "2K": 80,
+  "4K": 110,
+};
+const GPT_IMAGE_2_NORMAL_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
+  "1K": 20,
+  "2K": 30,
+  "4K": 40,
+};
+
 const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generate",
   "generate4",
@@ -1805,6 +1817,15 @@ const normalizeBananaStableImageSize = (
   ) {
     return normalized;
   }
+  return "1K";
+};
+
+const normalizeGptImage2StableImageSize = (
+  rawSize: unknown
+): "1K" | "2K" | "4K" => {
+  const normalized = typeof rawSize === "string" ? rawSize.trim().toUpperCase() : "";
+  if (normalized === "2K") return "2K";
+  if (normalized === "4K") return "4K";
   return "1K";
 };
 
@@ -2155,6 +2176,32 @@ const resolveStableRouteCredits = (params: {
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
   let resolvedCredits = fallbackCredits;
 
+  if (bananaImageRoute === "stable" && normalizedType === "gptImage2") {
+    const preferredSize =
+      typeof nodeData?.resolution === "string" && nodeData.resolution.trim().length > 0
+        ? nodeData.resolution
+        : typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+        ? nodeData.imageSize
+        : globalImageSize;
+    const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
+    const unitCredits = Number(GPT_IMAGE_2_STABLE_ROUTE_PRICING[normalizedSize]);
+    if (Number.isFinite(unitCredits) && unitCredits > 0) {
+      resolvedCredits = unitCredits;
+    }
+  } else if (normalizedType === "gptImage2") {
+    const preferredSize =
+      typeof nodeData?.resolution === "string" && nodeData.resolution.trim().length > 0
+        ? nodeData.resolution
+        : typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+        ? nodeData.imageSize
+        : globalImageSize;
+    const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
+    const unitCredits = Number(GPT_IMAGE_2_NORMAL_ROUTE_PRICING[normalizedSize]);
+    if (Number.isFinite(unitCredits) && unitCredits > 0) {
+      resolvedCredits = unitCredits;
+    }
+  }
+
   // Stable 通道下的 Banana 图片节点动态积分
   if (bananaImageRoute === "stable" && normalizedType && BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     const tier = resolveBananaStablePricingTier(aiProvider);
@@ -2194,7 +2241,11 @@ const resolveStableRouteCredits = (params: {
   }
 
   // 图像节点统一模型管理定价优先级最高
-  if (normalizedType && IMAGE_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
+  if (
+    normalizedType &&
+    IMAGE_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType) &&
+    normalizedType !== "gptImage2"
+  ) {
     const metadata =
       nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
         ? (nodeData.nodeConfigMetadata as Record<string, any>)
@@ -14941,8 +14992,8 @@ function FlowInner() {
           if (isTencentKlingO3Route && klingStoryboardMode === "intelligence" && !finalPrompt) {
             failCurrentVideoNode(
               lt(
-                "腾讯 Kling 智能分镜模式需要提示词输入",
-                "Tencent Kling intelligent storyboard mode requires prompt input"
+                "智能分镜模式需要提示词输入",
+                "Intelligent storyboard mode requires prompt input"
               )
             );
             return;
@@ -15654,7 +15705,7 @@ function FlowInner() {
           });
 
           if (!response.ok) {
-            let message = "腾讯语音合成失败";
+            let message = "语音合成失败";
             try {
               const errorData = await response.json();
               message = errorData?.message || errorData?.error || message;
@@ -15667,7 +15718,7 @@ function FlowInner() {
           const videoUrl = result?.videoUrl;
 
           if (!audioUrl && !videoUrl) {
-            throw new Error("腾讯语音合成返回缺少结果");
+            throw new Error("语音合成返回缺少结果");
           }
 
           const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -15712,7 +15763,7 @@ function FlowInner() {
           );
         } catch (error) {
           console.error("[tencentSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "腾讯语音合成失败";
+          const msg = error instanceof Error ? error.message : "语音合成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -16642,6 +16693,54 @@ function FlowInner() {
               : typeof defaultData?.officialFallback === "boolean"
               ? defaultData.officialFallback
               : false;
+          const pickStringValue = (value: unknown): string | undefined => {
+            if (typeof value !== "string") return undefined;
+            const normalized = value.trim();
+            return normalized.length > 0 ? normalized : undefined;
+          };
+          const pickNumberValue = (value: unknown): number | undefined => {
+            if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+            return value;
+          };
+          const gptImage2Quality = (() => {
+            const value = pickStringValue(
+              nodeData?.quality ?? defaultData?.quality
+            )?.toLowerCase();
+            return value === "auto" ||
+              value === "low" ||
+              value === "medium" ||
+              value === "high"
+              ? value
+              : undefined;
+          })();
+          const gptImage2Background = (() => {
+            const value = pickStringValue(
+              nodeData?.background ?? defaultData?.background
+            )?.toLowerCase();
+            return value === "auto" || value === "opaque" || value === "transparent"
+              ? value
+              : undefined;
+          })();
+          const gptImage2Moderation = (() => {
+            const value = pickStringValue(
+              nodeData?.moderation ?? defaultData?.moderation
+            )?.toLowerCase();
+            return value === "auto" || value === "low" ? value : undefined;
+          })();
+          const gptImage2OutputFormat = (() => {
+            const value = pickStringValue(
+              nodeData?.outputFormat ?? defaultData?.outputFormat
+            )?.toLowerCase();
+            return value === "png" || value === "jpeg" || value === "webp"
+              ? value
+              : undefined;
+          })();
+          const gptImage2OutputCompression = pickNumberValue(
+            nodeData?.outputCompression ?? defaultData?.outputCompression
+          );
+          const gptImage2MaskUrl = pickStringValue(
+            nodeData?.maskUrl ?? defaultData?.maskUrl
+          );
           const result = await generateImageViaAPI({
             prompt: promptText,
             aiProvider: "nano2",
@@ -16657,6 +16756,20 @@ function FlowInner() {
             ...(node.type === "gptImage2"
               ? {
                   officialFallback: gptImage2OfficialFallback,
+                  ...(gptImage2Quality ? { quality: gptImage2Quality } : {}),
+                  ...(gptImage2Background
+                    ? { background: gptImage2Background }
+                    : {}),
+                  ...(gptImage2Moderation
+                    ? { moderation: gptImage2Moderation }
+                    : {}),
+                  ...(gptImage2OutputFormat
+                    ? { outputFormat: gptImage2OutputFormat }
+                    : {}),
+                  ...(typeof gptImage2OutputCompression === "number"
+                    ? { outputCompression: gptImage2OutputCompression }
+                    : {}),
+                  ...(gptImage2MaskUrl ? { maskUrl: gptImage2MaskUrl } : {}),
                 }
               : {}),
             ...(node.type !== "gptImage2"

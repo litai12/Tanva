@@ -63,8 +63,10 @@ const Canvas: React.FC = () => {
         const className = 'tanva-premium-black-theme';
         if (chatTheme === 'black') {
             document.body.classList.add(className);
+            document.body.classList.add('dark');
         } else {
             document.body.classList.remove(className);
+            document.body.classList.remove('dark');
         }
         return () => {
             document.body.classList.remove(className);

@@ -42,7 +42,8 @@ function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): nu
 const FREE_FEATURES: string[] = [
   "基础月卡积分：500",
   "每日签到：50 积分",
-  "去水印",
+  "Seedance 2 权益：不支持",
+  "无水印权益：不支持",
   "签到/活动赠送积分进入「赠送可消退积分」池",
   "赠送积分默认每日衰减 50",
   "邀请上限 5",
@@ -342,28 +343,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const canTopUpCredits = true;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
-  const topUpSection = canTopUpCredits ? (
-    <section
-      className={cn(
-        "space-y-4 rounded-2xl border p-4 sm:p-5",
-        isWhite ? "border-slate-200 bg-white" : "border-zinc-800/80 bg-[#0f0f15]",
-      )}
-    >
-      <div>
-        <h4 className={cn("text-base font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
-          积分充值
-        </h4>
-        <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
-          积分充值已开放，所有用户均可直接购买积分。
-        </p>
-      </div>
-      <PaymentPanel
-        embeddedInVip
-        onBack={onBack}
-        onPaymentSuccess={onPaymentSuccess}
-      />
-    </section>
-  ) : null;
 
   return (
     <div
@@ -979,10 +958,31 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                   ) : null}
                 </div>
 
+                {canTopUpCredits ? (
+                  <section
+                    className={cn(
+                      "space-y-4 border-t pt-2",
+                      isWhite ? "border-slate-200" : "border-zinc-800/80",
+                    )}
+                  >
+                    <div>
+                      <h4 className={cn("text-base font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
+                        积分充值
+                      </h4>
+                      <p className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                        积分充值已开放，所有用户均可直接购买积分。
+                      </p>
+                    </div>
+                    <PaymentPanel
+                      embeddedInVip
+                      onBack={onBack}
+                      onPaymentSuccess={onPaymentSuccess}
+                    />
+                  </section>
+                ) : null}
               </div>
             </div>
           )}
-          {topUpSection}
         </div>
       )}
     </div>

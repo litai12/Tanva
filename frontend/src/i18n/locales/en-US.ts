@@ -322,9 +322,9 @@ const enUS = {
           title: "Nano Banana/Gemini Text+Image Route",
           desc: "Use one route policy for both text and image generation",
           normal: "Normal Route",
-          normalDesc: "Image/text use normal third-party channels (147 / Apimart by admin)",
+          normalDesc: "Image/text use normal third-party channels (admin controlled)",
           stable: "Premium Route",
-          stableDesc: "Image/text use Tencent direct channel (stability first)",
+          stableDesc: "Image/text use direct channel (stability first)",
           hint: "Only applies when Nano Banana providers are selected",
         },
         googleKey: {

@@ -606,13 +606,6 @@ video::-webkit-media-controls-fullscreen-button {
 }
 
 /* Run button hover swap: show credits in-place and hide Run text */
-.run-btn-with-credit .run-text-trigger,
-.run-btn-with-credit .run-credit-badge {
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
-}
-
 .run-btn-with-credit {
   position: relative;
 }
@@ -620,39 +613,50 @@ video::-webkit-media-controls-fullscreen-button {
 .run-btn-with-credit .run-text-trigger {
   display: inline-block;
   opacity: 1;
+  transition: opacity 0.15s ease;
+  color: inherit;
+  white-space: nowrap;
 }
 
 .run-btn-with-credit .run-credit-badge {
-  opacity: 0 !important;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(0.95);
+  position: absolute !important;
+  inset: 0 !important;
+  display: none !important;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
   pointer-events: none;
   white-space: nowrap;
+  border-radius: inherit;
 }
 
 .run-btn-with-credit:hover:not(:disabled) .run-text-trigger,
 .run-btn-with-credit:focus-visible:not(:disabled) .run-text-trigger {
   opacity: 0;
+  color: #fff;
 }
 
 .run-btn-with-credit:hover:not(:disabled) .run-credit-badge,
 .run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
-  opacity: 1 !important;
-  transform: translate(-50%, -50%) scale(1);
+  display: inline-flex !important;
+  opacity: 1;
+  background: rgba(20, 20, 20, 0.98) !important;
+  border-color: rgba(120, 120, 120, 0.6) !important;
 }
 
 .run-btn-with-credit:disabled .run-credit-badge {
-  opacity: 0 !important;
-  transform: translate(-50%, -50%) scale(0.95);
+  display: none !important;
+  opacity: 0;
 }
 
 .run-btn-with-credit > .run-credit-badge:only-child {
-  position: static;
+  position: static !important;
+  display: inline-flex !important;
   opacity: 1 !important;
   transform: none !important;
   pointer-events: none;
+  width: auto;
 }
 
 .tanva-video-header-run.run-btn-with-credit {
