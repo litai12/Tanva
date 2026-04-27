@@ -1130,6 +1130,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "imageGrid", targetHandle: "images" },
     { nodeType: "imageSplit", targetHandle: "img" },
     { nodeType: "imageCompress", targetHandle: "img" },
+    { nodeType: "happyhorseR2V", targetHandle: "image-1" },
   ],
   video: [
     { nodeType: "videoAnalyze", targetHandle: "video" },
@@ -9054,6 +9055,19 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "happyhorseR2V") {
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        if (
+          typeof targetHandle === "string" &&
+          /^image-\d+$/.test(targetHandle)
+        ) {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        return false;
+      }
+
       if (isSeedanceVideoNode(targetNode)) {
         const spec = getSeedanceModeSpec(targetNode);
         const incomingCount = rf
@@ -9455,6 +9469,10 @@ function FlowInner() {
       if (targetNode?.type === "wan2R2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
+      }
+      if (targetNode?.type === "happyhorseR2V") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle.startsWith("image-")) return true; // 每个 image-N 句柄最多一个
       }
       // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
@@ -10068,6 +10086,20 @@ function FlowInner() {
           tgt?.type === "wan2R2V" &&
           typeof params.targetHandle === "string" &&
           params.targetHandle.startsWith("video-")
+        ) {
+          next = next.filter(
+            (e) =>
+              !(
+                e.target === params.target &&
+                e.targetHandle === params.targetHandle
+              )
+          );
+        }
+        // happyhorseR2V: 每个 image-* 句柄只保留 1 条输入线
+        if (
+          tgt?.type === "happyhorseR2V" &&
+          typeof params.targetHandle === "string" &&
+          params.targetHandle.startsWith("image-")
         ) {
           next = next.filter(
             (e) =>
