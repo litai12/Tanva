@@ -2214,6 +2214,76 @@ export class AiController {
     };
   }
 
+  private normalizeHappyhorseR2VBodyForUpstream(body: any): any {
+    if (!body || typeof body !== 'object') return body;
+    const next: any = { ...body };
+    if (!next.input || typeof next.input !== 'object') return next;
+
+    next.input = { ...next.input };
+    const rawMedia = next.input.media;
+    if (Array.isArray(rawMedia)) {
+      next.input.media = rawMedia
+        .map((item: any) => {
+          if (!item || typeof item !== 'object') return null;
+          const mediaItem: any = { ...item };
+          if (typeof mediaItem.type !== 'string' || !mediaItem.type.trim()) {
+            mediaItem.type = 'reference_image';
+          }
+          if (typeof mediaItem.url === 'string' && mediaItem.url.trim()) {
+            mediaItem.url = this.normalizeImageUrlForUpstream(mediaItem.url);
+          }
+          return mediaItem;
+        })
+        .filter(
+          (value: any) => value && typeof value.url === 'string' && value.url.trim(),
+        );
+    }
+
+    // 强制不打水印
+    next.parameters = { ...(next.parameters || {}), watermark: false };
+
+    return next;
+  }
+
+  private buildHappyhorseCreditRequestParams(body: any): Record<string, any> {
+    const parameters =
+      body?.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+        ? body.parameters
+        : {};
+    const resolution =
+      typeof parameters.resolution === 'string' && parameters.resolution.trim().length > 0
+        ? parameters.resolution.trim().toUpperCase()
+        : '720P'; // 节点默认；与节点 UI 默认一致
+    const durationRaw = Number(parameters.duration);
+    const duration =
+      Number.isFinite(durationRaw) && durationRaw > 0
+        ? Math.min(15, Math.max(3, Math.round(durationRaw)))
+        : 5;
+
+    const referenceImageUrls = Array.isArray(body?.input?.media)
+      ? body.input.media
+          .map((m: any) => m?.url)
+          .filter((u: any): u is string => typeof u === 'string')
+      : [];
+
+    return {
+      managedModelKey: 'happyhorse-1.0-r2v',
+      modelKey: 'happyhorse-1.0-r2v',
+      vendorKey: 'dashscope',
+      platformKey: 'dashscope',
+      aiProvider: 'dashscope',
+      generationMode: 'r2v',
+      resolution,
+      duration,
+      durationSec: duration,
+      referenceImageCount: referenceImageUrls.length,
+      ...this.buildRequestPromptAndImageParams(
+        body?.input?.prompt,
+        referenceImageUrls,
+      ),
+    };
+  }
+
   private async fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
     const candidates = this.buildImageFetchCandidates(parsed);
