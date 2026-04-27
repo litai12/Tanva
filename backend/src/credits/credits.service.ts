@@ -459,6 +459,12 @@ export class CreditsService {
       effectiveRequestParams,
     );
 
+    creditsToDeduct = this.resolveHappyhorseR2VCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
 
     if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
@@ -885,6 +891,31 @@ export class CreditsService {
     }
 
     return defaultServiceName;
+  }
+
+  /**
+   * happyhorse-r2v-video 按分辨率 × 时长动态计费
+   * pricing.dynamicPricing.perSecondByResolution = { '720P': N, '1080P': M }
+   * credits = duration * rate[resolution]，缺失时回落 defaultCredits
+   */
+  private resolveHappyhorseR2VCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    if (serviceType !== 'happyhorse-r2v-video') return defaultCredits;
+    const pricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
+    const matrix = pricing?.dynamicPricing?.perSecondByResolution as
+      | Record<string, number>
+      | undefined;
+    if (!matrix) return defaultCredits;
+    const resolution = (requestParams?.resolution || '').toString().toUpperCase();
+    const rate = matrix[resolution];
+    const duration = Number(requestParams?.duration);
+    if (rate && Number.isFinite(duration) && duration > 0) {
+      return Math.round(rate * duration);
+    }
+    return defaultCredits;
   }
 
   /**
