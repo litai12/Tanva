@@ -60,6 +60,7 @@ import Sora2VideoNode from "./nodes/Sora2VideoNode";
 import Sora2CharacterNode from "./nodes/Sora2CharacterNode";
 import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
+import HappyhorseR2VNode from "./nodes/HappyhorseR2VNode";
 import Wan27VideoNode from "./nodes/Wan27VideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
 import StoryboardSplitNode from "./nodes/StoryboardSplitNode";
@@ -755,6 +756,7 @@ const rawNodeTypes = {
   sora2Character: Sora2CharacterNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
+  happyhorseR2V: HappyhorseR2VNode,
   wan27Video: Wan27VideoNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
@@ -913,6 +915,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
+  "happyhorseR2V",
   "wan27Video",
   "klingVideo",
   "kling26Video",
@@ -957,6 +960,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "sora2Video",
   "wan26",
   "wan2R2V",
+  "happyhorseR2V",
   "wan27Video",
   "klingVideo",
   "kling26Video",
@@ -1180,6 +1184,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "happyhorseR2V", sourceHandle: "video" },
     { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
@@ -1196,6 +1201,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "sora2Video", sourceHandle: "video" },
     { nodeType: "wan26", sourceHandle: "video" },
     { nodeType: "wan2R2V", sourceHandle: "video" },
+    { nodeType: "happyhorseR2V", sourceHandle: "video" },
     { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingVideo", sourceHandle: "video" },
     { nodeType: "kling26Video", sourceHandle: "video" },
@@ -1259,6 +1265,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
+  happyhorseR2V: 600, // 快乐马参考视频 - fallback；实际由后端 perSecondByResolution 决定
   klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
   kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
   kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
@@ -1311,6 +1318,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
   { key: "wan26", zh: "Wan2.6", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V", category: "video" },
+  { key: "happyhorseR2V", zh: "快乐马 R2V", en: "HappyHorse R2V", category: "video" },
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
@@ -1425,6 +1433,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   sora2Character: "video",
   wan26: "video",
   wan2R2V: "video",
+  happyhorseR2V: "video",
   wan27Video: "video",
   klingVideo: "video",
   kling26Video: "video",
@@ -1476,6 +1485,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   sora2Character: { w: 300, h: 320 },
   wan26: { w: 300, h: 320 },
   wan2R2V: { w: 300, h: 360 },
+  happyhorseR2V: { w: 300, h: 460 },
   wan27Video: { w: 300, h: 420 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
@@ -1801,6 +1811,7 @@ const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "sora2Character",
   "wan26",
   "wan2R2V",
+  "happyhorseR2V",
   "wan27Video",
   "klingVideo",
   "kling26Video",
@@ -1854,6 +1865,7 @@ const resolveVideoDefaultDuration = (
   if (
     nodeType === "wan26" ||
     nodeType === "wan2R2V" ||
+    nodeType === "happyhorseR2V" ||
     nodeType === "wan27Video" ||
     nodeType === "klingVideo" ||
     nodeType === "kling26Video" ||
@@ -1879,6 +1891,7 @@ const resolveVideoDefaultResolution = (
   if (
     nodeType === "wan26" ||
     nodeType === "wan2R2V" ||
+    nodeType === "happyhorseR2V" ||
     nodeType === "viduVideo" ||
     nodeType === "viduQ3" ||
     nodeType === "doubaoVideo" ||
@@ -7862,6 +7875,20 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "happyhorseR2V"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              ratio: "16:9" as const,
+              resolution: "720P" as const,
+              duration: 5,
+              referenceCount: 1,
+              videoVersion: 0,
+              history: [],
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "wan27Video"
           ? {
               status: "idle" as const,
@@ -8234,6 +8261,7 @@ function FlowInner() {
       "sora2Video",
       "wan26",
       "wan2R2V",
+      "happyhorseR2V",
       "wan27Video",
       "klingVideo",
       "kling26Video",
@@ -8867,6 +8895,7 @@ function FlowInner() {
             "sora2Video",
       "wan26",
       "wan2R2V",
+      "happyhorseR2V",
       "wan27Video",
       "klingVideo",
             "kling26Video",
@@ -8891,6 +8920,7 @@ function FlowInner() {
       "sora2Video",
       "wan26",
       "wan2R2V",
+      "happyhorseR2V",
       "wan27Video",
       "klingVideo",
             "kling26Video",
@@ -8920,6 +8950,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
             "klingVideo",
             "kling26Video",
@@ -8962,6 +8993,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
             "klingVideo",
             "kling26Video",
@@ -9006,6 +9038,7 @@ function FlowInner() {
             "video", // 上传视频
             "sora2Video",
             "wan2R2V",
+            "happyhorseR2V",
             "wan26",
             "wan27Video",
             "klingVideo",
@@ -9098,6 +9131,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
             "klingVideo",
             "kling26Video",
@@ -9160,7 +9194,7 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         }
         if (targetHandle === "video") {
-          return ["video", "sora2Video", "wan26", "wan2R2V", "wan27Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
+          return ["video", "sora2Video", "wan26", "wan2R2V", "happyhorseR2V", "wan27Video", "klingVideo", "kling26Video", "kling30Video", "klingO1Video", "viduVideo", "viduQ3", "doubaoVideo", "seedance20Video"].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -9218,6 +9252,7 @@ function FlowInner() {
             "seedance20Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
           ].includes(sourceNode.type || "");
         return false;
@@ -9230,6 +9265,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
             "klingVideo",
             "kling26Video",
@@ -9253,6 +9289,7 @@ function FlowInner() {
             "sora2Video",
             "wan26",
             "wan2R2V",
+            "happyhorseR2V",
             "wan27Video",
             "klingVideo",
             "kling26Video",
@@ -9689,6 +9726,7 @@ function FlowInner() {
           "sora2Video",
           "wan26",
           "wan2R2V",
+          "happyhorseR2V",
           "wan27Video",
           "storyboardSplit",
           "midjourney",
@@ -19068,6 +19106,7 @@ function FlowInner() {
           n.type === "sora2Character" ||
           n.type === "wan26" ||
           n.type === "wan2R2V" ||
+          n.type === "happyhorseR2V" ||
           n.type === "wan27Video" ||
           n.type === "klingVideo" ||
           n.type === "kling26Video" ||
