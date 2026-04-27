@@ -129,6 +129,11 @@ const GENERATE_GROUP_TITLE_SAFE_SPACE = 56;
 const GROUP_HORIZONTAL_GAP_MIN = 16;
 const GROUP_HORIZONTAL_GAP_MAX = 48;
 const FLOW_NODE_SEND_TOP_GAP = 24;
+const resolveMatrixGroupColumns = (groupTotal: number): number => {
+    const total = Math.max(1, Math.floor(groupTotal));
+    if (total <= 1) return 1;
+    return Math.min(4, total);
+};
 const TOOLBAR_DERIVED_OPERATION_TYPES = new Set([
     'expand-image',
     'background-removal',
@@ -382,7 +387,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const cellH = params.operationType === 'generate'
             ? (getGenerateStepY(params.expectedHeight) + (isGenerateGroup ? GENERATE_GROUP_TITLE_SAFE_SPACE : 0))
             : Math.max(spacingV, params.expectedHeight + MATRIX_CELL_PADDING);
-        const cols = isGenerateGroup ? Math.min(4, groupTotal) : (groupTotal > 1 ? Math.min(4, groupTotal) : 1);
+        const cols = groupTotal > 1
+            ? resolveMatrixGroupColumns(groupTotal)
+            : 1;
         const rawAnchor = params.layoutContext?.anchorCenter
             && Number.isFinite(params.layoutContext.anchorCenter.x)
             && Number.isFinite(params.layoutContext.anchorCenter.y)
@@ -406,10 +413,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     nextGroupY
                 );
             } else {
-                desiredAnchor = new paper.Point(
-                    rawAnchor.x + ((cols - 1) / 2) * cellW,
-                    rawAnchor.y
-                );
+                // 首个并行组以锚点为中心，避免整行只向右展开导致看起来“只出现一张”
+                desiredAnchor = new paper.Point(rawAnchor.x, rawAnchor.y);
             }
         }
         const currentId = params.currentImageId;
@@ -669,7 +674,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const spacingV = getSpacingVertical();
                 const groupTotal = Math.max(1, layoutContext?.groupTotal ?? 1);
                 const groupIndex = Math.max(0, layoutContext?.groupIndex ?? 0);
-                const columns = groupTotal > 1 ? Math.min(4, groupTotal) : 1;
+                const columns = groupTotal > 1 ? resolveMatrixGroupColumns(groupTotal) : 1;
 
                 // 并行编辑：按行列排布，锚点优先用传入 anchor，其次源图中心，最后视口中心
                 if (groupTotal > 1) {
@@ -1576,6 +1581,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            let loadTimeoutId: number | null = null;
 	            let retryCount = 0;
 	            let hasTerminalLoadFailure = false;
+	            let hasRenderedSuccessfully = false;
+	            let lastStableRasterSource = rasterSource;
 	            let onLoadHandler: (() => void) | null = null;
 	            let onErrorHandler: ((e: any) => void) | null = null;
 
@@ -1681,6 +1688,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            onLoadHandler = () => {
 	                if (hasTerminalLoadFailure) return;
 	                clearLoadTimeout();
+	                hasRenderedSuccessfully = true;
+	                const loadedSource = getRasterSourceString(raster).trim();
+	                if (loadedSource) {
+	                    lastStableRasterSource = loadedSource;
+	                }
 	                // 移除加载指示器
 	                removeLoadingIndicator();
 
@@ -2223,6 +2235,34 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
 	            onErrorHandler = (e: any) => {
                     if (hasTerminalLoadFailure) return;
+                    if (hasRenderedSuccessfully) {
+                        clearLoadTimeout();
+                        removeLoadingIndicator();
+                        const fallbackSource = (lastStableRasterSource || '').trim();
+                        if (fallbackSource) {
+                            const currentBounds = (() => {
+                                try {
+                                    const b = raster.bounds as paper.Rectangle | undefined;
+                                    if (b && b.width > 0 && b.height > 0) return b.clone();
+                                } catch {}
+                                return null;
+                            })();
+                            try {
+                                setRasterSource(raster, fallbackSource);
+                                if (currentBounds) {
+                                    try { raster.bounds = currentBounds; } catch {}
+                                }
+                                try { paper.view?.update(); } catch {}
+                            } catch {}
+                        }
+                        logger.warn('Image source upgrade failed after first render, fallback to last stable source', {
+                            imageId,
+                            placeholderId,
+                            fallbackSource,
+                            error: e
+                        });
+                        return;
+                    }
                     // proxy load failed -> retry direct remote URL
                     if (
                         !hasRetriedProxyFallback &&

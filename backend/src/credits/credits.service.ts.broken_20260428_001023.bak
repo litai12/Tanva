@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
+﻿import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -271,7 +271,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
-  // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K；尊享通道 30 积分
+  // Fast: gemini-2.5-image (Nano Banana), 浠呮敮鎸?1K锛涘皧浜€氶亾 30 绉垎
   fast: {
     '0.5K': 30,
     '1K': 30,
@@ -288,8 +288,8 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   // Ultra: gemini-3.1-image (Nano Banana-2)
   ultra: {
     '0.5K': 30,
-    '1K': 50,
-    '2K': 70,
+    '1K': 30,
+    '2K': 50,
     '4K': 110,
   },
 };
@@ -309,6 +309,18 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
     ultra: 50,
   },
 };
+
+const OUTPUT_COUNT_MULTIPLIER_SERVICE_TYPES = new Set<ServiceType>([
+  'gemini-2.5-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-image',
+  'gemini-2.5-image-edit',
+  'gemini-image-edit',
+  'gemini-3.1-image-edit',
+  'gemini-2.5-image-blend',
+  'gemini-image-blend',
+  'gemini-3.1-image-blend',
+]);
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -342,9 +354,9 @@ export class CreditsService {
       const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
         a.localeCompare(b),
       );
-      return `{${entries
+      return `{${entries`
         .map(([key, item]) => `${JSON.stringify(key)}:${this.stableSerialize(item)}`)
-        .join(',')}}`;
+        .join(',')}}``;
     }
     return JSON.stringify(value);
   }
@@ -371,9 +383,9 @@ export class CreditsService {
       return parsed && typeof parsed === 'object' ? parsed : null;
     } catch (error) {
       this.logger.warn(
-        `读取 preview credits Redis 缓存失败: ${
+        `璇诲彇 preview credits Redis 缂撳瓨澶辫触: ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }``,
       );
       return null;
     }
@@ -392,122 +404,53 @@ export class CreditsService {
       );
     } catch (error) {
       this.logger.warn(
-        `写入 preview credits Redis 缓存失败: ${
+        `鍐欏叆 preview credits Redis 缂撳瓨澶辫触: ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }``,
       );
     }
   }
 
-  private extractNodeConfigHintsFromRequestParams(requestParams: any): {
-    nodeConfigKey?: string;
-    nodeConfigNameZh?: string;
-  } {
-    if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
-      return {};
+  private async resolveServicePricing(serviceType: ServiceType) {
+    const staticPricing = CREDIT_PRICING_CONFIG[serviceType as keyof typeof CREDIT_PRICING_CONFIG];
+    const nodeConfig = await this.prisma.nodeConfig.findFirst({
+      where: { serviceType },
+      select: {
+        nameZh: true,
+        creditsPerCall: true,
+      },
+    });
+
+    if (nodeConfig) {
+      const nodeConfigCredits =
+        typeof nodeConfig.creditsPerCall === 'number'
+          ? nodeConfig.creditsPerCall
+          : staticPricing?.creditsPerCall ?? 0;
+      const effectiveCredits =
+        serviceType === GPT_IMAGE2_SERVICE_TYPE ? GPT_IMAGE2_CREDITS : nodeConfigCredits;
+      return {
+        ...(staticPricing || {
+          provider: 'custom',
+          description: `Node-managed pricing for ${serviceType}`,
+        }),
+        serviceName: nodeConfig.nameZh || staticPricing?.serviceName || serviceType,
+        creditsPerCall: effectiveCredits,
+      };
     }
 
-    const nodeConfigKey =
-      typeof requestParams.nodeConfigKey === 'string' ? requestParams.nodeConfigKey.trim() : '';
-    const nodeConfigNameZh =
-      typeof requestParams.nodeConfigNameZh === 'string'
-        ? requestParams.nodeConfigNameZh.trim()
-        : '';
-
-    return {
-      ...(nodeConfigKey ? { nodeConfigKey } : {}),
-      ...(nodeConfigNameZh ? { nodeConfigNameZh } : {}),
-    };
-  }
-
-  private async resolveServicePricing(params: {
-    serviceType: ServiceType;
-    requestParams?: any;
-  }) {
-    const staticPricing =
-      CREDIT_PRICING_CONFIG[params.serviceType as keyof typeof CREDIT_PRICING_CONFIG];
-    const { nodeConfigKey, nodeConfigNameZh } = this.extractNodeConfigHintsFromRequestParams(
-      params.requestParams,
-    );
-
-    let nodeConfig: {
-      nameZh: string;
-      creditsPerCall: number;
-      serviceType: string | null;
-    } | null = null;
-
-    if (nodeConfigKey) {
-      const resolvedByKey = await this.prisma.nodeConfig.findUnique({
-        where: { nodeKey: nodeConfigKey },
-        select: {
-          nameZh: true,
-          creditsPerCall: true,
-          serviceType: true,
-        },
-      });
-
-      if (
-        resolvedByKey &&
-        resolvedByKey.serviceType &&
-        resolvedByKey.serviceType !== params.serviceType
-      ) {
-        this.logger.warn(
-          `[Credits] Ignore nodeConfigKey=${nodeConfigKey} for service=${params.serviceType}, resolved serviceType=${resolvedByKey.serviceType}`,
-        );
-      } else {
-        nodeConfig = resolvedByKey;
-      }
-    } else if (!staticPricing) {
-      // 仅在静态定价不存在时按 serviceType 兜底，避免多个节点共用 serviceType 时误命中错误名称。
-      nodeConfig = await this.prisma.nodeConfig.findFirst({
-        where: { serviceType: params.serviceType },
-        select: {
-          nameZh: true,
-          creditsPerCall: true,
-          serviceType: true,
-        },
-      });
-    }
-
-    if (!staticPricing && !nodeConfig) {
-      return staticPricing;
-    }
-
-    const nodeConfigCredits =
-      typeof nodeConfig?.creditsPerCall === 'number'
-        ? nodeConfig.creditsPerCall
-        : staticPricing?.creditsPerCall ?? 0;
-    const effectiveCredits =
-      params.serviceType === GPT_IMAGE2_SERVICE_TYPE ? GPT_IMAGE2_CREDITS : nodeConfigCredits;
-    const resolvedNodeConfigNameZh =
-      nodeConfigKey && !nodeConfig ? '' : nodeConfigNameZh;
-
-    return {
-      ...(staticPricing || {
-        provider: 'custom',
-        description: `Node-managed pricing for ${params.serviceType}`,
-      }),
-      serviceName:
-        resolvedNodeConfigNameZh ||
-        nodeConfig?.nameZh ||
-        staticPricing?.serviceName ||
-        params.serviceType,
-      creditsPerCall: effectiveCredits,
-    };
+    return staticPricing;
   }
 
   private async resolveEffectiveCreditsQuote(params: {
     serviceType: ServiceType;
     model?: string;
     requestParams?: any;
+    outputImageCount?: number;
   }) {
     const normalizedRequestParams = this.normalizeManagedPricingRequestParams(params.requestParams);
-    const pricing = await this.resolveServicePricing({
-      serviceType: params.serviceType,
-      requestParams: normalizedRequestParams,
-    });
+    const pricing = await this.resolveServicePricing(params.serviceType);
     if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${params.serviceType}`);
+      throw new BadRequestException(`鏈煡鐨勬湇鍔＄被鍨? ${params.serviceType}`);
     }
 
     let creditsToDeduct: number = pricing.creditsPerCall;
@@ -575,6 +518,13 @@ export class CreditsService {
           : GPT_IMAGE2_CREDITS;
     }
 
+    creditsToDeduct = this.resolveOutputCountAdjustedCredits(
+      params.serviceType,
+      creditsToDeduct,
+      params.outputImageCount,
+      effectiveRequestParams,
+    );
+
     const serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
       pricing.serviceName,
@@ -589,6 +539,43 @@ export class CreditsService {
       requestedProvider: requestedProvider || pricing.provider,
       serviceName,
     };
+  }
+
+  private normalizeOutputImageCount(rawCount: unknown): number | null {
+    const count = Number(rawCount);
+    if (!Number.isFinite(count)) return null;
+    const normalized = Math.floor(count);
+    if (normalized <= 0) return null;
+    return Math.min(normalized, 20);
+  }
+
+  private resolveOutputCountAdjustedCredits(
+    serviceType: ServiceType,
+    baseCredits: number,
+    outputImageCount?: number,
+    requestParams?: any,
+  ): number {
+    if (!OUTPUT_COUNT_MULTIPLIER_SERVICE_TYPES.has(serviceType)) {
+      return baseCredits;
+    }
+    if (!Number.isFinite(baseCredits) || baseCredits <= 0) {
+      return baseCredits;
+    }
+
+    const explicitCount = this.normalizeOutputImageCount(outputImageCount);
+    const requestCount =
+      this.normalizeOutputImageCount(requestParams?.outputImageCount) ??
+      (requestParams?.batchMode === true
+        ? this.normalizeOutputImageCount(requestParams?.batchCount)
+        : null);
+    const finalCount = explicitCount ?? requestCount ?? 1;
+    if (finalCount <= 1) return baseCredits;
+
+    const multiplied = baseCredits * finalCount;
+    if (!Number.isFinite(multiplied) || multiplied <= 0) {
+      return baseCredits;
+    }
+    return multiplied;
   }
 
   private resolveFixedAnalyzeCredits(serviceType: ServiceType, currentCredits: number): number {
@@ -659,7 +646,7 @@ export class CreditsService {
   }
 
   /**
-   * Sora 视频服务：Pro 模型（750 积分）显示「Sora 2 Pro 视频生成」，标准/VIP 模型显示「Sora2 视频生成」
+   * Sora 瑙嗛鏈嶅姟锛歅ro 妯″瀷锛?50 绉垎锛夋樉绀恒€孲ora 2 Pro 瑙嗛鐢熸垚銆嶏紝鏍囧噯/VIP 妯″瀷鏄剧ず銆孲ora2 瑙嗛鐢熸垚銆?
    */
   private resolveSoraServiceName(
     serviceType: ServiceType,
@@ -675,7 +662,7 @@ export class CreditsService {
       this.normalizeSoraBillingModel(requestParams?.soraModel) ||
       this.normalizeSoraBillingModel(model);
     if (selectedModel === 'sora-2-pro') {
-      return serviceType === 'sora-hd' ? 'Sora 2 Pro 高清视频' : 'Sora 2 Pro 视频生成';
+      return serviceType === 'sora-hd' ? 'Sora 2 Pro 楂樻竻瑙嗛' : 'Sora 2 Pro 瑙嗛鐢熸垚';
     }
 
     return defaultServiceName;
@@ -748,9 +735,9 @@ export class CreditsService {
       return resolved.source === 'none' ? null : resolved;
     } catch (error) {
       this.logger.warn(
-        `读取模型管理线路积分失败，回退服务定价: ${
+        `璇诲彇妯″瀷绠＄悊绾胯矾绉垎澶辫触锛屽洖閫€鏈嶅姟瀹氫环: ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }``,
       );
       return null;
     }
@@ -761,8 +748,8 @@ export class CreditsService {
       return requestParams;
     }
 
-    // 将 sound("on"/"off"/boolean) 和 generateAudio(boolean) 统一归一化为 hasAudio(boolean)，
-    // 使规则引擎中使用 hasAudio 字段的定价规则（Kling O3、Seedance 1.5）能正确匹配。
+    // 灏?sound("on"/"off"/boolean) 鍜?generateAudio(boolean) 缁熶竴褰掍竴鍖栦负 hasAudio(boolean)锛?
+    // 浣胯鍒欏紩鎿庝腑浣跨敤 hasAudio 瀛楁鐨勫畾浠疯鍒欙紙Kling O3銆丼eedance 1.5锛夎兘姝ｇ‘鍖归厤銆?
     let normalized: any = requestParams;
     if (normalized.hasAudio === undefined || normalized.hasAudio === null) {
       if (normalized.sound !== undefined) {
@@ -779,8 +766,8 @@ export class CreditsService {
       }
     }
 
-    // 将 mode("std"/"pro") 归一化为 resolution("720P"/"1080P")，
-    // 作为兜底：当 tencent_vod 定价规则按 resolution 匹配但请求只有 mode 时仍能命中。
+    // 灏?mode("std"/"pro") 褰掍竴鍖栦负 resolution("720P"/"1080P")锛?
+    // 浣滀负鍏滃簳锛氬綋 tencent_vod 瀹氫环瑙勫垯鎸?resolution 鍖归厤浣嗚姹傚彧鏈?mode 鏃朵粛鑳藉懡涓€?
     if (
       (normalized.resolution === undefined || normalized.resolution === null || normalized.resolution === '') &&
       typeof normalized.mode === 'string'
@@ -947,12 +934,12 @@ export class CreditsService {
 
     const modelLabel = model === 'kling-v3-0' ? 'Kling 3.0' : 'Kling 2.6';
     const modeLabel = mode === 'pro' ? 'Pro' : 'Std';
-    const soundLabel = hasSound ? '有音效' : '无音效';
+    const soundLabel = hasSound ? '鏈夐煶鏁? : '鏃犻煶鏁?;
 
     if (duration) {
-      return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel} / ${duration}秒）`;
+      return `鍙伒 ${modelLabel} 瑙嗛锛${soundLabel} / ${modeLabel} / ${duration}绉掞級`;
     }
-    return `可灵 ${modelLabel} 视频（${soundLabel} / ${modeLabel}）`;
+    return `鍙伒 ${modelLabel} 瑙嗛锛${soundLabel} / ${modeLabel}锛塦`;
   }
 
   private resolveManagedVideoServiceName(
@@ -975,7 +962,7 @@ export class CreditsService {
       seedanceModel === 'seedance-2.0-fast' ||
       seedanceModel === '2.0-fast'
     ) {
-      return 'Seedance 2.0 Fast视频生成';
+      return 'Seedance 2.0 Fast瑙嗛鐢熸垚';
     }
 
     if (
@@ -983,7 +970,7 @@ export class CreditsService {
       seedanceModel === 'seedance-2.0' ||
       seedanceModel === '2.0'
     ) {
-      return 'Seedance 2.0视频生成';
+      return 'Seedance 2.0瑙嗛鐢熸垚';
     }
 
     if (
@@ -991,15 +978,15 @@ export class CreditsService {
       seedanceModel === 'seedance-1.5-pro' ||
       seedanceModel === '1.5-pro'
     ) {
-      return 'Seedance 1.5 Pro视频生成';
+      return 'Seedance 1.5 Pro瑙嗛鐢熸垚';
     }
 
     return defaultServiceName;
   }
 
   /**
-   * 根据分辨率解析积分定价
-   * 支持按分辨率差异化计费的服务（由 pricing.resolutionPricing 控制）
+   * 鏍规嵁鍒嗚鲸鐜囪В鏋愮Н鍒嗗畾浠?
+   * 鏀寔鎸夊垎杈ㄧ巼宸紓鍖栬璐圭殑鏈嶅姟锛堢敱 pricing.resolutionPricing 鎺у埗锛?
    */
   private resolveImageResolutionCredits(
     serviceType: ServiceType,
@@ -1020,22 +1007,22 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    // 获取请求的分辨率
+    // 鑾峰彇璇锋眰鐨勫垎杈ㄧ巼
     const requestedImageSize = requestParams?.imageSize;
     if (!requestedImageSize || typeof requestedImageSize !== 'string') {
       return defaultCredits;
     }
 
-    // 标准化分辨率格式（支持 '4K', '2K', '1K', '0.5K' 等）
+    // 鏍囧噯鍖栧垎杈ㄧ巼鏍煎紡锛堟敮鎸?'4K', '2K', '1K', '0.5K' 绛夛級
     const normalizedSize = requestedImageSize.trim().toUpperCase();
     
-    // 查找匹配的分辨率定价
+    // 鏌ユ壘鍖归厤鐨勫垎杈ㄧ巼瀹氫环
     const configuredCredits = Number(resolutionPricing[normalizedSize]);
     if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
       return configuredCredits;
     }
 
-    // 如果没有找到匹配的分辨率，返回默认值
+    // 濡傛灉娌℃湁鎵惧埌鍖归厤鐨勫垎杈ㄧ巼锛岃繑鍥為粯璁ゅ€?
     return defaultCredits;
   }
 
@@ -1088,9 +1075,7 @@ export class CreditsService {
     if (!provider) return null;
     if (provider === 'banana-2.5') return 'fast';
     if (provider === 'banana-3.1' || provider === 'nano2') return 'ultra';
-    if (provider === 'banana' || provider === 'banana-3.0' || provider === 'gemini-pro') {
-      return 'pro';
-    }
+    if (provider === 'banana' || provider === 'banana-3.0' || provider === 'gemini-pro') return 'pro';
     return null;
   }
 
@@ -1117,11 +1102,6 @@ export class CreditsService {
     if (serviceType !== 'gemini-text' && serviceType !== 'gemini-prompt-optimize') {
       return defaultCredits;
     }
-
-    // DEBUG: Log input parameters for credit calculation
-    this.logger.debug(
-      `[Credits] resolveBananaTextRouteCredits: serviceType=${serviceType}, defaultCredits=${defaultCredits}, model=${model}, requestParams=${JSON.stringify(requestParams)}`
-    );
 
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
@@ -1163,20 +1143,14 @@ export class CreditsService {
         ? this.resolveBananaTextPricingTierFromModel(model || requestParams?.model)
         : null);
     if (!tier) {
-      this.logger.debug(`[Credits] resolveBananaTextRouteCredits: no tier found, returning defaultCredits=${defaultCredits}`);
       return defaultCredits;
     }
 
-    const routeKey: 'normal' | 'stable' = route || 'normal';
-    const configuredCredits = Number(BANANA_TEXT_CHAT_ROUTE_PRICING[routeKey][tier]);
+    const finalRoute: 'normal' | 'stable' = route || 'normal';
+    const configuredCredits = Number(BANANA_TEXT_CHAT_ROUTE_PRICING[finalRoute][tier]);
     if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
-      this.logger.debug(`[Credits] resolveBananaTextRouteCredits: invalid credits, returning defaultCredits=${defaultCredits}`);
       return defaultCredits;
     }
-
-    this.logger.debug(
-      `[Credits] resolveBananaTextRouteCredits: route=${routeKey}, tier=${tier}, credits=${configuredCredits}`
-    );
     return configuredCredits;
   }
 
@@ -1638,7 +1612,7 @@ export class CreditsService {
           amount: -amountToExpire,
           balanceBefore,
           balanceAfter,
-          description: '免费用户月度额度过期清除',
+          description: '鍏嶈垂鐢ㄦ埛鏈堝害棰濆害杩囨湡娓呴櫎',
           creditLotId: lot.id,
           businessType: 'free_monthly_quota_expire',
           metadata: {
@@ -1786,7 +1760,7 @@ export class CreditsService {
           amount: policy.freeUserMonthlyQuotaCredits,
           balanceBefore,
           balanceAfter,
-          description: '免费用户月度额度发放',
+          description: '鍏嶈垂鐢ㄦ埛鏈堝害棰濆害鍙戞斁',
           creditLotId: lot.id,
           businessType: 'free_monthly_quota',
           metadata: {
@@ -1902,9 +1876,9 @@ export class CreditsService {
 
   private formatBillingChannel(channel: string | null): string | null {
     if (!channel) return null;
-    if (channel === 'apimart') return '普通通道(apimart)';
-    if (channel === 'tencent') return '稳定通道(腾讯)';
-    if (channel === '147') return '147通道';
+    if (channel === 'apimart') return '鏅€氶€氶亾(apimart)';
+    if (channel === 'tencent') return '绋冲畾閫氶亾(鑵捐)';
+    if (channel === '147') return '147閫氶亾';
     return channel;
   }
 
@@ -1956,7 +1930,7 @@ export class CreditsService {
       requestParams,
     );
     if (modelLabel) {
-      remarkParts.push(`模型: ${modelLabel}`);
+      remarkParts.push(`妯″瀷: ${modelLabel}`);
     }
 
     const imageSize = this.asNonEmptyString(requestParams?.imageSize)?.toUpperCase() ?? null;
@@ -1983,31 +1957,31 @@ export class CreditsService {
       params.serviceType === 'wan26-r2v';
 
     if (imageSize) {
-      remarkParts.push(`尺寸档位: ${imageSize}`);
+      remarkParts.push(`灏哄妗ｄ綅: ${imageSize}`);
     }
     if (isVideoService && duration !== null) {
-      remarkParts.push(`时长: ${duration}s`);
+      remarkParts.push(`鏃堕暱: ${duration}s`);
     }
     if (resolution) {
-      remarkParts.push(`分辨率: ${resolution}`);
+      remarkParts.push(`鍒嗚鲸鐜? ${resolution}`);
     }
     if (aspectRatio) {
-      remarkParts.push(`画幅: ${aspectRatio}`);
+      remarkParts.push(`鐢诲箙: ${aspectRatio}`);
     }
     if (mode) {
-      remarkParts.push(`模式: ${mode}`);
+      remarkParts.push(`妯″紡: ${mode}`);
     }
     if (videoMode) {
-      remarkParts.push(`视频模式: ${videoMode}`);
+      remarkParts.push(`瑙嗛妯″紡: ${videoMode}`);
     }
     if (hasSound !== null) {
-      remarkParts.push(`音效: ${hasSound ? '开' : '关'}`);
+      remarkParts.push(`闊虫晥: ${hasSound ? '寮€' : '鍏?}`');
     }
     if (generateAudio !== null) {
-      remarkParts.push(`生成音频: ${generateAudio ? '是' : '否'}`);
+      remarkParts.push(`鐢熸垚闊抽: ${generateAudio ? '鏄? : '鍚?}`);
     }
     if (channelLabel) {
-      remarkParts.push(`渠道: ${channelLabel}`);
+      remarkParts.push(`娓犻亾: ${channelLabel}`);
     }
 
     const isBananaImageService =
@@ -2015,11 +1989,11 @@ export class CreditsService {
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
-        remarkParts.push('计价: 按稳定通道积分价');
+        remarkParts.push('璁′环: 鎸夌ǔ瀹氶€氶亾绉垎浠?');
       } else if (channel === 'apimart') {
-        remarkParts.push('计价: 按普通通道积分价');
+        remarkParts.push('璁′环: 鎸夋櫘閫氶€氶亾绉垎浠?');
       } else if (channel === '147') {
-        remarkParts.push('计价: 按官方通道积分价');
+        remarkParts.push('璁′环: 鎸夊畼鏂归€氶亾绉垎浠?');
       }
     }
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
@@ -2127,7 +2101,7 @@ export class CreditsService {
         return parsed as Record<string, unknown>;
       }
     } catch (error) {
-      this.logger.warn(`免费用户权益配置解析失败 key=${FREE_TIER_BENEFITS_SETTING_KEY}`);
+      this.logger.warn(`鍏嶈垂鐢ㄦ埛鏉冪泭閰嶇疆瑙ｆ瀽澶辫触 key=${FREE_TIER_BENEFITS_SETTING_KEY}`);
     }
 
     return null;
@@ -2312,10 +2286,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > dailyLimit) {
         this.logger.warn(
-          `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+          `鍏嶈垂鐢ㄦ埛鏃ョ敓鍥鹃厤棰濊秴闄?userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可使用图片能力 ${dailyLimit} 次（UTC ${label}）。今日已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
+          `鍏嶈垂棰濆害宸茬敤灏斤紝璇峰墠寰€鍏呭€硷紝浜湁鏇村鏉冮檺鍚庡彲缁х画鐢熸垚銆傚厤璐圭敤鎴锋瘡澶╂渶澶氬彲浣跨敤鍥剧墖鑳藉姏 ${dailyLimit} 娆★紙UTC ${label}锛夈€備粖鏃ュ凡浣跨敤 ${usedCount} 娆★紝鏈璇锋眰 ${requestedCount} 娆°€俙`,
         );
       }
     }
@@ -2334,10 +2308,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > monthlyLimit) {
         this.logger.warn(
-          `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+          `鍏嶈垂鐢ㄦ埛鏈堢敓鍥鹃厤棰濊秴闄?userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可使用图片能力 ${monthlyLimit} 次（UTC ${label}）。本月已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
+          `鍏嶈垂棰濆害宸茬敤灏斤紝璇峰墠寰€鍏呭€硷紝浜湁鏇村鏉冮檺鍚庡彲缁х画鐢熸垚銆傚厤璐圭敤鎴锋瘡鏈堟渶澶氬彲浣跨敤鍥剧墖鑳藉姏 ${monthlyLimit} 娆★紙UTC ${label}锛夈€傛湰鏈堝凡浣跨敤 ${usedCount} 娆★紝鏈璇锋眰 ${requestedCount} 娆°€俙`,
         );
       }
     }
@@ -2379,10 +2353,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > dailyLimit) {
         this.logger.warn(
-          `免费用户日生视频配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+          `鍏嶈垂鐢ㄦ埛鏃ョ敓瑙嗛閰嶉瓒呴檺 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可生成视频 ${dailyLimit} 个（UTC ${label}）。今日已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+          `鍏嶈垂棰濆害宸茬敤灏斤紝璇峰墠寰€鍏呭€硷紝浜湁鏇村鏉冮檺鍚庡彲缁х画鐢熸垚銆傚厤璐圭敤鎴锋瘡澶╂渶澶氬彲鐢熸垚瑙嗛 ${dailyLimit} 涓紙UTC ${label}锛夈€備粖鏃ュ凡浣跨敤 ${usedCount} 涓紝鏈璇锋眰 ${requestedCount} 涓€俙`,
         );
       }
     }
@@ -2399,10 +2373,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > monthlyLimit) {
         this.logger.warn(
-          `免费用户月生视频配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+          `鍏嶈垂鐢ㄦ埛鏈堢敓瑙嗛閰嶉瓒呴檺 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可生成视频 ${monthlyLimit} 个（UTC ${label}）。本月已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+          `鍏嶈垂棰濆害宸茬敤灏斤紝璇峰墠寰€鍏呭€硷紝浜湁鏇村鏉冮檺鍚庡彲缁х画鐢熸垚銆傚厤璐圭敤鎴锋瘡鏈堟渶澶氬彲鐢熸垚瑙嗛 ${monthlyLimit} 涓紙UTC ${label}锛夈€傛湰鏈堝凡浣跨敤 ${usedCount} 涓紝鏈璇锋眰 ${requestedCount} 涓€俙`,
         );
       }
     }
@@ -2433,7 +2407,7 @@ export class CreditsService {
   }
 
   /**
-   * 判断用户是否为付费用户（有成功支付的订单）
+   * 鍒ゆ柇鐢ㄦ埛鏄惁涓轰粯璐圭敤鎴凤紙鏈夋垚鍔熸敮浠樼殑璁㈠崟锛?
    */
   async isPaidUser(userId: string): Promise<boolean> {
     const paidOrder = await this.prisma.paymentOrder.findFirst({
@@ -2446,13 +2420,13 @@ export class CreditsService {
   }
 
   /**
-   * 获取或创建用户积分账户
-   * 使用双重检查锁定模式（Double-Checked Locking）避免并发创建冲突
+   * 鑾峰彇鎴栧垱寤虹敤鎴风Н鍒嗚处鎴?
+   * 浣跨敤鍙岄噸妫€鏌ラ攣瀹氭ā寮忥紙Double-Checked Locking锛夐伩鍏嶅苟鍙戝垱寤哄啿绐?
    */
   async getOrCreateAccount(userId: string) {
     let userCreatedAt: Date | undefined;
 
-    // 第一次检查：快速路径，绝大多数场景直接命中
+    // 绗竴娆℃鏌ワ細蹇€熻矾寰勶紝缁濆ぇ澶氭暟鍦烘櫙鐩存帴鍛戒腑
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
@@ -2478,11 +2452,11 @@ export class CreditsService {
       });
     }
 
-    // 第二次检查：在事务内部再次检查，避免并发创建冲突
+    // 绗簩娆℃鏌ワ細鍦ㄤ簨鍔″唴閮ㄥ啀娆℃鏌ワ紝閬垮厤骞跺彂鍒涘缓鍐茬獊
     try {
       account = await this.prisma.$transaction(async (tx) => {
-        // 在事务中再次查询，确保在创建前账户不存在
-        // 这样可以避免两个并发请求同时创建的情况
+        // 鍦ㄤ簨鍔′腑鍐嶆鏌ヨ锛岀‘淇濆湪鍒涘缓鍓嶈处鎴蜂笉瀛樺湪
+        // 杩欐牱鍙互閬垮厤涓や釜骞跺彂璇锋眰鍚屾椂鍒涘缓鐨勬儏鍐?
         const existingAccount = await tx.creditAccount.findUnique({
           where: { userId },
         });
@@ -2497,7 +2471,7 @@ export class CreditsService {
         });
         userCreatedAt = user?.createdAt;
 
-        // 新用户不再发放注册积分；仅初始化账户，后续按免费用户月度额度规则补发。
+        // 鏂扮敤鎴蜂笉鍐嶅彂鏀炬敞鍐岀Н鍒嗭紱浠呭垵濮嬪寲璐︽埛锛屽悗缁寜鍏嶈垂鐢ㄦ埛鏈堝害棰濆害瑙勫垯琛ュ彂銆?
         const newAccount = await tx.creditAccount.create({
           data: {
             userId,
@@ -2508,8 +2482,8 @@ export class CreditsService {
 
         return newAccount;
       }, {
-        // 设置事务超时和隔离级别
-        timeout: 10000, // 10秒超时
+        // 璁剧疆浜嬪姟瓒呮椂鍜岄殧绂荤骇鍒?
+        timeout: 10000, // 10绉掕秴鏃?
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       });
 
@@ -2526,15 +2500,15 @@ export class CreditsService {
         where: { userId },
       });
     } catch (error) {
-      // 如果仍然发生唯一约束冲突（理论上不应该，但作为最后的安全网）
+      // 濡傛灉浠嶇劧鍙戠敓鍞竴绾︽潫鍐茬獊锛堢悊璁轰笂涓嶅簲璇ワ紝浣嗕綔涓烘渶鍚庣殑瀹夊叏缃戯級
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        this.logger.warn(`检测到并发创建账户冲突 userId=${userId}，重新查询`);
+        this.logger.warn(`妫€娴嬪埌骞跺彂鍒涘缓璐︽埛鍐茬獊 userId=${userId}锛岄噸鏂版煡璇`);
         const existingAccount = await this.prisma.creditAccount.findUnique({
           where: { userId },
         });
         if (!existingAccount) {
-          // 如果仍然找不到，记录错误并抛出
-          this.logger.error(`P2002错误后未找到账户 userId=${userId}`);
+          // 濡傛灉浠嶇劧鎵句笉鍒帮紝璁板綍閿欒骞舵姏鍑?
+          this.logger.error(`P2002閿欒鍚庢湭鎵惧埌璐︽埛 userId=${userId}`);
           throw error;
         }
         const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
@@ -2612,23 +2586,23 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户积分余额
+   * 鑾峰彇鐢ㄦ埛绉垎浣欓
    */
   async getBalance(userId: string): Promise<number> {
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
+      throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
     }
     return account.balance;
   }
 
   /**
-   * 获取用户积分账户详情
+   * 鑾峰彇鐢ㄦ埛绉垎璐︽埛璇︽儏
    */
   async getAccountDetails(userId: string) {
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
+      throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
     }
     return {
       balance: account.balance,
@@ -2638,12 +2612,12 @@ export class CreditsService {
   }
 
   /**
-   * 检查用户是否有足够积分
+   * 妫€鏌ョ敤鎴锋槸鍚︽湁瓒冲绉垎
    */
   async hasEnoughCredits(userId: string, serviceType: ServiceType): Promise<boolean> {
-    const pricing = await this.resolveServicePricing({ serviceType });
+    const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${serviceType}`);
+      throw new BadRequestException(`鏈煡鐨勬湇鍔＄被鍨? ${serviceType}`);
     }
 
     const balance = await this.getBalance(userId);
@@ -2651,12 +2625,12 @@ export class CreditsService {
   }
 
   /**
-   * 获取服务定价
+   * 鑾峰彇鏈嶅姟瀹氫环
    */
   async getServicePricing(serviceType: ServiceType) {
-    const pricing = await this.resolveServicePricing({ serviceType });
+    const pricing = await this.resolveServicePricing(serviceType);
     if (!pricing) {
-      throw new BadRequestException(`未知的服务类型: ${serviceType}`);
+      throw new BadRequestException(`鏈煡鐨勬湇鍔＄被鍨? ${serviceType}`);
     }
     return {
       serviceType,
@@ -2688,18 +2662,18 @@ export class CreditsService {
           : typeof evaluator.priceYuan === 'number'
           ? Math.ceil(evaluator.priceYuan * 100)
           : undefined;
-      return credits !== undefined ? `${credits} 积分` : '固定定价';
+      return credits !== undefined ? `${credits} 绉垎` : '鍥哄畾瀹氫环';
     }
 
     if (evaluator.type === 'linear') {
       const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * 100);
-      return `credits = ${evaluator.unitField} × ${creditsPerUnit}`;
+      return `credits = ${evaluator.unitField} 脳 ${creditsPerUnit}`;
     }
 
     if (evaluator.type === 'base_plus_linear') {
       const baseCredits = Math.ceil(evaluator.basePriceYuan * 100);
       const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * 100);
-      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) × ${extraCreditsPerUnit}`;
+      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) 脳 ${extraCreditsPerUnit}`;
     }
 
     if (evaluator.type === 'lookup_matrix') {
@@ -2784,7 +2758,7 @@ export class CreditsService {
           ? { label: rule.label.trim() }
           : {}),
         ...(resolvedCredits !== undefined
-          ? { formula: `${resolvedCredits} 积分` }
+          ? { formula: `${resolvedCredits} 绉垎` }
           : {}),
         conditions: {
           all: Object.entries(
@@ -2918,7 +2892,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取所有服务定价
+   * 鑾峰彇鎵€鏈夋湇鍔″畾浠?
    */
   async getAllPricing(): Promise<PricingResponseDto[]> {
     const staticEntries = new Map(
@@ -2971,8 +2945,8 @@ export class CreditsService {
   }
 
   /**
-   * 预扣积分（在API调用前）
-   * 返回 API 使用记录 ID，用于后续更新状态
+   * 棰勬墸绉垎锛堝湪API璋冪敤鍓嶏級
+   * 杩斿洖 API 浣跨敤璁板綍 ID锛岀敤浜庡悗缁洿鏂扮姸鎬?
    */
   private normalizeIdempotencyKey(raw: unknown): string | null {
     if (typeof raw !== 'string') return null;
@@ -3021,9 +2995,9 @@ export class CreditsService {
     if (typeof value === 'object') {
       const objectValue = value as Record<string, unknown>;
       const keys = Object.keys(objectValue).sort();
-      return `{${keys
+      return `{${keys`
         .map((key) => `${JSON.stringify(key)}:${this.stableStringifyForFingerprint(objectValue[key])}`)
-        .join(',')}}`;
+        .join(',')}}``;
     }
     return JSON.stringify(String(value));
   }
@@ -3180,6 +3154,7 @@ export class CreditsService {
       serviceType,
       model,
       requestParams,
+      outputImageCount,
     });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
       effectiveRequestParams,
@@ -3188,13 +3163,13 @@ export class CreditsService {
     );
 
     return await this.prisma.$transaction(async (tx) => {
-      // 获取账户并锁定
+      // 鑾峰彇璐︽埛骞堕攣瀹?
       const account = await tx.creditAccount.findUnique({
         where: { userId },
       });
 
       if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
+        throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
       }
 
       if (normalizedIdempotencyKey || requestFingerprint) {
@@ -3210,7 +3185,7 @@ export class CreditsService {
           this.logger.warn(
             `[Credits] Duplicate pre-deduct blocked user=${userId} service=${serviceType} key=${
               normalizedIdempotencyKey || '-'
-            } apiUsageId=${duplicateUsage.apiUsageId}`,
+            } apiUsageId=${duplicateUsage.apiUsageId}``,
           );
           return {
             success: true,
@@ -3276,7 +3251,7 @@ export class CreditsService {
       });
 
       if (!deductionPlan.sufficient) {
-        throw new BadRequestException(`积分不足，当前余额: ${account.balance}，需要: ${creditsToDeduct}`);
+        throw new BadRequestException(`绉垎涓嶈冻锛屽綋鍓嶄綑棰? ${account.balance}锛岄渶瑕? ${creditsToDeduct}`);
       }
 
       const updatedLots = applyLotDeductionsToSnapshots({
@@ -3305,7 +3280,7 @@ export class CreditsService {
 
       const newBalance = account.balance - deductionPlan.totalDeducted;
 
-      // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
+      // Sora 鎸夋ā鍨嬪尯鍒嗘樉绀哄悕绉帮細Pro 750 绉垎鏄剧ず銆孲ora 2 Pro 瑙嗛鐢熸垚銆?
       let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
@@ -3329,7 +3304,7 @@ export class CreditsService {
         requestParams: apiUsageRequestParams,
       });
 
-      // 更新账户余额
+      // 鏇存柊璐︽埛浣欓
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -3338,7 +3313,7 @@ export class CreditsService {
         },
       });
 
-      // 创建 API 使用记录
+      // 鍒涘缓 API 浣跨敤璁板綍
       const apiUsage = await tx.apiUsageRecord.create({
         data: {
           userId,
@@ -3358,7 +3333,7 @@ export class CreditsService {
         },
       });
 
-      // 创建交易记录
+      // 鍒涘缓浜ゆ槗璁板綍
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -3370,7 +3345,7 @@ export class CreditsService {
             apiUsageRequestParams?.imageSize
               ? ` (${apiUsageRequestParams.imageSize})`
               : ''
-          }`,
+          }``,
           apiUsageId: apiUsage.id,
           consumePolicyCode: consumePolicy.code,
           consumePolicyVersion: consumePolicy.version,
@@ -3437,7 +3412,7 @@ export class CreditsService {
   }
 
   /**
-   * 更新 API 使用记录状态
+   * 鏇存柊 API 浣跨敤璁板綍鐘舵€?
    */
   async verifyAndRewardInviterSafely(
     inviteeUserId: string,
@@ -3449,7 +3424,7 @@ export class CreditsService {
       await this.referralService.verifyAndRewardInviter(inviteeUserId, options);
     } catch (e) {
       this.logger.warn(
-        `[Credits] 邀请奖励核验失败 userId=${inviteeUserId}: ${e instanceof Error ? e.message : String(e)}`,
+        `[Credits] 閭€璇峰鍔辨牳楠屽け璐?userId=${inviteeUserId}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -3465,7 +3440,7 @@ export class CreditsService {
     });
 
     if (!existingUsage) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     if (
@@ -3523,7 +3498,7 @@ export class CreditsService {
     });
 
     if (!latestUsage) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     if (updateResult.count === 0) {
@@ -3535,7 +3510,7 @@ export class CreditsService {
       return latestUsage;
     }
 
-    // 如果 API 调用首次从 pending 变为 success，检查是否需要核验邀请奖励
+    // 濡傛灉 API 璋冪敤棣栨浠?pending 鍙樹负 success锛屾鏌ユ槸鍚﹂渶瑕佹牳楠岄個璇峰鍔?
     if (
       status === ApiResponseStatus.SUCCESS &&
       existingUsage.responseStatus !== ApiResponseStatus.SUCCESS &&
@@ -3581,12 +3556,12 @@ export class CreditsService {
   }
 
   /**
-   * 标记用户的 API 使用记录为失败（用于可轮询任务的手动退款前置校验）
+   * 鏍囪鐢ㄦ埛鐨?API 浣跨敤璁板綍涓哄け璐ワ紙鐢ㄤ簬鍙疆璇换鍔＄殑鎵嬪姩閫€娆惧墠缃牎楠岋級
    */
   async markApiUsageFailedForUser(
     userId: string,
     apiUsageId: string,
-    errorMessage: string = 'API调用失败',
+    errorMessage: string = 'API璋冪敤澶辫触',
     processingTime: number = 0,
   ) {
     const apiUsage = await this.prisma.apiUsageRecord.findUnique({
@@ -3594,15 +3569,15 @@ export class CreditsService {
     });
 
     if (!apiUsage) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     if (apiUsage.userId !== userId) {
-      throw new BadRequestException('无权操作该 API 使用记录');
+      throw new BadRequestException('鏃犳潈鎿嶄綔璇?API 浣跨敤璁板綍');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
-      throw new BadRequestException('成功的 API 调用不支持退款');
+      throw new BadRequestException('鎴愬姛鐨?API 璋冪敤涓嶆敮鎸侀€€娆?');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.FAILED) {
@@ -3627,11 +3602,11 @@ export class CreditsService {
       });
 
       if (!latestUsage) {
-        throw new NotFoundException('API使用记录不存在');
+        throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
       }
 
       if (latestUsage.responseStatus === ApiResponseStatus.SUCCESS) {
-        throw new BadRequestException('成功的 API 调用不支持退款');
+        throw new BadRequestException('鎴愬姛鐨?API 璋冪敤涓嶆敮鎸侀€€娆?');
       }
 
       return latestUsage;
@@ -3642,14 +3617,14 @@ export class CreditsService {
     });
 
     if (!updatedUsage) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     return updatedUsage;
   }
 
   /**
-   * 标记用户的 API 使用记录为成功（用于可轮询任务在前端确认成功后回写）
+   * 鏍囪鐢ㄦ埛鐨?API 浣跨敤璁板綍涓烘垚鍔燂紙鐢ㄤ簬鍙疆璇换鍔″湪鍓嶇纭鎴愬姛鍚庡洖鍐欙級
    */
   async markApiUsageSuccessForUser(
     userId: string,
@@ -3661,15 +3636,15 @@ export class CreditsService {
     });
 
     if (!apiUsage) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     if (apiUsage.userId !== userId) {
-      throw new BadRequestException('无权操作该 API 使用记录');
+      throw new BadRequestException('鏃犳潈鎿嶄綔璇?API 浣跨敤璁板綍');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.FAILED) {
-      throw new BadRequestException('失败的 API 调用不支持标记成功');
+      throw new BadRequestException('澶辫触鐨?API 璋冪敤涓嶆敮鎸佹爣璁版垚鍔?');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
@@ -3694,11 +3669,11 @@ export class CreditsService {
       });
 
       if (!latestUsage) {
-        throw new NotFoundException('API使用记录不存在');
+        throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
       }
 
       if (latestUsage.responseStatus === ApiResponseStatus.FAILED) {
-        throw new BadRequestException('失败的 API 调用不支持标记成功');
+        throw new BadRequestException('澶辫触鐨?API 璋冪敤涓嶆敮鎸佹爣璁版垚鍔?');
       }
 
       return latestUsage;
@@ -3709,7 +3684,7 @@ export class CreditsService {
     });
 
     if (!updated) {
-      throw new NotFoundException('API使用记录不存在');
+      throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
     }
 
     await this.verifyAndRewardInviterSafely(userId);
@@ -3717,25 +3692,25 @@ export class CreditsService {
   }
 
   /**
-   * API 调用失败时退还积分
+   * API 璋冪敤澶辫触鏃堕€€杩樼Н鍒?
    */
   async refundCredits(userId: string, apiUsageId: string): Promise<AddCreditsResult> {
     return await this.prisma.$transaction(async (tx) => {
-      // 获取 API 使用记录
+      // 鑾峰彇 API 浣跨敤璁板綍
       const apiUsage = await tx.apiUsageRecord.findUnique({
         where: { id: apiUsageId },
       });
 
       if (!apiUsage) {
-        throw new NotFoundException('API使用记录不存在');
+        throw new NotFoundException('API浣跨敤璁板綍涓嶅瓨鍦?');
       }
 
       if (apiUsage.userId !== userId) {
-        throw new BadRequestException('无权退还该 API 调用积分');
+        throw new BadRequestException('鏃犳潈閫€杩樿 API 璋冪敤绉垎');
       }
 
       if (apiUsage.responseStatus !== ApiResponseStatus.FAILED) {
-        throw new BadRequestException('只能退还失败的API调用积分');
+        throw new BadRequestException('鍙兘閫€杩樺け璐ョ殑API璋冪敤绉垎');
       }
 
       const account = await tx.creditAccount.findUnique({
@@ -3743,10 +3718,10 @@ export class CreditsService {
       });
 
       if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
+        throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
       }
 
-      // 幂等保护：同一个 apiUsage 只允许创建一次退款交易
+      // 骞傜瓑淇濇姢锛氬悓涓€涓?apiUsage 鍙厑璁稿垱寤轰竴娆￠€€娆句氦鏄?
       const existingRefund = await tx.creditTransaction.findFirst({
         where: {
           apiUsageId,
@@ -3831,7 +3806,7 @@ export class CreditsService {
         }
       }
 
-      // 更新账户余额
+      // 鏇存柊璐︽埛浣欓
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -3840,7 +3815,7 @@ export class CreditsService {
         },
       });
 
-      // 创建退款交易记录
+      // 鍒涘缓閫€娆句氦鏄撹褰?
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -3848,7 +3823,7 @@ export class CreditsService {
           amount: creditsToRefund,
           balanceBefore: account.balance,
           balanceAfter: newBalance,
-          description: `退还 ${apiUsage.serviceName} 积分（API调用失败）`,
+          description: `閫€杩?${apiUsage.serviceName} 绉垎锛圓PI璋冪敤澶辫触锛塦`,
           apiUsageId,
           consumePolicyCode: spendTransaction?.consumePolicyCode ?? null,
           consumePolicyVersion: spendTransaction?.consumePolicyVersion ?? null,
@@ -3867,9 +3842,9 @@ export class CreditsService {
   }
 
   /**
-   * 自动处理长时间 pending 的生图调用：
-   * - 标记为 failed
-   * - 执行积分退款（幂等）
+   * 鑷姩澶勭悊闀挎椂闂?pending 鐨勭敓鍥捐皟鐢細
+   * - 鏍囪涓?failed
+   * - 鎵ц绉垎閫€娆撅紙骞傜瓑锛?
    */
   async autoRefundStalePendingImageUsages(options?: {
     timeoutMinutes?: number;
@@ -3892,9 +3867,9 @@ export class CreditsService {
   }
 
   /**
-   * 自动处理长时间 pending 的异步视频调用：
-   * - 标记为 failed
-   * - 执行积分退款（幂等）
+   * 鑷姩澶勭悊闀挎椂闂?pending 鐨勫紓姝ヨ棰戣皟鐢細
+   * - 鏍囪涓?failed
+   * - 鎵ц绉垎閫€娆撅紙骞傜瓑锛?
    */
   async autoRefundStalePendingVideoUsages(options?: {
     timeoutMinutes?: number;
@@ -3971,7 +3946,7 @@ export class CreditsService {
 
     for (const record of staleRecords) {
       const processingTime = Math.max(0, Date.now() - record.createdAt.getTime());
-      const timeoutMessage = `超时自动关闭：${timeoutMinutes}分钟未完成`;
+      const timeoutMessage = `瓒呮椂鑷姩鍏抽棴锛${timeoutMinutes}鍒嗛挓鏈畬鎴恅`;
 
       try {
         await this.markApiUsageFailedForUser(
@@ -3982,13 +3957,13 @@ export class CreditsService {
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('成功的 API 调用不支持退款')) {
+        if (message.includes('鎴愬姛鐨?API 璋冪敤涓嶆敮鎸侀€€娆?)) {'
           skippedSuccess += 1;
           continue;
         }
         errors += 1;
         this.logger.error(
-          `自动退款标记失败 apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
+          `鑷姩閫€娆炬爣璁板け璐?apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
         );
         continue;
       }
@@ -4000,7 +3975,7 @@ export class CreditsService {
         const message = error instanceof Error ? error.message : String(error);
         errors += 1;
         this.logger.error(
-          `自动退款失败 apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
+          `鑷姩閫€娆惧け璐?apiUsageId=${record.id}, serviceType=${record.serviceType}, error=${message}`,
         );
       }
     }
@@ -4016,7 +3991,7 @@ export class CreditsService {
   }
 
   /**
-   * 管理员添加积分
+   * 绠＄悊鍛樻坊鍔犵Н鍒?
    */
   async adminAddCredits(
     userId: string,
@@ -4025,7 +4000,7 @@ export class CreditsService {
     adminId: string,
   ): Promise<AddCreditsResult> {
     if (amount <= 0) {
-      throw new BadRequestException('添加积分数量必须大于0');
+      throw new BadRequestException('娣诲姞绉垎鏁伴噺蹇呴』澶т簬0');
     }
 
     return await this.prisma.$transaction(async (tx) => {
@@ -4034,7 +4009,7 @@ export class CreditsService {
       });
 
       if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
+        throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
       }
 
       const newBalance = account.balance + amount;
@@ -4081,7 +4056,7 @@ export class CreditsService {
   }
 
   /**
-   * 管理员扣除积分
+   * 绠＄悊鍛樻墸闄ょН鍒?
    */
   async adminDeductCredits(
     userId: string,
@@ -4090,7 +4065,7 @@ export class CreditsService {
     adminId: string,
   ): Promise<AddCreditsResult> {
     if (amount <= 0) {
-      throw new BadRequestException('扣除积分数量必须大于0');
+      throw new BadRequestException('鎵ｉ櫎绉垎鏁伴噺蹇呴』澶т簬0');
     }
 
     return await this.prisma.$transaction(async (tx) => {
@@ -4099,11 +4074,11 @@ export class CreditsService {
       });
 
       if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
+        throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
       }
 
       if (account.balance < amount) {
-        throw new BadRequestException(`用户积分不足，当前余额: ${account.balance}`);
+        throw new BadRequestException(`鐢ㄦ埛绉垎涓嶈冻锛屽綋鍓嶄綑棰? ${account.balance}`);
       }
 
       const newBalance = account.balance - amount;
@@ -4136,7 +4111,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户交易记录
+   * 鑾峰彇鐢ㄦ埛浜ゆ槗璁板綍
    */
   async getTransactionHistory(
     userId: string,
@@ -4150,7 +4125,7 @@ export class CreditsService {
 
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
+      throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
     }
 
     const where: any = { accountId: account.id };
@@ -4183,6 +4158,7 @@ export class CreditsService {
         provider: string | null;
         model: string | null;
         requestParams: Prisma.JsonValue | null;
+        outputImageCount: number | null;
         responseStatus: string;
         processingTime: number | null;
       }
@@ -4197,6 +4173,7 @@ export class CreditsService {
           provider: true,
           model: true,
           requestParams: true,
+          outputImageCount: true,
           responseStatus: true,
           processingTime: true,
         },
@@ -4209,23 +4186,9 @@ export class CreditsService {
 
     const enrichedTransactions = transactions.map((tx) => {
       const usage = tx.apiUsageId ? apiUsageMap.get(tx.apiUsageId) : null;
+      const usageParams = usage ? this.asJsonObject(usage.requestParams) : null;
       const metadata = this.asJsonObject(tx.metadata);
       const metadataBillingRemark = this.asNonEmptyString(metadata?.billingRemark);
-      const usageRequestParams = this.asJsonObject(usage?.requestParams);
-      const rawParallelGroupIndex = usageRequestParams?.parallelGroupIndex;
-      const rawParallelGroupTotal = usageRequestParams?.parallelGroupTotal;
-      const parallelGroupIndex =
-        typeof rawParallelGroupIndex === 'number'
-          ? Math.trunc(rawParallelGroupIndex)
-          : typeof rawParallelGroupIndex === 'string' && rawParallelGroupIndex.trim().length > 0
-            ? Math.trunc(Number(rawParallelGroupIndex))
-            : null;
-      const parallelGroupTotal =
-        typeof rawParallelGroupTotal === 'number'
-          ? Math.trunc(rawParallelGroupTotal)
-          : typeof rawParallelGroupTotal === 'string' && rawParallelGroupTotal.trim().length > 0
-            ? Math.trunc(Number(rawParallelGroupTotal))
-            : null;
       const fallbackBillingRemark =
         usage && typeof usage.serviceType === 'string'
           ? this.buildBillingRemark({
@@ -4235,25 +4198,25 @@ export class CreditsService {
               requestParams: usage.requestParams,
             })
           : null;
+      const parallelGroupIndexRaw = Number(usageParams?.parallelGroupIndex);
+      const parallelGroupTotalRaw = Number(usageParams?.parallelGroupTotal);
       return {
         ...tx,
-        serviceType: usage?.serviceType ?? null,
         channel: this.extractChannelFromApiUsage(usage),
         provider: usage?.provider ?? null,
         model: usage?.model ?? null,
+        outputImageCount: usage?.outputImageCount ?? null,
         billingRemark: metadataBillingRemark ?? fallbackBillingRemark,
         apiResponseStatus: usage?.responseStatus ?? null,
         processingTime: usage?.processingTime ?? null,
-        parallelGroupId: this.asNonEmptyString(usageRequestParams?.parallelGroupId),
+        parallelGroupId: this.asNonEmptyString(usageParams?.parallelGroupId),
         parallelGroupIndex:
-          typeof parallelGroupIndex === 'number' && Number.isFinite(parallelGroupIndex)
-            ? parallelGroupIndex
+          Number.isFinite(parallelGroupIndexRaw) && parallelGroupIndexRaw >= 0
+            ? Math.floor(parallelGroupIndexRaw)
             : null,
         parallelGroupTotal:
-          typeof parallelGroupTotal === 'number' &&
-          Number.isFinite(parallelGroupTotal) &&
-          parallelGroupTotal > 0
-            ? parallelGroupTotal
+          Number.isFinite(parallelGroupTotalRaw) && parallelGroupTotalRaw > 0
+            ? Math.floor(parallelGroupTotalRaw)
             : null,
       };
     });
@@ -4270,7 +4233,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户 API 使用记录
+   * 鑾峰彇鐢ㄦ埛 API 浣跨敤璁板綍
    */
   async getApiUsageHistory(
     userId: string,
@@ -4318,7 +4281,7 @@ export class CreditsService {
   }
 
   /**
-   * 检查用户今天是否已领取每日奖励
+   * 妫€鏌ョ敤鎴蜂粖澶╂槸鍚﹀凡棰嗗彇姣忔棩濂栧姳
    */
   async canClaimDailyReward(userId: string): Promise<{
     canClaim: boolean;
@@ -4329,7 +4292,7 @@ export class CreditsService {
   }> {
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
+      throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
     }
 
     const rewardRule = await this.resolveDailyRewardRuleForUser(this.prisma, userId);
@@ -4358,10 +4321,10 @@ export class CreditsService {
   }
 
   /**
-   * 领取每日登录奖励
-   * 签到积分统一进入 gift 池：普通用户会日衰减，活跃 VIP 因 pauseGiftDecay 不衰减
-   * 规则：免费用户使用策略配置的签到积分；付费会员使用套餐 dailyGiftCredits 作为签到基础积分。
-   * 连续签到第 7 天按倍率发放，断签或满 7 天后重置到第 1 天，不走自动每日发放。
+   * 棰嗗彇姣忔棩鐧诲綍濂栧姳
+   * 绛惧埌绉垎缁熶竴杩涘叆 gift 姹狅細鏅€氱敤鎴蜂細鏃ヨ“鍑忥紝娲昏穬 VIP 鍥?pauseGiftDecay 涓嶈“鍑?
+   * 瑙勫垯锛氬厤璐圭敤鎴蜂娇鐢ㄧ瓥鐣ラ厤缃殑绛惧埌绉垎锛涗粯璐逛細鍛樹娇鐢ㄥ椁?dailyGiftCredits 浣滀负绛惧埌鍩虹绉垎銆?
+   * 杩炵画绛惧埌绗?7 澶╂寜鍊嶇巼鍙戞斁锛屾柇绛炬垨婊?7 澶╁悗閲嶇疆鍒扮 1 澶╋紝涓嶈蛋鑷姩姣忔棩鍙戞斁銆?
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -4382,7 +4345,7 @@ export class CreditsService {
       });
 
       if (!account) {
-        throw new NotFoundException('用户积分账户不存在');
+        throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
       }
 
       const now = new Date();
@@ -4401,7 +4364,7 @@ export class CreditsService {
       const rewardRule = await this.resolveDailyRewardRuleForUser(tx, userId);
       const expiresAt = null;
 
-      // 计算连续签到天数
+      // 璁＄畻杩炵画绛惧埌澶╂暟
       let newConsecutiveDays = 1;
       let bonusCredits = 0;
       let rewardMultiplier = 1;
@@ -4411,21 +4374,21 @@ export class CreditsService {
         const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
 
         if (diffDays === 1) {
-          // 连续签到
+          // 杩炵画绛惧埌
           if (account.consecutiveDays >= 7) {
-            // 已满7天，重置到第1天
+            // 宸叉弧7澶╋紝閲嶇疆鍒扮1澶?
             newConsecutiveDays = 1;
           } else {
             newConsecutiveDays = account.consecutiveDays + 1;
           }
         } else if (diffDays === 0) {
-          // 同一天，保持不变（理论上不会走到这里，因为 canClaim 会返回 false）
+          // 鍚屼竴澶╋紝淇濇寔涓嶅彉锛堢悊璁轰笂涓嶄細璧板埌杩欓噷锛屽洜涓?canClaim 浼氳繑鍥?false锛?
           newConsecutiveDays = account.consecutiveDays;
         }
-        // diffDays > 1 表示断签，重新从1开始（默认值已经是1）
+        // diffDays > 1 琛ㄧず鏂锛岄噸鏂颁粠1寮€濮嬶紙榛樿鍊煎凡缁忔槸1锛?
       }
 
-      // 第7天按策略倍数发放
+      // 绗?澶╂寜绛栫暐鍊嶆暟鍙戞斁
       if (newConsecutiveDays === 7) {
         rewardMultiplier = Math.max(1, rewardRule.rewardMultiplier);
         bonusCredits = rewardMultiplier > 1
@@ -4436,7 +4399,7 @@ export class CreditsService {
       const totalCredits = rewardRule.baseCredits + bonusCredits;
       const newBalance = account.balance + totalCredits;
 
-      // 更新账户余额、最后领取时间和连续签到天数
+      // 鏇存柊璐︽埛浣欓銆佹渶鍚庨鍙栨椂闂村拰杩炵画绛惧埌澶╂暟
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -4448,10 +4411,10 @@ export class CreditsService {
         },
       });
 
-      // 创建签到交易记录
+      // 鍒涘缓绛惧埌浜ゆ槗璁板綍
       const description = bonusCredits > 0
-        ? `连续签到第7天，按${rewardMultiplier}倍发放共${totalCredits}积分`
-        : `每日签到第${newConsecutiveDays}天`;
+        ? `杩炵画绛惧埌绗?澶╋紝鎸${rewardMultiplier}鍊嶅彂鏀惧叡${totalCredits}绉垎`
+        : `姣忔棩绛惧埌绗${newConsecutiveDays}澶ー`;
 
       const creditLot = await tx.creditLot.create({
         data: buildDailyRewardCreditLotData({
@@ -4503,9 +4466,9 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户签到日历状态（7天周期）
-   * 规则：连续签到7天后重置，断签也重置
-   * 日历显示：已签到(checked)、今日待签(isToday)、未来待签(其他)
+   * 鑾峰彇鐢ㄦ埛绛惧埌鏃ュ巻鐘舵€侊紙7澶╁懆鏈燂級
+   * 瑙勫垯锛氳繛缁鍒?澶╁悗閲嶇疆锛屾柇绛句篃閲嶇疆
+   * 鏃ュ巻鏄剧ず锛氬凡绛惧埌(checked)銆佷粖鏃ュ緟绛?isToday)銆佹湭鏉ュ緟绛?鍏朵粬)
    */
   async getCheckInCalendar(userId: string): Promise<{
     consecutiveDays: number;
@@ -4516,7 +4479,7 @@ export class CreditsService {
   }> {
     const account = await this.getOrCreateAccount(userId);
     if (!account) {
-      throw new NotFoundException('用户积分账户不存在');
+      throw new NotFoundException('鐢ㄦ埛绉垎璐︽埛涓嶅瓨鍦?');
     }
 
     const now = new Date();
@@ -4529,27 +4492,27 @@ export class CreditsService {
       const lastCheckIn = new Date(account.lastCheckInDate);
       todayCheckedIn = this.diffDailyRewardBusinessDays(now, lastCheckIn) === 0;
 
-      // 检查是否断签（超过1天没签到）
+      // 妫€鏌ユ槸鍚︽柇绛撅紙瓒呰繃1澶╂病绛惧埌锛?
       const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
       if (diffDays > 1) {
-        // 断签了，显示为0天（但数据库中的值会在下次签到时重置）
+        // 鏂浜嗭紝鏄剧ず涓?澶╋紙浣嗘暟鎹簱涓殑鍊间細鍦ㄤ笅娆＄鍒版椂閲嶇疆锛?
         consecutiveDays = 0;
       }
     }
 
-    // 构建7天日历
+    // 鏋勫缓7澶╂棩鍘?
     const calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }> = [];
 
     for (let i = 1; i <= 7; i++) {
-      // 已签到：第1天到第consecutiveDays天
+      // 宸茬鍒帮細绗?澶╁埌绗琧onsecutiveDays澶?
       const checked = i <= consecutiveDays;
-      // 今日待签：下一个要签到的天数（如果今天还没签到）
+      // 浠婃棩寰呯锛氫笅涓€涓绛惧埌鐨勫ぉ鏁帮紙濡傛灉浠婂ぉ杩樻病绛惧埌锛?
       const isToday = !todayCheckedIn && i === consecutiveDays + 1;
 
       calendarDays.push({
         day: i,
         checked,
-        missed: false, // 断签会重置周期，所以当前周期内不存在漏签
+        missed: false, // 鏂浼氶噸缃懆鏈燂紝鎵€浠ュ綋鍓嶅懆鏈熷唴涓嶅瓨鍦ㄦ紡绛?
         isToday,
       });
     }
@@ -4564,8 +4527,8 @@ export class CreditsService {
   }
 
   /**
-   * 清理过期的签到积分（定时任务调用）
-   * 只清理普通用户的过期签到积分
+   * 娓呯悊杩囨湡鐨勭鍒扮Н鍒嗭紙瀹氭椂浠诲姟璋冪敤锛?
+   * 鍙竻鐞嗘櫘閫氱敤鎴风殑杩囨湡绛惧埌绉垎
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
@@ -4673,7 +4636,7 @@ export class CreditsService {
             amount: -actualDeduct,
             balanceBefore: account.balance,
             balanceAfter: newBalance,
-            description: '签到积分过期清除',
+            description: '绛惧埌绉垎杩囨湡娓呴櫎',
             creditLotId: lot.id,
             metadata: {
               expiredLotId: lot.id,
@@ -4697,14 +4660,14 @@ export class CreditsService {
       totalExpiredCredits += actualDeduct;
     }
 
-    // 查找所有已过期但未处理的签到积分记录
+    // 鏌ユ壘鎵€鏈夊凡杩囨湡浣嗘湭澶勭悊鐨勭鍒扮Н鍒嗚褰?
     const expiredTransactions = await this.prisma.creditTransaction.findMany({
       where: {
         type: TransactionType.DAILY_REWARD,
         expiresAt: { lte: now },
         isExpired: false,
         creditLotId: null,
-        amount: { gt: 0 }, // 只处理正数（获得积分的记录）
+        amount: { gt: 0 }, // 鍙鐞嗘鏁帮紙鑾峰緱绉垎鐨勮褰曪級
       },
       include: {
         account: true,
@@ -4715,7 +4678,7 @@ export class CreditsService {
       return { processedUsers: processedUserIds.size, totalExpiredCredits };
     }
 
-    // 按用户分组处理
+    // 鎸夌敤鎴峰垎缁勫鐞?
     const userTransactions = new Map<string, typeof expiredTransactions>();
     for (const tx of expiredTransactions) {
       const userId = tx.account.userId;
@@ -4729,10 +4692,10 @@ export class CreditsService {
 
     for (const [userId, transactions] of userTransactions) {
       processedUserIds.add(userId);
-      // 再次确认不是付费用户（双重检查）
+      // 鍐嶆纭涓嶆槸浠樿垂鐢ㄦ埛锛堝弻閲嶆鏌ワ級
       const isPaid = await this.isPaidUser(userId);
       if (isPaid) {
-        // 付费用户：将这些记录标记为永不过期
+        // 浠樿垂鐢ㄦ埛锛氬皢杩欎簺璁板綍鏍囪涓烘案涓嶈繃鏈?
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },
@@ -4745,31 +4708,31 @@ export class CreditsService {
         continue;
       }
 
-      // 计算该用户需要清除的过期积分总额
+      // 璁＄畻璇ョ敤鎴烽渶瑕佹竻闄ょ殑杩囨湡绉垎鎬婚
       const expiredAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
 
       if (expiredAmount <= 0) continue;
 
-      // 获取用户当前余额
+      // 鑾峰彇鐢ㄦ埛褰撳墠浣欓
       const account = await this.prisma.creditAccount.findUnique({
         where: { userId },
       });
 
       if (!account) continue;
 
-      // 实际扣除的积分不能超过当前余额
+      // 瀹為檯鎵ｉ櫎鐨勭Н鍒嗕笉鑳借秴杩囧綋鍓嶄綑棰?
       const actualDeduct = Math.min(expiredAmount, account.balance);
 
       if (actualDeduct > 0) {
         await this.prisma.$transaction(async (tx) => {
-          // 扣除过期积分
+          // 鎵ｉ櫎杩囨湡绉垎
           const newBalance = account.balance - actualDeduct;
           await tx.creditAccount.update({
             where: { id: account.id },
             data: { balance: newBalance },
           });
 
-          // 创建过期扣除记录
+          // 鍒涘缓杩囨湡鎵ｉ櫎璁板綍
           await tx.creditTransaction.create({
             data: {
               accountId: account.id,
@@ -4777,7 +4740,7 @@ export class CreditsService {
               amount: -actualDeduct,
               balanceBefore: account.balance,
               balanceAfter: newBalance,
-              description: `签到积分过期清除（${transactions.length}笔）`,
+              description: `绛惧埌绉垎杩囨湡娓呴櫎锛${transactions.length}绗旓級`,
               metadata: {
                 expiredTransactionIds: transactions.map(t => t.id),
                 originalExpiredAmount: expiredAmount,
@@ -4785,7 +4748,7 @@ export class CreditsService {
             },
           });
 
-          // 标记原始交易记录为已过期
+          // 鏍囪鍘熷浜ゆ槗璁板綍涓哄凡杩囨湡
           await tx.creditTransaction.updateMany({
             where: {
               id: { in: transactions.map(t => t.id) },
@@ -4799,7 +4762,7 @@ export class CreditsService {
 
         totalExpiredCredits += actualDeduct;
       } else {
-        // 余额为0，只标记为已过期
+        // 浣欓涓?锛屽彧鏍囪涓哄凡杩囨湡
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },
@@ -4815,12 +4778,12 @@ export class CreditsService {
     }
 
     const totalProcessedUsers = processedUserIds.size;
-    this.logger.log(`签到积分过期清理完成: 处理 ${totalProcessedUsers} 个用户, 清除 ${totalExpiredCredits} 积分`);
+    this.logger.log(`绛惧埌绉垎杩囨湡娓呯悊瀹屾垚: 澶勭悊 ${totalProcessedUsers} 涓敤鎴? 娓呴櫎 ${totalExpiredCredits} 绉垎`);
     return { processedUsers: totalProcessedUsers, totalExpiredCredits };
   }
 
   /**
-   * 获取用户即将过期的签到积分信息
+   * 鑾峰彇鐢ㄦ埛鍗冲皢杩囨湡鐨勭鍒扮Н鍒嗕俊鎭?
    */
   async getExpiringCredits(userId: string): Promise<{
     totalExpiring: number;
@@ -4885,3 +4848,5 @@ export class CreditsService {
     return { totalExpiring, expiringDetails, isPaidUser: false };
   }
 }
+
+

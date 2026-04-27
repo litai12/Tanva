@@ -59,6 +59,7 @@ const isBananaRouteCapableProvider = (provider: unknown): boolean => {
   const normalized = String(provider || "").trim().toLowerCase();
   return (
     normalized === "banana" ||
+    normalized === "banana-3.0" ||
     normalized === "banana-2.5" ||
     normalized === "banana-3.1" ||
     normalized === "gemini-pro" ||

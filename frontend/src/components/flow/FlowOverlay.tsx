@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 // Flow 主画布与节点调度入口。
 import React from "react";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown } from "lucide-react";
@@ -1640,7 +1640,7 @@ const BANANA_ROUTE_PRICING: Record<
     "4K": 80,
   },
   ultra: {
-    "0.5K": 20,
+    "0.5K": 30,
     "1K": 30,
     "2K": 40,
     "4K": 50,
@@ -1674,9 +1674,17 @@ const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
 const resolveBananaPricingTierByProvider = (
   providerName?: string | null
 ): BananaPricingTier | null => {
-  if (providerName === "banana-2.5") return "fast";
-  if (providerName === "banana-3.1" || providerName === "nano2") return "ultra";
-  if (providerName === "banana" || providerName === "gemini-pro") return "pro";
+  const normalized = String(providerName || "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "banana-2.5") return "fast";
+  if (normalized === "banana-3.1" || normalized === "nano2") return "ultra";
+  if (
+    normalized === "banana" ||
+    normalized === "banana-3.0" ||
+    normalized === "gemini-pro"
+  ) {
+    return "pro";
+  }
   return null;
 };
 
@@ -1693,18 +1701,17 @@ const resolveBananaPricingTierByModel = (
 
 const resolveBananaPricingTierForNode = (params: {
   nodeType?: string | null;
-  aiProvider?: string | null;
+  providerForPricing?: string | null;
   globalImageModel?: string | null;
 }): BananaPricingTier | null => {
-  const { nodeType, aiProvider, globalImageModel } = params;
+  const { nodeType, providerForPricing } = params;
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
-  const providerTier = resolveBananaPricingTierByProvider(aiProvider);
+  const providerTier = resolveBananaPricingTierByProvider(providerForPricing);
   if (normalizedType === "generatePro" || normalizedType === "generatePro4") {
     if (providerTier === "ultra") return "ultra";
-    if (providerTier === "fast" || providerTier === "pro") return "pro";
-    return resolveBananaPricingTierByModel(globalImageModel);
+    return "pro";
   }
-  return resolveBananaPricingTierByModel(globalImageModel) || providerTier;
+  return providerTier;
 };
 
 const normalizeBananaImageSize = (
@@ -1736,10 +1743,10 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
 > = {
   // Fast: Nano Banana, 仅支持 1K
   fast: {
-    "0.5K": 20,
-    "1K": 20,
-    "2K": 20,
-    "4K": 20,
+    "0.5K": 30,
+    "1K": 30,
+    "2K": 30,
+    "4K": 30,
   },
   // Pro: Nano Banana Pro
   pro: {
@@ -1751,9 +1758,25 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   // Ultra: Nano Banana 2
   ultra: {
     "0.5K": 30,
-    "1K": 50,
-    "2K": 70,
+    "1K": 30,
+    "2K": 50,
     "4K": 110,
+  },
+};
+
+const BANANA_TEXT_ROUTE_PRICING: Record<
+  "normal" | "stable",
+  Record<BananaPricingTier, number>
+> = {
+  normal: {
+    fast: 10,
+    pro: 20,
+    ultra: 30,
+  },
+  stable: {
+    fast: 20,
+    pro: 30,
+    ultra: 50,
   },
 };
 
@@ -1781,9 +1804,17 @@ const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
 const resolveBananaStablePricingTier = (
   providerName?: string | null
 ): BananaPricingTier | null => {
-  if (providerName === "banana-2.5") return "fast";
-  if (providerName === "banana-3.1" || providerName === "nano2") return "ultra";
-  if (providerName === "banana" || providerName === "gemini-pro") return "pro";
+  const normalized = String(providerName || "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "banana-2.5") return "fast";
+  if (normalized === "banana-3.1" || normalized === "nano2") return "ultra";
+  if (
+    normalized === "banana" ||
+    normalized === "banana-3.0" ||
+    normalized === "gemini-pro"
+  ) {
+    return "pro";
+  }
   return null;
 };
 
@@ -2160,6 +2191,21 @@ const resolveStableRouteCredits = (params: {
   } = params;
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
   let resolvedCredits = fallbackCredits;
+  const providerForPricing =
+    typeof nodeData?.modelProvider === "string" && nodeData.modelProvider.trim().length > 0
+      ? nodeData.modelProvider.trim()
+      : aiProvider;
+
+  if (normalizedType === "textChat" || normalizedType === "promptOptimize") {
+    const tier = resolveBananaPricingTierByProvider(providerForPricing);
+    if (tier) {
+      const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
+      const configuredCredits = Number(BANANA_TEXT_ROUTE_PRICING[routeKey][tier]);
+      if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+        resolvedCredits = configuredCredits;
+      }
+    }
+  }
 
   if (bananaImageRoute === "stable" && normalizedType === "gptImage2") {
     const preferredSize =
@@ -2189,7 +2235,7 @@ const resolveStableRouteCredits = (params: {
 
   // Stable 通道下的 Banana 图片节点动态积分
   if (bananaImageRoute === "stable" && normalizedType && BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
-    const tier = resolveBananaStablePricingTier(aiProvider);
+    const tier = resolveBananaStablePricingTier(providerForPricing);
     if (tier) {
       const preferredSize =
         typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
@@ -2198,8 +2244,14 @@ const resolveStableRouteCredits = (params: {
       const normalizedSize = normalizeBananaStableImageSize(preferredSize, tier);
       const unitCredits = Number(BANANA_STABLE_ROUTE_PRICING[tier][normalizedSize]);
       if (Number.isFinite(unitCredits) && unitCredits > 0) {
-        const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
-        resolvedCredits = unitCredits * multiplier;
+        const outputCount =
+          normalizedType === "generate4" || normalizedType === "generatePro4"
+            ? (() => {
+                const n = Number(nodeData?.outputCount);
+                return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50) : 4;
+              })()
+            : 1;
+        resolvedCredits = unitCredits * outputCount;
       }
     }
   }
@@ -2208,7 +2260,7 @@ const resolveStableRouteCredits = (params: {
   if (bananaImageRoute !== "stable" && normalizedType && BANANA_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     const tier = resolveBananaPricingTierForNode({
       nodeType: normalizedType,
-      aiProvider,
+      providerForPricing,
       globalImageModel,
     });
     if (tier) {
@@ -2219,8 +2271,14 @@ const resolveStableRouteCredits = (params: {
       const normalizedSize = normalizeBananaImageSize(preferredSize, tier);
       const unitCredits = Number(BANANA_ROUTE_PRICING[tier][normalizedSize]);
       if (Number.isFinite(unitCredits) && unitCredits > 0) {
-        const multiplier = normalizedType === "generate4" || normalizedType === "generatePro4" ? 4 : 1;
-        resolvedCredits = unitCredits * multiplier;
+        const outputCount =
+          normalizedType === "generate4" || normalizedType === "generatePro4"
+            ? (() => {
+                const n = Number(nodeData?.outputCount);
+                return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50) : 4;
+              })()
+            : 1;
+        resolvedCredits = unitCredits * outputCount;
       }
     }
   }
@@ -16153,9 +16211,25 @@ function FlowInner() {
             }
           }
 
-          const historyId = previewSource
-            ? `${nodeId}-${Date.now()}`
-            : undefined;
+          const historySeed = Date.now();
+          const historySources = (
+            stableMidjourneyImageUrls.length > 0
+              ? stableMidjourneyImageUrls
+              : [stableRemoteUrl || previewSource]
+          )
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean);
+          const dedupedHistorySources = Array.from(new Set(historySources));
+          const historyEntries = dedupedHistorySources.map((source, idx) => {
+            const sourceHasRemote =
+              !isDataImageUrl(source) && !isBlobUrl(source);
+            return {
+              id: `${nodeId}-${historySeed}-${idx + 1}`,
+              source,
+              hasRemote: sourceHasRemote,
+            };
+          });
+          const primaryHistoryEntry = historyEntries[0];
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -16183,69 +16257,79 @@ function FlowInner() {
                         : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
-                        historyId ?? (n.data as any)?.lastHistoryId,
+                        primaryHistoryEntry?.id ??
+                        (n.data as any)?.lastHistoryId,
                     },
                   }
                 : n
             )
           );
 
-          if (historyId) {
+          if (historyEntries.length > 0) {
             const projectId = useProjectContentStore.getState().projectId;
-            void recordImageHistoryEntry({
-              id: historyId,
-              base64: hasRemoteUrl ? undefined : previewSource,
-              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
-              title: `${actionTitle} ${new Date().toLocaleTimeString()}`,
-              nodeId,
-              nodeType: node.type,
-              fileName: `flow_${node.type}_${historyId}.png`,
-              projectId,
-              keepThumbnail: false,
-              metadata: {
-                ...mjMetadata,
-                model: modelName,
-                aiProvider: "midjourney",
-                provider: "midjourney",
-              },
-            })
-              .then(({ remoteUrl }) => {
-                if (!remoteUrl || hasRemoteUrl) return;
-                const outs = rf.getEdges().filter((e) => e.source === nodeId);
-                setNodes((ns) =>
-                  ns.map((n) => {
-                    if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== previewSource) return n;
-                      return {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          imageUrl: remoteUrl,
-                          imageData: undefined,
-                          thumbnail: undefined,
-                        },
-                      };
-                    }
-                    if (
-                      outs.some((e) => e.target === n.id) &&
-                      n.type === "image"
-                    ) {
-                      if ((n.data as any)?.imageData !== previewSource) return n;
-                      return {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          imageUrl: remoteUrl,
-                          imageData: undefined,
-                          thumbnail: undefined,
-                        },
-                      };
-                    }
-                    return n;
-                  })
-                );
+            historyEntries.forEach((entry, idx) => {
+              const itemTitle =
+                historyEntries.length > 1
+                  ? `${actionTitle} #${idx + 1} ${new Date().toLocaleTimeString()}`
+                  : `${actionTitle} ${new Date().toLocaleTimeString()}`;
+              void recordImageHistoryEntry({
+                id: entry.id,
+                base64: entry.hasRemote ? undefined : entry.source,
+                remoteUrl: entry.hasRemote ? entry.source : undefined,
+                title: itemTitle,
+                nodeId,
+                nodeType: node.type,
+                fileName: `flow_${node.type}_${entry.id}_${idx + 1}.png`,
+                projectId,
+                keepThumbnail: false,
+                metadata: {
+                  ...mjMetadata,
+                  model: modelName,
+                  aiProvider: "midjourney",
+                  provider: "midjourney",
+                  outputIndex: idx,
+                  outputCount: historyEntries.length,
+                },
               })
-              .catch(() => {});
+                .then(({ remoteUrl }) => {
+                  if (idx !== 0 || !remoteUrl || entry.hasRemote) return;
+                  if (entry.source !== previewSource) return;
+                  const outs = rf.getEdges().filter((e) => e.source === nodeId);
+                  setNodes((ns) =>
+                    ns.map((n) => {
+                      if (n.id === nodeId) {
+                        if ((n.data as any)?.imageData !== previewSource) return n;
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        };
+                      }
+                      if (
+                        outs.some((e) => e.target === n.id) &&
+                        n.type === "image"
+                      ) {
+                        if ((n.data as any)?.imageData !== previewSource) return n;
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        };
+                      }
+                      return n;
+                    })
+                  );
+                })
+                .catch(() => {});
+            });
           }
 
           if (previewSource) {
@@ -16985,12 +17069,10 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
-      const runProvider =
-        node.type === "generate" ||
-        node.type === "generatePro" ||
-        node.type === "generatePro4"
-          ? resolveFlowModelProvider((node.data as any)?.modelProvider, aiProvider)
-          : aiProvider;
+      const runProvider = resolveFlowModelProvider(
+        (node.data as any)?.modelProvider,
+        aiProvider
+      );
       const effectiveAspectRatio =
         node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
@@ -17029,6 +17111,23 @@ function FlowInner() {
         return undefined;
       };
       const providerOptions = resolveBananaRouteProviderOptions(runProvider);
+      const nodeConfigCreditParams: Pick<
+        AIImageGenerateRequest,
+        "nodeConfigKey" | "nodeConfigNameZh" | "nodeConfigNameEn"
+      > = {
+        nodeConfigKey:
+          typeof (node.data as any)?.nodeConfigKey === "string"
+            ? (node.data as any).nodeConfigKey.trim()
+            : undefined,
+        nodeConfigNameZh:
+          typeof (node.data as any)?.nodeConfigNameZh === "string"
+            ? (node.data as any).nodeConfigNameZh.trim()
+            : undefined,
+        nodeConfigNameEn:
+          typeof (node.data as any)?.nodeConfigNameEn === "string"
+            ? (node.data as any).nodeConfigNameEn.trim()
+            : undefined,
+      };
 
       // 根据节点类型和全局模式选择模型
       const nodeSpecificModel = (() => {
@@ -17115,6 +17214,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -17133,6 +17233,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -17146,6 +17247,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
               });
             }
 
@@ -17388,6 +17490,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
                 ...(enableWebSearchForNode ? {
                   enableWebSearch: true,
                   googleSearch: true,
@@ -17406,6 +17509,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
               });
             } else {
               result = await blendImagesViaAPI({
@@ -17419,6 +17523,7 @@ function FlowInner() {
                 aspectRatio: effectiveAspectRatio,
                 imageSize: effectiveImageSize,
                 providerOptions,
+                ...nodeConfigCreditParams,
               });
             }
 
@@ -17656,6 +17761,7 @@ function FlowInner() {
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
               providerOptions: requestProviderOptions,
+              ...nodeConfigCreditParams,
               ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
             });
           }
@@ -17677,6 +17783,7 @@ function FlowInner() {
               aspectRatio: effectiveAspectRatio,
               imageSize: requestImageSize,
               providerOptions: requestProviderOptions,
+              ...nodeConfigCreditParams,
             });
           }
           return await blendImagesViaAPI({
@@ -17690,6 +17797,7 @@ function FlowInner() {
             aspectRatio: effectiveAspectRatio,
             imageSize: requestImageSize,
             providerOptions: requestProviderOptions,
+            ...nodeConfigCreditParams,
           });
         };
 
@@ -18054,9 +18162,39 @@ function FlowInner() {
           return;
         }
 
-        const parallelGroupId = `flow_send_${id}_${Date.now()}`;
+        const parallelGroupSeed = Date.now();
+        const parallelGroupId = `flow_send_${id}_${parallelGroupSeed}`;
+        const projectId = useProjectContentStore.getState().projectId;
         normalizedImages.forEach((dataUrl, idx) => {
           const fileName = `flow_${id}_${idx + 1}.png`;
+          const isRemoteRef =
+            !isDataImageUrl(dataUrl) && !isBlobUrl(dataUrl);
+          void recordImageHistoryEntry({
+            id: `${id}-send-${parallelGroupSeed}-${idx + 1}`,
+            base64: isRemoteRef ? undefined : dataUrl,
+            remoteUrl: isRemoteRef ? dataUrl : undefined,
+            title: `发送到画板 ${
+              node.type === "niji7"
+                ? "Niji 7"
+                : node.type === "midjourneyV7"
+                ? "Midjourney V7"
+                : node.type === "generatePro4"
+                ? "GeneratePro4"
+                : "Generate4"
+            } #${idx + 1}`,
+            nodeId: id,
+            nodeType: node.type,
+            fileName,
+            projectId,
+            keepThumbnail: false,
+            skipInitialStoreUpdate: true,
+            metadata: {
+              source: "flow-send",
+              nodeType: node.type,
+              outputIndex: idx,
+              outputCount: normalizedImages.length,
+            },
+          });
           window.dispatchEvent(
             new CustomEvent("triggerQuickImageUpload", {
               detail: {
@@ -19160,6 +19298,8 @@ function FlowInner() {
           n.type === "niji7" ||
           n.type === "nano2" ||
           n.type === "gptImage2" ||
+          n.type === "textChat" ||
+          n.type === "promptOptimize" ||
           n.type === "seedream5" ||
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||
@@ -19612,7 +19752,11 @@ function FlowInner() {
                 modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               }
             : type === "promptOptimize"
-            ? { text: "", expandedText: "" }
+            ? {
+                text: "",
+                expandedText: "",
+                modelProvider: resolveFlowModelProvider(undefined, aiProvider),
+              }
             : type === "generate"
             ? {
                 status: "idle",
@@ -19662,7 +19806,8 @@ function FlowInner() {
             node.type === "generate" ||
             node.type === "generatePro" ||
             node.type === "generatePro4" ||
-            node.type === "textChat"
+            node.type === "textChat" ||
+            node.type === "promptOptimize"
           ) {
             if ((node.data as any)?.modelProvider === targetProvider) {
               return node;

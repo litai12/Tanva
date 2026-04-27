@@ -133,7 +133,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-tool-selection': {
     serviceName: 'Gemini 工具选择',
     provider: 'gemini',
-    creditsPerCall: 2,
+    creditsPerCall: 0,
     description: '使用 Gemini 进行智能工具选择',
   },
   'gemini-paperjs': {

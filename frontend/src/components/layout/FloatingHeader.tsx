@@ -91,9 +91,9 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
   // 稳定通道（腾讯）- Nano Banana 定价
-  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
+  fast: { "0.5K": 30, "1K": 30, "2K": 30, "4K": 30 },
   pro: { "0.5K": 90, "1K": 90, "2K": 100, "4K": 170 },
-  ultra: { "0.5K": 30, "1K": 50, "2K": 70, "4K": 110 },
+  ultra: { "0.5K": 30, "1K": 30, "2K": 50, "4K": 110 },
 };
 
 const BANANA_NORMAL_ROUTE_PRICING: Record<
@@ -110,8 +110,8 @@ const resolveBananaPricingTier = (
   provider: string | undefined
 ): BananaPricingTier | null => {
   if (provider === "banana-2.5") return "fast";
-  if (provider === "banana-3.1") return "ultra";
-  if (provider === "banana") return "pro";
+  if (provider === "banana-3.1" || provider === "nano2") return "ultra";
+  if (provider === "banana" || provider === "gemini-pro") return "pro";
   return null;
 };
 
