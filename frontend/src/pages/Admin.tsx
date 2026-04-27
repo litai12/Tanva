@@ -1959,6 +1959,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
     { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
     { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
+    { value: "happyhorseR2V", label: "快乐马 R2V 节点", category: "video" },
     { value: "wan27Video", label: "Wan 2.7 视频节点", category: "video" },
   ],
 };
@@ -1990,6 +1991,7 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "seedream5") return "seedream5";
   if (modelKey === "wan-2.6") return "wan26";
   if (modelKey === "wan-2.6-r2v") return "wan2R2V";
+  if (modelKey === "happyhorse-1.0-r2v") return "happyhorseR2V";
   if (modelKey === "wan-2.7") return "wan27Video";
 
   const taskType = normalizeManagedModelTaskType(model.taskType);
@@ -2013,6 +2015,7 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "midjourney",
     "wan-2.6",
     "wan-2.6-r2v",
+    "happyhorse-1.0-r2v",
     "wan-2.7",
   ].includes(normalized);
 };
@@ -3000,6 +3003,44 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         creditsPerCall: 400,
         priceYuan: 4,
         pricing: createWanPricingTemplate(["r2v"]),
+      },
+    ],
+  },
+  {
+    modelKey: "happyhorse-1.0-r2v",
+    modelName: "HappyHorse 1.0 R2V",
+    taskType: "video",
+    enabled: true,
+    defaultVendor: "dashscope",
+    metadata: {
+      nodeConfig: buildManagedNodeConfig(
+        {
+          modelKey: "happyhorse-1.0-r2v",
+          taskType: "video",
+          vendors: [{ vendorKey: "dashscope", creditsPerCall: 600 }],
+          defaultVendor: "dashscope",
+        },
+        {
+          flowNodeType: "happyhorseR2V",
+          nodeKey: "happyhorseR2V",
+          category: "video",
+          creditsPerCall: 600,
+          description: "快乐马 1.0 R2V 参考图视频生成（按分辨率×时长动态计费）",
+        }
+      ),
+    },
+    vendors: [
+      {
+        vendorKey: "dashscope",
+        platformKey: "dashscope",
+        label: "DashScope",
+        enabled: true,
+        route: "legacy",
+        provider: "dashscope",
+        modelName: "HappyHorse",
+        modelVersion: "1.0-r2v",
+        creditsPerCall: 600,
+        priceYuan: 6,
       },
     ],
   },
@@ -4070,6 +4111,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "midjourney": ["midjourney-fast"],
   "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
   "wan-2.6-r2v": ["wan2.6-r2v"],
+  "happyhorse-1.0-r2v": ["happyhorse-1.0-r2v"],
   "wan-2.7": ["wan2.7-i2v"],
   "gemini-3-pro-image": ["gemini-3-pro-image-preview"],
   "gemini-3.1-image": ["gemini-3.1-flash-image-preview"],
@@ -4098,6 +4140,7 @@ const MANAGED_MODEL_SERVICE_TYPE_MAP: Record<string, string> = {
   "midjourney": "midjourney-imagine",
   "wan-2.6": "wan26-video",
   "wan-2.6-r2v": "wan26-r2v",
+  "happyhorse-1.0-r2v": "happyhorse-r2v-video",
   "wan-2.7": "wan27-video",
   "gemini-3-pro-image": "gemini-3-pro-image",
   "gemini-3.1-image": "gemini-3.1-image",
@@ -4179,6 +4222,12 @@ const MANAGED_MODEL_OUTPUT_CONFIG_MAP: Record<
   "wan-2.6-r2v": {
     aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
     durations: [5, 10, 15],
+    resolutions: ["720P", "1080P"],
+    audioGeneration: true,
+  },
+  "happyhorse-1.0-r2v": {
+    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+    durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     resolutions: ["720P", "1080P"],
     audioGeneration: true,
   },
@@ -4525,6 +4574,19 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
       size: "16:9",
       duration: 5,
       shotType: "single",
+    };
+  } else if (model.modelKey === "happyhorse-1.0-r2v") {
+    metadata.defaultData = {
+      provider: defaultVendor?.provider || "dashscope",
+      managedModelKey: model.modelKey,
+      vendorKey: defaultVendor?.vendorKey,
+      platformKey: defaultVendor?.platformKey || defaultVendor?.vendorKey,
+      creditsPerCall: defaultVendorCredits,
+      ratio: "16:9",
+      resolution: "720P",
+      duration: 5,
+      referenceCount: 1,
+      watermark: false,
     };
   } else if (model.modelKey === "wan-2.7") {
     metadata.defaultData = {
