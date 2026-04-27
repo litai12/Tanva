@@ -1970,12 +1970,29 @@ export async function generateWan26R2VViaAPI(request: {
   }
 }
 
+export type HappyhorseModel =
+  | "happyhorse-1.0-t2v"
+  | "happyhorse-1.0-i2v"
+  | "happyhorse-1.0-r2v"
+  | "happyhorse-1.0-video-edit";
+
+export type HappyhorseMediaItem =
+  | { type: "first_frame"; url: string }
+  | { type: "reference_image"; url: string }
+  | { type: "video"; url: string };
+
 /**
- * 调用后端代理的 DashScope HappyHorse 1.0 R2V 参考图生成视频接口
+ * 调用后端代理的 DashScope HappyHorse 视频生成接口（支持 t2v / i2v / r2v / video-edit）。
+ * 由 body.model 决定上游模型；media 数组按所选模型自行组装：
+ *   - t2v:        无 media
+ *   - i2v:        media = [{type:"first_frame", url}]
+ *   - r2v:        media = [{type:"reference_image", url}, ...]
+ *   - video-edit: media = [{type:"video", url}, {type:"reference_image", url}]
  */
-export async function generateHappyhorseR2VViaAPI(request: {
+export async function generateHappyhorseVideoViaAPI(request: {
+  model: HappyhorseModel;
   prompt: string;
-  referenceImageUrls: string[]; // 1 ~ 9
+  media?: HappyhorseMediaItem[];
   parameters?: {
     resolution?: "720P" | "1080P";
     ratio?: "16:9" | "9:16" | "1:1" | "4:3" | "3:4";
@@ -1983,20 +2000,20 @@ export async function generateHappyhorseR2VViaAPI(request: {
   };
 }): Promise<AIServiceResponse<any>> {
   const startedAt = getTimestamp();
-  const dashscopeRequest = {
-    model: "happyhorse-1.0-r2v",
+  const dashscopeRequest: Record<string, any> = {
+    model: request.model,
     input: {
       prompt: request.prompt,
-      media: request.referenceImageUrls.map((url) => ({
-        type: "reference_image",
-        url,
-      })),
+      ...(request.media && request.media.length > 0
+        ? { media: request.media }
+        : {}),
     },
     parameters: request.parameters || {},
   };
+  const timingLabel = "generate-happyhorse-video";
   try {
     const response = await fetchWithAuth(
-      `${API_BASE_URL}/ai/dashscope/generate-happyhorse-r2v`,
+      `${API_BASE_URL}/ai/dashscope/generate-happyhorse-video`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2006,7 +2023,7 @@ export async function generateHappyhorseR2VViaAPI(request: {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming("generate-happyhorse-r2v", startedAt, {
+      logApiTiming(timingLabel, startedAt, {
         success: false,
         status: response.status,
       });
@@ -2021,10 +2038,10 @@ export async function generateHappyhorseR2VViaAPI(request: {
     }
 
     const data = await response.json();
-    logApiTiming("generate-happyhorse-r2v", startedAt, { success: true });
+    logApiTiming(timingLabel, startedAt, { success: true });
     return data;
   } catch (error) {
-    logApiTiming("generate-happyhorse-r2v", startedAt, {
+    logApiTiming(timingLabel, startedAt, {
       success: false,
       error: error instanceof Error ? error.message : String(error),
     });

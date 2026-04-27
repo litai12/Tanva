@@ -151,7 +151,7 @@ import {
   createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
-  generateHappyhorseR2VViaAPI,
+  generateHappyhorseVideoViaAPI,
   generateWan27I2VViaAPI,
   midjourneyActionViaAPI,
   querySora2CharacterTaskViaAPI,
@@ -7933,6 +7933,7 @@ function FlowInner() {
               status: "idle" as const,
               videoUrl: undefined,
               thumbnail: undefined,
+              model: "happyhorse-1.0-r2v" as const,
               ratio: "16:9" as const,
               resolution: "720P" as const,
               duration: 5,
@@ -9117,6 +9118,11 @@ function FlowInner() {
         ) {
           return isImageSource(sourceNode, sourceHandle);
         }
+        if (targetHandle === "video") {
+          // video-edit 模式下接受视频源
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -9525,6 +9531,7 @@ function FlowInner() {
       if (targetNode?.type === "happyhorseR2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("image-")) return true; // 每个 image-N 句柄最多一个
+        if (params.targetHandle === "video") return true; // video-edit 模式：唯一一个 video 输入
       }
       // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
@@ -10147,11 +10154,12 @@ function FlowInner() {
               )
           );
         }
-        // happyhorseR2V: 每个 image-* 句柄只保留 1 条输入线
+        // happyhorseR2V: 每个 image-* 句柄只保留 1 条输入线；video 句柄也只 1 条
         if (
           tgt?.type === "happyhorseR2V" &&
           typeof params.targetHandle === "string" &&
-          params.targetHandle.startsWith("image-")
+          (params.targetHandle.startsWith("image-") ||
+            params.targetHandle === "video")
         ) {
           next = next.filter(
             (e) =>
@@ -10575,6 +10583,59 @@ function FlowInner() {
         handler as EventListener
       );
   }, [setEdges, setNodes]);
+
+  // happyhorse 节点切换 model 时，丢弃在新模式下不再合法的目标连线。
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { id?: string; model?: string }
+        | undefined;
+      if (!detail?.id || !detail.model) return;
+      const validHandlesForModel = (model: string, refCount: number): Set<string> => {
+        const set = new Set<string>(["text"]);
+        switch (model) {
+          case "happyhorse-1.0-t2v":
+            break;
+          case "happyhorse-1.0-i2v":
+            set.add("image-1");
+            break;
+          case "happyhorse-1.0-r2v":
+            for (let i = 1; i <= Math.min(9, Math.max(1, refCount)); i++) {
+              set.add(`image-${i}`);
+            }
+            break;
+          case "happyhorse-1.0-video-edit":
+            set.add("image-1");
+            set.add("video");
+            break;
+        }
+        return set;
+      };
+      const targetNode = rf.getNode(detail.id);
+      const refCountRaw = Number((targetNode?.data as any)?.referenceCount);
+      const refCount = Number.isFinite(refCountRaw) ? refCountRaw : 1;
+      const valid = validHandlesForModel(detail.model, refCount);
+      setEdges((eds) =>
+        eds.filter(
+          (e) =>
+            !(
+              e.target === detail.id &&
+              typeof e.targetHandle === "string" &&
+              !valid.has(e.targetHandle)
+            )
+        )
+      );
+    };
+    window.addEventListener(
+      "happyhorse:modelChanged",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "happyhorse:modelChanged",
+        handler as EventListener
+      );
+  }, [rf, setEdges]);
 
   // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl/Cmd+V 粘贴，Ctrl/Cmd+Shift+V 可保留外部连线）
   React.useEffect(() => {
@@ -12990,12 +13051,35 @@ function FlowInner() {
           return;
         }
 
+        type HHModel =
+          | "happyhorse-1.0-t2v"
+          | "happyhorse-1.0-i2v"
+          | "happyhorse-1.0-r2v"
+          | "happyhorse-1.0-video-edit";
+        const allowedModels: HHModel[] = [
+          "happyhorse-1.0-t2v",
+          "happyhorse-1.0-i2v",
+          "happyhorse-1.0-r2v",
+          "happyhorse-1.0-video-edit",
+        ];
+        const rawModel = (node.data as any)?.model;
+        const hhModel: HHModel = allowedModels.includes(rawModel)
+          ? (rawModel as HHModel)
+          : "happyhorse-1.0-r2v";
+
         const referenceCountRaw = Number((node.data as any)?.referenceCount);
         const referenceCount = Number.isFinite(referenceCountRaw)
           ? Math.min(9, Math.max(1, Math.round(referenceCountRaw)))
           : 1;
 
-        // 收集 image-1 ~ image-N 边
+        // image-N edges（按 model 决定取多少个）
+        const allowedImageHandles =
+          hhModel === "happyhorse-1.0-r2v"
+            ? referenceCount
+            : hhModel === "happyhorse-1.0-i2v" ||
+              hhModel === "happyhorse-1.0-video-edit"
+            ? 1
+            : 0;
         const imageEdges = currentEdges
           .filter(
             (e) =>
@@ -13008,13 +13092,23 @@ function FlowInner() {
             const bi = Number(String(b.targetHandle).slice(6));
             return ai - bi;
           })
-          // 仅取当前 referenceCount 范围内的 handle
           .filter((e) => {
             const idx = Number(String(e.targetHandle).slice(6));
-            return idx >= 1 && idx <= referenceCount;
+            return idx >= 1 && idx <= allowedImageHandles;
           });
 
-        if (!imageEdges.length) {
+        // video-edit 必须连接一个视频源
+        const videoEdge =
+          hhModel === "happyhorse-1.0-video-edit"
+            ? currentEdges.find(
+                (e) => e.target === nodeId && e.targetHandle === "video"
+              )
+            : undefined;
+
+        if (
+          (hhModel === "happyhorse-1.0-i2v" || hhModel === "happyhorse-1.0-r2v") &&
+          !imageEdges.length
+        ) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -13023,13 +13117,52 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "failed",
-                      error: "请至少连接 1 张参考图",
+                      error:
+                        hhModel === "happyhorse-1.0-i2v"
+                          ? "请连接 1 张参考图"
+                          : "请至少连接 1 张参考图",
                     },
                   }
                 : n
             )
           );
           return;
+        }
+        if (hhModel === "happyhorse-1.0-video-edit") {
+          if (!videoEdge) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "请连接 1 个视频输入",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+          if (!imageEdges.length) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "请连接 1 张参考图",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
         }
 
         const uploadResolvedImageEdge = async (
@@ -13051,6 +13184,37 @@ function FlowInner() {
           return uploaded || undefined;
         };
 
+        const sanitizeRemoteVideoUrl = (raw?: string | null) => {
+          if (!raw || typeof raw !== "string") return undefined;
+          const trimmed = raw.trim();
+          if (!trimmed) return undefined;
+          const split = trimmed.split("](");
+          const candidate = split.length > 1 ? split[0] : trimmed;
+          const space = candidate.indexOf(" ");
+          return space > 0 ? candidate.slice(0, space) : candidate;
+        };
+        const resolveVideoEdgeUrl = (edge?: Edge): string | undefined => {
+          if (!edge) return undefined;
+          const src = rf.getNode(edge.source);
+          if (!src) return undefined;
+          const d = (src.data as any) || {};
+          const direct =
+            d.videoUrl ||
+            d.video_url ||
+            d.output?.video_url ||
+            (Array.isArray(d.output) ? d.output[0]?.video_url : undefined) ||
+            d.raw?.output?.video_url ||
+            d.raw?.video_url ||
+            d.url ||
+            d.src;
+          const fromHistory = Array.isArray(d.history)
+            ? d.history[0]?.videoUrl
+            : undefined;
+          return (
+            sanitizeRemoteVideoUrl(direct) || sanitizeRemoteVideoUrl(fromHistory)
+          );
+        };
+
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -13065,8 +13229,18 @@ function FlowInner() {
             const url = await uploadResolvedImageEdge(edge);
             if (url) referenceImageUrls.push(url);
           }
-          if (!referenceImageUrls.length) {
+          const inputVideoUrl = resolveVideoEdgeUrl(videoEdge);
+
+          if (
+            (hhModel === "happyhorse-1.0-i2v" ||
+              hhModel === "happyhorse-1.0-r2v") &&
+            !referenceImageUrls.length
+          ) {
             throw new Error("参考图为空");
+          }
+          if (hhModel === "happyhorse-1.0-video-edit") {
+            if (!inputVideoUrl) throw new Error("视频输入为空");
+            if (!referenceImageUrls.length) throw new Error("参考图为空");
           }
 
           const ratio =
@@ -13087,10 +13261,40 @@ function FlowInner() {
             return Math.min(15, Math.max(3, Math.round(raw)));
           })();
 
-          const result = await generateHappyhorseR2VViaAPI({
+          // 按所选模型组装 media + parameters
+          let media: Array<{
+            type: "first_frame" | "reference_image" | "video";
+            url: string;
+          }> | undefined;
+          const parameters: Record<string, any> = { resolution };
+          if (hhModel === "happyhorse-1.0-t2v") {
+            parameters.ratio = ratio;
+            parameters.duration = durationVal;
+          } else if (hhModel === "happyhorse-1.0-i2v") {
+            media = [{ type: "first_frame", url: referenceImageUrls[0] }];
+            parameters.duration = durationVal;
+          } else if (hhModel === "happyhorse-1.0-r2v") {
+            media = referenceImageUrls.map((url) => ({
+              type: "reference_image" as const,
+              url,
+            }));
+            parameters.ratio = ratio;
+            parameters.duration = durationVal;
+          } else {
+            // video-edit
+            media = [
+              { type: "video", url: inputVideoUrl as string },
+              { type: "reference_image", url: referenceImageUrls[0] },
+            ];
+            // 上游不接受 duration，但前端预扣按 durationVal 计费（保持节点 UI 一致）
+            parameters.duration = durationVal;
+          }
+
+          const result = await generateHappyhorseVideoViaAPI({
+            model: hhModel,
             prompt: promptTrimmed,
-            referenceImageUrls,
-            parameters: { ratio, resolution, duration: durationVal },
+            media,
+            parameters: parameters as any,
           });
 
           const extractVideoUrl = (obj: any): string | undefined => {

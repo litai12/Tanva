@@ -23,6 +23,12 @@ type VideoHistoryItem = {
 type Resolution = "720P" | "1080P";
 type Ratio = "16:9" | "9:16" | "1:1" | "4:3" | "3:4";
 
+type HappyhorseModel =
+  | "happyhorse-1.0-t2v"
+  | "happyhorse-1.0-i2v"
+  | "happyhorse-1.0-r2v"
+  | "happyhorse-1.0-video-edit";
+
 type Props = {
   id: string;
   data: {
@@ -33,10 +39,11 @@ type Props = {
     videoVersion?: number;
     onRun?: (id: string) => void;
     creditsPerCall?: number;
+    model?: HappyhorseModel;
     ratio?: Ratio;
     resolution?: Resolution;
     duration?: number;
-    referenceCount?: number; // 1 ~ 9
+    referenceCount?: number; // 1 ~ 9（仅 r2v 模式生效）
     history?: VideoHistoryItem[];
   };
   selected?: boolean;
@@ -49,6 +56,40 @@ const DURATION_OPTIONS: number[] = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 const MIN_REFS = 1;
 const MAX_REFS = 9;
 
+const DEFAULT_MODEL: HappyhorseModel = "happyhorse-1.0-r2v";
+
+const MODEL_OPTIONS: Array<{ value: HappyhorseModel; zh: string; en: string }> = [
+  { value: "happyhorse-1.0-t2v",        zh: "文生视频",   en: "Text → Video" },
+  { value: "happyhorse-1.0-i2v",        zh: "图生视频",   en: "Image → Video" },
+  { value: "happyhorse-1.0-r2v",        zh: "参考视频",   en: "Reference → Video" },
+  { value: "happyhorse-1.0-video-edit", zh: "视频改写",   en: "Video Edit" },
+];
+
+type ModelCaps = {
+  /** 是否使用 image-N 列表（r2v 才动态 1~9，i2v/video-edit 固定 1 张） */
+  imageHandles: number; // image-1 到 image-N 的 N；0 表示无 image handle
+  /** 是否需要 video 输入 handle（仅 video-edit） */
+  hasVideoHandle: boolean;
+  /** 是否暴露画幅下拉 */
+  showsRatio: boolean;
+  /** 是否允许调整 referenceCount（仅 r2v） */
+  showsReferenceCount: boolean;
+};
+
+const computeCaps = (model: HappyhorseModel, referenceCount: number): ModelCaps => {
+  const cappedRefs = Math.min(MAX_REFS, Math.max(MIN_REFS, referenceCount));
+  switch (model) {
+    case "happyhorse-1.0-t2v":
+      return { imageHandles: 0, hasVideoHandle: false, showsRatio: true, showsReferenceCount: false };
+    case "happyhorse-1.0-i2v":
+      return { imageHandles: 1, hasVideoHandle: false, showsRatio: false, showsReferenceCount: false };
+    case "happyhorse-1.0-r2v":
+      return { imageHandles: cappedRefs, hasVideoHandle: false, showsRatio: true, showsReferenceCount: true };
+    case "happyhorse-1.0-video-edit":
+      return { imageHandles: 1, hasVideoHandle: true, showsRatio: false, showsReferenceCount: false };
+  }
+};
+
 function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [hover, setHover] = React.useState<string | null>(null);
@@ -60,11 +101,13 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     message: string;
   } | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
+  const [modelMenuOpen, setModelMenuOpen] = React.useState(false);
   const [ratioMenuOpen, setRatioMenuOpen] = React.useState(false);
   const [resMenuOpen, setResMenuOpen] = React.useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
 
+  const model: HappyhorseModel = (data.model as HappyhorseModel) || DEFAULT_MODEL;
   const ratio: Ratio = (data.ratio as Ratio) || "16:9";
   const resolution: Resolution = (data.resolution as Resolution) || "720P";
   const duration: number =
@@ -76,22 +119,33 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     if (!Number.isFinite(raw)) return 1;
     return Math.min(MAX_REFS, Math.max(MIN_REFS, Math.round(raw)));
   })();
+  const caps = React.useMemo(
+    () => computeCaps(model, referenceCount),
+    [model, referenceCount]
+  );
 
   const previewRequestParams = React.useMemo(
     () => ({
-      generationMode: "r2v",
+      generationMode:
+        model === "happyhorse-1.0-t2v"
+          ? "t2v"
+          : model === "happyhorse-1.0-i2v"
+          ? "i2v"
+          : model === "happyhorse-1.0-video-edit"
+          ? "video-edit"
+          : "r2v",
       resolution,
       duration,
       durationSec: duration,
     }),
-    [resolution, duration]
+    [model, resolution, duration]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
     serviceType: "happyhorse-r2v-video",
-    model: "happyhorse-1.0-r2v",
+    model,
     requestParams: {
-      managedModelKey: "happyhorse-1.0-r2v",
-      modelKey: "happyhorse-1.0-r2v",
+      managedModelKey: model,
+      modelKey: model,
       vendorKey: "dashscope",
       platformKey: "dashscope",
       aiProvider: "dashscope",
@@ -366,9 +420,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     );
   };
 
+  const imageHandleCount = caps.imageHandles;
   const referenceIndices = React.useMemo(
-    () => Array.from({ length: referenceCount }, (_, i) => i + 1),
-    [referenceCount]
+    () => Array.from({ length: imageHandleCount }, (_, i) => i + 1),
+    [imageHandleCount]
   );
 
   const handleAdjustReferenceCount = React.useCallback(
@@ -381,8 +436,23 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     [dispatchPatch, referenceCount]
   );
 
-  const refHandleTopBase = 25; // 第一个 image handle 起始百分比
-  const refHandleStep = 50 / Math.max(1, referenceCount); // 在 25%~75% 间均分
+  const handleSelectModel = React.useCallback(
+    (next: HappyhorseModel) => {
+      if (next === model) return;
+      // 切换 model 时同时通知 FlowOverlay 清理不兼容连线
+      dispatchPatch({ model: next });
+      window.dispatchEvent(
+        new CustomEvent("happyhorse:modelChanged", {
+          detail: { id, model: next },
+        })
+      );
+    },
+    [dispatchPatch, id, model]
+  );
+
+  // image handle 在 25%~75% 之间均分；image-1 永远是首位（i2v / video-edit 用同一 handle id）
+  const refHandleTopBase = 25;
+  const refHandleStep = imageHandleCount > 0 ? 50 / imageHandleCount : 50;
 
   return (
     <div
@@ -419,6 +489,16 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           onMouseLeave={() => setHover(null)}
         />
       ))}
+      {caps.hasVideoHandle && (
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="video"
+          style={{ top: "82%" }}
+          onMouseEnter={() => setHover("video-in")}
+          onMouseLeave={() => setHover(null)}
+        />
+      )}
       <Handle
         type="source"
         position={Position.Right}
@@ -450,6 +530,14 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             character{idx}
           </div>
         ) : null
+      )}
+      {hover === "video-in" && caps.hasVideoHandle && (
+        <div
+          className="flow-tooltip"
+          style={{ left: -8, top: "82%", transform: "translate(-100%, -50%)" }}
+        >
+          video
+        </div>
       )}
       {hover === "video-out" && (
         <div
@@ -594,76 +682,22 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      {/* 参考图数量 +/- */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        }}
-      >
-        <span style={{ fontSize: 12, color: "#6b7280" }}>
-          {lt("参考图数量", "Reference images")}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            type="button"
-            disabled={referenceCount <= MIN_REFS}
-            onClick={() => handleAdjustReferenceCount(-1)}
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: referenceCount <= MIN_REFS ? "#f3f4f6" : "#fff",
-              cursor: referenceCount <= MIN_REFS ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Minus size={12} />
-          </button>
-          <span style={{ minWidth: 18, textAlign: "center", fontSize: 12 }}>
-            {referenceCount}
-          </span>
-          <button
-            type="button"
-            disabled={referenceCount >= MAX_REFS}
-            onClick={() => handleAdjustReferenceCount(1)}
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: referenceCount >= MAX_REFS ? "#f3f4f6" : "#fff",
-              cursor: referenceCount >= MAX_REFS ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Plus size={12} />
-          </button>
-        </div>
-      </div>
-
-      {/* ratio 下拉 */}
+      {/* 模式选择 */}
       <div
         className="sora2-dropdown"
         style={{ marginBottom: 8, position: "relative" }}
       >
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          {lt("画幅", "Ratio")}
+          {lt("模式", "Mode")}
         </div>
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            setRatioMenuOpen(false);
             setResMenuOpen(false);
             setDurationMenuOpen(false);
-            setRatioMenuOpen((o) => !o);
+            setModelMenuOpen((o) => !o);
           }}
           style={{
             width: "100%",
@@ -678,12 +712,17 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             cursor: "pointer",
           }}
         >
-          <span>{ratio}</span>
+          <span>
+            {(() => {
+              const opt = MODEL_OPTIONS.find((m) => m.value === model);
+              return opt ? lt(opt.zh, opt.en) : model;
+            })()}
+          </span>
           <span style={{ fontSize: 16, lineHeight: 1 }}>
-            {ratioMenuOpen ? "▴" : "▾"}
+            {modelMenuOpen ? "▴" : "▾"}
           </span>
         </button>
-        {ratioMenuOpen && (
+        {modelMenuOpen && (
           <div
             className="sora2-dropdown-menu"
             onClick={(e) => e.stopPropagation()}
@@ -700,28 +739,29 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {RATIO_OPTIONS.map((opt) => {
-                const active = opt === ratio;
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {MODEL_OPTIONS.map((opt) => {
+                const active = opt.value === model;
                 return (
                   <button
-                    key={opt}
+                    key={opt.value}
                     type="button"
                     onClick={() => {
-                      dispatchPatch({ ratio: opt });
-                      setRatioMenuOpen(false);
+                      handleSelectModel(opt.value);
+                      setModelMenuOpen(false);
                     }}
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: 999,
+                      padding: "6px 10px",
+                      borderRadius: 6,
                       border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
                       background: active ? "#2563eb" : "#fff",
                       color: active ? "#fff" : "#111827",
                       fontSize: 12,
                       cursor: "pointer",
+                      textAlign: "left",
                     }}
                   >
-                    {opt}
+                    {lt(opt.zh, opt.en)}
                   </button>
                 );
               })}
@@ -729,6 +769,146 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           </div>
         )}
       </div>
+
+      {/* 参考图数量 +/-（仅 r2v 模式） */}
+      {caps.showsReferenceCount && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span style={{ fontSize: 12, color: "#6b7280" }}>
+            {lt("参考图数量", "Reference images")}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              disabled={referenceCount <= MIN_REFS}
+              onClick={() => handleAdjustReferenceCount(-1)}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+                background: referenceCount <= MIN_REFS ? "#f3f4f6" : "#fff",
+                cursor: referenceCount <= MIN_REFS ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Minus size={12} />
+            </button>
+            <span style={{ minWidth: 18, textAlign: "center", fontSize: 12 }}>
+              {referenceCount}
+            </span>
+            <button
+              type="button"
+              disabled={referenceCount >= MAX_REFS}
+              onClick={() => handleAdjustReferenceCount(1)}
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+                background: referenceCount >= MAX_REFS ? "#f3f4f6" : "#fff",
+                cursor: referenceCount >= MAX_REFS ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ratio 下拉（仅 t2v / r2v 暴露；i2v / video-edit 由输入决定画幅） */}
+      {caps.showsRatio && (
+        <div
+          className="sora2-dropdown"
+          style={{ marginBottom: 8, position: "relative" }}
+        >
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("画幅", "Ratio")}
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setResMenuOpen(false);
+              setDurationMenuOpen(false);
+              setRatioMenuOpen((o) => !o);
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <span>{ratio}</span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>
+              {ratioMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {ratioMenuOpen && (
+            <div
+              className="sora2-dropdown-menu"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "absolute",
+                zIndex: 20,
+                top: "calc(100% + 4px)",
+                left: 0,
+                right: 0,
+                background: "#fff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {RATIO_OPTIONS.map((opt) => {
+                  const active = opt === ratio;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        dispatchPatch({ ratio: opt });
+                        setRatioMenuOpen(false);
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
+                        background: active ? "#2563eb" : "#fff",
+                        color: active ? "#fff" : "#111827",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* resolution 下拉 */}
       <div
