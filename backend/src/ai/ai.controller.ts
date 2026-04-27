@@ -2534,7 +2534,7 @@ export class AiController {
         reasoning: result.reasoning,
         confidence: result.confidence,
       };
-    }, undefined, undefined, undefined, this.buildCreditRequestParams(providerName));
+    }, undefined, undefined, true, this.buildCreditRequestParams(providerName));
   }
 
   @Post('generate-image')
@@ -2569,6 +2569,10 @@ export class AiController {
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
+    const requestedOutputImageCount =
+      dto.batchMode && Number.isFinite(Number(dto.batchCount))
+        ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
+        : 1;
 
     void this.telemetryService.ingestGenerationTask({
       traceId,
@@ -2770,9 +2774,16 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+      }, 0, requestedOutputImageCount, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
+        outputImageCount: requestedOutputImageCount,
+        parallelGroupId: dto.parallelGroupId,
+        parallelGroupIndex: dto.parallelGroupIndex,
+        parallelGroupTotal: dto.parallelGroupTotal,
+        nodeConfigKey: dto.nodeConfigKey,
+        nodeConfigNameZh: dto.nodeConfigNameZh,
+        nodeConfigNameEn: dto.nodeConfigNameEn,
         ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
       }, dto.providerOptions), {
         validateSuccessResult: (payload) => ({
@@ -3033,6 +3044,12 @@ export class AiController {
       }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
+        parallelGroupId: dto.parallelGroupId,
+        parallelGroupIndex: dto.parallelGroupIndex,
+        parallelGroupTotal: dto.parallelGroupTotal,
+        nodeConfigKey: dto.nodeConfigKey,
+        nodeConfigNameZh: dto.nodeConfigNameZh,
+        nodeConfigNameEn: dto.nodeConfigNameEn,
         ...this.buildRequestPromptAndImageParams(dto.prompt, [
           dto.sourceImageUrl,
           dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage) ? dto.sourceImage : undefined,
@@ -3278,6 +3295,12 @@ export class AiController {
       }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
+        parallelGroupId: dto.parallelGroupId,
+        parallelGroupIndex: dto.parallelGroupIndex,
+        parallelGroupTotal: dto.parallelGroupTotal,
+        nodeConfigKey: dto.nodeConfigKey,
+        nodeConfigNameZh: dto.nodeConfigNameZh,
+        nodeConfigNameEn: dto.nodeConfigNameEn,
         ...this.buildRequestPromptAndImageParams(dto.prompt, [
           ...(Array.isArray(dto.sourceImageUrls) ? dto.sourceImageUrls : []),
           ...(Array.isArray(dto.sourceImages) ? dto.sourceImages : []),
@@ -3458,7 +3481,7 @@ export class AiController {
       return { text };
     }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName, {
       ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImages),
-    }));
+    }, dto.providerOptions));
   }
 
   @Post('text-chat')
@@ -3492,7 +3515,12 @@ export class AiController {
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, { billingTag }));
+    }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, {
+      billingTag,
+      model,
+      requestedProvider: dto.aiProvider,
+      ...this.buildRequestPromptAndImageParams(dto.prompt),
+    }, dto.providerOptions));
   }
 
   @Post('remove-background')

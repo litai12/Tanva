@@ -1,4 +1,4 @@
-﻿import {
+import {
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -396,9 +396,26 @@ export class BananaProvider implements IAIProvider {
     );
   }
 
+  private normalizeImageSizeToken(
+    imageSize?: string | null
+  ): "0.5K" | "1K" | "2K" | "4K" | null {
+    if (typeof imageSize !== "string") return null;
+    const normalized = imageSize.trim().toUpperCase();
+    if (
+      normalized === "0.5K" ||
+      normalized === "1K" ||
+      normalized === "2K" ||
+      normalized === "4K"
+    ) {
+      return normalized;
+    }
+    return null;
+  }
+
   private toApimartResolution(imageSize?: ImageGenerationRequest["imageSize"]): "1K" | "2K" | "4K" {
-    if (imageSize === "2K") return "2K";
-    if (imageSize === "4K") return "4K";
+    const normalized = this.normalizeImageSizeToken(imageSize);
+    if (normalized === "2K") return "2K";
+    if (normalized === "4K") return "4K";
     return "1K";
   }
 
@@ -937,6 +954,12 @@ export class BananaProvider implements IAIProvider {
         `${operationType} parsing completed: text: ${
           textResponse.length
         } chars, has image: ${!!imageBytes}`
+      );
+
+      // DEBUG: Log first 200 chars to trace encoding issues
+      const previewText = textResponse.substring(0, 200);
+      this.logger.log(
+        `[DEBUG] ${operationType} text preview (first 200 chars): ${previewText}`
       );
 
       // 馃攳 妫€鏌ヨ繑鍥炲浘鐗囩殑瀹為檯鍒嗚鲸鐜?
@@ -1566,7 +1589,7 @@ export class BananaProvider implements IAIProvider {
           modelVersion: modelConfig.modelVersion,
           fileInfos,
           aspectRatio: request.aspectRatio,
-          imageSize: request.imageSize,
+          imageSize: this.normalizeImageSizeToken(request.imageSize) ?? undefined,
         });
 
       const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
@@ -1635,7 +1658,7 @@ export class BananaProvider implements IAIProvider {
           modelVersion: modelConfig.modelVersion,
           fileInfos,
           aspectRatio: request.aspectRatio,
-          imageSize: request.imageSize,
+          imageSize: this.normalizeImageSizeToken(request.imageSize) ?? undefined,
         });
 
       const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
@@ -1702,7 +1725,7 @@ export class BananaProvider implements IAIProvider {
           modelVersion: modelConfig.modelVersion,
           fileInfos,
           aspectRatio: request.aspectRatio,
-          imageSize: request.imageSize,
+          imageSize: this.normalizeImageSizeToken(request.imageSize) ?? undefined,
         });
 
       const taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
@@ -1773,10 +1796,13 @@ export class BananaProvider implements IAIProvider {
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
-                if (request.imageSize) {
+                const normalizedImageSize = this.normalizeImageSizeToken(
+                  request.imageSize
+                );
+                if (normalizedImageSize) {
                   // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
                   // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
-                  config.imageConfig.imageSize = request.imageSize;
+                  config.imageConfig.imageSize = normalizedImageSize;
                 }
               }
 
@@ -2013,10 +2039,13 @@ export class BananaProvider implements IAIProvider {
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
-                if (request.imageSize) {
+                const normalizedImageSize = this.normalizeImageSizeToken(
+                  request.imageSize
+                );
+                if (normalizedImageSize) {
                   // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
                   // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
-                  config.imageConfig.imageSize = request.imageSize;
+                  config.imageConfig.imageSize = normalizedImageSize;
                 }
               }
 
@@ -2253,10 +2282,13 @@ export class BananaProvider implements IAIProvider {
                 if (request.aspectRatio) {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
-                if (request.imageSize) {
+                const normalizedImageSize = this.normalizeImageSizeToken(
+                  request.imageSize
+                );
+                if (normalizedImageSize) {
                   // 鏍规嵁瀹樻柟鏂囨。锛宨mageSize 蹇呴』鏄瓧绗︿覆 "0.5K"銆?1K"銆?2K" 鎴?"4K"锛堝ぇ鍐橩锛?
                   // 涓嶉渶瑕佽浆鎹紝鐩存帴浣跨敤鍘熷鍊?
-                  config.imageConfig.imageSize = request.imageSize;
+                  config.imageConfig.imageSize = normalizedImageSize;
                 }
               }
 
@@ -2563,6 +2595,10 @@ export class BananaProvider implements IAIProvider {
 
           this.logger.log(
             `File analysis succeeded: ${result.textResponse.length} characters`
+          );
+          const textPreview = result.textResponse.substring(0, 200);
+          this.logger.log(
+            `[DEBUG] File analysis text preview: ${textPreview}`
           );
           if (usedFallback) {
             this.logger.log(

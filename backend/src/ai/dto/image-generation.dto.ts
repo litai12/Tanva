@@ -105,32 +105,44 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsBoolean()
-  enableWebSearch?: boolean; // 生图阶段启用联网搜索（如 147 Ultra）
+  enableWebSearch?: boolean; // 鐢熷浘闃舵鍚敤鑱旂綉鎼滅储锛堝 147 Ultra锛?
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  imageUrls?: string[]; // Nano2 参考图片 URL 列表
+  imageUrls?: string[]; // Nano2 鍙傝€冨浘鐗?URL 鍒楄〃
 
   @IsOptional()
   @IsBoolean()
-  googleSearch?: boolean; // Nano2 Google 文本搜索增强
+  googleSearch?: boolean; // Nano2 Google 鏂囨湰鎼滅储澧炲己
 
   @IsOptional()
   @IsBoolean()
-  googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
+  googleImageSearch?: boolean; // Nano2 Google 鍥剧墖鎼滅储澧炲己
 
   @IsOptional()
   @IsBoolean()
-  batchMode?: boolean; // Seedream5 批量生成模式
+  batchMode?: boolean; // Seedream5 鎵归噺鐢熸垚妯″紡
 
   @IsOptional()
   @IsNumber()
-  batchCount?: number; // Seedream5 批量生成数量 (2-10)
+  batchCount?: number; // Seedream5 鎵归噺鐢熸垚鏁伴噺 (2-10)
+
+  @IsOptional()
+  @IsString()
+  parallelGroupId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupIndex?: number;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupTotal?: number;
 
   @IsOptional()
   @IsBoolean()
-  officialFallback?: boolean; // gpt-image-2 是否使用官方渠道兜底
+  officialFallback?: boolean; // gpt-image-2 鏄惁浣跨敤瀹樻柟娓犻亾鍏滃簳
 
   @IsOptional()
   @IsEnum(GptImage2Quality)
@@ -153,6 +165,18 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   maskUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigKey?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameZh?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameEn?: string;
 }
 
 export class EditImageDto {
@@ -218,6 +242,30 @@ export class EditImageDto {
   @IsOptional()
   @IsBoolean()
   imageOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  parallelGroupId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupIndex?: number;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupTotal?: number;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigKey?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameZh?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameEn?: string;
 }
 
 export class BlendImagesDto {
@@ -285,6 +333,30 @@ export class BlendImagesDto {
   @IsOptional()
   @IsBoolean()
   imageOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  parallelGroupId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupIndex?: number;
+
+  @IsOptional()
+  @IsNumber()
+  parallelGroupTotal?: number;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigKey?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameZh?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeConfigNameEn?: string;
 }
 
 export class AnalyzeImageDto {
@@ -389,7 +461,7 @@ export class MidjourneyModalDto {
 export class Convert2Dto3DDto {
   @IsString()
   @IsNotEmpty()
-  imageUrl!: string; // OSS原生可访问的图片URL
+  imageUrl!: string; // OSS鍘熺敓鍙闂殑鍥剧墖URL
 
   @IsOptional()
   @IsString()
@@ -399,18 +471,18 @@ export class Convert2Dto3DDto {
 export class ExpandImageDto {
   @IsString()
   @IsNotEmpty()
-  imageUrl!: string; // OSS原生可访问的图片URL
+  imageUrl!: string; // OSS鍘熺敓鍙闂殑鍥剧墖URL
 
   @IsNotEmpty()
   @IsObject()
   expandRatios!: {
-    left: number; // 左侧扩图部分/原图长度
-    top: number; // 上侧扩图部分/原图高度
-    right: number; // 右侧扩图部分/原图长度
-    bottom: number; // 下侧扩图部分/原图高度
+    left: number; // 宸︿晶鎵╁浘閮ㄥ垎/鍘熷浘闀垮害
+    top: number; // 涓婁晶鎵╁浘閮ㄥ垎/鍘熷浘楂樺害
+    right: number; // 鍙充晶鎵╁浘閮ㄥ垎/鍘熷浘闀垮害
+    bottom: number; // 涓嬩晶鎵╁浘閮ㄥ垎/鍘熷浘楂樺害
   };
 
   @IsOptional()
   @IsString()
-  prompt?: string; // 提示词，默认为"扩图"
+  prompt?: string; // 鎻愮ず璇嶏紝榛樿涓?鎵╁浘"
 }

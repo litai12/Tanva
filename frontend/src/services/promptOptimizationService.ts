@@ -1,5 +1,5 @@
 import { generateTextResponseViaAPI } from '@/services/aiBackendAPI';
-import type { AIServiceResponse, SupportedAIProvider } from '@/types/ai';
+import type { AIProviderOptions, AIServiceResponse, SupportedAIProvider } from '@/types/ai';
 
 export interface PromptOptimizationRequest {
   input: string;
@@ -9,6 +9,7 @@ export interface PromptOptimizationRequest {
   lengthPreference?: 'concise' | 'balanced' | 'detailed';
   aiProvider?: SupportedAIProvider;
   model?: string;
+  providerOptions?: AIProviderOptions;
 }
 
 export interface PromptOptimizationResult {
@@ -143,6 +144,7 @@ class PromptOptimizationService {
             model: modelToUse,
             enableWebSearch: false,
             billingTag: 'prompt_optimize',
+            providerOptions: request.providerOptions,
           }),
           this.REQUEST_TIMEOUT_MS
         );

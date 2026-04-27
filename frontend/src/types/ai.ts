@@ -1,9 +1,9 @@
-/**
- * Google Gemini 3 Pro Image API 相关类型定义
- * 支持 gemini-3-pro-image-preview 模型
+﻿/**
+ * Google Gemini 3 Pro Image API 鐩稿叧绫诲瀷瀹氫箟
+ * 鏀寔 gemini-3-pro-image-preview 妯″瀷
  */
 
-// AI图像生成请求参数
+// AI鍥惧儚鐢熸垚璇锋眰鍙傛暟
 export interface RunningHubNodeInfo {
   nodeId: string;
   fieldName: string;
@@ -126,25 +126,31 @@ export interface AIImageGenerateRequest {
     | '4:1'
     | '1:4'
     | '8:1'
-    | '1:8'; // 长宽比（官方支持枚举）
-  imageSize?: string; // 图像尺寸，支持 2K/3K 或 2048x2048 这类像素值
-  thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
-  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
-  enableWebSearch?: boolean; // 生图阶段启用联网搜索（用于支持 147 Ultra 等链路）
-  imageUrls?: string[]; // Nano2 参考图片 URL 列表
-  googleSearch?: boolean; // Nano2 Google 文本搜索增强
-  googleImageSearch?: boolean; // Nano2 Google 图片搜索增强
-  batchMode?: boolean; // Seedream5 批量模式
-  batchCount?: number; // Seedream5 批量数量
+    | '1:8'; // 闀垮姣旓紙瀹樻柟鏀寔鏋氫妇锛?
+  imageSize?: string; // 鍥惧儚灏哄锛屾敮鎸?2K/3K 鎴?2048x2048 杩欑被鍍忕礌鍊?
+  thinkingLevel?: 'high' | 'low'; // 鎬濊€冪骇鍒紙浠?Gemini 3锛?
+  imageOnly?: boolean; // 鏂板锛氫粎杩斿洖鍥惧儚锛屼笉杩斿洖鏂囨湰
+  enableWebSearch?: boolean; // 鐢熷浘闃舵鍚敤鑱旂綉鎼滅储锛堢敤浜庢敮鎸?147 Ultra 绛夐摼璺級
+  imageUrls?: string[]; // Nano2 鍙傝€冨浘鐗?URL 鍒楄〃
+  googleSearch?: boolean; // Nano2 Google 鏂囨湰鎼滅储澧炲己
+  googleImageSearch?: boolean; // Nano2 Google 鍥剧墖鎼滅储澧炲己
+  batchMode?: boolean; // Seedream5 鎵归噺妯″紡
+  batchCount?: number; // Seedream5 鎵归噺鏁伴噺
+  parallelGroupId?: string; // 对话框并行生图批次ID（仅用于积分流水聚合）
+  parallelGroupIndex?: number; // 对话框并行生图序号（0-based）
+  parallelGroupTotal?: number; // 对话框并行生图总数
   officialFallback?: boolean; // gpt-image-2: whether to enable official upstream fallback
   quality?: 'auto' | 'low' | 'medium' | 'high';
   background?: 'auto' | 'opaque' | 'transparent';
   moderation?: 'auto' | 'low';
   outputCompression?: number;
   maskUrl?: string;
+  nodeConfigKey?: string;
+  nodeConfigNameZh?: string;
+  nodeConfigNameEn?: string;
 }
 
-// AI图像编辑请求参数
+// AI鍥惧儚缂栬緫璇锋眰鍙傛暟
 export interface AIImageEditRequest {
   prompt: string;
   sourceImage?: string; // base64 encoded image
@@ -170,13 +176,19 @@ export interface AIImageEditRequest {
     | '4:1'
     | '1:4'
     | '8:1'
-    | '1:8'; // 长宽比（官方支持枚举）
-  imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 图像尺寸（高清设置，仅 Gemini 3）
-  thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
-  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
+    | '1:8'; // 闀垮姣旓紙瀹樻柟鏀寔鏋氫妇锛?
+  imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 鍥惧儚灏哄锛堥珮娓呰缃紝浠?Gemini 3锛?
+  thinkingLevel?: 'high' | 'low'; // 鎬濊€冪骇鍒紙浠?Gemini 3锛?
+  imageOnly?: boolean; // 鏂板锛氫粎杩斿洖鍥惧儚锛屼笉杩斿洖鏂囨湰
+  parallelGroupId?: string;
+  parallelGroupIndex?: number;
+  parallelGroupTotal?: number;
+  nodeConfigKey?: string;
+  nodeConfigNameZh?: string;
+  nodeConfigNameEn?: string;
 }
 
-// AI图像融合请求参数
+// AI鍥惧儚铻嶅悎璇锋眰鍙傛暟
 export interface AIImageBlendRequest {
   prompt: string;
   sourceImages?: string[]; // base64 encoded images
@@ -202,22 +214,28 @@ export interface AIImageBlendRequest {
     | '4:1'
     | '1:4'
     | '8:1'
-    | '1:8'; // 长宽比（官方支持枚举）
-  imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 图像尺寸（高清设置，仅 Gemini 3）
-  thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
-  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
+    | '1:8'; // 闀垮姣旓紙瀹樻柟鏀寔鏋氫妇锛?
+  imageSize?: '0.5K' | '1K' | '2K' | '4K'; // 鍥惧儚灏哄锛堥珮娓呰缃紝浠?Gemini 3锛?
+  thinkingLevel?: 'high' | 'low'; // 鎬濊€冪骇鍒紙浠?Gemini 3锛?
+  imageOnly?: boolean; // 鏂板锛氫粎杩斿洖鍥惧儚锛屼笉杩斿洖鏂囨湰
+  parallelGroupId?: string;
+  parallelGroupIndex?: number;
+  parallelGroupTotal?: number;
+  nodeConfigKey?: string;
+  nodeConfigNameZh?: string;
+  nodeConfigNameEn?: string;
 }
 
-// AI生成结果
+// AI鐢熸垚缁撴灉
 export interface AIImageResult {
   id: string;
-  imageData?: string; // base64 encoded image (可选，API可能只返回文本)
-  imageUrl?: string; // 远程 URL（推荐用于画布持久化，避免 base64/dataURL）
-  textResponse?: string; // AI的文本回复，如"Okay, here's a cat for you!"
+  imageData?: string; // base64 encoded image (鍙€夛紝API鍙兘鍙繑鍥炴枃鏈?
+  imageUrl?: string; // 杩滅▼ URL锛堟帹鑽愮敤浜庣敾甯冩寔涔呭寲锛岄伩鍏?base64/dataURL锛?
+  textResponse?: string; // AI鐨勬枃鏈洖澶嶏紝濡?Okay, here's a cat for you!"
   prompt: string;
   model: string;
   createdAt: Date;
-  hasImage: boolean; // 标识是否包含图像数据
+  hasImage: boolean; // 鏍囪瘑鏄惁鍖呭惈鍥惧儚鏁版嵁
   metadata?: {
     provider?: string;
     aspectRatio?: string;
@@ -230,7 +248,7 @@ export interface AIImageResult {
   };
 }
 
-// AI流式响应进度事件
+// AI娴佸紡鍝嶅簲杩涘害浜嬩欢
 export interface AIStreamProgressEvent {
   operationType: string;
   phase: 'starting' | 'text_received' | 'text_delta' | 'image_received' | 'completed' | 'error';
@@ -238,13 +256,13 @@ export interface AIStreamProgressEvent {
   textLength?: number;
   hasImage?: boolean;
   message?: string;
-  // 新增：文本增量与完整文本（可选）
+  // 鏂板锛氭枃鏈閲忎笌瀹屾暣鏂囨湰锛堝彲閫夛級
   deltaText?: string;
   fullText?: string;
   timestamp: number;
 }
 
-// AI生成状态
+// AI鐢熸垚鐘舵€?
 export const AIGenerationStatus = {
   IDLE: 'idle',
   GENERATING: 'generating',
@@ -254,7 +272,7 @@ export const AIGenerationStatus = {
 
 export type AIGenerationStatus = typeof AIGenerationStatus[keyof typeof AIGenerationStatus];
 
-// AI错误类型
+// AI閿欒绫诲瀷
 export interface AIError {
   code: string;
   message: string;
@@ -262,7 +280,7 @@ export interface AIError {
   timestamp: Date;
 }
 
-// AI图像分析请求参数
+// AI鍥惧儚鍒嗘瀽璇锋眰鍙傛暟
 export interface AIImageAnalyzeRequest {
   prompt?: string;
   sourceImage: string; // base64 encoded image
@@ -273,33 +291,33 @@ export interface AIImageAnalyzeRequest {
   providerOptions?: AIProviderOptions;
 }
 
-// AI图像分析结果
+// AI鍥惧儚鍒嗘瀽缁撴灉
 export interface AIImageAnalysisResult {
   analysis: string;
   confidence?: number;
   tags?: string[];
 }
 
-// AI文本对话请求参数
+// AI鏂囨湰瀵硅瘽璇锋眰鍙傛暟
 export interface AITextChatRequest {
   prompt: string;
   model?: string;
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
   billingTag?: 'text_chat' | 'prompt_optimize';
-  thinkingLevel?: 'high' | 'low'; // 思考级别（仅 Gemini 3）
+  thinkingLevel?: 'high' | 'low'; // 鎬濊€冪骇鍒紙浠?Gemini 3锛?
   context?: string[];
-  enableWebSearch?: boolean; // 是否启用联网搜索
+  enableWebSearch?: boolean; // 鏄惁鍚敤鑱旂綉鎼滅储
 }
 
-// 网络搜索结果
+// 缃戠粶鎼滅储缁撴灉
 export interface WebSearchResult {
-  searchQueries: string[]; // 执行的搜索查询
-  sources: WebSearchSource[]; // 搜索来源
-  hasSearchResults: boolean; // 是否包含搜索结果
+  searchQueries: string[]; // 鎵ц鐨勬悳绱㈡煡璇?
+  sources: WebSearchSource[]; // 鎼滅储鏉ユ簮
+  hasSearchResults: boolean; // 鏄惁鍖呭惈鎼滅储缁撴灉
 }
 
-// 搜索来源信息
+// 鎼滅储鏉ユ簮淇℃伅
 export interface WebSearchSource {
   title: string;
   url: string;
@@ -307,15 +325,15 @@ export interface WebSearchSource {
   relevanceScore?: number;
 }
 
-// AI文本对话结果
+// AI鏂囨湰瀵硅瘽缁撴灉
 export interface AITextChatResult {
   text: string;
   model: string;
   tokenUsage?: number;
-  webSearchResult?: WebSearchResult; // 联网搜索结果
+  webSearchResult?: WebSearchResult; // 鑱旂綉鎼滅储缁撴灉
 }
 
-// Paper.js 代码生成请求
+// Paper.js 浠ｇ爜鐢熸垚璇锋眰
 export interface AIPaperJSGenerateRequest {
   prompt: string;
   model?: string;
@@ -325,7 +343,7 @@ export interface AIPaperJSGenerateRequest {
   canvasHeight?: number;
 }
 
-// Paper.js 代码生成结果
+// Paper.js 浠ｇ爜鐢熸垚缁撴灉
 export interface AIPaperJSResult {
   code: string;
   explanation?: string;
@@ -339,7 +357,7 @@ export interface AIPaperJSResult {
   };
 }
 
-// 图像转矢量请求
+// 鍥惧儚杞煝閲忚姹?
 export interface AIImg2VectorRequest {
   sourceImage: string; // base64 encoded image
   prompt?: string;
@@ -351,7 +369,7 @@ export interface AIImg2VectorRequest {
   style?: 'simple' | 'detailed' | 'artistic';
 }
 
-// 图像转矢量结果
+// 鍥惧儚杞煝閲忕粨鏋?
 export interface AIImg2VectorResult {
   code: string;
   imageAnalysis: string;
@@ -367,7 +385,7 @@ export interface AIImg2VectorResult {
   };
 }
 
-// Function Calling 工具定义
+// Function Calling 宸ュ叿瀹氫箟
 export interface AITool {
   name: string;
   description: string;
@@ -378,12 +396,12 @@ export interface AITool {
   };
 }
 
-// 工具选择请求
+// 宸ュ叿閫夋嫨璇锋眰
 export interface ToolSelectionRequest {
   userInput: string;
   hasImages: boolean;
   imageCount: number;
-  hasCachedImage?: boolean; // 是否有缓存图像
+  hasCachedImage?: boolean; // 鏄惁鏈夌紦瀛樺浘鍍?
   availableTools: string[];
   context?: string;
   prompt?: string;
@@ -392,7 +410,7 @@ export interface ToolSelectionRequest {
   providerOptions?: AIProviderOptions;
 }
 
-// 工具选择结果
+// 宸ュ叿閫夋嫨缁撴灉
 export interface ToolSelectionResult {
   selectedTool: string;
   parameters: Record<string, any>;
@@ -400,9 +418,10 @@ export interface ToolSelectionResult {
   reasoning: string;
 }
 
-// AI服务响应
+// AI鏈嶅姟鍝嶅簲
 export interface AIServiceResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: AIError;
 }
+

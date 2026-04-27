@@ -206,8 +206,10 @@ export class TencentVodAigcService {
       payload.OutputConfig.AspectRatio = request.aspectRatio;
     }
 
-    if (request.imageSize) {
-      payload.OutputConfig.Resolution = request.imageSize;
+    const normalizedImageSize =
+      typeof request.imageSize === 'string' ? request.imageSize.trim().toUpperCase() : '';
+    if (normalizedImageSize) {
+      payload.OutputConfig.Resolution = normalizedImageSize;
     }
 
     if (request.negativePrompt) {

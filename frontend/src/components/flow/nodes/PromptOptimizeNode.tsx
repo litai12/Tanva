@@ -5,11 +5,13 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
+import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
 // 已去除可视化设置面板，采用内部默认参数
-
 type Props = {
   id: string;
   data: {
@@ -17,6 +19,8 @@ type Props = {
     expandedText?: string;
     boxW?: number;
     boxH?: number;
+    modelProvider?: FlowModelProvider;
+    creditsPerCall?: number;
   };
   selected?: boolean;
 };
@@ -32,7 +36,25 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
   const aiProvider = useAIChatStore((state) => state.aiProvider);
-  const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
+  const textModel = React.useMemo(
+    () => getTextModelForProvider(effectiveProvider),
+    [effectiveProvider]
+  );
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: 'gemini-prompt-optimize',
+    model: textModel,
+    requestParams: {
+      aiProvider: effectiveProvider,
+      channelHint: bananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
   const readUpstreamText = React.useCallback(() => {
     try {
@@ -67,6 +89,17 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch } });
     window.dispatchEvent(ev);
   };
+
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === 'string' &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    updateNodeData({ modelProvider: effectiveProvider });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.modelProvider, effectiveProvider, id]);
 
   // 监听上游输入节点文本变化
   React.useEffect(() => {
@@ -103,8 +136,14 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       tone: undefined,
       focus: undefined,
       lengthPreference: 'balanced',
-      aiProvider,
-      model: textModel
+      aiProvider: effectiveProvider,
+      model: textModel,
+      providerOptions: {
+        banana: {
+          imageRoute: bananaImageRoute,
+        },
+        bananaImageRoute,
+      }
     } satisfies PromptOptimizationRequest);
   };
 
@@ -172,6 +211,13 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
           <button
             onClick={() => handleOptimize()}
             disabled={loading}
+            title={
+              loading
+                ? 'Generating...'
+                : resolvedRunCredits
+                ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
+                : lt('Run optimization', 'Run optimization')
+            }
             style={{
               fontSize: 12,
               padding: '4px 8px',
@@ -179,10 +225,20 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
               color: '#fff',
               borderRadius: 6,
               border: 'none',
-              cursor: loading ? 'not-allowed' : 'pointer'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            {loading ? lt('生成中...', 'Generating...') : 'Run'}
+            {loading ? (
+              lt('Generating...', 'Generating...')
+            ) : (
+              <>
+                <span>Run</span>
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -296,3 +352,4 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(PromptOptimizeNodeInner);
+

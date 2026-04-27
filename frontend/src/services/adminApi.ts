@@ -235,9 +235,14 @@ export interface AdminUserCreditTransaction {
   businessType?: string | null;
   membershipPlanId?: string | null;
   apiUsageId?: string | null;
+  serviceType?: string | null;
   channel?: string | null;
   provider?: string | null;
   model?: string | null;
+  outputImageCount?: number | null;
+  parallelGroupId?: string | null;
+  parallelGroupIndex?: number | null;
+  parallelGroupTotal?: number | null;
   billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
