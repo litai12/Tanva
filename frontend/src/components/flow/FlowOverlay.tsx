@@ -1757,6 +1757,18 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   },
 };
 
+// GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
+const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
+  "1K": 45,
+  "2K": 80,
+  "4K": 110,
+};
+const GPT_IMAGE_2_NORMAL_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
+  "1K": 20,
+  "2K": 30,
+  "4K": 40,
+};
+
 const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generate",
   "generate4",
@@ -1793,6 +1805,15 @@ const normalizeBananaStableImageSize = (
   ) {
     return normalized;
   }
+  return "1K";
+};
+
+const normalizeGptImage2StableImageSize = (
+  rawSize: unknown
+): "1K" | "2K" | "4K" => {
+  const normalized = typeof rawSize === "string" ? rawSize.trim().toUpperCase() : "";
+  if (normalized === "2K") return "2K";
+  if (normalized === "4K") return "4K";
   return "1K";
 };
 
@@ -2140,6 +2161,32 @@ const resolveStableRouteCredits = (params: {
   const normalizedType = normalizeFlowNodeType(nodeType || undefined);
   let resolvedCredits = fallbackCredits;
 
+  if (bananaImageRoute === "stable" && normalizedType === "gptImage2") {
+    const preferredSize =
+      typeof nodeData?.resolution === "string" && nodeData.resolution.trim().length > 0
+        ? nodeData.resolution
+        : typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+        ? nodeData.imageSize
+        : globalImageSize;
+    const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
+    const unitCredits = Number(GPT_IMAGE_2_STABLE_ROUTE_PRICING[normalizedSize]);
+    if (Number.isFinite(unitCredits) && unitCredits > 0) {
+      resolvedCredits = unitCredits;
+    }
+  } else if (normalizedType === "gptImage2") {
+    const preferredSize =
+      typeof nodeData?.resolution === "string" && nodeData.resolution.trim().length > 0
+        ? nodeData.resolution
+        : typeof nodeData?.imageSize === "string" && nodeData.imageSize.trim().length > 0
+        ? nodeData.imageSize
+        : globalImageSize;
+    const normalizedSize = normalizeGptImage2StableImageSize(preferredSize);
+    const unitCredits = Number(GPT_IMAGE_2_NORMAL_ROUTE_PRICING[normalizedSize]);
+    if (Number.isFinite(unitCredits) && unitCredits > 0) {
+      resolvedCredits = unitCredits;
+    }
+  }
+
   // Stable 通道下的 Banana 图片节点动态积分
   if (bananaImageRoute === "stable" && normalizedType && BANANA_STABLE_DYNAMIC_NODE_TYPES.has(normalizedType)) {
     const tier = resolveBananaStablePricingTier(aiProvider);
@@ -2179,7 +2226,11 @@ const resolveStableRouteCredits = (params: {
   }
 
   // 图像节点统一模型管理定价优先级最高
-  if (normalizedType && IMAGE_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
+  if (
+    normalizedType &&
+    IMAGE_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType) &&
+    normalizedType !== "gptImage2"
+  ) {
     const metadata =
       nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
         ? (nodeData.nodeConfigMetadata as Record<string, any>)

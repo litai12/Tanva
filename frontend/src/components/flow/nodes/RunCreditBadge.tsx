@@ -53,9 +53,14 @@ export default function RunCreditBadge({
           display: "inline-flex",
           alignItems: "center",
           gap: 2,
+          padding: "2px 5px",
+          borderRadius: 4,
+          background: "rgba(255,255,255,0.15)",
+          border: "1px solid rgba(255,255,255,0.25)",
           fontSize: 10,
           fontWeight: 700,
           lineHeight: 1,
+          color: "#fef3c7",
           whiteSpace: "nowrap",
         }}
       >

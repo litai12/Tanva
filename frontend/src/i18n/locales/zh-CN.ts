@@ -319,7 +319,7 @@ const zhCN = {
           banana25Desc: "高速稳定",
         },
         bananaRoute: {
-          title: "Nano Banana/Gemini 生文/图路线",
+          title: "Nano Banana/Gemini/GPT-Image-2 生文/图路线",
           desc: "生文与生图统一走路线策略，可在普通与尊享间切换",
           normal: "普通路线",
           normalDesc: "生图/生文走普通三方渠道",

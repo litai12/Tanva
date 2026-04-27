@@ -72,6 +72,16 @@ const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
 const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
 const GPT_IMAGE2_CREDITS = 40;
+const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
+  '1K': 20,
+  '2K': 30,
+  '4K': 40,
+};
+const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
+  '1K': 45,
+  '2K': 80,
+  '4K': 110,
+};
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
   'gemini-3.1-image',
@@ -460,7 +470,14 @@ export class CreditsService {
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
 
     if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
-      creditsToDeduct = GPT_IMAGE2_CREDITS;
+      const gptImage2RouteCredits = this.resolveTencentBananaResolutionCredits(
+        params.serviceType,
+        effectiveRequestParams,
+      );
+      creditsToDeduct =
+        typeof gptImage2RouteCredits === 'number'
+          ? gptImage2RouteCredits
+          : GPT_IMAGE2_CREDITS;
     }
 
     const serviceName = this.resolveManagedVideoServiceName(
@@ -894,12 +911,12 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
-    const tencentBananaCredits = this.resolveTencentBananaResolutionCredits(
+    const routeAwareBananaCredits = this.resolveTencentBananaResolutionCredits(
       serviceType,
       requestParams,
     );
-    if (typeof tencentBananaCredits === 'number') {
-      return tencentBananaCredits;
+    if (typeof routeAwareBananaCredits === 'number') {
+      return routeAwareBananaCredits;
     }
 
     const servicePricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
@@ -948,6 +965,15 @@ export class CreditsService {
     return '1K';
   }
 
+  private normalizeResolutionForGptImage2TencentPricing(
+    rawSize: unknown,
+  ): '1K' | '2K' | '4K' {
+    const normalized = typeof rawSize === 'string' ? rawSize.trim().toUpperCase() : '';
+    if (normalized === '2K') return '2K';
+    if (normalized === '4K') return '4K';
+    return '1K';
+  }
+
   private normalizeBananaImageRoute(
     rawRoute: unknown,
   ): 'normal' | 'stable' | null {
@@ -963,6 +989,45 @@ export class CreditsService {
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
+    if (serviceType === GPT_IMAGE2_SERVICE_TYPE) {
+      const explicitRoute =
+        this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+        this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
+        this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
+      let route: 'normal' | 'stable' | null = explicitRoute;
+      if (!route) {
+        const channelCandidates = [
+          requestParams?.channel,
+          requestParams?.providerChannel,
+          requestParams?.executionChannel,
+          requestParams?.channelHint,
+        ];
+        for (const candidate of channelCandidates) {
+          if (typeof candidate !== 'string') continue;
+          const normalized = this.normalizeChannel(candidate);
+          if (normalized) {
+            if (normalized === 'tencent') route = 'stable';
+            if (normalized === 'apimart') route = 'normal';
+            break;
+          }
+        }
+      }
+      if (!route) return null;
+
+      const normalizedSize = this.normalizeResolutionForGptImage2TencentPricing(
+        requestParams?.imageSize,
+      );
+      const configuredCredits = Number(
+        route === 'stable'
+          ? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[normalizedSize]
+          : GPT_IMAGE2_NORMAL_RESOLUTION_PRICING[normalizedSize],
+      );
+      if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
+        return null;
+      }
+      return configuredCredits;
+    }
+
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
     if (!tier) return null;
 
@@ -1750,9 +1815,9 @@ export class CreditsService {
       remarkParts.push(`渠道: ${channelLabel}`);
     }
 
-    const isBananaImageService = Boolean(
-      BANANA_TENCENT_IMAGE_SERVICE_TIERS[params.serviceType],
-    );
+    const isBananaImageService =
+      Boolean(BANANA_TENCENT_IMAGE_SERVICE_TIERS[params.serviceType]) ||
+      params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
         remarkParts.push('计价: 按稳定通道积分价');
@@ -3126,6 +3191,8 @@ export class CreditsService {
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
       };
+    }, {
+      timeout: 15 * 60 * 1000, // 15分钟超时，避免长链路扣费预处理事务过早关闭
     });
   }
 

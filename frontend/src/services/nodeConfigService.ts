@@ -151,6 +151,7 @@ function getDefaultConfigs(): NodeConfig[] {
           model: "gpt-image-2",
           aspectRatio: "1:1",
           resolution: "1K",
+          quality: "auto",
           officialFallback: false,
           maxReferenceImages: 16,
           googleSearch: false,
