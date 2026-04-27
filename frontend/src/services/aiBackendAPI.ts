@@ -1971,6 +1971,75 @@ export async function generateWan26R2VViaAPI(request: {
 }
 
 /**
+ * 调用后端代理的 DashScope HappyHorse 1.0 R2V 参考图生成视频接口
+ */
+export async function generateHappyhorseR2VViaAPI(request: {
+  prompt: string;
+  referenceImageUrls: string[]; // 1 ~ 9
+  parameters?: {
+    resolution?: "720P" | "1080P";
+    ratio?: "16:9" | "9:16" | "1:1" | "4:3" | "3:4";
+    duration?: number; // 3 ~ 15
+  };
+}): Promise<AIServiceResponse<any>> {
+  const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "happyhorse-1.0-r2v",
+    input: {
+      prompt: request.prompt,
+      media: request.referenceImageUrls.map((url) => ({
+        type: "reference_image",
+        url,
+      })),
+    },
+    parameters: request.parameters || {},
+  };
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-happyhorse-r2v`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dashscopeRequest),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-happyhorse-r2v", startedAt, {
+        success: false,
+        status: response.status,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-happyhorse-r2v", startedAt, { success: true });
+    return data;
+  } catch (error) {
+    logApiTiming("generate-happyhorse-r2v", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
  * 调用后端代理的 DashScope Wan2.7-i2v 接口
  */
 export async function generateWan27I2VViaAPI(request: {
