@@ -1298,6 +1298,48 @@ export class NodeConfigService {
           ),
         },
       },
+      {
+        nodeKey: 'happyhorseR2V',
+        nameZh: '快乐马参考视频',
+        nameEn: 'HappyHorse R2V',
+        category: 'video',
+        sortOrder: 36,
+        creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
+        serviceType: 'happyhorse-r2v-video',
+        priceYuan: 6, // 5s/720P 节点默认档
+        description: '阿里 HappyHorse 1.0 R2V 参考图视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'happyhorseR2V',
+              provider: 'dashscope',
+              supportedModels: ['happyhorse-1.0-r2v'],
+              defaultData: {
+                resolution: '720P',
+                ratio: '16:9',
+                duration: 5,
+                watermark: false,
+                referenceCount: 1,
+              },
+            },
+            {
+              label: 'DashScope HappyHorse 1.0 R2V',
+              modelName: 'HappyHorse',
+              modelVersion: '1.0-r2v',
+              outputConfig: {
+                durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['reference_image_1_to_9'],
+              notes: ['1~9 张参考图，prompt 用 character1/character2... 占位指代'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
+      },
 
       // 其他节点
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 30, serviceType: 'gemini-video-analyze', priceYuan: 0.3, description: '分析视频内容' },
@@ -1784,6 +1826,48 @@ export class NodeConfigService {
               },
               inputModes: ['text', 'first_frame', 'last_frame', 'first_clip', 'driving_audio'],
               notes: ['支持图像、视频片段、音频混合输入'],
+            },
+            {
+              nodeKind: 'dashscope_video_generation',
+              upstreamDomain: 'dashscope.aliyuncs.com',
+            },
+          ),
+        },
+      },
+      {
+        nodeKey: 'happyhorseR2V',
+        nameZh: '快乐马参考视频',
+        nameEn: 'HappyHorse R2V',
+        category: 'video',
+        sortOrder: 36,
+        creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
+        serviceType: 'happyhorse-r2v-video',
+        priceYuan: 6, // 5s/720P 节点默认档
+        description: '阿里 HappyHorse 1.0 R2V 参考图视频生成',
+        metadata: {
+          ...buildVodNodeMetadata(
+            {
+              type: 'happyhorseR2V',
+              provider: 'dashscope',
+              supportedModels: ['happyhorse-1.0-r2v'],
+              defaultData: {
+                resolution: '720P',
+                ratio: '16:9',
+                duration: 5,
+                watermark: false,
+                referenceCount: 1,
+              },
+            },
+            {
+              label: 'DashScope HappyHorse 1.0 R2V',
+              modelName: 'HappyHorse',
+              modelVersion: '1.0-r2v',
+              outputConfig: {
+                durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                resolutions: ['720P', '1080P'],
+              },
+              inputModes: ['reference_image_1_to_9'],
+              notes: ['1~9 张参考图，prompt 用 character1/character2... 占位指代'],
             },
             {
               nodeKind: 'dashscope_video_generation',
