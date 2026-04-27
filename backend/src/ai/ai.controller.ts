@@ -2214,7 +2214,30 @@ export class AiController {
     };
   }
 
-  private normalizeHappyhorseR2VBodyForUpstream(body: any): any {
+  private static readonly HAPPYHORSE_MODEL_WHITELIST = new Set<string>([
+    'happyhorse-1.0-t2v',
+    'happyhorse-1.0-i2v',
+    'happyhorse-1.0-r2v',
+    'happyhorse-1.0-video-edit',
+  ]);
+
+  private resolveHappyhorseModelOrThrow(body: any): string {
+    const raw = typeof body?.model === 'string' ? body.model.trim() : '';
+    if (!raw || !AiController.HAPPYHORSE_MODEL_WHITELIST.has(raw)) {
+      throw new BadRequestException(
+        `Unsupported HappyHorse model: ${raw || '(empty)'}`,
+      );
+    }
+    return raw;
+  }
+
+  /**
+   * 通用 happyhorse body 归一化，覆盖 t2v / i2v / r2v / video-edit 4 个模型。
+   * - input.media[] 中的 url 走 normalizeImageUrlForUpstream（图片 / 视频 URL 通用，仅做白名单/数据 URL 转远程）
+   * - 不存在 type 字段的元素默认补 reference_image（保留 first_frame / video / reference_image 等已有值）
+   * - parameters.watermark 强制 false
+   */
+  private normalizeHappyhorseBodyForUpstream(body: any): any {
     if (!body || typeof body !== 'object') return body;
     const next: any = { ...body };
     if (!next.input || typeof next.input !== 'object') return next;
@@ -2245,7 +2268,10 @@ export class AiController {
     return next;
   }
 
-  private buildHappyhorseCreditRequestParams(body: any): Record<string, any> {
+  private buildHappyhorseCreditRequestParams(
+    body: any,
+    model: string,
+  ): Record<string, any> {
     const parameters =
       body?.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
         ? body.parameters
@@ -2260,23 +2286,40 @@ export class AiController {
         ? Math.min(15, Math.max(3, Math.round(durationRaw)))
         : 5;
 
-    const referenceImageUrls = Array.isArray(body?.input?.media)
-      ? body.input.media
-          .map((m: any) => m?.url)
-          .filter((u: any): u is string => typeof u === 'string')
+    // 由 model 后缀派生 generationMode
+    const generationMode =
+      model === 'happyhorse-1.0-t2v'
+        ? 't2v'
+        : model === 'happyhorse-1.0-i2v'
+          ? 'i2v'
+          : model === 'happyhorse-1.0-video-edit'
+            ? 'video-edit'
+            : 'r2v';
+
+    const mediaItems: Array<Record<string, unknown>> = Array.isArray(body?.input?.media)
+      ? body.input.media.filter(
+          (m: any) => m && typeof m === 'object' && typeof m.url === 'string',
+        )
       : [];
+    const referenceImageUrls = mediaItems
+      .filter((m) => m.type !== 'video')
+      .map((m) => m.url as string);
+    const referenceVideoUrls = mediaItems
+      .filter((m) => m.type === 'video')
+      .map((m) => m.url as string);
 
     return {
-      managedModelKey: 'happyhorse-1.0-r2v',
-      modelKey: 'happyhorse-1.0-r2v',
+      managedModelKey: model,
+      modelKey: model,
       vendorKey: 'dashscope',
       platformKey: 'dashscope',
       aiProvider: 'dashscope',
-      generationMode: 'r2v',
+      generationMode,
       resolution,
       duration,
       durationSec: duration,
       referenceImageCount: referenceImageUrls.length,
+      referenceVideoCount: referenceVideoUrls.length,
       ...this.buildRequestPromptAndImageParams(
         body?.input?.prompt,
         referenceImageUrls,
@@ -5300,12 +5343,14 @@ export class AiController {
     });
   }
 
-  @Post('dashscope/generate-happyhorse-r2v')
-  async generateHappyhorseR2VViaDashscope(@Body() body: any, @Req() req: any) {
+  @Post('dashscope/generate-happyhorse-video')
+  async generateHappyhorseVideoViaDashscope(@Body() body: any, @Req() req: any) {
+    const model = this.resolveHappyhorseModelOrThrow(body);
+    const taskLabel = model.replace(/^happyhorse-1\.0-/, 'happyhorse-');
     return this.withCredits(
       req,
       'happyhorse-r2v-video',
-      'happyhorse-1.0-r2v',
+      model,
       async () => {
         const dashKey = process.env.DASHSCOPE_API_KEY;
         if (!dashKey) {
@@ -5318,7 +5363,7 @@ export class AiController {
 
         const dashUrl =
           'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
-        const normalizedBody = this.normalizeHappyhorseR2VBodyForUpstream(body);
+        const normalizedBody = this.normalizeHappyhorseBodyForUpstream(body);
 
         try {
           const response = await fetch(dashUrl, {
@@ -5333,7 +5378,7 @@ export class AiController {
 
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
-            this.logger.error('DashScope happyhorse-r2v create task failed', {
+            this.logger.error(`DashScope ${taskLabel} create task failed`, {
               status: response.status,
               body: data,
             });
@@ -5347,7 +5392,7 @@ export class AiController {
             };
           }
 
-          this.logger.log('✅ DashScope happyhorse-r2v task created', {
+          this.logger.log(`✅ DashScope ${taskLabel} task created`, {
             resultPreview: JSON.stringify(data).slice(0, 200),
           });
 
@@ -5371,7 +5416,7 @@ export class AiController {
             data?.data?.output?.task_id;
           if (!taskId) {
             this.logger.warn(
-              'DashScope happyhorse-r2v create response contains no task id and no video url',
+              `DashScope ${taskLabel} create response contains no task id and no video url`,
               { dataPreview: JSON.stringify(data).slice(0, 200) },
             );
             return {
@@ -5383,9 +5428,9 @@ export class AiController {
             };
           }
 
-          return await this.pollDashScopeVideoTask(dashKey, taskId, 'happyhorse-r2v');
+          return await this.pollDashScopeVideoTask(dashKey, taskId, taskLabel);
         } catch (error: any) {
-          this.logger.error('❌ DashScope happyhorse-r2v request exception', error);
+          this.logger.error(`❌ DashScope ${taskLabel} request exception`, error);
           return {
             success: false,
             error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
@@ -5395,7 +5440,7 @@ export class AiController {
       undefined,
       undefined,
       undefined,
-      this.buildHappyhorseCreditRequestParams(body),
+      this.buildHappyhorseCreditRequestParams(body, model),
       {
         treatReturnedFailureAsError: true,
       },

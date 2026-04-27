@@ -1313,7 +1313,12 @@ export class NodeConfigService {
             {
               type: 'happyhorseR2V',
               provider: 'dashscope',
-              supportedModels: ['happyhorse-1.0-r2v'],
+              supportedModels: [
+                'happyhorse-1.0-t2v',
+                'happyhorse-1.0-i2v',
+                'happyhorse-1.0-r2v',
+                'happyhorse-1.0-video-edit',
+              ],
               defaultData: {
                 resolution: '720P',
                 ratio: '16:9',
@@ -1849,7 +1854,12 @@ export class NodeConfigService {
             {
               type: 'happyhorseR2V',
               provider: 'dashscope',
-              supportedModels: ['happyhorse-1.0-r2v'],
+              supportedModels: [
+                'happyhorse-1.0-t2v',
+                'happyhorse-1.0-i2v',
+                'happyhorse-1.0-r2v',
+                'happyhorse-1.0-video-edit',
+              ],
               defaultData: {
                 resolution: '720P',
                 ratio: '16:9',
