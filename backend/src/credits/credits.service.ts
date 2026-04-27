@@ -99,6 +99,7 @@ const STALE_PENDING_VIDEO_SERVICE_TYPES: ServiceType[] = [
   'vidu-video',
   'viduq3-pro-video',
   'doubao-video',
+  'happyhorse-r2v-video',
 ];
 const FREE_USER_IMAGE_LIMITED_SERVICES: ServiceType[] = [
   ...STALE_PENDING_IMAGE_SERVICE_TYPES,
@@ -118,6 +119,7 @@ const FREE_USER_VIDEO_LIMITED_SERVICES: ServiceType[] = [
   'vidu-video',
   'viduq3-pro-video',
   'doubao-video',
+  'happyhorse-r2v-video',
 ];
 
 export interface DeductCreditsResult {
