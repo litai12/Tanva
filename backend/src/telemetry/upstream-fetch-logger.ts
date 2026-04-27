@@ -27,23 +27,32 @@ const getOpenObserveEndpointPrefix = (): string | null => {
   return buildOpenObserveApiPrefix(baseUrl, org);
 };
 
-const isLikelyImageBase64 = (value: string): boolean => {
+// 触发 base64 裁剪的最小长度：image 即使是缩略图通常也 ≥ 1KB
+// 低于此阈值的 base64 字符串视为正常 token（不裁剪）。
+const BASE64_REDACT_THRESHOLD = 1024;
+
+// 识别需要裁剪的 base64 内容：
+//   - 任意 data:<media>/...;base64,... URL
+//   - 长度 ≥ 阈值且字符集像 base64（容忍 url-safe 变体和换行）
+const matchBase64DataUrl = (value: string): RegExpMatchArray | null =>
+  value.trim().match(/^data:([\w.+-]+\/[\w.+-]+);base64,(.*)$/i);
+
+const isPureLargeBase64 = (value: string): boolean => {
   const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) return true;
-  if (/^[A-Za-z0-9+/=\s]+$/.test(trimmed) && trimmed.length > 512) return true;
-  return false;
+  if (trimmed.length < BASE64_REDACT_THRESHOLD) return false;
+  return /^[A-Za-z0-9+/=_\-\s]+$/.test(trimmed);
 };
 
-const toBase64Meta = (value: string) => {
-  const trimmed = value.trim();
-  const dataUrlMatch = /^data:(image\/[a-z0-9.+-]+);base64,(.*)$/i.exec(trimmed);
-  const base64Payload = dataUrlMatch ? dataUrlMatch[2] : trimmed.replace(/\s+/g, '');
-  const mimeType = dataUrlMatch?.[1] || 'image/base64';
+const redactBase64String = (value: string): unknown => {
+  const dataUrlMatch = matchBase64DataUrl(value);
+  const base64Payload = dataUrlMatch
+    ? dataUrlMatch[2]
+    : value.trim().replace(/\s+/g, '');
+  const mimeType = dataUrlMatch?.[1] || 'application/base64';
   const approxBytes = Math.floor((base64Payload.length * 3) / 4);
 
   return {
-    kind: 'binary_image_payload',
+    kind: 'redacted_base64',
     mimeType,
     encoding: 'base64',
     approximateBytes: approxBytes,
@@ -52,10 +61,9 @@ const toBase64Meta = (value: string) => {
 };
 
 const sanitizeString = (value: string): unknown => {
-  if (isLikelyImageBase64(value)) {
-    return value;
+  if (matchBase64DataUrl(value) || isPureLargeBase64(value)) {
+    return redactBase64String(value);
   }
-
   return value;
 };
 
@@ -598,9 +606,9 @@ export const installUpstreamFetchLogger = (): void => {
         status_code: response.status,
         duration_ms: Date.now() - startedAt,
         request_headers: requestHeaders,
-        request_body: requestBody,
+        request_body: sanitizeValue(requestBody),
         response_headers: responseHeaders,
-        response_body: responseBody,
+        response_body: sanitizeValue(responseBody),
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
@@ -629,7 +637,7 @@ export const installUpstreamFetchLogger = (): void => {
         status_code: null,
         duration_ms: Date.now() - startedAt,
         request_headers: requestHeaders,
-        request_body: requestBody,
+        request_body: sanitizeValue(requestBody),
         response_headers: null,
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
