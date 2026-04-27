@@ -5300,6 +5300,108 @@ export class AiController {
     });
   }
 
+  @Post('dashscope/generate-happyhorse-r2v')
+  async generateHappyhorseR2VViaDashscope(@Body() body: any, @Req() req: any) {
+    return this.withCredits(
+      req,
+      'happyhorse-r2v-video',
+      'happyhorse-1.0-r2v',
+      async () => {
+        const dashKey = process.env.DASHSCOPE_API_KEY;
+        if (!dashKey) {
+          this.logger.error('DASHSCOPE_API_KEY not configured');
+          return {
+            success: false,
+            error: { message: 'DASHSCOPE_API_KEY not configured on server' },
+          };
+        }
+
+        const dashUrl =
+          'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
+        const normalizedBody = this.normalizeHappyhorseR2VBodyForUpstream(body);
+
+        try {
+          const response = await fetch(dashUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${dashKey}`,
+              'X-DashScope-Async': 'enable',
+            },
+            body: JSON.stringify(normalizedBody),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            this.logger.error('DashScope happyhorse-r2v create task failed', {
+              status: response.status,
+              body: data,
+            });
+            return {
+              success: false,
+              error: {
+                code: `HTTP_${response.status}`,
+                message: data?.message || this.getHttpErrorMessage(response.status),
+                details: data,
+              },
+            };
+          }
+
+          this.logger.log('✅ DashScope happyhorse-r2v task created', {
+            resultPreview: JSON.stringify(data).slice(0, 200),
+          });
+
+          // 极少数情况下上游可能直接返回视频地址（兜底）
+          const directVideoUrl =
+            data?.output?.video_url ||
+            data?.video_url ||
+            data?.videoUrl ||
+            (Array.isArray(data?.output) && data.output[0]?.video_url) ||
+            undefined;
+          if (directVideoUrl) return { success: true, data };
+
+          const taskId =
+            data?.taskId ||
+            data?.task_id ||
+            data?.id ||
+            data?.output?.task_id ||
+            data?.result?.task_id ||
+            data?.output?.[0]?.task_id ||
+            data?.data?.task_id ||
+            data?.data?.output?.task_id;
+          if (!taskId) {
+            this.logger.warn(
+              'DashScope happyhorse-r2v create response contains no task id and no video url',
+              { dataPreview: JSON.stringify(data).slice(0, 200) },
+            );
+            return {
+              success: false,
+              error: {
+                message: 'DashScope 未返回任务 ID 或视频地址',
+                details: data,
+              },
+            };
+          }
+
+          return await this.pollDashScopeVideoTask(dashKey, taskId, 'happyhorse-r2v');
+        } catch (error: any) {
+          this.logger.error('❌ DashScope happyhorse-r2v request exception', error);
+          return {
+            success: false,
+            error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
+          };
+        }
+      },
+      undefined,
+      undefined,
+      undefined,
+      this.buildHappyhorseCreditRequestParams(body),
+      {
+        treatReturnedFailureAsError: true,
+      },
+    );
+  }
+
   /**
    * 视频分析 - 使用 Gemini File API 分析视频内容
    */
