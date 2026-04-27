@@ -485,9 +485,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>
-            Wan2.6 R2V
-          </span>
+          <span>{lt("Wan2.6 视频融合", "Wan2.6 Reference Video")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button

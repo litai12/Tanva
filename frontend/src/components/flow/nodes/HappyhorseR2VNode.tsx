@@ -477,7 +477,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           }}
         >
           <Video size={18} />
-          <span>{lt("快乐马 R2V", "HappyHorse R2V")}</span>
+          <span>{lt("快乐马", "HappyHorse")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button

@@ -1959,7 +1959,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
     { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
     { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
-    { value: "happyhorseR2V", label: "快乐马 R2V 节点", category: "video" },
+    { value: "happyhorseR2V", label: "快乐马节点", category: "video" },
     { value: "wan27Video", label: "Wan 2.7 视频节点", category: "video" },
   ],
 };
@@ -3008,7 +3008,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
   },
   {
     modelKey: "happyhorse-1.0-r2v",
-    modelName: "HappyHorse 1.0 R2V",
+    modelName: "HappyHorse",
     taskType: "video",
     enabled: true,
     defaultVendor: "dashscope",
@@ -3025,7 +3025,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
           nodeKey: "happyhorseR2V",
           category: "video",
           creditsPerCall: 600,
-          description: "快乐马 1.0 R2V 参考图视频生成（按分辨率×时长动态计费）",
+          description: "快乐马 1.0 参考图视频生成（按分辨率×时长动态计费）",
         }
       ),
     },

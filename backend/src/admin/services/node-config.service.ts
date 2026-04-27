@@ -1249,7 +1249,7 @@ export class NodeConfigService {
       {
         nodeKey: 'wan2R2V',
         nameZh: 'Wan2参考视频',
-        nameEn: 'Wan2 R2V',
+        nameEn: 'Wan2 Reference Video',
         category: 'video',
         sortOrder: 34,
         creditsPerCall: 600,
@@ -1300,14 +1300,14 @@ export class NodeConfigService {
       },
       {
         nodeKey: 'happyhorseR2V',
-        nameZh: '快乐马参考视频',
-        nameEn: 'HappyHorse R2V',
+        nameZh: '快乐马',
+        nameEn: 'HappyHorse',
         category: 'video',
         sortOrder: 36,
         creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
         serviceType: 'happyhorse-r2v-video',
         priceYuan: 6, // 5s/720P 节点默认档
-        description: '阿里 HappyHorse 1.0 R2V 参考图视频生成',
+        description: '阿里 HappyHorse 参考图视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -1323,7 +1323,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope HappyHorse 1.0 R2V',
+              label: 'DashScope HappyHorse',
               modelName: 'HappyHorse',
               modelVersion: '1.0-r2v',
               outputConfig: {
@@ -1785,7 +1785,7 @@ export class NodeConfigService {
       {
         nodeKey: 'wan2R2V',
         nameZh: 'Wan2参考视频',
-        nameEn: 'Wan2 R2V',
+        nameEn: 'Wan2 Reference Video',
         category: 'video',
         sortOrder: 34,
         creditsPerCall: 600,
@@ -1836,14 +1836,14 @@ export class NodeConfigService {
       },
       {
         nodeKey: 'happyhorseR2V',
-        nameZh: '快乐马参考视频',
-        nameEn: 'HappyHorse R2V',
+        nameZh: '快乐马',
+        nameEn: 'HappyHorse',
         category: 'video',
         sortOrder: 36,
         creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
         serviceType: 'happyhorse-r2v-video',
         priceYuan: 6, // 5s/720P 节点默认档
-        description: '阿里 HappyHorse 1.0 R2V 参考图视频生成',
+        description: '阿里 HappyHorse 参考图视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -1859,7 +1859,7 @@ export class NodeConfigService {
               },
             },
             {
-              label: 'DashScope HappyHorse 1.0 R2V',
+              label: 'DashScope HappyHorse',
               modelName: 'HappyHorse',
               modelVersion: '1.0-r2v',
               outputConfig: {
