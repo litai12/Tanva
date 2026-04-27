@@ -151,6 +151,7 @@ import {
   createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
+  generateHappyhorseR2VViaAPI,
   generateWan27I2VViaAPI,
   midjourneyActionViaAPI,
   querySora2CharacterTaskViaAPI,
@@ -12890,6 +12891,219 @@ function FlowInner() {
           );
         } catch (error) {
           const msg = error instanceof Error ? error.message : "任务提交失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
+      // HappyHorse 1.0 R2V 节点处理逻辑（参考图生成视频）
+      if (node.type === "happyhorseR2V") {
+        const projectId = useProjectContentStore.getState().projectId;
+        const { text: promptText, hasEdge: hasText } =
+          getTextPromptForNode(nodeId);
+        if (!hasText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "缺少 TextPrompt 输入",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+        const promptTrimmed = (promptText || "").trim();
+        if (!promptTrimmed) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: "提示词为空" },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const referenceCountRaw = Number((node.data as any)?.referenceCount);
+        const referenceCount = Number.isFinite(referenceCountRaw)
+          ? Math.min(9, Math.max(1, Math.round(referenceCountRaw)))
+          : 1;
+
+        // 收集 image-1 ~ image-N 边
+        const imageEdges = currentEdges
+          .filter(
+            (e) =>
+              e.target === nodeId &&
+              typeof e.targetHandle === "string" &&
+              /^image-\d+$/.test(e.targetHandle)
+          )
+          .sort((a, b) => {
+            const ai = Number(String(a.targetHandle).slice(6));
+            const bi = Number(String(b.targetHandle).slice(6));
+            return ai - bi;
+          })
+          // 仅取当前 referenceCount 范围内的 handle
+          .filter((e) => {
+            const idx = Number(String(e.targetHandle).slice(6));
+            return idx >= 1 && idx <= referenceCount;
+          });
+
+        if (!imageEdges.length) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "请至少连接 1 张参考图",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const uploadResolvedImageEdge = async (
+          edge: Edge
+        ): Promise<string | undefined> => {
+          const images = await resolveEdgesAsDataUrls([edge]);
+          const firstImage = images.find(
+            (value) => typeof value === "string" && value.trim().length > 0
+          );
+          if (!firstImage) return undefined;
+          const trimmed = firstImage.trim();
+          if (isRemoteUrl(trimmed)) {
+            return normalizeStableRemoteUrl(trimmed);
+          }
+          const uploaded = await uploadImageToOSS(
+            ensureDataUrl(trimmed),
+            projectId
+          );
+          return uploaded || undefined;
+        };
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, status: "running", error: undefined } }
+              : n
+          )
+        );
+
+        try {
+          const referenceImageUrls: string[] = [];
+          for (const edge of imageEdges) {
+            const url = await uploadResolvedImageEdge(edge);
+            if (url) referenceImageUrls.push(url);
+          }
+          if (!referenceImageUrls.length) {
+            throw new Error("参考图为空");
+          }
+
+          const ratio =
+            (((node.data as any)?.ratio as
+              | "16:9"
+              | "9:16"
+              | "1:1"
+              | "4:3"
+              | "3:4"
+              | undefined) || "16:9");
+          const resolution = (((node.data as any)?.resolution as
+            | "720P"
+            | "1080P"
+            | undefined) || "720P");
+          const durationVal = (() => {
+            const raw = Number((node.data as any)?.duration);
+            if (!Number.isFinite(raw)) return 5;
+            return Math.min(15, Math.max(3, Math.round(raw)));
+          })();
+
+          const result = await generateHappyhorseR2VViaAPI({
+            prompt: promptTrimmed,
+            referenceImageUrls,
+            parameters: { ratio, resolution, duration: durationVal },
+          });
+
+          const extractVideoUrl = (obj: any): string | undefined => {
+            if (!obj) return undefined;
+            return (
+              obj.videoUrl ||
+              obj.video_url ||
+              obj.output?.video_url ||
+              (Array.isArray(obj.output) && obj.output[0]?.video_url) ||
+              obj.raw?.output?.video_url ||
+              obj.raw?.video_url ||
+              undefined
+            );
+          };
+
+          if (!result?.success) {
+            throw new Error(result?.error?.message || "任务提交失败");
+          }
+          const videoUrl = extractVideoUrl(result.data);
+          if (!videoUrl) {
+            throw new Error("未返回视频地址");
+          }
+
+          const thumbnail = (result.data as any)?.thumbnail;
+          const historyEntry = {
+            id: `history-${Date.now()}`,
+            videoUrl,
+            thumbnail,
+            prompt: promptTrimmed,
+            quality: `${resolution} / ${durationVal}s`,
+            createdAt: new Date().toISOString(),
+            referenceCount: referenceImageUrls.length,
+          };
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? (() => {
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl,
+                        thumbnail,
+                        error: undefined,
+                        videoVersion:
+                          Number(previousData.videoVersion || 0) + 1,
+                        history: appendVideoHistory(
+                          previousData.history as
+                            | Array<Record<string, any>>
+                            | undefined,
+                          historyEntry
+                        ),
+                      },
+                    };
+                  })()
+                : n
+            )
+          );
+        } catch (error) {
+          const msg =
+            error instanceof Error ? error.message : "任务提交失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
