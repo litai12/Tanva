@@ -8,7 +8,7 @@
 
 ## 1. 背景与目标
 
-阿里云百炼上线了新视频生成模型 `happyhorse-1.0-r2v`（彩马参考视频）。它和已接入的 `wan2.6-r2v` 共用 DashScope 的视频合成 endpoint，但**输入形态不同**：
+阿里云百炼上线了新视频生成模型 `happyhorse-1.0-r2v`（快乐马参考视频）。它和已接入的 `wan2.6-r2v` 共用 DashScope 的视频合成 endpoint，但**输入形态不同**：
 
 | 维度 | `wan2.6-r2v`（已接入） | `happyhorse-1.0-r2v`（本次新增） |
 |---|---|---|
@@ -41,7 +41,7 @@ Content-Type: application/json
     ]
   },
   "parameters": {
-    "resolution": "720P" | "1080P",           // 默认 1080P
+    "resolution": "720P" | "1080P",           // 上游默认 1080P；本系统节点默认 720P（友好默认价）
     "ratio": "16:9" | "9:16" | "1:1" | "4:3" | "3:4",   // 默认 16:9
     "duration": 3..15,                        // 整数秒，默认 5
     "watermark": true | false,                // 默认 true，本系统强制 false
@@ -139,7 +139,7 @@ private buildHappyhorseCreditRequestParams(body: any): Record<string, any> {
   const resolution =
     typeof parameters.resolution === 'string' && parameters.resolution.trim()
       ? parameters.resolution.trim().toUpperCase()
-      : '1080P';   // 与官方默认一致
+      : '720P';    // 节点默认 720P（友好默认价）；用户主动选 1080P 才走高价
   const durationRaw = Number(parameters.duration);
   const duration = Number.isFinite(durationRaw) && durationRaw > 0
     ? Math.min(15, Math.max(3, Math.round(durationRaw)))
@@ -172,9 +172,9 @@ private buildHappyhorseCreditRequestParams(body: any): Record<string, any> {
 
 ```ts
 'happyhorse-r2v-video': {
-  serviceName: 'HappyHorse 参考视频',
+  serviceName: '快乐马参考视频',
   provider: 'dashscope',
-  creditsPerCall: 1000,        // fallback：5s × 200 credits/s（1080P）
+  creditsPerCall: 600,         // fallback：5s × 120 credits/s（720P，节点默认）
   description: '使用 HappyHorse 1.0 R2V 参考图生成视频',
   dynamicPricing: {
     perSecondByResolution: { '720P': 120, '1080P': 200 },
@@ -240,13 +240,13 @@ creditsToDeduct = this.resolveHappyhorseR2VCredits(
 ```ts
 {
   nodeKey: 'happyhorseR2V',
-  nameZh: '彩马参考视频',
+  nameZh: '快乐马参考视频',
   nameEn: 'HappyHorse R2V',
   category: 'video',
   sortOrder: 36,         // wan27Video=35，happyhorseR2V 紧随其后
-  creditsPerCall: 1000,  // fallback；实际按 perSecondByResolution 动态计算
+  creditsPerCall: 600,   // fallback；实际按 perSecondByResolution 动态计算
   serviceType: 'happyhorse-r2v-video',
-  priceYuan: 10,         // 5s/1080P 的对应价 ¥10
+  priceYuan: 6,          // 5s/720P 的对应价 ¥6（节点默认档）
   description: '阿里 HappyHorse 1.0 R2V 参考图视频生成',
   metadata: {
     ...buildVodNodeMetadata(
@@ -255,10 +255,11 @@ creditsToDeduct = this.resolveHappyhorseR2VCredits(
         provider: 'dashscope',
         supportedModels: ['happyhorse-1.0-r2v'],
         defaultData: {
-          resolution: '1080P',
+          resolution: '720P',
           ratio: '16:9',
           duration: 5,
           watermark: false,
+          referenceCount: 1,
         },
       },
       {
@@ -301,7 +302,7 @@ creditsToDeduct = this.resolveHappyhorseR2VCredits(
   - 删除某 image 时，对应连线由 FlowOverlay 统一回收
 - 参数下拉：
   - **画幅 ratio** — 5 个选项 `16:9 / 9:16 / 1:1 / 4:3 / 3:4`，默认 `16:9`
-  - **分辨率 resolution** — `720P / 1080P`，默认 `1080P`
+  - **分辨率 resolution** — `720P / 1080P`，默认 `720P`（友好默认价；用户改成 1080P 时角标自动升档）
   - **时长 duration** — 13 个选项 `3 / 4 / 5 / ... / 15`（横向 chip group），默认 `5`
 - `useBackendCreditsPreview` 入参：
   ```ts
@@ -355,8 +356,8 @@ export async function generateHappyhorseR2VViaAPI(request: {
 |---|---|
 | nodeTypes 映射 | `happyhorseR2V: HappyhorseR2VNode` |
 | 视频节点类型数组（共 ~15 处） | 在 `'wan2R2V'` 后追加 `'happyhorseR2V'` |
-| nodeCreditsMap | `happyhorseR2V: 1000` |
-| 节点目录 categoryItems | `{ key: "happyhorseR2V", zh: "彩马 R2V", en: "HappyHorse R2V", category: "video" }` |
+| nodeCreditsMap | `happyhorseR2V: 600` （fallback；实际由后端 dynamicPricing 决定） |
+| 节点目录 categoryItems | `{ key: "happyhorseR2V", zh: "快乐马 R2V", en: "HappyHorse R2V", category: "video" }` |
 | nodeCategories | `happyhorseR2V: "video"` |
 | nodeSizeMap | `happyhorseR2V: { w: 300, h: 400 }`（比 wan2R2V 多一行 resolution） |
 | 视频识别合集（多处 in/source 判定） | 追加 `happyhorseR2V` |
@@ -373,7 +374,7 @@ export async function generateHappyhorseR2VViaAPI(request: {
 ### 4.4 Admin 页面
 
 `frontend/src/pages/Admin.tsx` 追加：
-- 节点类型选项（line ~1961）：`{ value: "happyhorseR2V", label: "彩马 R2V 节点", category: "video" }`
+- 节点类型选项（line ~1961）：`{ value: "happyhorseR2V", label: "快乐马 R2V 节点", category: "video" }`
 - managedModel → flowNode 映射（line ~1992）：`if (modelKey === "happyhorse-1.0-r2v") return "happyhorseR2V";`
 - 模型默认配置（line ~2982 附近）：追加默认行
 - managedModelKey 映射表（line ~4072）：`"happyhorse-1.0-r2v": ["happyhorse-1.0-r2v"]`
@@ -458,16 +459,16 @@ if (node.type === 'happyhorseR2V') {
 ### 8.1 后端单测（如有 jest 覆盖）
 - `buildHappyhorseCreditRequestParams`：极端 duration 取值（0、负数、>15）的兜底
 - `normalizeHappyhorseR2VBodyForUpstream`：媒体数组为空 / 无 type / 多余字段时的归一化
-- `credits.service.resolveCreditAmount`：720P × 5s = 600、1080P × 10s = 2000、缺 resolution 时回落 1000
+- `credits.service.resolveCreditAmount`：720P × 5s = 600、1080P × 10s = 2000、缺 resolution 时回落 fallback 600
 
 ### 8.2 联调
 - 真实 DASHSCOPE_API_KEY 下，通过新 endpoint 提交 720P/5s 任务，等待出片
-- 1080P/10s 大任务，验证轮询能正确等到出片或超时
+- 1080P/10s 大任务，验证轮询能正确等到出片或超时，扣费 2000 credits
 - 故意提交不存在的图片 URL，验证错误能透传
 
 ### 8.3 端到端（前端）
-- 新建 happyhorseR2V 节点，连 1 张 image + prompt，Run，验证扣费 600
-- 切换 1080P，验证扣费角标变 1000
+- 新建 happyhorseR2V 节点（默认 720P / 5s / 1 张 image），连 1 张 image + prompt，Run，验证扣费 600
+- 切换 1080P / 5s，验证扣费角标变 1000；切换 720P / 10s 变 1200；1080P / 10s 变 2000
 - 加到 9 张 image，验证不能再加；移除时连线被回收
 - 与 imageNode、bananaNode 等图片源节点正常连线
 
@@ -483,10 +484,9 @@ if (node.type === 'happyhorseR2V') {
 
 ---
 
-## 10. 待确认（在审阅本 spec 时）
+## 10. 已确认决策（2026-04-27 用户答复）
 
-- 节点中文名 "**彩马参考视频**" 是否合适？或更倾向 "彩马 R2V" / "HappyHorse R2V" / "参考视频(彩马)"？
-- 节点首次落地默认 `referenceCount = 1` 还是 `3`？
-  - 1：最简启动，用户按需 +
-  - 3：第一眼看更直观、与 wan2R2V 对齐，但浪费视觉空间
-- 加价比例 +33% / +25% 与"约 20%"有差异，是否调整卖价（例如 720P = ¥1.1/s，1080P = ¥1.95/s）以更接近 +20%？
+- **节点品牌名**：**快乐马**（节点 header / categoryItems / Admin label 统一使用）
+- **referenceCount 默认值**：**1**（最简启动，用户按需 + 加 image handle，最多 9）
+- **定价策略**：按用户给的卖价（720P ¥1.2/s = 120 credits/s，1080P ¥2.0/s = 200 credits/s），加价幅度 +33% / +25%
+- **节点默认分辨率**：**720P**（友好默认价；上游虽然默认 1080P，但前端节点和后端兜底逻辑都默认 720P）
