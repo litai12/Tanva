@@ -410,6 +410,20 @@ const extractModelFromBody = (body: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+/**
+ * 兜底：从 URL 路径抽取 Gemini 风格的 model（`/models/<MODEL>:generateContent` 等）。
+ * 适用于 147 / Vertex AI / Google Generative Language API 系列。
+ */
+const extractModelFromUrl = (url: URL): string | null => {
+  const match = url.pathname.match(/\/models\/([^/:]+)(?::[a-zA-Z]+)?$/);
+  if (!match) return null;
+  const trimmed = match[1].trim();
+  return trimmed.length > 0 ? decodeURIComponent(trimmed) : null;
+};
+
+const resolveUpstreamModel = (url: URL, body: unknown): string | null =>
+  extractModelFromBody(body) || extractModelFromUrl(url);
+
 const tryParseBody = (bodyText: string, contentType: string | null): unknown => {
   if (!bodyText) return null;
 
@@ -588,7 +602,7 @@ export const installUpstreamFetchLogger = (): void => {
         response_headers: responseHeaders,
         response_body: responseBody,
         type: requestType,
-        model: extractModelFromBody(requestBody),
+        model: resolveUpstreamModel(url, requestBody),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
@@ -618,7 +632,7 @@ export const installUpstreamFetchLogger = (): void => {
         request_body: requestBody,
         response_headers: null,
         type: requestType,
-        model: extractModelFromBody(requestBody),
+        model: resolveUpstreamModel(url, requestBody),
         error: error instanceof Error ? error.message : String(error),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
