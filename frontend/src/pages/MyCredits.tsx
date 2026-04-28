@@ -31,9 +31,14 @@ interface Transaction {
   businessType?: string | null;
   membershipPlanId?: string | null;
   apiUsageId?: string | null;
+  serviceType?: string | null;
   channel?: string | null;
   provider?: string | null;
   model?: string | null;
+  outputImageCount?: number | null;
+  parallelGroupId?: string | null;
+  parallelGroupIndex?: number | null;
+  parallelGroupTotal?: number | null;
   billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
@@ -259,6 +264,120 @@ const MyCredits: React.FC = () => {
       return !isVip69DailyGift;
     });
   }, [transactions]);
+
+  const displayTransactions = useMemo(() => {
+    const GROUP_GAP_MS = 90 * 1000;
+    const MAX_AUTO_GROUP_COUNT = 8;
+    const NO_AUTO_GROUP_SERVICE_TYPES = new Set(['gemini-text', 'gemini-prompt-optimize']);
+    const normalizeOutputCount = (value: unknown): number => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return 1;
+      return Math.max(1, Math.floor(numeric));
+    };
+    const normalizeParallelExpectedTotal = (value: unknown): number | null => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 1) return null;
+      return Math.max(2, Math.floor(numeric));
+    };
+
+    const grouped: Array<
+      Transaction & { __groupKey: string; __groupTailTs: number }
+    > = [];
+
+    for (const tx of filteredTransactions) {
+      const createdAtTs = Number.isFinite(Date.parse(tx.createdAt))
+        ? Date.parse(tx.createdAt)
+        : 0;
+      const normalizedCount = normalizeOutputCount(tx.outputImageCount);
+      const explicitParallelGroupId =
+        typeof tx.parallelGroupId === 'string' ? tx.parallelGroupId.trim() : '';
+      const normalizedServiceType =
+        typeof tx.serviceType === 'string' ? tx.serviceType.trim().toLowerCase() : '';
+      const shouldSkipAutoGroup = NO_AUTO_GROUP_SERVICE_TYPES.has(normalizedServiceType);
+      const expectedParallelTotal =
+        normalizeParallelExpectedTotal(tx.parallelGroupTotal) ?? MAX_AUTO_GROUP_COUNT;
+      const groupKey = [
+        explicitParallelGroupId ? `parallel:${explicitParallelGroupId}` : tx.type,
+        (tx.description || '').trim(),
+        tx.channel || '',
+        tx.provider || '',
+        tx.model || '',
+        tx.billingRemark || '',
+      ].join('||');
+
+      const canAutoGroup =
+        tx.amount < 0 &&
+        !shouldSkipAutoGroup &&
+        (explicitParallelGroupId.length > 0 ||
+          (normalizedCount === 1 && (tx.description || '').trim().length > 0));
+
+      const last = grouped[grouped.length - 1];
+      const lastCount = last ? normalizeOutputCount(last.outputImageCount) : 1;
+      const isWithinContinuousGap =
+        Boolean(last) &&
+        last.__groupTailTs > 0 &&
+        createdAtTs > 0 &&
+        last.__groupTailTs >= createdAtTs &&
+        last.__groupTailTs - createdAtTs <= GROUP_GAP_MS;
+      if (
+        canAutoGroup &&
+        explicitParallelGroupId.length === 0 &&
+        last &&
+        last.__groupKey === groupKey &&
+        isWithinContinuousGap &&
+        lastCount < MAX_AUTO_GROUP_COUNT
+      ) {
+        last.amount += tx.amount;
+        last.balanceAfter = Math.min(last.balanceAfter, tx.balanceAfter);
+        last.outputImageCount =
+          normalizeOutputCount(last.outputImageCount) + normalizedCount;
+        last.__groupTailTs = createdAtTs || last.__groupTailTs;
+        last.id = `${last.id}|${tx.id}`;
+        if (typeof tx.processingTime === 'number' && Number.isFinite(tx.processingTime)) {
+          const current = Number(last.processingTime);
+          last.processingTime =
+            Number.isFinite(current) && current >= 0
+              ? Math.max(current, tx.processingTime)
+              : tx.processingTime;
+        }
+        continue;
+      }
+
+      if (canAutoGroup && explicitParallelGroupId.length > 0) {
+        const existed = grouped.find((item) => item.__groupKey === groupKey);
+        const existedCount = existed ? normalizeOutputCount(existed.outputImageCount) : 1;
+        if (existed && existedCount < expectedParallelTotal) {
+          existed.amount += tx.amount;
+          existed.balanceAfter = Math.min(existed.balanceAfter, tx.balanceAfter);
+          existed.outputImageCount =
+            normalizeOutputCount(existed.outputImageCount) + normalizedCount;
+          existed.parallelGroupTotal = Math.max(
+            normalizeOutputCount(existed.parallelGroupTotal),
+            normalizeOutputCount(tx.parallelGroupTotal),
+          );
+          existed.__groupTailTs = Math.max(existed.__groupTailTs, createdAtTs || existed.__groupTailTs);
+          existed.id = `${existed.id}|${tx.id}`;
+          if (typeof tx.processingTime === 'number' && Number.isFinite(tx.processingTime)) {
+            const current = Number(existed.processingTime);
+            existed.processingTime =
+              Number.isFinite(current) && current >= 0
+                ? Math.max(current, tx.processingTime)
+                : tx.processingTime;
+          }
+          continue;
+        }
+      }
+
+      grouped.push({
+        ...tx,
+        outputImageCount: normalizedCount,
+        __groupKey: groupKey,
+        __groupTailTs: createdAtTs,
+      });
+    }
+
+    return grouped.map(({ __groupTailTs, __groupKey, ...tx }) => tx);
+  }, [filteredTransactions]);
 
   const dailyUsageData = useMemo(() => {
     const days = 14;
@@ -547,7 +666,7 @@ const MyCredits: React.FC = () => {
 
         {activeTab === 'transactions' && (
           <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
-            {filteredTransactions.length === 0 ? (
+            {displayTransactions.length === 0 ? (
               <div className="py-12 text-sm text-center text-slate-400">{t('creditsPage.transactions.empty')}</div>
             ) : (
               <div className="max-h-[560px] overflow-auto">
@@ -563,7 +682,7 @@ const MyCredits: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredTransactions.slice(0, 50).map(tx => {
+                    {displayTransactions.slice(0, 50).map(tx => {
                       const isPositive = tx.amount > 0;
                       const durationSeconds = typeof tx.processingTime === 'number'
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
@@ -572,6 +691,20 @@ const MyCredits: React.FC = () => {
                       const modelLabel = typeof tx.model === 'string' && tx.model.trim().length > 0
                         ? tx.model.trim()
                         : t('creditsPage.transactions.notAvailable');
+                      const routeLabel = tx.channel === 'tencent'
+                        ? '尊享路线'
+                        : tx.channel === 'apimart'
+                        ? '普通路线'
+                        : tx.channel === '147'
+                        ? '官方路线'
+                        : null;
+                      const billingRemark = typeof tx.billingRemark === 'string'
+                        ? tx.billingRemark.trim()
+                        : '';
+                      const outputCount =
+                        typeof tx.outputImageCount === 'number' && Number.isFinite(tx.outputImageCount)
+                          ? Math.max(1, Math.floor(tx.outputImageCount))
+                          : null;
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -589,9 +722,14 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                <div className="mt-0.5 text-xs text-slate-500 truncate max-w-[240px]">
-                                  {t('creditsPage.transactions.model', { model: modelLabel })}
+                                <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
+                                  {outputCount && outputCount > 1 ? `数量：x${outputCount} · ` : ''}{routeLabel ? `渠道：${routeLabel} · ` : ''}{t('creditsPage.transactions.model', { model: modelLabel })}
                                 </div>
+                                {billingRemark && (
+                                  <div className="mt-0.5 text-[11px] leading-4 text-slate-400 max-w-[280px] break-words">
+                                    {billingRemark}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>

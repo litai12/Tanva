@@ -11,6 +11,34 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useTranslation } from 'react-i18next';
+import { useAIChatStore } from '@/stores/aiChatStore';
+
+const isDarkFlowTheme = (): boolean => useAIChatStore.getState().chatTheme === 'black';
+
+// 暗色主题色板
+const DARK = {
+  overlayBg: 'rgba(0, 0, 0, 0.7)',
+  overlayText: '#e5e7eb',
+  overlayBorder: 'rgba(255,255,255,0.08)',
+  cancelBtnBg: '#2a2a2a',
+  cancelBtnBorder: 'rgba(255,255,255,0.12)',
+  cancelBtnText: '#e5e7eb',
+  frameShadow: '0 30px 70px rgba(0,0,0,0.6)',
+  sizeBadgeBg: '#1c1c1c',
+  sizeBadgeText: '#e5e7eb',
+  sizeBadgeBorder: 'rgba(255,255,255,0.08)',
+  sizeBadgeShadow: '0 6px 14px rgba(0,0,0,0.4)',
+  frameBorder: '#60a5fa',
+  handleBg: '#2563eb',
+  handleBorder: 'rgba(255,255,255,0.12)',
+  panelTriggerBg: '#2a2a2a',
+  panelTriggerBorder: 'rgba(255,255,255,0.12)',
+  panelTriggerText: '#e5e7eb',
+  panelSendBg: '#2563eb',
+  dropdownBg: 'rgba(26,26,26,0.95)',
+  dropdownBorder: 'rgba(255,255,255,0.1)',
+  dropdownItemHover: 'rgba(255,255,255,0.06)',
+} as const;
 
 interface ExpandImageSelectorProps {
   imageBounds: { x: number; y: number; width: number; height: number };
@@ -40,6 +68,17 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     .toLowerCase()
     .startsWith('zh');
   const lt = (zh: string, en: string) => (isZh ? zh : en);
+
+  // 暗色主题检测
+  const [isDark, setIsDark] = useState(() => isDarkFlowTheme());
+  useEffect(() => {
+    const sub = useAIChatStore.subscribe((state, prevState) => {
+      if (state.chatTheme !== prevState.chatTheme) {
+        setIsDark(state.chatTheme === 'black');
+      }
+    });
+    return () => sub();
+  }, []);
   const [expandRatios, setExpandRatios] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const [_selectedSizeLabel, setSelectedSizeLabel] = useState(lt('常用尺寸', 'Common sizes'));
   const [frameBounds, setFrameBounds] = useState(imageBounds);
@@ -594,12 +633,13 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
             top: '20px',
             left: '50%',
             transform: 'translateX(-50%)',
-            background: 'rgba(0, 0, 0, 0.75)',
-            color: 'white',
+            background: isDark ? 'rgba(30,30,30,0.95)' : 'rgba(0, 0, 0, 0.75)',
+            color: isDark ? '#e5e7eb' : 'white',
             padding: '12px 24px',
             borderRadius: '8px',
             fontSize: '14px',
             zIndex: 10001,
+            border: isDark ? '1px solid rgba(255,255,255,0.08)' : 'none',
           }}
         >
           {frameBounds
@@ -615,7 +655,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
             top: '20px',
             right: '20px',
             zIndex: 10000,
-            backgroundColor: 'white',
+            backgroundColor: isDark ? DARK.cancelBtnBg : 'white',
+            color: isDark ? DARK.cancelBtnText : undefined,
+            borderColor: isDark ? DARK.cancelBtnBorder : undefined,
           }}
         >
           <X className="w-4 h-4" />
@@ -639,8 +681,8 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               style={{
                 position: 'absolute',
                 inset: 0,
-                background: '#fff',
-                boxShadow: '0 30px 70px rgba(15,23,42,0.25)',
+                background: isDark ? '#1a1a1a' : '#fff',
+                boxShadow: isDark ? DARK.frameShadow : '0 30px 70px rgba(15,23,42,0.25)',
                 pointerEvents: 'none',
               }}
             />
@@ -680,7 +722,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                 left: 0,
                 right: 0,
                 bottom: 0,
-                border: '2px dashed #3b82f6',
+                border: `2px dashed ${isDark ? '#60a5fa' : '#3b82f6'}`,
                 borderRadius: 0,
                 pointerEvents: 'none',
                 zIndex: 2,
@@ -700,9 +742,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                   width: 14,
                   height: 14,
                   borderRadius: 2,
-                  background: '#2563eb',
-                  border: '1px solid #dbeafe',
-                  boxShadow: '0 3px 8px rgba(37, 99, 235, 0.18)',
+                  background: isDark ? DARK.handleBg : '#2563eb',
+                  border: `1px solid ${isDark ? DARK.handleBorder : '#dbeafe'}`,
+                  boxShadow: isDark ? '0 3px 8px rgba(0,0,0,0.4)' : '0 3px 8px rgba(37, 99, 235, 0.18)',
                   cursor: handle.cursor as React.CSSProperties['cursor'],
                   pointerEvents: 'auto',
                   zIndex: 3,
@@ -717,16 +759,16 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               left: `${sizeBadgePosition.left}px`,
               top: `${sizeBadgePosition.top}px`,
               zIndex: 10001,
-              background: '#fff',
-              color: '#0f172a',
+              background: isDark ? DARK.sizeBadgeBg : '#fff',
+              color: isDark ? DARK.sizeBadgeText : '#0f172a',
               padding: '3px 10px',
               borderRadius: '999px',
               fontSize: '11px',
               letterSpacing: '0.1px',
-              border: '1px solid rgba(15,23,42,0.1)',
+              border: `1px solid ${isDark ? DARK.sizeBadgeBorder : 'rgba(15,23,42,0.1)'}`,
               pointerEvents: 'none',
               transform: 'translateX(-50%)',
-              boxShadow: '0 6px 14px rgba(15, 23, 42, 0.08)',
+              boxShadow: isDark ? DARK.sizeBadgeShadow : '0 6px 14px rgba(15, 23, 42, 0.08)',
             }}
           >
             {`${frameBounds.width.toFixed(0)} × ${frameBounds.height.toFixed(0)}`}
@@ -763,13 +805,12 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                   variant="ghost"
                   size="sm"
                   style={{
-                    color: '#0f172a',
-                    border: '1px solid rgba(15,23,42,0.15)',
+                    color: isDark ? DARK.panelTriggerText : '#0f172a',
+                    border: `1px solid ${isDark ? DARK.panelTriggerBorder : 'rgba(15,23,42,0.15)'}`,
                     borderRadius: '999px',
                     width: '34px',
                     height: '34px',
-                    background: '#f8fafc',
-                    // padding: '5px',
+                    background: isDark ? DARK.panelTriggerBg : '#f8fafc',
                     margin: '0px 8px',
                   }}
                   title={lt('选择常用尺寸', 'Select common sizes')}
@@ -777,12 +818,27 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                   <Ruler className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="right" align="start" style={{ width: '74px', background: 'rgba(255,255,255,0.9)', fontSize: '10px' }}>
+              <DropdownMenuContent
+                side="right"
+                align="start"
+                style={{
+                  width: '74px',
+                  background: isDark ? DARK.dropdownBg : 'rgba(255,255,255,0.9)',
+                  fontSize: '10px',
+                  border: `1px solid ${isDark ? DARK.dropdownBorder : 'rgba(15,23,42,0.08)'}`,
+                  backdropFilter: isDark ? 'blur(12px)' : undefined,
+                }}
+              >
                 {COMMON_SIZES.map(({ label, ratio }) => (
                   <DropdownMenuItem
                     key={label}
                     onClick={() => applyAspectRatio(ratio, label)}
-                    style={{ textAlign: 'center' }}
+                    style={{
+                      textAlign: 'center',
+                      color: isDark ? '#e5e7eb' : undefined,
+                      background: 'transparent',
+                    }}
+                    className={isDark ? 'dark-dropdown-item' : ''}
                   >
                     {label}
                   </DropdownMenuItem>
@@ -799,7 +855,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                 width: '34px',
                 height: '34px',
                 borderRadius: '50%',
-                boxShadow: '0 8px 14px rgba(37, 99, 235, 0.25)',
+                boxShadow: isDark ? '0 8px 14px rgba(37, 99, 235, 0.35)' : '0 8px 14px rgba(37, 99, 235, 0.25)',
               }}
             >
               <Send className="w-4 h-4" />
@@ -810,12 +866,12 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               onClick={handleCancel}
               title={lt('取消', 'Cancel')}
               style={{
-                color: '#0f172a',
-                border: '1px solid rgba(15,23,42,0.15)',
+                color: isDark ? DARK.panelTriggerText : '#0f172a',
+                border: `1px solid ${isDark ? DARK.panelTriggerBorder : 'rgba(15,23,42,0.15)'}`,
                 width: '34px',
                 height: '34px',
                 borderRadius: '50%',
-                background: '#f8fafc',
+                background: isDark ? DARK.panelTriggerBg : '#f8fafc',
               }}
             >
               <X className="w-4 h-4" />

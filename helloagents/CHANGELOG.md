@@ -16,6 +16,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
+- Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
+- My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.
+- Credits/Text: `gemini-prompt-optimize` now uses the same normal/stable Fast/Pro/Ultra route matrix as `gemini-text` (`normal: 10/20/30`, `stable: 20/30/50`).
+- Credits/Image Output Count: backend deduction now supports `unit credits × outputImageCount` for Gemini Banana image generate/edit/blend service types when requests carry multi-output count.
+- Flow/My Credits: route-aware credits calculation now covers `promptOptimize`; `/my-credits` transaction items now show route channel label (`普通/尊享/官方`) and backend billing remark for clearer route-pricing audit.
+- Gemini text billing: `gemini-text` now follows normal/stable route pricing by Fast/Pro/Ultra tier in backend deduction and preview quote (`normal: 10/20/30`, `stable: 20/30/50`), and text-chat credit request now forwards `providerOptions` so route info is preserved.
+- Flow/Text Chat: run-button credit display for `textChat` node is now route-aware and tier-aware, aligned with backend Gemini text billing.
+- Banana image billing: aligned normal/stable route resolution pricing across backend deduction tables and frontend credit displays (`FlowOverlay` + `FloatingHeader`) for generate/edit/blend fast/pro/ultra tiers, including stable ultra `1K/2K` and stable fast baseline.
+- Banana image resolution routing: normalized `imageSize` tokens (`0.5K/1K/2K/4K`, case-insensitive input) before frontend request send, backend provider mapping, and Tencent VOD `OutputConfig.Resolution` submission to avoid selected `4K` being downgraded to fallback `1K`.
 - Flow/Edge Reconnect: fixed legacy flow edge hydration where `sourceHandle` values like `image` / `image1` were not normalized to current handle ids (`img` / `img1`) on reopen, which could make existing node links appear disconnected after page load. Added source-handle normalization in Flow edge mapping and a compatibility output handle for `ImageCompressNode` (`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/ImageCompressNode.tsx`).
 - AI Image Pipeline: 生图/改图/融合链路新增“成功结果必须包含有效图像载荷”校验；当上游返�?`HTTP 200` 但无 `imageData/imageUrl` 时，后端统一按失败处理并走退款路径，前端统一标记 `NO_IMAGE_PAYLOAD`，避免“显示成功但出图失败且重复扣分”�?
 - Flow/Zoom: 修复节点文本输入区（`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` �?`textarea`）内执行缩放时触发浏览器整页缩放的问题。当前按 `wheelZoomMode` 计算后，缩放手势会优先作用于画布；非缩放滚轮继续保留输入区原生滚动。同�?`GlobalZoomCapture` 已覆�?Flow 区域�?`gesturestart/gesturechange`，避免触控板 pinch 落到浏览器页面缩放（`frontend/src/components/flow/FlowOverlay.tsx`, `frontend/src/components/flow/nodes/TextPromptNode.tsx`, `frontend/src/components/flow/nodes/TextPromptProNode.tsx`, `frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`, `frontend/src/components/canvas/GlobalZoomCapture.tsx`）�?
@@ -550,3 +560,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Frontend `gptImage2` now hard-fixes resolution options to `1K/2K/4K` (ignores incomplete metadata subsets such as only `1K`) and uses video-node style dropdown menus for both aspect ratio and resolution.
 - Backend `nano2` provider now normalizes GPT-Image-2 `resolution` to APIMart-required lowercase values (`1k/2k/4k`) before upstream submission, preventing silent fallback to default 1k when frontend selects 2K/4K.
 - GPT-Image-2 `official_fallback` default changed to `false` across frontend fallback config, flow runtime fallback, backend node defaults, and nano2 provider request fallback.
+
+## [Generate4 Billing Route Consistency - 2026-04-27]
+### Changed
+- Flow `Generate4` execution now resolves provider from node-level `modelProvider` (same as node UI selection), instead of always using global provider.
+- Flow route-aware credits for Banana image nodes now prioritize node-level `modelProvider` for tier resolution in both normal/stable routes, fixing mismatched `Pro/Fast/Ultra` badge costs.
+- Credits transaction history enrichment now includes `outputImageCount` from API usage records.
+- `/my-credits` transaction rows now show `xN` when `outputImageCount > 1`.
+
+## [Parallel Multi-Image Canvas Visibility - 2026-04-27]
+### Changed
+- Canvas matrix layout for multi-image generate/edit/blend now uses centered horizontal-first placement (for `X4`, no forced four-grid), preventing “only one visible now” caused by right-only expansion.
+- AI chat result remote-url extraction now accepts persistable image refs (OSS key/proxy/path), not just `http(s)` URLs, so multi-result images can be correctly placed on canvas.
+- Parallel placeholder creation for chat `X4/X8` is now eager (all placeholders created before task queue starts), so even when runtime concurrency drops to `1`, users can still see all pending slots immediately.

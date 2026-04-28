@@ -17,6 +17,8 @@ import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
+import RunCreditBadge from './RunCreditBadge';
+import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -34,6 +36,7 @@ type Props = {
     boxH?: number;
     sizeVersion?: number;
     modelProvider?: FlowModelProvider;
+    creditsPerCall?: number;
   };
   selected?: boolean;
 };
@@ -73,6 +76,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const effectiveProvider = React.useMemo<FlowModelProvider>(
@@ -167,6 +171,18 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       runText: '#ffffff',
     };
   }, [isDarkTheme, selected]);
+
+  // 获取生文积分（根据模型和路线动态计算）
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: 'gemini-text',
+    model: textModel,
+    requestParams: {
+      aiProvider: effectiveProvider,
+      channelHint: bananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+    },
+    enabled: true,
+  });
+  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
@@ -333,6 +349,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         enableWebSearch,
         aiProvider: effectiveProvider,
         model: textModel,
+        providerOptions: {
+          banana: {
+            imageRoute: bananaImageRoute,
+          },
+          bananaImageRoute,
+        },
       });
 
       if (!result.success || !result.data) {
@@ -361,7 +383,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [effectiveProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
+  }, [bananaImageRoute, effectiveProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -647,6 +669,13 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           <button
             onClick={runChat}
             disabled={status === 'running' || isInvoking}
+            title={
+              status === 'running' || isInvoking
+                ? 'Running...'
+                : resolvedRunCredits
+                ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
+                : lt('Run chat', 'Run chat')
+            }
             style={{
               fontSize: 12,
               padding: '4px 12px',
@@ -658,9 +687,19 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
               fontWeight: 500,
               flexShrink: 0,
               marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            {status === 'running' || isInvoking ? 'Running...' : 'Run'}
+            {status === 'running' || isInvoking ? (
+              'Running...'
+            ) : (
+              <>
+                <span>Run</span>
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              </>
+            )}
           </button>
         </div>
 
@@ -753,3 +792,4 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 };
 
 export default React.memo(TextChatNode);
+

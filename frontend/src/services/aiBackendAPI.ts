@@ -146,12 +146,29 @@ const normalizeBananaImageRoute = (value: unknown): BananaImageRoute | null => {
   return null;
 };
 
+const normalizeBananaImageSizeToken = (
+  value: unknown
+): "0.5K" | "1K" | "2K" | "4K" | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  if (
+    normalized === "0.5K" ||
+    normalized === "1K" ||
+    normalized === "2K" ||
+    normalized === "4K"
+  ) {
+    return normalized;
+  }
+  return null;
+};
+
 const isBananaRouteCapableProvider = (
   provider: SupportedAIProvider | undefined
 ): boolean => {
   const normalized = String(provider || "").trim().toLowerCase();
   return (
     normalized === "banana" ||
+    normalized === "banana-3.0" ||
     normalized === "banana-2.5" ||
     normalized === "banana-3.1" ||
     normalized === "gemini-pro" ||
@@ -194,6 +211,7 @@ const resolveRequestBananaImageRoute = (request: {
 const attachBananaRouteToProviderOptions = <T extends {
   aiProvider?: SupportedAIProvider;
   providerOptions?: Record<string, any>;
+  imageSize?: string;
 }>(
   request: T
 ): { request: T; bananaImageRoute: BananaImageRoute | null } => {
@@ -213,8 +231,12 @@ const attachBananaRouteToProviderOptions = <T extends {
     baseOptions.banana && typeof baseOptions.banana === "object"
       ? baseOptions.banana
       : {};
+  const normalizedImageSize =
+    normalizeBananaImageSizeToken(request.imageSize) ||
+    (typeof request.imageSize === "string" ? request.imageSize : undefined);
   const nextRequest = {
     ...request,
+    ...(normalizedImageSize ? { imageSize: normalizedImageSize } : {}),
     providerOptions: {
       ...baseOptions,
       banana: {

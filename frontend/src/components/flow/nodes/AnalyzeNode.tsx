@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Check } from 'lucide-react';
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edge, type Node } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
@@ -22,6 +22,7 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
 type Props = {
   id: string;
@@ -50,7 +51,7 @@ const normalizeAnalysisProvider = (value?: string): ProviderToggleValue => {
   return 'banana-2.5';
 };
 
-// 鏋勫缓鍥剧墖 src - 浼樺厛浣跨敤 OSS URL锛岄伩鍏?proxy 闄嶇骇
+// 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
@@ -205,7 +206,7 @@ function InputImageThumb({
   return (
     <div
       style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}
-      title={lt(`杈撳叆鍥?${order}`, `Input ${order}`)}
+      title={lt(`输入图 ${order}`, `Input ${order}`)}
       className="nodrag nopan"
     >
       <button
@@ -578,8 +579,25 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
+
+  // 根据模型和路线动态获取图片分析积分
+  const analysisServiceType = React.useMemo(() => {
+    if (effectiveProvider === 'banana-2.5') return 'gemini-2.5-image-analyze';
+    if (effectiveProvider === 'banana-3.1') return 'gemini-3.1-image-analyze';
+    return 'gemini-image-analyze';
+  }, [effectiveProvider]);
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: analysisServiceType,
+    model: analysisModel,
+    requestParams: {
+      aiProvider: effectiveProvider,
+      channelHint: analyzeBananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+    },
+    enabled: true,
+  });
+
   const providerFallbackCredits = React.useMemo(() => 10, []);
-  const resolvedRunCredits = providerFallbackCredits;
+  const resolvedRunCredits = backendCredits ?? providerFallbackCredits;
   const shell = flowNodeShellChrome(isFlowDark, !!selected);
   const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
@@ -654,13 +672,13 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       return;
     }
 
-    // 鏇存柊鑺傜偣鐘舵€佷负杩愯涓?
+    // 更新节点状态为运行中
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { status: 'running', error: undefined, prompt: '', text: '' } }
     }));
 
     try {
-      // 鏍囪姝ｅ湪鍒嗘瀽
+      // 标记正在分析
       setIsAnalyzing(true);
 
       const resolveFirstCandidateDataUrl = async (
@@ -727,7 +745,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             const ctx = canvas.getContext('2d');
             if (!ctx) return null;
             try {
-              // @ts-ignore - 閮ㄥ垎鐜鏃犳瀛楁
+              // @ts-ignore - 部分环境无此字段
               ctx.imageSmoothingEnabled = true;
             } catch {}
             ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -743,7 +761,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const img = new Image();
           await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
-            img.onerror = () => reject(new Error(lt('鍥剧墖瑙ｇ爜澶辫触', 'Image decode failed')));
+            img.onerror = () => reject(new Error(lt('图片解码失败', 'Image decode failed')));
             img.src = objectUrl;
           });
 
@@ -768,7 +786,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           const ctx = canvas.getContext('2d');
           if (!ctx) return null;
           try {
-            // @ts-ignore - 閮ㄥ垎鐜鏃犳瀛楁
+            // @ts-ignore - 部分环境无此字段
             ctx.imageSmoothingEnabled = true;
           } catch {}
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
@@ -855,7 +873,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             }
           }
 
-          // 浣滀负鏄剧ず鑺傜偣鏃讹紝鍥剧墖鍙兘鏉ヨ嚜涓婃父杩炵嚎锛堜緥濡?ImageSplit -> Image锛?
+          // 作为显示节点时，图片可能来自上游连线（例如 ImageSplit -> Image）
           if (upstream) {
             const src = rf.getNode(upstream.source);
             if (src) {
@@ -918,14 +936,14 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         }
 
         const dataUrl = await resolveFirstCandidateDataUrl(data.imageData, data.imageUrl);
-        if (!dataUrl) throw new Error(lt('鍥剧墖鍔犺浇澶辫触', 'Image load failed'));
+        if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
         return [dataUrl];
       };
 
       const analysisSources = await resolveAnalyzeSources();
       const primarySource = analysisSources[0];
       if (!primarySource) {
-        throw new Error(lt('缂哄皯鍥剧墖杈撳叆', 'Missing image input'));
+        throw new Error(lt('缺少图片输入', 'Missing image input'));
       }
 
       const result = await aiImageService.analyzeImage({
@@ -955,11 +973,11 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'succeeded', error: undefined, prompt: finalAnalysis, text: finalAnalysis } }
       }));
-      console.log('鉁?Analysis finished. Result synced to node:', finalAnalysis.substring(0, 50) + '...');
+      console.log('Analysis finished. Result synced to node:', finalAnalysis.substring(0, 50) + '...');
 
     } catch (err: any) {
       const msg = err?.message || String(err);
-      console.error('鉂?Analysis failed:', msg);
+      console.error('Analysis failed:', msg);
 
       // 鏇存柊鑺傜偣鐘舵€佷负澶辫触
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -1034,7 +1052,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
                   event.stopPropagation();
                 }}
                 className='nodrag nopan tanva-flow-provider-mode-badge'
-                title={lt('鍒囨崲妯″瀷妯″紡', 'Switch model mode')}
+                title={lt('切换模型模式', 'Switch model mode')}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -1073,7 +1091,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
               className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
             >
               <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                {lt('妯″瀷鍒囨崲', 'Model switch')}
+                {lt('模型切换', 'Model switch')}
               </DropdownMenuLabel>
               {providerToggleOptions.map((option) => {
                 const isActive = currentProviderValue === option.value;
@@ -1127,8 +1145,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             status === 'running' || isAnalyzing
               ? 'Running...'
               : resolvedRunCredits
-              ? `${lt('本次消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
-              : lt('杩愯鍒嗘瀽', 'Run analysis')
+              ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
+              : lt('Run analysis', 'Run analysis')
           }
         >
           {status === 'running' || isAnalyzing ? (
@@ -1162,7 +1180,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             overflowX: 'auto',
             paddingBottom: 2,
           }}
-          title={lt('杈撳叆鍥鹃『搴忎細褰卞搷鍒嗘瀽缁撴灉', 'Input order affects analysis results')}
+          title={lt('输入图顺序会影响分析结果', 'Input order affects analysis results')}
         >
           {inputPreviews.map((item, idx) => (
             <InputImageThumb

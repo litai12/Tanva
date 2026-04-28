@@ -21,6 +21,7 @@ export default function RunCreditBadge({
   const { lt } = useLocaleText();
   const { credits: resolvedCredits } = useNodeRunCredits(credits);
   const value = Number(resolvedCredits);
+  const titleText = `${lt("Cost", "Cost")}: ${value} ${lt("credits", "credits")}`;
 
   if (!Number.isFinite(value) || value <= 0) {
     return null;
@@ -29,7 +30,7 @@ export default function RunCreditBadge({
   if (inline) {
     return (
       <span
-        title={lt("Credits per run", "Credits per run")}
+        title={titleText}
         style={{
           color: "#6b7280",
           fontSize: compact ? 11 : 12,
@@ -47,7 +48,7 @@ export default function RunCreditBadge({
   if (runButton) {
     return (
       <span
-        title={lt("Credits per run", "Credits per run")}
+        title={titleText}
         className={`run-credit-badge ${className}`.trim()}
         style={{
           display: "inline-flex",
@@ -104,7 +105,7 @@ export default function RunCreditBadge({
 
   return (
     <span
-      title={lt("Credits per run", "Credits per run")}
+      title={titleText}
       className={`run-credit-badge ${className}`}
       style={{
         display: "inline-flex",
