@@ -32,6 +32,29 @@ interface TaskRecord {
   createdAt: number;
 }
 
+type BioAuthGroupRow = {
+  userId: string;
+  groupId: string;
+  imageUrl: string;
+  createdAt: Date;
+};
+
+type BioAuthGroupDelegate = {
+  upsert(args: {
+    where: { groupId: string };
+    create: { userId: string; groupId: string; imageUrl: string };
+    update: Record<string, never>;
+  }): Promise<unknown>;
+  findMany(args: {
+    where: { userId: string; createdAt: { gte: Date } };
+    orderBy: { createdAt: 'desc' };
+    select: { groupId: true; imageUrl: true; createdAt: true };
+  }): Promise<BioAuthGroupRow[]>;
+  findUnique(args: {
+    where: { groupId: string };
+  }): Promise<BioAuthGroupRow | null>;
+};
+
 @Injectable()
 export class BioAuthService implements OnModuleInit {
   private readonly logger = new Logger(BioAuthService.name);
@@ -42,6 +65,10 @@ export class BioAuthService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
+
+  private getBioAuthGroupDelegate(): BioAuthGroupDelegate {
+    return (this.prisma as unknown as { bioAuthGroup: BioAuthGroupDelegate }).bioAuthGroup;
+  }
 
   onModuleInit() {
     this.env = {
@@ -157,7 +184,7 @@ export class BioAuthService implements OnModuleInit {
       const groupId = validateResult?.GroupId;
       if (!groupId) throw new Error('GetVisualValidateResult: missing GroupId');
 
-      await this.prisma.bioAuthGroup.upsert({
+      await this.getBioAuthGroupDelegate().upsert({
         where: { groupId },
         create: { userId: task.userId, groupId, imageUrl: task.imageUrl },
         update: {},
@@ -232,7 +259,7 @@ export class BioAuthService implements OnModuleInit {
 
   async listGroups(userId: string): Promise<ListGroupsResponse> {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const rows = await this.prisma.bioAuthGroup.findMany({
+    const rows = await this.getBioAuthGroupDelegate().findMany({
       where: { userId, createdAt: { gte: since } },
       orderBy: { createdAt: 'desc' },
       select: { groupId: true, imageUrl: true, createdAt: true },
@@ -251,7 +278,7 @@ export class BioAuthService implements OnModuleInit {
     groupId: string,
     imageUrl: string,
   ): Promise<CreateAssetInGroupResponse> {
-    const group = await this.prisma.bioAuthGroup.findUnique({ where: { groupId } });
+    const group = await this.getBioAuthGroupDelegate().findUnique({ where: { groupId } });
     if (!group || group.userId !== userId) {
       throw new ForbiddenException('GroupId 不属于当前用户');
     }

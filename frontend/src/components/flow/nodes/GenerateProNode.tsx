@@ -626,7 +626,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       {
         value: 'banana-2.5',
         label: 'Fast',
-        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+        description: lt('Nano Banana/Gemini 2.5', 'Nano Banana/Gemini 2.5'),
       },
       {
         value: 'banana',
@@ -636,7 +636,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       {
         value: 'banana-3.1',
         label: 'Ultra',
-        description: lt('Nano Banana 2+Gemini 3.1', 'Nano Banana 2+Gemini 3.1'),
+        description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
       },
     ],
     [lt]
@@ -964,8 +964,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     (
       provider: FlowModelProvider,
       size: '0.5K' | '1K' | '2K' | '4K' | null | undefined
-    ): '0.5K' | '1K' | '2K' | '4K' | null => {
-      if (!size) return null;
+    ): '0.5K' | '1K' | '2K' | '4K' => {
+      if (!size) return '1K';
       if (provider === 'banana-2.5') {
         return '1K';
       }
@@ -987,7 +987,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     nodeType: "generatePro",
     aiProvider: currentProviderValue,
     bananaImageRoute,
-    imageSize: imageSizeValue || undefined,
+    imageSize: imageSizeValue,
     aspectRatio: aspectRatioValue || undefined,
     referenceImageCount: connectedInputImages.length,
     managedModelKey: data.managedModelKey,
@@ -998,16 +998,14 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const resolvedRunCredits =
     typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
-  const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+  const imageSizeOptions: Array<{ label: string; value: '0.5K' | '1K' | '2K' | '4K' }> = React.useMemo(() => {
     if (currentProviderValue === 'banana-2.5') {
       return [
-        { label: lt('自动', 'Auto'), value: null },
         { label: '1K', value: '1K' },
       ];
     }
     if (currentProviderValue === 'banana-3.1') {
       return [
-        { label: lt('自动', 'Auto'), value: null },
         { label: '0.5K', value: '0.5K' },
         { label: '1K', value: '1K' },
         { label: '2K', value: '2K' },
@@ -1015,15 +1013,14 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       ];
     }
     return [
-      { label: lt('自动', 'Auto'), value: null },
       { label: '1K', value: '1K' },
       { label: '2K', value: '2K' },
       { label: '4K', value: '4K' },
     ];
-  }, [currentProviderValue, lt]);
+  }, [currentProviderValue]);
 
   // 更新图像尺寸
-  const updateImageSize = React.useCallback((size: '0.5K' | '1K' | '2K' | '4K' | null) => {
+  const updateImageSize = React.useCallback((size: '0.5K' | '1K' | '2K' | '4K') => {
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: {

@@ -21,7 +21,7 @@ export const CREDIT_PRICING_CONFIG = {
     // 按分辨率定价：Ultra模式支持0.5K/1K/2K/4K（普通通道，非腾讯通道）
     resolutionPricing: {
       '0.5K': 30,
-      '1K': 30,
+      '1K': 40,
       '2K': 40,
       '4K': 50,
     },
@@ -54,7 +54,7 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana 2 编辑图像',
     resolutionPricing: {
       '0.5K': 30,
-      '1K': 30,
+      '1K': 40,
       '2K': 40,
       '4K': 50,
     },
@@ -83,7 +83,7 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana 2 融合多张图像',
     resolutionPricing: {
       '0.5K': 30,
-      '1K': 30,
+      '1K': 40,
       '2K': 40,
       '4K': 50,
     },
@@ -117,7 +117,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-text': {
     serviceName: 'Gemini 文字对话',
     provider: 'gemini',
-    creditsPerCall: 10,
+    creditsPerCall: 5,
     description: '使用 Gemini 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,

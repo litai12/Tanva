@@ -13,6 +13,7 @@ import { useLocaleText } from "@/utils/localeText";
 import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -85,6 +86,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   // 全局状态
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === "black";
   const isProMode =
@@ -324,24 +326,46 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   );
 
   const aspectRatioValue = data.aspectRatio ?? "";
-  const imageSizeValue = data.imageSize ?? null;
+  const imageSizeValue: '1K' | '2K' | '4K' =
+    data.imageSize === '2K' || data.imageSize === '4K' ? data.imageSize : '1K';
 
-  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => {
+  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' }> = React.useMemo(() => {
     return [
-      { label: lt('自动', 'Auto'), value: null },
       { label: '1K', value: '1K' },
       { label: '2K', value: '2K' },
       { label: '4K', value: '4K' },
     ];
-  }, [lt]);
+  }, []);
 
-  const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
+  const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K') => {
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { imageSize: size } }
       })
     );
   }, [id]);
+
+  React.useEffect(() => {
+    if (data.imageSize === imageSizeValue) return;
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { imageSize: imageSizeValue } }
+      })
+    );
+  }, [data.imageSize, id, imageSizeValue]);
+
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "generatePro",
+    aiProvider,
+    bananaImageRoute,
+    imageSize: imageSizeValue,
+    aspectRatio: aspectRatioValue || undefined,
+    outputImageCount: 4,
+    referenceImageCount: 0,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   React.useEffect(() => {
     if (!preview) return;
@@ -1022,12 +1046,14 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             {isProMode && (
               <div className="relative">
                 <NodeSelect
-                  value={imageSizeValue || ""}
+                  value={imageSizeValue}
                   options={imageSizeOptions.map((opt) => ({
-                    value: opt.value || "",
+                    value: opt.value,
                     label: opt.label,
                   }))}
-                  onChange={(nextValue) => updateImageSize((nextValue || null) as "1K" | "2K" | "4K" | null)}
+                  onChange={(nextValue) =>
+                    updateImageSize(nextValue === "2K" || nextValue === "4K" ? nextValue : "1K")
+                  }
                   variant="compact"
                   align="center"
                   menuLabel={lt('分辨率', 'Resolution')}
@@ -1057,7 +1083,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               <span className='run-text-trigger'>
                 <Play style={{ width: 14, height: 14 }} />
               </span>
-              <RunCreditBadge credits={data.creditsPerCall} runButton />
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
             </button>
           </div>
 

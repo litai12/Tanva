@@ -60,7 +60,7 @@ const VECTOR_KEYWORDS = [
 export class GeminiProProvider implements IAIProvider {
   private readonly logger = new Logger(GeminiProProvider.name);
   private genAI: GoogleGenAI | null = null;
-  private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
+  private readonly DEFAULT_MODEL = 'gemini-3-flash-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly EDIT_TIMEOUT = 300000; // 5分钟，一键分层需要更长时间
   private readonly MAX_RETRIES = 3;
@@ -1255,7 +1255,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
     return {
       name: 'Google Gemini Pro',
       version: '3.0',
-      supportedModels: ['gemini-3-pro-image-preview', 'gemini-3-flash-preview'],
+      supportedModels: ['gemini-3-flash-preview'],
     };
   }
 }

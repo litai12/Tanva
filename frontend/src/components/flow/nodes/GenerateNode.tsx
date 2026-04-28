@@ -660,7 +660,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       {
         value: "banana-2.5",
         label: "Fast",
-        description: lt("Nano Banana+Gemini 2.5", "Nano Banana+Gemini 2.5"),
+        description: lt("Nano Banana/Gemini 2.5", "Nano Banana/Gemini 2.5"),
       },
       {
         value: "banana",
@@ -670,7 +670,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       {
         value: "banana-3.1",
         label: "Ultra",
-        description: lt("Nano Banana 2+Gemini 3.1", "Nano Banana 2+Gemini 3.1"),
+        description: lt("Nano Banana 2/Gemini 3.1", "Nano Banana 2/Gemini 3.1"),
       },
     ],
     [lt]
@@ -705,33 +705,42 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const showTextOutputHandle = providerMode === "ultra";
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
-    const autoOption = { label: lt("自动", "Auto"), value: "" };
-    const base = [
-      autoOption,
-      { label: "1K", value: "1K" },
-      { label: "2K", value: "2K" },
-      { label: "4K", value: "4K" },
-    ];
     if (providerMode === "fast") {
-      return [autoOption, { label: "1K", value: "1K" }];
+      return [{ label: "1K", value: "1K" }];
     }
     if (providerMode === "ultra") {
       return [
-        autoOption,
         { label: "0.5K", value: "0.5K" },
         { label: "1K", value: "1K" },
         { label: "2K", value: "2K" },
         { label: "4K", value: "4K" },
       ];
     }
-    return base;
-  }, [lt, providerMode]);
+    return [
+      { label: "1K", value: "1K" },
+      { label: "2K", value: "2K" },
+      { label: "4K", value: "4K" },
+    ];
+  }, [providerMode]);
+
+  const normalizedImageSizeValue = React.useMemo(() => {
+    const normalized = imageSizeValue.trim().toUpperCase();
+    if (providerMode === "fast") return "1K";
+    if (providerMode === "ultra") {
+      return normalized === "0.5K" || normalized === "1K" || normalized === "2K" || normalized === "4K"
+        ? normalized
+        : "1K";
+    }
+    return normalized === "1K" || normalized === "2K" || normalized === "4K"
+      ? normalized
+      : "1K";
+  }, [imageSizeValue, providerMode]);
 
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generate",
     aiProvider: currentProviderValue,
     bananaImageRoute,
-    imageSize: imageSizeValue || undefined,
+    imageSize: normalizedImageSizeValue,
     aspectRatio: aspectRatioValue || undefined,
     referenceImageCount: connectedInputImages.length,
     managedModelKey: data.managedModelKey,
@@ -756,7 +765,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           detail: {
             id,
             patch: {
-              imageSize: size || undefined,
+              imageSize: size,
             },
           },
         })
@@ -764,6 +773,15 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     },
     [id]
   );
+
+  React.useEffect(() => {
+    if (imageSizeValue === normalizedImageSizeValue) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { imageSize: normalizedImageSizeValue } },
+      })
+    );
+  }, [id, imageSizeValue, normalizedImageSizeValue]);
 
   const presetPromptValue = data.presetPrompt ?? "";
   const updatePresetPrompt = React.useCallback(
@@ -1106,7 +1124,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             >
 	              {lt("分辨率", "Resolution")}
 	              <NodeSelect
-	                value={imageSizeValue}
+	                value={normalizedImageSizeValue}
 	                options={imageSizeOptions.map((opt) => ({
 	                  value: opt.value,
 	                  label: opt.label,

@@ -12,6 +12,7 @@ import {
 } from '../ui/dropdown-menu';
 import { useTranslation } from 'react-i18next';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useCanvasStore } from '@/stores';
 
 const isDarkFlowTheme = (): boolean => useAIChatStore.getState().chatTheme === 'black';
 
@@ -96,15 +97,14 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     startBounds: { x: number; y: number; width: number; height: number };
     startPaper: paper.Point;
   } | null>(null);
-  // const { zoom, panX, panY } = useCanvasStore();
+  const { zoom, panX, panY } = useCanvasStore();
+  const viewportSignature = `${zoom}:${panX}:${panY}`;
 
   // Keep local frame synced with image movement while preserving user adjustments
   useEffect(() => {
     const prev = prevImageBoundsRef.current;
     const deltaX = imageBounds.x - prev.x;
     const deltaY = imageBounds.y - prev.y;
-    const scaleX = prev.width ? imageBounds.width / prev.width : 1;
-    const scaleY = prev.height ? imageBounds.height / prev.height : 1;
     const hasMeaningfulChange =
       Math.abs(deltaX) > 0.5 ||
       Math.abs(deltaY) > 0.5 ||
@@ -124,8 +124,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       return {
         x: current.x + deltaX,
         y: current.y + deltaY,
-        width: current.width * scaleX,
-        height: current.height * scaleY,
+        // Keep fixed expansion size stable; only follow source-image translation.
+        width: current.width,
+        height: current.height,
       };
     });
   }, [imageBounds]);
@@ -531,6 +532,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   }, [frameBounds, expandRatios, onSelect]);
 
   const screenBounds = useMemo(() => {
+    void viewportSignature;
     if (!frameBounds) return null;
     const topLeft = convertToScreen(new paper.Point(frameBounds.x, frameBounds.y));
     const bottomRight = convertToScreen(new paper.Point(frameBounds.x + frameBounds.width, frameBounds.y + frameBounds.height));
@@ -540,9 +542,10 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y,
     };
-  }, [frameBounds, convertToScreen]);
+  }, [frameBounds, convertToScreen, viewportSignature]);
 
   const imageScreenBounds = useMemo(() => {
+    void viewportSignature;
     const topLeft = convertToScreen(new paper.Point(imageBounds.x, imageBounds.y));
     const bottomRight = convertToScreen(new paper.Point(imageBounds.x + imageBounds.width, imageBounds.y + imageBounds.height));
     return {
@@ -551,7 +554,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y,
     };
-  }, [imageBounds, convertToScreen]);
+  }, [imageBounds, convertToScreen, viewportSignature]);
 
   const previewImagePosition = useMemo(() => {
     if (!screenBounds) return null;

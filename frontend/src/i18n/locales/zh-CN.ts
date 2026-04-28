@@ -313,9 +313,9 @@ const zhCN = {
           title: "AI 提供商",
           banana: "Pro版（Nano Banana Pro+Gemini 3.0）",
           bananaDesc: "质量最佳",
-          banana31: "Ultra版（Nano Banana 2+Gemini 3.1）",
+          banana31: "Ultra版（Nano Banana 2/Gemini 3.1）",
           banana31Desc: "性价比优选",
-          banana25: "Fast版（Nano Banana+Gemini 2.5）",
+          banana25: "Fast版（Nano Banana/Gemini 2.5）",
           banana25Desc: "高速稳定",
         },
         bananaRoute: {
@@ -473,9 +473,9 @@ const zhCN = {
       quickSwitchModel: "快速切换模型",
     },
     provider: {
-      fastDesc: "Nano Banana+Gemini 2.5",
+      fastDesc: "Nano Banana/Gemini 2.5",
       proDesc: "Nano Banana Pro+Gemini 3.0",
-      ultraDesc: "Nano Banana 2+Gemini 3.1",
+      ultraDesc: "Nano Banana 2/Gemini 3.1",
     },
     manualMode: {
       autoDesc: "智能判断并选择最佳工具",

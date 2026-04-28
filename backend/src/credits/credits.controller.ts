@@ -103,6 +103,7 @@ export class CreditsController {
       serviceType: dto.serviceType as any,
       model: dto.model,
       requestParams: dto.requestParams,
+      outputImageCount: dto.outputImageCount,
     });
   }
 

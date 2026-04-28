@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { Check } from 'lucide-react';
 // no Button/Textarea components needed here
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
@@ -8,6 +9,7 @@ import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import RunCreditBadge from './RunCreditBadge';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
@@ -25,6 +27,8 @@ type Props = {
   selected?: boolean;
 };
 
+type FlowUpdatePatch = Record<string, unknown>;
+
 function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   const { lt, isZh } = useLocaleText();
   const rf = useReactFlow();
@@ -40,6 +44,37 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   const effectiveProvider = React.useMemo<FlowModelProvider>(
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
+  );
+  const providerToggleOptions = React.useMemo<Array<{
+    value: FlowModelProvider;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: 'banana-2.5',
+        label: 'Fast',
+        description: lt('Nano Banana/Gemini 2.5', 'Nano Banana/Gemini 2.5'),
+      },
+      {
+        value: 'banana',
+        label: 'Pro',
+        description: lt('Nano Banana Pro/Gemini 3 Pro', 'Nano Banana Pro/Gemini 3 Pro'),
+      },
+      {
+        value: 'banana-3.1',
+        label: 'Ultra',
+        description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
+      },
+    ],
+    [lt]
+  );
+  const currentProviderValue = effectiveProvider;
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
   );
   const textModel = React.useMemo(
     () => getTextModelForProvider(effectiveProvider),
@@ -74,21 +109,28 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     setUpstreamText(readUpstreamText());
   }, [readUpstreamText]);
 
+  const updateNodeData = React.useCallback((patch: FlowUpdatePatch) => {
+    const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch } });
+    window.dispatchEvent(ev);
+  }, [id]);
+
   React.useEffect(() => {
     if ((data.expandedText || '') !== expandedText) setExpandedText(data.expandedText || '');
-  }, [data.expandedText]);
+  }, [data.expandedText, expandedText]);
 
   React.useEffect(() => {
     if (result?.optimizedPrompt) {
       setExpandedText(result.optimizedPrompt);
       updateNodeData({ expandedText: result.optimizedPrompt, text: result.optimizedPrompt });
     }
-  }, [result]);
-
-  const updateNodeData = (patch: Record<string, any>) => {
-    const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch } });
-    window.dispatchEvent(ev);
-  };
+  }, [result, updateNodeData]);
+  const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+    const native = (event as React.SyntheticEvent<unknown, Event>).nativeEvent as Event & {
+      stopImmediatePropagation?: () => void;
+    };
+    native.stopImmediatePropagation?.();
+  }, []);
 
   React.useEffect(() => {
     if (
@@ -104,7 +146,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   // 监听上游输入节点文本变化
   React.useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { id: string; patch: Record<string, any> };
+      const detail = (e as CustomEvent<{ id: string; patch: FlowUpdatePatch }>).detail;
       if (!detail?.id) return;
       try {
         const edges = rf.getEdges();
@@ -119,7 +161,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 
   // 已移除设置面板，无需处理设置变更
 
-  const handleOptimize = async (inputText?: string) => {
+  const handleOptimize = React.useCallback(async (inputText?: string) => {
     let text = inputText || upstreamText.trim();
     // 若本地输入为空，尝试读取上游 text 输入
     if (!text) {
@@ -145,7 +187,17 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         bananaImageRoute,
       }
     } satisfies PromptOptimizationRequest);
-  };
+  }, [
+    bananaImageRoute,
+    effectiveProvider,
+    expandedText,
+    isZh,
+    optimize,
+    readUpstreamText,
+    reset,
+    textModel,
+    upstreamText,
+  ]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -206,11 +258,82 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         alignItems: 'center', 
         justifyContent: 'space-between' 
       }}>
-        <span>Prompt Optimizer</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>Prompt Optimizer</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                className='nodrag nopan tanva-flow-provider-mode-badge'
+                title={lt('切换模型模式', 'Switch model mode')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '1px 8px',
+                  borderRadius: 50,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color:
+                    currentProviderValue === 'banana-3.1'
+                      ? '#0f172a'
+                      : '#475569',
+                  background:
+                    currentProviderValue === 'banana-3.1'
+                      ? '#e2e8f0'
+                      : '#f1f5f9',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                {currentProviderOption.label}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align='start'
+              side='bottom'
+              sideOffset={8}
+              className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+            >
+              <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                {lt('模型切换', 'Model switch')}
+              </DropdownMenuLabel>
+              {providerToggleOptions.map((option) => {
+                const isActive = currentProviderValue === option.value;
+                return (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (currentProviderValue !== option.value) {
+                        updateNodeData({ modelProvider: option.value });
+                      }
+                    }}
+                    onPointerDownCapture={stopNodeDrag}
+                    className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                      isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                    }`}
+                  >
+                    <div className='flex-1 space-y-0.5'>
+                      <div className='font-medium leading-none'>{option.label}</div>
+                      <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                    </div>
+                    {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
             onClick={() => handleOptimize()}
             disabled={loading}
+            className='run-btn-with-credit'
             title={
               loading
                 ? 'Generating...'
@@ -220,22 +343,25 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
             }
             style={{
               fontSize: 12,
-              padding: '4px 8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+              minHeight: 30,
+              padding: '0 10px',
               background: loading ? '#e5e7eb' : '#111827',
               color: '#fff',
               borderRadius: 6,
               border: 'none',
               cursor: loading ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
               gap: 6,
             }}
           >
             {loading ? (
-              lt('Generating...', 'Generating...')
+              <span className='run-text-trigger'>{lt('Generating...', 'Generating...')}</span>
             ) : (
               <>
-                <span>Run</span>
+                <span className='run-text-trigger'>Run</span>
                 <RunCreditBadge credits={resolvedRunCredits} runButton />
               </>
             )}

@@ -153,4 +153,10 @@ export class CreditsPreviewDto {
   @ApiPropertyOptional({ description: '请求上下文参数' })
   @IsOptional()
   requestParams?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: '预期输出图片数量' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  outputImageCount?: number;
 }

@@ -290,8 +290,8 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   // Ultra: gemini-3.1-image (Nano Banana-2)
   ultra: {
     '0.5K': 30,
-    '1K': 50,
-    '2K': 70,
+    '1K': 40,
+    '2K': 50,
     '4K': 110,
   },
 };
@@ -301,14 +301,14 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
   Record<BananaTextPricingTier, number>
 > = {
   normal: {
-    fast: 10,
-    pro: 20,
-    ultra: 30,
+    fast: 5,
+    pro: 5,
+    ultra: 5,
   },
   stable: {
-    fast: 20,
-    pro: 30,
-    ultra: 50,
+    fast: 10,
+    pro: 10,
+    ultra: 10,
   },
 };
 @Injectable()
@@ -357,6 +357,7 @@ export class CreditsService {
       serviceType: params.serviceType,
       model: params.model ?? null,
       requestParams: params.requestParams ?? null,
+      outputImageCount: params.outputImageCount ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
     return `credits:preview:v2:${digest}`;
@@ -404,6 +405,9 @@ export class CreditsService {
   private extractNodeConfigHintsFromRequestParams(requestParams: any): {
     nodeConfigKey?: string;
     nodeConfigNameZh?: string;
+    nodeConfigNameEn?: string;
+    billingModeName?: string;
+    billingTitleSource?: 'dialog' | 'node';
   } {
     if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
       return {};
@@ -415,10 +419,29 @@ export class CreditsService {
       typeof requestParams.nodeConfigNameZh === 'string'
         ? requestParams.nodeConfigNameZh.trim()
         : '';
+    const nodeConfigNameEn =
+      typeof requestParams.nodeConfigNameEn === 'string'
+        ? requestParams.nodeConfigNameEn.trim()
+        : '';
+    const billingModeName =
+      typeof requestParams.billingModeName === 'string'
+        ? requestParams.billingModeName.trim()
+        : '';
+    const billingTitleSourceRaw =
+      typeof requestParams.billingTitleSource === 'string'
+        ? requestParams.billingTitleSource.trim().toLowerCase()
+        : '';
+    const billingTitleSource =
+      billingTitleSourceRaw === 'dialog' || billingTitleSourceRaw === 'node'
+        ? (billingTitleSourceRaw as 'dialog' | 'node')
+        : undefined;
 
     return {
       ...(nodeConfigKey ? { nodeConfigKey } : {}),
       ...(nodeConfigNameZh ? { nodeConfigNameZh } : {}),
+      ...(nodeConfigNameEn ? { nodeConfigNameEn } : {}),
+      ...(billingModeName ? { billingModeName } : {}),
+      ...(billingTitleSource ? { billingTitleSource } : {}),
     };
   }
 
@@ -428,12 +451,17 @@ export class CreditsService {
   }) {
     const staticPricing =
       CREDIT_PRICING_CONFIG[params.serviceType as keyof typeof CREDIT_PRICING_CONFIG];
-    const { nodeConfigKey, nodeConfigNameZh } = this.extractNodeConfigHintsFromRequestParams(
-      params.requestParams,
-    );
+    const {
+      nodeConfigKey,
+      nodeConfigNameZh,
+      nodeConfigNameEn,
+      billingModeName,
+      billingTitleSource,
+    } = this.extractNodeConfigHintsFromRequestParams(params.requestParams);
 
     let nodeConfig: {
       nameZh: string;
+      nameEn: string;
       creditsPerCall: number;
       serviceType: string | null;
     } | null = null;
@@ -443,6 +471,7 @@ export class CreditsService {
         where: { nodeKey: nodeConfigKey },
         select: {
           nameZh: true,
+          nameEn: true,
           creditsPerCall: true,
           serviceType: true,
         },
@@ -465,6 +494,7 @@ export class CreditsService {
         where: { serviceType: params.serviceType },
         select: {
           nameZh: true,
+          nameEn: true,
           creditsPerCall: true,
           serviceType: true,
         },
@@ -483,17 +513,32 @@ export class CreditsService {
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE ? GPT_IMAGE2_CREDITS : nodeConfigCredits;
     const resolvedNodeConfigNameZh =
       nodeConfigKey && !nodeConfig ? '' : nodeConfigNameZh;
+    const resolvedNodeConfigNameEn =
+      nodeConfigKey && !nodeConfig ? '' : nodeConfigNameEn;
+    const inferredTitleSource =
+      billingTitleSource || (nodeConfigKey ? 'node' : 'dialog');
+    const serviceName =
+      inferredTitleSource === 'node'
+        ? resolvedNodeConfigNameEn ||
+          nodeConfig?.nameEn ||
+          resolvedNodeConfigNameZh ||
+          nodeConfig?.nameZh ||
+          staticPricing?.serviceName ||
+          params.serviceType
+        : billingModeName ||
+          resolvedNodeConfigNameZh ||
+          resolvedNodeConfigNameEn ||
+          nodeConfig?.nameZh ||
+          nodeConfig?.nameEn ||
+          staticPricing?.serviceName ||
+          params.serviceType;
 
     return {
       ...(staticPricing || {
         provider: 'custom',
         description: `Node-managed pricing for ${params.serviceType}`,
       }),
-      serviceName:
-        resolvedNodeConfigNameZh ||
-        nodeConfig?.nameZh ||
-        staticPricing?.serviceName ||
-        params.serviceType,
+      serviceName,
       creditsPerCall: effectiveCredits,
     };
   }
@@ -502,6 +547,7 @@ export class CreditsService {
     serviceType: ServiceType;
     model?: string;
     requestParams?: any;
+    outputImageCount?: number;
   }) {
     const normalizedRequestParams = this.normalizeManagedPricingRequestParams(params.requestParams);
     const pricing = await this.resolveServicePricing({
@@ -582,6 +628,14 @@ export class CreditsService {
           ? gptImage2RouteCredits
           : GPT_IMAGE2_CREDITS;
     }
+    const outputImageCountMultiplier = this.resolveOutputImageCountMultiplier(
+      params.serviceType,
+      params.outputImageCount,
+      effectiveRequestParams,
+    );
+    if (outputImageCountMultiplier > 1) {
+      creditsToDeduct *= outputImageCountMultiplier;
+    }
 
     const serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
@@ -604,6 +658,37 @@ export class CreditsService {
     if (serviceType === 'gemini-image-analyze') return 10;
     if (serviceType === 'gemini-3.1-image-analyze') return 10;
     return currentCredits;
+  }
+
+  private resolveOutputImageCountMultiplier(
+    serviceType: ServiceType,
+    outputImageCount: number | undefined,
+    requestParams: any,
+  ): number {
+    const isImageLikeService =
+      serviceType.includes('image') ||
+      serviceType.startsWith('midjourney') ||
+      serviceType === GPT_IMAGE2_SERVICE_TYPE ||
+      serviceType === 'expand-image' ||
+      serviceType === 'background-removal';
+    if (!isImageLikeService) return 1;
+
+    const directCount = Number(outputImageCount);
+    if (Number.isFinite(directCount) && directCount > 1) {
+      return Math.max(1, Math.floor(directCount));
+    }
+
+    const requestOutputCount = Number(requestParams?.outputImageCount);
+    if (Number.isFinite(requestOutputCount) && requestOutputCount > 1) {
+      return Math.max(1, Math.floor(requestOutputCount));
+    }
+
+    const requestBatchCount = Number(requestParams?.batchCount);
+    if (Number.isFinite(requestBatchCount) && requestBatchCount > 1) {
+      return Math.max(1, Math.floor(requestBatchCount));
+    }
+
+    return 1;
   }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
@@ -1935,9 +2020,9 @@ export class CreditsService {
 
   private formatBillingChannel(channel: string | null): string | null {
     if (!channel) return null;
-    if (channel === 'apimart') return '普通通道(apimart)';
-    if (channel === 'tencent') return '稳定通道(腾讯)';
-    if (channel === '147') return '147通道';
+    if (channel === 'apimart') return '普通路线';
+    if (channel === 'tencent') return '尊享路线';
+    if (channel === '147') return '官方路线';
     return channel;
   }
 
@@ -2048,11 +2133,21 @@ export class CreditsService {
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
-        remarkParts.push('计价: 按稳定通道积分价');
+        remarkParts.push('计价: 按尊享路线积分价');
       } else if (channel === 'apimart') {
-        remarkParts.push('计价: 按普通通道积分价');
+        remarkParts.push('计价: 按普通路线积分价');
       } else if (channel === '147') {
-        remarkParts.push('计价: 按官方通道积分价');
+        remarkParts.push('计价: 按官方路线积分价');
+      }
+    }
+    const isBananaTextService =
+      params.serviceType === 'gemini-text' ||
+      params.serviceType === 'gemini-prompt-optimize';
+    if (isBananaTextService) {
+      if (channel === 'tencent') {
+        remarkParts.push('Pricing: text stable route 10 credits/call');
+      } else if (channel === 'apimart') {
+        remarkParts.push('Pricing: text normal route 5 credits/call');
       }
     }
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
@@ -3213,6 +3308,7 @@ export class CreditsService {
       serviceType,
       model,
       requestParams,
+      outputImageCount,
     });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
       effectiveRequestParams,
@@ -3433,6 +3529,7 @@ export class CreditsService {
         serviceType: params.serviceType,
         model: params.model,
         requestParams: params.requestParams,
+        outputImageCount: params.outputImageCount,
       });
       cachedQuote = {
         serviceName: quote.serviceName,
