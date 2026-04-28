@@ -177,6 +177,14 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   nodeConfigNameEn?: string;
+
+  @IsOptional()
+  @IsString()
+  billingModeName?: string;
+
+  @IsOptional()
+  @IsString()
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 export class EditImageDto {
@@ -266,6 +274,14 @@ export class EditImageDto {
   @IsOptional()
   @IsString()
   nodeConfigNameEn?: string;
+
+  @IsOptional()
+  @IsString()
+  billingModeName?: string;
+
+  @IsOptional()
+  @IsString()
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 export class BlendImagesDto {
@@ -357,6 +373,14 @@ export class BlendImagesDto {
   @IsOptional()
   @IsString()
   nodeConfigNameEn?: string;
+
+  @IsOptional()
+  @IsString()
+  billingModeName?: string;
+
+  @IsOptional()
+  @IsString()
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 export class AnalyzeImageDto {

@@ -549,7 +549,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       {
         value: 'banana-2.5',
         label: 'Fast',
-        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+        description: lt('Nano Banana/Gemini 2.5', 'Nano Banana/Gemini 2.5'),
       },
       {
         value: 'banana',
@@ -559,7 +559,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       {
         value: 'banana-3.1',
         label: 'Ultra',
-        description: lt('Nano Banana 2+Gemini 3.1', 'Nano Banana 2+Gemini 3.1'),
+        description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
       },
     ],
     [lt]

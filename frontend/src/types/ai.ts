@@ -148,6 +148,8 @@ export interface AIImageGenerateRequest {
   nodeConfigKey?: string;
   nodeConfigNameZh?: string;
   nodeConfigNameEn?: string;
+  billingModeName?: string;
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 // AI鍥惧儚缂栬緫璇锋眰鍙傛暟
@@ -186,6 +188,8 @@ export interface AIImageEditRequest {
   nodeConfigKey?: string;
   nodeConfigNameZh?: string;
   nodeConfigNameEn?: string;
+  billingModeName?: string;
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 // AI鍥惧儚铻嶅悎璇锋眰鍙傛暟
@@ -224,6 +228,8 @@ export interface AIImageBlendRequest {
   nodeConfigKey?: string;
   nodeConfigNameZh?: string;
   nodeConfigNameEn?: string;
+  billingModeName?: string;
+  billingTitleSource?: 'dialog' | 'node';
 }
 
 // AI鐢熸垚缁撴灉

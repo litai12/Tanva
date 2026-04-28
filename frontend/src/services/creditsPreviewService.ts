@@ -5,6 +5,7 @@ export type CreditsPreviewRequest = {
   serviceType: string;
   model?: string;
   requestParams?: Record<string, any>;
+  outputImageCount?: number;
 };
 
 export type CreditsPreviewResponse = {
@@ -53,6 +54,7 @@ export const buildPreviewRequestSignature = (payload: CreditsPreviewRequest): st
     serviceType: payload.serviceType,
     model: payload.model || null,
     requestParams: payload.requestParams || null,
+    outputImageCount: payload.outputImageCount ?? null,
   });
 
 const PREVIEW_CACHE_TTL_MS = 30000;

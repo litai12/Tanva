@@ -17627,7 +17627,7 @@ function FlowInner() {
           if (runProvider === "banana-2.5") {
             return "gemini-2.5-flash-image-preview";
           }
-          return "gemini-3-pro-image-preview";
+          return "gemini-3-flash-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
         return getImageModelForProvider(runProvider);

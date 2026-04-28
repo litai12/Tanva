@@ -1549,6 +1549,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         parallelGroupTotal,
 	      });
 
+      // Keep expand-image result as a new image at placeholder position.
+      // Do not replace the source image in-place.
+
 	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
 	        const handle = () => {
           let resolvedSmartPosition = smartPosition;

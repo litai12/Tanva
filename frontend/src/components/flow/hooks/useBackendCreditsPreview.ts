@@ -8,6 +8,7 @@ type Params = {
   serviceType?: string | null;
   model?: string | null;
   requestParams?: Record<string, any> | null;
+  outputImageCount?: number;
   enabled?: boolean;
 };
 
@@ -15,6 +16,7 @@ export const useBackendCreditsPreview = ({
   serviceType,
   model,
   requestParams,
+  outputImageCount,
   enabled = true,
 }: Params) => {
   const [credits, setCredits] = React.useState<number | undefined>(undefined);
@@ -24,8 +26,9 @@ export const useBackendCreditsPreview = ({
       serviceType,
       model: model || undefined,
       requestParams: requestParams || undefined,
+      outputImageCount,
     });
-  }, [enabled, model, requestParams, serviceType]);
+  }, [enabled, model, outputImageCount, requestParams, serviceType]);
 
   React.useEffect(() => {
     if (!enabled || !serviceType) {
@@ -39,6 +42,7 @@ export const useBackendCreditsPreview = ({
         serviceType,
         model: model || undefined,
         requestParams: requestParams || undefined,
+        outputImageCount,
       })
         .then((result) => {
           if (cancelled) return;
@@ -55,7 +59,7 @@ export const useBackendCreditsPreview = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [enabled, requestSignature, serviceType]);
+  }, [enabled, outputImageCount, requestSignature, serviceType]);
 
   return {
     credits,

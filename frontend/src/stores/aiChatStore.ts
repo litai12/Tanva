@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI聊天对话框状态管理
  * 管理对话框显示、输入内容和生成状态
  */
@@ -554,8 +554,8 @@ const withBananaRouteProviderOptions = (
   };
 };
 
-const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
-const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const DEFAULT_IMAGE_MODEL = "gemini-3-flash-preview";
+const GEMINI_PRO_IMAGE_MODEL = "gemini-3-flash-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";

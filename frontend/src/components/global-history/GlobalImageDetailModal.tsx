@@ -21,7 +21,7 @@ const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
 };
 
 const BANANA_31_MODEL = 'gemini-3.1-flash-image-preview';
-const BANANA_PRO_MODEL = 'gemini-3-pro-image-preview';
+const BANANA_PRO_MODEL = 'gemini-3-flash-preview';
 
 const pickString = (...values: unknown[]): string | undefined => {
   for (const value of values) {

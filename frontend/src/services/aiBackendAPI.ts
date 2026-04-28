@@ -27,7 +27,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
-const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const DEFAULT_IMAGE_MODEL = "gemini-3-flash-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
@@ -915,7 +915,10 @@ export async function blendImagesViaAPI(
       return lastResponse;
     }
 
-    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+    if (
+      lastResponse.data.hasImage &&
+      (lastResponse.data.imageData || lastResponse.data.imageUrl)
+    ) {
       logApiTiming("blend-images", startedAt, {
         success: true,
         attempts,
