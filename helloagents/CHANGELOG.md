@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.

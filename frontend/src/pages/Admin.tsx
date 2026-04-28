@@ -8405,6 +8405,7 @@ function VipManagementTab() {
     { value: "disabled", label: "不支持" },
     { value: "enabled", label: "支持" },
   ] as const;
+  const HAPPYHORSE_ACCESS_OPTIONS = SEEDANCE2_ACCESS_OPTIONS;
   const NO_WATERMARK_ACCESS_OPTIONS = [
     { value: "disabled", label: "不支持" },
     { value: "enabled", label: "支持" },
@@ -8417,6 +8418,7 @@ function VipManagementTab() {
     imageDailyLimit: 0,
     videoDailyLimit: 0,
     seedance2Access: "disabled",
+    happyhorseAccess: "disabled",
     supportLevel: "有限技术支持",
   };
   const DEFAULT_PLAN_METADATA_TEXT = JSON.stringify(
@@ -8458,6 +8460,11 @@ function VipManagementTab() {
     return value === "enabled" ? "enabled" : "disabled";
   };
 
+  const getPlanHappyhorseAccess = (metadata?: Record<string, any> | null) => {
+    const value = getPlanMetadataObject(metadata).happyhorseAccess;
+    return value === "enabled" ? "enabled" : "disabled";
+  };
+
   const getPlanNoWatermarkAccess = (metadata?: Record<string, any> | null) => {
     const value = getPlanMetadataObject(metadata).noWatermarkAccess;
     return value === "enabled" ? "enabled" : "disabled";
@@ -8470,6 +8477,7 @@ function VipManagementTab() {
       templateLibraryAccess: string;
       inviteLimit: string;
       seedance2Access: string;
+      happyhorseAccess: string;
       noWatermarkAccess: string;
       supportLevel: string;
     },
@@ -8498,6 +8506,12 @@ function VipManagementTab() {
       nextMetadata.seedance2Access = "enabled";
     } else {
       nextMetadata.seedance2Access = "disabled";
+    }
+
+    if (form.happyhorseAccess === "enabled") {
+      nextMetadata.happyhorseAccess = "enabled";
+    } else {
+      nextMetadata.happyhorseAccess = "disabled";
     }
 
     if (form.noWatermarkAccess === "enabled") {
@@ -8541,6 +8555,7 @@ function VipManagementTab() {
     imageDailyLimit: string;
     videoDailyLimit: string;
     seedance2Access: string;
+    happyhorseAccess: string;
     supportLevel: string;
   }>({
     monthlyQuotaCredits: "500",
@@ -8552,6 +8567,7 @@ function VipManagementTab() {
     imageDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit),
     videoDailyLimit: String(DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit),
     seedance2Access: DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
+    happyhorseAccess: DEFAULT_FREE_TIER_BENEFITS.happyhorseAccess,
     supportLevel: DEFAULT_FREE_TIER_BENEFITS.supportLevel,
   });
   const [policyForm, setPolicyForm] = useState<MembershipCreditPolicyConfig>({
@@ -8574,6 +8590,7 @@ function VipManagementTab() {
     templateLibraryAccess: string;
     inviteLimit: string;
     seedance2Access: string;
+    happyhorseAccess: string;
     noWatermarkAccess: string;
     supportLevel: string;
     sortOrder: string;
@@ -8590,6 +8607,7 @@ function VipManagementTab() {
     templateLibraryAccess: "",
     inviteLimit: "",
     seedance2Access: "disabled",
+    happyhorseAccess: "disabled",
     noWatermarkAccess: "disabled",
     supportLevel: "",
     sortOrder: "0",
@@ -8628,6 +8646,8 @@ function VipManagementTab() {
             videoDailyLimit: DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit,
             seedance2Access:
               raw?.seedance2Access === "enabled" ? "enabled" : DEFAULT_FREE_TIER_BENEFITS.seedance2Access,
+            happyhorseAccess:
+              raw?.happyhorseAccess === "enabled" ? "enabled" : DEFAULT_FREE_TIER_BENEFITS.happyhorseAccess,
             supportLevel:
               typeof raw?.supportLevel === "string" && raw.supportLevel.trim()
                 ? raw.supportLevel.trim()
@@ -8649,6 +8669,7 @@ function VipManagementTab() {
         imageDailyLimit: String(parsedFreeTier.imageDailyLimit),
         videoDailyLimit: String(parsedFreeTier.videoDailyLimit),
         seedance2Access: parsedFreeTier.seedance2Access,
+        happyhorseAccess: parsedFreeTier.happyhorseAccess,
         supportLevel: parsedFreeTier.supportLevel,
       });
     } catch (error) {
@@ -8678,6 +8699,7 @@ function VipManagementTab() {
       templateLibraryAccess: "",
       inviteLimit: "",
       seedance2Access: "disabled",
+      happyhorseAccess: "disabled",
       noWatermarkAccess: "disabled",
       supportLevel: "",
       sortOrder: "0",
@@ -8709,6 +8731,7 @@ function VipManagementTab() {
       templateLibraryAccess: getPlanTemplateLibraryAccess(plan.metadata),
       inviteLimit: getPlanInviteLimit(plan.metadata),
       seedance2Access: getPlanSeedance2Access(plan.metadata),
+      happyhorseAccess: getPlanHappyhorseAccess(plan.metadata),
       noWatermarkAccess: getPlanNoWatermarkAccess(plan.metadata),
       supportLevel: getPlanSupportLevel(plan.metadata),
       sortOrder: String(plan.sortOrder),
@@ -8738,6 +8761,7 @@ function VipManagementTab() {
       templateLibraryAccess: planForm.templateLibraryAccess,
       inviteLimit: planForm.inviteLimit,
       seedance2Access: planForm.seedance2Access,
+      happyhorseAccess: planForm.happyhorseAccess,
       noWatermarkAccess: planForm.noWatermarkAccess,
       supportLevel: planForm.supportLevel,
     });
@@ -8828,6 +8852,7 @@ function VipManagementTab() {
             imageDailyLimit: Math.trunc(imageDailyLimit),
             videoDailyLimit: Math.trunc(videoDailyLimit),
             seedance2Access: freeTierBenefits.seedance2Access === "enabled" ? "enabled" : "disabled",
+            happyhorseAccess: "disabled",
             supportLevel: freeTierBenefits.supportLevel.trim(),
           }),
           description: "会员权益配置：免费用户档位",
@@ -9079,6 +9104,7 @@ function VipManagementTab() {
                   <div className='mb-1 text-xs text-gray-500'>
                     {`Seedance 2 权益：${freeTierBenefits.seedance2Access === "enabled" ? "支持" : "不支持"}`}
                   </div>
+                  <div className='mb-1 text-xs text-gray-500'>快乐马权益：不支持</div>
                   <div className='mb-1 text-xs text-gray-500'>无水印权益：不支持</div>
                   <div className='flex flex-wrap gap-2'>
                     <Button size='sm' variant='outline' onClick={() => setFreeTierModalOpen(true)}>
@@ -9116,6 +9142,9 @@ function VipManagementTab() {
                     <div className='mb-1 text-xs text-gray-500'>{getPlanCoreBenefits(plan.metadata) || "-"}</div>
                     <div className='mb-1 text-xs text-gray-500'>
                       {`Seedance 2 权益：${getPlanSeedance2Access(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
+                    </div>
+                    <div className='mb-1 text-xs text-gray-500'>
+                      {`快乐马权益：${getPlanHappyhorseAccess(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
                     </div>
                     <div className='mb-1 text-xs text-gray-500'>
                       {`无水印权益：${getPlanNoWatermarkAccess(plan.metadata) === "enabled" ? "支持" : "不支持"}`}
@@ -9252,7 +9281,7 @@ function VipManagementTab() {
                   onChange={(e) =>
                     setPlanForm((current) => ({ ...current, coreBenefits: e.target.value }))
                   }
-                  placeholder='去水印、Seedance 2 权益、积分不衰减，每日签到 50 积分'
+                  placeholder='去水印、Seedance 2 / 快乐马权益、积分不衰减，每日签到 50 积分'
                 />
               </div>
               <div>
@@ -9292,6 +9321,26 @@ function VipManagementTab() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <div className='mb-1 text-sm text-gray-600'>快乐马权益</div>
+                <select
+                  value={planForm.happyhorseAccess}
+                  onChange={(e) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      happyhorseAccess: e.target.value,
+                    }))
+                  }
+                  className='w-full rounded-md border border-gray-300 px-3 py-2 text-sm'
+                >
+                  {HAPPYHORSE_ACCESS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className='mt-1 text-xs text-gray-400'>默认不支持；成功充值用户也可使用，未充值会员需启用该套餐权益。</div>
               </div>
               <div>
                 <div className='mb-1 text-sm text-gray-600'>无水印权益</div>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-10T01:44:25.830Z",
+  "generatedAt": "2026-04-28T11:49:30.230Z",
   "project": {
     "root": ".",
     "name": "Tanva",
@@ -8,8 +8,8 @@
     "aliasPaths": []
   },
   "counts": {
-    "trackedFiles": 816,
-    "sourceFiles": 460
+    "trackedFiles": 907,
+    "sourceFiles": 497
   },
   "files": {
     "backend/check-cdn.js": {
@@ -502,9 +502,10 @@
     "backend/src/admin/admin.controller.ts": {
       "path": "backend/src/admin/admin.controller.ts",
       "kind": "ts",
-      "bytes": 24104,
-      "sha256": "1e374c220f97bb1749c99bb05461d11d1436a5bf6484a3dafc4031ddf7cdbd4c",
+      "bytes": 26071,
+      "sha256": "28aebf9457cfd45e68fb0079f53dfdbb329d900860f6bee6cafa67d276fe53b9",
       "importSpecifiers": [
+        "../ai/services/model-routing.service",
         "../auth/guards/jwt.guard",
         "../business-policy/business-policy.service",
         "../business-policy/business-policy.types",
@@ -512,6 +513,7 @@
         "../credits/credits.service",
         "../credits/dto/credits.dto",
         "../membership/membership.service",
+        "../volc-asset/volc-asset.service",
         "./admin.service",
         "./dto/admin.dto",
         "./dto/template.dto",
@@ -544,14 +546,15 @@
     "backend/src/admin/admin.module.ts": {
       "path": "backend/src/admin/admin.module.ts",
       "kind": "ts",
-      "bytes": 1490,
-      "sha256": "01d84c21e5e385ac5243a8204d3b44a6d157e64506c4ce71783c80ee5f0b7109",
+      "bytes": 1574,
+      "sha256": "5f906396cba9b81c960d3f0f41c78b0177c718a23dbbb16fbd151eea2fb99fa8",
       "importSpecifiers": [
         "../business-policy/business-policy.module",
         "../credits/credits.module",
         "../membership/membership.module",
         "../oss/oss.module",
         "../prisma/prisma.module",
+        "../volc-asset/volc-asset.module",
         "./admin.controller",
         "./admin.service",
         "./services/node-config.service",
@@ -580,8 +583,8 @@
     "backend/src/admin/admin.service.ts": {
       "path": "backend/src/admin/admin.service.ts",
       "kind": "ts",
-      "bytes": 33980,
-      "sha256": "565881a922576b04ce90d437233f3b8c05ffca3811e4923c996fb1f69011c6a5",
+      "bytes": 35057,
+      "sha256": "8742a9c726b85458b289721d9f4ead727fd6a1d62626140ae152defa17d49879",
       "importSpecifiers": [
         "../credits/dto/credits.dto",
         "../prisma/prisma.service",
@@ -675,9 +678,10 @@
     "backend/src/admin/services/node-config.service.ts": {
       "path": "backend/src/admin/services/node-config.service.ts",
       "kind": "ts",
-      "bytes": 51257,
-      "sha256": "0ff3f2165c6c592510a3fada5d8ef36b048e88a5790c4f56fb88c75e6986e375",
+      "bytes": 71103,
+      "sha256": "efb6f5a48f5ab43733b6006187c77ebc623b7e1be6e991ae142cbb908463eb03",
       "importSpecifiers": [
+        "../../ai/services/model-pricing-resolver",
         "../../ai/services/model-routing.service",
         "../../prisma/prisma.service",
         "@nestjs/common",
@@ -686,6 +690,7 @@
       "dynamicImportSpecifiers": [],
       "exports": {
         "named": [
+          "ManagedPricingPreviewInput",
           "NodeConfigDto",
           "NodeConfigService",
           "UpdateNodeConfigDto"
@@ -696,6 +701,7 @@
         "feature": "module",
         "routes": [],
         "tags": [
+          "flow",
           "gemini",
           "kling",
           "storyboard"
@@ -708,8 +714,8 @@
     "backend/src/admin/services/template.service.ts": {
       "path": "backend/src/admin/services/template.service.ts",
       "kind": "ts",
-      "bytes": 6567,
-      "sha256": "2cb9576e4e220d5cef55a52738fa7fd311fbe16f0ceac4bb99021935d1ca1e4c",
+      "bytes": 9526,
+      "sha256": "cd691260e8e29789073083194be3c0f9aa1b467e2c9ed3a32a44771da138965c",
       "importSpecifiers": [
         "../../oss/oss.service",
         "../../prisma/prisma.service",
@@ -727,7 +733,9 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "subscription"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -857,8 +865,8 @@
     "backend/src/ai/ai-provider.factory.ts": {
       "path": "backend/src/ai/ai-provider.factory.ts",
       "kind": "ts",
-      "bytes": 5983,
-      "sha256": "7c43c781b7bb51ef53527d7bd373ee61db9b8b54657392f111749a7afb02fdd2",
+      "bytes": 6048,
+      "sha256": "2b141a8fb09f13a3edb695c296844ca078168deccc24b5badc5affaee60f7022",
       "importSpecifiers": [
         "./providers/ai-provider.interface",
         "./providers/banana.provider",
@@ -891,8 +899,8 @@
     "backend/src/ai/ai.controller.ts": {
       "path": "backend/src/ai/ai.controller.ts",
       "kind": "ts",
-      "bytes": 174394,
-      "sha256": "d99b4670230a0e791d0cdb90a3d098a2a07ca81172613e73ab350d300ca231e4",
+      "bytes": 215997,
+      "sha256": "3bd8edc179a677b68925d9b923b5697fd9bea178cc695dd2b3155c2cfdabbdcc",
       "importSpecifiers": [
         "../auth/guards/api-key-or-jwt.guard",
         "../credits/credits.config",
@@ -965,7 +973,9 @@
           "gemini",
           "http",
           "kling",
+          "settings",
           "storyboard",
+          "subscription",
           "token",
           "worker"
         ],
@@ -1106,8 +1116,8 @@
     "backend/src/ai/dto/image-generation.dto.ts": {
       "path": "backend/src/ai/dto/image-generation.dto.ts",
       "kind": "ts",
-      "bytes": 6905,
-      "sha256": "6d819923eb6e15d187609a33f9f0a77738f67e6292e7037024772f9393056ec6",
+      "bytes": 9121,
+      "sha256": "19fbea955f4c7b7a13617493661f8bf85d60ee59df34315778baf54daed513af",
       "importSpecifiers": [
         "class-validator"
       ],
@@ -1339,8 +1349,8 @@
     "backend/src/ai/dto/tool-selection.dto.ts": {
       "path": "backend/src/ai/dto/tool-selection.dto.ts",
       "kind": "ts",
-      "bytes": 992,
-      "sha256": "0b218ee975f5f8086b5b4b3c5db0da6a907e70be6c065f9aa735bea2150945af",
+      "bytes": 1076,
+      "sha256": "e7bd8f4d39560ad3cb4f8ef606cd0a0898ab7b77dc6bf4b23d9153285e2e35fe",
       "importSpecifiers": [
         "class-transformer",
         "class-validator"
@@ -1448,8 +1458,8 @@
     "backend/src/ai/dto/video-provider.dto.ts": {
       "path": "backend/src/ai/dto/video-provider.dto.ts",
       "kind": "ts",
-      "bytes": 3518,
-      "sha256": "6115961631abd1b5e21beb4e00fba8712e9f06b2fde7b180f2eac841a9ab7ba6",
+      "bytes": 4425,
+      "sha256": "21ca0dfefebaa8f5d53e6776daaf278f44b1cc1babb1ada0162f5ccf80c68044",
       "importSpecifiers": [
         "@nestjs/swagger",
         "class-validator"
@@ -1457,6 +1467,7 @@
       "dynamicImportSpecifiers": [],
       "exports": {
         "named": [
+          "ReferenceImageItem",
           "VideoProviderRequestDto"
         ],
         "default": false
@@ -1465,7 +1476,8 @@
         "feature": "module",
         "routes": [],
         "tags": [
-          "kling"
+          "kling",
+          "storyboard"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -1475,8 +1487,8 @@
     "backend/src/ai/image-generation.service.ts": {
       "path": "backend/src/ai/image-generation.service.ts",
       "kind": "ts",
-      "bytes": 55440,
-      "sha256": "b199bdd1aac3c4bc61d2b523cef57621c2c9d889122bc4be57219c85a0e0cc30",
+      "bytes": 55551,
+      "sha256": "b11c624e6be017de8834b8f485f1ac2cb4661845d33702e5806bf68c429faf50",
       "importSpecifiers": [
         "@google/genai",
         "@nestjs/common",
@@ -1539,8 +1551,8 @@
     "backend/src/ai/providers/ai-provider.interface.ts": {
       "path": "backend/src/ai/providers/ai-provider.interface.ts",
       "kind": "ts",
-      "bytes": 5859,
-      "sha256": "00a1ec0115894df97bef528b9d8fd237fdf7756c702c9e96798fb1bba92f4e37",
+      "bytes": 6276,
+      "sha256": "defb6696a6997e6bc9d92ed1cf845f519792b241d6ba0ff3dc70249bd9fc1096",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -1548,6 +1560,8 @@
           "AIProviderConfig",
           "AIProviderResponse",
           "AnalysisResult",
+          "BananaImageRoute",
+          "BananaProviderOptions",
           "IAIProvider",
           "ImageAnalysisRequest",
           "ImageBlendRequest",
@@ -1587,8 +1601,8 @@
     "backend/src/ai/providers/banana.provider.ts": {
       "path": "backend/src/ai/providers/banana.provider.ts",
       "kind": "ts",
-      "bytes": 99410,
-      "sha256": "418677645df9ee7f54cc249761d3357a07d885567f157d7f6b6a1720c65efc5f",
+      "bytes": 114809,
+      "sha256": "79df6185a1c1fb7466339aebdd9279ebacbb004dffdbdc2235368a82316d8c7f",
       "importSpecifiers": [
         "../../prisma/prisma.service",
         "../services/tencent-vod-aigc.service",
@@ -1619,13 +1633,15 @@
           "gemini",
           "http",
           "kling",
-          "settings"
+          "settings",
+          "token"
         ],
         "apiEndpoints": [
           "https://api.apimart.ai/v1/chat/completions",
           "https://api.apimart.ai/v1/images/generations",
           "https://api.apimart.ai/v1/tasks",
-          "https://api1.147ai.com/v1beta/models"
+          "https://api1.147ai.com/v1beta/models",
+          "https://text-aigc.vod-qcloud.com/v1/chat/completions"
         ],
         "storageKeys": [],
         "envVars": []
@@ -1701,8 +1717,8 @@
     "backend/src/ai/providers/nano2.provider.ts": {
       "path": "backend/src/ai/providers/nano2.provider.ts",
       "kind": "ts",
-      "bytes": 4425,
-      "sha256": "81597e0f9b12ae69fe96485adf107e490b8f11073dc3439f2276a1cb53f707df",
+      "bytes": 11338,
+      "sha256": "ae2b63686e49de07926fa112402f6d9a644bf7684cecbcddab6d90719d44b253",
       "importSpecifiers": [
         "../services/nano2.service",
         "./ai-provider.interface",
@@ -1720,7 +1736,9 @@
         "feature": "module",
         "routes": [],
         "tags": [
-          "gemini"
+          "gemini",
+          "http",
+          "profile"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -1964,14 +1982,19 @@
     "backend/src/ai/services/image-task.service.ts": {
       "path": "backend/src/ai/services/image-task.service.ts",
       "kind": "ts",
-      "bytes": 7618,
-      "sha256": "9bb97d4b3c12771c13b37bf1706039bad17d40027705d9b312aaabed2bc43690",
+      "bytes": 18406,
+      "sha256": "dc0185a14e577b78ba4fb40d2597babb446b75b21a0793c673c2c8f1e5472cbe",
       "importSpecifiers": [
+        "../../credits/credits.service",
+        "../../credits/dto/credits.dto",
+        "../../oss/oss.service",
         "../../prisma/prisma.service",
         "../../telemetry/openobserve-telemetry.service",
         "../../telemetry/tracing",
         "../image-generation.service",
-        "@nestjs/common"
+        "@nestjs/common",
+        "crypto",
+        "stream"
       ],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -1985,7 +2008,10 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "gemini",
+          "http"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -2057,13 +2083,60 @@
         "envVars": []
       }
     },
+    "backend/src/ai/services/model-pricing-resolver.ts": {
+      "path": "backend/src/ai/services/model-pricing-resolver.ts",
+      "kind": "ts",
+      "bytes": 29946,
+      "sha256": "7d1fcdf5d9774127e183c2e816191d242ff73d6a576fdeaf5c18fc5dc266d219",
+      "importSpecifiers": [
+        "json-rules-engine"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "ManagedPriceBundle",
+          "ManagedPricingBasePlusLinearEvaluator",
+          "ManagedPricingBook",
+          "ManagedPricingCondition",
+          "ManagedPricingConditionGroup",
+          "ManagedPricingDimensionDefinition",
+          "ManagedPricingDimensionOption",
+          "ManagedPricingEvaluator",
+          "ManagedPricingFixedEvaluator",
+          "ManagedPricingLinearEvaluator",
+          "ManagedPricingLookupMatrixEvaluator",
+          "ManagedPricingMappingLike",
+          "ManagedPricingMatchingRule",
+          "ManagedPricingModelLike",
+          "ManagedPricingRule",
+          "ManagedPricingVendorLike",
+          "ResolvedManagedPricing",
+          "resolveManagedModelPricing",
+          "resolveManagedModelPricingV2",
+          "resolveManagedVendorDefaultPricing",
+          "resolveManagedVendorDefaultPricingV2",
+          "resolveManagedVendorPricing",
+          "resolveManagedVendorPricingV2"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "backend/src/ai/services/model-routing.service.ts": {
       "path": "backend/src/ai/services/model-routing.service.ts",
       "kind": "ts",
-      "bytes": 26563,
-      "sha256": "426222c5cc34ba1f3d3ec2439eb7cfc583a6752778800741555daed21adc5ef3",
+      "bytes": 41578,
+      "sha256": "f8350702ee536a97b7f7bf1813e270ab2b8b9f45608b79d4f735a1507f6900a6",
       "importSpecifiers": [
         "../../prisma/prisma.service",
+        "./model-pricing-resolver",
         "@nestjs/common"
       ],
       "dynamicImportSpecifiers": [],
@@ -2100,8 +2173,8 @@
     "backend/src/ai/services/nano2.service.ts": {
       "path": "backend/src/ai/services/nano2.service.ts",
       "kind": "ts",
-      "bytes": 3511,
-      "sha256": "da6921d18059d6c0c24185300875f66a591a956f37dff2c3618530bd958b28c7",
+      "bytes": 8065,
+      "sha256": "cd229d599b5f5fbcbe0fd14614cc5fc972c45fc14d1f6e2c2f26627e961fbf3b",
       "importSpecifiers": [
         "@nestjs/common",
         "@nestjs/config"
@@ -2258,8 +2331,8 @@
     "backend/src/ai/services/tencent-vod-aigc.service.ts": {
       "path": "backend/src/ai/services/tencent-vod-aigc.service.ts",
       "kind": "ts",
-      "bytes": 26980,
-      "sha256": "7a8942207a227a00ba1f08e0aad89d257dd3ba3c391ad550dceee6373f3372ac",
+      "bytes": 27565,
+      "sha256": "f76fbdef997d5fb851098d619ffdaf78bf3f4d6fc4fd9535b30cd1edf11c545f",
       "importSpecifiers": [
         "@nestjs/common",
         "@nestjs/config",
@@ -2328,8 +2401,8 @@
     "backend/src/ai/services/video-provider.service.ts": {
       "path": "backend/src/ai/services/video-provider.service.ts",
       "kind": "ts",
-      "bytes": 99781,
-      "sha256": "fc7818dc05cf2319af3bcb60d5a0547e437275722c97a1634d9df4c9036c8bf7",
+      "bytes": 115503,
+      "sha256": "4341da5d58a94611e024e94471bb5487016b0d17a58f0a453a0248e4f0662f9e",
       "importSpecifiers": [
         "../../oss/oss.service",
         "../dto/video-provider.dto",
@@ -2354,6 +2427,7 @@
           "http",
           "kling",
           "profile",
+          "storyboard",
           "token"
         ],
         "apiEndpoints": [
@@ -2470,13 +2544,14 @@
     "backend/src/app.module.ts": {
       "path": "backend/src/app.module.ts",
       "kind": "ts",
-      "bytes": 1817,
-      "sha256": "c5af39174c594e198f128635fb5400c79b5cba3ea2de536a6281df8ab0826843",
+      "bytes": 1983,
+      "sha256": "1f7533460699fdc8425eda63c05039a3c9a754bc44e85025ddec27d9ca87450e",
       "importSpecifiers": [
         "./admin/admin.module",
         "./ai-public/ai-public.module",
         "./ai/ai.module",
         "./auth/auth.module",
+        "./bio-auth/bio-auth.module",
         "./credits/credits.module",
         "./global-image-history/global-image-history.module",
         "./health/health.module",
@@ -2491,6 +2566,7 @@
         "./templates/templates.module",
         "./user-templates/user-templates.module",
         "./users/users.module",
+        "./volc-asset/volc-asset.module",
         "@nestjs/common",
         "@nestjs/config",
         "@nestjs/schedule"
@@ -2516,8 +2592,8 @@
     "backend/src/auth/auth.controller.ts": {
       "path": "backend/src/auth/auth.controller.ts",
       "kind": "ts",
-      "bytes": 8737,
-      "sha256": "0a71c2526d871c9099970226540c7134c22a88298727962c9b879e35f264f386",
+      "bytes": 8782,
+      "sha256": "472bb979068d23023a80a445e2150ac46067cb4087d4f4bf4ed82c1d8384f1dd",
       "importSpecifiers": [
         "./auth.service",
         "./dto/login.dto",
@@ -2590,8 +2666,8 @@
     "backend/src/auth/auth.service.ts": {
       "path": "backend/src/auth/auth.service.ts",
       "kind": "ts",
-      "bytes": 42498,
-      "sha256": "112984a7fa4ee0c222299bb3dd8193fb370a1d3d6429fe4fc544b3b2424dc54c",
+      "bytes": 46536,
+      "sha256": "27fda65814e972784bb4dc6bc409b2303fca2bb07b7cee85254cb8f2a3a780d5",
       "importSpecifiers": [
         "../credits/credits.service",
         "../prisma/prisma.service",
@@ -2625,7 +2701,7 @@
         ],
         "apiEndpoints": [
           "http://localhost:5173",
-          "https://api.weixin.qq.com/cgi-bin/token",
+          "https://api.weixin.qq.com/cgi-bin/stable_token",
           "https://api.weixin.qq.com/cgi-bin/user/info",
           "https://watcha.cn/oauth/api/token",
           "https://watcha.cn/oauth/api/userinfo",
@@ -2918,6 +2994,137 @@
         "envVars": []
       }
     },
+    "backend/src/bio-auth/bio-auth.controller.ts": {
+      "path": "backend/src/bio-auth/bio-auth.controller.ts",
+      "kind": "ts",
+      "bytes": 2268,
+      "sha256": "23206facd59c378042b507595fd727b0830e2ba712c7c24861769b3d3740ae37",
+      "importSpecifiers": [
+        "../auth/guards/api-key-or-jwt.guard",
+        "./bio-auth.dto",
+        "./bio-auth.service",
+        "@nestjs/common",
+        "@nestjs/swagger"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthController"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "token"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/bio-auth/bio-auth.dto.ts": {
+      "path": "backend/src/bio-auth/bio-auth.dto.ts",
+      "kind": "ts",
+      "bytes": 1122,
+      "sha256": "894f4babb055f2454cce9629ae4ab8b7ff5330e1fc4f8b16345e3191a833e544",
+      "importSpecifiers": [
+        "@nestjs/swagger",
+        "class-validator"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthGroupItem",
+          "BioAuthStatus",
+          "BioAuthStatusResponse",
+          "CreateAssetInGroupDto",
+          "CreateAssetInGroupResponse",
+          "ListGroupsResponse",
+          "StartBioAuthDto",
+          "StartBioAuthResponse"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/bio-auth/bio-auth.module.ts": {
+      "path": "backend/src/bio-auth/bio-auth.module.ts",
+      "kind": "ts",
+      "bytes": 470,
+      "sha256": "c577cc368cc3a4ab6fbce70be6449078028a168232df8e4a442ea56076606b92",
+      "importSpecifiers": [
+        "../auth/auth.module",
+        "../prisma/prisma.module",
+        "./bio-auth.controller",
+        "./bio-auth.service",
+        "@nestjs/common",
+        "@nestjs/config"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthModule"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/bio-auth/bio-auth.service.ts": {
+      "path": "backend/src/bio-auth/bio-auth.service.ts",
+      "kind": "ts",
+      "bytes": 9563,
+      "sha256": "89692bc44c7e652b5fb8d981144ff9e5d171f909c5b4644a335ec57df6d3afad",
+      "importSpecifiers": [
+        "../prisma/prisma.service",
+        "../volc-asset/volc-sign.util",
+        "./bio-auth.dto",
+        "@nestjs/common",
+        "@nestjs/config"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthService"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http",
+          "token"
+        ],
+        "apiEndpoints": [
+          "http://localhost",
+          "http://localhost:4000"
+        ],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "backend/src/business-policy/business-policy.module.ts": {
       "path": "backend/src/business-policy/business-policy.module.ts",
       "kind": "ts",
@@ -3155,8 +3362,8 @@
     "backend/src/credits/credits-scheduler.service.ts": {
       "path": "backend/src/credits/credits-scheduler.service.ts",
       "kind": "ts",
-      "bytes": 3446,
-      "sha256": "f94d8e837badc0df96705149d87d1a5eee08aa2af71c82eb55d6b23d2a95a1f6",
+      "bytes": 3858,
+      "sha256": "0eb805f7314f6a00530981f07e90f56b6e241df28da59acd0b1cc5dc97464c84",
       "importSpecifiers": [
         "./credits-anomaly.service",
         "./credits.service",
@@ -3182,8 +3389,8 @@
     "backend/src/credits/credits.config.ts": {
       "path": "backend/src/credits/credits.config.ts",
       "kind": "ts",
-      "bytes": 9317,
-      "sha256": "de744e639fc8ac0f6365bc424675cb97080b41cc32a34eaacec3b3eee5686572",
+      "bytes": 9935,
+      "sha256": "1bbaf2bed2846eb4c58f73c76ca54c704c663f647eaeaa9c0c05e5eb123aa837",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -3211,8 +3418,8 @@
     "backend/src/credits/credits.controller.ts": {
       "path": "backend/src/credits/credits.controller.ts",
       "kind": "ts",
-      "bytes": 4795,
-      "sha256": "885790e1dc6816ae72c0fa3fefca31784bfe5edfc69d0ec8a7dab947680a92fc",
+      "bytes": 5559,
+      "sha256": "ecf168eea63af73f6a32b0745c032f61be664aea868e3b135f54ee832d0e052a",
       "importSpecifiers": [
         "../auth/guards/jwt.guard",
         "./credits.service",
@@ -3273,9 +3480,11 @@
     "backend/src/credits/credits.service.ts": {
       "path": "backend/src/credits/credits.service.ts",
       "kind": "ts",
-      "bytes": 89316,
-      "sha256": "6232c10f063f1a10ef1eb7d44efd354716ff8491b4255c22aaba538f28ca0d90",
+      "bytes": 155673,
+      "sha256": "f6b51c4566a6c478d228d3d40b495b1033b378d07b10e548fbb4cc18458315c6",
       "importSpecifiers": [
+        "../ai/services/model-pricing-resolver",
+        "../ai/services/model-routing.service",
         "../business-policy/business-policy.service",
         "../prisma/prisma.service",
         "../referral/referral.service",
@@ -3285,15 +3494,20 @@
         "./credits.config",
         "./dto/credits.dto",
         "@nestjs/common",
-        "@prisma/client"
+        "@nestjs/config",
+        "@prisma/client",
+        "crypto"
       ],
-      "dynamicImportSpecifiers": [],
+      "dynamicImportSpecifiers": [
+        "ioredis"
+      ],
       "exports": {
         "named": [
           "AddCreditsResult",
           "ApiUsageParams",
           "CreditsService",
-          "DeductCreditsResult"
+          "DeductCreditsResult",
+          "ManagedPricingCatalogItem"
         ],
         "default": false
       },
@@ -3311,8 +3525,7 @@
         "storageKeys": [],
         "envVars": [
           "CREDITS_PENDING_VIDEO_REFUND_CUTOVER_AT",
-          "FREE_USER_DAILY_IMAGE_LIMIT",
-          "FREE_USER_DAILY_VIDEO_LIMIT",
+          "FREE_USAGE_QUOTA_CUTOVER_AT",
           "FREE_USER_MONTHLY_IMAGE_LIMIT"
         ]
       }
@@ -3320,8 +3533,8 @@
     "backend/src/credits/dto/credits.dto.ts": {
       "path": "backend/src/credits/dto/credits.dto.ts",
       "kind": "ts",
-      "bytes": 3349,
-      "sha256": "21a72b712708b3810d0a6dc447e004bb6bdf3517a95c2c05d2fd834723ceeb76",
+      "bytes": 3697,
+      "sha256": "aee8eb86601c8632b2919ade15259edbe68e99390703c24344c38511345a67b1",
       "importSpecifiers": [
         "@nestjs/swagger",
         "class-validator"
@@ -3333,6 +3546,7 @@
           "AdminDeductCreditsDto",
           "ApiResponseStatus",
           "ApiUsageQueryDto",
+          "CreditsPreviewDto",
           "GetBalanceResponseDto",
           "PricingResponseDto",
           "TransactionHistoryQueryDto",
@@ -3514,10 +3728,11 @@
     "backend/src/main.ts": {
       "path": "backend/src/main.ts",
       "kind": "ts",
-      "bytes": 7699,
-      "sha256": "74d856bff52f078dac235e5406df4c26144bc6b4a680e4b7dd00913fd99afbf8",
+      "bytes": 10175,
+      "sha256": "c190f36346f342a2cd50e7fc40685c8e1c690b6c0a47d7f2fefa9937782e6df0",
       "importSpecifiers": [
         "./app.module",
+        "./telemetry/openobserve-telemetry.service",
         "@fastify/compress",
         "@fastify/cookie",
         "@fastify/cors",
@@ -3562,8 +3777,8 @@
     "backend/src/membership/membership-scheduler.service.ts": {
       "path": "backend/src/membership/membership-scheduler.service.ts",
       "kind": "ts",
-      "bytes": 5458,
-      "sha256": "cc1e86633f5a695684b68e7d9e27013926bd6557b7e6449df1350846df4775fd",
+      "bytes": 4752,
+      "sha256": "ceff25e1364370a4f97c1e6709018622fc49eb0e237e6758cfd7908a2bee17a1",
       "importSpecifiers": [
         "../credits/credits.service",
         "./membership.service",
@@ -3591,8 +3806,8 @@
     "backend/src/membership/membership.controller.ts": {
       "path": "backend/src/membership/membership.controller.ts",
       "kind": "ts",
-      "bytes": 3908,
-      "sha256": "2a796d40a32c12a16a855d82315e318517dc2efaf096f4895554e718999d76bc",
+      "bytes": 4187,
+      "sha256": "b2c7a38ef6b124221e3911d7c8afe237bf670aff626845bdddc35e156c05fce3",
       "importSpecifiers": [
         "../auth/guards/jwt.guard",
         "../payment/dto/payment.dto",
@@ -3654,8 +3869,8 @@
     "backend/src/membership/membership.service.ts": {
       "path": "backend/src/membership/membership.service.ts",
       "kind": "ts",
-      "bytes": 66616,
-      "sha256": "5c7ce8ee36a321eb0d53bd671af2fde7846ba82cf4cbb53350e73b91909eaacf",
+      "bytes": 69421,
+      "sha256": "b673e84ec0ad6e638780f42d240952fded9d82e551761cd8081e2873cb411010",
       "importSpecifiers": [
         "../business-policy/business-policy.service",
         "../credits/credit-lot-grants",
@@ -3717,8 +3932,8 @@
     "backend/src/oss/assets.controller.ts": {
       "path": "backend/src/oss/assets.controller.ts",
       "kind": "ts",
-      "bytes": 9429,
-      "sha256": "4be2672415d0992eba53c4bf555b5bb4ad4e18541ee36b7f7fe9676ce0dabcfd",
+      "bytes": 11620,
+      "sha256": "9942dd3280cc1856604da7e0d806ff17be218d04dbd5843ed62ae3c495dd9fff",
       "importSpecifiers": [
         "./oss.service",
         "@nestjs/common",
@@ -3741,7 +3956,10 @@
         ],
         "apiEndpoints": [],
         "storageKeys": [],
-        "envVars": []
+        "envVars": [
+          "ASSET_PROXY_UPSTREAM_TIMEOUT_MS",
+          "OSS_PROXY_TIMEOUT_MS"
+        ]
       }
     },
     "backend/src/oss/oss.module.ts": {
@@ -3875,8 +4093,8 @@
     "backend/src/oss/video-gif.controller.ts": {
       "path": "backend/src/oss/video-gif.controller.ts",
       "kind": "ts",
-      "bytes": 10786,
-      "sha256": "46f47ff914c2ed35135594e87a471cedbf1d584cf345b8b8e1938c32fe4a60db",
+      "bytes": 11365,
+      "sha256": "0033232827c5ed944c1a49ef2598245e031746f2a9f28934da63803a9c872d06",
       "importSpecifiers": [
         "../auth/guards/jwt.guard",
         "../credits/credits.config",
@@ -3916,8 +4134,8 @@
     "backend/src/payment/dto/payment.dto.ts": {
       "path": "backend/src/payment/dto/payment.dto.ts",
       "kind": "ts",
-      "bytes": 1771,
-      "sha256": "ddceb630d77fa674f9a27bf529f2430e4419d48aa253a92aaf2a9a1aecc88b53",
+      "bytes": 1696,
+      "sha256": "dd5a6b87458f6d7c3d3f2733656ca0b9ebfe68685af02ac12c062ad7a07cf21f",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -3948,8 +4166,8 @@
     "backend/src/payment/payment.controller.ts": {
       "path": "backend/src/payment/payment.controller.ts",
       "kind": "ts",
-      "bytes": 4569,
-      "sha256": "0aaf54f59916c09b3f4aeee8661191c2dd4bfb625b2b4a6d6e0cb8d6b7ec3e55",
+      "bytes": 3461,
+      "sha256": "bdcae308c3225dc3d300a006d40a176c5095b075042b033ee09e3cb6f4dcc934",
       "importSpecifiers": [
         "../auth/guards/jwt.guard",
         "./dto/payment.dto",
@@ -4009,8 +4227,8 @@
     "backend/src/payment/payment.service.ts": {
       "path": "backend/src/payment/payment.service.ts",
       "kind": "ts",
-      "bytes": 43135,
-      "sha256": "6dec9a5821f8efdc0e27047469266f131e874f057bb52f20c032d6514d26780a",
+      "bytes": 43528,
+      "sha256": "4a0c10ac3ed5b453e468089aa1ed287156dcf786fcd481b3f763a6b890e22b55",
       "importSpecifiers": [
         "../business-policy/business-policy.service",
         "../credits/credit-lot-grants",
@@ -4473,9 +4691,10 @@
     "backend/src/referral/referral.module.ts": {
       "path": "backend/src/referral/referral.module.ts",
       "kind": "ts",
-      "bytes": 382,
-      "sha256": "69444aad9f9effced9a69eb00552a91662438c190c532edfedcb58a694e2de36",
+      "bytes": 486,
+      "sha256": "6388c2226b359c1583320c2097d8b6c717022e558b1585024f5f2ff81146db6b",
       "importSpecifiers": [
+        "../credits/credits.module",
         "../prisma/prisma.module",
         "./referral.controller",
         "./referral.service",
@@ -4500,9 +4719,10 @@
     "backend/src/referral/referral.service.ts": {
       "path": "backend/src/referral/referral.service.ts",
       "kind": "ts",
-      "bytes": 17250,
-      "sha256": "5ff7cbafb1947a557dc92784c800e7914ef2bc35f24574322533ff1ebf478317",
+      "bytes": 19527,
+      "sha256": "f9c0795b265e527cd336de6daaf7f656b5aa38743bc3222ce105da506fceabdc",
       "importSpecifiers": [
+        "../credits/credits.service",
         "../prisma/prisma.service",
         "@nestjs/common",
         "@prisma/client"
@@ -4517,7 +4737,39 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "subscription"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/telemetry/openobserve-exception.filter.ts": {
+      "path": "backend/src/telemetry/openobserve-exception.filter.ts",
+      "kind": "ts",
+      "bytes": 4829,
+      "sha256": "9d12d9822b3addd2d30f800e323e392d4a401b400ad026c7af60ad6f1ea28ca1",
+      "importSpecifiers": [
+        "./openobserve-telemetry.service",
+        "./tracing",
+        "@nestjs/common",
+        "fastify"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "OpenObserveExceptionFilter"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -4526,8 +4778,8 @@
     "backend/src/telemetry/openobserve-request.interceptor.ts": {
       "path": "backend/src/telemetry/openobserve-request.interceptor.ts",
       "kind": "ts",
-      "bytes": 3324,
-      "sha256": "9026998dea749dd85d6dc055fba9ffc8051d76a005b85dde76102e344b68e052",
+      "bytes": 4217,
+      "sha256": "8f777f1dca2b58458209cead6701924110bc40de5a63689122553886cfa3a12d",
       "importSpecifiers": [
         "./openobserve-telemetry.service",
         "./request-context",
@@ -4562,8 +4814,8 @@
     "backend/src/telemetry/openobserve-telemetry.service.ts": {
       "path": "backend/src/telemetry/openobserve-telemetry.service.ts",
       "kind": "ts",
-      "bytes": 7426,
-      "sha256": "c5a29152458b0f5e85d1f655f4e60e9a2aff6264c73ca5cb816a00479c1269e8",
+      "bytes": 10441,
+      "sha256": "e7f836bc5931b6e830826a79b4305697ba1eb8885f9414333c9c1999d2e5f608",
       "importSpecifiers": [
         "./openobserve-url",
         "./request-context",
@@ -4617,8 +4869,8 @@
     "backend/src/telemetry/request-context.ts": {
       "path": "backend/src/telemetry/request-context.ts",
       "kind": "ts",
-      "bytes": 650,
-      "sha256": "16e61b626498e5ac552011ff859d927d2fa3391b2e139bea17ea285c194a1716",
+      "bytes": 706,
+      "sha256": "6c5b0ba9e95b579fda52d10c65cbc3b606c4f7c66c8f956f10f2b6c3fc842b53",
       "importSpecifiers": [
         "node:async_hooks"
       ],
@@ -4672,9 +4924,10 @@
     "backend/src/telemetry/telemetry.module.ts": {
       "path": "backend/src/telemetry/telemetry.module.ts",
       "kind": "ts",
-      "bytes": 584,
-      "sha256": "f7e60a3075423eb50dfcadc9759ff395a030cb7392fcbe23c85a91082637edc4",
+      "bytes": 757,
+      "sha256": "50ff83f7e57c3356c9c48d84b9d32e7624213eead3fe1162c52041393b029d6d",
       "importSpecifiers": [
+        "./openobserve-exception.filter",
         "./openobserve-request.interceptor",
         "./openobserve-telemetry.service",
         "./telemetry.controller",
@@ -4748,8 +5001,8 @@
     "backend/src/telemetry/upstream-fetch-logger.ts": {
       "path": "backend/src/telemetry/upstream-fetch-logger.ts",
       "kind": "ts",
-      "bytes": 10195,
-      "sha256": "3cfb1a9ca8abb38c021cf959fcdd33e9d0cd5c13a527d9bb754f5f232c5cf82a",
+      "bytes": 19557,
+      "sha256": "8f86f19cde701c47b524066c6b6db056ef677a59666cf709ee590c9844e9ce31",
       "importSpecifiers": [
         "./openobserve-url",
         "./request-context",
@@ -4768,7 +5021,10 @@
         "routes": [],
         "tags": [
           "auth",
-          "http"
+          "gemini",
+          "http",
+          "token",
+          "zip"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -4786,12 +5042,14 @@
     "backend/src/templates/templates.controller.ts": {
       "path": "backend/src/templates/templates.controller.ts",
       "kind": "ts",
-      "bytes": 1084,
-      "sha256": "a2ecc666b2a22fbfae5f704f041388d12aa2ef5a07d410fbaf90605918ab8b05",
+      "bytes": 1959,
+      "sha256": "0c5002b59a5279f6b62534365ee13544d3210b565c0774dcf553c487855ea8cf",
       "importSpecifiers": [
         "../admin/services/template.service",
+        "../auth/guards/jwt.guard",
         "@nestjs/common",
-        "@nestjs/swagger"
+        "@nestjs/swagger",
+        "fastify"
       ],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -4803,7 +5061,9 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "auth"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -5082,14 +5342,211 @@
     "backend/src/utils/designJsonSanitizer.ts": {
       "path": "backend/src/utils/designJsonSanitizer.ts",
       "kind": "ts",
-      "bytes": 1440,
-      "sha256": "c3491841714f5c0cc647f693f3058f1da76296d06ac32351d9c2685597d7e1b1",
+      "bytes": 2101,
+      "sha256": "24aebe86b953992f09ff9e47bb419d3d774889f4ad7730e5c5a94784f90b07ad",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
         "named": [
           "sanitizeDesignJson"
         ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-asset-scheduler.service.ts": {
+      "path": "backend/src/volc-asset/volc-asset-scheduler.service.ts",
+      "kind": "ts",
+      "bytes": 1140,
+      "sha256": "76ff5746a1fe7d4d69980c0ac71cd602f9fdd09e8f2053d8884021becca766ad",
+      "importSpecifiers": [
+        "./volc-asset.service",
+        "@nestjs/common",
+        "@nestjs/schedule"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcAssetSchedulerService"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-asset.controller.ts": {
+      "path": "backend/src/volc-asset/volc-asset.controller.ts",
+      "kind": "ts",
+      "bytes": 1770,
+      "sha256": "d76b81092fd16f69b47ffa9d6b794e89390ced1debcb7f015dfd00030807e0af",
+      "importSpecifiers": [
+        "../auth/guards/api-key-or-jwt.guard",
+        "./volc-asset.dto",
+        "./volc-asset.service",
+        "@nestjs/common",
+        "@nestjs/swagger"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcAssetController"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-asset.dto.ts": {
+      "path": "backend/src/volc-asset/volc-asset.dto.ts",
+      "kind": "ts",
+      "bytes": 716,
+      "sha256": "1d376fa609fa80a4d2167be3789d44251cff4f739f20c77b4735e40b531b2fe2",
+      "importSpecifiers": [
+        "@nestjs/swagger",
+        "class-validator"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "AssetStatusResponse",
+          "UploadAssetDto",
+          "UploadAssetResponse",
+          "VolcAssetStatus"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-asset.module.ts": {
+      "path": "backend/src/volc-asset/volc-asset.module.ts",
+      "kind": "ts",
+      "bytes": 665,
+      "sha256": "51c28022359df47f9eb9e00ef157cbabd5cdfa12decd2ba51a27201508d1cf34",
+      "importSpecifiers": [
+        "../auth/auth.module",
+        "../prisma/prisma.module",
+        "./volc-asset-scheduler.service",
+        "./volc-asset.controller",
+        "./volc-asset.service",
+        "@nestjs/common",
+        "@nestjs/config"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcAssetModule"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-asset.service.ts": {
+      "path": "backend/src/volc-asset/volc-asset.service.ts",
+      "kind": "ts",
+      "bytes": 7271,
+      "sha256": "29521af0e079b130327d57537450547ff93f19c9f84e9752acec8c13677c84ee",
+      "importSpecifiers": [
+        "../prisma/prisma.service",
+        "./volc-asset.dto",
+        "./volc-sign.util",
+        "@nestjs/common",
+        "@nestjs/config"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcAssetService"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "http"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/src/volc-asset/volc-sign.util.ts": {
+      "path": "backend/src/volc-asset/volc-sign.util.ts",
+      "kind": "ts",
+      "bytes": 2938,
+      "sha256": "98643205fe36c4c544b373aa408aa781b08e4b2442b95121abb3a5204ee5286b",
+      "importSpecifiers": [
+        "crypto"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcSignInput",
+          "VolcSignOutput",
+          "signVolcRequest"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http"
+        ],
+        "apiEndpoints": [
+          "https://${host}/?${canonicalQuery}"
+        ],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "backend/tmp_head_credits.service.ts": {
+      "path": "backend/tmp_head_credits.service.ts",
+      "kind": "ts",
+      "bytes": 296501,
+      "sha256": "db9885443731697e8842ed13b424f73d8b44956c229974acdd6b055587960cb4",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
         "default": false
       },
       "semantic": {
@@ -5435,10 +5892,11 @@
     "frontend/src/components/KeyboardShortcuts.tsx": {
       "path": "frontend/src/components/KeyboardShortcuts.tsx",
       "kind": "tsx",
-      "bytes": 6891,
-      "sha256": "d9e72cf663d5ba36d9393216f1123a57e8193d5d0f3c7402cbcde59e501afed4",
+      "bytes": 7494,
+      "sha256": "c74a78d951ee28de2b5a748aa784a6f53ea90bf70bacc3fe7be00c8795e5614c",
       "importSpecifiers": [
         "@/services/clipboardJsonService",
+        "@/services/clipboardService",
         "@/services/flowSaveService",
         "@/services/historyService",
         "@/services/paperSaveService",
@@ -5550,6 +6008,39 @@
         "envVars": []
       }
     },
+    "frontend/src/components/admin/pricing-builder/PricingRuleBuilderCard.tsx": {
+      "path": "frontend/src/components/admin/pricing-builder/PricingRuleBuilderCard.tsx",
+      "kind": "tsx",
+      "bytes": 66255,
+      "sha256": "1d46d157f90f5f370c02d74bdc2dc9a1eca55235bd7c6c55ca73018f031ffcb0",
+      "importSpecifiers": [
+        "@/components/ui/button",
+        "@/components/ui/input"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "PricingConditionRow",
+          "PricingDimensionDefinition",
+          "PricingEvaluator",
+          "PricingMatchingRule",
+          "PricingPreviewResponse",
+          "PricingRuleBuilderCard",
+          "PricingV2State"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/auth/ForgotPasswordModal.tsx": {
       "path": "frontend/src/components/auth/ForgotPasswordModal.tsx",
       "kind": "tsx",
@@ -5586,12 +6077,13 @@
     "frontend/src/components/auth/LoginModal.tsx": {
       "path": "frontend/src/components/auth/LoginModal.tsx",
       "kind": "tsx",
-      "bytes": 17117,
-      "sha256": "cdb49a3633af96d6b0172e6bb1a29e97db71df78c3306337fd7f3a34a88281a1",
+      "bytes": 19933,
+      "sha256": "18a3ecb1692173233165a999b66280fe93036a6e5d75b9bc0af19f9bdf0aa63f",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/input",
         "@/services/authApi",
+        "@/services/referralApi",
         "@/services/tokenRefreshManager",
         "@/stores/authStore",
         "lucide-react",
@@ -5649,8 +6141,8 @@
     "frontend/src/components/autosave/ManualSaveButton.tsx": {
       "path": "frontend/src/components/autosave/ManualSaveButton.tsx",
       "kind": "tsx",
-      "bytes": 4974,
-      "sha256": "0bc3061546aa239cff028a5d8eeb196f2c63c5d2405af67deeaf286d5b49b4dd",
+      "bytes": 4970,
+      "sha256": "6ee4add0ea75c05802cab0bb7b736a7ce7f37251d16ec69af781e3834fe85ee7",
       "importSpecifiers": [
         "@/services/flowSaveService",
         "@/services/paperSaveService",
@@ -5686,8 +6178,8 @@
     "frontend/src/components/autosave/ProjectAutosaveManager.tsx": {
       "path": "frontend/src/components/autosave/ProjectAutosaveManager.tsx",
       "kind": "tsx",
-      "bytes": 15431,
-      "sha256": "8e8b46e8734764080acdfa3a0c2490b1a1091d887a0d9db5e0ca2bfbebc17a56",
+      "bytes": 15428,
+      "sha256": "9a57bc3095adf71cce8708dc0744fde9ef0d32f441fdfcd3b0d19063b22b613e",
       "importSpecifiers": [
         "@/hooks/useProjectAutosave",
         "@/services/contextManager",
@@ -5828,8 +6320,8 @@
     "frontend/src/components/canvas/DrawingController.tsx": {
       "path": "frontend/src/components/canvas/DrawingController.tsx",
       "kind": "tsx",
-      "bytes": 300533,
-      "sha256": "1ca4c95f67ca7d821355fa1df4a677d8fc8a4dd119bbffa3733775a5cc9f84d8",
+      "bytes": 300594,
+      "sha256": "5c63bef412f5a9fa80eee7a0392870996b1f5c9ae15e8361b91047c23fd0cd76",
       "importSpecifiers": [
         "./ImageContainer",
         "./ImageUploadComponent",
@@ -5913,12 +6405,13 @@
     "frontend/src/components/canvas/ExpandImageSelector.tsx": {
       "path": "frontend/src/components/canvas/ExpandImageSelector.tsx",
       "kind": "tsx",
-      "bytes": 28586,
-      "sha256": "704eb77ff61928114a0a042450e84c98ace307f443a30487c7d6c4989332d53e",
+      "bytes": 31201,
+      "sha256": "139a27636a6b200103c3214a53431618da97b7fc66ea3d5527d7984315f12dad",
       "importSpecifiers": [
         "../ui/SmartImage",
         "../ui/button",
         "../ui/dropdown-menu",
+        "@/stores/aiChatStore",
         "lucide-react",
         "paper",
         "react",
@@ -5934,7 +6427,8 @@
         "feature": "module",
         "routes": [],
         "tags": [
-          "canvas"
+          "canvas",
+          "flow"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -5971,8 +6465,8 @@
     "frontend/src/components/canvas/GlobalZoomCapture.tsx": {
       "path": "frontend/src/components/canvas/GlobalZoomCapture.tsx",
       "kind": "tsx",
-      "bytes": 7488,
-      "sha256": "60ebaec7e6a113a6fe60c7d23474600aad6ba3290bb878a464339c50e37c95fd",
+      "bytes": 8058,
+      "sha256": "36d61263784bc148a2108a8ba514a7b85d4fc6b788d80e7883f0999e7d3f1b97",
       "importSpecifiers": [
         "@/lib/zoomUtils",
         "@/stores",
@@ -6030,8 +6524,8 @@
     "frontend/src/components/canvas/ImageContainer.tsx": {
       "path": "frontend/src/components/canvas/ImageContainer.tsx",
       "kind": "tsx",
-      "bytes": 131269,
-      "sha256": "83ea4e06899995296c09c0d631fee6576e089684e68a7f681e227cd1909c18e1",
+      "bytes": 131683,
+      "sha256": "6b387aedb767b48ae1881f8227bb15cee3aa56f70046fbd2e89b6caa559aba54",
       "importSpecifiers": [
         "../ui/ImagePreviewModal",
         "../ui/button",
@@ -6138,13 +6632,11 @@
     "frontend/src/components/canvas/InteractionController.tsx": {
       "path": "frontend/src/components/canvas/InteractionController.tsx",
       "kind": "tsx",
-      "bytes": 7105,
-      "sha256": "f76272c9f7cf1b470b92121177bec66190b64b460946a77f5e8b1da71fe9c968",
+      "bytes": 2783,
+      "sha256": "1bc6ec0fbe18a463ca0b809ee2fef17b3d5bf0ca17c5df0889a5289478bc8ab4",
       "importSpecifiers": [
         "@/lib/zoomUtils",
         "@/stores",
-        "@/stores/toolStore",
-        "@/utils/cursorStyles",
         "react"
       ],
       "dynamicImportSpecifiers": [],
@@ -6167,14 +6659,15 @@
     "frontend/src/components/canvas/Model3DContainer.tsx": {
       "path": "frontend/src/components/canvas/Model3DContainer.tsx",
       "kind": "tsx",
-      "bytes": 29665,
-      "sha256": "83be5845d232a80d628a5f913ec46e3d04ad6e14339600c91c8225cb9054389a",
+      "bytes": 30299,
+      "sha256": "779f4765748d23a196820f30f1209c165eae7cac8788a1b4eaec4df7cae713bb",
       "importSpecifiers": [
         "../ui/button",
         "../ui/loading-spinner",
         "./Model3DViewer",
         "@/services/model3DUploadService",
         "@/stores",
+        "@/stores/aiChatStore",
         "@/utils/downloadHelper",
         "@/utils/logger",
         "lucide-react",
@@ -6376,9 +6869,10 @@
     "frontend/src/components/canvas/SimpleTextEditor.tsx": {
       "path": "frontend/src/components/canvas/SimpleTextEditor.tsx",
       "kind": "tsx",
-      "bytes": 7623,
-      "sha256": "c1690930d1e9c5e8a875abedb55262926cc74af8b7954807dafa7b9434816399",
+      "bytes": 7858,
+      "sha256": "cd42cba6867d92af9e0ba9aa4d9ef175ce5e242cf0c2312b3ae2dbd42e629f0e",
       "importSpecifiers": [
+        "@/stores/aiChatStore",
         "@/stores/canvasStore",
         "@/stores/toolStore",
         "@/utils/paperCoords",
@@ -6434,12 +6928,13 @@
     "frontend/src/components/canvas/TextEditor.tsx": {
       "path": "frontend/src/components/canvas/TextEditor.tsx",
       "kind": "tsx",
-      "bytes": 12961,
-      "sha256": "d8332ec6ab22c53137e327d8e64d85cd2bedeec82d02d8c97519bed79b8f61d3",
+      "bytes": 13460,
+      "sha256": "61b39206d8b89ff0d6cddbbacd88539ea8dd350c53e90bbf074ac919507c2ec6",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/separator",
         "@/lib/utils",
+        "@/stores/aiChatStore",
         "@/stores/textStore",
         "@/stores/toolStore",
         "@/types/text",
@@ -6651,8 +7146,8 @@
     "frontend/src/components/canvas/hooks/useInteractionController.ts": {
       "path": "frontend/src/components/canvas/hooks/useInteractionController.ts",
       "kind": "ts",
-      "bytes": 107740,
-      "sha256": "21a88cdefc11d65a3e89edf6e886cc6cf834a45ad1e384fcdd9b8f44cbdb3287",
+      "bytes": 108631,
+      "sha256": "de63910d8ac1617f9974440d560742561399b3491f2cea6033aeadbcd58716fc",
       "importSpecifiers": [
         "./useSnapAlignment",
         "@/services/historyService",
@@ -6753,10 +7248,11 @@
     "frontend/src/components/canvas/hooks/useQuickImageUpload.ts": {
       "path": "frontend/src/components/canvas/hooks/useQuickImageUpload.ts",
       "kind": "ts",
-      "bytes": 104575,
-      "sha256": "eeb268d61481892df13eeede85c359db9c95d65da02b0ae1a8aed6f75a212a73",
+      "bytes": 110094,
+      "sha256": "48c9c1d0fb42cf35f1fd79eaa83a2b50c7f55f4e9116dc744314c0d26a10d329",
       "importSpecifiers": [
         "@/services/historyService",
+        "@/services/imageHistoryService",
         "@/services/imageUploadService",
         "@/services/paperSaveService",
         "@/stores/canvasStore",
@@ -6782,6 +7278,7 @@
         "routes": [],
         "tags": [
           "canvas",
+          "flow",
           "http"
         ],
         "apiEndpoints": [],
@@ -6956,8 +7453,8 @@
     "frontend/src/components/chat/AIChatDialog.tsx": {
       "path": "frontend/src/components/chat/AIChatDialog.tsx",
       "kind": "tsx",
-      "bytes": 236710,
-      "sha256": "8951534c0e2d7620c1d01a695f2410326dad052112af39d93669468aa7ba1088",
+      "bytes": 238543,
+      "sha256": "a67e4ebabf4f99f2a1eded61b2d03d4d749cd3f2b39f8139e14d73e5836f11ec",
       "importSpecifiers": [
         "@/components/chat/PromptOptimizationPanel",
         "@/components/ui/ImagePreviewModal",
@@ -6975,6 +7472,7 @@
         "@/stores",
         "@/stores/aiChatStore",
         "@/types/ai",
+        "@/utils/bananaRouteCapabilities",
         "@/utils/imageSource",
         "lucide-react",
         "react",
@@ -7158,12 +7656,14 @@
     "frontend/src/components/flow/FlowOverlay.tsx": {
       "path": "frontend/src/components/flow/FlowOverlay.tsx",
       "kind": "tsx",
-      "bytes": 656636,
-      "sha256": "2a2445218e3034518ef257a5c0a5f6f78746ba1ca4c005d8ef21128e7c2ef659",
+      "bytes": 788312,
+      "sha256": "f3569c9054c953c2f5b0fd02171e26ffe727d424461b8ae1449943244fdbc1ae",
       "importSpecifiers": [
+        "./FlowRenderModeContext",
         "./MiniMapImageOverlay",
         "./PersonalLibraryPanel",
         "./flow.css",
+        "./managedRoutePricing",
         "./nodes/AnalyzeNode",
         "./nodes/AudioNode",
         "./nodes/CameraNode",
@@ -7173,6 +7673,7 @@
         "./nodes/GeneratePro4Node",
         "./nodes/GenerateProNode",
         "./nodes/GenerateReferenceNode",
+        "./nodes/HappyhorseR2VNode",
         "./nodes/ImageCompressNode",
         "./nodes/ImageGridNode",
         "./nodes/ImageNode",
@@ -7180,7 +7681,7 @@
         "./nodes/ImageSplitNode",
         "./nodes/Kling26VideoNode",
         "./nodes/Kling30VideoNode",
-        "./nodes/KlingO1VideoNode",
+        "./nodes/KlingO3VideoNode",
         "./nodes/KlingVideoNode",
         "./nodes/MidjourneyNode",
         "./nodes/MinimaxMusicNode",
@@ -7209,6 +7710,7 @@
         "./nodes/Wan26Node",
         "./nodes/Wan27VideoNode",
         "./nodes/Wan2R2VNode",
+        "./utils/flowNodeSendAnchor",
         "./utils/mjV7PromptSanitize",
         "./utils/textSource",
         "@/components/template/SharedTemplateCard",
@@ -7227,6 +7729,7 @@
         "@/services/publicTemplateService",
         "@/services/templateStore",
         "@/services/videoProviderAPI",
+        "@/services/videoProviderParams",
         "@/stores",
         "@/stores/aiChatStore",
         "@/stores/flowStore",
@@ -7236,6 +7739,7 @@
         "@/types/ai",
         "@/types/template",
         "@/utils/assetProxy",
+        "@/utils/flowModelProvider",
         "@/utils/imageConcurrency",
         "@/utils/imageSource",
         "@/utils/localeText",
@@ -7246,7 +7750,9 @@
         "reactflow",
         "reactflow/dist/style.css"
       ],
-      "dynamicImportSpecifiers": [],
+      "dynamicImportSpecifiers": [
+        "@/services/adminApi"
+      ],
       "exports": {
         "named": [
           "FlowOverlay"
@@ -7263,6 +7769,7 @@
           "gemini",
           "http",
           "kling",
+          "profile",
           "reactflow",
           "storyboard"
         ],
@@ -7277,6 +7784,34 @@
         "envVars": [
           "DEV"
         ]
+      }
+    },
+    "frontend/src/components/flow/FlowRenderModeContext.tsx": {
+      "path": "frontend/src/components/flow/FlowRenderModeContext.tsx",
+      "kind": "tsx",
+      "bytes": 623,
+      "sha256": "99de626db383c4be30072e485b71eb96cb527314d231a45bf037f11d318f702a",
+      "importSpecifiers": [
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "FlowRenderMode",
+          "FlowRenderModeProvider",
+          "useFlowRenderMode"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
       }
     },
     "frontend/src/components/flow/MiniMapImageOverlay.tsx": {
@@ -7386,6 +7921,144 @@
         ]
       }
     },
+    "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts": {
+      "path": "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+      "kind": "ts",
+      "bytes": 1654,
+      "sha256": "a7125dab38a8fdd4353c537f0ca0e774bb0a4de3e0cf19055dadf0420b3eb088",
+      "importSpecifiers": [
+        "@/services/creditsPreviewService",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "useBackendCreditsPreview"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts": {
+      "path": "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
+      "kind": "ts",
+      "bytes": 7176,
+      "sha256": "c0aadb7cfdb9fd897a34f7a37e3caa7a0da8eab9f092afe50798be149db9ec9a",
+      "importSpecifiers": [
+        "./useBackendCreditsPreview",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "useImageNodeCreditsPreview"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow",
+          "gemini"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/hooks/useNodeInternalsSync.ts": {
+      "path": "frontend/src/components/flow/hooks/useNodeInternalsSync.ts",
+      "kind": "ts",
+      "bytes": 1469,
+      "sha256": "3f28361a190f75cc81bafbacc927f85cdf96c7e850e75a91898146db898601d3",
+      "importSpecifiers": [
+        "react",
+        "reactflow"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "useNodeInternalsSync"
+        ],
+        "default": true
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow",
+          "reactflow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/hooks/useNodeRunCredits.ts": {
+      "path": "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
+      "kind": "ts",
+      "bytes": 371,
+      "sha256": "c6cf7083e3484145785f4d9a3786f5c35054453d362e8c77f50ab7943e070a70",
+      "importSpecifiers": [
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "useNodeRunCredits"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/managedRoutePricing.ts": {
+      "path": "frontend/src/components/flow/managedRoutePricing.ts",
+      "kind": "ts",
+      "bytes": 18779,
+      "sha256": "6c32d526e18c217c498aa7310953452efdb0342cec18e30e32f1aa4113b39a65",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "ManagedRouteOption",
+          "ManagedRoutesMetadata",
+          "getManagedRouteCredits",
+          "getManagedRouteOption",
+          "getManagedRoutesMetadata",
+          "resolveManagedRoutePricing"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx",
       "kind": "tsx",
@@ -7416,20 +8089,26 @@
     "frontend/src/components/flow/nodes/AnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
       "kind": "tsx",
-      "bytes": 41339,
-      "sha256": "083ba0a4c12bfa4b7a193766ea8db79adfa93cbfa27c69b8481e746cd898485d",
+      "bytes": 49949,
+      "sha256": "b218807bde96df74a8800bd999b6b4d7030154729bc73ca0638eeb1c45ab6d16",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../../ui/dropdown-menu",
+        "../FlowRenderModeContext",
+        "../hooks/useBackendCreditsPreview",
         "../utils/textSource",
+        "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/aiImageService",
         "@/services/flowImageAssetStore",
+        "@/stores",
         "@/stores/aiChatStore",
         "@/utils/imageConcurrency",
         "@/utils/imageSource",
         "@/utils/localeText",
+        "lucide-react",
         "react",
         "reactflow"
       ],
@@ -7444,6 +8123,7 @@
         "tags": [
           "canvas",
           "flow",
+          "gemini",
           "reactflow"
         ],
         "apiEndpoints": [],
@@ -7482,15 +8162,50 @@
         "envVars": []
       }
     },
+    "frontend/src/components/flow/nodes/BioAuthModal.tsx": {
+      "path": "frontend/src/components/flow/nodes/BioAuthModal.tsx",
+      "kind": "tsx",
+      "bytes": 16217,
+      "sha256": "164f34d207b83f2b8beb5e613c4ca2cb642c5f65113205a79f0ba15c79674d84",
+      "importSpecifiers": [
+        "@/hooks/useBioAuthPolling",
+        "@/services/bioAuthAPI",
+        "lucide-react",
+        "qrcode.react",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthModal",
+          "BioAuthModalProps"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "canvas",
+          "flow",
+          "qrcode"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/CameraNode.tsx": {
       "path": "frontend/src/components/flow/nodes/CameraNode.tsx",
       "kind": "tsx",
-      "bytes": 11686,
-      "sha256": "92a78e75c6a5088f8ada414dbcdc8637029b5eb60fbffbd0781db92ea3b48b4e",
+      "bytes": 11549,
+      "sha256": "8c0cb14a5211f78539d09e8bd342fbd2fa8ea2515e9c8a20533a8da7f745c2df",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../utils/flowNodeSendAnchor",
         "./flowNodeDarkTheme",
         "@/services/AutoScreenshotService",
         "@/services/imageHistoryService",
@@ -7547,16 +8262,19 @@
     "frontend/src/components/flow/nodes/Generate4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Generate4Node.tsx",
       "kind": "tsx",
-      "bytes": 34091,
-      "sha256": "b8baf4e739068f1532db1d7ed08128c4a0b3abeb4d980ac2a3367831b4d305f3",
+      "bytes": 39180,
+      "sha256": "e39229d8a06c34c014493384c345e0df87b1bc7235a4e9243f6d6b6f54fa6d29",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../../ui/dropdown-menu",
+        "../FlowRenderModeContext",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
+        "@/utils/flowModelProvider",
         "@/utils/imageSource",
         "@/utils/localeText",
         "lucide-react",
@@ -7585,20 +8303,24 @@
     "frontend/src/components/flow/nodes/GenerateNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateNode.tsx",
       "kind": "tsx",
-      "bytes": 36828,
-      "sha256": "4fd2ce4799a2ca402b82160522c50b01dc28991cdb640343c1aa93dd079b8c87",
+      "bytes": 40138,
+      "sha256": "afc5254261043ad809e7584602e2a14350891cf40f1a3ab00bb227b8499c6b89",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../../ui/dropdown-menu",
+        "../FlowRenderModeContext",
+        "../hooks/useImageNodeCreditsPreview",
         "./GenerationProgressBar",
+        "./NodeSelect",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
         "@/stores/projectContentStore",
+        "@/utils/flowModelProvider",
         "@/utils/imageSource",
         "@/utils/localeText",
         "lucide-react",
@@ -7627,13 +8349,14 @@
     "frontend/src/components/flow/nodes/GeneratePro4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
       "kind": "tsx",
-      "bytes": 41080,
-      "sha256": "1f3ebbc7d71d7599cff7960a450913468fcaab42d8f3b8d2ecfa76290a54909b",
+      "bytes": 39020,
+      "sha256": "06e0ec8f80fdf2aec98cdace775fc7bc2440805fff74f6f61a0fe6827bb88999",
       "importSpecifiers": [
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../../ui/context-menu",
         "../utils/textSource",
+        "./NodeSelect",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/lib/utils",
@@ -7670,16 +8393,19 @@
     "frontend/src/components/flow/nodes/GenerateProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateProNode.tsx",
       "kind": "tsx",
-      "bytes": 69992,
-      "sha256": "fb15f3bc894f5c7bdbcc75b19f6ec87167313569df0217062ba3857774f48bd4",
+      "bytes": 75888,
+      "sha256": "47f47d30c0c7e1c92db7d744b519c4deb1ce78d4ea30b67d2f83ee26da917fbf",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
         "../../ui/context-menu",
         "../../ui/dropdown-menu",
+        "../FlowRenderModeContext",
+        "../hooks/useImageNodeCreditsPreview",
         "../utils/textSource",
         "./GenerationProgressBar",
+        "./NodeSelect",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
@@ -7687,6 +8413,7 @@
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
         "@/stores/projectContentStore",
+        "@/utils/flowModelProvider",
         "@/utils/imageSource",
         "@/utils/localeText",
         "lucide-react",
@@ -7718,17 +8445,19 @@
     "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
       "kind": "tsx",
-      "bytes": 12518,
-      "sha256": "cdbf745016f8bd9f0882cdcdd07b4ae47e5656132e57287486785a6518d82951",
+      "bytes": 13821,
+      "sha256": "ce375eab09f50933dd778797c0b489b6e481a771fd0f5e7d9e80230dab9ff69f",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../hooks/useImageNodeCreditsPreview",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
+        "@/stores/aiChatStore",
         "@/stores/projectContentStore",
         "@/utils/assetProxy",
         "@/utils/flowGenerateRefErrors",
@@ -7759,8 +8488,8 @@
     "frontend/src/components/flow/nodes/GenerationProgressBar.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
       "kind": "tsx",
-      "bytes": 2844,
-      "sha256": "edace768824328c9d7feee3baf1eca8fbf98ddbcc4b616d8c7681dbadd719463",
+      "bytes": 3019,
+      "sha256": "12fe989e73efe2916e03884cd713d933df5aed9d14011e28cc9ab757dfc2c198",
       "importSpecifiers": [
         "react"
       ],
@@ -7785,12 +8514,16 @@
     "frontend/src/components/flow/nodes/GenericVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
       "kind": "tsx",
-      "bytes": 79484,
-      "sha256": "980e871945fc8b57347307c388aa997f2334ec5c54dfb8a53af1c8bad105835b",
+      "bytes": 123717,
+      "sha256": "0b7538e1d934e47d6ec7c8092e3c1307049177dfea6972e297c581db7ca9ff80",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../hooks/useBackendCreditsPreview",
+        "../managedRoutePricing",
         "./GenerationProgressBar",
+        "./NodeSelect",
         "./RunCreditBadge",
+        "@/services/videoProviderParams",
         "@/stores/aiChatStore",
         "@/stores/authStore",
         "@/stores/projectContentStore",
@@ -7821,11 +8554,45 @@
         "envVars": []
       }
     },
+    "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx": {
+      "path": "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
+      "kind": "tsx",
+      "bytes": 40726,
+      "sha256": "8179421ef268ce58787a1487fe199abf1ce7a864c05dbe914aaae27cc4dd2714",
+      "importSpecifiers": [
+        "../../ui/SmartImage",
+        "../hooks/useBackendCreditsPreview",
+        "../hooks/useNodeRunCredits",
+        "./GenerationProgressBar",
+        "./RunCreditBadge",
+        "@/utils/assetProxy",
+        "@/utils/localeText",
+        "lucide-react",
+        "react",
+        "reactflow"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": true
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow",
+          "reactflow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/ImageCompressNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
       "kind": "tsx",
-      "bytes": 24458,
-      "sha256": "ec0f75eff720660dc3c5f11eb3939443b57b53b06530240c77b19ff479ab4c08",
+      "bytes": 24836,
+      "sha256": "c4e27608678b9d6497680d5751491a0dd03e26ed0d0b035fd08a8b5201ab1003",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./flowNodeDarkTheme",
@@ -7858,10 +8625,11 @@
     "frontend/src/components/flow/nodes/ImageGridNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageGridNode.tsx",
       "kind": "tsx",
-      "bytes": 33926,
-      "sha256": "c8a5c0d28ace87195e50ade6276ba013f2920fee7317be06ec33b20755a0c760",
+      "bytes": 34357,
+      "sha256": "49f5375d4af23245c9b9b5c4df54e6c852adf48c91b4772c69d546e314e5fd61",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../FlowRenderModeContext",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
@@ -7894,17 +8662,25 @@
     "frontend/src/components/flow/nodes/ImageNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageNode.tsx",
       "kind": "tsx",
-      "bytes": 54455,
-      "sha256": "0d608eee58fb10623d4919107be944e46642b686b4043b9a312a700bdb39a9d8",
+      "bytes": 68119,
+      "sha256": "7f42beb2a6d2f42af60623868684b1185be6a4ed42efdeb90b458991115ce2fa",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../FlowRenderModeContext",
+        "../utils/flowNodeSendAnchor",
+        "./BioAuthModal",
+        "./flowNodeDarkTheme",
+        "@/hooks/useBioAuthPolling",
         "@/hooks/useFlowImageAssetUrl",
+        "@/hooks/useVolcAssetPolling",
+        "@/services/bioAuthAPI",
         "@/services/flowImageAssetStore",
         "@/services/imageHistoryService",
         "@/services/imageUploadService",
         "@/services/ossUploadService",
+        "@/services/volcAssetAPI",
         "@/stores/projectContentStore",
         "@/utils/assetProxy",
         "@/utils/imageConcurrency",
@@ -7925,6 +8701,7 @@
         "feature": "module",
         "routes": [],
         "tags": [
+          "auth",
           "canvas",
           "flow",
           "http",
@@ -7941,8 +8718,8 @@
     "frontend/src/components/flow/nodes/ImageProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageProNode.tsx",
       "kind": "tsx",
-      "bytes": 22086,
-      "sha256": "79180534a05b6adbfe08d544723e0d9b92240147509df9daea0cb1adcea47664",
+      "bytes": 22115,
+      "sha256": "841fe9a5c30682ce26bf0ed88a163f536fa298f6d2ecee395256956e5e346d97",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
@@ -7983,10 +8760,11 @@
     "frontend/src/components/flow/nodes/ImageSplitNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
       "kind": "tsx",
-      "bytes": 96766,
-      "sha256": "0f5faafb7851e99f0fdfa79b518fafc3dcfbbf54261859ab9faff6ea33b4f841",
+      "bytes": 97148,
+      "sha256": "ac187025a73711b41b699ae6746b06501129a922ebb3294bc285dee9880614b2",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../FlowRenderModeContext",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
@@ -8024,8 +8802,8 @@
     "frontend/src/components/flow/nodes/Kling26VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Kling26VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 708,
-      "sha256": "1628a11d6449bd09f0ecf3c3136ddac25c5b1ab4e71a46c34bc304ba493af02b",
+      "bytes": 696,
+      "sha256": "87e13ee3e2003c882694d46b7988a57c77ca0e0cfb51886d287014f70c92372a",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8049,8 +8827,8 @@
     "frontend/src/components/flow/nodes/Kling30VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Kling30VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 711,
-      "sha256": "509ca8ebae44f2eff95b5c6d30b5e64f283aa60d60cc75b09adac235961658a7",
+      "bytes": 699,
+      "sha256": "b43b8b8449be27cd3c8bd7c8faf4eed23e30a59392218ad1d13749cb6cc97649",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8071,23 +8849,29 @@
         "envVars": []
       }
     },
-    "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx": {
-      "path": "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+    "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx": {
+      "path": "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 46411,
-      "sha256": "a9846e1b306a0bbca0bb32c32c6ad915d09c17862b25fca3b15adb57ede51a66",
+      "bytes": 93127,
+      "sha256": "fc17afaf027bba08f11c0e9efd9aff5c9319fa17dd7fc7a844ef649a995f891b",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../hooks/useBackendCreditsPreview",
         "./GenerationProgressBar",
         "./RunCreditBadge",
+        "@/services/imageUploadService",
+        "@/stores/aiChatStore",
         "@/stores/authStore",
+        "@/stores/projectContentStore",
         "@/utils/assetProxy",
         "@/utils/localeText",
         "lucide-react",
         "react",
         "reactflow"
       ],
-      "dynamicImportSpecifiers": [],
+      "dynamicImportSpecifiers": [
+        "@/services/ossUploadService"
+      ],
       "exports": {
         "named": [],
         "default": true
@@ -8099,7 +8883,9 @@
           "auth",
           "flow",
           "kling",
-          "reactflow"
+          "reactflow",
+          "storyboard",
+          "token"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -8109,8 +8895,8 @@
     "frontend/src/components/flow/nodes/KlingVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/KlingVideoNode.tsx",
       "kind": "tsx",
-      "bytes": 696,
-      "sha256": "8a830fc1047fb3f9a02eefb606b7339ec6b870d3a1ad9aa36e3feff0567c9e04",
+      "bytes": 684,
+      "sha256": "a6fca6ade7ced2611014545660dd47d3ac7199c46738fe79b012d062d7c28e78",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8134,12 +8920,13 @@
     "frontend/src/components/flow/nodes/MidjourneyNode.tsx": {
       "path": "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
       "kind": "tsx",
-      "bytes": 46226,
-      "sha256": "0ef29b2887d09c58827f0e3edbd8883e0887e95ade8f025110c1a71a1fc24020",
+      "bytes": 47604,
+      "sha256": "7918e9d32c1258d81f8062a1b2acf8d92488af1591aaaee12abceff34e6e4177",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../hooks/useImageNodeCreditsPreview",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
@@ -8147,6 +8934,7 @@
         "@/services/flowImageAssetStore",
         "@/stores/aiChatStore",
         "@/stores/projectContentStore",
+        "@/utils/assetProxy",
         "@/utils/imageSource",
         "@/utils/localeText",
         "lucide-react",
@@ -8237,17 +9025,19 @@
     "frontend/src/components/flow/nodes/Nano2Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Nano2Node.tsx",
       "kind": "tsx",
-      "bytes": 16283,
-      "sha256": "59e486ec8b92cad8698bd8f56633b54cbc631347a60e0ce8ef86ea9407ede75f",
+      "bytes": 36698,
+      "sha256": "01de291ed7fe76eb9e6a287b786518b1cff3daaefed6c59cd9b065112f4ab969",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../hooks/useImageNodeCreditsPreview",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
+        "@/stores/aiChatStore",
         "@/stores/projectContentStore",
         "@/utils/imageSource",
         "@/utils/localeText",
@@ -8276,8 +9066,8 @@
     "frontend/src/components/flow/nodes/NodeGroupNode.tsx": {
       "path": "frontend/src/components/flow/nodes/NodeGroupNode.tsx",
       "kind": "tsx",
-      "bytes": 14433,
-      "sha256": "68dd423592bdad6af791d76d0d6b3cfeab84fade969749f01611fe1dd246a7db",
+      "bytes": 16031,
+      "sha256": "35dd7016ccefe4c4808215db7dab67b7b242fcff0e41cbe2df3c3b7970db4b29",
       "importSpecifiers": [
         "@/components/ui/SmartImage",
         "@/utils/localeText",
@@ -8304,17 +9094,51 @@
         "envVars": []
       }
     },
+    "frontend/src/components/flow/nodes/NodeSelect.tsx": {
+      "path": "frontend/src/components/flow/nodes/NodeSelect.tsx",
+      "kind": "tsx",
+      "bytes": 5783,
+      "sha256": "9887243d81f51ca064039b6b03ca49b51fda01c5dc5b877a707fd7f7a85ea68f",
+      "importSpecifiers": [
+        "../../ui/dropdown-menu",
+        "./flowNodeDarkTheme",
+        "@/lib/utils",
+        "lucide-react",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "NodeSelect",
+          "NodeSelectOption"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx",
       "kind": "tsx",
-      "bytes": 10220,
-      "sha256": "0819fbd4e1aa5954bb6f90d14dd791758aca43895a61892a6165f428433a7713",
+      "bytes": 12178,
+      "sha256": "d37d2dc6d7512ad245cfc1322b810675524fdec0d72a0c4e7693f9d9ce06bfe5",
       "importSpecifiers": [
+        "../hooks/useBackendCreditsPreview",
         "../utils/textSource",
+        "./RunCreditBadge",
         "@/components/ui/loading-spinner",
         "@/hooks/usePromptOptimization",
         "@/services/promptOptimizationService",
         "@/stores/aiChatStore",
+        "@/utils/flowModelProvider",
         "@/utils/localeText",
         "react",
         "reactflow"
@@ -8329,6 +9153,7 @@
         "routes": [],
         "tags": [
           "flow",
+          "gemini",
           "reactflow"
         ],
         "apiEndpoints": [],
@@ -8339,10 +9164,12 @@
     "frontend/src/components/flow/nodes/RunCreditBadge.tsx": {
       "path": "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
       "kind": "tsx",
-      "bytes": 1328,
-      "sha256": "295f5e0cc7c5b26654d96f5b610a54e4c0db4a426ace376cd377ed6b48bd49e9",
+      "bytes": 3206,
+      "sha256": "7bb2f71a7cae8564652110ac4d99246da61447d197b7bc2bc959624efab54442",
       "importSpecifiers": [
+        "../hooks/useNodeRunCredits",
         "@/utils/localeText",
+        "lucide-react",
         "react"
       ],
       "dynamicImportSpecifiers": [],
@@ -8366,8 +9193,8 @@
     "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 477,
-      "sha256": "e0981d1bedd5a540a5b20ba359ae79eccc57fd2de86158c35efa4b2f1de52510",
+      "bytes": 729,
+      "sha256": "b6d3d9286c78fde976aada5644ba5a9cf5c364e82086ad4bb96caea9a320872f",
       "importSpecifiers": [
         "./GenericVideoNode"
       ],
@@ -8390,10 +9217,12 @@
     "frontend/src/components/flow/nodes/Seedream5Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Seedream5Node.tsx",
       "kind": "tsx",
-      "bytes": 14909,
-      "sha256": "fef708512023d6ec2e880b53c645a979a592b54f6c6a6c8a1f4a6e4690b97f1d",
+      "bytes": 18183,
+      "sha256": "f136a6539dbc23dead3d14b117d8b2d9d1da126c15f1b063e8cbe049370732f3",
       "importSpecifiers": [
+        "../../ui/ImagePreviewModal",
         "../../ui/SmartImage",
+        "../hooks/useImageNodeCreditsPreview",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "./flowNodeDarkTheme",
@@ -8426,9 +9255,10 @@
     "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx",
       "kind": "tsx",
-      "bytes": 7460,
-      "sha256": "2c9991bc40e76771cd81af160283cf609191c6c2f8a7ff06934bfc6cdf5415a4",
+      "bytes": 7589,
+      "sha256": "4dc57853a0ccc074820843f90b3c0ee4ebfa8385052670dd7298d763f5a8bdba",
       "importSpecifiers": [
+        "../hooks/useNodeRunCredits",
         "./RunCreditBadge",
         "@/utils/localeText",
         "lucide-react",
@@ -8456,10 +9286,11 @@
     "frontend/src/components/flow/nodes/Sora2VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 45795,
-      "sha256": "c1ec84cf3ea56d15c2249813b1369aa8c765edc1631dc9b8a86ea33287564617",
+      "bytes": 46369,
+      "sha256": "58562dc16b19730d81d4f6b9aaaab712fe16aad0c31d673534d43971626c041c",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../hooks/useNodeRunCredits",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "@/services/authFetch",
@@ -8496,9 +9327,10 @@
     "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx": {
       "path": "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx",
       "kind": "tsx",
-      "bytes": 20054,
-      "sha256": "9105d2e8a90f07fb1b9a83b77185ae8083ee0c8fa96d28b9ab543efb99bca3c9",
+      "bytes": 21150,
+      "sha256": "2adcd5a5db04d7d2aa86916f512a801454d5c5cc09c3e6f4167730273d49adb3",
       "importSpecifiers": [
+        "./flowNodeDarkTheme",
         "@/utils/localeText",
         "react",
         "reactflow"
@@ -8524,8 +9356,8 @@
     "frontend/src/components/flow/nodes/TencentSpeechNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
       "kind": "tsx",
-      "bytes": 31665,
-      "sha256": "4f9e7e339f69b1dd3b34bcff2ccf8a1f7fb444c895f0a8044eeea50912c049e8",
+      "bytes": 32126,
+      "sha256": "5d52cd1bc7abb958be09d7003aa358325981218baf7dc639c163a2ed5939ed2a",
       "importSpecifiers": [
         "./GenerationProgressBar",
         "./RunCreditBadge",
@@ -8557,14 +9389,19 @@
     "frontend/src/components/flow/nodes/TextChatNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextChatNode.tsx",
       "kind": "tsx",
-      "bytes": 20428,
-      "sha256": "ac207f554a58dbc1dfd91d0d648f30e9d66764aac188d1c16b9e7d86abb6f34f",
+      "bytes": 28913,
+      "sha256": "47e7725a50050e74735f407a8c2e9d67c6dc856624aaf9263fe8213f787486f6",
       "importSpecifiers": [
+        "../../ui/dropdown-menu",
+        "../hooks/useBackendCreditsPreview",
         "../utils/textSource",
+        "./RunCreditBadge",
         "@/services/aiImageService",
         "@/services/contextManager",
         "@/stores/aiChatStore",
+        "@/utils/flowModelProvider",
         "@/utils/localeText",
+        "lucide-react",
         "react",
         "reactflow"
       ],
@@ -8578,6 +9415,7 @@
         "routes": [],
         "tags": [
           "flow",
+          "gemini",
           "reactflow"
         ],
         "apiEndpoints": [],
@@ -8616,10 +9454,12 @@
     "frontend/src/components/flow/nodes/TextPromptNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextPromptNode.tsx",
       "kind": "tsx",
-      "bytes": 12084,
-      "sha256": "7e00ba5c9cfb406e14d530bbe2a0cbe68fd285454a3cdcc727d47fcb4dd846ca",
+      "bytes": 12713,
+      "sha256": "253cec789143ee3ea9858eeca1567eceed080886266d4a90e43adc588be9dee8",
       "importSpecifiers": [
+        "../hooks/useNodeInternalsSync",
         "../utils/textSource",
+        "@/stores",
         "@/utils/localeText",
         "react",
         "reactflow"
@@ -8633,6 +9473,7 @@
         "feature": "module",
         "routes": [],
         "tags": [
+          "canvas",
           "flow",
           "reactflow"
         ],
@@ -8644,10 +9485,12 @@
     "frontend/src/components/flow/nodes/TextPromptProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextPromptProNode.tsx",
       "kind": "tsx",
-      "bytes": 14217,
-      "sha256": "005f091bced1a3723087f8b75b00116ca439f1bbf816025139e8697eacecff11",
+      "bytes": 14873,
+      "sha256": "7bb0c6567f72b130c10693e7e2987bce6d5f0144f2107b2a09e0994acb9d7e75",
       "importSpecifiers": [
+        "../hooks/useNodeInternalsSync",
         "../utils/textSource",
+        "@/stores",
         "@/utils/localeText",
         "lucide-react",
         "react",
@@ -8662,6 +9505,7 @@
         "feature": "module",
         "routes": [],
         "tags": [
+          "canvas",
           "flow",
           "reactflow"
         ],
@@ -8673,11 +9517,12 @@
     "frontend/src/components/flow/nodes/ThreeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ThreeNode.tsx",
       "kind": "tsx",
-      "bytes": 45287,
-      "sha256": "2ceb528821f98d7c9966264dab9f2820cf8c5ad52de1bb02b0f3fa286051a18f",
+      "bytes": 45148,
+      "sha256": "f18266416cf39da0208ca3926d7ab72369cf19b6d34106cb4bc94ac1567e625d",
       "importSpecifiers": [
         "../../../stores/imageHistoryStore",
         "../../ui/ImagePreviewModal",
+        "../utils/flowNodeSendAnchor",
         "@/services/imageHistoryService",
         "@/stores/projectContentStore",
         "@/utils/assetProxy",
@@ -8720,11 +9565,13 @@
     "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
       "kind": "tsx",
-      "bytes": 11059,
-      "sha256": "74ebced5de7cf962b4b0b3f67be3d0c8d2e333731545cb41f0f89a92bf96c843",
+      "bytes": 12271,
+      "sha256": "fe23db9ac69013827ddc9cb62613ab482ffe4375db9aca743d76a4f4b53392ae",
       "importSpecifiers": [
+        "./RunCreditBadge",
         "./flowNodeDarkTheme",
         "@/services/authFetch",
+        "@/stores",
         "@/stores/aiChatStore",
         "@/utils/localeText",
         "react",
@@ -8740,6 +9587,7 @@
         "routes": [],
         "tags": [
           "auth",
+          "canvas",
           "flow",
           "http",
           "reactflow"
@@ -8756,10 +9604,11 @@
     "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx",
       "kind": "tsx",
-      "bytes": 27533,
-      "sha256": "3df249d1561ba7ba5bcc454f30bb6c3cc45ac49ab07fd39547bb7fdf467b0fb0",
+      "bytes": 29203,
+      "sha256": "7164998130ee3487608d7478d9fd6dd647105097a7809c1905e9ce350a6dc568",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "./flowNodeDarkTheme",
         "@/services/authFetch",
         "@/services/imageUploadService",
         "@/stores/projectContentStore",
@@ -8908,8 +9757,8 @@
     "frontend/src/components/flow/nodes/ViewAngleNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
       "kind": "tsx",
-      "bytes": 49049,
-      "sha256": "b4e86a0fa31c463a9013eeb01a2fb104476fdb59342b3966e870c9ea477b6e8b",
+      "bytes": 49265,
+      "sha256": "67cc9fd12f88e9120f00c31017d36faeeb844d54f8872060ba13757c05b3530b",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "./GenerationProgressBar",
@@ -8945,10 +9794,13 @@
     "frontend/src/components/flow/nodes/Wan26Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan26Node.tsx",
       "kind": "tsx",
-      "bytes": 44670,
-      "sha256": "132645686f8f3f5357a909c24a278ff572c1609304fbe52c3e3bae5232847b71",
+      "bytes": 44501,
+      "sha256": "b4c379910745585a07a15a600b08eb70e1214787727adf96e8ea05a9b39e535d",
       "importSpecifiers": [
+        "../hooks/useBackendCreditsPreview",
+        "../hooks/useNodeRunCredits",
         "./GenerationProgressBar",
+        "./NodeSelect",
         "./RunCreditBadge",
         "@/services/authFetch",
         "@/stores/aiChatStore",
@@ -8980,10 +9832,13 @@
     "frontend/src/components/flow/nodes/Wan27VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
       "kind": "tsx",
-      "bytes": 19675,
-      "sha256": "9acd408bd215805aa428c3667bad49d863763830d14cb6f0f52a7fa1135dd65c",
+      "bytes": 28514,
+      "sha256": "6f150aea7f849117637332f74cbdf0bba08bd138ff14381cfd92f3be218ef7b2",
       "importSpecifiers": [
+        "../hooks/useBackendCreditsPreview",
+        "../hooks/useNodeRunCredits",
         "./GenerationProgressBar",
+        "./NodeSelect",
         "./RunCreditBadge",
         "@/stores/aiChatStore",
         "@/stores/projectContentStore",
@@ -9013,10 +9868,12 @@
     "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan2R2VNode.tsx",
       "kind": "tsx",
-      "bytes": 32863,
-      "sha256": "07c937a930e6a738dc3569ba22f7fac103876d7b20ab19a31130d7f1d7db7baf",
+      "bytes": 34705,
+      "sha256": "d32c91162f84e8c28f335053435a868e7711b5c53a5524dfd24ba486f9ab04a4",
       "importSpecifiers": [
         "../../ui/SmartImage",
+        "../hooks/useBackendCreditsPreview",
+        "../hooks/useNodeRunCredits",
         "./GenerationProgressBar",
         "./RunCreditBadge",
         "@/services/authFetch",
@@ -9115,8 +9972,8 @@
     "frontend/src/components/flow/types.ts": {
       "path": "frontend/src/components/flow/types.ts",
       "kind": "ts",
-      "bytes": 5674,
-      "sha256": "02690977948e69db5e5224f931399efc75b1ab8c12a50d7c5f470f9c48a2bffd",
+      "bytes": 5790,
+      "sha256": "0a7b3664aee144b07f50eb88eb9f292beb381cab08ec156f8063b3db26e0dc23",
       "importSpecifiers": [
         "reactflow"
       ],
@@ -9158,6 +10015,30 @@
           "flow",
           "reactflow",
           "storyboard"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/components/flow/utils/flowNodeSendAnchor.ts": {
+      "path": "frontend/src/components/flow/utils/flowNodeSendAnchor.ts",
+      "kind": "ts",
+      "bytes": 1169,
+      "sha256": "7cd9358d1f10637f5e066ba0216596c64281eabc9997c5f64f669ceb24fccd14",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "resolveFlowNodeSendAnchorClient"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -9219,11 +10100,12 @@
     "frontend/src/components/global-history/GlobalImageDetailModal.tsx": {
       "path": "frontend/src/components/global-history/GlobalImageDetailModal.tsx",
       "kind": "tsx",
-      "bytes": 6778,
-      "sha256": "040fa685b13f17dafd9b13e4d10137a069459a4ea080a02ef19f1e0c5e8c7541",
+      "bytes": 7569,
+      "sha256": "b9d225cd57a0cf42eb6ca65bcf1ec78b5573b784631ac4aebb4cc35c4955751d",
       "importSpecifiers": [
         "../ui/SmartImage",
         "../ui/button",
+        "./historyRequestInfo",
         "@/services/globalImageHistoryApi",
         "lucide-react",
         "react",
@@ -9249,12 +10131,13 @@
     "frontend/src/components/global-history/GlobalImageHistoryPage.tsx": {
       "path": "frontend/src/components/global-history/GlobalImageHistoryPage.tsx",
       "kind": "tsx",
-      "bytes": 14197,
-      "sha256": "449d9a868cd99a1500fe6d641c997bfbd037b091986068e61cf9ec1c495fbff8",
+      "bytes": 15754,
+      "sha256": "1acd8a264cfcf081d37d25b9b096f296d7e7d1daa93484c89d6e92f518084b01",
       "importSpecifiers": [
         "../ui/SmartImage",
         "../ui/button",
         "./GlobalImageDetailModal",
+        "./historyRequestInfo",
         "@/services/globalImageHistoryApi",
         "@/stores/globalImageHistoryStore",
         "lucide-react",
@@ -9280,11 +10163,36 @@
         "envVars": []
       }
     },
+    "frontend/src/components/global-history/historyRequestInfo.ts": {
+      "path": "frontend/src/components/global-history/historyRequestInfo.ts",
+      "kind": "ts",
+      "bytes": 3071,
+      "sha256": "e11b515c08c8a187bccf7567186e67e49c7af416e7839f6993a4af3880eeead6",
+      "importSpecifiers": [
+        "@/services/globalImageHistoryApi"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "getHistoryRequestPrompt",
+          "getHistoryRequestThumbnail"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/guards/PendingUploadLeavePrompt.tsx": {
       "path": "frontend/src/components/guards/PendingUploadLeavePrompt.tsx",
       "kind": "tsx",
-      "bytes": 4012,
-      "sha256": "59b0d873173123d51a177203eb07b03c16084014f8106c8b8c84d9151c493f23",
+      "bytes": 4762,
+      "sha256": "f3c904abb2bf5f1b1861bf4374a91761415c4409ec0b052d3c59ca88b838b496",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/stores/uploadLeavePromptStore",
@@ -9314,8 +10222,8 @@
     "frontend/src/components/guards/PendingUploadNavigationGuard.tsx": {
       "path": "frontend/src/components/guards/PendingUploadNavigationGuard.tsx",
       "kind": "tsx",
-      "bytes": 3698,
-      "sha256": "a5821c6db696997540f18517c547d984fee0d6912d5ffee71b7b9456c133b486",
+      "bytes": 3757,
+      "sha256": "e2604998a405c6b845c8768f3ed44674ce83319aa800f43ebd5a1a98cdb14a09",
       "importSpecifiers": [
         "@/stores/uploadLeavePromptStore",
         "@/utils/pendingUploadSummary",
@@ -9333,7 +10241,9 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "canvas"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -9342,8 +10252,8 @@
     "frontend/src/components/layout/FloatingHeader.tsx": {
       "path": "frontend/src/components/layout/FloatingHeader.tsx",
       "kind": "tsx",
-      "bytes": 90367,
-      "sha256": "0bd0f7208f5868273e71b09c0486baa6705433d24c0ef9e8e8dfd9cbb4e42b18",
+      "bytes": 102954,
+      "sha256": "c00cee7cb0a66b4e55f50797b168843db096829cde49efb95356c026590d9af3",
       "importSpecifiers": [
         "@/components/LanguageSwitcher",
         "@/components/ReferralRewards",
@@ -9351,7 +10261,8 @@
         "@/components/debug/HistoryDebugPanel",
         "@/components/debug/MemoryDebugPanel",
         "@/components/global-history/GlobalImageHistoryPage",
-        "@/components/payment/PaymentPanel",
+        "@/components/layout/PricingCatalogModal",
+        "@/components/payment/MembershipPanel",
         "@/components/projects/ProjectManagerModal",
         "@/components/ui/badge",
         "@/components/ui/button",
@@ -9411,11 +10322,38 @@
         ]
       }
     },
+    "frontend/src/components/layout/PricingCatalogModal.tsx": {
+      "path": "frontend/src/components/layout/PricingCatalogModal.tsx",
+      "kind": "tsx",
+      "bytes": 16234,
+      "sha256": "486adc201e38df1aa64ef1ae8818a115e02a8852012dd3d03d10d3f9f3037640",
+      "importSpecifiers": [
+        "@/services/adminApi",
+        "lucide-react",
+        "react",
+        "react-dom"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": true
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/components/panels/LayerPanel.tsx": {
       "path": "frontend/src/components/panels/LayerPanel.tsx",
       "kind": "tsx",
-      "bytes": 96171,
-      "sha256": "6306b1df4d298be6bcab49c52e9d6df957686a20643ccee52850f3c5e707c6b1",
+      "bytes": 96221,
+      "sha256": "8db7016a3c14af628ea43625a16077266162c690b7541b4f67029207eb7f0992",
       "importSpecifiers": [
         "../ui/SmartImage",
         "../ui/button",
@@ -9504,11 +10442,13 @@
     "frontend/src/components/payment/MembershipPanel.tsx": {
       "path": "frontend/src/components/payment/MembershipPanel.tsx",
       "kind": "tsx",
-      "bytes": 21663,
-      "sha256": "74f4a7c9687c882bdb1e996f7c0d8adef6ac094d800f56ac6327bf6375bd85bf",
+      "bytes": 44290,
+      "sha256": "826372db9768bf1997e111d1bd7fc90425bce781fb107388eb1aee4c77980d6b",
       "importSpecifiers": [
+        "@/components/payment/PaymentPanel",
         "@/lib/utils",
         "@/services/adminApi",
+        "@/stores/aiChatStore",
         "lucide-react",
         "react"
       ],
@@ -9521,8 +10461,8 @@
         "feature": "module",
         "routes": [],
         "tags": [
-          "qrcode",
-          "subscription"
+          "flow",
+          "qrcode"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -9532,18 +10472,21 @@
     "frontend/src/components/payment/PaymentPanel.tsx": {
       "path": "frontend/src/components/payment/PaymentPanel.tsx",
       "kind": "tsx",
-      "bytes": 27139,
-      "sha256": "99169fef303c00051953d983e558d193fb18da5b69226c4eb2957848180875ad",
+      "bytes": 32234,
+      "sha256": "9666ecbd6604d90b46cf380677d22bb512d8905fc362322c67b6ec1cdeb1449d",
       "importSpecifiers": [
         "@/lib/utils",
         "@/services/adminApi",
+        "@/stores/aiChatStore",
         "@/utils/localeText",
         "lucide-react",
         "react"
       ],
       "dynamicImportSpecifiers": [],
       "exports": {
-        "named": [],
+        "named": [
+          "PaymentPanelHandle"
+        ],
         "default": true
       },
       "semantic": {
@@ -9844,8 +10787,8 @@
     "frontend/src/components/ui/ImagePreviewModal.tsx": {
       "path": "frontend/src/components/ui/ImagePreviewModal.tsx",
       "kind": "tsx",
-      "bytes": 10863,
-      "sha256": "55ac14ce49796fc9a27e304edef4d9e0f928693b7355804d158468f3010e0c39",
+      "bytes": 11044,
+      "sha256": "8bd8a030212fab830b871de61dd21331810088119b467feda5094d30f14c549d",
       "importSpecifiers": [
         "./ImagePreviewModal.css",
         "./SmartImage",
@@ -9901,9 +10844,10 @@
     "frontend/src/components/ui/SmartImage.tsx": {
       "path": "frontend/src/components/ui/SmartImage.tsx",
       "kind": "tsx",
-      "bytes": 3016,
-      "sha256": "cf6c50b99e73513cc7106491f5b3c9a9137dd449ac8f6ff9c9436ffdb059b3a1",
+      "bytes": 4284,
+      "sha256": "db92dbc8aa09c6fd22fe6f2fb36ac1176d86ab0e997815ae79496a47b4516e76",
       "importSpecifiers": [
+        "@/components/flow/FlowRenderModeContext",
         "@/hooks/useNonBase64ImageSrc",
         "@/utils/imageSource",
         "react"
@@ -9918,7 +10862,9 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "flow"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -9927,8 +10873,8 @@
     "frontend/src/components/ui/SmoothSmartImage.tsx": {
       "path": "frontend/src/components/ui/SmoothSmartImage.tsx",
       "kind": "tsx",
-      "bytes": 6749,
-      "sha256": "85620a3a9355873e9ca58cc632e0add2d8f363cec55d8302ab37b23e6b8f6444",
+      "bytes": 6842,
+      "sha256": "be9d8e6405a14d7d27a3d72351fb53701d9920c393ac56dcd1d18b444fbc2eed",
       "importSpecifiers": [
         "@/hooks/useNonBase64ImageSrc",
         "@/utils/assetProxy",
@@ -10078,8 +11024,8 @@
     "frontend/src/components/ui/dropdown-menu.tsx": {
       "path": "frontend/src/components/ui/dropdown-menu.tsx",
       "kind": "tsx",
-      "bytes": 7571,
-      "sha256": "f7b5908547133fba74611278275ff2e5445228373cb2664a3dac5fd1a6adf66b",
+      "bytes": 7720,
+      "sha256": "5c7f3d493ea32533d4cd27ed185510c61d296e29240790be26e246fa3058e129",
       "importSpecifiers": [
         "@/lib/utils",
         "react"
@@ -10312,8 +11258,8 @@
     "frontend/src/components/workflow-history/WorkflowHistoryButton.tsx": {
       "path": "frontend/src/components/workflow-history/WorkflowHistoryButton.tsx",
       "kind": "tsx",
-      "bytes": 13083,
-      "sha256": "987dc397e193e88299c4ef0f0d2c104ee69108020013e4162bf43a137af33d23",
+      "bytes": 13079,
+      "sha256": "733ce7fd3a07fa8c4811109512378a899ece78ff546484a043b8a32c1b9d40f3",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/lib/utils",
@@ -10376,6 +11322,35 @@
         "envVars": []
       }
     },
+    "frontend/src/hooks/useBioAuthPolling.ts": {
+      "path": "frontend/src/hooks/useBioAuthPolling.ts",
+      "kind": "ts",
+      "bytes": 1859,
+      "sha256": "7604f4b857dc0d9d79c880ece6d70c33cf0f23bded38c07fd2e4f6dde5906a4d",
+      "importSpecifiers": [
+        "../services/bioAuthAPI",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthPollUpdate",
+          "BioAuthPollingOptions",
+          "useBioAuthPolling"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/hooks/useFlowImageAssetUrl.ts": {
       "path": "frontend/src/hooks/useFlowImageAssetUrl.ts",
       "kind": "ts",
@@ -10406,8 +11381,8 @@
     "frontend/src/hooks/useNonBase64ImageSrc.ts": {
       "path": "frontend/src/hooks/useNonBase64ImageSrc.ts",
       "kind": "ts",
-      "bytes": 5131,
-      "sha256": "cdfb8c93e9cfed0f2e1a19ba44fe10383ad5da405fedd73ef8fd43042517ec9f",
+      "bytes": 5227,
+      "sha256": "f69942c7f5f43e7b09c4639cfe85f42c57d1d9167def1ce1154c151cbf074542",
       "importSpecifiers": [
         "@/hooks/useFlowImageAssetUrl",
         "@/services/flowImageAssetStore",
@@ -10436,11 +11411,9 @@
     "frontend/src/hooks/usePendingUploadLeaveGuard.ts": {
       "path": "frontend/src/hooks/usePendingUploadLeaveGuard.ts",
       "kind": "ts",
-      "bytes": 805,
-      "sha256": "a90515449366c257745ef09c6bdf4a11ea99f0a7da1d97a9d0deb113cbb8c5cb",
+      "bytes": 285,
+      "sha256": "f593cfc715a7c091387ce46e2a1364d83079e8d7f303f9aa611182ac53eb9185",
       "importSpecifiers": [
-        "@/stores/uploadLeavePromptStore",
-        "@/utils/pendingUploadSummary",
         "react"
       ],
       "dynamicImportSpecifiers": [],
@@ -10462,8 +11435,8 @@
     "frontend/src/hooks/useProjectAutosave.ts": {
       "path": "frontend/src/hooks/useProjectAutosave.ts",
       "kind": "ts",
-      "bytes": 9961,
-      "sha256": "e059e1d68f660f185d9dd9cd9d96f3c61d239a82e6fff47c1df1115790d86c65",
+      "bytes": 9957,
+      "sha256": "31848265d60d506b1085098c337e69f3f146c9f65d0eee48ddd0220289b0c3ae",
       "importSpecifiers": [
         "@/services/flowSaveService",
         "@/services/paperSaveService",
@@ -10522,6 +11495,32 @@
         "envVars": []
       }
     },
+    "frontend/src/hooks/useVolcAssetPolling.ts": {
+      "path": "frontend/src/hooks/useVolcAssetPolling.ts",
+      "kind": "ts",
+      "bytes": 1672,
+      "sha256": "778a72d25dcbc80acd927729ec5b61efe59a50b8f8d1bba7149e91017d58aa05",
+      "importSpecifiers": [
+        "../services/volcAssetAPI",
+        "react"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "VolcAssetPollingOptions",
+          "useVolcAssetPolling"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/i18n/index.ts": {
       "path": "frontend/src/i18n/index.ts",
       "kind": "ts",
@@ -10554,8 +11553,8 @@
     "frontend/src/i18n/locales/en-US.ts": {
       "path": "frontend/src/i18n/locales/en-US.ts",
       "kind": "ts",
-      "bytes": 17777,
-      "sha256": "733e8b64f6d2da0e52c1d65386bf4b925f4fe02d0524e740ee2469b76bca2554",
+      "bytes": 18271,
+      "sha256": "c21ece8673e5a77441ab795eb906e2b28833bc35f7d5d39b41995c93e1585791",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -10580,8 +11579,8 @@
     "frontend/src/i18n/locales/zh-CN.ts": {
       "path": "frontend/src/i18n/locales/zh-CN.ts",
       "kind": "ts",
-      "bytes": 17313,
-      "sha256": "b30d3304bab8ba3188afb9177d6041474876f048c96dcb4b03d8f5a3316af049",
+      "bytes": 17793,
+      "sha256": "4b42b7bfc67e8d13b74698627d952797f975fbe02be94be2e78fd5d6441d469f",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -10689,18 +11688,17 @@
     "frontend/src/main.tsx": {
       "path": "frontend/src/main.tsx",
       "kind": "tsx",
-      "bytes": 3870,
-      "sha256": "7559b1943d9e5b10d7c67a666f20b92703fc68d67d350f52e9723619e9c09743",
+      "bytes": 2420,
+      "sha256": "5a50730da427a73a82bf90af7e9c484bc34c33837fda834dea02243c972efa15",
       "importSpecifiers": [
         "./App.tsx",
         "./index.css",
         "@/bootstrap/polyfills",
         "@/bootstrap/runtimeStability",
-        "@/components/guards/PendingUploadLeavePrompt",
-        "@/components/guards/PendingUploadNavigationGuard",
         "@/i18n",
         "@/pages/Admin",
         "@/pages/Home",
+        "@/pages/MembershipSubscribePage",
         "@/pages/MyCredits",
         "@/pages/OSSDemo",
         "@/pages/Workspace",
@@ -10710,7 +11708,6 @@
         "@/pages/legal/PrivacyPolicy",
         "@/pages/legal/TermsOfService",
         "@/routes/ProtectedRoute",
-        "@/services/adminApi",
         "@/stores/authStore",
         "@/stores/projectStore",
         "react",
@@ -10737,8 +11734,8 @@
     "frontend/src/pages/Admin.tsx": {
       "path": "frontend/src/pages/Admin.tsx",
       "kind": "tsx",
-      "bytes": 290724,
-      "sha256": "a6e333bbacf8611d98b14f668e5675f025f3f8a196d8b7777b145d6ea1af3bae",
+      "bytes": 554547,
+      "sha256": "0f0590e44b168940906dd55c28768461609b090e30787e93d51e5c32f222ab53",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/input",
@@ -10795,8 +11792,8 @@
     "frontend/src/pages/Canvas.tsx": {
       "path": "frontend/src/pages/Canvas.tsx",
       "kind": "tsx",
-      "bytes": 5658,
-      "sha256": "a2091855c685a4d0702a1bbb515bbca176cdb4b6bf402eeea616e2da8cada708",
+      "bytes": 5759,
+      "sha256": "1d52bec0011aeddc1ccd00d0e37966c045a6c5e40d70dc1ba587285a683367f9",
       "importSpecifiers": [
         "@/components/canvas/DrawingController",
         "@/components/canvas/FocusModeButton",
@@ -10881,15 +11878,41 @@
         ]
       }
     },
+    "frontend/src/pages/MembershipSubscribePage.tsx": {
+      "path": "frontend/src/pages/MembershipSubscribePage.tsx",
+      "kind": "tsx",
+      "bytes": 1440,
+      "sha256": "eedb0d7bc4ed651d103e6923e86ef7eef52c4f0afe35ec8cde5914a46a93231c",
+      "importSpecifiers": [
+        "@/components/payment/MembershipPanel",
+        "@/lib/utils",
+        "@/stores/aiChatStore",
+        "react",
+        "react-router-dom"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": true
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/pages/MyCredits.tsx": {
       "path": "frontend/src/pages/MyCredits.tsx",
       "kind": "tsx",
-      "bytes": 29172,
-      "sha256": "775312040cf276ff564cc04139281171918379b6eae12a034dd09f5c38bdcfd1",
+      "bytes": 32366,
+      "sha256": "7514d9aed2f24c66cdf0cba1e07d58a0d356f527d554637ca3c661de37843b34",
       "importSpecifiers": [
         "@/components/LanguageSwitcher",
-        "@/components/payment/MembershipPanel",
-        "@/components/payment/PaymentPanel",
         "@/components/ui/button",
         "@/lib/utils",
         "@/services/adminApi",
@@ -10907,8 +11930,7 @@
         "routes": [],
         "tags": [
           "flow",
-          "gemini",
-          "settings"
+          "gemini"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -11047,8 +12069,8 @@
     "frontend/src/pages/auth/Login.tsx": {
       "path": "frontend/src/pages/auth/Login.tsx",
       "kind": "tsx",
-      "bytes": 25769,
-      "sha256": "3451675ad4c8131fbde4084110531016fd56857513ab612a5961e378da7c8e7e",
+      "bytes": 29734,
+      "sha256": "5ea93432ed912e71e92d4d453a5de64926391f48871e9be133c597057d055751",
       "importSpecifiers": [
         "@/assets/1752064513_guan-cha-insights.webp",
         "@/components/auth/ForgotPasswordModal",
@@ -11056,6 +12078,7 @@
         "@/components/ui/card",
         "@/components/ui/input",
         "@/services/authApi",
+        "@/services/referralApi",
         "@/stores/authStore",
         "lucide-react",
         "react",
@@ -11085,8 +12108,8 @@
     "frontend/src/pages/auth/Register.tsx": {
       "path": "frontend/src/pages/auth/Register.tsx",
       "kind": "tsx",
-      "bytes": 13372,
-      "sha256": "ead0e8451d5a1328a40edb755e46c1a594eb7156b009caf8a4e6a84f70ccbe96",
+      "bytes": 13598,
+      "sha256": "ca58019d2b91a39fe3060203474876175a9b990e01a5dc60868cc166a3dbe884",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/card",
@@ -11121,8 +12144,8 @@
     "frontend/src/pages/legal/CommunityGuidelines.tsx": {
       "path": "frontend/src/pages/legal/CommunityGuidelines.tsx",
       "kind": "tsx",
-      "bytes": 15243,
-      "sha256": "7478decede6063e2e7b53c0597e71aa6ebafbf399b6afbfc87b55fa1067a2dbf",
+      "bytes": 15255,
+      "sha256": "ec8d26811f9eb924625fda9b4a4e84e7740c19042007572eb8b5aaa1d5183a0d",
       "importSpecifiers": [
         "react-router-dom"
       ],
@@ -11137,7 +12160,8 @@
         "feature": "module",
         "routes": [],
         "tags": [
-          "auth"
+          "auth",
+          "flow"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -11147,8 +12171,8 @@
     "frontend/src/pages/legal/PrivacyPolicy.tsx": {
       "path": "frontend/src/pages/legal/PrivacyPolicy.tsx",
       "kind": "tsx",
-      "bytes": 14208,
-      "sha256": "e973f4a3b813a3b95c7fa844abf3ade44f8480415db60d1cb01a0e443acf3792",
+      "bytes": 14220,
+      "sha256": "2ac198268f4ef23d83f024e0f47b7518dfbdf8b6da670d1535d221a4a24386e3",
       "importSpecifiers": [
         "react-router-dom"
       ],
@@ -11177,8 +12201,8 @@
     "frontend/src/pages/legal/TermsOfService.tsx": {
       "path": "frontend/src/pages/legal/TermsOfService.tsx",
       "kind": "tsx",
-      "bytes": 19399,
-      "sha256": "f7348a67a28a6bda8ceda7a81308c0ffa6694d9e378f007c4d6ccc433ee4e048",
+      "bytes": 19411,
+      "sha256": "82642165abb3ebe9050db2e3ce48f559d745ad7c862d7bef9ff1d58db8d6d0e6",
       "importSpecifiers": [
         "react-router-dom"
       ],
@@ -11277,8 +12301,8 @@
     "frontend/src/services/adminApi.ts": {
       "path": "frontend/src/services/adminApi.ts",
       "kind": "ts",
-      "bytes": 32581,
-      "sha256": "81a5d39a4eb3cc9ad95a7d51f64f5b391e66785de17c5a510fede27ff1619f76",
+      "bytes": 44541,
+      "sha256": "09b0bcc704761f83ade8df542850daba98e8b891361e910e997e8efdd9924904",
       "importSpecifiers": [
         "./authFetch"
       ],
@@ -11300,6 +12324,13 @@
           "DailyRewardStatus",
           "DashboardStats",
           "ExpiringCreditsInfo",
+          "ManagedPricingCatalogCondition",
+          "ManagedPricingCatalogDimension",
+          "ManagedPricingCatalogItem",
+          "ManagedPricingCatalogRule",
+          "ManagedPricingCatalogVendor",
+          "ManagedPricingPreviewRequest",
+          "ManagedPricingPreviewResponse",
           "MembershipCreditPolicyConfig",
           "MembershipCreditPolicyView",
           "MembershipCurrentResponse",
@@ -11320,7 +12351,9 @@
           "PaymentStatus",
           "PaymentStatusResponse",
           "RechargePackage",
+          "Seedance2AccessResponse",
           "SystemSetting",
+          "UserCreditTransaction",
           "UserCreditsInfo",
           "UserWithCredits",
           "WatermarkWhitelistUser",
@@ -11335,6 +12368,7 @@
           "adminIssueDailyMembershipGifts",
           "adminRefreshYearlyMembershipQuota",
           "claimDailyReward",
+          "cleanupVolcReviewGroup",
           "confirmPayment",
           "createAdminMembershipPlan",
           "createMembershipOrder",
@@ -11355,6 +12389,7 @@
           "getDailyRewardStatus",
           "getDashboardStats",
           "getExpiringCredits",
+          "getManagedPricingCatalog",
           "getMembershipCreditPolicy",
           "getMembershipCurrent",
           "getMembershipMe",
@@ -11371,13 +12406,18 @@
           "getPaymentPackages",
           "getPaymentStatus",
           "getPricing",
+          "getSeedance2Access",
           "getSetting",
           "getSettings",
           "getUserDetail",
           "getUsers",
           "getWatermarkWhitelist",
+          "listVolcReviewGroups",
+          "previewManagedPricing",
           "removeFromWatermarkWhitelist",
           "scheduleMembershipPlanChange",
+          "syncNodeConfigs",
+          "unbindUserWechat",
           "updateAdminMembershipPlan",
           "updateMembershipCreditPolicy",
           "updateNodeConfig",
@@ -11407,9 +12447,10 @@
           "/api/admin/membership/ops/expire-scan",
           "/api/admin/membership/ops/issue-daily-gifts",
           "/api/admin/membership/ops/refresh-yearly-quota",
-          "/api/admin/node-configs",
           "/api/admin/pricing",
+          "/api/admin/pricing/preview",
           "/api/admin/settings",
+          "/api/ai/seedance2/access",
           "/api/credits/balance",
           "/api/credits/check-in/calendar",
           "/api/credits/daily-reward/claim",
@@ -11433,8 +12474,8 @@
     "frontend/src/services/aiBackendAPI.ts": {
       "path": "frontend/src/services/aiBackendAPI.ts",
       "kind": "ts",
-      "bytes": 52940,
-      "sha256": "738725d4422bbf64dbf70183c95b142fcbeacb8b438e435ba337e4eb3250908c",
+      "bytes": 63457,
+      "sha256": "5913318026946d6cd6306f8456463a991e2f55691ee94653617da5e190c960f7",
       "importSpecifiers": [
         "./authFetch",
         "@/types/ai",
@@ -11444,6 +12485,8 @@
       "dynamicImportSpecifiers": [],
       "exports": {
         "named": [
+          "HappyhorseMediaItem",
+          "HappyhorseModel",
           "Sora2CharacterCreateRequest",
           "Sora2CharacterCreateResult",
           "Sora2CharacterTaskResult",
@@ -11454,6 +12497,7 @@
           "blendImagesViaAPI",
           "createSora2CharacterViaAPI",
           "editImageViaAPI",
+          "generateHappyhorseVideoViaAPI",
           "generateImageViaAPI",
           "generateTextResponseViaAPI",
           "generateVideoAsyncAPI",
@@ -11480,12 +12524,15 @@
           "gemini",
           "http",
           "profile",
-          "storyboard"
+          "storyboard",
+          "token"
         ],
         "apiEndpoints": [
           "http://localhost:4000"
         ],
-        "storageKeys": [],
+        "storageKeys": [
+          "ai-chat-preferences"
+        ],
         "envVars": [
           "VITE_API_BASE_URL"
         ]
@@ -11494,8 +12541,8 @@
     "frontend/src/services/aiImageService.ts": {
       "path": "frontend/src/services/aiImageService.ts",
       "kind": "ts",
-      "bytes": 21390,
-      "sha256": "23a65c170779c1d279d25802903ef46e9f406c8422bee178524f58ae2b1c4273",
+      "bytes": 24906,
+      "sha256": "0883bc39566d3dbc840dae268d3691098948cf63341b34a8d22c27e166303963",
       "importSpecifiers": [
         "./authEvents",
         "./authFetch",
@@ -11516,13 +12563,16 @@
         "routes": [],
         "tags": [
           "auth",
+          "gemini",
           "http",
           "token"
         ],
         "apiEndpoints": [
           "http://localhost:4000"
         ],
-        "storageKeys": [],
+        "storageKeys": [
+          "ai-chat-preferences"
+        ],
         "envVars": [
           "VITE_API_BASE_URL"
         ]
@@ -11531,11 +12581,12 @@
     "frontend/src/services/authApi.ts": {
       "path": "frontend/src/services/authApi.ts",
       "kind": "ts",
-      "bytes": 22443,
-      "sha256": "680f70e69dfbdd0e421088221f3df6bc5cd6cc26b0c781e0ff32c31096166c62",
+      "bytes": 22846,
+      "sha256": "1af59ba4546034f8203d28dde02ba925668d05a4d218351317cfcbc0f01e428c",
       "importSpecifiers": [
         "./authFetch",
-        "./authTokenStorage"
+        "./authTokenStorage",
+        "./referralApi"
       ],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -11725,6 +12776,43 @@
         "envVars": []
       }
     },
+    "frontend/src/services/bioAuthAPI.ts": {
+      "path": "frontend/src/services/bioAuthAPI.ts",
+      "kind": "ts",
+      "bytes": 2430,
+      "sha256": "42b549bdc90352a05a59b27eb5eef33f380e7639eff561041c451715e6b18e5d",
+      "importSpecifiers": [
+        "../utils/assetProxy",
+        "./authFetch"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "BioAuthGroupItem",
+          "BioAuthStatus",
+          "BioAuthStatusResult",
+          "CreateAssetInGroupResult",
+          "ListGroupsResult",
+          "StartBioAuthResult",
+          "createAssetInGroup",
+          "getBioAuthStatus",
+          "listBioAuthGroups",
+          "startBioAuth"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/services/clipboardJsonService.ts": {
       "path": "frontend/src/services/clipboardJsonService.ts",
       "kind": "ts",
@@ -11763,8 +12851,8 @@
     "frontend/src/services/clipboardService.ts": {
       "path": "frontend/src/services/clipboardService.ts",
       "kind": "ts",
-      "bytes": 2137,
-      "sha256": "90a1eb5755ed17f3e8a08cd55f3d696eecb1a818a1e2e814a25370c9ec5460f3",
+      "bytes": 2169,
+      "sha256": "728568278e3a0bbd91a7426a7126b4fa44ea22f1a9216b4a940672ad1b5f207a",
       "importSpecifiers": [
         "@/types/project",
         "@/types/template"
@@ -11855,6 +12943,38 @@
         ]
       }
     },
+    "frontend/src/services/creditsPreviewService.ts": {
+      "path": "frontend/src/services/creditsPreviewService.ts",
+      "kind": "ts",
+      "bytes": 3047,
+      "sha256": "1b7ac9a75148a90e3f63ada6e26f397d520540e15df9292b1426d0dd610c1e6c",
+      "importSpecifiers": [
+        "./authFetch",
+        "@/utils/assetProxy"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "CreditsPreviewRequest",
+          "CreditsPreviewResponse",
+          "buildPreviewRequestSignature",
+          "previewCredits",
+          "stableSerializePreviewPayload"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/services/expandImageService.ts": {
       "path": "frontend/src/services/expandImageService.ts",
       "kind": "ts",
@@ -11925,8 +13045,8 @@
     "frontend/src/services/flowSaveService.ts": {
       "path": "frontend/src/services/flowSaveService.ts",
       "kind": "ts",
-      "bytes": 4041,
-      "sha256": "17bcfd0c86f9758f58bc6a4cdd8e0ab6402c5539addfa5565db481e2ca95e0d0",
+      "bytes": 8323,
+      "sha256": "24480dffba5cf592f7d10841a47d9ecc80709b2f90af1fbdf5c473d87d93b3a0",
       "importSpecifiers": [
         "@/services/imageUploadService",
         "@/stores/projectContentStore",
@@ -12337,8 +13457,8 @@
     "frontend/src/services/nodeConfigService.ts": {
       "path": "frontend/src/services/nodeConfigService.ts",
       "kind": "ts",
-      "bytes": 8005,
-      "sha256": "af91278916270dbf44da1358791f0041e72d3ab728ca96a18b6b083fe479bf56",
+      "bytes": 9057,
+      "sha256": "2fdc02bcee9cebf8bc5ac04e025559d79fee13c48036d6dadc98bb2612511513",
       "importSpecifiers": [
         "../utils/assetProxy",
         "@/utils/localeText"
@@ -12360,6 +13480,7 @@
         "feature": "module",
         "routes": [],
         "tags": [
+          "flow",
           "storyboard"
         ],
         "apiEndpoints": [],
@@ -12644,8 +13765,8 @@
     "frontend/src/services/promptOptimizationService.ts": {
       "path": "frontend/src/services/promptOptimizationService.ts",
       "kind": "ts",
-      "bytes": 6282,
-      "sha256": "3ed1e9ae3b70822377c30ab837b7251ad52ca2f3bec293d2b3c7b25dc06612b7",
+      "bytes": 6394,
+      "sha256": "6a51e7c8c65df5088e038048a5d09b3ad88444e83d76a268aaf2c148da474e9a",
       "importSpecifiers": [
         "@/services/aiBackendAPI",
         "@/types/ai"
@@ -12910,8 +14031,8 @@
     "frontend/src/services/videoProviderAPI.ts": {
       "path": "frontend/src/services/videoProviderAPI.ts",
       "kind": "ts",
-      "bytes": 3832,
-      "sha256": "4befa07024df7ef33fb83660998f1f36bace9daf60893eb4ebf850a1ff98cf91",
+      "bytes": 4818,
+      "sha256": "6b4b25a7539d5421b0705c256b0a10bddbe55295fc3a15f5b47eb3091510d73b",
       "importSpecifiers": [
         "../utils/assetProxy",
         "./authFetch"
@@ -12935,7 +14056,70 @@
         "tags": [
           "auth",
           "http",
-          "kling"
+          "kling",
+          "storyboard"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/services/videoProviderParams.ts": {
+      "path": "frontend/src/services/videoProviderParams.ts",
+      "kind": "ts",
+      "bytes": 2463,
+      "sha256": "3fa1194232affc62d9ad81103a24d59583c7634b5921a663a95a4e3c0032eb25",
+      "importSpecifiers": [
+        "./videoProviderAPI"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "ViduModelValue",
+          "buildViduRequestSemantics",
+          "getEffectiveViduProvider",
+          "isViduQ3FamilyModel",
+          "normalizeViduModelForApi",
+          "normalizeViduModelValue",
+          "resolveViduVideoMode"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/services/volcAssetAPI.ts": {
+      "path": "frontend/src/services/volcAssetAPI.ts",
+      "kind": "ts",
+      "bytes": 1633,
+      "sha256": "8dc823b85039679b80874c2b1248cb8b24c835b634d491c13e7ccbe57761f016",
+      "importSpecifiers": [
+        "../utils/assetProxy",
+        "./authFetch"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "AssetStatusResult",
+          "UploadAssetResult",
+          "VolcAssetStatus",
+          "getVolcAssetStatus",
+          "uploadVolcAsset"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "auth",
+          "http"
         ],
         "apiEndpoints": [],
         "storageKeys": [],
@@ -12945,8 +14129,8 @@
     "frontend/src/stores/aiChatStore.ts": {
       "path": "frontend/src/stores/aiChatStore.ts",
       "kind": "ts",
-      "bytes": 296901,
-      "sha256": "9a3b2f18c80df3bcf2352eca1baf3b1bf9cd7d9494a0340f85ac32b47fc2acff",
+      "bytes": 307899,
+      "sha256": "a55939e5d25e7b20a991f4aab9e189db032523cb64a66b406da5425e7d061aa3",
       "importSpecifiers": [
         "@/services/aiBackendAPI",
         "@/services/aiImageService",
@@ -12966,7 +14150,9 @@
         "@/types/canvas",
         "@/types/context",
         "@/utils/asyncLimit",
+        "@/utils/bananaRouteCapabilities",
         "@/utils/creditsError",
+        "@/utils/flowModelProvider",
         "@/utils/imageConcurrency",
         "@/utils/imagePreview",
         "@/utils/imageSource",
@@ -12989,6 +14175,7 @@
           "SendShortcut",
           "Sora2VideoGenerationOptions",
           "Sora2VideoQuality",
+          "getAnalyzeModelForProvider",
           "getImageModelForProvider",
           "getTextModelForProvider",
           "requestSora2VideoGeneration",
@@ -13125,8 +14312,8 @@
     "frontend/src/stores/flowStore.ts": {
       "path": "frontend/src/stores/flowStore.ts",
       "kind": "ts",
-      "bytes": 8008,
-      "sha256": "e10c50e5b9567326e5468b6040f82bd1ebe65384f2c4fab8bb3dd4f8cdea7520",
+      "bytes": 7916,
+      "sha256": "5152dfb5bc8616e8ce75e37429036d7d1c25ff255a11cb878c7ca99e23162106",
       "importSpecifiers": [
         "./storageUtils",
         "zustand",
@@ -13576,8 +14763,8 @@
     "frontend/src/stores/uploadLeavePromptStore.ts": {
       "path": "frontend/src/stores/uploadLeavePromptStore.ts",
       "kind": "ts",
-      "bytes": 1179,
-      "sha256": "655bc6cae5df8ef7a661c4dfc3fb61d64ba6cea7e06c8f77d8e72b3bc6e96b86",
+      "bytes": 1392,
+      "sha256": "d6defc29cba8f3004329fc10972076e7d9539788016e9abcb85d83cbde8ea724",
       "importSpecifiers": [
         "zustand"
       ],
@@ -13628,8 +14815,8 @@
     "frontend/src/types/ai.ts": {
       "path": "frontend/src/types/ai.ts",
       "kind": "ts",
-      "bytes": 9488,
-      "sha256": "f0af0e9827fb04952326e0e7e76bf1eb56cda55e9dd62aa91b463a6886ed08ea",
+      "bytes": 11357,
+      "sha256": "4c3c91a256fbb3698722fa31d452732a08b9bde5484b14023ae6bafae8c165f2",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -13652,6 +14839,8 @@
           "AITextChatRequest",
           "AITextChatResult",
           "AITool",
+          "BananaImageRoute",
+          "BananaProviderOptions",
           "MidjourneyAccountFilter",
           "MidjourneyActionRequest",
           "MidjourneyButtonInfo",
@@ -13928,8 +15117,8 @@
     "frontend/src/utils/assetProxy.ts": {
       "path": "frontend/src/utils/assetProxy.ts",
       "kind": "ts",
-      "bytes": 8691,
-      "sha256": "29f17bacc9670781219d902d811383231c8f2563b029084d28a2b0733517709b",
+      "bytes": 8795,
+      "sha256": "7afdbba381717c8c1d1c543ecfd2bbe1fce12830862e0548d9bc97f9bf0bd23d",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -13975,6 +15164,33 @@
           "AsyncTask",
           "createAsyncLimiter",
           "mapWithLimit"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/utils/bananaRouteCapabilities.ts": {
+      "path": "frontend/src/utils/bananaRouteCapabilities.ts",
+      "kind": "ts",
+      "bytes": 1188,
+      "sha256": "cdca113013946aaf2302ecaa31da3a2e389f3442a57352081d3ee2ea782c5de4",
+      "importSpecifiers": [
+        "@/types/ai"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "getTencentBananaMaxReferenceImages",
+          "isBananaRouteProvider",
+          "isTencentBananaAnalyzeSupported",
+          "isTencentStableBananaRoute"
         ],
         "default": false
       },
@@ -14121,6 +15337,64 @@
         "envVars": []
       }
     },
+    "frontend/src/utils/flowModelProvider.ts": {
+      "path": "frontend/src/utils/flowModelProvider.ts",
+      "kind": "ts",
+      "bytes": 1162,
+      "sha256": "97fa5d021a40c9c154bb773df5654f4075531e271b1d6155ff40bcb047e95550",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "FLOW_MODEL_PROVIDER_SYNC_EVENT",
+          "FlowModelProvider",
+          "FlowModelProviderMode",
+          "getFlowModelProviderMode",
+          "normalizeFlowModelProvider",
+          "resolveFlowModelProvider"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "flow",
+          "gemini"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/utils/flowViewportTransform.ts": {
+      "path": "frontend/src/utils/flowViewportTransform.ts",
+      "kind": "ts",
+      "bytes": 1024,
+      "sha256": "54d4a2930a046b5ccb0d45987cecda62cc2ff5ea0f2a1958ebbe2263b25001db",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "CanvasViewportState",
+          "FlowViewport",
+          "canvasStateToFlowViewport",
+          "getDevicePixelRatio"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "canvas",
+          "flow"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/utils/gridRenderOptimizer.ts": {
       "path": "frontend/src/utils/gridRenderOptimizer.ts",
       "kind": "ts",
@@ -14253,8 +15527,8 @@
     "frontend/src/utils/imageSource.ts": {
       "path": "frontend/src/utils/imageSource.ts",
       "kind": "ts",
-      "bytes": 21133,
-      "sha256": "40a5c4cbc40d27e7f2a0426d436982a0c6b1e76f72c9a39e2f29f0925870fc25",
+      "bytes": 25636,
+      "sha256": "c58c79abf28cd323559223d657f94fbd85af4deb322e4bfc25327f48a9739a17",
       "importSpecifiers": [
         "@/services/authFetch",
         "@/services/flowImageAssetStore",
@@ -14542,9 +15816,10 @@
     "frontend/src/utils/pendingUploadSummary.ts": {
       "path": "frontend/src/utils/pendingUploadSummary.ts",
       "kind": "ts",
-      "bytes": 3326,
-      "sha256": "f42fc0678da15b703391f8987a986433021ad43fb5c3077f0606328ce9a4e1ea",
+      "bytes": 5487,
+      "sha256": "33e307271a0f9119001e0ddfdcfeca7d6a109bd463ed186e74a07da11a64d2bf",
       "importSpecifiers": [
+        "@/stores/aiChatStore",
         "@/stores/projectContentStore",
         "@/stores/uploadLeavePromptStore",
         "@/stores/uploadTaskStore",
@@ -14771,8 +16046,8 @@
     "frontend/tailwind.config.js": {
       "path": "frontend/tailwind.config.js",
       "kind": "js",
-      "bytes": 1591,
-      "sha256": "2e0d69bc68389bc6c455a4982951214f872561c877f3796241257cfac14de1c4",
+      "bytes": 1644,
+      "sha256": "c45a4d571d7b7b2dd9fffc8fad7bb154631d3dced22499db4bd9cc332301612e",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -14814,11 +16089,31 @@
         "envVars": []
       }
     },
+    "frontend/tmp_head_aiChatStore.ts": {
+      "path": "frontend/tmp_head_aiChatStore.ts",
+      "kind": "ts",
+      "bytes": 601685,
+      "sha256": "64bd8d9fdfbf6d281c7379d70a794bdfeb9c50214f9409b82fdfa96277454dfc",
+      "importSpecifiers": [],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/vite.config.ts": {
       "path": "frontend/vite.config.ts",
       "kind": "ts",
-      "bytes": 2704,
-      "sha256": "443bef64cda1d637080337d65ad54541c35ddedf228ff4f1578753f8aa5e9e30",
+      "bytes": 2737,
+      "sha256": "500f1b9f658249b48c5d94dfd0274f5cf4cfdccd368f511b104e23a081dff2f4",
       "importSpecifiers": [
         "@vitejs/plugin-react",
         "node:fs",
@@ -15104,6 +16399,7 @@
       "backend/src/admin/admin.controller.ts": {
         "local": [],
         "localUnresolved": [
+          "../ai/services/model-routing.service",
           "../auth/guards/jwt.guard",
           "../business-policy/business-policy.service",
           "../business-policy/business-policy.types",
@@ -15111,6 +16407,7 @@
           "../credits/credits.service",
           "../credits/dto/credits.dto",
           "../membership/membership.service",
+          "../volc-asset/volc-asset.service",
           "./admin.service",
           "./dto/admin.dto",
           "./dto/template.dto",
@@ -15131,6 +16428,7 @@
           "../membership/membership.module",
           "../oss/oss.module",
           "../prisma/prisma.module",
+          "../volc-asset/volc-asset.module",
           "./admin.controller",
           "./admin.service",
           "./services/node-config.service",
@@ -15169,7 +16467,9 @@
         ]
       },
       "backend/src/admin/services/node-config.service.ts": {
-        "local": [],
+        "local": [
+          "backend/src/ai/services/model-pricing-resolver.ts"
+        ],
         "localUnresolved": [
           "../../ai/services/model-routing.service",
           "../../prisma/prisma.service"
@@ -15628,12 +16928,17 @@
           "backend/src/telemetry/tracing.ts"
         ],
         "localUnresolved": [
+          "../../credits/credits.service",
+          "../../credits/dto/credits.dto",
+          "../../oss/oss.service",
           "../../prisma/prisma.service",
           "../../telemetry/openobserve-telemetry.service",
           "../image-generation.service"
         ],
         "external": [
-          "@nestjs/common"
+          "@nestjs/common",
+          "crypto",
+          "stream"
         ]
       },
       "backend/src/ai/services/minimax-music.service.ts": {
@@ -15656,8 +16961,17 @@
           "@nestjs/config"
         ]
       },
-      "backend/src/ai/services/model-routing.service.ts": {
+      "backend/src/ai/services/model-pricing-resolver.ts": {
         "local": [],
+        "localUnresolved": [],
+        "external": [
+          "json-rules-engine"
+        ]
+      },
+      "backend/src/ai/services/model-routing.service.ts": {
+        "local": [
+          "backend/src/ai/services/model-pricing-resolver.ts"
+        ],
         "localUnresolved": [
           "../../prisma/prisma.service"
         ],
@@ -15777,6 +17091,7 @@
           "./ai-public/ai-public.module",
           "./ai/ai.module",
           "./auth/auth.module",
+          "./bio-auth/bio-auth.module",
           "./credits/credits.module",
           "./global-image-history/global-image-history.module",
           "./health/health.module",
@@ -15790,7 +17105,8 @@
           "./telemetry/telemetry.module",
           "./templates/templates.module",
           "./user-templates/user-templates.module",
-          "./users/users.module"
+          "./users/users.module",
+          "./volc-asset/volc-asset.module"
         ],
         "external": [
           "@nestjs/common",
@@ -15942,6 +17258,51 @@
           "passport-jwt"
         ]
       },
+      "backend/src/bio-auth/bio-auth.controller.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../auth/guards/api-key-or-jwt.guard",
+          "./bio-auth.dto",
+          "./bio-auth.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/swagger"
+        ]
+      },
+      "backend/src/bio-auth/bio-auth.dto.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@nestjs/swagger",
+          "class-validator"
+        ]
+      },
+      "backend/src/bio-auth/bio-auth.module.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../auth/auth.module",
+          "../prisma/prisma.module",
+          "./bio-auth.controller",
+          "./bio-auth.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/config"
+        ]
+      },
+      "backend/src/bio-auth/bio-auth.service.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../prisma/prisma.service",
+          "../volc-asset/volc-sign.util",
+          "./bio-auth.dto"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/config"
+        ]
+      },
       "backend/src/business-policy/business-policy.module.ts": {
         "local": [],
         "localUnresolved": [
@@ -16049,11 +17410,13 @@
       },
       "backend/src/credits/credits.service.ts": {
         "local": [
+          "backend/src/ai/services/model-pricing-resolver.ts",
           "backend/src/credits/credit-lot-grants.ts",
           "backend/src/credits/credit-lot-ledger.ts",
           "backend/src/credits/credit-lot-policy.ts"
         ],
         "localUnresolved": [
+          "../ai/services/model-routing.service",
           "../business-policy/business-policy.service",
           "../prisma/prisma.service",
           "../referral/referral.service",
@@ -16062,7 +17425,10 @@
         ],
         "external": [
           "@nestjs/common",
-          "@prisma/client"
+          "@nestjs/config",
+          "@prisma/client",
+          "crypto",
+          "ioredis"
         ]
       },
       "backend/src/credits/dto/credits.dto.ts": {
@@ -16135,7 +17501,8 @@
       "backend/src/main.ts": {
         "local": [],
         "localUnresolved": [
-          "./app.module"
+          "./app.module",
+          "./telemetry/openobserve-telemetry.service"
         ],
         "external": [
           "@fastify/compress",
@@ -16506,6 +17873,7 @@
       "backend/src/referral/referral.module.ts": {
         "local": [],
         "localUnresolved": [
+          "../credits/credits.module",
           "../prisma/prisma.module",
           "./referral.controller",
           "./referral.service"
@@ -16517,11 +17885,24 @@
       "backend/src/referral/referral.service.ts": {
         "local": [],
         "localUnresolved": [
+          "../credits/credits.service",
           "../prisma/prisma.service"
         ],
         "external": [
           "@nestjs/common",
           "@prisma/client"
+        ]
+      },
+      "backend/src/telemetry/openobserve-exception.filter.ts": {
+        "local": [
+          "backend/src/telemetry/tracing.ts"
+        ],
+        "localUnresolved": [
+          "./openobserve-telemetry.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "fastify"
         ]
       },
       "backend/src/telemetry/openobserve-request.interceptor.ts": {
@@ -16577,6 +17958,7 @@
       "backend/src/telemetry/telemetry.module.ts": {
         "local": [],
         "localUnresolved": [
+          "./openobserve-exception.filter",
           "./openobserve-request.interceptor",
           "./openobserve-telemetry.service",
           "./telemetry.controller"
@@ -16613,11 +17995,13 @@
       "backend/src/templates/templates.controller.ts": {
         "local": [],
         "localUnresolved": [
-          "../admin/services/template.service"
+          "../admin/services/template.service",
+          "../auth/guards/jwt.guard"
         ],
         "external": [
           "@nestjs/common",
-          "@nestjs/swagger"
+          "@nestjs/swagger",
+          "fastify"
         ]
       },
       "backend/src/templates/templates.module.ts": {
@@ -16722,6 +18106,74 @@
         ]
       },
       "backend/src/utils/designJsonSanitizer.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
+      },
+      "backend/src/volc-asset/volc-asset-scheduler.service.ts": {
+        "local": [],
+        "localUnresolved": [
+          "./volc-asset.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/schedule"
+        ]
+      },
+      "backend/src/volc-asset/volc-asset.controller.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../auth/guards/api-key-or-jwt.guard",
+          "./volc-asset.dto",
+          "./volc-asset.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/swagger"
+        ]
+      },
+      "backend/src/volc-asset/volc-asset.dto.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@nestjs/swagger",
+          "class-validator"
+        ]
+      },
+      "backend/src/volc-asset/volc-asset.module.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../auth/auth.module",
+          "../prisma/prisma.module",
+          "./volc-asset-scheduler.service",
+          "./volc-asset.controller",
+          "./volc-asset.service"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/config"
+        ]
+      },
+      "backend/src/volc-asset/volc-asset.service.ts": {
+        "local": [],
+        "localUnresolved": [
+          "../prisma/prisma.service",
+          "./volc-asset.dto",
+          "./volc-sign.util"
+        ],
+        "external": [
+          "@nestjs/common",
+          "@nestjs/config"
+        ]
+      },
+      "backend/src/volc-asset/volc-sign.util.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "crypto"
+        ]
+      },
+      "backend/tmp_head_credits.service.ts": {
         "local": [],
         "localUnresolved": [],
         "external": []
@@ -16846,6 +18298,7 @@
           "@/services",
           "@/services",
           "@/services",
+          "@/services",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -16883,6 +18336,14 @@
           "react-i18next"
         ]
       },
+      "frontend/src/components/admin/pricing-builder/PricingRuleBuilderCard.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/components",
+          "@/components"
+        ]
+      },
       "frontend/src/components/auth/ForgotPasswordModal.tsx": {
         "local": [],
         "localUnresolved": [],
@@ -16902,6 +18363,7 @@
         "external": [
           "@/components",
           "@/components",
+          "@/services",
           "@/services",
           "@/services",
           "@/stores",
@@ -17063,6 +18525,7 @@
         ],
         "localUnresolved": [],
         "external": [
+          "@/stores",
           "lucide-react",
           "paper",
           "react",
@@ -17161,8 +18624,6 @@
         "external": [
           "@/lib",
           "@/stores",
-          "@/stores",
-          "@/utils",
           "react"
         ]
       },
@@ -17175,6 +18636,7 @@
         "localUnresolved": [],
         "external": [
           "@/services",
+          "@/stores",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -17254,6 +18716,7 @@
         "external": [
           "@/stores",
           "@/stores",
+          "@/stores",
           "@/utils",
           "paper",
           "react"
@@ -17276,6 +18739,7 @@
           "@/components",
           "@/components",
           "@/lib",
+          "@/stores",
           "@/stores",
           "@/stores",
           "@/types",
@@ -17406,6 +18870,7 @@
           "@/services",
           "@/services",
           "@/services",
+          "@/services",
           "@/stores",
           "@/stores",
           "@/stores",
@@ -17503,6 +18968,7 @@
           "@/stores",
           "@/types",
           "@/utils",
+          "@/utils",
           "lucide-react",
           "react",
           "react-dom",
@@ -17574,9 +19040,11 @@
       },
       "frontend/src/components/flow/FlowOverlay.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
           "frontend/src/components/flow/MiniMapImageOverlay.tsx",
           "frontend/src/components/flow/PersonalLibraryPanel.tsx",
           "frontend/src/components/flow/flow.css",
+          "frontend/src/components/flow/managedRoutePricing.ts",
           "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
           "frontend/src/components/flow/nodes/AudioNode.tsx",
           "frontend/src/components/flow/nodes/CameraNode.tsx",
@@ -17586,6 +19054,7 @@
           "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
           "frontend/src/components/flow/nodes/GenerateProNode.tsx",
           "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
+          "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
           "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
           "frontend/src/components/flow/nodes/ImageGridNode.tsx",
           "frontend/src/components/flow/nodes/ImageNode.tsx",
@@ -17593,7 +19062,7 @@
           "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
           "frontend/src/components/flow/nodes/Kling26VideoNode.tsx",
           "frontend/src/components/flow/nodes/Kling30VideoNode.tsx",
-          "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+          "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
           "frontend/src/components/flow/nodes/KlingVideoNode.tsx",
           "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
           "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
@@ -17622,6 +19091,7 @@
           "frontend/src/components/flow/nodes/Wan26Node.tsx",
           "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
           "frontend/src/components/flow/nodes/Wan2R2VNode.tsx",
+          "frontend/src/components/flow/utils/flowNodeSendAnchor.ts",
           "frontend/src/components/flow/utils/mjV7PromptSanitize.ts",
           "frontend/src/components/flow/utils/textSource.ts"
         ],
@@ -17643,6 +19113,8 @@
           "@/services",
           "@/services",
           "@/services",
+          "@/services",
+          "@/services",
           "@/stores",
           "@/stores",
           "@/stores",
@@ -17651,6 +19123,7 @@
           "@/stores",
           "@/types",
           "@/types",
+          "@/utils",
           "@/utils",
           "@/utils",
           "@/utils",
@@ -17661,6 +19134,13 @@
           "react",
           "reactflow",
           "reactflow"
+        ]
+      },
+      "frontend/src/components/flow/FlowRenderModeContext.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "react"
         ]
       },
       "frontend/src/components/flow/MiniMapImageOverlay.tsx": {
@@ -17707,6 +19187,43 @@
           "react"
         ]
       },
+      "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/services",
+          "react"
+        ]
+      },
+      "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts": {
+        "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "react"
+        ]
+      },
+      "frontend/src/components/flow/hooks/useNodeInternalsSync.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "react",
+          "reactflow"
+        ]
+      },
+      "frontend/src/components/flow/hooks/useNodeRunCredits.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "react"
+        ]
+      },
+      "frontend/src/components/flow/managedRoutePricing.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
+      },
       "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx": {
         "local": [],
         "localUnresolved": [],
@@ -17718,10 +19235,14 @@
       },
       "frontend/src/components/flow/nodes/AnalyzeNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
-          "frontend/src/components/ui/SmartImage.tsx"
+          "frontend/src/components/ui/SmartImage.tsx",
+          "frontend/src/components/ui/dropdown-menu.tsx"
         ],
         "localUnresolved": [],
         "external": [
@@ -17729,9 +19250,11 @@
           "@/services",
           "@/services",
           "@/stores",
+          "@/stores",
           "@/utils",
           "@/utils",
           "@/utils",
+          "lucide-react",
           "react",
           "reactflow"
         ]
@@ -17749,9 +19272,21 @@
           "reactflow"
         ]
       },
+      "frontend/src/components/flow/nodes/BioAuthModal.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/hooks",
+          "@/services",
+          "lucide-react",
+          "qrcode.react",
+          "react"
+        ]
+      },
       "frontend/src/components/flow/nodes/CameraNode.tsx": {
         "local": [
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
+          "frontend/src/components/flow/utils/flowNodeSendAnchor.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17778,16 +19313,19 @@
       },
       "frontend/src/components/flow/nodes/Generate4Node.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
-          "frontend/src/components/ui/SmartImage.tsx"
+          "frontend/src/components/ui/SmartImage.tsx",
+          "frontend/src/components/ui/dropdown-menu.tsx"
         ],
         "localUnresolved": [],
         "external": [
           "@/hooks",
           "@/services",
           "@/stores",
+          "@/utils",
           "@/utils",
           "@/utils",
           "lucide-react",
@@ -17797,7 +19335,10 @@
       },
       "frontend/src/components/flow/nodes/GenerateNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
@@ -17813,6 +19354,7 @@
           "@/stores",
           "@/utils",
           "@/utils",
+          "@/utils",
           "lucide-react",
           "react",
           "reactflow"
@@ -17820,6 +19362,7 @@
       },
       "frontend/src/components/flow/nodes/GeneratePro4Node.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
@@ -17841,7 +19384,10 @@
       },
       "frontend/src/components/flow/nodes/GenerateProNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/flow/utils/textSource.ts",
@@ -17860,6 +19406,7 @@
           "@/stores",
           "@/utils",
           "@/utils",
+          "@/utils",
           "lucide-react",
           "react",
           "reactflow"
@@ -17867,6 +19414,7 @@
       },
       "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
@@ -17878,6 +19426,7 @@
         "external": [
           "@/hooks",
           "@/services",
+          "@/stores",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -17897,15 +19446,36 @@
       },
       "frontend/src/components/flow/nodes/GenericVideoNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/managedRoutePricing.ts",
+          "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/ui/SmartImage.tsx"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "@/services",
+          "@/stores",
+          "@/stores",
+          "@/stores",
+          "@/utils",
+          "@/utils",
+          "lucide-react",
+          "react",
+          "reactflow"
+        ]
+      },
+      "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx": {
+        "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
         "external": [
-          "@/stores",
-          "@/stores",
-          "@/stores",
           "@/utils",
           "@/utils",
           "lucide-react",
@@ -17931,6 +19501,7 @@
       },
       "frontend/src/components/flow/nodes/ImageGridNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
@@ -17949,6 +19520,10 @@
       },
       "frontend/src/components/flow/nodes/ImageNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
+          "frontend/src/components/flow/nodes/BioAuthModal.tsx",
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
+          "frontend/src/components/flow/utils/flowNodeSendAnchor.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
@@ -17956,6 +19531,10 @@
         "localUnresolved": [],
         "external": [
           "@/hooks",
+          "@/hooks",
+          "@/hooks",
+          "@/services",
+          "@/services",
           "@/services",
           "@/services",
           "@/services",
@@ -17997,6 +19576,7 @@
       },
       "frontend/src/components/flow/nodes/ImageSplitNode.tsx": {
         "local": [
+          "frontend/src/components/flow/FlowRenderModeContext.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
@@ -18029,14 +19609,19 @@
         "localUnresolved": [],
         "external": []
       },
-      "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx": {
+      "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
         "external": [
+          "@/services",
+          "@/services",
+          "@/stores",
+          "@/stores",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -18054,6 +19639,7 @@
       },
       "frontend/src/components/flow/nodes/MidjourneyNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
@@ -18067,6 +19653,7 @@
           "@/services",
           "@/stores",
           "@/stores",
+          "@/utils",
           "@/utils",
           "@/utils",
           "lucide-react",
@@ -18104,6 +19691,7 @@
       },
       "frontend/src/components/flow/nodes/Nano2Node.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
@@ -18115,6 +19703,7 @@
         "external": [
           "@/hooks",
           "@/services",
+          "@/stores",
           "@/stores",
           "@/utils",
           "@/utils",
@@ -18134,8 +19723,22 @@
           "reactflow"
         ]
       },
+      "frontend/src/components/flow/nodes/NodeSelect.tsx": {
+        "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
+          "frontend/src/components/ui/dropdown-menu.tsx"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "@/lib",
+          "lucide-react",
+          "react"
+        ]
+      },
       "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/utils/textSource.ts"
         ],
         "localUnresolved": [],
@@ -18145,15 +19748,19 @@
           "@/services",
           "@/stores",
           "@/utils",
+          "@/utils",
           "react",
           "reactflow"
         ]
       },
       "frontend/src/components/flow/nodes/RunCreditBadge.tsx": {
-        "local": [],
+        "local": [
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts"
+        ],
         "localUnresolved": [],
         "external": [
           "@/utils",
+          "lucide-react",
           "react"
         ]
       },
@@ -18166,9 +19773,11 @@
       },
       "frontend/src/components/flow/nodes/Seedream5Node.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
+          "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -18184,6 +19793,7 @@
       },
       "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
         ],
         "localUnresolved": [],
@@ -18196,6 +19806,7 @@
       },
       "frontend/src/components/flow/nodes/Sora2VideoNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
@@ -18212,7 +19823,9 @@
         ]
       },
       "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx": {
-        "local": [],
+        "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
+        ],
         "localUnresolved": [],
         "external": [
           "@/utils",
@@ -18237,7 +19850,10 @@
       },
       "frontend/src/components/flow/nodes/TextChatNode.tsx": {
         "local": [
-          "frontend/src/components/flow/utils/textSource.ts"
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+          "frontend/src/components/flow/utils/textSource.ts",
+          "frontend/src/components/ui/dropdown-menu.tsx"
         ],
         "localUnresolved": [],
         "external": [
@@ -18245,6 +19861,8 @@
           "@/services",
           "@/stores",
           "@/utils",
+          "@/utils",
+          "lucide-react",
           "react",
           "reactflow"
         ]
@@ -18261,10 +19879,12 @@
       },
       "frontend/src/components/flow/nodes/TextPromptNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useNodeInternalsSync.ts",
           "frontend/src/components/flow/utils/textSource.ts"
         ],
         "localUnresolved": [],
         "external": [
+          "@/stores",
           "@/utils",
           "react",
           "reactflow"
@@ -18272,10 +19892,12 @@
       },
       "frontend/src/components/flow/nodes/TextPromptProNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useNodeInternalsSync.ts",
           "frontend/src/components/flow/utils/textSource.ts"
         ],
         "localUnresolved": [],
         "external": [
+          "@/stores",
           "@/utils",
           "lucide-react",
           "react",
@@ -18284,6 +19906,7 @@
       },
       "frontend/src/components/flow/nodes/ThreeNode.tsx": {
         "local": [
+          "frontend/src/components/flow/utils/flowNodeSendAnchor.ts",
           "frontend/src/components/ui/ImagePreviewModal.tsx",
           "frontend/src/stores/imageHistoryStore.ts"
         ],
@@ -18308,11 +19931,13 @@
       },
       "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts"
         ],
         "localUnresolved": [],
         "external": [
           "@/services",
+          "@/stores",
           "@/stores",
           "@/utils",
           "react",
@@ -18321,6 +19946,7 @@
       },
       "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx": {
         "local": [
+          "frontend/src/components/flow/nodes/flowNodeDarkTheme.ts",
           "frontend/src/components/ui/SmartImage.tsx"
         ],
         "localUnresolved": [],
@@ -18392,7 +20018,10 @@
       },
       "frontend/src/components/flow/nodes/Wan26Node.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
         ],
         "localUnresolved": [],
@@ -18409,7 +20038,10 @@
       },
       "frontend/src/components/flow/nodes/Wan27VideoNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
+          "frontend/src/components/flow/nodes/NodeSelect.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx"
         ],
         "localUnresolved": [],
@@ -18425,6 +20057,8 @@
       },
       "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": {
         "local": [
+          "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts",
+          "frontend/src/components/flow/hooks/useNodeRunCredits.ts",
           "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
           "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
           "frontend/src/components/ui/SmartImage.tsx"
@@ -18459,6 +20093,11 @@
           "reactflow"
         ]
       },
+      "frontend/src/components/flow/utils/flowNodeSendAnchor.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
+      },
       "frontend/src/components/flow/utils/mjV7PromptSanitize.ts": {
         "local": [],
         "localUnresolved": [],
@@ -18473,6 +20112,7 @@
       },
       "frontend/src/components/global-history/GlobalImageDetailModal.tsx": {
         "local": [
+          "frontend/src/components/global-history/historyRequestInfo.ts",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/components/ui/button.tsx"
         ],
@@ -18487,6 +20127,7 @@
       "frontend/src/components/global-history/GlobalImageHistoryPage.tsx": {
         "local": [
           "frontend/src/components/global-history/GlobalImageDetailModal.tsx",
+          "frontend/src/components/global-history/historyRequestInfo.ts",
           "frontend/src/components/ui/SmartImage.tsx",
           "frontend/src/components/ui/button.tsx"
         ],
@@ -18498,6 +20139,13 @@
           "react",
           "react-dom",
           "react-i18next"
+        ]
+      },
+      "frontend/src/components/global-history/historyRequestInfo.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/services"
         ]
       },
       "frontend/src/components/guards/PendingUploadLeavePrompt.tsx": {
@@ -18540,6 +20188,7 @@
           "@/components",
           "@/components",
           "@/components",
+          "@/components",
           "@/lib",
           "@/services",
           "@/services",
@@ -18561,6 +20210,16 @@
           "react-dom",
           "react-i18next",
           "react-router-dom"
+        ]
+      },
+      "frontend/src/components/layout/PricingCatalogModal.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/services",
+          "lucide-react",
+          "react",
+          "react-dom"
         ]
       },
       "frontend/src/components/panels/LayerPanel.tsx": {
@@ -18616,8 +20275,10 @@
         "local": [],
         "localUnresolved": [],
         "external": [
+          "@/components",
           "@/lib",
           "@/services",
+          "@/stores",
           "lucide-react",
           "react"
         ]
@@ -18628,6 +20289,7 @@
         "external": [
           "@/lib",
           "@/services",
+          "@/stores",
           "@/utils",
           "lucide-react",
           "react"
@@ -18784,6 +20446,7 @@
         "local": [],
         "localUnresolved": [],
         "external": [
+          "@/components",
           "@/hooks",
           "@/utils",
           "react"
@@ -18944,6 +20607,15 @@
           "react"
         ]
       },
+      "frontend/src/hooks/useBioAuthPolling.ts": {
+        "local": [
+          "frontend/src/services/bioAuthAPI.ts"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "react"
+        ]
+      },
       "frontend/src/hooks/useFlowImageAssetUrl.ts": {
         "local": [],
         "localUnresolved": [],
@@ -18967,8 +20639,6 @@
         "local": [],
         "localUnresolved": [],
         "external": [
-          "@/stores",
-          "@/utils",
           "react"
         ]
       },
@@ -18993,6 +20663,15 @@
         "external": [
           "@/services",
           "@/types",
+          "react"
+        ]
+      },
+      "frontend/src/hooks/useVolcAssetPolling.ts": {
+        "local": [
+          "frontend/src/services/volcAssetAPI.ts"
+        ],
+        "localUnresolved": [],
+        "external": [
           "react"
         ]
       },
@@ -19045,8 +20724,6 @@
         "external": [
           "@/bootstrap",
           "@/bootstrap",
-          "@/components",
-          "@/components",
           "@/i18n",
           "@/pages",
           "@/pages",
@@ -19058,8 +20735,8 @@
           "@/pages",
           "@/pages",
           "@/pages",
+          "@/pages",
           "@/routes",
-          "@/services",
           "@/stores",
           "@/stores",
           "react",
@@ -19126,12 +20803,21 @@
           "react-router-dom"
         ]
       },
-      "frontend/src/pages/MyCredits.tsx": {
+      "frontend/src/pages/MembershipSubscribePage.tsx": {
         "local": [],
         "localUnresolved": [],
         "external": [
           "@/components",
-          "@/components",
+          "@/lib",
+          "@/stores",
+          "react",
+          "react-router-dom"
+        ]
+      },
+      "frontend/src/pages/MyCredits.tsx": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
           "@/components",
           "@/components",
           "@/lib",
@@ -19198,6 +20884,7 @@
           "@/components",
           "@/components",
           "@/components",
+          "@/services",
           "@/services",
           "@/stores",
           "lucide-react",
@@ -19302,7 +20989,8 @@
       "frontend/src/services/authApi.ts": {
         "local": [
           "frontend/src/services/authFetch.ts",
-          "frontend/src/services/authTokenStorage.ts"
+          "frontend/src/services/authTokenStorage.ts",
+          "frontend/src/services/referralApi.ts"
         ],
         "localUnresolved": [],
         "external": []
@@ -19346,6 +21034,14 @@
           "@/utils"
         ]
       },
+      "frontend/src/services/bioAuthAPI.ts": {
+        "local": [
+          "frontend/src/services/authFetch.ts",
+          "frontend/src/utils/assetProxy.ts"
+        ],
+        "localUnresolved": [],
+        "external": []
+      },
       "frontend/src/services/clipboardJsonService.ts": {
         "local": [],
         "localUnresolved": [],
@@ -19378,6 +21074,15 @@
         ]
       },
       "frontend/src/services/convert2Dto3DService.ts": {
+        "local": [
+          "frontend/src/services/authFetch.ts"
+        ],
+        "localUnresolved": [],
+        "external": [
+          "@/utils"
+        ]
+      },
+      "frontend/src/services/creditsPreviewService.ts": {
         "local": [
           "frontend/src/services/authFetch.ts"
         ],
@@ -19674,6 +21379,21 @@
         "localUnresolved": [],
         "external": []
       },
+      "frontend/src/services/videoProviderParams.ts": {
+        "local": [
+          "frontend/src/services/videoProviderAPI.ts"
+        ],
+        "localUnresolved": [],
+        "external": []
+      },
+      "frontend/src/services/volcAssetAPI.ts": {
+        "local": [
+          "frontend/src/services/authFetch.ts",
+          "frontend/src/utils/assetProxy.ts"
+        ],
+        "localUnresolved": [],
+        "external": []
+      },
       "frontend/src/stores/aiChatStore.ts": {
         "local": [],
         "localUnresolved": [],
@@ -19695,6 +21415,8 @@
           "@/types",
           "@/types",
           "@/types",
+          "@/utils",
+          "@/utils",
           "@/utils",
           "@/utils",
           "@/utils",
@@ -19969,6 +21691,13 @@
         "localUnresolved": [],
         "external": []
       },
+      "frontend/src/utils/bananaRouteCapabilities.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/types"
+        ]
+      },
       "frontend/src/utils/beforeUnloadGuard.ts": {
         "local": [],
         "localUnresolved": [],
@@ -19998,6 +21727,16 @@
         ]
       },
       "frontend/src/utils/flowGenerateRefErrors.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
+      },
+      "frontend/src/utils/flowModelProvider.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
+      },
+      "frontend/src/utils/flowViewportTransform.ts": {
         "local": [],
         "localUnresolved": [],
         "external": []
@@ -20103,6 +21842,7 @@
           "@/stores",
           "@/stores",
           "@/stores",
+          "@/stores",
           "@/utils",
           "@/utils"
         ]
@@ -20165,6 +21905,11 @@
           "@google/genai",
           "node:fs"
         ]
+      },
+      "frontend/tmp_head_aiChatStore.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": []
       },
       "frontend/vite.config.ts": {
         "local": [],
@@ -20267,6 +22012,11 @@
       "backend/src/ai/services/image-task.service.ts": [],
       "backend/src/ai/services/minimax-music.service.ts": [],
       "backend/src/ai/services/minimax-speech.service.ts": [],
+      "backend/src/ai/services/model-pricing-resolver.ts": [
+        "backend/src/admin/services/node-config.service.ts",
+        "backend/src/ai/services/model-routing.service.ts",
+        "backend/src/credits/credits.service.ts"
+      ],
       "backend/src/ai/services/model-routing.service.ts": [],
       "backend/src/ai/services/nano2.service.ts": [],
       "backend/src/ai/services/seedream5.service.ts": [],
@@ -20292,6 +22042,10 @@
       "backend/src/auth/sms.service.ts": [],
       "backend/src/auth/strategies/jwt.strategy.ts": [],
       "backend/src/auth/strategies/refresh.strategy.ts": [],
+      "backend/src/bio-auth/bio-auth.controller.ts": [],
+      "backend/src/bio-auth/bio-auth.dto.ts": [],
+      "backend/src/bio-auth/bio-auth.module.ts": [],
+      "backend/src/bio-auth/bio-auth.service.ts": [],
       "backend/src/business-policy/business-policy.module.ts": [],
       "backend/src/business-policy/business-policy.service.ts": [],
       "backend/src/business-policy/business-policy.types.ts": [],
@@ -20362,6 +22116,7 @@
       "backend/src/referral/referral.controller.ts": [],
       "backend/src/referral/referral.module.ts": [],
       "backend/src/referral/referral.service.ts": [],
+      "backend/src/telemetry/openobserve-exception.filter.ts": [],
       "backend/src/telemetry/openobserve-request.interceptor.ts": [],
       "backend/src/telemetry/openobserve-telemetry.service.ts": [],
       "backend/src/telemetry/openobserve-url.ts": [
@@ -20379,6 +22134,7 @@
       "backend/src/telemetry/tracing.ts": [
         "backend/src/ai/ai.controller.ts",
         "backend/src/ai/services/image-task.service.ts",
+        "backend/src/telemetry/openobserve-exception.filter.ts",
         "backend/src/telemetry/openobserve-request.interceptor.ts",
         "backend/src/telemetry/openobserve-telemetry.service.ts",
         "backend/src/tracing.bootstrap.ts"
@@ -20403,6 +22159,13 @@
         "backend/src/projects/projects.service.ts",
         "backend/src/user-templates/user-templates.service.ts"
       ],
+      "backend/src/volc-asset/volc-asset-scheduler.service.ts": [],
+      "backend/src/volc-asset/volc-asset.controller.ts": [],
+      "backend/src/volc-asset/volc-asset.dto.ts": [],
+      "backend/src/volc-asset/volc-asset.module.ts": [],
+      "backend/src/volc-asset/volc-asset.service.ts": [],
+      "backend/src/volc-asset/volc-sign.util.ts": [],
+      "backend/tmp_head_credits.service.ts": [],
       "frontend/eslint.config.js": [],
       "frontend/postcss.config.js": [],
       "frontend/scripts/syncTencentSystemVoices.mjs": [],
@@ -20421,6 +22184,7 @@
       "frontend/src/components/LanguageSwitcher.tsx": [],
       "frontend/src/components/MetallicButton.tsx": [],
       "frontend/src/components/ReferralRewards.tsx": [],
+      "frontend/src/components/admin/pricing-builder/PricingRuleBuilderCard.tsx": [],
       "frontend/src/components/auth/ForgotPasswordModal.tsx": [],
       "frontend/src/components/auth/LoginModal.tsx": [],
       "frontend/src/components/autosave/AutosaveStatus.tsx": [],
@@ -20515,6 +22279,16 @@
       "frontend/src/components/debug/MemoryDebugPanel.tsx": [],
       "frontend/src/components/debug/OriginCross.tsx": [],
       "frontend/src/components/flow/FlowOverlay.tsx": [],
+      "frontend/src/components/flow/FlowRenderModeContext.tsx": [
+        "frontend/src/components/flow/FlowOverlay.tsx",
+        "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/Generate4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateNode.tsx",
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/ImageGridNode.tsx",
+        "frontend/src/components/flow/nodes/ImageNode.tsx",
+        "frontend/src/components/flow/nodes/ImageSplitNode.tsx"
+      ],
       "frontend/src/components/flow/MiniMapImageOverlay.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
@@ -20522,12 +22296,52 @@
       "frontend/src/components/flow/PersonalLibraryPanel.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
+      "frontend/src/components/flow/hooks/useBackendCreditsPreview.ts": [
+        "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts",
+        "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
+        "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
+        "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
+        "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx",
+        "frontend/src/components/flow/nodes/TextChatNode.tsx",
+        "frontend/src/components/flow/nodes/Wan26Node.tsx",
+        "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
+        "frontend/src/components/flow/nodes/Wan2R2VNode.tsx"
+      ],
+      "frontend/src/components/flow/hooks/useImageNodeCreditsPreview.ts": [
+        "frontend/src/components/flow/nodes/GenerateNode.tsx",
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
+        "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
+        "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/Seedream5Node.tsx"
+      ],
+      "frontend/src/components/flow/hooks/useNodeInternalsSync.ts": [
+        "frontend/src/components/flow/nodes/TextPromptNode.tsx",
+        "frontend/src/components/flow/nodes/TextPromptProNode.tsx"
+      ],
+      "frontend/src/components/flow/hooks/useNodeRunCredits.ts": [
+        "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
+        "frontend/src/components/flow/nodes/RunCreditBadge.tsx",
+        "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx",
+        "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
+        "frontend/src/components/flow/nodes/Wan26Node.tsx",
+        "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
+        "frontend/src/components/flow/nodes/Wan2R2VNode.tsx"
+      ],
+      "frontend/src/components/flow/managedRoutePricing.ts": [
+        "frontend/src/components/flow/FlowOverlay.tsx",
+        "frontend/src/components/flow/nodes/GenericVideoNode.tsx"
+      ],
       "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx": [],
       "frontend/src/components/flow/nodes/AnalyzeNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
       "frontend/src/components/flow/nodes/AudioNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
+      ],
+      "frontend/src/components/flow/nodes/BioAuthModal.tsx": [
+        "frontend/src/components/flow/nodes/ImageNode.tsx"
       ],
       "frontend/src/components/flow/nodes/CameraNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
@@ -20555,7 +22369,8 @@
         "frontend/src/components/flow/nodes/GenerateProNode.tsx",
         "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
         "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
-        "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+        "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
+        "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
         "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
@@ -20576,6 +22391,9 @@
         "frontend/src/components/flow/nodes/Seedance20VideoNode.tsx",
         "frontend/src/components/flow/nodes/ViduQ3ProVideoNode.tsx",
         "frontend/src/components/flow/nodes/ViduVideoNode.tsx"
+      ],
+      "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx": [
+        "frontend/src/components/flow/FlowOverlay.tsx"
       ],
       "frontend/src/components/flow/nodes/ImageCompressNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
@@ -20598,7 +22416,7 @@
       "frontend/src/components/flow/nodes/Kling30VideoNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
-      "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx": [
+      "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
       "frontend/src/components/flow/nodes/KlingVideoNode.tsx": [
@@ -20619,25 +22437,38 @@
       "frontend/src/components/flow/nodes/NodeGroupNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
+      "frontend/src/components/flow/nodes/NodeSelect.tsx": [
+        "frontend/src/components/flow/nodes/GenerateNode.tsx",
+        "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
+        "frontend/src/components/flow/nodes/Wan26Node.tsx",
+        "frontend/src/components/flow/nodes/Wan27VideoNode.tsx"
+      ],
       "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx": [
         "frontend/src/components/flow/FlowOverlay.tsx"
       ],
       "frontend/src/components/flow/nodes/RunCreditBadge.tsx": [
+        "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
         "frontend/src/components/flow/nodes/Generate4Node.tsx",
         "frontend/src/components/flow/nodes/GenerateNode.tsx",
         "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
         "frontend/src/components/flow/nodes/GenerateProNode.tsx",
         "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
         "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
-        "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+        "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
+        "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
         "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
         "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx",
         "frontend/src/components/flow/nodes/Seedream5Node.tsx",
         "frontend/src/components/flow/nodes/Sora2CharacterNode.tsx",
         "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
         "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
+        "frontend/src/components/flow/nodes/TextChatNode.tsx",
+        "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
         "frontend/src/components/flow/nodes/ViewAngleNode.tsx",
         "frontend/src/components/flow/nodes/Wan26Node.tsx",
         "frontend/src/components/flow/nodes/Wan27VideoNode.tsx",
@@ -20717,14 +22548,18 @@
         "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
         "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
         "frontend/src/components/flow/nodes/ImageGridNode.tsx",
+        "frontend/src/components/flow/nodes/ImageNode.tsx",
         "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
         "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxMusicNode.tsx",
         "frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx",
         "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/NodeSelect.tsx",
         "frontend/src/components/flow/nodes/Seedream5Node.tsx",
+        "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx",
         "frontend/src/components/flow/nodes/TencentSpeechNode.tsx",
         "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx",
         "frontend/src/components/flow/nodes/ViewAngleNode.tsx"
       ],
       "frontend/src/components/flow/nodes/tencentSystemVoices.ts": [
@@ -20733,6 +22568,12 @@
       "frontend/src/components/flow/types.ts": [
         "frontend/src/components/flow/NodeGroupWrapper.tsx",
         "frontend/src/stores/nodeGroupStore.ts"
+      ],
+      "frontend/src/components/flow/utils/flowNodeSendAnchor.ts": [
+        "frontend/src/components/flow/FlowOverlay.tsx",
+        "frontend/src/components/flow/nodes/CameraNode.tsx",
+        "frontend/src/components/flow/nodes/ImageNode.tsx",
+        "frontend/src/components/flow/nodes/ThreeNode.tsx"
       ],
       "frontend/src/components/flow/utils/mjV7PromptSanitize.ts": [
         "frontend/src/components/flow/FlowOverlay.tsx"
@@ -20751,9 +22592,14 @@
         "frontend/src/components/global-history/GlobalImageHistoryPage.tsx"
       ],
       "frontend/src/components/global-history/GlobalImageHistoryPage.tsx": [],
+      "frontend/src/components/global-history/historyRequestInfo.ts": [
+        "frontend/src/components/global-history/GlobalImageDetailModal.tsx",
+        "frontend/src/components/global-history/GlobalImageHistoryPage.tsx"
+      ],
       "frontend/src/components/guards/PendingUploadLeavePrompt.tsx": [],
       "frontend/src/components/guards/PendingUploadNavigationGuard.tsx": [],
       "frontend/src/components/layout/FloatingHeader.tsx": [],
+      "frontend/src/components/layout/PricingCatalogModal.tsx": [],
       "frontend/src/components/panels/LayerPanel.tsx": [],
       "frontend/src/components/panels/LibraryPanel.tsx": [],
       "frontend/src/components/payment/MembershipPanel.tsx": [],
@@ -20786,6 +22632,7 @@
         "frontend/src/components/flow/nodes/ImageProNode.tsx",
         "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
         "frontend/src/components/flow/nodes/Nano2Node.tsx",
+        "frontend/src/components/flow/nodes/Seedream5Node.tsx",
         "frontend/src/components/flow/nodes/ThreeNode.tsx",
         "frontend/src/components/panels/LibraryPanel.tsx"
       ],
@@ -20800,12 +22647,13 @@
         "frontend/src/components/flow/nodes/GenerateProNode.tsx",
         "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
         "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
+        "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
         "frontend/src/components/flow/nodes/ImageCompressNode.tsx",
         "frontend/src/components/flow/nodes/ImageGridNode.tsx",
         "frontend/src/components/flow/nodes/ImageNode.tsx",
         "frontend/src/components/flow/nodes/ImageProNode.tsx",
         "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
-        "frontend/src/components/flow/nodes/KlingO1VideoNode.tsx",
+        "frontend/src/components/flow/nodes/KlingO3VideoNode.tsx",
         "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
         "frontend/src/components/flow/nodes/Nano2Node.tsx",
         "frontend/src/components/flow/nodes/Seedream5Node.tsx",
@@ -20846,8 +22694,12 @@
       "frontend/src/components/ui/dropdown-menu.tsx": [
         "frontend/src/components/canvas/ExpandImageSelector.tsx",
         "frontend/src/components/canvas/ImageContainer.tsx",
+        "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
+        "frontend/src/components/flow/nodes/Generate4Node.tsx",
         "frontend/src/components/flow/nodes/GenerateNode.tsx",
-        "frontend/src/components/flow/nodes/GenerateProNode.tsx"
+        "frontend/src/components/flow/nodes/GenerateProNode.tsx",
+        "frontend/src/components/flow/nodes/NodeSelect.tsx",
+        "frontend/src/components/flow/nodes/TextChatNode.tsx"
       ],
       "frontend/src/components/ui/input.tsx": [],
       "frontend/src/components/ui/label.tsx": [],
@@ -20866,11 +22718,13 @@
       ],
       "frontend/src/components/workflow-history/WorkflowHistoryButton.tsx": [],
       "frontend/src/hooks/useAIImageDisplay.ts": [],
+      "frontend/src/hooks/useBioAuthPolling.ts": [],
       "frontend/src/hooks/useFlowImageAssetUrl.ts": [],
       "frontend/src/hooks/useNonBase64ImageSrc.ts": [],
       "frontend/src/hooks/usePendingUploadLeaveGuard.ts": [],
       "frontend/src/hooks/useProjectAutosave.ts": [],
       "frontend/src/hooks/usePromptOptimization.ts": [],
+      "frontend/src/hooks/useVolcAssetPolling.ts": [],
       "frontend/src/i18n/index.ts": [],
       "frontend/src/i18n/locales/en-US.ts": [
         "frontend/src/i18n/index.ts"
@@ -20885,6 +22739,7 @@
       "frontend/src/pages/Admin.tsx": [],
       "frontend/src/pages/Canvas.tsx": [],
       "frontend/src/pages/Home.tsx": [],
+      "frontend/src/pages/MembershipSubscribePage.tsx": [],
       "frontend/src/pages/MyCredits.tsx": [],
       "frontend/src/pages/OSSDemo.tsx": [],
       "frontend/src/pages/PromptOptimizerDemo.tsx": [],
@@ -20912,7 +22767,9 @@
         "frontend/src/services/aiImageService.ts",
         "frontend/src/services/authApi.ts",
         "frontend/src/services/backgroundRemovalService.ts",
+        "frontend/src/services/bioAuthAPI.ts",
         "frontend/src/services/convert2Dto3DService.ts",
+        "frontend/src/services/creditsPreviewService.ts",
         "frontend/src/services/expandImageService.ts",
         "frontend/src/services/globalImageHistoryApi.ts",
         "frontend/src/services/hdUpscaleService.ts",
@@ -20924,7 +22781,8 @@
         "frontend/src/services/sora2Service.ts",
         "frontend/src/services/templateStore.ts",
         "frontend/src/services/tokenRefreshManager.ts",
-        "frontend/src/services/videoProviderAPI.ts"
+        "frontend/src/services/videoProviderAPI.ts",
+        "frontend/src/services/volcAssetAPI.ts"
       ],
       "frontend/src/services/authTokenStorage.ts": [
         "frontend/src/services/aiImageService.ts",
@@ -20938,10 +22796,14 @@
       "frontend/src/services/base64CacheService.ts": [
         "frontend/src/services/imageUrlCache.ts"
       ],
+      "frontend/src/services/bioAuthAPI.ts": [
+        "frontend/src/hooks/useBioAuthPolling.ts"
+      ],
       "frontend/src/services/clipboardJsonService.ts": [],
       "frontend/src/services/clipboardService.ts": [],
       "frontend/src/services/contextManager.ts": [],
       "frontend/src/services/convert2Dto3DService.ts": [],
+      "frontend/src/services/creditsPreviewService.ts": [],
       "frontend/src/services/expandImageService.ts": [],
       "frontend/src/services/flowImageAssetStore.ts": [],
       "frontend/src/services/flowSaveService.ts": [],
@@ -20978,14 +22840,22 @@
       "frontend/src/services/publicTemplateService.ts": [
         "frontend/src/services/templateStore.ts"
       ],
-      "frontend/src/services/referralApi.ts": [],
+      "frontend/src/services/referralApi.ts": [
+        "frontend/src/services/authApi.ts"
+      ],
       "frontend/src/services/sora2Service.ts": [],
       "frontend/src/services/templateStore.ts": [],
       "frontend/src/services/tokenRefreshManager.ts": [
         "frontend/src/services/aiImageService.ts",
         "frontend/src/services/authFetch.ts"
       ],
-      "frontend/src/services/videoProviderAPI.ts": [],
+      "frontend/src/services/videoProviderAPI.ts": [
+        "frontend/src/services/videoProviderParams.ts"
+      ],
+      "frontend/src/services/videoProviderParams.ts": [],
+      "frontend/src/services/volcAssetAPI.ts": [
+        "frontend/src/hooks/useVolcAssetPolling.ts"
+      ],
       "frontend/src/stores/aiChatStore.ts": [
         "frontend/src/stores/index.ts"
       ],
@@ -21054,15 +22924,20 @@
       "frontend/src/types/text.ts": [],
       "frontend/src/utils/BoundsCalculator.ts": [],
       "frontend/src/utils/assetProxy.ts": [
+        "frontend/src/services/bioAuthAPI.ts",
         "frontend/src/services/nodeConfigService.ts",
-        "frontend/src/services/videoProviderAPI.ts"
+        "frontend/src/services/videoProviderAPI.ts",
+        "frontend/src/services/volcAssetAPI.ts"
       ],
       "frontend/src/utils/asyncLimit.ts": [],
+      "frontend/src/utils/bananaRouteCapabilities.ts": [],
       "frontend/src/utils/beforeUnloadGuard.ts": [],
       "frontend/src/utils/creditsError.ts": [],
       "frontend/src/utils/cursorStyles.ts": [],
       "frontend/src/utils/downloadHelper.ts": [],
       "frontend/src/utils/flowGenerateRefErrors.ts": [],
+      "frontend/src/utils/flowModelProvider.ts": [],
+      "frontend/src/utils/flowViewportTransform.ts": [],
       "frontend/src/utils/gridRenderOptimizer.ts": [],
       "frontend/src/utils/imageConcurrency.ts": [],
       "frontend/src/utils/imageHelper.ts": [],
@@ -21090,6 +22965,7 @@
       "frontend/src/workers/imageUploadWorker.ts": [],
       "frontend/tailwind.config.js": [],
       "frontend/test/test-gemini-image.js": [],
+      "frontend/tmp_head_aiChatStore.ts": [],
       "frontend/vite.config.ts": [],
       "src/components/layout/AppLoadingOverlay.tsx": [],
       "test-env.js": [],

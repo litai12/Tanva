@@ -154,7 +154,12 @@ export async function fetchWithAuth(
   }
   const normalized = normalizeInit({ ...rest, auth });
   const response = await fetch(input, normalized);
-  if (response.status !== 401 && response.status !== 403) {
+  if (response.status === 403) {
+    notifyCreditsRefreshIfNeeded(input, normalized, response);
+    return response;
+  }
+
+  if (response.status !== 401) {
     notifyCreditsRefreshIfNeeded(input, normalized, response);
     return response;
   }
@@ -172,8 +177,9 @@ export async function fetchWithAuth(
   if (refreshed) {
     const retryNormalized = normalizeInit({ ...rest, auth });
     const retryResponse = await fetch(input, retryNormalized);
-    // refresh 返回 ok 但重试仍 401/403：认为登录态已失效，触发退出/登录提示
-    if (retryResponse.status === 401 || retryResponse.status === 403) {
+    // refresh 返回 ok 但重试仍 401：认为登录态已失效，触发退出/登录提示。
+    // 403 是业务权限拒绝（例如会员权益不足），不能当作登录过期处理。
+    if (retryResponse.status === 401) {
       triggerAuthExpired();
     }
     notifyCreditsRefreshIfNeeded(input, retryNormalized, retryResponse);

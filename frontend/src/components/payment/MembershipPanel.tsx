@@ -43,6 +43,7 @@ const FREE_FEATURES: string[] = [
   "基础月卡积分：500",
   "每日签到：50 积分",
   "Seedance 2 权益：不支持",
+  "快乐马权益：充值后可用",
   "无水印权益：不支持",
   "签到/活动赠送积分进入「赠送可消退积分」池",
   "赠送积分默认每日衰减 50",
@@ -75,6 +76,12 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
 
   if (metadata.seedance2Access === "enabled") {
     accent.push("Seedance 2 权益：支持");
+  }
+
+  if (metadata.happyhorseAccess === "enabled") {
+    accent.push("快乐马权益：支持");
+  } else {
+    accent.push("快乐马权益：充值后可用");
   }
 
   accent.push(
