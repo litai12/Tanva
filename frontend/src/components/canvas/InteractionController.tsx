@@ -21,8 +21,8 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     const handleWheel = (event: WheelEvent) => {
       const store = useCanvasStore.getState();
 
-      // 如果处于扩图模式，禁用滚轮缩放
-      if (store.isExpandingMode) {
+      // 如果有操作正在进行（如扩图），禁用滚轮缩放
+      if (store.isOperationInProgress) {
         event.preventDefault();
         event.stopPropagation();
         return;
