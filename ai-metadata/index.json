@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-28T11:49:30.230Z",
+  "generatedAt": "2026-04-29T07:44:08.119Z",
   "project": {
     "root": ".",
     "name": "Tanva",
@@ -899,8 +899,8 @@
     "backend/src/ai/ai.controller.ts": {
       "path": "backend/src/ai/ai.controller.ts",
       "kind": "ts",
-      "bytes": 215997,
-      "sha256": "3bd8edc179a677b68925d9b923b5697fd9bea178cc695dd2b3155c2cfdabbdcc",
+      "bytes": 218634,
+      "sha256": "992074e0a8863b2030b45a28624c6cf48f563fad5e10af0d90a0384bafabb323",
       "importSpecifiers": [
         "../auth/guards/api-key-or-jwt.guard",
         "../credits/credits.config",
@@ -7656,8 +7656,8 @@
     "frontend/src/components/flow/FlowOverlay.tsx": {
       "path": "frontend/src/components/flow/FlowOverlay.tsx",
       "kind": "tsx",
-      "bytes": 788312,
-      "sha256": "f3569c9054c953c2f5b0fd02171e26ffe727d424461b8ae1449943244fdbc1ae",
+      "bytes": 795736,
+      "sha256": "b0c12188336080e8ce693655fb22d8ded91a13ef0472f225800100afb33393d8",
       "importSpecifiers": [
         "./FlowRenderModeContext",
         "./MiniMapImageOverlay",
@@ -8557,8 +8557,8 @@
     "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx": {
       "path": "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
       "kind": "tsx",
-      "bytes": 40726,
-      "sha256": "8179421ef268ce58787a1487fe199abf1ce7a864c05dbe914aaae27cc4dd2714",
+      "bytes": 40865,
+      "sha256": "1463e80fd6cc2293e873163857e632ce9104fbbdc2bc94fbcda2773a6820aa97",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "../hooks/useBackendCreditsPreview",
@@ -12651,8 +12651,8 @@
     "frontend/src/services/authFetch.ts": {
       "path": "frontend/src/services/authFetch.ts",
       "kind": "ts",
-      "bytes": 5313,
-      "sha256": "ac8c2c3b5f962ec2b72467711f22be5a365c1cf8e8ca204b455b1214ff72cfcd",
+      "bytes": 5474,
+      "sha256": "983333de4c90f5c36a8b772f7272f8c01599efdfc5097273e7363fd9adcacf55",
       "importSpecifiers": [
         "../utils/trace",
         "./authEvents",

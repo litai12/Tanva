@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
@@ -506,6 +507,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Admin/Credits: 统一模型管理开始升级为正式定价结构，vendor 支持 `pricing.defaults + pricing.rules`，管理台可维护默认积�?默认价格与规格规则价格；后端预扣费兼容解析新旧结构，并把命中�?`pricingSnapshot` 写入 API 使用记录审计字段�?
 - upstream request telemetry 新增 `type` 字段，按请求/响应�?MIME、URL �?body 特征推断�?`text` / `video` / `picture`，便于在 `upstream_requests` 里区分不同媒介请求（`backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）�?
 - upstream request telemetry 扩展 `type` 枚举�?`text` / `video` / `picture` / `audio` / `file` / `binary` / `other`，并新增 `origin` / `origin_host` 记录发起请求时的来源域名，优先继承当前入站请求头，缺失时回退上游请求头中�?`Origin/Referer`（`backend/src/telemetry/request-context.ts`, `backend/src/telemetry/openobserve-request.interceptor.ts`, `backend/src/telemetry/upstream-fetch-logger.ts`, `backend/src/telemetry/openobserve-telemetry.service.ts`）�?
+
+## [Chat Video Managed Pricing Defaults - 2026-04-29]
+### Fixed
+- Backend video-provider billing now applies managed route `pricing.displayConfig.defaultSelections` to missing billing specs before pre-deduct. Chat-created Seedance 2.0 tasks now use the same default spec context as canvas nodes, so managed route pricing can match instead of falling back to static `doubao-video` pricing.
 
 ## [Tencent Kling2.6 Param Alignment - 2026-04-12]
 ### Changed

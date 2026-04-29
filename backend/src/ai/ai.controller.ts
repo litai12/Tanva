@@ -1009,6 +1009,67 @@ export class AiController {
       params.inputType = normalizedVideoMode === 'text' ? 'text' : 'image';
     }
 
+    const hasPricingParam = (key: string): boolean => {
+      const value = params[key];
+      return value !== undefined && value !== null && value !== '';
+    };
+
+    const assignPricingDefault = (key: string, value: unknown): void => {
+      if (value === undefined || value === null || value === '') return;
+
+      if (key === 'duration' || key === 'durationSec') {
+        if (hasPricingParam('duration') || hasPricingParam('durationSec')) return;
+        const duration = Number(value);
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        const normalizedDuration = Math.round(duration);
+        params.duration = normalizedDuration;
+        params.durationSec = normalizedDuration;
+        return;
+      }
+
+      if (hasPricingParam(key)) return;
+
+      if (key === 'resolution' && typeof value === 'string') {
+        const normalizedResolution = value.trim().toUpperCase();
+        if (normalizedResolution) params.resolution = normalizedResolution;
+        return;
+      }
+
+      params[key] = value;
+
+      if (key === 'sound') {
+        if (typeof value === 'boolean') {
+          params.hasAudio = value;
+        } else if (typeof value === 'string') {
+          const normalizedSound = value.trim().toLowerCase();
+          if (['on', 'true', 'yes', '1'].includes(normalizedSound)) {
+            params.hasAudio = true;
+          } else if (['off', 'false', 'no', '0'].includes(normalizedSound)) {
+            params.hasAudio = false;
+          }
+        }
+      }
+    };
+
+    const applyManagedPricingDefaults = (
+      route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
+    ) => {
+      const pricing = route?.vendor?.pricing;
+      if (!pricing || typeof pricing !== 'object') return;
+      const displayConfig = (pricing as Record<string, any>).displayConfig;
+      const defaultSelections =
+        displayConfig && typeof displayConfig === 'object' && !Array.isArray(displayConfig)
+          ? (displayConfig as Record<string, any>).defaultSelections
+          : null;
+      if (!defaultSelections || typeof defaultSelections !== 'object' || Array.isArray(defaultSelections)) {
+        return;
+      }
+
+      for (const [key, value] of Object.entries(defaultSelections)) {
+        assignPricingDefault(key, value);
+      }
+    };
+
     const assignRouteParams = (
       route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
     ) => {
@@ -1019,6 +1080,7 @@ export class AiController {
       params.route = route.route;
       params.providerChannel = route.vendor.platformKey || route.vendor.vendorKey;
       params.routedProvider = route.vendor.provider || dto.provider;
+      applyManagedPricingDefaults(route);
       return true;
     };
 
@@ -1179,9 +1241,9 @@ export class AiController {
   }
 
   /**
-   * DashScope Wan2.6 I2V：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
+   * DashScope async video endpoints：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
    */
-  private isWanDashscopeI2VAsyncPending(result: any): boolean {
+  private isDashscopeVideoAsyncPending(result: any): boolean {
     if (!result || result.success !== true || !result.data) return false;
     const d = result.data;
     const videoUrl =
@@ -5089,7 +5151,7 @@ export class AiController {
       hasAudio: true,
     }), {
       treatReturnedFailureAsError: true,
-      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
+      skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
     });
   }
 
@@ -5187,7 +5249,7 @@ export class AiController {
       hasAudio: true,
     }), {
       treatReturnedFailureAsError: true,
-      skipFinalizeSuccessIf: (r: any) => this.isWanDashscopeI2VAsyncPending(r),
+      skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
     });
   }
 
@@ -5530,7 +5592,16 @@ export class AiController {
             };
           }
 
-          return await this.pollDashScopeVideoTask(dashKey, taskId, taskLabel);
+          this.logger.log(`✅ DashScope ${taskLabel} task created: ${taskId}`);
+          return {
+            success: true,
+            data: {
+              taskId,
+              task_id: taskId,
+              status: 'pending',
+              raw: data,
+            },
+          };
         } catch (error: any) {
           this.logger.error(`❌ DashScope ${taskLabel} request exception`, error);
           return {
@@ -5545,6 +5616,7 @@ export class AiController {
       this.buildHappyhorseCreditRequestParams(body, model),
       {
         treatReturnedFailureAsError: true,
+        skipFinalizeSuccessIf: (r: any) => this.isDashscopeVideoAsyncPending(r),
       },
     );
   }

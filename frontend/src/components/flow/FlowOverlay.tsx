@@ -11441,6 +11441,171 @@ function FlowInner() {
       );
   }, [rf, setNodes]);
 
+  const happyhorsePollingRef = React.useRef<Set<string>>(new Set());
+  const pollHappyhorseTask = React.useCallback(
+    async (params: {
+      nodeId: string;
+      taskId: string;
+      apiUsageId?: string;
+      prompt?: string;
+      quality?: string;
+      referenceCount?: number;
+    }) => {
+      const taskId = params.taskId.trim();
+      if (!taskId) return;
+      const pollKey = `${params.nodeId}:${taskId}`;
+      if (happyhorsePollingRef.current.has(pollKey)) return;
+      happyhorsePollingRef.current.add(pollKey);
+
+      const pollInterval = 5000;
+      const maxAttempts = 180;
+      const generationStartedAt = Date.now();
+
+      const failNode = async (message: string, shouldRefund: boolean) => {
+        if (shouldRefund && params.apiUsageId) {
+          try {
+            await refundVideoTask(params.apiUsageId);
+          } catch (refundErr) {
+            console.warn("[Flow] HappyHorse refund failed", {
+              nodeId: params.nodeId,
+              taskId,
+              apiUsageId: params.apiUsageId,
+              error: refundErr instanceof Error ? refundErr.message : String(refundErr),
+            });
+          }
+        }
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === params.nodeId && (n.data as any)?.taskId === taskId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: "failed",
+                    error: message,
+                    taskId: undefined,
+                    apiUsageId: undefined,
+                    pendingPrompt: undefined,
+                    pendingQuality: undefined,
+                    pendingReferenceCount: undefined,
+                  },
+                }
+              : n
+          )
+        );
+      };
+
+      try {
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          if (attempt > 0) {
+            await new Promise((r) => setTimeout(r, pollInterval));
+          }
+
+          const queryResult = await queryDashscopeTask(taskId);
+          if (!queryResult.success) continue;
+
+          const status = String(queryResult.status || "").toLowerCase();
+          if (status === "succeeded" || status === "success") {
+            const videoUrl = queryResult.videoUrl;
+            if (!videoUrl) {
+              await failNode("任务已完成但未返回视频地址", true);
+              return;
+            }
+
+            if (params.apiUsageId) {
+              const processingTime = Math.max(0, Date.now() - generationStartedAt);
+              void markVideoTaskSuccess(params.apiUsageId, processingTime).catch((markErr) => {
+                console.warn("[Flow] HappyHorse mark success failed", {
+                  nodeId: params.nodeId,
+                  taskId,
+                  apiUsageId: params.apiUsageId,
+                  error: markErr instanceof Error ? markErr.message : String(markErr),
+                });
+              });
+            }
+
+            const elapsedSeconds = Math.max(
+              1,
+              Math.round((Date.now() - generationStartedAt) / 1000)
+            );
+            const historyEntry = {
+              id: `history-${Date.now()}`,
+              videoUrl,
+              thumbnail: undefined,
+              prompt: params.prompt || "",
+              quality: params.quality,
+              createdAt: new Date().toISOString(),
+              elapsedSeconds,
+              referenceCount: params.referenceCount,
+            };
+
+            setNodes((ns) =>
+              ns.map((n) => {
+                if (n.id !== params.nodeId || (n.data as any)?.taskId !== taskId) return n;
+                const previousData = (n.data as any) || {};
+                return {
+                  ...n,
+                  data: {
+                    ...previousData,
+                    status: "succeeded",
+                    videoUrl,
+                    thumbnail: undefined,
+                    error: undefined,
+                    videoVersion: Number(previousData.videoVersion || 0) + 1,
+                    taskId: undefined,
+                    apiUsageId: undefined,
+                    pendingPrompt: undefined,
+                    pendingQuality: undefined,
+                    pendingReferenceCount: undefined,
+                    history: appendVideoHistory(
+                      previousData.history as Array<Record<string, any>> | undefined,
+                      historyEntry
+                    ),
+                  },
+                };
+              })
+            );
+            return;
+          }
+
+          if (status === "failed" || status === "error") {
+            await failNode("视频生成任务失败", true);
+            return;
+          }
+        }
+
+        await failNode("任务查询超时，请稍后重试", true);
+      } finally {
+        happyhorsePollingRef.current.delete(pollKey);
+      }
+    },
+    [appendVideoHistory, setNodes]
+  );
+
+  React.useEffect(() => {
+    nodes.forEach((node) => {
+      if (node.type !== "happyhorseR2V") return;
+      const data = (node.data as any) || {};
+      if (data.status !== "running") return;
+      const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
+      if (!taskId) return;
+      void pollHappyhorseTask({
+        nodeId: node.id,
+        taskId,
+        apiUsageId:
+          typeof data.apiUsageId === "string" && data.apiUsageId.trim()
+            ? data.apiUsageId.trim()
+            : undefined,
+        prompt: typeof data.pendingPrompt === "string" ? data.pendingPrompt : undefined,
+        quality: typeof data.pendingQuality === "string" ? data.pendingQuality : undefined,
+        referenceCount:
+          typeof data.pendingReferenceCount === "number"
+            ? data.pendingReferenceCount
+            : undefined,
+      });
+    });
+  }, [nodes, pollHappyhorseTask]);
+
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
     async (nodeId: string) => {
@@ -13020,8 +13185,52 @@ function FlowInner() {
             throw new Error(result?.error?.message || "任务提交失败");
           }
           const videoUrl = extractVideoUrl(result.data);
+          const taskId =
+            result.data?.taskId ||
+            result.data?.task_id ||
+            result.data?.output?.task_id ||
+            result.data?.raw?.output?.task_id;
+          const happyhorseApiUsageId =
+            typeof (result as any)?.apiUsageId === "string" &&
+            (result as any).apiUsageId.trim().length > 0
+              ? (result as any).apiUsageId.trim()
+              : undefined;
+
+          if (!videoUrl && taskId) {
+            const quality = `${resolution} / ${durationVal}s`;
+            const normalizedTaskId = String(taskId);
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "running",
+                        error: undefined,
+                        taskId: normalizedTaskId,
+                        apiUsageId: happyhorseApiUsageId,
+                        pendingPrompt: promptTrimmed,
+                        pendingQuality: quality,
+                        pendingReferenceCount: referenceImageUrls.length,
+                      },
+                    }
+                  : n
+              )
+            );
+            void pollHappyhorseTask({
+              nodeId,
+              taskId: normalizedTaskId,
+              apiUsageId: happyhorseApiUsageId,
+              prompt: promptTrimmed,
+              quality,
+              referenceCount: referenceImageUrls.length,
+            });
+            return;
+          }
+
           if (!videoUrl) {
-            throw new Error("未返回视频地址");
+            throw new Error("未返回视频地址或任务ID");
           }
 
           const thumbnail = result.data?.thumbnail;
@@ -18474,6 +18683,7 @@ function FlowInner() {
       getSeedanceModeSpec,
       imageModel,
       inferSeedanceMode,
+      pollHappyhorseTask,
       rf,
       setNodes,
       uploadImageToStableUrl,

@@ -45,6 +45,11 @@ type Props = {
     duration?: number;
     referenceCount?: number; // 1 ~ 9（仅 r2v 模式生效）
     history?: VideoHistoryItem[];
+    taskId?: string;
+    apiUsageId?: string;
+    pendingPrompt?: string;
+    pendingQuality?: string;
+    pendingReferenceCount?: number;
   };
   selected?: boolean;
 };

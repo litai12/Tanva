@@ -69,6 +69,7 @@
   - `model_provider_mapping_v2.models[].vendors[].pricing.defaults`：厂商默认价
   - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
+- `POST /api/ai/generate-video-provider` 现在会在解析出模型管理线路后，将该线路 `pricing.displayConfig.defaultSelections` 用作缺失规格的计费默认值；例如对话框 Seedance 2.0 未显式选择分辨率/时长时，按模型管理默认 `720P / 5s` 参与规格定价，避免回退到静态 `doubao-video` 价格。
 - 新增只读接口 `GET /api/credits/pricing/models`：
   - 面向画布右上角“定价一览”弹层。
   - 支持通过 `modelKey` 查询单模型，未传时返回全部模型。

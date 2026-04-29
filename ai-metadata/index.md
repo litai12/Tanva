@@ -1,6 +1,6 @@
 # AI Metadata Index
 
-- Generated: 2026-04-28T11:49:30.230Z
+- Generated: 2026-04-29T07:44:08.119Z
 - Source files indexed: 497
 - Schema version: 2
 
