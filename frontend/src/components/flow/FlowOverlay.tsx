@@ -1267,7 +1267,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  happyhorseR2V: 600, // 快乐马参考视频 - fallback；实际由后端 perSecondByResolution 决定
+  happyhorseR2V: 600, // 快乐马多图参考 - fallback；实际由后端 perSecondByResolution 决定
   klingVideo: "150-1200", // 可灵视频生成（2.6/3.0 按模型与参数阶梯计费）
   kling26Video: "150-1200", // 可灵2.6视频生成 - kling-v2-6
   kling30Video: "300-1200", // 可灵3.0视频生成 - kling-v3-0
@@ -13185,52 +13185,8 @@ function FlowInner() {
             throw new Error(result?.error?.message || "任务提交失败");
           }
           const videoUrl = extractVideoUrl(result.data);
-          const taskId =
-            result.data?.taskId ||
-            result.data?.task_id ||
-            result.data?.output?.task_id ||
-            result.data?.raw?.output?.task_id;
-          const happyhorseApiUsageId =
-            typeof (result as any)?.apiUsageId === "string" &&
-            (result as any).apiUsageId.trim().length > 0
-              ? (result as any).apiUsageId.trim()
-              : undefined;
-
-          if (!videoUrl && taskId) {
-            const quality = `${resolution} / ${durationVal}s`;
-            const normalizedTaskId = String(taskId);
-            setNodes((ns) =>
-              ns.map((n) =>
-                n.id === nodeId
-                  ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        status: "running",
-                        error: undefined,
-                        taskId: normalizedTaskId,
-                        apiUsageId: happyhorseApiUsageId,
-                        pendingPrompt: promptTrimmed,
-                        pendingQuality: quality,
-                        pendingReferenceCount: referenceImageUrls.length,
-                      },
-                    }
-                  : n
-              )
-            );
-            void pollHappyhorseTask({
-              nodeId,
-              taskId: normalizedTaskId,
-              apiUsageId: happyhorseApiUsageId,
-              prompt: promptTrimmed,
-              quality,
-              referenceCount: referenceImageUrls.length,
-            });
-            return;
-          }
-
           if (!videoUrl) {
-            throw new Error("未返回视频地址或任务ID");
+            throw new Error("未返回视频地址");
           }
 
           const thumbnail = result.data?.thumbnail;
@@ -13581,8 +13537,50 @@ function FlowInner() {
             throw new Error(result?.error?.message || "任务提交失败");
           }
           const videoUrl = extractVideoUrl(result.data);
+          const taskId =
+            result.data?.taskId ||
+            result.data?.task_id ||
+            result.data?.output?.task_id ||
+            result.data?.raw?.output?.task_id;
+          const happyhorseApiUsageId =
+            typeof (result as any)?.apiUsageId === "string" &&
+            (result as any).apiUsageId.trim().length > 0
+              ? (result as any).apiUsageId.trim()
+              : undefined;
+          if (!videoUrl && taskId) {
+            const quality = `${resolution} / ${durationVal}s`;
+            const normalizedTaskId = String(taskId);
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "running",
+                        error: undefined,
+                        taskId: normalizedTaskId,
+                        apiUsageId: happyhorseApiUsageId,
+                        pendingPrompt: promptTrimmed,
+                        pendingQuality: quality,
+                        pendingReferenceCount: referenceImageUrls.length,
+                      },
+                    }
+                  : n
+              )
+            );
+            void pollHappyhorseTask({
+              nodeId,
+              taskId: normalizedTaskId,
+              apiUsageId: happyhorseApiUsageId,
+              prompt: promptTrimmed,
+              quality,
+              referenceCount: referenceImageUrls.length,
+            });
+            return;
+          }
           if (!videoUrl) {
-            throw new Error("未返回视频地址");
+            throw new Error("未返回视频地址或任务ID");
           }
 
           const thumbnail = (result.data as any)?.thumbnail;

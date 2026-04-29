@@ -193,10 +193,10 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Wan2.6 参考视频生成视频',
   },
   'happyhorse-r2v-video': {
-    serviceName: '快乐马参考视频',
+    serviceName: '快乐马多图参考',
     provider: 'dashscope',
     creditsPerCall: 600, // fallback：5s × 120 credits/s（720P，节点默认）
-    description: '使用 HappyHorse 1.0 R2V 参考图生成视频',
+    description: '使用 HappyHorse 1.0 R2V 多图参考生成视频',
     dynamicPricing: {
       perSecondByResolution: { '720P': 120, '1080P': 200 },
     },

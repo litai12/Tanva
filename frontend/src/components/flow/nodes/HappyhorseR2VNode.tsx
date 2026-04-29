@@ -66,7 +66,7 @@ const DEFAULT_MODEL: HappyhorseModel = "happyhorse-1.0-r2v";
 const MODEL_OPTIONS: Array<{ value: HappyhorseModel; zh: string; en: string }> = [
   { value: "happyhorse-1.0-t2v",        zh: "文生视频",   en: "Text → Video" },
   { value: "happyhorse-1.0-i2v",        zh: "图生视频",   en: "Image → Video" },
-  { value: "happyhorse-1.0-r2v",        zh: "参考视频",   en: "Reference → Video" },
+  { value: "happyhorse-1.0-r2v",        zh: "多图参考",   en: "Multi-image reference" },
   { value: "happyhorse-1.0-video-edit", zh: "视频改写",   en: "Video Edit" },
 ];
 

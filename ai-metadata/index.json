@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-04-29T07:44:08.119Z",
+  "generatedAt": "2026-04-29T08:16:15.234Z",
   "project": {
     "root": ".",
     "name": "Tanva",
@@ -502,8 +502,8 @@
     "backend/src/admin/admin.controller.ts": {
       "path": "backend/src/admin/admin.controller.ts",
       "kind": "ts",
-      "bytes": 26071,
-      "sha256": "28aebf9457cfd45e68fb0079f53dfdbb329d900860f6bee6cafa67d276fe53b9",
+      "bytes": 26107,
+      "sha256": "fd58b8a6e720f7baa48640e7f5f4f1d2c9f46ae15161faf05ac1d1fe5203303d",
       "importSpecifiers": [
         "../ai/services/model-routing.service",
         "../auth/guards/jwt.guard",
@@ -583,8 +583,8 @@
     "backend/src/admin/admin.service.ts": {
       "path": "backend/src/admin/admin.service.ts",
       "kind": "ts",
-      "bytes": 35057,
-      "sha256": "8742a9c726b85458b289721d9f4ead727fd6a1d62626140ae152defa17d49879",
+      "bytes": 35510,
+      "sha256": "dbd32f2a157344b5440272fc47b30fa8eebaccdd3d172573be7211e1f2f37c68",
       "importSpecifiers": [
         "../credits/dto/credits.dto",
         "../prisma/prisma.service",
@@ -620,8 +620,8 @@
     "backend/src/admin/dto/admin.dto.ts": {
       "path": "backend/src/admin/dto/admin.dto.ts",
       "kind": "ts",
-      "bytes": 4596,
-      "sha256": "d411626df9f052babc96943d2b5e731b446568e8082657afd95ece6458cfecec",
+      "bytes": 4752,
+      "sha256": "575a18782dcb380d3170b9da56131db872ca87bea1a45f5e893a6c8887e7eb68",
       "importSpecifiers": [
         "@nestjs/swagger",
         "class-validator"
@@ -678,8 +678,8 @@
     "backend/src/admin/services/node-config.service.ts": {
       "path": "backend/src/admin/services/node-config.service.ts",
       "kind": "ts",
-      "bytes": 71103,
-      "sha256": "efb6f5a48f5ab43733b6006187c77ebc623b7e1be6e991ae142cbb908463eb03",
+      "bytes": 71109,
+      "sha256": "b50be35afba678947008c4d3d92c657f89a832ffc2d12e5dc76d4fba0763fff9",
       "importSpecifiers": [
         "../../ai/services/model-pricing-resolver",
         "../../ai/services/model-routing.service",
@@ -3389,8 +3389,8 @@
     "backend/src/credits/credits.config.ts": {
       "path": "backend/src/credits/credits.config.ts",
       "kind": "ts",
-      "bytes": 9935,
-      "sha256": "1bbaf2bed2846eb4c58f73c76ca54c704c663f647eaeaa9c0c05e5eb123aa837",
+      "bytes": 9938,
+      "sha256": "78dd9f372af70ec12ace47cf9c8a542aa68c044dfe84d25825e012b116729834",
       "importSpecifiers": [],
       "dynamicImportSpecifiers": [],
       "exports": {
@@ -7656,8 +7656,8 @@
     "frontend/src/components/flow/FlowOverlay.tsx": {
       "path": "frontend/src/components/flow/FlowOverlay.tsx",
       "kind": "tsx",
-      "bytes": 795736,
-      "sha256": "b0c12188336080e8ce693655fb22d8ded91a13ef0472f225800100afb33393d8",
+      "bytes": 795734,
+      "sha256": "cdf374623f567e6d853b1762516c4fd4c1a56a54df730655fba7275d11cd44e2",
       "importSpecifiers": [
         "./FlowRenderModeContext",
         "./MiniMapImageOverlay",
@@ -8557,8 +8557,8 @@
     "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx": {
       "path": "frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx",
       "kind": "tsx",
-      "bytes": 40865,
-      "sha256": "1463e80fd6cc2293e873163857e632ce9104fbbdc2bc94fbcda2773a6820aa97",
+      "bytes": 40867,
+      "sha256": "629620843fb93d344dcf303b7ebfc81b03ede2b9615f55cc675f54539aff957e",
       "importSpecifiers": [
         "../../ui/SmartImage",
         "../hooks/useBackendCreditsPreview",
@@ -11734,8 +11734,8 @@
     "frontend/src/pages/Admin.tsx": {
       "path": "frontend/src/pages/Admin.tsx",
       "kind": "tsx",
-      "bytes": 554547,
-      "sha256": "0f0590e44b168940906dd55c28768461609b090e30787e93d51e5c32f222ab53",
+      "bytes": 555313,
+      "sha256": "34e76fc17eb6d11f050849c565d3944f83a6a488f99d048e5198f75610060a13",
       "importSpecifiers": [
         "@/components/ui/button",
         "@/components/ui/input",
@@ -12301,8 +12301,8 @@
     "frontend/src/services/adminApi.ts": {
       "path": "frontend/src/services/adminApi.ts",
       "kind": "ts",
-      "bytes": 44541,
-      "sha256": "09b0bcc704761f83ade8df542850daba98e8b891361e910e997e8efdd9924904",
+      "bytes": 44640,
+      "sha256": "0229e45c7b291fbb6af5ace132057787708f97cf6b556138784dd86222b6ac87",
       "importSpecifiers": [
         "./authFetch"
       ],
@@ -14129,8 +14129,8 @@
     "frontend/src/stores/aiChatStore.ts": {
       "path": "frontend/src/stores/aiChatStore.ts",
       "kind": "ts",
-      "bytes": 307899,
-      "sha256": "a55939e5d25e7b20a991f4aab9e189db032523cb64a66b406da5425e7d061aa3",
+      "bytes": 307898,
+      "sha256": "987499e8c07579378a6dedcf10c88d02f2ea45299258b974f4306b72781ee0d7",
       "importSpecifiers": [
         "@/services/aiBackendAPI",
         "@/services/aiImageService",

@@ -1307,7 +1307,7 @@ export class NodeConfigService {
         creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
         serviceType: 'happyhorse-r2v-video',
         priceYuan: 6, // 5s/720P 节点默认档
-        description: '阿里 HappyHorse 参考图视频生成',
+        description: '阿里 HappyHorse 多图参考视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {
@@ -1848,7 +1848,7 @@ export class NodeConfigService {
         creditsPerCall: 600, // fallback；实际按 perSecondByResolution 动态计算
         serviceType: 'happyhorse-r2v-video',
         priceYuan: 6, // 5s/720P 节点默认档
-        description: '阿里 HappyHorse 参考图视频生成',
+        description: '阿里 HappyHorse 多图参考视频生成',
         metadata: {
           ...buildVodNodeMetadata(
             {

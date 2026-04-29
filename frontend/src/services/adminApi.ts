@@ -287,6 +287,7 @@ export async function getApiUsageRecords(params: {
   page?: number;
   pageSize?: number;
   userId?: string;
+  userSearch?: string;
   serviceType?: string;
   provider?: string;
   status?: string;
@@ -297,6 +298,7 @@ export async function getApiUsageRecords(params: {
   if (params.page) searchParams.set("page", String(params.page));
   if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params.userId) searchParams.set("userId", params.userId);
+  if (params.userSearch) searchParams.set("userSearch", params.userSearch);
   if (params.serviceType) searchParams.set("serviceType", params.serviceType);
   if (params.provider) searchParams.set("provider", params.provider);
   if (params.status) searchParams.set("status", params.status);

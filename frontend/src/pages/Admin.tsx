@@ -5743,6 +5743,7 @@ function ApiRecordsTab() {
   const [selectedRequestRecord, setSelectedRequestRecord] =
     useState<ApiUsageRecord | null>(null);
   const [filters, setFilters] = useState({
+    userSearch: "",
     serviceType: "",
     provider: "",
     status: "",
@@ -5768,6 +5769,11 @@ function ApiRecordsTab() {
   useEffect(() => {
     loadRecords();
   }, [page, filters]);
+
+  const updateFilters = (patch: Partial<typeof filters>) => {
+    setPage(1);
+    setFilters((current) => ({ ...current, ...patch }));
+  };
 
   const statusColors: Record<string, string> = {
     success: "bg-green-100 text-green-700",
@@ -5968,9 +5974,15 @@ function ApiRecordsTab() {
   return (
     <div>
       <div className='mb-4 flex gap-2'>
+        <Input
+          value={filters.userSearch}
+          onChange={(e) => updateFilters({ userSearch: e.target.value })}
+          placeholder='用户ID / 手机 / 邮箱 / 昵称'
+          className='max-w-xs text-sm'
+        />
         <select
           value={filters.status}
-          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          onChange={(e) => updateFilters({ status: e.target.value })}
           className='border rounded px-3 py-2 text-sm'
         >
           <option value=''>全部状态</option>
@@ -5980,7 +5992,7 @@ function ApiRecordsTab() {
         </select>
         <select
           value={filters.provider}
-          onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
+          onChange={(e) => updateFilters({ provider: e.target.value })}
           className='border rounded px-3 py-2 text-sm'
         >
           <option value=''>全部提供商</option>
@@ -6048,7 +6060,15 @@ function ApiRecordsTab() {
                     <td className='px-4 py-3'>
                       <div>{record.user?.name || "-"}</div>
                       <div className='text-xs text-gray-400'>
-                        {record.user?.phone}
+                        {record.user?.phone || record.userId}
+                      </div>
+                      {record.user?.email && (
+                        <div className='text-xs text-gray-400'>
+                          {record.user.email}
+                        </div>
+                      )}
+                      <div className='font-mono text-[10px] text-gray-300'>
+                        {record.userId.slice(0, 8)}
                       </div>
                     </td>
                     <td className='px-4 py-3'>{record.serviceName}</td>

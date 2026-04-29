@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
@@ -38,6 +39,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Image: 图片生成节点统一改为 `GenerationProgressBar` 动态渐进并支持配置时长，`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle` 已切换为 `60s` 渐进�?`95%`（成功后�?`100%`）�?
 
 ### Added
+- Admin/API Records: 后台 API 记录支持按用户关键词过滤，可匹配用户 ID、手机号、邮箱和昵称。
 - Flow Clipboard: `GeneratePro / ImagePro / GeneratePro4` 的右键“复制节点”改为写�?Flow 剪贴板（不再直接生成副本），可配�?`Ctrl/Cmd + Shift + V` 使用“保留原连线粘贴”（`Ctrl/Cmd + V` 仍保持常规粘贴）�?
 - Flow Model Switch: `Generate` / `Agent(generatePro)` 节点新增节点本地 `modelProvider` 持久化，节点�?Fast/Pro/Ultra 切换不再改写全局 `aiProvider`；同时全局设置/对话框切换会广播 `flow:sync-model-provider`，可一键批量同步相关节点（`generate/generatePro/generatePro4/analysis/textChat`）到统一模型档位�?
 - Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
@@ -510,7 +512,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Chat Video Managed Pricing Defaults - 2026-04-29]
 ### Fixed
-- Backend video-provider billing now applies managed route `pricing.displayConfig.defaultSelections` to missing billing specs before pre-deduct. Chat-created Seedance 2.0 tasks now use the same default spec context as canvas nodes, so managed route pricing can match instead of falling back to static `doubao-video` pricing.
+- Backend video-provider billing now applies managed route `pricing.displayConfig.defaultSelections` to missing billing specs before pre-deduct. Chat-created Seedance tasks now use the same default spec context as canvas nodes, so managed route pricing can match instead of falling back to static `doubao-video` pricing.
 
 ## [Tencent Kling2.6 Param Alignment - 2026-04-12]
 ### Changed

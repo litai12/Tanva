@@ -779,16 +779,26 @@ export class AdminService {
     page?: number;
     pageSize?: number;
     userId?: string;
+    userSearch?: string;
     serviceType?: string;
     provider?: string;
     status?: string;
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 10, userId, serviceType, provider, status, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, userId, userSearch, serviceType, provider, status, startDate, endDate } = options;
 
     const where: any = {};
     if (userId) where.userId = userId;
+    else if (userSearch?.trim()) {
+      const keyword = userSearch.trim();
+      where.OR = [
+        { userId: { contains: keyword, mode: 'insensitive' } },
+        { user: { is: { phone: { contains: keyword, mode: 'insensitive' } } } },
+        { user: { is: { email: { contains: keyword, mode: 'insensitive' } } } },
+        { user: { is: { name: { contains: keyword, mode: 'insensitive' } } } },
+      ];
+    }
     if (serviceType) where.serviceType = serviceType;
     if (provider) where.provider = provider;
     if (status) where.responseStatus = status;

@@ -1,9 +1,9 @@
 # AI File Descriptions
 
-- Generated: 2026-04-29T07:44:08.211Z
+- Generated: 2026-04-29T08:16:15.349Z
 - Files: 497
-- Updated (new/changed): 2
-- Carried (unchanged): 495
+- Updated (new/changed): 5
+- Carried (unchanged): 492
 
 | file | feature | needsReview | description |
 |---|---:|---:|---|

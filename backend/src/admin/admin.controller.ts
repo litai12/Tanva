@@ -248,6 +248,7 @@ export class AdminController {
       page: query.page,
       pageSize: query.pageSize,
       userId: query.userId,
+      userSearch: query.userSearch,
       serviceType: query.serviceType,
       provider: query.provider,
       status: query.status,

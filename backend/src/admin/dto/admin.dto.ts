@@ -61,6 +61,11 @@ export class ApiUsageRecordsQueryDto {
   @IsString()
   userId?: string;
 
+  @ApiPropertyOptional({ description: '用户搜索关键词（用户ID/手机号/邮箱/昵称）' })
+  @IsOptional()
+  @IsString()
+  userSearch?: string;
+
   @ApiPropertyOptional({ description: '服务类型' })
   @IsOptional()
   @IsString()
@@ -186,4 +191,3 @@ export class CreditAnomalyRecordsQueryDto {
   @IsDateString()
   endDate?: string;
 }
-
