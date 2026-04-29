@@ -1,6 +1,6 @@
 import { context, trace } from '@opentelemetry/api';
 import { Logger } from '@nestjs/common';
-import { getRequestContext } from './request-context';
+import { getRequestContext, recordLatestUpstreamRequest } from './request-context';
 import { buildOpenObserveApiPrefix, buildOpenObserveIngestEndpoint } from './openobserve-url';
 
 type PatchedFetch = typeof fetch & {
@@ -127,6 +127,28 @@ const normalizeHeaders = (headers: Headers): Record<string, unknown> => {
     normalized[key] = value;
   });
   return normalized;
+};
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'apikey',
+]);
+
+const sanitizeHeaders = (
+  headers: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null => {
+  if (!headers) return null;
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [
+      key,
+      SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[redacted]' : value,
+    ]),
+  );
 };
 
 const getMimeType = (contentType: string | null | undefined): string | null => {
@@ -585,6 +607,10 @@ export const installUpstreamFetchLogger = (): void => {
       const response = await originalFetch(request);
       const responseHeaders = normalizeHeaders(response.headers);
       const responseBody = await readResponseBody(response);
+      const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders);
+      const sanitizedResponseHeaders = sanitizeHeaders(responseHeaders);
+      const sanitizedRequestBody = sanitizeValue(requestBody);
+      const sanitizedResponseBody = sanitizeValue(responseBody);
       const requestType = inferUpstreamRequestType({
         url,
         requestHeaders,
@@ -592,7 +618,7 @@ export const installUpstreamFetchLogger = (): void => {
         responseHeaders,
         responseBody,
       });
-      void ingestUpstreamRequestLog({
+      const upstreamPayload = {
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
         request_id: requestContext?.requestId || null,
@@ -605,17 +631,33 @@ export const installUpstreamFetchLogger = (): void => {
         pathname: url.pathname,
         status_code: response.status,
         duration_ms: Date.now() - startedAt,
-        request_headers: requestHeaders,
-        request_body: sanitizeValue(requestBody),
-        response_headers: responseHeaders,
-        response_body: sanitizeValue(responseBody),
+        request_headers: sanitizedRequestHeaders,
+        request_body: sanitizedRequestBody,
+        response_headers: sanitizedResponseHeaders,
+        response_body: sanitizedResponseBody,
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
         service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
         service: 'backend',
+      };
+      recordLatestUpstreamRequest({
+        method: request.method,
+        url: request.url,
+        host: url.host,
+        pathname: url.pathname,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+        requestHeaders: sanitizedRequestHeaders,
+        requestBody: sanitizedRequestBody,
+        responseHeaders: sanitizedResponseHeaders,
+        responseBody: sanitizedResponseBody,
+        type: requestType,
+        model: resolveUpstreamModel(url, requestBody),
+        receivedAt: String(upstreamPayload.received_at),
       });
+      void ingestUpstreamRequestLog(upstreamPayload);
       return response;
     } catch (error) {
       const requestType = inferUpstreamRequestType({
@@ -623,7 +665,9 @@ export const installUpstreamFetchLogger = (): void => {
         requestHeaders,
         requestBody,
       });
-      void ingestUpstreamRequestLog({
+      const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders);
+      const sanitizedRequestBody = sanitizeValue(requestBody);
+      const upstreamPayload = {
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,
         span_id: activeSpan?.spanId || null,
         request_id: requestContext?.requestId || null,
@@ -636,8 +680,8 @@ export const installUpstreamFetchLogger = (): void => {
         pathname: url.pathname,
         status_code: null,
         duration_ms: Date.now() - startedAt,
-        request_headers: requestHeaders,
-        request_body: sanitizeValue(requestBody),
+        request_headers: sanitizedRequestHeaders,
+        request_body: sanitizedRequestBody,
         response_headers: null,
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
@@ -646,7 +690,24 @@ export const installUpstreamFetchLogger = (): void => {
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
         service: 'backend',
+      };
+      recordLatestUpstreamRequest({
+        method: request.method,
+        url: request.url,
+        host: url.host,
+        pathname: url.pathname,
+        statusCode: null,
+        durationMs: Date.now() - startedAt,
+        requestHeaders: sanitizedRequestHeaders,
+        requestBody: sanitizedRequestBody,
+        responseHeaders: null,
+        responseBody: null,
+        type: requestType,
+        model: resolveUpstreamModel(url, requestBody),
+        error: error instanceof Error ? error.message : String(error),
+        receivedAt: String(upstreamPayload.received_at),
       });
+      void ingestUpstreamRequestLog(upstreamPayload);
       throw error;
     }
   };

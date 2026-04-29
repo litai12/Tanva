@@ -66,6 +66,9 @@ type BackendErrorLog = {
   body?: unknown;
   response?: unknown;
   payload?: Record<string, unknown> | null;
+  upstream?: Record<string, unknown> | null;
+  upstreamPayload?: unknown;
+  upstreamResponse?: unknown;
   receivedAt: string;
 };
 
@@ -229,6 +232,7 @@ export class OpenObserveTelemetryService {
   async ingestBackendError(log: BackendErrorLog): Promise<void> {
     const requestContext = getRequestContext();
     const maxBodyLength = this.getBackendRequestBodyMaxLength();
+    const upstream = log.upstream || requestContext?.latestUpstreamRequest || null;
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_BACKEND_ERROR_STREAM')?.trim() || 'backend_errors',
       {
@@ -238,6 +242,15 @@ export class OpenObserveTelemetryService {
         userId: log.userId || requestContext?.userId || null,
         body: summarizeBodyForLog(log.body, maxBodyLength),
         response: summarizeBodyForLog(log.response, maxBodyLength),
+        upstream: summarizeBodyForLog(upstream, maxBodyLength),
+        upstreamPayload: summarizeBodyForLog(
+          log.upstreamPayload ?? upstream?.requestBody ?? null,
+          maxBodyLength,
+        ),
+        upstreamResponse: summarizeBodyForLog(
+          log.upstreamResponse ?? upstream?.responseBody ?? null,
+          maxBodyLength,
+        ),
         service: 'backend',
         log_type: 'backend_error',
       },
