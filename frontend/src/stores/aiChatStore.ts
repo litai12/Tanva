@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI聊天对话框状态管理
  * 管理对话框显示、输入内容和生成状态
  */
@@ -554,8 +554,8 @@ const withBananaRouteProviderOptions = (
   };
 };
 
-const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
-const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const DEFAULT_IMAGE_MODEL = "gemini-3-flash-preview";
+const GEMINI_PRO_IMAGE_MODEL = "gemini-3-flash-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
@@ -2938,7 +2938,7 @@ export const useAIChatStore = create<AIChatState>()(
         manualAIMode: "auto",
         autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认Fast版
-        bananaImageRoute: "stable",
+        bananaImageRoute: "normal",
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
@@ -3679,6 +3679,7 @@ export const useAIChatStore = create<AIChatState>()(
                     providerOptions,
                     aspectRatio: state.aspectRatio || undefined,
                     imageSize: state.imageSize ?? "1K",
+                    outputImageCount: parallelGroupTotal > 1 ? parallelGroupTotal : undefined,
                     parallelGroupId,
                     parallelGroupIndex,
                     parallelGroupTotal,
@@ -3695,6 +3696,7 @@ export const useAIChatStore = create<AIChatState>()(
                     imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
                     thinkingLevel: state.thinkingLevel || undefined,
                     imageOnly: state.imageOnly,
+                    outputImageCount: parallelGroupTotal > 1 ? parallelGroupTotal : undefined,
                     parallelGroupId,
                     parallelGroupIndex,
                     parallelGroupTotal,
@@ -8358,7 +8360,7 @@ export const useAIChatStore = create<AIChatState>()(
             String(state.bananaImageRoute)
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
-            : "stable",
+            : "normal",
         };
       },
       partialize: (state) => ({

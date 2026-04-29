@@ -197,7 +197,7 @@ import {
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
-import { resolveFlowModelProvider, FLOW_MODEL_PROVIDER_SYNC_EVENT } from "@/utils/flowModelProvider";
+import { resolveFlowModelProvider } from "@/utils/flowModelProvider";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -1753,12 +1753,12 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   BananaPricingTier,
   Record<"0.5K" | "1K" | "2K" | "4K", number>
 > = {
-  // Fast: Nano Banana, 仅支持 1K
+  // Fast: Nano Banana, 尊享路线 1K=40
   fast: {
-    "0.5K": 30,
-    "1K": 30,
-    "2K": 30,
-    "4K": 30,
+    "0.5K": 40,
+    "1K": 40,
+    "2K": 40,
+    "4K": 40,
   },
   // Pro: Nano Banana Pro
   pro: {
@@ -1770,7 +1770,7 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   // Ultra: Nano Banana 2
   ultra: {
     "0.5K": 30,
-    "1K": 30,
+    "1K": 40,
     "2K": 50,
     "4K": 110,
   },
@@ -1794,7 +1794,7 @@ const BANANA_TEXT_ROUTE_PRICING: Record<
 
 // GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
 const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
-  "1K": 45,
+  "1K": 40,
   "2K": 80,
   "4K": 110,
 };
@@ -1838,6 +1838,12 @@ const normalizeBananaStableImageSize = (
   if (tier === "fast") return "1K";
   if (tier === "pro") {
     if (normalized === "2K" || normalized === "4K") return normalized;
+    return "1K";
+  }
+  if (tier === "ultra") {
+    if (normalized === "0.5K") return "0.5K";
+    if (normalized === "2K") return "2K";
+    if (normalized === "4K") return "4K";
     return "1K";
   }
   if (
@@ -17834,7 +17840,7 @@ function FlowInner() {
           if (runProvider === "banana-2.5") {
             return "gemini-2.5-flash-image-preview";
           }
-          return "gemini-3-pro-image-preview";
+          return "gemini-3-flash-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
         return getImageModelForProvider(runProvider);
@@ -20492,57 +20498,6 @@ function FlowInner() {
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
-  React.useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ provider?: string }>).detail;
-      const targetProvider = resolveFlowModelProvider(detail?.provider, aiProvider);
-      setNodes((nodes) => {
-        let changed = false;
-        const nextNodes = nodes.map((node) => {
-          if (
-            node.type === "generate" ||
-            node.type === "generatePro" ||
-            node.type === "generatePro4" ||
-            node.type === "textChat" ||
-            node.type === "promptOptimize"
-          ) {
-            if ((node.data as any)?.modelProvider === targetProvider) {
-              return node;
-            }
-            changed = true;
-            return {
-              ...node,
-              data: {
-                ...(node.data || {}),
-                modelProvider: targetProvider,
-              },
-            };
-          }
-          if (node.type === "analysis") {
-            if ((node.data as any)?.analysisProvider === targetProvider) {
-              return node;
-            }
-            changed = true;
-            return {
-              ...node,
-              data: {
-                ...(node.data || {}),
-                analysisProvider: targetProvider,
-              },
-            };
-          }
-          return node;
-        });
-        return changed ? nextNodes : nodes;
-      });
-    };
-    window.addEventListener(FLOW_MODEL_PROVIDER_SYNC_EVENT, handler as EventListener);
-    return () =>
-      window.removeEventListener(
-        FLOW_MODEL_PROVIDER_SYNC_EVENT,
-        handler as EventListener
-      );
-  }, [aiProvider, setNodes]);
 
   const selectedNonGroupNodeCount = React.useMemo(
     () =>

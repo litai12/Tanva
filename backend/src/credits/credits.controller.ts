@@ -20,6 +20,7 @@ import {
   ApiUsageQueryDto,
   PricingResponseDto,
   CreditsPreviewDto,
+  AdjustCreditsDto,
 } from './dto/credits.dto';
 
 interface AuthenticatedUser {
@@ -103,6 +104,7 @@ export class CreditsController {
       serviceType: dto.serviceType as any,
       model: dto.model,
       requestParams: dto.requestParams,
+      outputImageCount: dto.outputImageCount,
     });
   }
 
@@ -181,6 +183,20 @@ export class CreditsController {
       dto.amount,
       dto.description,
       req.user.id,
+    );
+  }
+
+  @Post('adjust-by-output')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '根据实际产出数量调整积分（多退少补）' })
+  async adjustCreditsByOutput(
+    @Request() req: FastifyRequest & { user: AuthenticatedUser },
+    @Body() dto: AdjustCreditsDto,
+  ) {
+    return this.creditsService.adjustCreditsByOutputCount(
+      dto.apiUsageId,
+      dto.actualOutputCount,
     );
   }
 }

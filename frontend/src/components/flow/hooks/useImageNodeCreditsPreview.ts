@@ -19,6 +19,7 @@ type Params = {
   bananaImageRoute?: string | null;
   imageSize?: string | null;
   aspectRatio?: string | null;
+  outputImageCount?: number;
   referenceImageCount?: number;
   managedModelKey?: string | null;
   vendorKey?: string | null;
@@ -130,6 +131,7 @@ export const useImageNodeCreditsPreview = ({
   bananaImageRoute,
   imageSize,
   aspectRatio,
+  outputImageCount,
   referenceImageCount,
   managedModelKey,
   vendorKey,
@@ -206,7 +208,7 @@ export const useImageNodeCreditsPreview = ({
             serviceType === "gemini-3.1-image-blend" ||
             serviceType === "gemini-3.1-image-analyze"
           ? "gemini-3.1-flash-image-preview"
-          : "gemini-3-pro-image-preview",
+          : "gemini-3-flash-preview",
       requestParams: {
         aiProvider: provider,
         imageSize: normalizedImageSize,
@@ -244,6 +246,7 @@ export const useImageNodeCreditsPreview = ({
     serviceType: previewConfig.serviceType,
     model: previewConfig.model,
     requestParams: previewConfig.requestParams,
+    outputImageCount,
     enabled,
   });
 };

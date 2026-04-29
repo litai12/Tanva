@@ -79,7 +79,7 @@ const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> =
   '4K': 40,
 };
 const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
-  '1K': 45,
+  '1K': 40,
   '2K': 80,
   '4K': 110,
 };
@@ -273,25 +273,56 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
-  // Fast: gemini-2.5-image (Nano Banana), 仅支持 1K；尊享通道 30 积分
+  // 普通路线 (normal/apimart) 定价
+  // Fast: 1K=20
+  // Pro: 1K=40, 2K=60, 4K=80
+  // Ultra: 0.5K=30, 1K=30, 2K=40, 4K=50
   fast: {
+    '0.5K': 20,
+    '1K': 20,
+    '2K': 20,
+    '4K': 20,
+  },
+  // Pro 普通路线
+  pro: {
+    '0.5K': 40,
+    '1K': 40,
+    '2K': 60,
+    '4K': 80,
+  },
+  // Ultra 普通路线
+  ultra: {
     '0.5K': 30,
     '1K': 30,
-    '2K': 30,
-    '4K': 30,
+    '2K': 40,
+    '4K': 50,
   },
-  // Pro: gemini-3-pro-image (Nano Banana-Pro)
+};
+
+// 尊享路线 (stable/tencent) 定价
+// Fast: 1K=40
+// Pro: 1K=90, 2K=100, 4K=170
+// Ultra: 0.5K=30, 1K=40, 2K=50, 4K=110
+const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
+  BananaTencentPricingTier,
+  Record<'0.5K' | '1K' | '2K' | '4K', number>
+> = {
+  fast: {
+    '0.5K': 40,
+    '1K': 40,
+    '2K': 40,
+    '4K': 40,
+  },
   pro: {
     '0.5K': 90,
     '1K': 90,
     '2K': 100,
     '4K': 170,
   },
-  // Ultra: gemini-3.1-image (Nano Banana-2)
   ultra: {
     '0.5K': 30,
-    '1K': 50,
-    '2K': 70,
+    '1K': 40,
+    '2K': 50,
     '4K': 110,
   },
 };
@@ -301,14 +332,14 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
   Record<BananaTextPricingTier, number>
 > = {
   normal: {
-    fast: 10,
-    pro: 20,
-    ultra: 30,
+    fast: 5,
+    pro: 5,
+    ultra: 5,
   },
   stable: {
-    fast: 20,
-    pro: 30,
-    ultra: 50,
+    fast: 10,
+    pro: 10,
+    ultra: 10,
   },
 };
 @Injectable()
@@ -357,6 +388,7 @@ export class CreditsService {
       serviceType: params.serviceType,
       model: params.model ?? null,
       requestParams: params.requestParams ?? null,
+      outputImageCount: params.outputImageCount ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
     return `credits:preview:v2:${digest}`;
@@ -404,6 +436,9 @@ export class CreditsService {
   private extractNodeConfigHintsFromRequestParams(requestParams: any): {
     nodeConfigKey?: string;
     nodeConfigNameZh?: string;
+    nodeConfigNameEn?: string;
+    billingModeName?: string;
+    billingTitleSource?: 'dialog' | 'node';
   } {
     if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
       return {};
@@ -415,10 +450,29 @@ export class CreditsService {
       typeof requestParams.nodeConfigNameZh === 'string'
         ? requestParams.nodeConfigNameZh.trim()
         : '';
+    const nodeConfigNameEn =
+      typeof requestParams.nodeConfigNameEn === 'string'
+        ? requestParams.nodeConfigNameEn.trim()
+        : '';
+    const billingModeName =
+      typeof requestParams.billingModeName === 'string'
+        ? requestParams.billingModeName.trim()
+        : '';
+    const billingTitleSourceRaw =
+      typeof requestParams.billingTitleSource === 'string'
+        ? requestParams.billingTitleSource.trim().toLowerCase()
+        : '';
+    const billingTitleSource =
+      billingTitleSourceRaw === 'dialog' || billingTitleSourceRaw === 'node'
+        ? (billingTitleSourceRaw as 'dialog' | 'node')
+        : undefined;
 
     return {
       ...(nodeConfigKey ? { nodeConfigKey } : {}),
       ...(nodeConfigNameZh ? { nodeConfigNameZh } : {}),
+      ...(nodeConfigNameEn ? { nodeConfigNameEn } : {}),
+      ...(billingModeName ? { billingModeName } : {}),
+      ...(billingTitleSource ? { billingTitleSource } : {}),
     };
   }
 
@@ -428,12 +482,17 @@ export class CreditsService {
   }) {
     const staticPricing =
       CREDIT_PRICING_CONFIG[params.serviceType as keyof typeof CREDIT_PRICING_CONFIG];
-    const { nodeConfigKey, nodeConfigNameZh } = this.extractNodeConfigHintsFromRequestParams(
-      params.requestParams,
-    );
+    const {
+      nodeConfigKey,
+      nodeConfigNameZh,
+      nodeConfigNameEn,
+      billingModeName,
+      billingTitleSource,
+    } = this.extractNodeConfigHintsFromRequestParams(params.requestParams);
 
     let nodeConfig: {
       nameZh: string;
+      nameEn: string;
       creditsPerCall: number;
       serviceType: string | null;
     } | null = null;
@@ -443,6 +502,7 @@ export class CreditsService {
         where: { nodeKey: nodeConfigKey },
         select: {
           nameZh: true,
+          nameEn: true,
           creditsPerCall: true,
           serviceType: true,
         },
@@ -465,6 +525,7 @@ export class CreditsService {
         where: { serviceType: params.serviceType },
         select: {
           nameZh: true,
+          nameEn: true,
           creditsPerCall: true,
           serviceType: true,
         },
@@ -483,17 +544,32 @@ export class CreditsService {
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE ? GPT_IMAGE2_CREDITS : nodeConfigCredits;
     const resolvedNodeConfigNameZh =
       nodeConfigKey && !nodeConfig ? '' : nodeConfigNameZh;
+    const resolvedNodeConfigNameEn =
+      nodeConfigKey && !nodeConfig ? '' : nodeConfigNameEn;
+    const inferredTitleSource =
+      billingTitleSource || (nodeConfigKey ? 'node' : 'dialog');
+    const serviceName =
+      inferredTitleSource === 'node'
+        ? resolvedNodeConfigNameEn ||
+          nodeConfig?.nameEn ||
+          resolvedNodeConfigNameZh ||
+          nodeConfig?.nameZh ||
+          staticPricing?.serviceName ||
+          params.serviceType
+        : billingModeName ||
+          resolvedNodeConfigNameZh ||
+          resolvedNodeConfigNameEn ||
+          nodeConfig?.nameZh ||
+          nodeConfig?.nameEn ||
+          staticPricing?.serviceName ||
+          params.serviceType;
 
     return {
       ...(staticPricing || {
         provider: 'custom',
         description: `Node-managed pricing for ${params.serviceType}`,
       }),
-      serviceName:
-        resolvedNodeConfigNameZh ||
-        nodeConfig?.nameZh ||
-        staticPricing?.serviceName ||
-        params.serviceType,
+      serviceName,
       creditsPerCall: effectiveCredits,
     };
   }
@@ -502,6 +578,7 @@ export class CreditsService {
     serviceType: ServiceType;
     model?: string;
     requestParams?: any;
+    outputImageCount?: number;
   }) {
     const normalizedRequestParams = this.normalizeManagedPricingRequestParams(params.requestParams);
     const pricing = await this.resolveServicePricing({
@@ -582,11 +659,28 @@ export class CreditsService {
           ? gptImage2RouteCredits
           : GPT_IMAGE2_CREDITS;
     }
+    const outputImageCountMultiplier = this.resolveOutputImageCountMultiplier(
+      params.serviceType,
+      params.outputImageCount,
+      effectiveRequestParams,
+    );
+    if (outputImageCountMultiplier > 1) {
+      creditsToDeduct *= outputImageCountMultiplier;
+    }
 
-    const serviceName = this.resolveManagedVideoServiceName(
+    // 先解析视频服务名称（如 Kling, Sora, Seedance）
+    let serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
       pricing.serviceName,
       effectiveRequestParams,
+    );
+
+    // 再解析图片服务名称（格式：基础名称 + 分辨率 + 生成数量 + 路线）
+    serviceName = this.resolveBananaImageServiceName(
+      params.serviceType,
+      serviceName,
+      effectiveRequestParams,
+      params.outputImageCount,
     );
 
     return {
@@ -604,6 +698,37 @@ export class CreditsService {
     if (serviceType === 'gemini-image-analyze') return 10;
     if (serviceType === 'gemini-3.1-image-analyze') return 10;
     return currentCredits;
+  }
+
+  private resolveOutputImageCountMultiplier(
+    serviceType: ServiceType,
+    outputImageCount: number | undefined,
+    requestParams: any,
+  ): number {
+    const isImageLikeService =
+      serviceType.includes('image') ||
+      serviceType.startsWith('midjourney') ||
+      serviceType === GPT_IMAGE2_SERVICE_TYPE ||
+      serviceType === 'expand-image' ||
+      serviceType === 'background-removal';
+    if (!isImageLikeService) return 1;
+
+    const directCount = Number(outputImageCount);
+    if (Number.isFinite(directCount) && directCount > 1) {
+      return Math.max(1, Math.floor(directCount));
+    }
+
+    const requestOutputCount = Number(requestParams?.outputImageCount);
+    if (Number.isFinite(requestOutputCount) && requestOutputCount > 1) {
+      return Math.max(1, Math.floor(requestOutputCount));
+    }
+
+    const requestBatchCount = Number(requestParams?.batchCount);
+    if (Number.isFinite(requestBatchCount) && requestBatchCount > 1) {
+      return Math.max(1, Math.floor(requestBatchCount));
+    }
+
+    return 1;
   }
 
   private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, any> | null {
@@ -1006,6 +1131,82 @@ export class CreditsService {
   }
 
   /**
+   * 根据图片服务类型解析显示名称
+   * 格式：基础名称 + 分辨率 + 生成数量 + 路线
+   * 例如："Nano banana Pro 生图 1K x2 普通"
+   */
+  private resolveBananaImageServiceName(
+    serviceType: ServiceType,
+    defaultServiceName: string,
+    requestParams: any,
+    outputImageCount?: number,
+  ): string {
+    // 判断是否为 Banana 图片服务
+    const isBananaImageService =
+      serviceType === 'gemini-2.5-image' ||
+      serviceType === 'gemini-3-pro-image' ||
+      serviceType === 'gemini-3.1-image' ||
+      serviceType === 'gemini-image-edit' ||
+      serviceType === 'gemini-3.1-image-edit' ||
+      serviceType === 'gemini-2.5-image-edit' ||
+      serviceType === 'gemini-image-blend' ||
+      serviceType === 'gemini-3.1-image-blend' ||
+      serviceType === 'gemini-2.5-image-blend' ||
+      serviceType === GPT_IMAGE2_SERVICE_TYPE;
+
+    if (!isBananaImageService) {
+      return defaultServiceName;
+    }
+
+    // 解析路线
+    const explicitRoute =
+      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute);
+    let route: 'normal' | 'stable' | null = explicitRoute;
+    if (!route) {
+      const channelCandidates = [
+        requestParams?.channel,
+        requestParams?.providerChannel,
+        requestParams?.executionChannel,
+        requestParams?.channelHint,
+      ];
+      for (const candidate of channelCandidates) {
+        if (typeof candidate !== 'string') continue;
+        const normalized = this.normalizeChannel(candidate);
+        if (normalized) {
+          if (normalized === 'tencent') route = 'stable';
+          if (normalized === 'apimart') route = 'normal';
+          break;
+        }
+      }
+    }
+    const routeLabel = route === 'stable' ? '尊享' : '普通';
+
+    // 解析分辨率
+    const imageSize = requestParams?.imageSize;
+    let resolutionLabel = '';
+    if (imageSize && typeof imageSize === 'string') {
+      const normalizedSize = imageSize.trim().toUpperCase();
+      if (normalizedSize) {
+        resolutionLabel = ` ${normalizedSize}`;
+      }
+    }
+
+    // 解析生成数量
+    let countLabel = '';
+    const count = typeof outputImageCount === 'number' && outputImageCount > 1
+      ? outputImageCount
+      : typeof requestParams?.outputImageCount === 'number' && requestParams.outputImageCount > 1
+      ? requestParams.outputImageCount
+      : null;
+    if (count) {
+      countLabel = ` x${count}`;
+    }
+
+    return `${defaultServiceName}${resolutionLabel}${countLabel} ${routeLabel}`;
+  }
+
+  /**
    * happyhorse-r2v-video 按分辨率 × 时长动态计费
    * pricing.dynamicPricing.perSecondByResolution = { '720P': N, '1080P': M }
    * credits = duration * rate[resolution]，缺失时回落 defaultCredits
@@ -1217,34 +1418,37 @@ export class CreditsService {
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
-    if (serviceType === GPT_IMAGE2_SERVICE_TYPE) {
-      const explicitRoute =
-        this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
-        this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
-        this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-      let route: 'normal' | 'stable' | null = explicitRoute;
-      if (!route) {
-        const channelCandidates = [
-          requestParams?.channel,
-          requestParams?.providerChannel,
-          requestParams?.executionChannel,
-          requestParams?.channelHint,
-        ];
-        for (const candidate of channelCandidates) {
-          if (typeof candidate !== 'string') continue;
-          const normalized = this.normalizeChannel(candidate);
-          if (normalized) {
-            if (normalized === 'tencent') route = 'stable';
-            if (normalized === 'apimart') route = 'normal';
-            break;
-          }
+    // 解析路线：normal=普通路线，stable=尊享路线
+    const explicitRoute =
+      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
+    let route: 'normal' | 'stable' | null = explicitRoute;
+    if (!route) {
+      const channelCandidates = [
+        requestParams?.channel,
+        requestParams?.providerChannel,
+        requestParams?.executionChannel,
+        requestParams?.channelHint,
+      ];
+      for (const candidate of channelCandidates) {
+        if (typeof candidate !== 'string') continue;
+        const normalized = this.normalizeChannel(candidate);
+        if (normalized) {
+          if (normalized === 'tencent') route = 'stable';
+          if (normalized === 'apimart') route = 'normal';
+          break;
         }
       }
+    }
+
+    if (serviceType === GPT_IMAGE2_SERVICE_TYPE) {
       if (!route) return null;
 
       const normalizedSize = this.normalizeResolutionForGptImage2TencentPricing(
         requestParams?.imageSize,
       );
+      // 普通路线使用 GPT_IMAGE2_NORMAL_RESOLUTION_PRICING，尊享路线使用 GPT_IMAGE2_TENCENT_RESOLUTION_PRICING
       const configuredCredits = Number(
         route === 'stable'
           ? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[normalizedSize]
@@ -1259,46 +1463,16 @@ export class CreditsService {
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
     if (!tier) return null;
 
-    const explicitRoute =
-      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-    if (explicitRoute === 'normal') return null;
-
-    if (explicitRoute === 'stable') {
-      const normalizedSize = this.normalizeResolutionForBananaTencentPricing(
-        requestParams?.imageSize,
-        tier,
-      );
-      const configuredCredits = Number(BANANA_TENCENT_RESOLUTION_PRICING[tier][normalizedSize]);
-      if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
-        return null;
-      }
-      return configuredCredits;
-    }
-
-    const channelCandidates = [
-      requestParams?.channel,
-      requestParams?.providerChannel,
-      requestParams?.executionChannel,
-      requestParams?.channelHint,
-    ];
-    let channel: string | null = null;
-    for (const candidate of channelCandidates) {
-      if (typeof candidate !== 'string') continue;
-      const normalized = this.normalizeChannel(candidate);
-      if (normalized) {
-        channel = normalized;
-        break;
-      }
-    }
-    if (channel !== 'tencent') return null;
+    // 选择定价表：尊享路线(stable)使用 BANANA_TENCENT_STABLE_RESOLUTION_PRICING，普通路线使用 BANANA_TENCENT_RESOLUTION_PRICING
+    const pricingTable = route === 'stable'
+      ? BANANA_TENCENT_STABLE_RESOLUTION_PRICING[tier]
+      : BANANA_TENCENT_RESOLUTION_PRICING[tier];
 
     const normalizedSize = this.normalizeResolutionForBananaTencentPricing(
       requestParams?.imageSize,
       tier,
     );
-    const configuredCredits = Number(BANANA_TENCENT_RESOLUTION_PRICING[tier][normalizedSize]);
+    const configuredCredits = Number(pricingTable[normalizedSize]);
     if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
       return null;
     }
@@ -1935,9 +2109,9 @@ export class CreditsService {
 
   private formatBillingChannel(channel: string | null): string | null {
     if (!channel) return null;
-    if (channel === 'apimart') return '普通通道(apimart)';
-    if (channel === 'tencent') return '稳定通道(腾讯)';
-    if (channel === '147') return '147通道';
+    if (channel === 'apimart') return '普通路线';
+    if (channel === 'tencent') return '尊享路线';
+    if (channel === '147') return '官方路线';
     return channel;
   }
 
@@ -2048,11 +2222,21 @@ export class CreditsService {
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
-        remarkParts.push('计价: 按稳定通道积分价');
+        remarkParts.push('计价: 按尊享路线积分价');
       } else if (channel === 'apimart') {
-        remarkParts.push('计价: 按普通通道积分价');
+        remarkParts.push('计价: 按普通路线积分价');
       } else if (channel === '147') {
-        remarkParts.push('计价: 按官方通道积分价');
+        remarkParts.push('计价: 按官方路线积分价');
+      }
+    }
+    const isBananaTextService =
+      params.serviceType === 'gemini-text' ||
+      params.serviceType === 'gemini-prompt-optimize';
+    if (isBananaTextService) {
+      if (channel === 'tencent') {
+        remarkParts.push('Pricing: text stable route 10 credits/call');
+      } else if (channel === 'apimart') {
+        remarkParts.push('Pricing: text normal route 5 credits/call');
       }
     }
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
@@ -3213,6 +3397,7 @@ export class CreditsService {
       serviceType,
       model,
       requestParams,
+      outputImageCount,
     });
     const apiUsageRequestParams = this.withDedupMetaInRequestParams(
       effectiveRequestParams,
@@ -3338,7 +3523,7 @@ export class CreditsService {
 
       const newBalance = account.balance - deductionPlan.totalDeducted;
 
-      // Sora 按模型区分显示名称：Pro 750 积分显示「Sora 2 Pro 视频生成」
+      // 按服务类型解析显示名称
       let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
@@ -3354,6 +3539,13 @@ export class CreditsService {
         serviceType,
         effectiveServiceName,
         apiUsageRequestParams,
+      );
+      // 图片服务名称格式：基础名称 + 分辨率 + 生成数量 + 路线
+      effectiveServiceName = this.resolveBananaImageServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+        outputImageCount,
       );
       const billingRemark = this.buildBillingRemark({
         serviceType,
@@ -3433,6 +3625,7 @@ export class CreditsService {
         serviceType: params.serviceType,
         model: params.model,
         requestParams: params.requestParams,
+        outputImageCount: params.outputImageCount,
       });
       cachedQuote = {
         serviceName: quote.serviceName,
@@ -3896,6 +4089,238 @@ export class CreditsService {
         newBalance,
         transactionId: transaction.id,
       };
+    });
+  }
+
+  /**
+   * 根据实际成功生成的图片数量调整积分（多退少补）
+   * 用于图片生成服务，按实际产出数量计费
+   */
+  async adjustCreditsByOutputCount(
+    apiUsageId: string,
+    actualOutputCount: number,
+  ): Promise<{ success: boolean; adjustedAmount: number; newBalance: number }> {
+    if (!Number.isFinite(actualOutputCount) || actualOutputCount < 0) {
+      throw new BadRequestException('实际产出数量无效');
+    }
+
+    const normalizedCount = Math.floor(actualOutputCount);
+    if (normalizedCount === 0) {
+      throw new BadRequestException('实际产出数量不能为0');
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      const apiUsage = await tx.apiUsageRecord.findUnique({
+        where: { id: apiUsageId },
+      });
+
+      if (!apiUsage) {
+        throw new NotFoundException('API使用记录不存在');
+      }
+
+      if (apiUsage.responseStatus !== ApiResponseStatus.SUCCESS) {
+        throw new BadRequestException('只能调整成功的API调用积分');
+      }
+
+      const account = await tx.creditAccount.findUnique({
+        where: { userId: apiUsage.userId },
+      });
+
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const originalRequestParams = this.asJsonObject(apiUsage.requestParams) || {};
+      const originalOutputCount = apiUsage.outputImageCount ?? 1;
+
+      if (normalizedCount === originalOutputCount) {
+        return { success: true, adjustedAmount: 0, newBalance: account.balance };
+      }
+
+      const serviceType = apiUsage.serviceType as ServiceType;
+      const isImageLikeService =
+        serviceType.includes('image') ||
+        serviceType.startsWith('midjourney') ||
+        serviceType === GPT_IMAGE2_SERVICE_TYPE ||
+        serviceType === 'expand-image' ||
+        serviceType === 'background-removal';
+
+      if (!isImageLikeService) {
+        return { success: true, adjustedAmount: 0, newBalance: account.balance };
+      }
+
+      const unitCredits = Math.floor(apiUsage.creditsUsed / originalOutputCount);
+      const newCredits = unitCredits * normalizedCount;
+      const creditDifference = newCredits - apiUsage.creditsUsed;
+
+      const existingAdjustment = await tx.creditTransaction.findFirst({
+        where: { apiUsageId, type: TransactionType.ADJUSTMENT },
+      });
+
+      if (existingAdjustment) {
+        return { success: true, adjustedAmount: 0, newBalance: account.balance };
+      }
+
+      const spendTransaction = await tx.creditTransaction.findFirst({
+        where: { apiUsageId, type: TransactionType.SPEND },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const lotDeductions = this.extractLotDeductionsFromMetadata(spendTransaction?.metadata);
+      let newBalance = account.balance;
+
+      if (creditDifference < 0) {
+        const amountToRefund = Math.abs(creditDifference);
+
+        if (lotDeductions.length > 0) {
+          const lotIds = lotDeductions
+            .filter((item) => item.kind === 'lot' && !!item.lotId)
+            .map((item) => item.lotId as string);
+
+          if (lotIds.length > 0) {
+            const lots = await tx.creditLot.findMany({ where: { id: { in: lotIds } } });
+            const restoredLots = applyLotRestorationsToSnapshots({
+              lots: lots.map((lot) => this.toCreditLotCandidate(lot)),
+              deductions: lotDeductions,
+            });
+
+            for (const restoredLot of restoredLots) {
+              const originalLot = lots.find((lot) => lot.id === restoredLot.id);
+              if (!originalLot) continue;
+
+              await tx.creditLot.update({
+                where: { id: restoredLot.id },
+                data: {
+                  remainingAmount: restoredLot.remainingAmount,
+                  status: restoredLot.status,
+                },
+              });
+            }
+          }
+        }
+
+        newBalance = account.balance + amountToRefund;
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: newBalance,
+            totalSpent: Math.max(0, account.totalSpent - amountToRefund),
+          },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.ADJUSTMENT,
+            amount: amountToRefund,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: `积分调整（${apiUsage.serviceName}）：实际产出 ${normalizedCount} 张，退还 ${amountToRefund} 积分`,
+            apiUsageId,
+            consumePolicyCode: spendTransaction?.consumePolicyCode ?? null,
+            consumePolicyVersion: spendTransaction?.consumePolicyVersion ?? null,
+          },
+        });
+
+        this.logger.log(
+          `[Credits] Credit adjustment (refund): apiUsageId=${apiUsageId}, originalCount=${originalOutputCount}, actualCount=${normalizedCount}, refundAmount=${amountToRefund}`
+        );
+      } else if (creditDifference > 0) {
+        const amountToCharge = creditDifference;
+
+        const activeLots = await tx.creditLot.findMany({
+          where: { accountId: account.id, status: 'active' },
+          select: {
+            id: true, sourceType: true, validityType: true, scopeType: true,
+            scopeValue: true, totalAmount: true, remainingAmount: true,
+            grantedAt: true, activeAt: true, expiresAt: true, priority: true, status: true,
+          },
+        });
+
+        const consumePolicy = await this.resolveCreditConsumePolicy(tx, {
+          serviceType,
+          provider: apiUsage.provider ?? null,
+          model: apiUsage.model ?? null,
+        });
+
+        const deductionPlan = buildHybridCreditDeductionPlan({
+          accountBalance: account.balance,
+          amount: amountToCharge,
+          lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+          now: new Date(),
+          scope: { serviceType, provider: apiUsage.provider ?? null, model: apiUsage.model ?? null },
+          policy: consumePolicy,
+        });
+
+        if (!deductionPlan.sufficient) {
+          throw new BadRequestException(`积分不足，无法完成调整。当前余额: ${account.balance}，需要补扣: ${amountToCharge}`);
+        }
+
+        const updatedLots = applyLotDeductionsToSnapshots({
+          lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+          deductions: deductionPlan.deductions,
+        });
+
+        for (const updatedLot of updatedLots) {
+          const originalLot = activeLots.find((lot) => lot.id === updatedLot.id);
+          if (!originalLot) continue;
+
+          if (
+            originalLot.remainingAmount === updatedLot.remainingAmount &&
+            originalLot.status === updatedLot.status
+          ) {
+            continue;
+          }
+
+          await tx.creditLot.update({
+            where: { id: updatedLot.id },
+            data: {
+              remainingAmount: updatedLot.remainingAmount,
+              status: updatedLot.status,
+            },
+          });
+        }
+
+        newBalance = account.balance - amountToCharge;
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: newBalance,
+            totalSpent: account.totalSpent + amountToCharge,
+          },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.ADJUSTMENT,
+            amount: -amountToCharge,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: `积分调整（${apiUsage.serviceName}）：实际产出 ${normalizedCount} 张，补扣 ${amountToCharge} 积分`,
+            apiUsageId,
+            consumePolicyCode: consumePolicy.code,
+            consumePolicyVersion: consumePolicy.version,
+            metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions),
+          },
+        });
+
+        this.logger.log(
+          `[Credits] Credit adjustment (charge): apiUsageId=${apiUsageId}, originalCount=${originalOutputCount}, actualCount=${normalizedCount}, chargeAmount=${amountToCharge}`
+        );
+      }
+
+      await tx.apiUsageRecord.update({
+        where: { id: apiUsageId },
+        data: {
+          outputImageCount: normalizedCount,
+          creditsUsed: newCredits,
+        },
+      });
+
+      return { success: true, adjustedAmount: creditDifference, newBalance };
     });
   }
 

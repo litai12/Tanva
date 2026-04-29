@@ -19,13 +19,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
+- Credits/Text Route Pricing: `gemini-text` and `gemini-prompt-optimize` now both use flat route pricing by channel for Fast/Pro/Ultra (`normal=5`, `stable=10`) in preview and deduction.
+- Flow/Text Nodes: `PromptOptimize` now has a working Fast/Pro/Ultra node-level model switch (synced to backend request params), and `PromptOptimize` + `TextChat` Run-button credit badge interaction is aligned with image-node behavior.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.
-- Credits/Text: `gemini-prompt-optimize` now uses the same normal/stable Fast/Pro/Ultra route matrix as `gemini-text` (`normal: 10/20/30`, `stable: 20/30/50`).
+- Credits/Text: `gemini-prompt-optimize` uses the same route matrix as `gemini-text` (`normal: 5`, `stable: 10`; Fast/Pro/Ultra unified per route).
 - Credits/Image Output Count: backend deduction now supports `unit credits × outputImageCount` for Gemini Banana image generate/edit/blend service types when requests carry multi-output count.
 - Flow/My Credits: route-aware credits calculation now covers `promptOptimize`; `/my-credits` transaction items now show route channel label (`普通/尊享/官方`) and backend billing remark for clearer route-pricing audit.
-- Gemini text billing: `gemini-text` now follows normal/stable route pricing by Fast/Pro/Ultra tier in backend deduction and preview quote (`normal: 10/20/30`, `stable: 20/30/50`), and text-chat credit request now forwards `providerOptions` so route info is preserved.
+- Gemini text billing: `gemini-text` follows normal/stable route pricing in backend deduction and preview quote (`normal: 5`, `stable: 10`; Fast/Pro/Ultra unified per route), and text-chat credit request forwards `providerOptions` so route info is preserved.
 - Flow/Text Chat: run-button credit display for `textChat` node is now route-aware and tier-aware, aligned with backend Gemini text billing.
 - Banana image billing: aligned normal/stable route resolution pricing across backend deduction tables and frontend credit displays (`FlowOverlay` + `FloatingHeader`) for generate/edit/blend fast/pro/ultra tiers, including stable ultra `1K/2K` and stable fast baseline.
 - Banana image resolution routing: normalized `imageSize` tokens (`0.5K/1K/2K/4K`, case-insensitive input) before frontend request send, backend provider mapping, and Tencent VOD `OutputConfig.Resolution` submission to avoid selected `4K` being downgraded to fallback `1K`.
@@ -581,3 +583,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas matrix layout for multi-image generate/edit/blend now uses centered horizontal-first placement (for `X4`, no forced four-grid), preventing “only one visible now” caused by right-only expansion.
 - AI chat result remote-url extraction now accepts persistable image refs (OSS key/proxy/path), not just `http(s)` URLs, so multi-result images can be correctly placed on canvas.
 - Parallel placeholder creation for chat `X4/X8` is now eager (all placeholders created before task queue starts), so even when runtime concurrency drops to `1`, users can still see all pending slots immediately.
+## [Canvas Expand Selector Viewport Lock Fix - 2026-04-28]
+### Changed
+- Expand image selector now reprojects frame and preview positions on every canvas viewport change (`zoom/pan`), so fixed expansion bounds no longer drift while zooming/panning.
+- Expand image selector world/screen coordinate conversion now consistently applies `devicePixelRatio`, fixing high-DPI offset and size mismatch during resize/drag interactions.
+- Expand apply flow remains in-place replacement for the current `imageId` (no extra image node creation), matching direct-on-original editing behavior.
+## [Expand Image Keep Source + Placeholder Output - 2026-04-29]
+### Changed
+- Removed legacy `expand-image` in-place replacement branch in `DrawingController` quick-upload event handling.
+- Expand results now follow placeholder/new-image insertion path and no longer overwrite the source image node.

@@ -485,6 +485,19 @@ export async function getCheckInCalendar(): Promise<CheckInCalendar> {
   return response.json();
 }
 
+// 根据实际产出数量调整积分
+export async function adjustCreditsByOutput(
+  apiUsageId: string,
+  actualOutputCount: number
+): Promise<{ success: boolean; adjustedAmount: number; newBalance: number }> {
+  const response = await request("/api/credits/adjust-by-output", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ apiUsageId, actualOutputCount }),
+  });
+  return response.json();
+}
+
 // ==================== 系统设置 ====================
 
 export interface SystemSetting {

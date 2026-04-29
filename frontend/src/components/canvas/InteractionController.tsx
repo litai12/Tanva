@@ -7,10 +7,9 @@ interface InteractionControllerProps {
 }
 
 const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef }) => {
-  const zoomRef = useRef(1); // Cache zoom value to avoid frequent getState calls.
+  const zoomRef = useRef(1);
   const { zoom, setPan } = useCanvasStore();
 
-  // Sync cached zoom value.
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
@@ -19,9 +18,16 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Handle wheel/trackpad: switch between zoom and pan based on settings.
     const handleWheel = (event: WheelEvent) => {
       const store = useCanvasStore.getState();
+
+      // 如果有操作正在进行（如扩图），禁用滚轮缩放
+      if (store.isOperationInProgress) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
       const isModifierWheel = event.ctrlKey || event.metaKey;
       const shouldZoom =
         store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;

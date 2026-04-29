@@ -22,6 +22,7 @@ import {
   resolveFlowModelProvider,
   type FlowModelProvider,
 } from "@/utils/flowModelProvider";
+import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 
 type Props = {
   id: string;
@@ -695,6 +696,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     [lt]
   );
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const effectiveProvider = React.useMemo(
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
@@ -715,7 +717,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       {
         value: "banana-2.5",
         label: "Fast",
-        description: lt("Nano Banana+Gemini 2.5", "Nano Banana+Gemini 2.5"),
+        description: lt("Nano Banana/Gemini 2.5", "Nano Banana/Gemini 2.5"),
       },
       {
         value: "banana",
@@ -725,7 +727,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       {
         value: "banana-3.1",
         label: "Ultra",
-        description: lt("Nano Banana 2+Gemini 3.1", "Nano Banana 2+Gemini 3.1"),
+        description: lt("Nano Banana 2/Gemini 3.1", "Nano Banana 2/Gemini 3.1"),
       },
     ],
     [lt]
@@ -755,21 +757,49 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const showSizeControls = showAspectRatioSelector || showImageSizeSelector;
 
   const imageSizeOptions: Array<{ label: string; value: string }> = React.useMemo(() => {
-    const autoOption = { label: lt("自动", "Auto"), value: "" };
-    const base = [
-      autoOption,
+    if (providerMode === "fast") {
+      return [{ label: "1K", value: "1K" }];
+    }
+    if (providerMode === "ultra") {
+      return [
+        { label: "0.5K", value: "0.5K" },
+        { label: "1K", value: "1K" },
+        { label: "2K", value: "2K" },
+        { label: "4K", value: "4K" },
+      ];
+    }
+    return [
       { label: "1K", value: "1K" },
       { label: "2K", value: "2K" },
       { label: "4K", value: "4K" },
     ];
-    if (providerMode === "fast") {
-      return [autoOption, { label: "1K", value: "1K" }];
-    }
+  }, [providerMode]);
+
+  const normalizedImageSizeValue = React.useMemo(() => {
+    const normalized = imageSizeValue.trim().toUpperCase();
+    if (providerMode === "fast") return "1K";
     if (providerMode === "ultra") {
-      return [autoOption, { label: "0.5K", value: "0.5K" }, ...base.slice(1)];
+      return normalized === "0.5K" || normalized === "1K" || normalized === "2K" || normalized === "4K"
+        ? normalized
+        : "1K";
     }
-    return base;
-  }, [lt, providerMode]);
+    return normalized === "1K" || normalized === "2K" || normalized === "4K"
+      ? normalized
+      : "1K";
+  }, [imageSizeValue, providerMode]);
+
+  const { credits: backendCredits } = useImageNodeCreditsPreview({
+    nodeType: "generate",
+    aiProvider: currentProviderValue,
+    bananaImageRoute,
+    imageSize: normalizedImageSizeValue,
+    aspectRatio: aspectRatioValue || undefined,
+    outputImageCount: 4,
+    referenceImageCount: connectedInputImages.length,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   const updateImageSize = React.useCallback(
     (size: string) => {
@@ -778,7 +808,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           detail: {
             id,
             patch: {
-              imageSize: size || undefined,
+              imageSize: size,
             },
           },
         })
@@ -786,6 +816,15 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     },
     [id]
   );
+
+  React.useEffect(() => {
+    if (imageSizeValue === normalizedImageSizeValue) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { imageSize: normalizedImageSizeValue } },
+      })
+    );
+  }, [id, imageSizeValue, normalizedImageSizeValue]);
 
   const headerRunButtonStyle = (running: boolean): React.CSSProperties => ({
     fontSize: 12,
@@ -939,8 +978,8 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             title={
               status === "running"
                 ? lt("生成中...", "Generating...")
-                : data.creditsPerCall
-                ? `${lt("本次消耗", "Cost")}: ${data.creditsPerCall} ${lt(
+                : resolvedRunCredits
+                ? `${lt("本次消耗", "Cost")}: ${resolvedRunCredits} ${lt(
                     "积分",
                     "credits"
                   )}`
@@ -952,8 +991,8 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             ) : (
               <>
                 <span className='run-text-trigger'>Run</span>
-                {data.creditsPerCall ? (
-                  <RunCreditBadge credits={data.creditsPerCall} runButton />
+                {resolvedRunCredits ? (
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
                 ) : null}
               </>
             )}
@@ -1033,7 +1072,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             >
               {lt("分辨率", "Resolution")}
               <select
-                value={imageSizeValue}
+                value={normalizedImageSizeValue}
                 onChange={(e) => updateImageSize(e.target.value)}
                 onPointerDown={stopNodeDrag}
                 onPointerDownCapture={stopNodeDrag}

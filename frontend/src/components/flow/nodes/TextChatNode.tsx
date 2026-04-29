@@ -64,7 +64,9 @@ const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow
 
 const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   event.stopPropagation();
-  const native = event.nativeEvent as any;
+  const native = event.nativeEvent as Event & {
+    stopImmediatePropagation?: () => void;
+  };
   if (native?.stopImmediatePropagation) {
     native.stopImmediatePropagation();
   }
@@ -96,17 +98,17 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       {
         value: 'banana-2.5',
         label: 'Fast',
-        description: lt('Nano Banana+Gemini 2.5', 'Nano Banana+Gemini 2.5'),
+        description: lt('Nano Banana/Gemini 2.5', 'Nano Banana/Gemini 2.5'),
       },
       {
         value: 'banana',
         label: 'Pro',
-        description: lt('Nano Banana Pro+Gemini 3 Pro', 'Nano Banana Pro+Gemini 3 Pro'),
+        description: lt('Nano Banana Pro/Gemini 3 Pro', 'Nano Banana Pro/Gemini 3 Pro'),
       },
       {
         value: 'banana-3.1',
         label: 'Ultra',
-        description: lt('Nano Banana 2+Gemini 3.1', 'Nano Banana 2+Gemini 3.1'),
+        description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
       },
     ],
     [lt]
@@ -669,6 +671,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           <button
             onClick={runChat}
             disabled={status === 'running' || isInvoking}
+            className='run-btn-with-credit'
             title={
               status === 'running' || isInvoking
                 ? 'Running...'
@@ -678,10 +681,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             }
             style={{
               fontSize: 12,
-              padding: '4px 12px',
+              boxSizing: 'border-box',
+              minHeight: 30,
+              padding: '0 10px',
               background: status === 'running' || isInvoking ? themePalette.runBgDisabled : themePalette.runBg,
               color: themePalette.runText,
-              borderRadius: 8,
+              borderRadius: 6,
               border: isDarkTheme ? '1px solid rgba(226, 232, 240, 0.24)' : 'none',
               cursor: status === 'running' || isInvoking ? 'not-allowed' : 'pointer',
               fontWeight: 500,
@@ -693,10 +698,10 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             }}
           >
             {status === 'running' || isInvoking ? (
-              'Running...'
+              <span className='run-text-trigger'>Running...</span>
             ) : (
               <>
-                <span>Run</span>
+                <span className='run-text-trigger'>Run</span>
                 <RunCreditBadge credits={resolvedRunCredits} runButton />
               </>
             )}

@@ -95,7 +95,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly tencentTextUrl =
     "https://text-aigc.vod-qcloud.com/v1/chat/completions";
-  private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
+  private readonly DEFAULT_MODEL = "gemini-3-flash-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_TENCENT_TEXT_MODEL = "gemini-3-flash-preview";
@@ -118,13 +118,13 @@ export class BananaProvider implements IAIProvider {
 
   // 闄嶇骇妯″瀷鏄犲皠锛氫紭鍏堝悓浠?鍚岃兘鍔涢檷绾э紝鍐嶉檷鍒版洿淇濆畧妯″瀷
   private readonly FALLBACK_MODELS: Record<string, string> = {
-    "gemini-3.1-pro": "gemini-3-pro-image-preview",
-    "banana-gemini-3.1-pro": "gemini-3-pro-image-preview",
+    "gemini-3.1-pro": "gemini-3-flash-preview",
+    "banana-gemini-3.1-pro": "gemini-3-flash-preview",
     "gemini-3.1-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3.1-pro-preview": "gemini-3-flash-preview",
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
-    "gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
-    "banana-gemini-3.1-flash-image-preview": "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview": "gemini-3-flash-preview",
+    "banana-gemini-3.1-flash-image-preview": "gemini-3-flash-preview",
     "gemini-3-pro-preview": "gemini-2.5-flash",
     "banana-gemini-3-pro-preview": "gemini-2.5-flash",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
@@ -1236,28 +1236,73 @@ export class BananaProvider implements IAIProvider {
 
   private async submitApimartTask(payload: Record<string, any>): Promise<string> {
     const apiKey = this.ensureApimartApiKey();
-    const response = await fetch(this.apimartGenerateUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    const maxAttempts = 3;
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(
-        `Apimart submit failed: ${response.status} ${response.statusText} - ${errorData}`
-      );
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await fetch(this.apimartGenerateUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.text();
+          const normalized = errorData.toLowerCase();
+          const retryable =
+            response.status >= 500 ||
+            normalized.includes("get_channel_failed") ||
+            normalized.includes("please wait and try again later") ||
+            normalized.includes("rate limit");
+
+          const error = new Error(
+            `Apimart submit failed: ${response.status} ${response.statusText} - ${errorData}`
+          );
+          if (!retryable || attempt >= maxAttempts) {
+            throw error;
+          }
+
+          const delayMs = attempt === 1 ? 500 : 1200;
+          this.logger.warn(
+            `[Banana/Apimart] submit retry ${attempt}/${maxAttempts} in ${delayMs}ms: ${error.message}`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        const data = (await response.json()) as any;
+        const taskId = data?.data?.[0]?.task_id || data?.data?.task_id;
+        if (!taskId) {
+          throw new Error("Apimart submit response missing task_id");
+        }
+        return taskId;
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        const normalizedMessage = err.message.toLowerCase();
+        const retryableNetworkError =
+          normalizedMessage.includes("fetch failed") ||
+          normalizedMessage.includes("econnreset") ||
+          normalizedMessage.includes("etimedout");
+
+        if (retryableNetworkError && attempt < maxAttempts) {
+          const delayMs = attempt === 1 ? 500 : 1200;
+          this.logger.warn(
+            `[Banana/Apimart] submit network retry ${attempt}/${maxAttempts} in ${delayMs}ms: ${err.message}`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          lastError = err;
+          continue;
+        }
+
+        throw err;
+      }
     }
 
-    const data = (await response.json()) as any;
-    const taskId = data?.data?.[0]?.task_id || data?.data?.task_id;
-    if (!taskId) {
-      throw new Error("Apimart submit response missing task_id");
-    }
-    return taskId;
+    throw lastError || new Error("Apimart submit failed");
   }
 
   private extractApimartImageUrl(taskPayload: any): string | undefined {
@@ -3323,7 +3368,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
         "gemini-2.5-flash",
         // Backward-compatible aliases still accepted by parts of legacy stack.
         "gemini-3.1-pro",
-        "gemini-3-pro-image-preview",
+        "gemini-3-flash-preview",
         "gemini-3.1-flash-image-preview",
         "gemini-3-flash-preview",
       ],
@@ -3668,4 +3713,3 @@ ${imageAnalysis}
     };
   }
 }
-

@@ -98,9 +98,9 @@ const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
 export class AiController {
   private readonly logger = new Logger(AiController.name);
   private readonly providerDefaultImageModels: Record<string, string> = {
-    gemini: 'gemini-3-pro-image-preview',
-    'gemini-pro': 'gemini-3-pro-image-preview',
-    banana: 'gemini-3-pro-image-preview',
+    gemini: 'gemini-3-flash-preview',
+    'gemini-pro': 'gemini-3-flash-preview',
+    banana: 'gemini-3-flash-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
@@ -722,6 +722,7 @@ export class AiController {
         : '';
     const key =
       pickHeader('idempotency-key') ||
+      pickHeader('Idempotency-Key') ||
       pickHeader('x-idempotency-key') ||
       pickHeader('x-request-id') ||
       (bodyKey.length > 0 ? bodyKey : undefined);
@@ -1258,6 +1259,83 @@ export class AiController {
     return typeof taskId === 'string' && taskId.length > 0;
   }
 
+  private async delay(ms: number): Promise<void> {
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async markFailedAndRefundWithRetry(params: {
+    userId: string;
+    apiUsageId: string;
+    serviceType: string;
+    errorMessage: string;
+    processingTime: number;
+  }): Promise<boolean> {
+    const markRetryDelaysMs = [0, 120, 360];
+    const refundRetryDelaysMs = [0, 150, 420];
+
+    for (let markAttempt = 0; markAttempt < markRetryDelaysMs.length; markAttempt++) {
+      if (markAttempt > 0) {
+        await this.delay(markRetryDelaysMs[markAttempt]);
+      }
+
+      let failedMarked = false;
+      try {
+        await this.creditsService.updateApiUsageStatus(
+          params.apiUsageId,
+          ApiResponseStatus.FAILED,
+          params.errorMessage,
+          params.processingTime,
+        );
+        failedMarked = true;
+      } catch (statusError) {
+        this.logger.warn(
+          `[${params.serviceType}] mark-failed attempt ${markAttempt + 1} updateApiUsageStatus failed: ${this.summarizeError(
+            statusError,
+          )}`,
+        );
+      }
+
+      if (!failedMarked) {
+        try {
+          await this.creditsService.markApiUsageFailedForUser(
+            params.userId,
+            params.apiUsageId,
+            params.errorMessage,
+            params.processingTime,
+          );
+          failedMarked = true;
+        } catch (markError) {
+          this.logger.warn(
+            `[${params.serviceType}] mark-failed attempt ${markAttempt + 1} markApiUsageFailedForUser failed: ${this.summarizeError(
+              markError,
+            )}`,
+          );
+        }
+      }
+
+      if (!failedMarked) continue;
+
+      for (let refundAttempt = 0; refundAttempt < refundRetryDelaysMs.length; refundAttempt++) {
+        if (refundAttempt > 0) {
+          await this.delay(refundRetryDelaysMs[refundAttempt]);
+        }
+        try {
+          await this.creditsService.refundCredits(params.userId, params.apiUsageId);
+          return true;
+        } catch (refundError) {
+          this.logger.warn(
+            `[${params.serviceType}] refund attempt ${refundAttempt + 1} failed: ${this.summarizeError(
+              refundError,
+            )}`,
+          );
+        }
+      }
+    }
+
+    return false;
+  }
+
   /**
    * 预扣积分并执行操作
    * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
@@ -1412,55 +1490,22 @@ export class AiController {
       );
 
       if (apiUsageId) {
-        let failedMarked = false;
-        try {
-          await this.creditsService.updateApiUsageStatus(
-            apiUsageId,
-            ApiResponseStatus.FAILED,
-            errorMessage,
-            processingTime,
+        const refunded = await this.markFailedAndRefundWithRetry({
+          userId,
+          apiUsageId,
+          serviceType,
+          errorMessage,
+          processingTime,
+        });
+        if (refunded) {
+          this.logger.warn(
+            `[${serviceType}] Credits successfully refunded for failed operation: ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}`,
           );
-          failedMarked = true;
-        } catch (statusError) {
-          this.logger.error(
-            `Failed to update api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
-          );
-        }
-
-        if (!failedMarked) {
-          try {
-            await this.creditsService.markApiUsageFailedForUser(
-              userId,
-              apiUsageId,
-              errorMessage,
-              processingTime,
-            );
-            failedMarked = true;
-          } catch (markError) {
-            this.logger.error(
-              `Failed to mark api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
-            );
-          }
-        }
-
-        if (failedMarked) {
-          // 退还积分
-          try {
-            await this.creditsService.refundCredits(userId, apiUsageId);
-            this.logger.warn(
-              `[${serviceType}] Credits successfully refunded for failed operation: ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`
-            );
-          } catch (refundError) {
-            this.logger.error(
-              `[${serviceType}] CRITICAL: Failed to refund credits: ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}, error=${this.summarizeError(refundError)}`
-            );
-          }
         } else {
           this.logger.error(
-            `[${serviceType}] CRITICAL: Skip refund because api usage cannot be marked failed. ` +
-            `userId=${userId}, apiUsageId=${apiUsageId}`
+            `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+              `userId=${userId}, apiUsageId=${apiUsageId}`,
           );
         }
       } else {
@@ -1493,7 +1538,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
+      return this.providerDefaultImageModels[providerName] || 'gemini-3-flash-preview';
     }
     return this.providerDefaultImageModels.gemini;
   }
@@ -4501,7 +4546,6 @@ export class AiController {
       // 创建任务失败，立即退款
       const errorMessage = error instanceof Error ? error.message : String(error);
       const processingTime = Math.max(0, Date.now() - startTime);
-      let failedMarked = false;
       this.emitVideoProviderGenerationTaskLog({
         stage: 'failed',
         userId,
@@ -4514,46 +4558,18 @@ export class AiController {
         error: errorMessage,
       });
 
-      try {
-        await this.creditsService.updateApiUsageStatus(
-          apiUsageId,
-          ApiResponseStatus.FAILED,
-          errorMessage,
-          processingTime,
-        );
-        failedMarked = true;
-      } catch (statusError) {
-        this.logger.error(
-          `Failed to update video api usage status to failed, fallback to markApiUsageFailedForUser: ${this.summarizeError(statusError)}`,
-        );
-      }
-
-      if (!failedMarked) {
-        try {
-          await this.creditsService.markApiUsageFailedForUser(
-            userId,
-            apiUsageId,
-            errorMessage,
-            processingTime,
-          );
-          failedMarked = true;
-        } catch (markError) {
-          this.logger.error(
-            `Failed to mark video api usage as failed for refund fallback: ${this.summarizeError(markError)}`,
-          );
-        }
-      }
-
-      if (failedMarked) {
-        try {
-          await this.creditsService.refundCredits(userId, apiUsageId);
-          this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
-        } catch (refundError) {
-          this.logger.error('Failed to refund credits:', refundError);
-        }
+      const refunded = await this.markFailedAndRefundWithRetry({
+        userId,
+        apiUsageId,
+        serviceType,
+        errorMessage,
+        processingTime,
+      });
+      if (refunded) {
+        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
       } else {
         this.logger.error(
-          `Skip refund because video api usage cannot be marked failed. apiUsageId=${apiUsageId}`,
+          `Failed to mark/refund video task after retries. apiUsageId=${apiUsageId}`,
         );
       }
       throw error;

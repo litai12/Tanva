@@ -8,6 +8,7 @@ export enum TransactionType {
   ADMIN_ADJUST = 'admin_adjust',
   DAILY_REWARD = 'daily_reward',
   EXPIRE = 'expire', // 签到积分过期清除
+  ADJUSTMENT = 'adjustment', // 按实际产出数量调整积分
 }
 
 export enum ApiResponseStatus {
@@ -153,4 +154,21 @@ export class CreditsPreviewDto {
   @ApiPropertyOptional({ description: '请求上下文参数' })
   @IsOptional()
   requestParams?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: '预期输出图片数量' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  outputImageCount?: number;
+}
+
+export class AdjustCreditsDto {
+  @ApiProperty({ description: 'API使用记录ID' })
+  @IsString()
+  apiUsageId!: string;
+
+  @ApiProperty({ description: '实际成功生成的图片数量' })
+  @IsNumber()
+  @Min(1)
+  actualOutputCount!: number;
 }
