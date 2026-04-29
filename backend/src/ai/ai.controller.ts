@@ -722,6 +722,7 @@ export class AiController {
         : '';
     const key =
       pickHeader('idempotency-key') ||
+      pickHeader('Idempotency-Key') ||
       pickHeader('x-idempotency-key') ||
       pickHeader('x-request-id') ||
       (bodyKey.length > 0 ? bodyKey : undefined);

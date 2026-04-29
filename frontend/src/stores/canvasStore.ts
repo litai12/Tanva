@@ -78,6 +78,7 @@ interface CanvasState {
   
   // 交互状态
   isDragging: boolean;        // 是否正在拖拽画布
+  isOperationInProgress: boolean; // 是否有操作正在进行（如扩图），禁用缩放
   
   // 单位系统
   units: Unit;                // 当前显示单位
@@ -104,6 +105,7 @@ interface CanvasState {
   
   // 交互状态操作方法
   setDragging: (dragging: boolean) => void;
+  setOperationInProgress: (inProgress: boolean) => void;
   
   // 单位系统操作方法
   setUnits: (units: Unit) => void;
@@ -134,6 +136,7 @@ export const useCanvasStore = create<CanvasState>()(
       
       // 交互状态初始值
       isDragging: false,    // 默认未拖拽
+      isOperationInProgress: false, // 默认无操作进行中
       
       // 单位系统初始状态
       units: 'm',           // 默认米单位
@@ -163,6 +166,7 @@ export const useCanvasStore = create<CanvasState>()(
       
       // 交互状态操作方法
       setDragging: (dragging) => set({ isDragging: dragging }),
+      setOperationInProgress: (inProgress) => set({ isOperationInProgress: inProgress }),
       
       // 单位系统操作方法（增强类型安全）
       setUnits: (units) => {

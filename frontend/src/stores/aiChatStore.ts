@@ -2938,7 +2938,7 @@ export const useAIChatStore = create<AIChatState>()(
         manualAIMode: "auto",
         autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认Fast版
-        bananaImageRoute: "stable",
+        bananaImageRoute: "normal",
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
@@ -3679,6 +3679,7 @@ export const useAIChatStore = create<AIChatState>()(
                     providerOptions,
                     aspectRatio: state.aspectRatio || undefined,
                     imageSize: state.imageSize ?? "1K",
+                    outputImageCount: parallelGroupTotal > 1 ? parallelGroupTotal : undefined,
                     parallelGroupId,
                     parallelGroupIndex,
                     parallelGroupTotal,
@@ -3695,6 +3696,7 @@ export const useAIChatStore = create<AIChatState>()(
                     imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
                     thinkingLevel: state.thinkingLevel || undefined,
                     imageOnly: state.imageOnly,
+                    outputImageCount: parallelGroupTotal > 1 ? parallelGroupTotal : undefined,
                     parallelGroupId,
                     parallelGroupIndex,
                     parallelGroupTotal,
@@ -8358,7 +8360,7 @@ export const useAIChatStore = create<AIChatState>()(
             String(state.bananaImageRoute)
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
-            : "stable",
+            : "normal",
         };
       },
       partialize: (state) => ({

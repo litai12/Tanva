@@ -573,7 +573,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   } = useAIChatStore();
 
   // 获取画布状态 - 用于监听画布移动变化
-  const { zoom, panX, panY, isDragging: isCanvasDragging } = useCanvasStore();
+  const { zoom, panX, panY, isDragging: isCanvasDragging, setOperationInProgress } = useCanvasStore();
 
   // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
   const currentZoom = zoom || 1;
@@ -2962,9 +2962,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.preventDefault();
       e.stopPropagation();
       if (isExpandingImage) return;
+      setOperationInProgress(true);
       setShowExpandSelector(true);
     },
-    [isExpandingImage]
+    [isExpandingImage, setOperationInProgress]
   );
 
   // 处理扩图选择完成（直接生成带空白画布并交给 Gemini 填充）
@@ -3247,9 +3248,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 处理扩图取消
   const handleExpandCancel = useCallback(() => {
     setShowExpandSelector(false);
-    // 恢复画板的默认选择模式
+    setOperationInProgress(false);
     setDrawMode("select");
-  }, [setDrawMode]);
+  }, [setDrawMode, setOperationInProgress]);
 
   const basePreviewSrc = useMemo(() => {
     const fromEdit = getImageDataForEditing?.(imageData.id);
