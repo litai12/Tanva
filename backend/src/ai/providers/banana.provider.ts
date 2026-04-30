@@ -95,7 +95,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly tencentTextUrl =
     "https://text-aigc.vod-qcloud.com/v1/chat/completions";
-  private readonly DEFAULT_MODEL = "gemini-3-flash-preview";
+  private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_TENCENT_TEXT_MODEL = "gemini-3-flash-preview";
@@ -314,16 +314,50 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeLegacyImageModel(model: string): string {
     const normalized = this.normalizeModelName(model);
-    if (normalized === "gemini-2.5-flash-image-preview") {
+    if (
+      normalized === "gemini-2.5-flash-image-preview" ||
+      normalized === "gemini-2.5-flash"
+    ) {
       return "gemini-2.5-flash-image";
+    }
+    if (
+      normalized === "gemini-3.1-pro" ||
+      normalized === "gemini-3.1-pro-preview" ||
+      normalized === "gemini-3.1-flash-preview"
+    ) {
+      return "gemini-3.1-flash-image-preview";
+    }
+    if (
+      normalized === "gemini-3-pro-preview" ||
+      normalized === "gemini-3-flash-preview" ||
+      normalized === "gemini-3-flash"
+    ) {
+      return "gemini-3-pro-image-preview";
     }
     return normalized;
   }
 
   private normalizeApimartImageModel(model: string): string {
     const normalized = this.normalizeModelName(model);
-    if (normalized === "gemini-2.5-flash-image") {
+    if (
+      normalized === "gemini-2.5-flash-image" ||
+      normalized === "gemini-2.5-flash"
+    ) {
       return "gemini-2.5-flash-image-preview";
+    }
+    if (
+      normalized === "gemini-3.1-pro" ||
+      normalized === "gemini-3.1-pro-preview" ||
+      normalized === "gemini-3.1-flash-preview"
+    ) {
+      return "gemini-3.1-flash-image-preview";
+    }
+    if (
+      normalized === "gemini-3-pro-preview" ||
+      normalized === "gemini-3-flash-preview" ||
+      normalized === "gemini-3-flash"
+    ) {
+      return "gemini-3-pro-image-preview";
     }
     return normalized;
   }
@@ -1550,7 +1584,9 @@ export class BananaProvider implements IAIProvider {
     modelVersion: string;
     sourceModel: string;
   } {
-    const sourceModel = this.normalizeModelName(model || this.DEFAULT_MODEL);
+    const sourceModel = this.normalizeApimartImageModel(
+      model || this.DEFAULT_MODEL
+    );
     const normalized = sourceModel.toLowerCase();
 
     if (normalized.includes("ultra")) {
