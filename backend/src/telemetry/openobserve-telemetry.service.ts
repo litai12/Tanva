@@ -69,6 +69,11 @@ type BackendErrorLog = {
   upstream?: Record<string, unknown> | null;
   upstreamPayload?: unknown;
   upstreamResponse?: unknown;
+  upstreamUrl?: string | null;
+  upstreamHost?: string | null;
+  upstreamPathname?: string | null;
+  upstreamStatusCode?: number | null;
+  upstreamError?: string | null;
   receivedAt: string;
 };
 
@@ -243,6 +248,11 @@ export class OpenObserveTelemetryService {
         body: summarizeBodyForLog(log.body, maxBodyLength),
         response: summarizeBodyForLog(log.response, maxBodyLength),
         upstream: summarizeBodyForLog(upstream, maxBodyLength),
+        upstreamUrl: log.upstreamUrl ?? upstream?.url ?? null,
+        upstreamHost: log.upstreamHost ?? upstream?.host ?? null,
+        upstreamPathname: log.upstreamPathname ?? upstream?.pathname ?? null,
+        upstreamStatusCode: log.upstreamStatusCode ?? upstream?.statusCode ?? null,
+        upstreamError: log.upstreamError ?? upstream?.error ?? null,
         upstreamPayload: summarizeBodyForLog(
           log.upstreamPayload ?? upstream?.requestBody ?? null,
           maxBodyLength,
