@@ -10,6 +10,7 @@ import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import { createUploadedImagePreviewAsset } from '@/services/imagePreviewAssetService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
@@ -48,11 +49,19 @@ const toPreferredRemoteSource = (value: string): string => {
     }
 };
 
-const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string; key?: string } => {
+const pickRasterSource = (asset: StoredImageAsset): {
+    source: string;
+    remoteUrl?: string;
+    key?: string;
+    previewUrl?: string;
+    previewKey?: string;
+} => {
     const normalizedRemote = normalizePersistableImageRef(asset.remoteUrl);
     const normalizedUrl = normalizePersistableImageRef(asset.url);
     const normalizedSrc = normalizePersistableImageRef(asset.src);
     const normalizedKey = normalizePersistableImageRef(asset.key);
+    const normalizedPreviewUrl = normalizePersistableImageRef(asset.previewUrl);
+    const normalizedPreviewKey = normalizePersistableImageRef(asset.previewKey);
 
     // remoteUrl 仅用于“回退到直连”/一些需要 http(s) 的能力
     const remoteUrl = isRemoteUrl(normalizedRemote)
@@ -68,9 +77,20 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         : (normalizedUrl && isAssetKeyRef(normalizedUrl))
             ? normalizedUrl
             : undefined;
+    const previewKey =
+        normalizedPreviewKey && isAssetKeyRef(normalizedPreviewKey)
+            ? normalizedPreviewKey
+            : undefined;
+    const previewUrl = isRemoteUrl(normalizedPreviewUrl)
+        ? normalizedPreviewUrl
+        : undefined;
 
     // 显示优先：localDataUrl（预览/占位）-> key -> src/url
     const localPreview = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : undefined;
+    const stablePreviewCandidate =
+        previewUrl ||
+        previewKey ||
+        (isRemoteUrl(normalizedPreviewUrl) ? normalizedPreviewUrl : undefined);
     const stableRemoteCandidate =
         normalizedRemote ||
         (isRemoteUrl(normalizedSrc) ? normalizedSrc : undefined) ||
@@ -78,6 +98,7 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
     const pendingPreview = asset.pendingUpload ? localPreview : undefined;
     const displayCandidate =
         pendingPreview ||
+        stablePreviewCandidate ||
         stableRemoteCandidate ||
         key ||
         normalizedSrc ||
@@ -87,7 +108,7 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
 
     const renderable = toRenderableImageSrc(displayCandidate);
     const preferredSource = renderable ? toPreferredRemoteSource(renderable) : '';
-    return { source: preferredSource, remoteUrl, key };
+    return { source: preferredSource, remoteUrl, key, previewUrl, previewKey };
 };
 
 const shouldUseAnonymousCrossOrigin = (source: string): boolean => {
@@ -1130,6 +1151,32 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         let asset: StoredImageAsset | null = null;
         const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+        const attachUploadedPreview = async (
+            baseAsset: StoredImageAsset,
+            source?: string | Blob | File | null,
+        ): Promise<StoredImageAsset> => {
+            if (baseAsset.previewUrl || baseAsset.previewKey || !source) return baseAsset;
+            try {
+                const preview = await createUploadedImagePreviewAsset(source, {
+                    projectId: projectId ?? undefined,
+                    fileName: baseAsset.fileName || fileName || 'uploaded-image.png',
+                });
+                if (!preview?.url) return baseAsset;
+                return {
+                    ...baseAsset,
+                    previewUrl: preview.url,
+                    previewKey: preview.key,
+                    previewWidth: preview.width,
+                    previewHeight: preview.height,
+                    previewContentType: preview.contentType,
+                    width: baseAsset.width || preview.sourceWidth,
+                    height: baseAsset.height || preview.sourceHeight,
+                };
+            } catch (error) {
+                logger.warn('生成图片预览失败，回退使用原图渲染', error);
+                return baseAsset;
+            }
+        };
         const ensureManagedAsset = async (
             uploadInput: string,
             preferredFileName: string,
@@ -1176,7 +1223,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             }
             const displayRef = uploadedUrl || persistedRef;
             const remoteUrl = isRemoteUrl(displayRef) ? displayRef : undefined;
-            return {
+            return await attachUploadedPreview({
                 id: `${preferredIdPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 url: displayRef,
                 src: toRenderableImageSrc(displayRef) || displayRef,
@@ -1188,7 +1235,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 contentType: uploadResult.asset.contentType,
                 pendingUpload: false,
                 localDataUrl: undefined,
-            };
+            }, inlinePreview || displayRef);
         };
         if (typeof imagePayload === 'string') {
             const trimmedPayload = imagePayload.trim();
@@ -1210,6 +1257,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingUpload: false,
                     localDataUrl: undefined,
                 };
+                asset = await attachUploadedPreview(asset, normalizedPersisted);
             }
             fileName = resolvedName;
         } else {
@@ -1264,6 +1312,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingUpload,
                     localDataUrl: localPreview,
                 };
+                if (!pendingUpload) {
+                    asset = await attachUploadedPreview(
+                        asset,
+                        localPreview || imagePayload.src || imagePayload.remoteUrl || imagePayload.url || stableRef,
+                    );
+                }
             }
             fileName = asset?.fileName || fileName;
         }
@@ -1287,6 +1341,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
         const resolvedRemoteUrl = pickedSource.remoteUrl;
         const resolvedKey = pickedSource.key;
+        const resolvedPreviewUrl = pickedSource.previewUrl;
+        const resolvedPreviewKey = pickedSource.previewKey;
         let resolveRasterReady: (() => void) | undefined;
         let rejectRasterReady: ((reason?: unknown) => void) | undefined;
         let rasterSettled = false;
@@ -1547,11 +1603,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
                 } catch {}
                 raster.position = targetPosition;
-                if (resolvedRemoteUrl || resolvedKey) {
+                if (resolvedRemoteUrl || resolvedKey || resolvedPreviewUrl || resolvedPreviewKey) {
                     raster.data = {
                         ...(raster.data || {}),
                         ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
                         ...(resolvedKey ? { key: resolvedKey } : null),
+                        ...(resolvedPreviewUrl ? { previewUrl: resolvedPreviewUrl } : null),
+                        ...(resolvedPreviewKey ? { previewKey: resolvedPreviewKey } : null),
                     };
                 }
 
@@ -1759,9 +1817,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 });
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
                 
-                // 获取原始尺寸
-                const originalWidth = raster.width;
-                const originalHeight = raster.height;
+                // 原始尺寸来自上传/预览服务的 source 元数据；Raster 自身只承载低分辨率预览。
+                const originalWidth = Math.max(1, Math.round(asset.width || raster.width || 1));
+                const originalHeight = Math.max(1, Math.round(asset.height || raster.height || 1));
 
                 // 检查是否启用原始尺寸模式
                 const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
@@ -2004,6 +2062,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImages: sourceImages,
                     videoInfo: extraOptions?.videoInfo
                 };
+                if (resolvedPreviewUrl) {
+                    (raster.data as any).previewUrl = resolvedPreviewUrl;
+                }
+                if (resolvedPreviewKey) {
+                    (raster.data as any).previewKey = resolvedPreviewKey;
+                }
 
                 // 创建选择区域（透明点击热区，避免 Raster hitTest/异步加载导致“点不到图片”）
                 const selectionArea = new paper.Path.Rectangle({
@@ -2082,9 +2146,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                    imageData: {
 	                        id: imageId,
 	                        url: asset.url,
-	                        src: asset.src || asset.url,
+	                        src: asset.previewUrl || asset.previewKey || asset.src || asset.url,
+                            remoteUrl: asset.remoteUrl || resolvedRemoteUrl,
 	                        localDataUrl: asset.localDataUrl,
 	                        key: asset.key,
+                            previewUrl: asset.previewUrl,
+                            previewKey: asset.previewKey,
+                            previewWidth: asset.previewWidth,
+                            previewHeight: asset.previewHeight,
+                            previewContentType: asset.previewContentType,
 	                        fileName: fileName,
 	                        // width/height 代表图片原始像素尺寸（用于信息展示/资产元数据），不要用显示 bounds
 	                        width: Math.round(originalWidth),

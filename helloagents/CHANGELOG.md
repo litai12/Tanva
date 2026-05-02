@@ -597,3 +597,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Removed legacy `expand-image` in-place replacement branch in `DrawingController` quick-upload event handling.
 - Expand results now follow placeholder/new-image insertion path and no longer overwrite the source image node.
+
+## [Canvas Flow Image Preview Assets - 2026-05-02]
+### Changed
+- Canvas image assets now carry remote `previewUrl/previewKey` metadata and Paper Raster display prefers the preview while preserving original `url/remoteUrl/key` for high-resolution operations.
+- Flow Image/ImagePro and image-generation result nodes now prefer remote/runtime thumbnails for node-card display and keep originals for preview, download, edit, crop, and AI input paths.
+- Project save/upload paths generate missing WebP preview assets and keep design JSON restricted to remote references.

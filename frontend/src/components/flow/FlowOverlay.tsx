@@ -5860,7 +5860,6 @@ function FlowInner() {
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
-  const canvasZoom = useCanvasStore((s) => s.zoom);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
   const isLargeGraphForMiniMapImageOverlay =
@@ -5882,16 +5881,31 @@ function FlowInner() {
   );
 
   React.useEffect(() => {
-    const zoom =
-      Number.isFinite(Number(canvasZoom)) && Number(canvasZoom) > 0
-        ? Number(canvasZoom)
-        : 1;
-    setIsFlowLowDetailMode((prev) => {
-      if (!canEnableLowDetailMode) return false;
-      if (prev) return zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM;
-      return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
-    });
-  }, [canEnableLowDetailMode, canvasZoom]);
+    const updateLowDetailMode = (rawZoom: number) => {
+      const zoom =
+        Number.isFinite(Number(rawZoom)) && Number(rawZoom) > 0
+          ? Number(rawZoom)
+          : 1;
+      setIsFlowLowDetailMode((prev) => {
+        if (!canEnableLowDetailMode) return false;
+        if (prev) return zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM;
+        return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
+      });
+    };
+
+    if (!canEnableLowDetailMode) {
+      setIsFlowLowDetailMode(false);
+      return;
+    }
+
+    updateLowDetailMode(useCanvasStore.getState().zoom);
+
+    return useCanvasStore.subscribe(
+      (state) => state.zoom,
+      (nextZoom) => updateLowDetailMode(nextZoom)
+    );
+  }, [canEnableLowDetailMode]);
+
   const effectiveFlowLowDetailMode =
     isFlowLowDetailMode && !hasRunningFlowNode;
 
@@ -5907,7 +5921,7 @@ function FlowInner() {
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
   const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | "Zoom" | null>(null);
   const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
-  const canvasZoomRef = React.useRef(canvasZoom);
+  const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
   const zoomFpsActiveUntilRef = React.useRef(0);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
@@ -5917,28 +5931,36 @@ function FlowInner() {
   }, [setShowFpsOverlay]);
 
   React.useEffect(() => {
-    const nextZoom = Number(canvasZoom);
-    const prevZoom = Number(canvasZoomRef.current);
-    const now =
-      typeof performance !== "undefined" &&
-      typeof performance.now === "function"
-        ? performance.now()
-        : Date.now();
+    canvasZoomRef.current = useCanvasStore.getState().zoom;
 
-    if (
-      showFpsOverlay &&
-      Number.isFinite(nextZoom) &&
-      Number.isFinite(prevZoom) &&
-      Math.abs(nextZoom - prevZoom) > 0.0001
-    ) {
-      zoomFpsActiveUntilRef.current = now + 700;
-    }
-
-    canvasZoomRef.current = canvasZoom;
     if (!showFpsOverlay) {
       zoomFpsActiveUntilRef.current = 0;
+      return;
     }
-  }, [canvasZoom, showFpsOverlay]);
+
+    return useCanvasStore.subscribe(
+      (state) => state.zoom,
+      (nextZoom) => {
+        const next = Number(nextZoom);
+        const prev = Number(canvasZoomRef.current);
+        const now =
+          typeof performance !== "undefined" &&
+          typeof performance.now === "function"
+            ? performance.now()
+            : Date.now();
+
+        if (
+          Number.isFinite(next) &&
+          Number.isFinite(prev) &&
+          Math.abs(next - prev) > 0.0001
+        ) {
+          zoomFpsActiveUntilRef.current = now + 700;
+        }
+
+        canvasZoomRef.current = nextZoom;
+      }
+    );
+  }, [showFpsOverlay]);
 
   React.useEffect(() => {
     if (!showFpsOverlay) return;
@@ -6137,17 +6159,26 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const pendingViewportRef = React.useRef<{ x: number; y: number; z: number } | null>(
+    null
+  );
+  const viewportRafRef = React.useRef<number | null>(null);
 
-  const applyViewportImmediate = React.useCallback((next: { x: number; y: number; z: number }) => {
+  const flushPendingViewport = React.useCallback(() => {
+    viewportRafRef.current = null;
+    const next = pendingViewportRef.current;
+    pendingViewportRef.current = null;
+    if (!next) return;
     try {
-      rfRef.current.setViewport(
-        { x: next.x, y: next.y, zoom: next.z },
-        { duration: 0 }
-      );
-    } catch {
-      /* noop */
-    }
+      rfRef.current.setViewport({ x: next.x, y: next.y, zoom: next.z }, { duration: 0 });
+    } catch {}
   }, []);
+
+  const applyViewportScheduled = React.useCallback((next: { x: number; y: number; z: number }) => {
+    pendingViewportRef.current = next;
+    if (viewportRafRef.current !== null) return;
+    viewportRafRef.current = requestAnimationFrame(flushPendingViewport);
+  }, [flushPendingViewport]);
 
   const syncViewportToCanvasStore = () => {
     try {
@@ -6158,7 +6189,7 @@ function FlowInner() {
       const x = ((state.panX || 0) * z) / dpr;
       const y = ((state.panY || 0) * z) / dpr;
       lastApplied.current = { x, y, z };
-      applyViewportImmediate({ x, y, z });
+      applyViewportScheduled({ x, y, z });
     } catch {
       /* noop */
     }
@@ -6181,8 +6212,8 @@ function FlowInner() {
       )
         return;
       lastApplied.current = { x, y, z };
-      // 平移与缩放均立即同步，消除交互中的短暂“脱节/漂移感”。
-      applyViewportImmediate({ x, y, z });
+      // 平移与缩放均同步到下一帧，合并触控板/滚轮的高频事件。
+      applyViewportScheduled({ x, y, z });
     });
 
     // 初始同步
@@ -6199,8 +6230,15 @@ function FlowInner() {
       /* noop */
     }
 
-    return unsubscribe;
-  }, [applyViewportImmediate]);
+    return () => {
+      unsubscribe();
+      if (viewportRafRef.current !== null) {
+        cancelAnimationFrame(viewportRafRef.current);
+        viewportRafRef.current = null;
+      }
+      pendingViewportRef.current = null;
+    };
+  }, [applyViewportScheduled]);
 
   React.useLayoutEffect(() => {
     if (!projectId) return;
@@ -10559,33 +10597,30 @@ function FlowInner() {
 
         const targetNode = ns[targetIndex];
         const patch = { ...(detail.patch || {}) };
+        const hasImageDataPatch = Object.prototype.hasOwnProperty.call(
+          patch,
+          "imageData"
+        );
+        const hasExplicitThumbnailPatch = Object.prototype.hasOwnProperty.call(
+          patch,
+          "thumbnail"
+        );
 
         // 移除内部使用的 _positionOffset
         delete patch._positionOffset;
 
         if (
-          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          hasImageDataPatch &&
           !Object.prototype.hasOwnProperty.call(patch, "imageName")
         ) {
           patch.imageName = undefined;
         }
-        // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
-        if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
-          patch.thumbnail = undefined;
-        }
-        // imageData 清空时一并清理 thumbnail，避免大字符串残留
-        if (
-          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-          !patch.imageData
-        ) {
-          patch.thumbnail = undefined;
-        }
 
-        // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
+        // 图片节点：若写入 imageData 但未提供 thumbnail，先清旧缩略图并异步生成新的运行时缩略图
         if (
-          Object.prototype.hasOwnProperty.call(patch, "imageData") &&
+          hasImageDataPatch &&
           patch.imageData &&
-          !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
+          !hasExplicitThumbnailPatch &&
           (targetNode.type === "image" || targetNode.type === "imagePro") &&
           !(
             typeof patch.imageData === "string" &&
@@ -10596,6 +10631,9 @@ function FlowInner() {
           shouldAutoGenerateThumbnail = true;
           thumbnailNodeId = targetNode.id;
           thumbnailSourceImageData = patch.imageData;
+        } else if (hasImageDataPatch && !patch.imageData) {
+          // imageData 清空时一并清理 thumbnail，避免大字符串残留
+          patch.thumbnail = undefined;
         }
 
         // 如果有位置偏移，同时更新节点位置
@@ -11150,10 +11188,11 @@ function FlowInner() {
   }, [rf, setNodes, setEdges]);
 
   React.useEffect(() => {
-    const handler = (event: Event) => {
+    const handler = async (event: Event) => {
       const detail = (event as CustomEvent).detail as {
         imageData?: string;
         imageUrl?: string;
+        thumbnail?: string;
         label?: string;
         imageName?: string;
       };
@@ -11161,7 +11200,16 @@ function FlowInner() {
         typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
       const imageDataForNode =
         typeof detail?.imageData === "string" ? detail.imageData.trim() : "";
+      const thumbnailForNode =
+        typeof detail?.thumbnail === "string" ? detail.thumbnail.trim() : "";
       if (!imageUrlForNode && !imageDataForNode) return;
+      const runtimeThumbnail =
+        thumbnailForNode ||
+        (imageDataForNode
+          ? (await createThumbnailDataUrl(imageDataForNode, 512).catch(
+              () => null
+            )) || ""
+          : "");
       const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
       const screenPosition = {
@@ -11182,6 +11230,7 @@ function FlowInner() {
             data: {
               imageUrl: imageUrlForNode || undefined,
               imageData: imageUrlForNode ? undefined : imageDataForNode,
+              thumbnail: runtimeThumbnail || undefined,
               label: detail.label || "Image",
               imageName: normalizedImageName || undefined,
               boxW: 260,
@@ -11206,7 +11255,20 @@ function FlowInner() {
             fileName: `${normalizedImageName || `flow_image_${historyId}`}.png`,
             projectId,
             keepThumbnail: false,
-          }).catch(() => {});
+            thumbnailDataUrl: thumbnailForNode || undefined,
+            createRemoteThumbnail: true,
+          })
+            .then(({ thumbnail }) => {
+              if (!thumbnail) return;
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === id
+                    ? { ...n, data: { ...n.data, thumbnail } }
+                    : n
+                )
+              );
+            })
+            .catch(() => {});
         } catch {}
         try {
           historyService
@@ -11229,8 +11291,9 @@ function FlowInner() {
           fileName: `${normalizedImageName || `flow_image_${historyId}`}.png`,
           projectId,
           keepThumbnail: false,
+          createRemoteThumbnail: true,
         })
-          .then(({ remoteUrl }) => {
+          .then(({ remoteUrl, thumbnail }) => {
             if (!remoteUrl) return;
             setNodes((ns) =>
               ns.map((n) => {
@@ -11242,7 +11305,7 @@ function FlowInner() {
                     ...n.data,
                     imageUrl: remoteUrl,
                     imageData: undefined,
-                    thumbnail: undefined,
+                    thumbnail,
                   },
                 };
               })
@@ -11431,10 +11494,22 @@ function FlowInner() {
             fileName: `flow_${node.type || "midjourney"}_${historyId}.png`,
             projectId,
             keepThumbnail: false,
+            createRemoteThumbnail: true,
           })
-            .then(({ remoteUrl }) => {
+            .then(({ remoteUrl, thumbnail }) => {
+              if (!remoteUrl && !thumbnail) return;
+              if (hasRemoteUrl) {
+                if (!thumbnail) return;
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === detail.nodeId
+                      ? { ...n, data: { ...n.data, thumbnail } }
+                      : n
+                  )
+                );
+                return;
+              }
               if (!remoteUrl) return;
-              if (hasRemoteUrl) return;
               setNodes((ns) =>
                 ns.map((n) => {
                   if (n.id !== detail.nodeId) return n;
@@ -11445,7 +11520,7 @@ function FlowInner() {
                       ...n.data,
                       imageUrl: remoteUrl,
                       imageData: undefined,
-                      thumbnail: undefined,
+                      thumbnail,
                     },
                   };
                 })
@@ -16669,6 +16744,7 @@ function FlowInner() {
               fileName: `flow_midjourney_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              createRemoteThumbnail: true,
               metadata: {
                 ...mjMetadata,
                 model: "midjourney-fast",
@@ -16676,9 +16752,20 @@ function FlowInner() {
                 provider: "midjourney",
               },
             })
-              .then(({ remoteUrl }) => {
+              .then(({ remoteUrl, thumbnail }) => {
+                if (!remoteUrl && !thumbnail) return;
+                if (hasRemoteUrl) {
+                  if (!thumbnail) return;
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? { ...n, data: { ...n.data, thumbnail } }
+                        : n
+                    )
+                  );
+                  return;
+                }
                 if (!remoteUrl) return;
-                if (hasRemoteUrl) return;
                 const outs = rf.getEdges().filter((e) => e.source === nodeId);
                 setNodes((ns) =>
                   ns.map((n) => {
@@ -16690,7 +16777,7 @@ function FlowInner() {
                           ...n.data,
                           imageUrl: remoteUrl,
                           imageData: undefined,
-                          thumbnail: undefined,
+                          thumbnail,
                         },
                       };
                     }
@@ -16705,7 +16792,7 @@ function FlowInner() {
                           ...n.data,
                           imageUrl: remoteUrl,
                           imageData: undefined,
-                          thumbnail: undefined,
+                          thumbnail,
                         },
                       };
                     }
@@ -17012,6 +17099,7 @@ function FlowInner() {
                 fileName: `flow_${node.type}_${entry.id}_${idx + 1}.png`,
                 projectId,
                 keepThumbnail: false,
+                createRemoteThumbnail: true,
                 metadata: {
                   ...mjMetadata,
                   model: modelName,
@@ -17021,7 +17109,42 @@ function FlowInner() {
                   outputCount: historyEntries.length,
                 },
               })
-                .then(({ remoteUrl }) => {
+                .then(({ remoteUrl, thumbnail }) => {
+                  if (thumbnail) {
+                    const thumbOutEdges = rf
+                      .getEdges()
+                      .filter(
+                        (e) =>
+                          e.source === nodeId &&
+                          (e as any).sourceHandle === `img${idx + 1}`
+                      );
+                    setNodes((ns) =>
+                      ns.map((n) => {
+                        if (
+                          thumbOutEdges.some((e) => e.target === n.id) &&
+                          n.type === "image"
+                        ) {
+                          return {
+                            ...n,
+                            data: { ...n.data, thumbnail },
+                          };
+                        }
+                        if (n.id !== nodeId) return n;
+                        const prevThumbs = Array.isArray((n.data as any)?.thumbnails)
+                          ? ([...(n.data as any).thumbnails] as string[])
+                          : [];
+                        prevThumbs[idx] = thumbnail;
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            thumbnails: prevThumbs,
+                            ...(idx === 0 ? { thumbnail } : {}),
+                          },
+                        };
+                      })
+                    );
+                  }
                   if (idx !== 0 || !remoteUrl || entry.hasRemote) return;
                   if (entry.source !== previewSource) return;
                   const outs = rf.getEdges().filter((e) => e.source === nodeId);
@@ -17035,7 +17158,7 @@ function FlowInner() {
                             ...n.data,
                             imageUrl: remoteUrl,
                             imageData: undefined,
-                            thumbnail: undefined,
+                            thumbnail,
                           },
                         };
                       }
@@ -17050,7 +17173,7 @@ function FlowInner() {
                             ...n.data,
                             imageUrl: remoteUrl,
                             imageData: undefined,
-                            thumbnail: undefined,
+                            thumbnail,
                           },
                         };
                       }
@@ -17403,13 +17526,25 @@ function FlowInner() {
                 fileName: `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
+                createRemoteThumbnail: true,
                 metadata: {
                   ...(result.data.metadata || {}),
                   model: result.data.model || requestedModel,
                   aiProvider: "nano2",
                   provider: "nano2",
                 },
-              }).catch(() => {});
+              })
+                .then(({ thumbnail }) => {
+                  if (!thumbnail) return;
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? { ...n, data: { ...n.data, thumbnail } }
+                        : n
+                    )
+                  );
+                })
+                .catch(() => {});
             } catch {}
           }
         } catch (error) {
@@ -17585,8 +17720,18 @@ function FlowInner() {
                 fileName: `flow_seedream5_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
+                createRemoteThumbnail: true,
                 metadata: { provider: "seedream5" },
-              });
+              }).then(({ thumbnail }) => {
+                if (!thumbnail) return;
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? { ...n, data: { ...n.data, thumbnails: [thumbnail] } }
+                      : n
+                  )
+                );
+              }).catch(() => {});
             } catch (err) {
               console.warn("记录图片历史失败:", err);
             }
@@ -17897,6 +18042,7 @@ function FlowInner() {
           )
         );
         const produced: string[] = [];
+        const producedThumbs: string[] = [];
         const slotErrors: (string | undefined)[] = Array.from(
           { length: total },
           () => undefined
@@ -17908,12 +18054,13 @@ function FlowInner() {
               n.id === nodeId
                 ? {
                     ...n,
-                    data: {
-                      ...n.data,
-                      images: Array.from({ length: total }, (__, idx) => produced[idx] || ""),
-                      generate4PassIndex: passIndex,
-                    },
-                  }
+                  data: {
+                    ...n.data,
+                    images: Array.from({ length: total }, (__, idx) => produced[idx] || ""),
+                    thumbnails: Array.from({ length: total }, (__, idx) => producedThumbs[idx] || ""),
+                    generate4PassIndex: passIndex,
+                  },
+                }
                 : n
             )
           );
@@ -18024,6 +18171,10 @@ function FlowInner() {
 
           if (generatedImage) {
             produced[i] = generatedImage;
+            const runtimeThumbnail = await createThumbnailDataUrl(generatedImage, 512).catch(() => null);
+            if (runtimeThumbnail) {
+              producedThumbs[i] = runtimeThumbnail;
+            }
 
             const outs = rf
               .getEdges()
@@ -18044,7 +18195,7 @@ function FlowInner() {
                       data: {
                         ...n.data,
                         imageData: imgB64,
-                        thumbnail: undefined,
+                        thumbnail: runtimeThumbnail || undefined,
                       },
                     };
                   return n;
@@ -18068,6 +18219,7 @@ function FlowInner() {
                 fileName: `flow_generate4_${historyId}.png`,
                 projectId,
                 keepThumbnail: false,
+                createRemoteThumbnail: true,
                 metadata: {
                   ...(generatedMetadata || {}),
                   model: generatedModel || nodeSpecificModel,
@@ -18075,8 +18227,10 @@ function FlowInner() {
                   provider: runProvider,
                 },
               })
-                .then(({ remoteUrl }) => {
-                  if (!remoteUrl) return;
+                .then(({ remoteUrl, thumbnail }) => {
+                  if (!remoteUrl && !thumbnail) return;
+                  const mergedThumbnail =
+                    thumbnail || producedThumbs[slotIndex] || undefined;
                   const outEdges = rf
                     .getEdges()
                     .filter(
@@ -18093,26 +18247,37 @@ function FlowInner() {
                         )
                           ? ([...(n.data as any).imageUrls] as string[])
                           : [];
-                        prevUrls[slotIndex] = remoteUrl;
+                        if (remoteUrl) {
+                          prevUrls[slotIndex] = remoteUrl;
+                        }
                         const prevImages = Array.isArray(
                           (n.data as any)?.images
                         )
                           ? ([...(n.data as any).images] as any[])
                           : [];
-                        if (prevImages[slotIndex] === generatedImage) {
+                        if (remoteUrl && prevImages[slotIndex] === generatedImage) {
                           prevImages[slotIndex] = "";
+                        }
+                        const prevThumbs = Array.isArray(
+                          (n.data as any)?.thumbnails
+                        )
+                          ? ([...(n.data as any).thumbnails] as string[])
+                          : [];
+                        if (mergedThumbnail) {
+                          prevThumbs[slotIndex] = mergedThumbnail;
                         }
                         return {
                           ...n,
                           data: {
                             ...n.data,
-                            imageUrls: prevUrls,
+                            ...(remoteUrl ? { imageUrls: prevUrls } : {}),
                             images: prevImages,
+                            ...(mergedThumbnail ? { thumbnails: prevThumbs } : {}),
                           },
                         };
                       }
 
-                      // 更新下游 Image 节点：替换为远程 URL，清理 base64
+                      // 更新下游 Image 节点：远程 URL 用于高清操作，thumbnail 用于节点展示
                       if (
                         outEdges.some((e) => e.target === n.id) &&
                         n.type === "image" &&
@@ -18122,9 +18287,10 @@ function FlowInner() {
                           ...n,
                           data: {
                             ...n.data,
-                            imageUrl: remoteUrl,
-                            imageData: undefined,
-                            thumbnail: undefined,
+                            ...(remoteUrl
+                              ? { imageUrl: remoteUrl, imageData: undefined }
+                              : {}),
+                            thumbnail: mergedThumbnail,
                           },
                         };
                       }
@@ -18153,19 +18319,33 @@ function FlowInner() {
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: hasAny ? "succeeded" : "failed",
-                    error: hasAny ? partialHint : "全部生成失败",
-                    images: imagesDense,
-                    generate4SlotErrors: slotErrors.some((e) => Boolean(e))
-                      ? slotErrors
-                      : undefined,
-                    generate4PassIndex: undefined,
-                  },
-                }
+              ? (() => {
+                  const existingUrls = Array.isArray((n.data as any)?.imageUrls)
+                    ? ((n.data as any).imageUrls as string[])
+                    : [];
+                  const existingThumbs = Array.isArray((n.data as any)?.thumbnails)
+                    ? ((n.data as any).thumbnails as string[])
+                    : [];
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: hasAny ? "succeeded" : "failed",
+                      error: hasAny ? partialHint : "全部生成失败",
+                      images: imagesDense.map((img, idx) =>
+                        existingUrls[idx] ? "" : img
+                      ),
+                      thumbnails: Array.from(
+                        { length: total },
+                        (_, idx) => existingThumbs[idx] || producedThumbs[idx] || ""
+                      ),
+                      generate4SlotErrors: slotErrors.some((e) => Boolean(e))
+                        ? slotErrors
+                        : undefined,
+                      generate4PassIndex: undefined,
+                    },
+                  };
+                })()
               : n
           )
         );
@@ -18288,6 +18468,7 @@ function FlowInner() {
           generateSingleImage(i)
         );
         const produced: string[] = new Array(total).fill("");
+        const producedThumbs: string[] = new Array(total).fill("");
         const errors: string[] = [];
 
         // 使用 Promise.all 等待所有任务完成，同时监听每个完成的结果
@@ -18296,6 +18477,10 @@ function FlowInner() {
             const result = await task;
             if (result.image) {
               produced[result.index] = result.image;
+              const runtimeThumbnail = await createThumbnailDataUrl(result.image, 512).catch(() => null);
+              if (runtimeThumbnail) {
+                producedThumbs[result.index] = runtimeThumbnail;
+              }
 
               // 更新UI显示已完成的图片
               setNodes((ns) =>
@@ -18303,7 +18488,11 @@ function FlowInner() {
                   n.id === nodeId
                     ? {
                         ...n,
-                        data: { ...n.data, images: [...produced] },
+                        data: {
+                          ...n.data,
+                          images: [...produced],
+                          thumbnails: [...producedThumbs],
+                        },
                       }
                     : n
                 )
@@ -18329,7 +18518,7 @@ function FlowInner() {
                         data: {
                           ...n.data,
                           imageData: imgB64,
-                          thumbnail: undefined,
+                          thumbnail: runtimeThumbnail || undefined,
                         },
                       };
                     return n;
@@ -18354,6 +18543,7 @@ function FlowInner() {
                   fileName: `flow_generatepro4_${historyId}.png`,
                   projectId,
                   keepThumbnail: false,
+                  createRemoteThumbnail: true,
                   metadata: {
                     ...(result.metadata || {}),
                     model: result.model || nodeSpecificModel,
@@ -18361,8 +18551,10 @@ function FlowInner() {
                     provider: runProvider,
                   },
                 })
-                  .then(({ remoteUrl }) => {
-                    if (!remoteUrl) return;
+                  .then(({ remoteUrl, thumbnail }) => {
+                    if (!remoteUrl && !thumbnail) return;
+                    const mergedThumbnail =
+                      thumbnail || producedThumbs[slotIndex] || undefined;
                     const outEdges = rf
                       .getEdges()
                       .filter(
@@ -18379,7 +18571,9 @@ function FlowInner() {
                           )
                             ? ([...(n.data as any).imageUrls] as string[])
                             : [];
-                          prevUrls[slotIndex] = remoteUrl;
+                          if (remoteUrl) {
+                            prevUrls[slotIndex] = remoteUrl;
+                          }
                           const prevImages = Array.isArray(
                             (n.data as any)?.images
                           )
@@ -18388,12 +18582,21 @@ function FlowInner() {
                           if (prevImages[slotIndex] === base64) {
                             prevImages[slotIndex] = "";
                           }
+                          const prevThumbs = Array.isArray(
+                            (n.data as any)?.thumbnails
+                          )
+                            ? ([...(n.data as any).thumbnails] as string[])
+                            : [];
+                          if (mergedThumbnail) {
+                            prevThumbs[slotIndex] = mergedThumbnail;
+                          }
                           return {
                             ...n,
                             data: {
                               ...n.data,
-                              imageUrls: prevUrls,
+                              ...(remoteUrl ? { imageUrls: prevUrls } : {}),
                               images: prevImages,
+                              ...(mergedThumbnail ? { thumbnails: prevThumbs } : {}),
                             },
                           };
                         }
@@ -18408,9 +18611,10 @@ function FlowInner() {
                             ...n,
                             data: {
                               ...n.data,
-                              imageUrl: remoteUrl,
-                              imageData: undefined,
-                              thumbnail: undefined,
+                              ...(remoteUrl
+                                ? { imageUrl: remoteUrl, imageData: undefined }
+                                : {}),
+                              thumbnail: mergedThumbnail,
                             },
                           };
                         }
@@ -18433,15 +18637,28 @@ function FlowInner() {
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: hasAny ? "succeeded" : "failed",
-                    error: hasAny ? undefined : errorMsg,
-                    images: [...produced],
-                  },
-                }
+              ? (() => {
+                  const existingUrls = Array.isArray((n.data as any)?.imageUrls)
+                    ? ((n.data as any).imageUrls as string[])
+                    : [];
+                  const existingThumbs = Array.isArray((n.data as any)?.thumbnails)
+                    ? ((n.data as any).thumbnails as string[])
+                    : [];
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: hasAny ? "succeeded" : "failed",
+                      error: hasAny ? undefined : errorMsg,
+                      images: produced.map((img, idx) =>
+                        existingUrls[idx] ? "" : img
+                      ),
+                      thumbnails: producedThumbs.map(
+                        (thumb, idx) => existingThumbs[idx] || thumb || ""
+                      ),
+                    },
+                  };
+                })()
               : n
           )
         );
@@ -18570,7 +18787,11 @@ function FlowInner() {
           });
         }
 
-        // 先设置原图，然后异步生成缩略图
+        const runtimeThumbnail = imgBase64
+          ? await createThumbnailDataUrl(imgBase64, 512).catch(() => null)
+          : null;
+
+        // 原图用于高清预览/下载/后续编辑，节点卡片优先显示运行时缩略图。
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -18580,6 +18801,7 @@ function FlowInner() {
                     ...n.data,
                     status: "succeeded",
                     imageData: imgBase64,
+                    thumbnail: runtimeThumbnail || undefined,
                     error: undefined,
                     responseText: generatedResponseText,
                   },
@@ -18612,7 +18834,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       imageData: imgBase64,
-                      thumbnail: undefined,
+                      thumbnail: runtimeThumbnail || undefined,
                     },
                   };
                 return n;
@@ -18645,6 +18867,7 @@ function FlowInner() {
               fileName: `flow_${node.type || "generate"}_${historyId}.png`,
               projectId,
               keepThumbnail: false,
+              createRemoteThumbnail: true,
               metadata: {
                 ...(out.metadata || {}),
                 model: out.model || nodeSpecificModel,
@@ -18652,7 +18875,7 @@ function FlowInner() {
                 provider: runProvider,
               },
             })
-              .then(({ remoteUrl }) => {
+              .then(({ remoteUrl, thumbnail }) => {
                 if (!remoteUrl) return;
                 const outs = rf.getEdges().filter((e) => e.source === nodeId);
                 setNodes((ns) =>
@@ -18666,7 +18889,7 @@ function FlowInner() {
                           ...n.data,
                           imageUrl: remoteUrl,
                           imageData: undefined,
-                          thumbnail: undefined,
+                          thumbnail,
                           lastHistoryId:
                             historyId ?? (n.data as any)?.lastHistoryId,
                         },
@@ -18685,7 +18908,7 @@ function FlowInner() {
                           ...n.data,
                           imageUrl: remoteUrl,
                           imageData: undefined,
-                          thumbnail: undefined,
+                          thumbnail,
                         },
                       };
                     }

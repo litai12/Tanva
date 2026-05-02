@@ -71,6 +71,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
   const lastZoomRef = useRef(zoom); // 缓存上次的缩放值
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
+  const zoomRedrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Paper.js对象池 - 优化：增加池大小和清理机制
   const pathPoolRef = useRef<paper.Path[]>([]);
@@ -602,6 +603,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 如果网格和坐标轴都关闭，清理并返回
     if (!showGrid && !showAxis) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       const gridLayer = gridLayerRef.current;
       if (gridLayer && !isLayerRemoved(gridLayer)) {
         gridLayer.removeChildren();
@@ -634,6 +639,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const shouldRedraw = shouldRedrawFromPan || zoomChanged;
 
     if (isFirstRender) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       createGrid(gridSize);
       lastPanRef.current = { x: panX, y: panY };
       lastZoomRef.current = zoom;
@@ -641,12 +650,39 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       return;
     }
 
+    if (zoomChanged) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+      }
+      zoomRedrawTimerRef.current = setTimeout(() => {
+        const state = useCanvasStore.getState();
+        createGrid(gridSizeRef.current);
+        lastPanRef.current = { x: state.panX, y: state.panY };
+        lastZoomRef.current = state.zoom;
+        zoomRedrawTimerRef.current = null;
+      }, 140);
+      return;
+    }
+
     if (shouldRedraw) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       createGrid(gridSize);
       lastPanRef.current = { x: panX, y: panY };
       lastZoomRef.current = zoom;
     }
   }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, gridColor, gridBgColor, gridBgEnabled, createGrid]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // 额外的初始化兜底：在 Paper 初始化后的下一帧与100ms后各触发一次渲染
   useEffect(() => {

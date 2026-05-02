@@ -81,6 +81,8 @@ function isImageLikeKey(key: string): boolean {
     "thumbnails",
     "thumbnaildataurl",
     "thumbnailurl",
+    "previewurl",
+    "previewkey",
     "poster",
     "cover",
   ];

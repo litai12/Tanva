@@ -3,6 +3,7 @@ import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import { createUploadedImagePreviewAsset } from '@/services/imagePreviewAssetService';
 import type { StoredImageAsset } from '@/types/canvas';
 import { generateOssKey } from '@/services/ossUploadService';
 import { useTranslation } from 'react-i18next';
@@ -77,6 +78,10 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
 
       if (result.success && result.asset?.url) {
         logger.upload('Image uploaded and upgraded to remote source.');
+        const preview = await createUploadedImagePreviewAsset(file, {
+          projectId,
+          fileName: file.name,
+        }).catch(() => null);
         try {
           window.dispatchEvent(
             new CustomEvent('tanva:upgradeImageSource', {
@@ -84,6 +89,8 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
                 placeholderId: imageId,
                 key: result.asset.key || key,
                 remoteUrl: result.asset.url,
+                previewUrl: preview?.url,
+                previewKey: preview?.key,
               },
             }),
           );

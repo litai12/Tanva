@@ -1,5 +1,10 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-02 Update
+- Flow Image/ImagePro 节点、Generate/Generate4/GeneratePro4/Nano2/Seedream5 等图片生成写回链路现在优先使用 `thumbnail/thumbnails` 做节点卡片展示；`imageUrl/imageUrls/imageData` 仍作为高清预览、下载、编辑和下游 AI 输入的原图来源。
+- Canvas 发送图片到 Flow 时会携带画布资产的 `previewUrl/previewKey` 作为初始 `thumbnail`，避免 4K 原图刚进入 Flow 节点时先被 `<img>` 解码。
+- 上传到画布的图片资产新增远程 `previewUrl/previewKey` 元数据，Paper Raster 渲染优先使用预览图；保存链路缺失预览时会补生成远程 WebP 预览，设计 JSON 仍只保存远程 URL/OSS key。
+
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.
 - Analysis node requests are forced to Banana normal route, independent from global normal/stable channel toggles.
@@ -20,6 +25,7 @@
 - Flow 缩放事件在节点输入框场景下调整为“缩放优先”：`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` �?`textarea` 在缩放手势下会放行给 Flow 画布（按 `wheelZoomMode` 计算），避免输入框捕获滚轮后触发浏览器整页缩放；非缩放滚轮仍保留输入区原生滚动�?
 - `GlobalZoomCapture` �?`gesturestart/gesturechange` �?Flow 区域不再旁路，可将触控板 pinch（含 Safari 手势事件）映射到画布缩放�?D 视口区域仍保持旁路以避免冲突�?
 - FPS 调试浮层复用同一开关采样节点拖拽、图片拖拽/缩放与画布缩放；画布缩放期间会显示 `Zoom FPS`、最大帧耗时和长帧数。
+- Canvas -> Flow 视口同步在缩放/平移期间按 `requestAnimationFrame` 合并，低细节模式与 FPS 缩放采样改为 store 订阅而非高频 React render；网格会在缩放停顿后再重建，降低缩放时长帧。
 - Flow 新增低细节渲染模式：当节点数达到阈值且缩放 `<= 40%` 时自动启用（缩放恢复�?`> 45%` 时退出，避免阈值抖动）�?
 - 低细节模式下，节点缩略图不再渲染真实图像：`SmartImage` 直接降级为灰色占位块，且部分裁切缩略�?`canvas`（如 `Image/Generate/GeneratePro/Generate4/Analyze/ImageSplit/ImageGrid`）也会改为灰块占位，从而减少缩小时的大量图像重绘与解码压力�?
 - 低细节模式下会隐藏所有连线与 MiniMap（含图片叠加层），节点仍保留原始 UI 结构，以兼顾性能与可读性�?

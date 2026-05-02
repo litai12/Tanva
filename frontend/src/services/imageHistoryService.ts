@@ -1,4 +1,5 @@
 import { imageUploadService } from '@/services/imageUploadService';
+import { createUploadedImagePreviewAsset } from '@/services/imagePreviewAssetService';
 import type { ImageHistoryItem } from '@/stores/imageHistoryStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
@@ -249,6 +250,8 @@ interface RecordImageHistoryOptions {
   keepThumbnail?: boolean;
   mimeType?: string;
   thumbnailDataUrl?: string;
+  createRemoteThumbnail?: boolean;
+  thumbnailMaxSize?: number;
   skipGlobalHistory?: boolean;
   metadata?: Record<string, any>;
 }
@@ -306,11 +309,36 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   const dataUrl =
     options.dataUrl ??
     (options.base64 ? ensureDataUrl(options.base64, mimeType) : undefined);
-  const resolvedThumbnail =
+  let resolvedThumbnail =
     options.thumbnailDataUrl ??
     (options.keepThumbnail && dataUrl?.startsWith('data:')
       ? dataUrl
       : undefined);
+  const ensureRemoteThumbnail = async (source?: string): Promise<string | undefined> => {
+    if (!options.createRemoteThumbnail) return resolvedThumbnail;
+    if (resolvedThumbnail && isPersistableImageRef(resolvedThumbnail)) {
+      return resolvedThumbnail;
+    }
+    const thumbnailSource =
+      options.thumbnailDataUrl ||
+      (dataUrl && dataUrl.trim()) ||
+      source;
+    if (!thumbnailSource) return resolvedThumbnail;
+    try {
+      const preview = await createUploadedImagePreviewAsset(thumbnailSource, {
+        projectId,
+        dir: projectId ? `projects/${projectId}/image-previews/` : 'uploads/image-previews/',
+        fileName: options.fileName,
+        maxSize: options.thumbnailMaxSize,
+      });
+      if (preview?.url) {
+        resolvedThumbnail = preview.url;
+      }
+    } catch {
+      // Thumbnail is an optimization; original history should still be recorded.
+    }
+    return resolvedThumbnail;
+  };
 
   const initialSrc =
     normalizedRemoteUrl
@@ -347,6 +375,13 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
         projectId,
       });
     }
+    await ensureRemoteThumbnail(dataUrl || persistedRemoteUrl);
+    if (!skipInitialStoreUpdate && resolvedThumbnail) {
+      store.updateImage(id, {
+        thumbnail: resolvedThumbnail,
+        projectId,
+      });
+    }
     enqueueGlobalHistoryWrite(persistedRemoteUrl);
     return { id, remoteUrl: persistedRemoteUrl, thumbnail: resolvedThumbnail };
   }
@@ -368,6 +403,13 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
         projectId,
       });
     }
+    await ensureRemoteThumbnail(persistedRemoteUrl);
+    if (!skipInitialStoreUpdate && resolvedThumbnail) {
+      store.updateImage(id, {
+        thumbnail: resolvedThumbnail,
+        projectId,
+      });
+    }
     enqueueGlobalHistoryWrite(persistedRemoteUrl);
     return { id, remoteUrl: persistedRemoteUrl, thumbnail: resolvedThumbnail };
   }
@@ -383,10 +425,16 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
 
     if (uploadResult.success && uploadResult.asset?.url) {
       const remoteUrl = uploadResult.asset.url;
+      await ensureRemoteThumbnail(dataUrl || remoteUrl);
       store.updateImage(id, {
         src: remoteUrl,
         remoteUrl,
-        thumbnail: keepThumbnail ? resolvedThumbnail ?? dataUrl : undefined,
+        thumbnail:
+          resolvedThumbnail && isPersistableImageRef(resolvedThumbnail)
+            ? resolvedThumbnail
+            : keepThumbnail
+            ? resolvedThumbnail ?? dataUrl
+            : undefined,
         projectId,
       });
 

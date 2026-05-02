@@ -8,6 +8,7 @@ import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { createUploadedImagePreviewAsset } from "@/services/imagePreviewAssetService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { imageUploadService } from "@/services/imageUploadService";
@@ -1417,6 +1418,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const newImageId = `${id}-${Date.now()}`;
     setCurrentImageId(newImageId);
     const uploadToken = `upload-${newImageId}`;
+    const previewUpload = createUploadedImagePreviewAsset(file, {
+      projectId,
+      fileName: file.name || `flow_image_${newImageId}.png`,
+      maxSize: 512,
+    }).catch(() => null);
 
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
@@ -1508,6 +1514,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
         (typeof uploadResult.asset.url === "string" &&
           uploadResult.asset.url.trim()) ||
         persistedRef;
+      const previewAsset = await previewUpload;
+      const thumbnailRef = previewAsset?.url || undefined;
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
@@ -1515,7 +1523,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
             patch: {
               imageUrl: persistedDisplayRef,
               imageData: undefined,
-              thumbnail: undefined,
+              thumbnail: thumbnailRef,
               uploading: false,
               uploadError: undefined,
               uploadToken: undefined,
@@ -1543,7 +1551,18 @@ function ImageNodeInner({ id, data, selected }: Props) {
         fileName: uploadResult.asset.fileName || file.name || `flow_image_${newImageId}.png`,
         projectId,
         keepThumbnail: false,
-      }).catch(() => {});
+        thumbnailDataUrl: thumbnailRef,
+        createRemoteThumbnail: !thumbnailRef,
+      })
+        .then(({ thumbnail }) => {
+          if (!thumbnail) return;
+          window.dispatchEvent(
+            new CustomEvent("flow:updateNodeData", {
+              detail: { id, patch: { thumbnail } },
+            })
+          );
+        })
+        .catch(() => {});
     } catch (err: any) {
       const errorMessage = err?.message || lt("上传失败", "Upload failed");
       window.dispatchEvent(

@@ -20,6 +20,12 @@ export interface StoredImageAsset {
   height?: number;
   contentType?: string;
   src?: string;
+  /** 画布/节点展示用的远程预览图；高清操作继续使用 url/remoteUrl/key。 */
+  previewUrl?: string;
+  previewKey?: string;
+  previewWidth?: number;
+  previewHeight?: number;
+  previewContentType?: string;
   pendingUpload?: boolean;
   localDataUrl?: string;
 }

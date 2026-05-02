@@ -434,7 +434,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const preferredDisplaySrc = pickRuntimeImageSource({
         pendingUpload: asset.pendingUpload,
         localDataUrl: asset.localDataUrl,
-        persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+        persistedCandidates: [asset.previewUrl, asset.previewKey, persistedSrc, persistedUrl, asset.url],
       });
 
       // 更新React状态中的bounds为实际尺寸
@@ -453,6 +453,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             // 上传中优先本地预览；上传完成/恢复时优先可持久化来源
             src: preferredDisplaySrc || asset.url,
             key: asset.key || img.imageData.key,
+            remoteUrl: asset.remoteUrl || img.imageData.remoteUrl,
+            previewUrl: asset.previewUrl || img.imageData.previewUrl,
+            previewKey: asset.previewKey || img.imageData.previewKey,
+            previewWidth: asset.previewWidth || img.imageData.previewWidth,
+            previewHeight: asset.previewHeight || img.imageData.previewHeight,
+            previewContentType: asset.previewContentType || img.imageData.previewContentType,
             fileName: asset.fileName || img.imageData.fileName,
             width: originalWidth,
             height: originalHeight,
@@ -490,8 +496,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const normalizedUrl = normalizePersistableImageRef(asset.url);
     const normalizedSrc = normalizePersistableImageRef(asset.src);
     const normalizedKey = normalizePersistableImageRef(asset.key);
+    const normalizedRemote = normalizePersistableImageRef(asset.remoteUrl);
     const persistedUrl = (normalizedKey || normalizedUrl || asset.url).trim();
     const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    const originalRemoteUrl =
+      (normalizedRemote && isRemoteUrl(normalizedRemote) ? normalizedRemote : undefined) ||
+      (normalizedUrl && isRemoteUrl(normalizedUrl) ? normalizedUrl : undefined);
 
     // 记录元数据：remoteUrl 仅存 http(s)，key 单独存
     if (!raster.data) raster.data = {};
@@ -500,14 +510,20 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     } else if (persistedUrl && isAssetKeyRef(persistedUrl)) {
       (raster.data as any).key = persistedUrl;
     }
-    if (persistedSrc && isRemoteUrl(persistedSrc)) {
-      (raster.data as any).remoteUrl = persistedSrc;
+    if (originalRemoteUrl) {
+      (raster.data as any).remoteUrl = originalRemoteUrl;
+    }
+    if (asset.previewUrl) {
+      (raster.data as any).previewUrl = asset.previewUrl;
+    }
+    if (asset.previewKey) {
+      (raster.data as any).previewKey = asset.previewKey;
     }
 
     const preferredDisplaySrc = pickRuntimeImageSource({
       pendingUpload: asset.pendingUpload,
       localDataUrl: asset.localDataUrl,
-      persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+      persistedCandidates: [asset.previewUrl, asset.previewKey, persistedSrc, persistedUrl, asset.url],
     });
     const sourceForRaster = preferredDisplaySrc || asset.url;
     if (sourceForRaster) {
@@ -536,7 +552,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         // 上传中仍允许 src=blob:；上传完成后优先使用可持久化来源
         src: preferredDisplaySrc || persistedSrc || persistedUrl || asset.url,
         key: normalizedKey || asset.key,
-        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
+        remoteUrl: originalRemoteUrl,
+        previewUrl: asset.previewUrl,
+        previewKey: asset.previewKey,
+        previewWidth: asset.previewWidth,
+        previewHeight: asset.previewHeight,
+        previewContentType: asset.previewContentType,
         fileName: asset.fileName,
         width: asset.width,
         height: asset.height,
@@ -1468,7 +1489,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const preferredSource = pickRuntimeImageSource({
         pendingUpload: snap?.pendingUpload,
         localDataUrl: snap?.localDataUrl,
-        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+        persistedCandidates: [snap?.previewUrl, snap?.previewKey, snap?.src, snap?.url, snap?.key],
       });
       if (!preferredSource) continue;
 
@@ -1496,6 +1517,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       }
       if (normalizedUrl && isRemoteUrl(normalizedUrl)) {
         (raster.data as any).remoteUrl = normalizedUrl;
+      }
+      if (snap.previewUrl) {
+        (raster.data as any).previewUrl = snap.previewUrl;
+      }
+      if (snap.previewKey) {
+        (raster.data as any).previewKey = snap.previewKey;
       }
 
       setRasterSourceSafely(raster, renderable);
@@ -1537,7 +1564,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         const source = pickRuntimeImageSource({
           pendingUpload: snap?.pendingUpload,
           localDataUrl: snap?.localDataUrl,
-          persistedCandidates: [snap?.src, snap?.url, snap?.key],
+          persistedCandidates: [snap?.previewUrl, snap?.previewKey, snap?.src, snap?.url, snap?.key],
         });
         return {
           id: snap.id,
@@ -1547,6 +1574,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             src: source || snap.src || snap.url || '',
             key: snap.key,
             remoteUrl: snap.remoteUrl,
+            previewUrl: snap.previewUrl,
+            previewKey: snap.previewKey,
+            previewWidth: snap.previewWidth,
+            previewHeight: snap.previewHeight,
+            previewContentType: snap.previewContentType,
             fileName: snap.fileName,
             width: snap.width,
             height: snap.height,
@@ -1575,7 +1607,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const preferredSource = pickRuntimeImageSource({
         pendingUpload: snap?.pendingUpload,
         localDataUrl: snap?.localDataUrl,
-        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+        persistedCandidates: [snap?.previewUrl, snap?.previewKey, snap?.src, snap?.url, snap?.key],
       });
       const resolvedUrl = preferredSource || snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
       if (!snap || !resolvedUrl || !snap.bounds) return;
@@ -1592,6 +1624,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           url: snap.url ?? snap.key ?? resolvedUrl,
           src: preferredSource || snap.src || snap.url || resolvedUrl,
           key: snap.key,
+          previewUrl: snap.previewUrl,
+          previewKey: snap.previewKey,
+          previewWidth: snap.previewWidth,
+          previewHeight: snap.previewHeight,
+          previewContentType: snap.previewContentType,
           fileName: snap.fileName,
           width: snap.width,
           height: snap.height,
@@ -1609,7 +1646,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const preferredSource = pickRuntimeImageSource({
         pendingUpload: snap?.pendingUpload,
         localDataUrl: snap?.localDataUrl,
-        persistedCandidates: [snap?.src, snap?.url, snap?.key],
+        persistedCandidates: [snap?.previewUrl, snap?.previewKey, snap?.src, snap?.url, snap?.key],
       });
       return {
         ...img,
@@ -1626,6 +1663,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           src: preferredSource || img.imageData.src,
           key: snap.key ?? img.imageData.key,
           remoteUrl: snap.remoteUrl ?? img.imageData.remoteUrl,
+          previewUrl: snap.previewUrl ?? img.imageData.previewUrl,
+          previewKey: snap.previewKey ?? img.imageData.previewKey,
+          previewWidth: snap.previewWidth ?? img.imageData.previewWidth,
+          previewHeight: snap.previewHeight ?? img.imageData.previewHeight,
+          previewContentType: snap.previewContentType ?? img.imageData.previewContentType,
           fileName: snap.fileName ?? img.imageData.fileName,
           width: snap.width ?? img.imageData.width,
           height: snap.height ?? img.imageData.height,
@@ -1651,7 +1693,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const source = pickRuntimeImageSource({
       pendingUpload: snapshot.pendingUpload,
       localDataUrl: snapshot.localDataUrl,
-      persistedCandidates: [snapshot.src, snapshot.url, snapshot.key],
+      persistedCandidates: [snapshot.previewUrl, snapshot.previewKey, snapshot.src, snapshot.url, snapshot.key],
     }) || snapshot.localDataUrl || snapshot.src || snapshot.url || snapshot.key;
     if (!source) {
       console.warn('复制的图片缺少有效的资源地址，无法粘贴');
@@ -1691,6 +1733,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       aspectRatio: (snapshot.width ?? snapshot.bounds.width) / (snapshot.height ?? snapshot.bounds.height),
       __tanvaImageInitialized: false,
       __tanvaBounds: targetBounds,
+      ...(snapshot.previewUrl ? { previewUrl: snapshot.previewUrl } : {}),
+      ...(snapshot.previewKey ? { previewKey: snapshot.previewKey } : {}),
     };
 
     // 🔥 关键：在设置 source 之前先设置初始 bounds，避免"幽灵框"
@@ -1743,11 +1787,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       raster.bounds = finalBounds;
 
       // 更新 raster.data 中的原始尺寸（使用实际加载的图片尺寸）
+      const sourceWidth = snapshot.width ?? raster.width;
+      const sourceHeight = snapshot.height ?? raster.height;
       raster.data = {
         ...raster.data,
-        originalWidth: raster.width,
-        originalHeight: raster.height,
-        aspectRatio: raster.width / raster.height,
+        originalWidth: sourceWidth,
+        originalHeight: sourceHeight,
+        aspectRatio: sourceWidth / sourceHeight,
       };
 
       // 添加选择框和控制点
@@ -1774,8 +1820,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           },
           imageData: {
             ...img.imageData,
-            width: raster.width,
-            height: raster.height,
+            width: sourceWidth,
+            height: sourceHeight,
           }
         } : img
       ));
@@ -1792,16 +1838,26 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const normalizedUrl = normalizePersistableImageRef(snapshot.url);
     const normalizedSrc = normalizePersistableImageRef(snapshot.src);
     const normalizedKey = normalizePersistableImageRef(snapshot.key);
+    const normalizedRemote = normalizePersistableImageRef(snapshot.remoteUrl);
     const persistedUrl = (normalizedKey || normalizedUrl || source).trim();
     const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    const originalRemoteUrl =
+      (normalizedRemote && isRemoteUrl(normalizedRemote) ? normalizedRemote : undefined) ||
+      (normalizedUrl && isRemoteUrl(normalizedUrl) ? normalizedUrl : undefined);
     if (!raster.data) raster.data = {};
     if (normalizedKey && isAssetKeyRef(normalizedKey)) {
       (raster.data as any).key = normalizedKey;
     } else if (persistedUrl && isAssetKeyRef(persistedUrl)) {
       (raster.data as any).key = persistedUrl;
     }
-    if (persistedSrc && isRemoteUrl(persistedSrc)) {
-      (raster.data as any).remoteUrl = persistedSrc;
+    if (originalRemoteUrl) {
+      (raster.data as any).remoteUrl = originalRemoteUrl;
+    }
+    if (snapshot.previewUrl) {
+      (raster.data as any).previewUrl = snapshot.previewUrl;
+    }
+    if (snapshot.previewKey) {
+      (raster.data as any).previewKey = snapshot.previewKey;
     }
     const renderable = toRenderableImageSrc(source);
     if (renderable) {
@@ -1814,9 +1870,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       imageData: {
         id: imageId,
         url: persistedUrl || source,
-        src: persistedSrc || persistedUrl || source,
+        src: source,
         key: normalizedKey || snapshot.key,
-        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
+        remoteUrl: originalRemoteUrl,
+        previewUrl: snapshot.previewUrl,
+        previewKey: snapshot.previewKey,
+        previewWidth: snapshot.previewWidth,
+        previewHeight: snapshot.previewHeight,
+        previewContentType: snapshot.previewContentType,
         fileName: snapshot.fileName,
         width: snapshot.width ?? snapshot.bounds.width,
         height: snapshot.height ?? snapshot.bounds.height,

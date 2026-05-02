@@ -232,7 +232,7 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
   const data = imageData as Record<string, unknown>;
 
   // 优先使用可持久化引用（remoteUrl 优先）
-  const urlCandidates = ["remoteUrl", "src", "url", "key"];
+  const urlCandidates = ["remoteUrl", "url", "key", "src"];
   for (const key of urlCandidates) {
     const candidate = data[key];
     if (typeof candidate !== "string" || candidate.length === 0) continue;
@@ -951,14 +951,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (inlineSource) {
               return imageInstance.imageData?.url ?? cached?.remoteUrl ?? null;
             }
-            if (typeof rawSource === "string" && rawSource.length > 0) {
-              return rawSource;
+            if (
+              typeof imageInstance.imageData?.remoteUrl === "string" &&
+              imageInstance.imageData.remoteUrl.length > 0
+            ) {
+              return imageInstance.imageData.remoteUrl;
             }
             if (
               typeof imageInstance.imageData?.url === "string" &&
               imageInstance.imageData.url.length > 0
             ) {
               return imageInstance.imageData.url;
+            }
+            if (typeof rawSource === "string" && rawSource.length > 0) {
+              return rawSource;
             }
             return cached?.remoteUrl ?? null;
           })();
@@ -1899,6 +1905,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         persistedUrl: string;
         incomingKey?: string;
         incomingSrc?: string;
+        previewUrl?: string;
+        previewKey?: string;
         nextRenderableSrc: string;
         loadedImage: HTMLImageElement;
       }): boolean => {
@@ -1907,6 +1915,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           persistedUrl,
           incomingKey,
           incomingSrc,
+          previewUrl,
+          previewKey,
           nextRenderableSrc,
           loadedImage,
         } = params;
@@ -1976,6 +1986,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 localDataUrl: undefined,
                 src: nextRenderableSrc,
               };
+              if (previewUrl) nextImageData.previewUrl = previewUrl;
+              if (previewKey) nextImageData.previewKey = previewKey;
               if (incomingSrc) {
                 nextImageData.remoteUrl = incomingSrc;
               } else if (typeof imageData.remoteUrl === "string" && imageData.remoteUrl) {
@@ -2010,6 +2022,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               localDataUrl: undefined,
               src: nextRenderableSrc,
             };
+            if (previewUrl) nextImageData.previewUrl = previewUrl;
+            if (previewKey) nextImageData.previewKey = previewKey;
             if (incomingSrc) {
               nextImageData.remoteUrl = incomingSrc;
             } else if (typeof imageData.remoteUrl === "string" && imageData.remoteUrl) {
@@ -2111,6 +2125,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 ...(raster.data || {}),
                 ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
                 ...(incomingKey ? { key: incomingKey } : null),
+                ...(previewUrl ? { previewUrl } : null),
+                ...(previewKey ? { previewKey } : null),
                 pendingUpload: false,
               };
 
@@ -2157,16 +2173,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	      placeholderId: string;
 	      remoteUrl?: string;
 	      key?: string;
+          previewUrl?: string;
+          previewKey?: string;
 	    }): boolean => {
-	      const { placeholderId, remoteUrl, key } = params;
+	      const { placeholderId, remoteUrl, key, previewUrl, previewKey } = params;
 	      const rawRemoteUrl = typeof remoteUrl === "string" ? remoteUrl : "";
 	      const rawKey = typeof key === "string" ? key : "";
+          const rawPreviewUrl = typeof previewUrl === "string" ? previewUrl : "";
+          const rawPreviewKey = typeof previewKey === "string" ? previewKey : "";
 	      if (!placeholderId || (!rawRemoteUrl && !rawKey)) return false;
 
 	      const normalizedIncoming = rawRemoteUrl
 	        ? normalizePersistableImageRef(rawRemoteUrl) || rawRemoteUrl
 	        : "";
 	      const normalizedKey = rawKey ? normalizePersistableImageRef(rawKey) || rawKey : "";
+          const normalizedPreviewUrl = rawPreviewUrl
+            ? normalizePersistableImageRef(rawPreviewUrl) || rawPreviewUrl
+            : "";
+          const normalizedPreviewKey = rawPreviewKey
+            ? normalizePersistableImageRef(rawPreviewKey) || rawPreviewKey
+            : "";
 
 	      const incomingKey =
 	        (normalizedKey && isAssetKeyRef(normalizedKey) ? normalizedKey : undefined) ||
@@ -2180,9 +2206,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	      const resolvedRemoteUrl = incomingSrc || undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 	      if (!persistedUrl) return false;
-        const nextRenderableSrc = toRenderableImageSrc(
-          resolvedRemoteUrl || incomingSrc || persistedUrl
-        );
+          const incomingPreviewKey =
+            normalizedPreviewKey && isAssetKeyRef(normalizedPreviewKey)
+              ? normalizedPreviewKey
+              : undefined;
+          const incomingPreviewUrl =
+            normalizedPreviewUrl && isRemoteUrl(normalizedPreviewUrl)
+              ? normalizedPreviewUrl
+              : undefined;
+          const displayCandidate =
+            incomingPreviewUrl ||
+            incomingPreviewKey ||
+            resolvedRemoteUrl ||
+            incomingSrc ||
+            persistedUrl;
+        const nextRenderableSrc = toRenderableImageSrc(displayCandidate);
         if (!nextRenderableSrc) return false;
 	      const nextStoredUrl = (resolvedRemoteUrl || incomingSrc || persistedUrl).trim();
 
@@ -2242,6 +2280,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              ...imageData,
 	              url: nextStoredUrl,
 	              key: incomingKey || imageData.key,
+                  ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
+                  ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
 	              pendingUpload: false,
 	            };
 	            if (nextRemoteUrl) {
@@ -2250,7 +2290,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            // 仅回写元数据，不立即切换渲染源；等远程资源加载完成后再覆盖，避免闪白/裂图
 	            if (!currentSrc) {
 	              // 缺失时补齐一个可渲染引用
-	              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
+	              const candidate =
+                    incomingPreviewUrl ||
+                    incomingPreviewKey ||
+                    nextRemoteUrl ||
+                    incomingSrc ||
+                    persistedUrl;
 	              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
 	            }
 
@@ -2299,6 +2344,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ...imageData,
               url: nextStoredUrl,
               key: incomingKey || imageData.key,
+              ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
+              ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
               pendingUpload: false,
             };
 	            if (nextRemoteUrl) {
@@ -2307,7 +2354,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	            // 仅回写元数据，不立即切换渲染源；等远程资源加载完成后再覆盖，避免闪白/裂图
 	            if (!currentSrc) {
-	              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
+	              const candidate =
+                    incomingPreviewUrl ||
+                    incomingPreviewKey ||
+                    nextRemoteUrl ||
+                    incomingSrc ||
+                    persistedUrl;
 	              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
 	            }
 
@@ -2333,6 +2385,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              ...(raster.data || {}),
 	              ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
 	              ...(incomingKey ? { key: incomingKey } : null),
+                  ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
+                  ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
 	              pendingUpload: false,
 	            };
 	            updated = true;
@@ -2384,6 +2438,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               persistedUrl,
               incomingKey,
               incomingSrc,
+              previewUrl: incomingPreviewUrl,
+              previewKey: incomingPreviewKey,
               nextRenderableSrc,
               loadedImage: loaded,
             });
@@ -2402,13 +2458,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	      const placeholderId = String(detail.placeholderId || "");
 	      const remoteUrl = typeof detail.remoteUrl === "string" ? detail.remoteUrl : "";
 	      const key = typeof detail.key === "string" ? detail.key : "";
+          const previewUrl = typeof detail.previewUrl === "string" ? detail.previewUrl : "";
+          const previewKey = typeof detail.previewKey === "string" ? detail.previewKey : "";
 	      const ref = remoteUrl || key;
 	      if (!placeholderId || !ref) return;
 
 	      let attempts = 0;
 	      const maxAttempts = 10;
         const attempt = () => {
-          const ok = tryUpgrade({ placeholderId, remoteUrl, key });
+          const ok = tryUpgrade({ placeholderId, remoteUrl, key, previewUrl, previewKey });
           if (ok) {
             logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
               placeholderId,

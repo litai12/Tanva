@@ -7,6 +7,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
+import { createUploadedImagePreviewAsset } from '@/services/imagePreviewAssetService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
@@ -690,6 +691,58 @@ class PaperSaveService {
       // 若 pendingUpload=true，则仍需要走补传逻辑（避免“先关联 key + blob 预览”场景被误判为已上传而丢图）。
       if (hasRemote && !image.pendingUpload) {
         this.clearRasterCanvasBlobFallbackState(image.id);
+        if (!image.previewUrl && !image.previewKey) {
+          tasks.push(
+            limiter.run(async () => {
+              const source =
+                image.localDataUrl ||
+                image.remoteUrl ||
+                image.url ||
+                image.src ||
+                image.key;
+              if (!source) return { uploaded: 0, failed: 0 };
+              const preview = await createUploadedImagePreviewAsset(source, {
+                projectId,
+                fileName: image.fileName || `preview_${image.id || Date.now()}.png`,
+              }).catch(() => null);
+              if (!preview?.url) return { uploaded: 0, failed: 0 };
+              image.previewUrl = preview.url;
+              image.previewKey = preview.key;
+              image.previewWidth = preview.width;
+              image.previewHeight = preview.height;
+              image.previewContentType = preview.contentType;
+              image.width = image.width || preview.sourceWidth;
+              image.height = image.height || preview.sourceHeight;
+              image.src = preview.url;
+              this.syncRuntimeImageAsset(
+                image.id,
+                {
+                  src: image.src,
+                  previewUrl: image.previewUrl,
+                  previewKey: image.previewKey,
+                  previewWidth: image.previewWidth,
+                  previewHeight: image.previewHeight,
+                  previewContentType: image.previewContentType,
+                  width: image.width,
+                  height: image.height,
+                },
+                runtimeMap,
+              );
+              try {
+                window.dispatchEvent(new CustomEvent('tanva:upgradeImageSource', {
+                  detail: {
+                    placeholderId: image.id,
+                    remoteUrl: image.remoteUrl || image.url,
+                    key: image.key,
+                    previewUrl: image.previewUrl,
+                    previewKey: image.previewKey,
+                  },
+                }));
+              } catch {}
+              return { uploaded: 0, failed: 0 };
+            })
+          );
+        }
         const hadLocalDataUrl =
           typeof image.localDataUrl === 'string' &&
           (image.localDataUrl.startsWith('blob:') || image.localDataUrl.startsWith('data:'));
@@ -702,6 +755,9 @@ class PaperSaveService {
                 detail: {
                   placeholderId: image.id,
                   remoteUrl: refCandidate,
+                  key: image.key,
+                  previewUrl: image.previewUrl,
+                  previewKey: image.previewKey,
                 },
               }));
             } catch {}
@@ -756,14 +812,30 @@ class PaperSaveService {
             if (uploadResult.success && uploadResult.asset?.url) {
               const uploadedAsset = uploadResult.asset;
               const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
+              const preview = image.previewUrl || image.previewKey
+                ? null
+                : await createUploadedImagePreviewAsset(
+                    inlineSource.kind === 'blob' ? inlineSource.value : inlineSource.value,
+                    {
+                      projectId,
+                      fileName: image.fileName || uploadedAsset.fileName || uploadOptions.fileName,
+                    }
+                  ).catch(() => null);
               image.url = (uploadedAsset.key || uploadedAsset.url).trim();
               image.key = uploadedAsset.key || image.key;
               image.remoteUrl = uploadedAsset.url;
-              // 持久化快照里保留远程 src，避免保存 blob/dataURL 到设计 JSON
-              image.src = uploadedAsset.url;
+              if (preview?.url) {
+                image.previewUrl = preview.url;
+                image.previewKey = preview.key;
+                image.previewWidth = preview.width;
+                image.previewHeight = preview.height;
+                image.previewContentType = preview.contentType;
+              }
+              // 持久化快照里保留远程 src，优先用低分辨率预览渲染。
+              image.src = image.previewUrl || uploadedAsset.url;
               image.fileName = image.fileName || uploadedAsset.fileName;
-              image.width = image.width || uploadedAsset.width;
-              image.height = image.height || uploadedAsset.height;
+              image.width = image.width || uploadedAsset.width || preview?.sourceWidth;
+              image.height = image.height || uploadedAsset.height || preview?.sourceHeight;
               image.pendingUpload = false;
               this.clearRasterCanvasBlobFallbackState(image.id);
               delete image.localDataUrl;
@@ -773,6 +845,14 @@ class PaperSaveService {
                   url: image.url,
                   key: image.key,
                   remoteUrl: image.remoteUrl,
+                  src: image.src,
+                  previewUrl: image.previewUrl,
+                  previewKey: image.previewKey,
+                  previewWidth: image.previewWidth,
+                  previewHeight: image.previewHeight,
+                  previewContentType: image.previewContentType,
+                  width: image.width,
+                  height: image.height,
                   pendingUpload: false,
                   localDataUrl: undefined,
                 },
@@ -784,6 +864,9 @@ class PaperSaveService {
                   detail: {
                     placeholderId: image.id,
                     remoteUrl: image.url || uploadedAsset.url,
+                    key: image.key,
+                    previewUrl: image.previewUrl,
+                    previewKey: image.previewKey,
                   },
                 }));
               } catch {}
@@ -918,6 +1001,11 @@ class PaperSaveService {
             width: data?.width,
             height: data?.height,
             contentType: data?.contentType,
+            previewUrl: data?.previewUrl,
+            previewKey: data?.previewKey,
+            previewWidth: data?.previewWidth,
+            previewHeight: data?.previewHeight,
+            previewContentType: data?.previewContentType,
             pendingUpload,
             localDataUrl: data?.localDataUrl,
             bounds: {
@@ -968,6 +1056,18 @@ class PaperSaveService {
               );
 
               const bounds = raster.bounds;
+              const originalWidth =
+                typeof raster?.data?.originalWidth === 'number' &&
+                Number.isFinite(raster.data.originalWidth) &&
+                raster.data.originalWidth > 0
+                  ? raster.data.originalWidth
+                  : raster.width;
+              const originalHeight =
+                typeof raster?.data?.originalHeight === 'number' &&
+                Number.isFinite(raster.data.originalHeight) &&
+                raster.data.originalHeight > 0
+                  ? raster.data.originalHeight
+                  : raster.height;
               collectedImageIds.add(imageId);
               images.push({
                 id: imageId,
@@ -975,8 +1075,10 @@ class PaperSaveService {
                 src: finalUrl,
                 locked,
                 fileName: raster?.data?.fileName,
-                width: raster.width,
-                height: raster.height,
+                width: originalWidth,
+                height: originalHeight,
+                previewUrl: typeof raster?.data?.previewUrl === 'string' ? raster.data.previewUrl : undefined,
+                previewKey: typeof raster?.data?.previewKey === 'string' ? raster.data.previewKey : undefined,
                 pendingUpload: !url || requiresManagedImageUpload(url || finalUrl),
                 localDataUrl: blobSource || undefined,
                 bounds: {

@@ -519,6 +519,8 @@ interface ImageData {
   key?: string;
   remoteUrl?: string;
   src?: string;
+  previewUrl?: string;
+  previewKey?: string;
   fileName?: string;
   pendingUpload?: boolean;
   localDataUrl?: string;
@@ -1645,13 +1647,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.stopPropagation();
 
       const run = async () => {
-        const persistableRef = (() => {
-          const candidates = [
-            imageData.remoteUrl,
-            imageData.key,
-            imageData.url,
-            imageData.src,
-          ];
+        const pickPersistableRef = (candidates: Array<string | undefined | null>) => {
           for (const candidate of candidates) {
             if (typeof candidate !== "string") continue;
             const trimmed = candidate.trim();
@@ -1660,16 +1656,33 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             if (isPersistableImageRef(normalized)) return normalized;
           }
           return null;
+        };
+
+        const persistableRef = (() => {
+          return pickPersistableRef([
+            imageData.remoteUrl,
+            imageData.key,
+            imageData.url,
+            imageData.src,
+          ]);
         })();
+        const previewRef = pickPersistableRef([
+          imageData.previewUrl,
+          imageData.previewKey,
+        ]);
 
         // 优先走远程引用，避免把 base64 写入 Flow 节点/项目 JSON
         if (persistableRef) {
           const resolvedImageUrl =
             toRenderableImageSrc(persistableRef) ?? persistableRef;
+          const resolvedThumbnail = previewRef
+            ? toRenderableImageSrc(previewRef) ?? previewRef
+            : undefined;
           window.dispatchEvent(
             new CustomEvent("flow:createImageNode", {
               detail: {
                 imageUrl: resolvedImageUrl,
+                thumbnail: resolvedThumbnail,
                 label: "Image",
                 imageName: imageData.fileName || `图片 ${imageData.id}`,
               },
@@ -1707,6 +1720,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.fileName,
       imageData.id,
       imageData.key,
+      imageData.previewKey,
+      imageData.previewUrl,
       imageData.remoteUrl,
       imageData.src,
       imageData.url,
@@ -2737,13 +2752,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         };
 
         pushCandidate(imageData.localDataUrl);
-        // Crop should follow what is currently rendered on canvas.
-        // Keep runtime/local source first, and only fallback to editing/original source.
-        pushCandidate(imageData.src);
-        pushCandidate(imageData.url);
         pushCandidate(imageData.remoteUrl);
+        pushCandidate(imageData.url);
         pushCandidate(imageData.key);
         pushCandidate(getImageDataForEditing?.(imageData.id));
+        pushCandidate(imageData.src);
 
         for (const candidate of candidates) {
           try {
