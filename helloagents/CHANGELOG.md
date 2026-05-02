@@ -20,11 +20,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Send To Canvas: `generate4` / `generatePro4` / `Midjourney V7` / `Niji 7` 多图发送现在使用 Flow 节点或所属 `nodeGroup` 的正下方作为锚点，避免继续接到画板已有 generate 图片队列末尾导致距离过远。
 - Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
 - Flow/Node Group Performance: 整组拖拽开始时缓存组内子节点起始位置，拖拽帧内不再全量读取节点并重建索引；拖拽中跳过组归一化扫描，降低大组移动时的 JS 每帧开销。
+- Flow/Node Group Run: 分组运行中底部运行按钮会切换为停止图标；点击后不会中断当前正在执行的节点，但会阻止组内后续未开始节点继续自动运行，并立即把按钮反馈为禁用的开始图标直到当前节点跑完。
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Progress: generation progress bars now keep a runtime `progressStartedAt` timestamp and derive simulated progress from elapsed time, so nodes that are unmounted by `onlyRenderVisibleElements` resume at the current progress when they return to the viewport instead of restarting the bar.
 - Canvas/Image Group: 画布复制粘贴与 `Alt` 拖拽复制现在会一并保存和重建 `image-group` 组块元数据，按新图片 ID 重新生成灰底框与标题，避免原本带组的图片复制后只剩散图。
 - Flow/Video Node: 普通 `Video` 输入节点的原生播放控件现在会隔离 pointer/mouse/touch 事件，并标记为 `nodrag/nopan/nowheel`，避免拖动进度条时触发 React Flow 节点拖拽导致进度条“吸住”（`frontend/src/components/flow/nodes/VideoNode.tsx`）。
 - Flow/Video Analysis: 视频分析节点补齐中文模式文案，覆盖标题、运行按钮、占位文案、错误文案和默认分析提示词；旧画布里自动写入的英文默认 prompt 会按当前语言切回本地化默认值（`frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`）。

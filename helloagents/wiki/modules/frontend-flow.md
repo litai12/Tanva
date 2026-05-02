@@ -12,6 +12,8 @@
 - Flow 节点“发送到画板”的多图结果（`Generate4` / `GeneratePro4` / `Midjourney V7` / `Niji 7`）现在锚定在触发节点正下方；若节点属于 `nodeGroup`，则改为锚定在整个分组正下方，再进行组内横向排布和画板自动打组。
 - `nodeGroup` 的复制/删除语义改为整组操作：选中组后 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会把组节点与 `childNodeIds` 内的子节点一起复制，并在新副本中重映射 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或触发 Flow 删除事件会一并删除组内节点与相关连线。
 - `nodeGroup` 整组拖拽性能优化：拖拽开始时缓存组内子节点位置，拖拽帧内按组位移直接生成子节点 position changes，避免每帧全量 `getNodes()`/建索引；拖拽期间也跳过组归一化扫描。
+- `nodeGroup` 分组运行中底部运行按钮会变为停止图标；点击后仅停止后续未开始节点的自动运行，不取消当前正在执行的节点/API 请求，并立即切回禁用的开始图标作为“停止中”反馈。
+- 生成进度条改为按运行态 `progressStartedAt` 推导模拟进度；`onlyRenderVisibleElements` 卸载视窗外节点后，节点回到视野时进度条会恢复到当前应有百分比，不再从初始进度重新播放。
 
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.

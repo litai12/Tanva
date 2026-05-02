@@ -41,6 +41,7 @@ type Props = {
   id: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
@@ -1621,7 +1622,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             right: 16,
             zIndex: 10,
           }}>
-            <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+            <GenerationProgressBar
+              status={status}
+              simulateDurationMs={60 * 1000}
+              startedAt={data.progressStartedAt}
+              runKey={id}
+            />
           </div>
         )}
       </div>

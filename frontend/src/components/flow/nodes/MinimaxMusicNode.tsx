@@ -33,6 +33,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     audioUrl?: string;
     error?: string;
     prompt?: string;
@@ -407,7 +408,11 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={data.status} />
+      <GenerationProgressBar
+        status={data.status}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {runDisabled && (
         <div style={{ fontSize: 11, color: "#b45309" }}>

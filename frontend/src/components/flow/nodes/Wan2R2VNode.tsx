@@ -25,6 +25,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     videoUrl?: string;
     thumbnail?: string;
     error?: string;
@@ -829,6 +830,8 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
       <GenerationProgressBar
         status={data.status || "idle"}
+        startedAt={data.progressStartedAt}
+        runKey={id}
       />
 
       {historyItems.length > 0 && (

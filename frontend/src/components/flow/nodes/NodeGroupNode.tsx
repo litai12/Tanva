@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, Square } from 'lucide-react';
 import { Handle, Position } from 'reactflow';
 import { useLocaleText } from '@/utils/localeText';
 import SmartImage from '@/components/ui/SmartImage';
@@ -14,7 +14,9 @@ type NodeGroupData = {
   onChangeGroupColor?: (groupId: string, color: string) => void;
   onUngroup?: (groupId: string) => void;
   onRunGroup?: (groupId: string) => void;
+  onStopGroup?: (groupId: string) => void;
   groupRunning?: boolean;
+  groupStopping?: boolean;
   onToggleCollapse?: (groupId: string, nextCollapsed?: boolean) => void;
   groupCollapsed?: boolean;
   groupChildCount?: number;
@@ -95,6 +97,7 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
       ? data.groupName.trim()
       : defaultGroupName;
   const running = data?.groupRunning === true;
+  const stopping = data?.groupStopping === true;
   const collapsed = data?.groupCollapsed === true;
   const childCount = Number.isFinite(Number(data?.groupChildCount))
     ? Number(data?.groupChildCount)
@@ -442,46 +445,76 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
         <button
           type='button'
           className='nodrag nopan'
-          disabled={running}
+          disabled={stopping}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
-            if (running) return;
-            data?.onRunGroup?.(id);
+            if (stopping) return;
+            if (running) {
+              data?.onStopGroup?.(id);
+            } else {
+              data?.onRunGroup?.(id);
+            }
           }}
-          title={lt('依次运行组内节点', 'Run nodes in this group in order')}
+          title={
+            stopping
+              ? lt('正在停止后续节点', 'Stopping pending group nodes')
+              : running
+              ? lt('停止后续节点运行', 'Stop pending group nodes')
+              : lt('依次运行组内节点', 'Run nodes in this group in order')
+          }
           style={{
             width: 32,
             height: 32,
-            border: running ? '1px solid #e5e7eb' : '1px solid #d1d5db',
-            background: running ? '#f3f4f6' : 'rgba(255, 255, 255, 0.5)',
-            color: running ? '#9ca3af' : '#4b5563',
+            border: stopping
+              ? '1px solid #e5e7eb'
+              : running
+              ? '1px solid rgba(239, 68, 68, 0.35)'
+              : '1px solid #d1d5db',
+            background: stopping
+              ? '#f3f4f6'
+              : running
+              ? 'rgba(239, 68, 68, 0.08)'
+              : 'rgba(255, 255, 255, 0.5)',
+            color: stopping ? '#9ca3af' : running ? '#dc2626' : '#4b5563',
             borderRadius: 9999,
             padding: 0,
             fontSize: 12,
             fontWeight: 600,
-            cursor: running ? 'not-allowed' : 'pointer',
-            boxShadow: running ? 'none' : '0 1px 2px rgba(15, 23, 42, 0.08)',
+            cursor: stopping ? 'not-allowed' : 'pointer',
+            boxShadow: stopping ? 'none' : '0 1px 2px rgba(15, 23, 42, 0.08)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             transition: 'all 0.2s ease',
-            opacity: running ? 0.7 : 1,
+            opacity: stopping ? 0.72 : 1,
           }}
           onMouseEnter={(event) => {
-            if (running) return;
-            event.currentTarget.style.borderColor = '#9ca3af';
-            event.currentTarget.style.color = '#374151';
-            event.currentTarget.style.background = 'rgba(31, 41, 55, 0.08)';
+            if (stopping) return;
+            if (running) {
+              event.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.55)';
+              event.currentTarget.style.color = '#b91c1c';
+              event.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)';
+            } else {
+              event.currentTarget.style.borderColor = '#9ca3af';
+              event.currentTarget.style.color = '#374151';
+              event.currentTarget.style.background = 'rgba(31, 41, 55, 0.08)';
+            }
           }}
           onMouseLeave={(event) => {
-            if (running) return;
-            event.currentTarget.style.borderColor = '#d1d5db';
-            event.currentTarget.style.color = '#4b5563';
-            event.currentTarget.style.background = 'rgba(255, 255, 255, 0.5)';
+            if (stopping) return;
+            if (running) {
+              event.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+              event.currentTarget.style.color = '#dc2626';
+              event.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+            } else {
+              event.currentTarget.style.borderColor = '#d1d5db';
+              event.currentTarget.style.color = '#4b5563';
+              event.currentTarget.style.background = 'rgba(255, 255, 255, 0.5)';
+            }
           }}
         >
-          <Play size={14} strokeWidth={2.2} />
+          {running && !stopping ? <Square size={13} strokeWidth={2.4} fill='currentColor' /> : <Play size={14} strokeWidth={2.2} />}
         </button>
       </div>
     </div>

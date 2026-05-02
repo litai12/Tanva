@@ -28,6 +28,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string;
@@ -1628,7 +1629,12 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         }}
       />
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
       {status === "failed" && data.error ? (
         <div style={{ fontSize: 12, color: "#f87171", whiteSpace: "pre-wrap" }}>
           {data.error}
