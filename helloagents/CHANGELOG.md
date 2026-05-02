@@ -27,6 +27,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Quick Connect: 快速连接候选现在必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
+- Flow/Quick Connect: 从 Prompt/Image 句柄拖出的快速连接菜单不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合改为绝对生效，前端默认节点配置也移除这些新建入口，避免 GPT 快捷入口创建后回退显示成 `Nano2`。
 - Flow/Image Split: Image Split 输出句柄现在兼容 `imageN` 与保存/导入链路归一化出的 `imgN`，并给节点补充不可交互的兼容 source handle，避免切片生成 Image 节点后连线在自动保存/恢复后消失；Image/ImagePro 仅在更新后确实没有图片引用时才自动断开 `img` 入线。
 - Canvas/Image Text Edit: “改文字”工具的 OCR 识别阶段固定走 Banana 普通路线，避免尊享 stable 路线下卡在“识别中”；最终改图请求显式携带当前 `bananaImageRoute`，保持尊享改图能力。打开改文字面板时会关闭“更多”下拉菜单，改完后的图片按原图 bounds 覆盖到原图上方且尺寸一致。
 - Canvas/Image Expand: 扩图选择器关闭后会立即释放画布交互锁，并在异步完成/组件卸载时兜底清理，避免扩图后滚轮或触控板无法继续移动画布；扩图合成蒙版底色改为红色，预设提示词改为识别红色蒙版区域；扩图占位框不再显示无效进度条。

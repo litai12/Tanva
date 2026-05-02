@@ -1256,8 +1256,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "midjourney", targetHandle: "text" },
-    { nodeType: "nano2", targetHandle: "text" },
-    { nodeType: "gptImage2", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
@@ -1271,8 +1269,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
-    { nodeType: "nano2", targetHandle: "img" },
-    { nodeType: "gptImage2", targetHandle: "img" },
     { nodeType: "imageGrid", targetHandle: "images" },
     { nodeType: "imageSplit", targetHandle: "img" },
     { nodeType: "imageCompress", targetHandle: "img" },
@@ -1322,8 +1318,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "midjourneyV7", sourceHandle: "img" },
     { nodeType: "niji7", sourceHandle: "img" },
     { nodeType: "seedream5", sourceHandle: "img" },
-    { nodeType: "nano2", sourceHandle: "img" },
-    { nodeType: "gptImage2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
   video: [
@@ -1454,7 +1448,6 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate4", zh: "生成多张图片节点", en: "Muti Gen", category: "image" },
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
-  { key: "gptImage2", zh: "Gpt-Imgae-2", en: "Gpt-Imgae-2", category: "image" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
@@ -1668,6 +1661,7 @@ type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
   "kling26Video",
   "nano2",
+  "gptImage2",
 ]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
@@ -2532,16 +2526,6 @@ const resolveStableRouteCredits = (params: {
   }
 
   return resolvedCredits;
-};
-
-const isManagedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
-  const metadata = (config?.metadata ?? {}) as Record<string, unknown>;
-  return Boolean(
-    metadata.managedModelKey ||
-      (metadata.nodeConfig &&
-        typeof metadata.nodeConfig === "object" &&
-        (metadata.nodeConfig as Record<string, unknown>).flowNodeType)
-  );
 };
 
 const isModelBackedPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
@@ -3682,9 +3666,6 @@ function FlowInner() {
       .filter((config) => !BETA_NODE_KEYS.has(config.nodeKey))
       .filter((config) => {
         const resolvedType = resolveFlowNodeTypeFromConfig(config);
-        if (isManagedPaletteConfig(config)) {
-          return true;
-        }
         return !isHiddenFlowNodeType(resolvedType);
       })
       .filter((config) => config.status !== "disabled");
@@ -8816,6 +8797,16 @@ function FlowInner() {
 
     return map;
   }, [lt, nodePaletteConfigs]);
+  const quickConnectVisibleNodeTypes = React.useMemo(() => {
+    const set = new Set<string>();
+    nodePaletteConfigs.forEach((config) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const normalizedType = normalizeFlowNodeType(resolvedType);
+      if (resolvedType) set.add(resolvedType);
+      if (normalizedType) set.add(normalizedType);
+    });
+    return set;
+  }, [nodePaletteConfigs]);
   const inferQuickConnectSourceKind = React.useCallback(
     (sourceType?: string, sourceHandle?: string): QuickConnectSourceKind => {
       const handle = typeof sourceHandle === "string" ? sourceHandle.trim() : "";
@@ -8891,19 +8882,14 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (!quickConnectVisibleNodeTypes.has(resolvedType)) continue;
         const cacheKey = `${resolvedType}::${preset.targetHandle}`;
         if (seen.has(cacheKey)) continue;
         seen.add(cacheKey);
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
-        const sourceConfig = nodePaletteConfigs.find(
-          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
-        );
-        if (
-          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
-          !isManagedPaletteConfig(sourceConfig)
-        ) {
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) {
           continue;
         }
         if (
@@ -8928,6 +8914,7 @@ function FlowInner() {
       rf,
       inferQuickConnectSourceKind,
       quickConnectMetaByType,
+      quickConnectVisibleNodeTypes,
       rankQuickConnectOptions,
       pinQuickConnectBaseOption,
     ]
@@ -8948,6 +8935,7 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (!quickConnectVisibleNodeTypes.has(resolvedType)) continue;
         if (!preset.sourceHandle) continue;
         const cacheKey = `${resolvedType}::${preset.sourceHandle}`;
         if (seen.has(cacheKey)) continue;
@@ -8955,13 +8943,7 @@ function FlowInner() {
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
-        const sourceConfig = nodePaletteConfigs.find(
-          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
-        );
-        if (
-          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
-          !isManagedPaletteConfig(sourceConfig)
-        ) {
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) {
           continue;
         }
         if (
@@ -8986,6 +8968,7 @@ function FlowInner() {
       rf,
       inferQuickConnectTargetKind,
       quickConnectMetaByType,
+      quickConnectVisibleNodeTypes,
       rankQuickConnectOptions,
       pinQuickConnectBaseOption,
     ]
@@ -10815,7 +10798,25 @@ function FlowInner() {
 
       recordQuickConnectUsage(item);
       closeConnectQuickMenu({ resetSource: true });
-      const newNodeId = createNodeAtWorldCenter(item.nodeType, world);
+      const paletteConfig = nodePaletteConfigs.find(
+        (config) => resolveFlowNodeTypeFromConfig(config) === item.nodeType
+      );
+      const rawPaletteDefaultData =
+        paletteConfig?.metadata && typeof paletteConfig.metadata === "object"
+          ? paletteConfig.metadata.defaultData
+          : undefined;
+      const paletteDefaultData =
+        rawPaletteDefaultData &&
+        typeof rawPaletteDefaultData === "object" &&
+        !Array.isArray(rawPaletteDefaultData)
+          ? (rawPaletteDefaultData as Record<string, unknown>)
+          : undefined;
+      const newNodeId = createNodeAtWorldCenter(
+        item.nodeType,
+        world,
+        paletteDefaultData,
+        paletteConfig
+      );
       if (!newNodeId) return;
 
       window.requestAnimationFrame(() => {
@@ -10847,6 +10848,7 @@ function FlowInner() {
       closeConnectQuickMenu,
       connectQuickMenu.world,
       createNodeAtWorldCenter,
+      nodePaletteConfigs,
       onConnect,
       recordQuickConnectUsage,
     ]

@@ -1,5 +1,10 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-03 Update
+- Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。
+- Quick Connect 创建节点时会带上对应节点面板配置与 `defaultData`，避免后续重新开放模型节点时因缺少 metadata 回退显示为基础组件默认标题。
+- Quick Connect 候选必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
+
 ## 2026-05-02 Update
 - Image Split 输出句柄现在同时兼容 `imageN` 与历史保存/导入可能出现的 `imgN`，节点渲染隐藏兼容句柄并让 Image/Grid/Generate/Analyze/Compress/ViewAngle 等下游解析两种格式，避免切片连线在自动保存或恢复后看起来消失。
 - 视频分析节点的 Run 积分徽标现在跟随全局模型档位与渠道：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`，与后端 `gemini-video-analyze` 预扣费保持一致。
@@ -60,7 +65,7 @@
 - `FlowOverlay` 的添加面板中，`Templates`/`Custom` 相关空态文案、模板占位文案、模板分类筛选标签已统一走双语文案；并对分类�?`其他/Other` 做显示层映射，避免英文模式下出现中文分类芯片�?
 
 ## 节点可见性补�?
-- `FlowOverlay` 使用统一隐藏集合控制节点可见性；当前 `sora2Video`（Sora 2）、`sora2Character`（Sora2 Character）与 `nano2`（Nano2）在节点添加面板�?Quick Connect 候选中默认隐藏�?
+- `FlowOverlay` 使用统一隐藏集合控制节点可见性；当前 `kling26Video`（Kling 2.6）、`nano2`（Nano2）与 `gptImage2`（GPT-Image-2）在节点添加面板和 Quick Connect 候选中默认隐藏。
 - 节点添加面板分组不能直接�?`category: "input"` 视为“文字类节点”；输入节点仍需继续�?`nodeKey`/解析后的节点类型细分�?`text / image / video / audio`，否�?`video` 这类输入节点会被误归到文字分组�?
 - `Vidu` 视频能力已收拢为单一 `viduVideo` 入口；节点内模型只展�?`Q2 / Q3` 两档，面板不再额外展示多个同品牌 Vidu 节点。运行时仅支�?`vidu-q2 / vidu-q3` 两个后端模型，并根据 `viduModel` 自动切换 provider、时长与参考图上限�?
 - `Seedance 2.0` 节点已从“手动模式切换”收敛为“最大输入能�?+ 自动推导模式”：节点始终展示 `text / 9 个图片槽�?/ 尾帧 / video / audio` 句柄，运行时按已连接输入自动推导�?`文生视频 / 首帧 / 首尾�?/ 多图参�?/ 视频参�?/ 图片+音频 / 图片+视频 / 视频+音频 / 图片+视频+音频`，并通过 `video_mode` 下发到上游请求�?
