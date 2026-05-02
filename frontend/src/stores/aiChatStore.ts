@@ -457,6 +457,15 @@ export type PreciseEditContext = {
     width: number;
     height: number;
   };
+  cropCanvasBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  cropPixelWidth?: number;
+  cropPixelHeight?: number;
+  cropAspectRatio?: number;
   createdAt: number;
 };
 
@@ -636,6 +645,89 @@ const parseAspectRatioValue = (ratio?: string | null): number | null => {
     return null;
   }
   return parts[0] / parts[1];
+};
+
+type SupportedImageAspectRatio = NonNullable<AIImageEditRequest["aspectRatio"]>;
+
+const SUPPORTED_IMAGE_ASPECT_RATIOS: SupportedImageAspectRatio[] = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "2:1",
+  "1:2",
+  "9:21",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+];
+
+const getNearestSupportedAspectRatio = (
+  ratio?: number | null
+): SupportedImageAspectRatio | undefined => {
+  if (!Number.isFinite(ratio) || !ratio || ratio <= 0) return undefined;
+  let best: SupportedImageAspectRatio | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  SUPPORTED_IMAGE_ASPECT_RATIOS.forEach((candidate) => {
+    const candidateRatio = parseAspectRatioValue(candidate);
+    if (!candidateRatio) return;
+    const distance = Math.abs(Math.log(ratio / candidateRatio));
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  });
+
+  return best;
+};
+
+const getPreciseEditAspectRatio = (
+  context?: PreciseEditContext | null
+): SupportedImageAspectRatio | undefined => {
+  if (!context) return undefined;
+  const pixelWidth = Number(context.cropPixelWidth);
+  const pixelHeight = Number(context.cropPixelHeight);
+  if (
+    Number.isFinite(pixelWidth) &&
+    Number.isFinite(pixelHeight) &&
+    pixelWidth > 0 &&
+    pixelHeight > 0
+  ) {
+    return getNearestSupportedAspectRatio(pixelWidth / pixelHeight);
+  }
+
+  const storedRatio = Number(context.cropAspectRatio);
+  return getNearestSupportedAspectRatio(storedRatio);
+};
+
+const getPreciseCropCanvasBounds = (
+  context?: PreciseEditContext | null
+): { x: number; y: number; width: number; height: number } | null => {
+  const bounds = context?.cropCanvasBounds;
+  if (!bounds || typeof bounds !== "object") return null;
+  const x = Number(bounds.x);
+  const y = Number(bounds.y);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
 };
 
 const estimatePlaceholderSize = (params: {
@@ -4110,6 +4202,9 @@ export const useAIChatStore = create<AIChatState>()(
         ) => {
           const state = get();
           const preciseEditContext = state.preciseEditContext;
+          const preciseCropBounds = getPreciseCropCanvasBounds(preciseEditContext);
+          const preciseEditAspectRatio =
+            getPreciseEditAspectRatio(preciseEditContext);
           const metrics = options?.metrics;
           logProcessStep(metrics, "editImage entered");
 
@@ -4217,7 +4312,10 @@ export const useAIChatStore = create<AIChatState>()(
             } | null = null;
             let selectedImageId: string | null = null;
             try {
-              if ((window as any).tanvaImageInstances) {
+              if (preciseCropBounds && preciseEditContext?.targetImageId) {
+                selectedImageBounds = preciseCropBounds;
+                selectedImageId = preciseEditContext.targetImageId;
+              } else if ((window as any).tanvaImageInstances) {
                 const selectedImage = (window as any).tanvaImageInstances.find(
                   (img: any) => img.isSelected
                 );
@@ -4236,7 +4334,12 @@ export const useAIChatStore = create<AIChatState>()(
             let center: { x: number; y: number } | null = null;
 
             // 编辑锚点优先使用“当前选中图”，避免误用缓存图导致向右下偏移
-            if (selectedImageBounds) {
+            if (preciseCropBounds) {
+              center = {
+                x: preciseCropBounds.x + preciseCropBounds.width / 2,
+                y: preciseCropBounds.y + preciseCropBounds.height / 2,
+              };
+            } else if (selectedImageBounds) {
               center = {
                 x:
                   selectedImageBounds.x +
@@ -4255,9 +4358,10 @@ export const useAIChatStore = create<AIChatState>()(
 
             if (center) {
               const size = estimatePlaceholderSize({
-                aspectRatio: state.aspectRatio,
+                aspectRatio: preciseEditAspectRatio ?? state.aspectRatio,
                 imageSize: state.imageSize,
-                fallbackBounds: selectedImageBounds ?? cached?.bounds ?? null,
+                fallbackBounds:
+                  preciseCropBounds ?? selectedImageBounds ?? cached?.bounds ?? null,
               });
 
               dispatchPlaceholderEvent({
@@ -4266,7 +4370,7 @@ export const useAIChatStore = create<AIChatState>()(
                 width: size.width,
                 height: size.height,
                 operationType: "edit",
-                preferSmartLayout: true,
+                preferSmartLayout: !preciseCropBounds,
                 sourceImageId: selectedImageId || cached?.imageId,
                 smartPosition: center ? { ...center } : undefined,
                 groupId,
@@ -4393,7 +4497,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               providerOptions,
               outputFormat: "png",
-              aspectRatio: state.aspectRatio || undefined,
+              aspectRatio: preciseEditAspectRatio ?? state.aspectRatio ?? undefined,
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
               thinkingLevel: state.thinkingLevel || undefined,
               imageOnly: state.imageOnly,
@@ -4407,7 +4511,8 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               model: modelToUse,
               imageSize: state.imageSize ?? "1K",
-              aspectRatio: state.aspectRatio || "auto",
+              aspectRatio:
+                preciseEditAspectRatio ?? state.aspectRatio ?? "auto",
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
               prompt: prompt.substring(0, 50) + "...",
@@ -4453,8 +4558,7 @@ export const useAIChatStore = create<AIChatState>()(
               );
               logProcessStep(metrics, "editImage fallback response received");
 
-              if (result.success) {
-              } else {
+              if (!result.success) {
                 console.error(
                   "❌ Gemini 2.5 Flash 降级编辑仍然失败:",
                   result.error
@@ -4555,7 +4659,7 @@ export const useAIChatStore = create<AIChatState>()(
               const addImageToCanvas = (
                 aiResult: AIImageResult,
                 imageSrc: string,
-                isParallel: boolean = false,
+                _isParallel: boolean = false,
                 parallelGroupInfo?: {
                   groupId: string;
                   groupIndex: number;
@@ -4574,7 +4678,10 @@ export const useAIChatStore = create<AIChatState>()(
                 let selectedImageBounds = null;
                 let sourceImageId = null;
                 try {
-                  if ((window as any).tanvaImageInstances) {
+                  if (preciseCropBounds && preciseEditContext?.targetImageId) {
+                    selectedImageBounds = preciseCropBounds;
+                    sourceImageId = preciseEditContext.targetImageId;
+                  } else if ((window as any).tanvaImageInstances) {
                     const selectedImage = (
                       window as any
                     ).tanvaImageInstances.find((img: any) => img.isSelected);
@@ -4588,7 +4695,7 @@ export const useAIChatStore = create<AIChatState>()(
                 }
 
                 // 让 quick upload 根据 placeholderId/选中图自动定位，避免硬编码向右偏移导致跳位
-                let smartPosition: { x: number; y: number } | undefined =
+                const smartPosition: { x: number; y: number } | undefined =
                   undefined;
 
                 window.dispatchEvent(

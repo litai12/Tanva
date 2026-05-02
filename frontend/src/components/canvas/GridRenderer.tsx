@@ -231,6 +231,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     };
 
     const renderMultiplier = calculateRenderMultiplier(zoom);
+    const showGridLines = zoom >= 0.3;
+    const showMinorGrid = zoom >= 0.4;
+    const forceFullVisibleGridRange = zoom < 0.4;
 
     // 优化：虚拟化限制，根据缩放动态调整，并设置绝对像素上限
     const maxRenderWidth = viewWidth * renderMultiplier;
@@ -242,8 +245,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const cappedRenderHeight = Math.min(maxRenderHeight, MAX_RENDER_PIXELS);
 
     // 根据渲染区域限制网格密度，防止低缩放下生成过多网格线
-    const estimatedLinesX = cappedRenderWidth / effectiveGridSize;
-    const estimatedLinesY = cappedRenderHeight / effectiveGridSize;
+    const densityWidth = forceFullVisibleGridRange ? viewWidth : cappedRenderWidth;
+    const densityHeight = forceFullVisibleGridRange ? viewHeight : cappedRenderHeight;
+    const estimatedLinesX = densityWidth / effectiveGridSize;
+    const estimatedLinesY = densityHeight / effectiveGridSize;
     const densityFactor = Math.max(
       1,
       Math.ceil(Math.max(estimatedLinesX, estimatedLinesY) / MAX_LINES_PER_AXIS)
@@ -283,8 +288,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       return { min: snappedMin, max: snappedMax };
     };
 
-    const { min: finalMinX, max: finalMaxX } = calcRange(minX, maxX, cappedRenderWidth, centerX);
-    const { min: finalMinY, max: finalMaxY } = calcRange(minY, maxY, cappedRenderHeight, centerY);
+    const { min: clippedMinX, max: clippedMaxX } = calcRange(minX, maxX, cappedRenderWidth, centerX);
+    const { min: clippedMinY, max: clippedMaxY } = calcRange(minY, maxY, cappedRenderHeight, centerY);
+    const finalMinX = forceFullVisibleGridRange ? minX : clippedMinX;
+    const finalMaxX = forceFullVisibleGridRange ? maxX : clippedMaxX;
+    const finalMinY = forceFullVisibleGridRange ? minY : clippedMinY;
+    const finalMaxY = forceFullVisibleGridRange ? maxY : clippedMaxY;
 
     // 创建或更新坐标轴（如果启用）- 固定在Paper.js (0,0)点
     if (showAxis) {
@@ -346,8 +355,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
 
       // 线条网格
-      if (gridStyle === GridStyle.LINES) {
-        const showMinorGrid = zoom >= 0.3 && densityFactor === 1;
+      if (gridStyle === GridStyle.LINES && showGridLines) {
         const counts = createLineGrid(effectiveGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer, { showMinorGrid });
         poolStats = { main: counts.mainCount, minor: counts.minorCount, lines: counts.lineCount };
 

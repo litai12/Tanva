@@ -11,11 +11,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
+- Canvas/Image Toolbar: 图片底部工具栏固定前三项调整为 `生成节点`、`裁切`、`极速抠图`；`高清放大` 默认显示在固定按钮之后，并继续参与使用频次轮换。
+- Canvas/Grid: 网格缩放显示规则调整为 `>=40%` 显示主/次级网格、`30%-40%` 只显示主网格且覆盖完整视口、`<30%` 隐藏网格线。
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas Precise Edit: Shift 框选局部编辑现在基于当前 Raster 渲染内容裁剪，等待占位框原位浮在选区上，并把选区 bounds/像素比例带入编辑请求与回退上画布，避免结果按整图尺寸或错误画幅放大回贴。
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).

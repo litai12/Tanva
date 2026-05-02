@@ -48,6 +48,12 @@
 - 裁切开始时会预生成新的 OSS key，并在上传中阶段显式清理旧 `remoteUrl`，避免“先显示正确裁切图，随后被旧远程源覆盖成压缩/整图挤压”的回写竞争问题。
 - 快速上传链路中的图片加载 fallback（proxy 失败回直连、CORS 失败去掉 `crossOrigin`）已统一计入 `IMAGE_LOAD_MAX_RETRIES`，避免额外 fallback 绕开重试预算后在异常源图上出现近似死循环的反复重载。
 
+## Shift 精准微调
+- 选中单张画布图片后按住 `Shift` 框选局部区域，会优先以当前 Paper Raster 的渲染内容作为编辑基底，再裁剪选区发送到 AI 对话框。
+- 精准微调等待占位框会跳过智能排版避让，直接按选区 `bounds` 原位浮在图片上方。
+- 精准微调上下文会记录选区在画布上的 `bounds` 与裁剪后的像素尺寸；编辑请求按选区像素比例选择最接近的官方画幅，生成结果回贴时保持原选区尺寸。
+- 若局部合成失败并回退为普通上画布，结果图也会使用框选区域的 bounds，而不是整张源图 bounds，避免回退图被放大。
+
 ## JSON 复制/导入（Project.contentJson）
 - 右键画布菜单与 `Ctrl/Cmd+Shift+C` 支持复制画布 JSON（严格走 `sanitizeProjectContentForCloudSave` 清理内联图片引用）。
 - `Ctrl/Cmd+Shift+V` 或右键导入画布 JSON 时追加到当前项目，并触发 `paper-project-changed` 重建实例。
@@ -56,6 +62,14 @@
 - 双击画布图片打开预览蒙层，主图优先显示当前双击图片。
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 - `frontend/src/components/ui/ImagePreviewModal.tsx` 已接入双语文案：默认标题/历史标题、关闭提示、加载文案、生成时间 tooltip 与兜底 alt 文案按语言切换。
+
+## 图片操作工具栏
+- `ImageContainer` 的图片底部工具栏固定前三项为 `生成节点`、`裁切`、`极速抠图`；`高清放大` 参与使用频次轮换，并作为默认最高优先级的轮换项显示在固定按钮之后。
+
+## 网格缩放显示
+- `GridRenderer` 在 `zoom >= 0.4` 时显示主网格与次级网格。
+- `0.3 <= zoom < 0.4` 时只显示主网格，并使用完整可视范围，避免低缩放时边缘区域无网格。
+- `zoom < 0.3` 时隐藏网格线，降低极低缩放下的渲染成本。
 
 ## 双语适配补充
 - `ExpandImageSelector`（`frontend/src/components/canvas/ExpandImageSelector.tsx`）已接入双语文案：扩图操作提示、常用尺寸选择、发送/取消按钮 tooltip 按语言切换。

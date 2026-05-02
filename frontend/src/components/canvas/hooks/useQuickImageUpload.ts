@@ -808,17 +808,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const desiredPoint = new paper.Point(baseCenter.x, baseCenter.y);
         let centerPoint = desiredPoint;
 
-        try {
-            centerPoint = resolveMatrixPosition({
-                operationType: params.operationType || 'generate',
-                anchor: desiredPoint,
-                expectedWidth: width,
-                expectedHeight: height,
-                currentImageId: params.placeholderId,
-                layoutContext,
-            });
-        } catch (e) {
-            logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+        if (params.preferSmartLayout !== false) {
+            try {
+                centerPoint = resolveMatrixPosition({
+                    operationType: params.operationType || 'generate',
+                    anchor: desiredPoint,
+                    expectedWidth: width,
+                    expectedHeight: height,
+                    currentImageId: params.placeholderId,
+                    layoutContext,
+                });
+            } catch (e) {
+                logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+            }
         }
 
         // ========== Agent 风格占位符 - 内部动效设计 ==========

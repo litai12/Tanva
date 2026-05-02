@@ -60,7 +60,6 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   isAssetKeyRef,
   isPersistableImageRef,
@@ -307,10 +306,16 @@ const loadImageFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
   }
 };
 
+type CroppedImageResult = {
+  blob: Blob;
+  width: number;
+  height: number;
+};
+
 const cropImageByNormalizedRect = async (params: {
   source: string;
   rect: { x: number; y: number; width: number; height: number };
-}): Promise<Blob | null> => {
+}): Promise<CroppedImageResult | null> => {
   const sourceBlob = await resolveImageToBlob(params.source);
   if (!sourceBlob) return null;
   const sourceImage = await loadImageFromBlob(sourceBlob);
@@ -351,7 +356,8 @@ const cropImageByNormalizedRect = async (params: {
   ctx.drawImage(sourceImage, sx, sy, sw, sh, 0, 0, sw, sh);
 
   try {
-    return await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+    const blob = await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+    return { blob, width: sw, height: sh };
   } catch {
     return null;
   }
@@ -799,18 +805,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageId: string;
       imageSource: string;
       cropRectNormalized: { x: number; y: number; width: number; height: number };
+      cropCanvasBounds?: { x: number; y: number; width: number; height: number };
     }) => {
       let stableTargetSource = params.imageSource;
       try {
+        const renderedBlob = await resolveRenderedImageBlobFromRaster(params.imageId);
+        if (renderedBlob) {
+          const ids = await putFlowImageBlobs([
+            { blob: renderedBlob, projectId: projectId ?? null, nodeId: params.imageId },
+          ]);
+          const id = ids?.[0];
+          if (id) {
+            stableTargetSource = toFlowImageAssetRef(id);
+          }
+        }
+      } catch {}
+      try {
         stableTargetSource =
-          (await ensureChatStableImageRef(params.imageSource, params.imageId)) ||
+          (await ensureChatStableImageRef(stableTargetSource, params.imageId)) ||
+          stableTargetSource ||
           params.imageSource;
       } catch {}
-      const cropBlob = await cropImageByNormalizedRect({
+      const cropResult = await cropImageByNormalizedRect({
         source: stableTargetSource,
         rect: params.cropRectNormalized,
       });
-      if (!cropBlob) {
+      if (!cropResult) {
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: { message: "局部裁剪失败，请重试", type: "error" },
@@ -819,11 +839,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      const cropObjectUrl = URL.createObjectURL(cropBlob);
+      const cropObjectUrl = URL.createObjectURL(cropResult.blob);
       const preciseContext: PreciseEditContext = {
         targetImageId: params.imageId,
         targetImageSource: stableTargetSource,
         cropRectNormalized: params.cropRectNormalized,
+        cropCanvasBounds: params.cropCanvasBounds,
+        cropPixelWidth: cropResult.width,
+        cropPixelHeight: cropResult.height,
+        cropAspectRatio: cropResult.width / cropResult.height,
         createdAt: Date.now(),
       };
 
@@ -842,6 +866,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     },
     [
       ensureChatStableImageRef,
+      projectId,
       setPreciseEditContext,
       setSourceImageForEditing,
       showAIDialog,
@@ -5354,6 +5379,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         imageId: active.imageId,
         imageSource: active.imageSource,
         cropRectNormalized: normalizedRect,
+        cropCanvasBounds: rect,
       });
       event.preventDefault();
       event.stopPropagation();

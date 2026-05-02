@@ -93,18 +93,22 @@ type ToolbarAction = {
 
 const TOOLBAR_USAGE_STORAGE_KEY = "tanva:image-toolbar-usage:v1";
 const FIXED_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
-  "fastRemoveBackground",
-  "hdUpscale",
   "generateNode",
+  "cropImage",
+  "fastRemoveBackground",
 ];
 const ROTATABLE_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
+  "hdUpscale",
   "removeBackground",
   "layerSeparation",
   "convertTo3D",
   "expandImage",
-  "cropImage",
   "editText",
   "extractPalette",
+];
+const TOOLBAR_USAGE_KEYS: readonly ToolbarActionKey[] = [
+  ...FIXED_TOOLBAR_KEYS,
+  ...ROTATABLE_TOOLBAR_KEYS,
 ];
 
 const DEFAULT_PALETTE_SIZE = 6;
@@ -649,7 +653,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (!raw) return;
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       const next: Partial<Record<ToolbarActionKey, number>> = {};
-      [...FIXED_TOOLBAR_KEYS, ...ROTATABLE_TOOLBAR_KEYS].forEach((key) => {
+      TOOLBAR_USAGE_KEYS.forEach((key) => {
         const value = parsed[key];
         if (typeof value !== "number" || !Number.isFinite(value)) return;
         const safeValue = Math.max(0, Math.floor(value));
