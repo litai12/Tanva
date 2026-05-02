@@ -24,6 +24,11 @@
   overflow: visible;
 }
 
+.tanva-flow-overlay .react-flow__viewport {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .tanva-flow-overlay .tanva-node-group-header {
   user-select: none;
 }

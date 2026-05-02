@@ -12,8 +12,12 @@ export interface CanvasViewportFrame {
 }
 
 type ViewportFrameListener = (frame: CanvasViewportFrame) => void;
+type ViewportFrameListenerOptions = {
+  immediate?: boolean;
+  priority?: number;
+};
 
-const listeners = new Set<ViewportFrameListener>();
+const listeners = new Map<ViewportFrameListener, Required<ViewportFrameListenerOptions>>();
 
 let unsubscribeStore: (() => void) | null = null;
 let frameRaf: number | null = null;
@@ -58,13 +62,15 @@ const viewportChanged = (
 const flushViewportFrame = () => {
   frameRaf = null;
   const frame = readViewportFrame();
-  listeners.forEach((listener) => {
-    try {
-      listener(frame);
-    } catch {
-      /* A stale viewport consumer should not block other layers. */
-    }
-  });
+  Array.from(listeners.entries())
+    .sort(([, a], [, b]) => a.priority - b.priority)
+    .forEach(([listener]) => {
+      try {
+        listener(frame);
+      } catch {
+        /* A stale viewport consumer should not block other layers. */
+      }
+    });
 };
 
 const scheduleViewportFrame = () => {
@@ -110,12 +116,18 @@ export const getCanvasViewportFrame = () => readViewportFrame();
 
 export const subscribeCanvasViewportFrame = (
   listener: ViewportFrameListener,
-  options: { immediate?: boolean } = {}
+  options: ViewportFrameListenerOptions = {}
 ) => {
-  listeners.add(listener);
+  const normalizedOptions = {
+    immediate: options.immediate !== false,
+    priority: Number.isFinite(Number(options.priority))
+      ? Number(options.priority)
+      : 0,
+  };
+  listeners.set(listener, normalizedOptions);
   ensureStoreSubscription();
 
-  if (options.immediate !== false) {
+  if (normalizedOptions.immediate) {
     listener(readViewportFrame());
   }
 

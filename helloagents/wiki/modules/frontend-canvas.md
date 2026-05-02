@@ -3,7 +3,7 @@
 ## 作用
 - 提供绘图画布能力（Paper.js），包含交互控制、缩放/对齐/网格、文本编辑、选择与导出等。
 - 绘图工具包含自由绘制、直线、箭头、矩形、圆形；线条样式支持 `实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`（手绘风对 `free/line` 生效，完成绘制时会转为闭合轮廓路径）。
-- `PaperCanvasManager` 与 `FlowOverlay` 通过 `frontend/src/utils/canvasViewportFrame.ts` 共享同一个 RAF viewport 快照；Paper 图片层和 ReactFlow 节点层必须从同一份 `zoom/pan/dpr` 应用变换，避免缩放时出现一帧错位。
+- `PaperCanvasManager` 与 `FlowOverlay` 通过 `frontend/src/utils/canvasViewportFrame.ts` 共享同一个 RAF viewport 快照；Paper 图片层和 ReactFlow 节点层必须从同一份 `zoom/pan/dpr` 应用变换。Paper 视图订阅优先级高于 Flow，会先应用矩阵并立即 `paper.view.update()`，Flow 节点层再写 `.react-flow__viewport` transform 并同步 `ReactFlow.setViewport`，避免节点/组视觉层等待提交造成轻微错位。
 
 ## 关键目录（节选）
 - `frontend/src/components/canvas/`：画布主组件与控制器

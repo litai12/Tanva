@@ -6502,10 +6502,25 @@ function FlowInner() {
   }, [projectId]);
 
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
-  // 与 PaperCanvasManager 共用同一帧 viewport 快照，避免节点层和图片层错帧。
+  // 与 PaperCanvasManager 共用同一帧 viewport 快照；Paper 先重绘，Flow 再同步 DOM/状态。
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const flowViewportElementRef = React.useRef<HTMLElement | null>(null);
+
+  const getFlowViewportElement = React.useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return null;
+
+    const cached = flowViewportElementRef.current;
+    if (cached?.isConnected && container.contains(cached)) {
+      return cached;
+    }
+
+    const next = container.querySelector<HTMLElement>(".react-flow__viewport");
+    flowViewportElementRef.current = next;
+    return next;
+  }, []);
 
   const applyViewportFrame = React.useCallback((frame) => {
     const next = { x: frame.flowX, y: frame.flowY, z: frame.zoom };
@@ -6519,13 +6534,29 @@ function FlowInner() {
     ) {
       return;
     }
-    lastApplied.current = next;
+
+    let applied = false;
+    try {
+      const viewportElement = getFlowViewportElement();
+      if (viewportElement) {
+        viewportElement.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.z})`;
+        viewportElement.style.transformOrigin = "0 0";
+        applied = true;
+      }
+    } catch {
+      /* ReactFlow DOM can be unavailable while mounting. */
+    }
+
     try {
       rfRef.current.setViewport({ x: next.x, y: next.y, zoom: next.z }, { duration: 0 });
+      applied = true;
     } catch {
       /* ReactFlow instance may not be ready during early hydration. */
     }
-  }, []);
+    if (applied) {
+      lastApplied.current = next;
+    }
+  }, [getFlowViewportElement]);
 
   const syncViewportToCanvasStore = () => {
     try {
@@ -6535,7 +6566,9 @@ function FlowInner() {
     }
   };
   React.useEffect(() => {
-    return subscribeCanvasViewportFrame(applyViewportFrame);
+    return subscribeCanvasViewportFrame(applyViewportFrame, {
+      priority: 1,
+    });
   }, [applyViewportFrame]);
 
   React.useLayoutEffect(() => {

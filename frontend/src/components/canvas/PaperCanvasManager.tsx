@@ -64,6 +64,7 @@ const applyCurrentPaperViewTransform = (
       frame.paperY
     );
     paper.view.matrix = matrix;
+    paper.view.update();
   } catch {
     /* Paper view can be unavailable while the canvas is being initialized. */
   }
@@ -246,7 +247,9 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
   // ReactFlow 节点层在缩放时使用不同帧的 viewport。
   useEffect(() => {
     if (!canvasRef.current) return;
-    return subscribeCanvasViewportFrame(applyCurrentPaperViewTransform);
+    return subscribeCanvasViewportFrame(applyCurrentPaperViewTransform, {
+      priority: 0,
+    });
   }, [canvasRef]);
 
   return null; // 这个组件不渲染任何DOM

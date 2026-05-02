@@ -32,7 +32,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Video Analysis: 视频分析节点补齐中文模式文案，覆盖标题、运行按钮、占位文案、错误文案和默认分析提示词；旧画布里自动写入的英文默认 prompt 会按当前语言切回本地化默认值（`frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`）。
 - Flow/Video Analysis: 顶部“分析”按钮改为浅色描边样式，并补齐 hover/disabled 状态，和其他节点的次级按钮视觉保持一致。
 - Membership UI: 套餐卡外框统一使用紫色会员视觉，不再因默认选中变粗；免费档与付费档标题字号保持一致，付费套餐快乐马权益统一展示为“支持”（`frontend/src/components/payment/MembershipPanel.tsx`）。
-- Flow/Viewport: Canvas -> Flow viewport sync now uses a shared `canvasViewportFrame` RAF snapshot so `PaperCanvasManager` and `FlowOverlay` apply Paper matrix and ReactFlow viewport from the same `zoom/pan/dpr` frame, keeping Paper images and Flow nodes synchronized during pan/zoom.
+- Flow/Viewport: Canvas -> Flow viewport sync now uses a shared `canvasViewportFrame` RAF snapshot with ordered listeners. `PaperCanvasManager` applies the Paper matrix and immediately updates the view before `FlowOverlay` writes `.react-flow__viewport` transform and calls `setViewport`, reducing node/group visual lag during pan/zoom.
 - Canvas/Image Overlay: 图片覆盖层在缩放/平移时会跳过同值 bounds、分辨率和锁定 hover 状态更新；非激活图片不再订阅高频 `zoom/pan`，并且 `DrawingController` 复用图片覆盖层元素，降低缩放时的 React 更新量。
 - Canvas Precise Edit: Shift 框选局部编辑现在基于当前 Raster 渲染内容裁剪，等待占位框原位浮在选区上，并把选区 bounds/像素比例带入编辑请求与回退上画布，避免结果按整图尺寸或错误画幅放大回贴。
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。

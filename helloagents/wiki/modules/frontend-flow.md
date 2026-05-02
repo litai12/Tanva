@@ -6,7 +6,7 @@
 - Flow Image/ImagePro 节点、Generate/Generate4/GeneratePro4/Nano2/Seedream5 等图片生成写回链路现在优先使用 `thumbnail/thumbnails` 做节点卡片展示；`imageUrl/imageUrls/imageData` 仍作为高清预览、下载、编辑和下游 AI 输入的原图来源。
 - Canvas 发送图片到 Flow 时会携带画布资产的 `previewUrl/previewKey` 作为初始 `thumbnail`，避免 4K 原图刚进入 Flow 节点时先被 `<img>` 解码。
 - 上传到画布的图片资产新增远程 `previewUrl/previewKey` 元数据，Paper Raster 渲染优先使用预览图；保存链路缺失预览时会补生成远程 WebP 预览，设计 JSON 仍只保存远程 URL/OSS key。
-- Canvas -> Flow 视口同步改为共享 `canvasViewportFrame` RAF 快照；`PaperCanvasManager` 与 `FlowOverlay` 在同一帧读取同一份 `zoom/pan/dpr`，分别应用 `paper.view.matrix` 与 `ReactFlow.setViewport`，避免缩放时节点层与图片层错帧。
+- Canvas -> Flow 视口同步改为共享 `canvasViewportFrame` RAF 快照；`PaperCanvasManager` 与 `FlowOverlay` 在同一帧读取同一份 `zoom/pan/dpr`。Paper 优先应用 `paper.view.matrix` 并立即 `paper.view.update()`，Flow 随后写 `.react-flow__viewport` transform 并调用 `ReactFlow.setViewport` 同步内部状态，避免节点/组层与图片层错帧或等待提交造成轻微飘动。
 - Video Analysis 节点标题、按钮、占位文案、错误文案和默认分析提示词统一走 `useLocaleText`；旧画布中自动写入的英文默认 prompt 会按当前语言切回本地化默认值，手动编辑过的 prompt 不会被覆盖。
 - Video Analysis 顶部运行按钮使用浅色描边按钮样式，hover/disabled 状态与 Image/Audio 等节点的次级操作按钮保持一致。
 - Flow 节点“发送到画板”的多图结果（`Generate4` / `GeneratePro4` / `Midjourney V7` / `Niji 7`）现在锚定在触发节点正下方；若节点属于 `nodeGroup`，则改为锚定在整个分组正下方，再进行组内横向排布和画板自动打组。
