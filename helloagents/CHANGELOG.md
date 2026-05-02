@@ -26,7 +26,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
-- Canvas/Image Expand: 扩图选择器关闭后会立即释放画布交互锁，并在异步完成/组件卸载时兜底清理，避免扩图后滚轮或触控板无法继续移动画布；扩图合成蒙版底色改为红色，预设提示词改为识别黑红色蒙版区域。
+- Canvas/Image Expand: 扩图选择器关闭后会立即释放画布交互锁，并在异步完成/组件卸载时兜底清理，避免扩图后滚轮或触控板无法继续移动画布；扩图合成蒙版底色改为红色，预设提示词改为识别红色蒙版区域。
 - Flow/Progress: generation progress bars now keep a runtime `progressStartedAt` timestamp and derive simulated progress from elapsed time, so nodes that are unmounted by `onlyRenderVisibleElements` resume at the current progress when they return to the viewport instead of restarting the bar.
 - Canvas/Image Group: 画布复制粘贴与 `Alt` 拖拽复制现在会一并保存和重建 `image-group` 组块元数据，按新图片 ID 重新生成灰底框与标题，避免原本带组的图片复制后只剩散图。
 - Flow/Video Node: 普通 `Video` 输入节点的原生播放控件现在会隔离 pointer/mouse/touch 事件，并标记为 `nodrag/nopan/nowheel`，避免拖动进度条时触发 React Flow 节点拖拽导致进度条“吸住”（`frontend/src/components/flow/nodes/VideoNode.tsx`）。

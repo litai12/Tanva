@@ -59,7 +59,7 @@ import {
 import { blobToDataUrl, canvasToBlob, canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT =
-  "请智能填充图像中的黑红色蒙版区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+  "请智能填充图像中的红色蒙版区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
 const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
