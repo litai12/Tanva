@@ -41,7 +41,7 @@
 - `AIChatDialog`（`frontend/src/components/chat/AIChatDialog.tsx`）底部参数栏与上传菜单、历史会话工具条、图片/视频预览操作 tooltip 已按中英文切换（组件内通过 `i18n.language` + `lt()` 本地文案映射实现）。
 - `PromptOptimizationPanel`（`frontend/src/components/chat/PromptOptimizationPanel.tsx`）已接入双语文案：输出语言/长度倾向/风格/重点字段标签、占位符、错误提示和底部操作按钮按语言切换。
 - `KeyboardShortcuts`（`frontend/src/components/KeyboardShortcuts.tsx`）已接入双语文案：快捷键复制/导入 JSON 的 toast 提示，以及云端保存阻断与失败文案按语言切换。
-- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。
+- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。项目卡片会懒加载当前页项目内容，提取画布图片资产与 Flow 图片节点引用做最多 16 张宫格预览，并将项目名/更新时间浮在卡片底部。
 - `AccountBadge`（`frontend/src/components/AccountBadge.tsx`）已接入双语文案：问候语、认证状态标签与来源 tooltip、退出登录按钮按语言切换。
 - `AppLoader` / `AppLoadingIndicator`（`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`）默认加载提示已按语言切换。
 - `AuthWrapper`（`frontend/src/components/AuthWrapper.tsx`）会话过期 toast、登录状态校验加载文案、错误态“重新加载”按钮已按语言切换。

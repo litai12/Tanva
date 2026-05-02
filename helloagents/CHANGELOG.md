@@ -21,12 +21,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
 - Flow/Node Group Performance: 整组拖拽开始时缓存组内子节点起始位置，拖拽帧内不再全量读取节点并重建索引；拖拽中跳过组归一化扫描，降低大组移动时的 JS 每帧开销。
 - Flow/Node Group Run: 分组运行中底部运行按钮会切换为停止图标；点击后不会中断当前正在执行的节点，但会阻止组内后续未开始节点继续自动运行，并立即把按钮反馈为禁用的开始图标直到当前节点跑完。
+- Project Manager: 项目卡片预览改为懒加载项目内容并提取图片引用，以 1/4/9/16 宫格展示；标题和更新时间改为卡片底部浮层，每页展示数量提升到 12 个。
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
-- Canvas/Image Expand: 扩图选择器关闭后会立即释放画布交互锁，并在异步完成/组件卸载时兜底清理，避免扩图后滚轮或触控板无法继续移动画布；扩图合成蒙版底色改为红色，预设提示词改为识别红色蒙版区域。
+- Canvas/Image Expand: 扩图选择器关闭后会立即释放画布交互锁，并在异步完成/组件卸载时兜底清理，避免扩图后滚轮或触控板无法继续移动画布；扩图合成蒙版底色改为红色，预设提示词改为识别红色蒙版区域；扩图占位框不再显示无效进度条。
 - Flow/Progress: generation progress bars now keep a runtime `progressStartedAt` timestamp and derive simulated progress from elapsed time, so nodes that are unmounted by `onlyRenderVisibleElements` resume at the current progress when they return to the viewport instead of restarting the bar.
 - Canvas/Image Group: 画布复制粘贴与 `Alt` 拖拽复制现在会一并保存和重建 `image-group` 组块元数据，按新图片 ID 重新生成灰底框与标题，避免原本带组的图片复制后只剩散图。
 - Flow/Video Node: 普通 `Video` 输入节点的原生播放控件现在会隔离 pointer/mouse/touch 事件，并标记为 `nodrag/nopan/nowheel`，避免拖动进度条时触发 React Flow 节点拖拽导致进度条“吸住”（`frontend/src/components/flow/nodes/VideoNode.tsx`）。

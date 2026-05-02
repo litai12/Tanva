@@ -851,6 +851,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const halfH = height / 2;
         const cornerRadius = Math.min(width, height) * 0.02;
         const mainColor = new paper.Color('#4b5563'); // 黑灰色
+        const showProgress = params.operationType !== 'expand-image';
 
         // 背景矩形
         // 背景 - 更深的灰色调
@@ -943,7 +944,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(barWidth, barHeight)
             ),
             radius: barHeight / 2,
-            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6)
+            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6),
+            visible: showProgress
         });
 
         const barFg = new paper.Path.Rectangle({
@@ -952,7 +954,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(0, barHeight)  // 初始宽度为0，避免显示小圆点
             ),
             radius: barHeight / 2,
-            fillColor: mainColor
+            fillColor: mainColor,
+            visible: showProgress
         });
 
         // 进度文字
@@ -963,7 +966,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             fillColor: new paper.Color('#6b7280'),
             fontSize: Math.max(14, Math.min(18, width * 0.028)),
             fontWeight: '600',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            visible: showProgress
         });
 
         const group = new paper.Group([bg, border, shimmerGroup, scanLine, barBg, barFg, progressLabel]);
