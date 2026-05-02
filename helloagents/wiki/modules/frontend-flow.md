@@ -19,6 +19,7 @@
 ## 2026-04-17 Update
 - Flow 缩放事件在节点输入框场景下调整为“缩放优先”：`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` �?`textarea` 在缩放手势下会放行给 Flow 画布（按 `wheelZoomMode` 计算），避免输入框捕获滚轮后触发浏览器整页缩放；非缩放滚轮仍保留输入区原生滚动�?
 - `GlobalZoomCapture` �?`gesturestart/gesturechange` �?Flow 区域不再旁路，可将触控板 pinch（含 Safari 手势事件）映射到画布缩放�?D 视口区域仍保持旁路以避免冲突�?
+- FPS 调试浮层复用同一开关采样节点拖拽、图片拖拽/缩放与画布缩放；画布缩放期间会显示 `Zoom FPS`、最大帧耗时和长帧数。
 - Flow 新增低细节渲染模式：当节点数达到阈值且缩放 `<= 40%` 时自动启用（缩放恢复�?`> 45%` 时退出，避免阈值抖动）�?
 - 低细节模式下，节点缩略图不再渲染真实图像：`SmartImage` 直接降级为灰色占位块，且部分裁切缩略�?`canvas`（如 `Image/Generate/GeneratePro/Generate4/Analyze/ImageSplit/ImageGrid`）也会改为灰块占位，从而减少缩小时的大量图像重绘与解码压力�?
 - 低细节模式下会隐藏所有连线与 MiniMap（含图片叠加层），节点仍保留原始 UI 结构，以兼顾性能与可读性�?

@@ -5905,14 +5905,40 @@ function FlowInner() {
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
-  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | null>(null);
+  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | "Zoom" | null>(null);
   const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
+  const canvasZoomRef = React.useRef(canvasZoom);
+  const zoomFpsActiveUntilRef = React.useRef(0);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
   React.useEffect(() => {
     if (!import.meta.env.DEV) return;
     setShowFpsOverlay(true);
   }, [setShowFpsOverlay]);
+
+  React.useEffect(() => {
+    const nextZoom = Number(canvasZoom);
+    const prevZoom = Number(canvasZoomRef.current);
+    const now =
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+
+    if (
+      showFpsOverlay &&
+      Number.isFinite(nextZoom) &&
+      Number.isFinite(prevZoom) &&
+      Math.abs(nextZoom - prevZoom) > 0.0001
+    ) {
+      zoomFpsActiveUntilRef.current = now + 700;
+    }
+
+    canvasZoomRef.current = canvasZoom;
+    if (!showFpsOverlay) {
+      zoomFpsActiveUntilRef.current = 0;
+    }
+  }, [canvasZoom, showFpsOverlay]);
 
   React.useEffect(() => {
     if (!showFpsOverlay) return;
@@ -5927,7 +5953,7 @@ function FlowInner() {
     let acc = 0;
     let longFrames = 0;
     let maxDt = 0;
-    let lastMode: "Drag" | "Image" | null = null;
+    let lastMode: "Drag" | "Image" | "Zoom" | null = null;
 
     const tick = (nowArg: number) => {
       const now =
@@ -5942,10 +5968,13 @@ function FlowInner() {
       const isImageDragging =
         typeof document !== "undefined" &&
         Boolean(document.body?.classList.contains("tanva-canvas-dragging"));
-      const mode: "Drag" | "Image" | null = isImageDragging
+      const isCanvasZooming = now <= zoomFpsActiveUntilRef.current;
+      const mode: "Drag" | "Image" | "Zoom" | null = isImageDragging
         ? "Image"
         : nodeDraggingRef.current
         ? "Drag"
+        : isCanvasZooming
+        ? "Zoom"
         : null;
 
       if (mode !== lastMode) {
@@ -20757,7 +20786,7 @@ function FlowInner() {
             gap: 6,
             fontSize: 12,
           }}
-          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放；每 250ms 刷新一次）'
+          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放、画布缩放；每 250ms 刷新一次）'
         >
           <input
             type='checkbox'

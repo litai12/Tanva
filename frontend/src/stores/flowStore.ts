@@ -41,7 +41,7 @@ interface FlowState {
 
   // 性能/渲染策略
   onlyRenderVisibleElements: boolean; // ReactFlow: 视窗外元素是否卸载（省性能但会有“回到视窗重新加载感”）
-  showFpsOverlay: boolean; // 调试：显示拖拽帧率
+  showFpsOverlay: boolean; // 调试：显示拖拽/画布缩放帧率
 
   // Flow视口状态 (独立于Canvas)
   flowZoom: number;
