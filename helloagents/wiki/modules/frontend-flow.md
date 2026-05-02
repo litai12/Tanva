@@ -11,6 +11,7 @@
 - Video Analysis 顶部运行按钮使用浅色描边按钮样式，hover/disabled 状态与 Image/Audio 等节点的次级操作按钮保持一致。
 - Flow 节点“发送到画板”的多图结果（`Generate4` / `GeneratePro4` / `Midjourney V7` / `Niji 7`）现在锚定在触发节点正下方；若节点属于 `nodeGroup`，则改为锚定在整个分组正下方，再进行组内横向排布和画板自动打组。
 - `nodeGroup` 的复制/删除语义改为整组操作：选中组后 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会把组节点与 `childNodeIds` 内的子节点一起复制，并在新副本中重映射 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或触发 Flow 删除事件会一并删除组内节点与相关连线。
+- `nodeGroup` 整组拖拽性能优化：拖拽开始时缓存组内子节点位置，拖拽帧内按组位移直接生成子节点 position changes，避免每帧全量 `getNodes()`/建索引；拖拽期间也跳过组归一化扫描。
 
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.

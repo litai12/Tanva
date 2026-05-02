@@ -704,6 +704,64 @@ const expandFlowDeleteIdsWithGroupChildren = (
   return removeIds;
 };
 
+const buildFlowGroupDragSnapshot = (
+  allNodes: RFNode[],
+  draggingNodes: RFNode[]
+) => {
+  const nodeById = new Map(
+    (Array.isArray(allNodes) ? allNodes : [])
+      .filter(Boolean)
+      .map((node) => [String(node.id), node as RFNode])
+  );
+  const groups = new Map<
+    string,
+    {
+      groupStart: { x: number; y: number };
+      groupStartAbs?: { x: number; y: number };
+      children: Array<{
+        id: string;
+        position: { x: number; y: number };
+        positionAbsolute?: { x: number; y: number };
+      }>;
+    }
+  >();
+
+  (Array.isArray(draggingNodes) ? draggingNodes : []).forEach((node) => {
+    if (!isGroupNode(node)) return;
+    const groupId = String(node.id || "");
+    if (!groupId || groups.has(groupId)) return;
+    const childIds = getGroupChildIds(node);
+    const children = childIds
+      .map((childId) => nodeById.get(String(childId)))
+      .filter((child): child is RFNode => Boolean(child) && !isGroupNode(child))
+      .map((child) => ({
+        id: String(child.id),
+        position: {
+          x: Number(child.position?.x ?? 0),
+          y: Number(child.position?.y ?? 0),
+        },
+        positionAbsolute: {
+          x: Number((child as any).positionAbsolute?.x ?? child.position?.x ?? 0),
+          y: Number((child as any).positionAbsolute?.y ?? child.position?.y ?? 0),
+        },
+      }));
+    if (!children.length) return;
+    groups.set(groupId, {
+      groupStart: {
+        x: Number(node.position?.x ?? 0),
+        y: Number(node.position?.y ?? 0),
+      },
+      groupStartAbs: {
+        x: Number((node as any).positionAbsolute?.x ?? node.position?.x ?? 0),
+        y: Number((node as any).positionAbsolute?.y ?? node.position?.y ?? 0),
+      },
+      children,
+    });
+  });
+
+  return groups.size ? { groups } : null;
+};
+
 type EdgeLabelEditorState = {
   visible: boolean;
   edgeId: string | null;
@@ -3467,6 +3525,7 @@ function FlowInner() {
   }, [edges]);
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
+  const groupDragSnapshotRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const imageSize = useAIChatStore((state) => state.imageSize);
@@ -4104,7 +4163,75 @@ function FlowInner() {
         }
       }
 
+      const groupDragSnapshot = groupDragSnapshotRef.current;
       if (
+        draggingGroupNodeRef.current &&
+        groupDragSnapshot?.groups instanceof Map &&
+        Array.isArray(processedChanges) &&
+        processedChanges.length > 0
+      ) {
+        try {
+          const extraPositionChanges: any[] = [];
+          const changedIds = new Set(
+            processedChanges
+              .filter((change: any) => change?.type === "position")
+              .map((change: any) => String(change?.id || ""))
+              .filter(Boolean)
+          );
+
+          for (const change of processedChanges) {
+            if (change?.type !== "position") continue;
+            const snapshot = groupDragSnapshot.groups.get(String(change.id));
+            if (!snapshot) continue;
+
+            const nextX = Number(change?.position?.x);
+            const nextY = Number(change?.position?.y);
+            if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) continue;
+
+            const dx = nextX - Number(snapshot.groupStart?.x ?? 0);
+            const dy = nextY - Number(snapshot.groupStart?.y ?? 0);
+            if (!dx && !dy) continue;
+
+            const hasAbs =
+              change.positionAbsolute &&
+              Number.isFinite(Number(change.positionAbsolute.x)) &&
+              Number.isFinite(Number(change.positionAbsolute.y));
+            const absDx =
+              hasAbs && snapshot.groupStartAbs
+                ? Number(change.positionAbsolute.x) -
+                  Number(snapshot.groupStartAbs.x ?? 0)
+                : dx;
+            const absDy =
+              hasAbs && snapshot.groupStartAbs
+                ? Number(change.positionAbsolute.y) -
+                  Number(snapshot.groupStartAbs.y ?? 0)
+                : dy;
+
+            snapshot.children.forEach((child: any) => {
+              if (!child?.id || changedIds.has(String(child.id))) return;
+              const childX = Number(child.position?.x ?? 0);
+              const childY = Number(child.position?.y ?? 0);
+              const nextChange: any = {
+                id: String(child.id),
+                type: "position",
+                position: { x: childX + dx, y: childY + dy },
+                dragging: change?.dragging,
+              };
+              if (hasAbs && child.positionAbsolute) {
+                nextChange.positionAbsolute = {
+                  x: Number(child.positionAbsolute.x ?? childX) + absDx,
+                  y: Number(child.positionAbsolute.y ?? childY) + absDy,
+                };
+              }
+              extraPositionChanges.push(nextChange);
+            });
+          }
+
+          if (extraPositionChanges.length > 0) {
+            processedChanges = processedChanges.concat(extraPositionChanges);
+          }
+        } catch {}
+      } else if (
         draggingGroupNodeRef.current &&
         Array.isArray(processedChanges) &&
         processedChanges.length > 0
@@ -4325,6 +4452,7 @@ function FlowInner() {
       groupNormalizeLockRef.current = false;
       return;
     }
+    if (nodeDraggingRef.current) return;
     const result = normalizeGroupNodes(nodes as RFNode[]);
     if (!result.changed) return;
     groupNormalizeLockRef.current = true;
@@ -21968,6 +22096,7 @@ function FlowInner() {
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
           if (altPressed) {
+            groupDragSnapshotRef.current = null;
             // Alt+拖拽复制时关闭吸附，避免副本与原节点重叠后“回吸”。
             clearFlowSnapState();
             // Alt+拖拽：创建副本并让副本跟随鼠标移动，原节点保持原有连线与位置
@@ -22069,6 +22198,10 @@ function FlowInner() {
             }
           } else {
             altDragStartRef.current = null;
+            groupDragSnapshotRef.current = buildFlowGroupDragSnapshot(
+              allNodes as RFNode[],
+              selectedNodes as RFNode[]
+            );
             const draggingNodes =
               selectedNodes.length > 0 ? (selectedNodes as RFNode[]) : ([node] as RFNode[]);
             prepareFlowSnapping(draggingNodes, String(node.id));
@@ -22077,6 +22210,7 @@ function FlowInner() {
         onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
           draggingGroupNodeRef.current = false;
+          groupDragSnapshotRef.current = null;
           setIsNodeDragging(false);
           clearFlowSnapState();
 

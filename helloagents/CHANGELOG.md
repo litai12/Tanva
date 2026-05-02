@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas/Grid: 网格缩放显示规则调整为 `>=40%` 显示主/次级网格、`30%-40%` 只显示主网格且覆盖完整视口、`<30%` 隐藏网格线。
 - Flow/Send To Canvas: `generate4` / `generatePro4` / `Midjourney V7` / `Niji 7` 多图发送现在使用 Flow 节点或所属 `nodeGroup` 的正下方作为锚点，避免继续接到画板已有 generate 图片队列末尾导致距离过远。
 - Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
+- Flow/Node Group Performance: 整组拖拽开始时缓存组内子节点起始位置，拖拽帧内不再全量读取节点并重建索引；拖拽中跳过组归一化扫描，降低大组移动时的 JS 每帧开销。
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.

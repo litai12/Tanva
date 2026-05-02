@@ -2268,9 +2268,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                : undefined);
 
 	            const shouldUpdate =
-	              normalizedPrevUrl !== persistedUrl ||
+	              normalizedPrevUrl !== nextStoredUrl ||
 	              (incomingKey ? normalizedPrevKey !== incomingKey : false) ||
 	              (nextRemoteUrl ? normalizedPrevRemoteUrl !== nextRemoteUrl : false) ||
+                  (incomingPreviewUrl ? imageData.previewUrl !== incomingPreviewUrl : false) ||
+                  (incomingPreviewKey ? imageData.previewKey !== incomingPreviewKey : false) ||
 	              Boolean(imageData.pendingUpload) ||
 	              Boolean(imageData.localDataUrl);
 
@@ -2289,6 +2291,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
                   ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
 	              pendingUpload: false,
+                  localDataUrl: undefined,
 	            };
 	            if (nextRemoteUrl) {
 	              nextImageData.remoteUrl = nextRemoteUrl;
@@ -2346,6 +2349,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 ? normalizedPrevSrc
                 : undefined);
 
+            const normalizedPrevUrl =
+              typeof imageData.url === "string"
+                ? normalizePersistableImageRef(imageData.url)
+                : "";
+            const normalizedPrevKey =
+              typeof imageData.key === "string"
+                ? normalizePersistableImageRef(imageData.key)
+                : "";
+
+            const shouldUpdate =
+              normalizedPrevUrl !== nextStoredUrl ||
+              (incomingKey ? normalizedPrevKey !== incomingKey : false) ||
+              (nextRemoteUrl ? normalizedPrevRemoteUrl !== nextRemoteUrl : false) ||
+              (incomingPreviewUrl ? imageData.previewUrl !== incomingPreviewUrl : false) ||
+              (incomingPreviewKey ? imageData.previewKey !== incomingPreviewKey : false) ||
+              Boolean(imageData.pendingUpload) ||
+              Boolean(imageData.localDataUrl);
+
+            if (!shouldUpdate && currentSrc) {
+              return prev;
+            }
+
             const nextImageData: any = {
               ...imageData,
               url: nextStoredUrl,
@@ -2353,6 +2378,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
               ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
               pendingUpload: false,
+              localDataUrl: undefined,
             };
 	            if (nextRemoteUrl) {
 	              nextImageData.remoteUrl = nextRemoteUrl;
@@ -2386,16 +2412,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            const imageId = raster.data?.imageId;
 	            if (imageId !== placeholderId) return;
 
-            const currentSource = getRasterSourceString(raster);
-	            raster.data = {
-	              ...(raster.data || {}),
-	              ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
-	              ...(incomingKey ? { key: incomingKey } : null),
-                  ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
-                  ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
-	              pendingUpload: false,
-	            };
-	            updated = true;
+            const rasterData = raster.data || {};
+            const rasterNextData = {
+              ...rasterData,
+              ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
+              ...(incomingKey ? { key: incomingKey } : null),
+              ...(incomingPreviewUrl ? { previewUrl: incomingPreviewUrl } : null),
+              ...(incomingPreviewKey ? { previewKey: incomingPreviewKey } : null),
+              pendingUpload: false,
+              localDataUrl: undefined,
+            };
+            const rasterChanged =
+              (resolvedRemoteUrl ? rasterData.remoteUrl !== resolvedRemoteUrl : false) ||
+              (incomingKey ? rasterData.key !== incomingKey : false) ||
+              (incomingPreviewUrl ? rasterData.previewUrl !== incomingPreviewUrl : false) ||
+              (incomingPreviewKey ? rasterData.previewKey !== incomingPreviewKey : false) ||
+              Boolean(rasterData.pendingUpload) ||
+              Boolean(rasterData.localDataUrl);
+            if (rasterChanged) {
+              raster.data = rasterNextData;
+              updated = true;
+            }
 	          });
 	        }
 	      } catch {}
