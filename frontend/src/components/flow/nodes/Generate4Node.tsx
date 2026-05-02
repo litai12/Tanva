@@ -32,9 +32,9 @@ type Props = {
     images?: string[];
     imageUrls?: string[];
     thumbnails?: string[];
-    /** 各槽失败原因（与 Multi Generate 顺序调用相关） */
+    /** 各槽失败原因（与 generate4 顺序调用相关） */
     generate4SlotErrors?: (string | undefined)[];
-    /** 运行中：已完成到第几轮（0..4），用于槽位 loading，与成功张数解耦 */
+    /** 运行中：已完成槽位数（0..4），仅用于运行期进度数据 */
     generate4PassIndex?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     imageSize?: "0.5K" | "1K" | "2K" | "4K";
@@ -477,10 +477,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   const imageUrls = data.imageUrls || [];
   const thumbnails = data.thumbnails || [];
   const slotErrors = data.generate4SlotErrors || [];
-  const passIndex =
-    typeof data.generate4PassIndex === "number" && Number.isFinite(data.generate4PassIndex)
-      ? Math.max(0, data.generate4PassIndex)
-      : 0;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState<number>(0);
@@ -591,7 +587,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       typeof slotErrors[idx] === "string" && slotErrors[idx]!.trim()
         ? slotErrors[idx]!.trim()
         : "";
-    const isLoading = status === "running" && idx >= passIndex;
+    const isLoading = status === "running" && !displaySrc && !slotErr;
     return (
       <div
         key={idx}
@@ -881,7 +877,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontWeight: 600 }}>Multi Generate</div>
+          <div style={{ fontWeight: 600 }}>Muti Gen</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

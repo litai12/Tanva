@@ -254,6 +254,7 @@ type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
 type BananaTextPricingTier = 'fast' | 'pro' | 'ultra';
+type VideoAnalyzePricingTier = 'fast' | 'pro' | 'ultra';
 
 const BANANA_TENCENT_IMAGE_SERVICE_TIERS: Partial<
   Record<ServiceType, BananaTencentPricingTier>
@@ -340,6 +341,22 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
     fast: 10,
     pro: 10,
     ultra: 10,
+  },
+};
+
+const VIDEO_ANALYZE_ROUTE_PRICING: Record<
+  'normal' | 'stable',
+  Record<VideoAnalyzePricingTier, number>
+> = {
+  normal: {
+    fast: 60,
+    pro: 90,
+    ultra: 120,
+  },
+  stable: {
+    fast: 80,
+    pro: 120,
+    ultra: 160,
   },
 };
 @Injectable()
@@ -629,6 +646,13 @@ export class CreditsService {
     );
 
     creditsToDeduct = this.resolveBananaTextRouteCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
+    creditsToDeduct = this.resolveVideoAnalyzeRouteCredits(
       params.serviceType,
       creditsToDeduct,
       effectiveRequestParams,
@@ -1340,6 +1364,75 @@ export class CreditsService {
       return 'pro';
     }
     return null;
+  }
+
+  private resolveVideoAnalyzePricingTierFromProvider(
+    rawProvider: unknown,
+  ): VideoAnalyzePricingTier | null {
+    return this.resolveBananaTextPricingTierFromProvider(rawProvider);
+  }
+
+  private resolveVideoAnalyzePricingTierFromModel(
+    rawModel: unknown,
+  ): VideoAnalyzePricingTier | null {
+    return this.resolveBananaTextPricingTierFromModel(rawModel);
+  }
+
+  private resolveVideoAnalyzeRouteCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+    model?: string,
+  ): number {
+    if (serviceType !== 'gemini-video-analyze') {
+      return defaultCredits;
+    }
+
+    const explicitRoute =
+      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
+
+    const channelCandidates = [
+      requestParams?.channel,
+      requestParams?.providerChannel,
+      requestParams?.executionChannel,
+      requestParams?.channelHint,
+    ];
+    let channel: string | null = null;
+    for (const candidate of channelCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalized = this.normalizeChannel(candidate);
+      if (normalized) {
+        channel = normalized;
+        break;
+      }
+    }
+
+    let route: 'normal' | 'stable' | null = explicitRoute;
+    if (!route) {
+      if (channel === 'tencent') {
+        route = 'stable';
+      } else if (channel === 'apimart' || channel === '147') {
+        route = 'normal';
+      }
+    }
+
+    const providerTier =
+      this.resolveVideoAnalyzePricingTierFromProvider(requestParams?.aiProvider) ||
+      this.resolveVideoAnalyzePricingTierFromProvider(requestParams?.requestedProvider) ||
+      this.resolveVideoAnalyzePricingTierFromProvider(requestParams?.routedProvider);
+    const tier =
+      providerTier ||
+      this.resolveVideoAnalyzePricingTierFromModel(model || requestParams?.model) ||
+      'fast';
+
+    const routeKey: 'normal' | 'stable' = route || 'normal';
+    const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+    if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
+      return defaultCredits;
+    }
+    return configuredCredits;
   }
 
   private resolveBananaTextRouteCredits(

@@ -78,6 +78,12 @@
 - 交互：右上角工具区新增“积分”按钮（图标 + 当前余额），点击后新开页进入 `/my-credits`。
 - 数据：复用顶部已加载的 `getMyCredits()` 结果（加载中显示 `...`，暂无数据显示 `--`）。
 
+## 工作区顶部线路切换（`/app`）
+- 组件：`frontend/src/components/layout/FloatingHeader.tsx`
+- 交互：积分按钮与工作流历史按钮之间新增 Nano Banana/Gemini/GPT-Image-2 线路状态按钮；点击展开普通/尊享两项，选中后写入全局 `aiChatStore.bananaImageRoute` 并用于后续生文/生图请求。
+- 视觉：顶部只显示当前线路图标（普通为闪电、尊享为皇冠）；展开菜单不再显示对号，右侧显示当天线路成功率与阶梯信号条。
+- 数据：下拉菜单通过 `GET /api/ai/banana-route-success-rates` 读取全站当天普通/尊享线路成功率；所有已登录用户看到同一份全局统计。
+
 ## 工作区设置弹窗（`/app`）
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`
 - 交互：切换左侧设置分组时，右侧内容滚动区域会回到顶部（不保留上一次分组的滚动位置）。

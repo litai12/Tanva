@@ -1,11 +1,8 @@
-// @ts-nocheck
 import React from "react";
-import { Handle, Position, useReactFlow } from "reactflow";
+import { Handle, Position } from "reactflow";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useLocaleText } from "@/utils/localeText";
 
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 240;
 const MAX_VIDEO_NAME_LENGTH = 28;
 
 // 支持的视频格式
@@ -34,6 +31,11 @@ type Props = {
     error?: string;
   };
   selected?: boolean;
+};
+
+const stopMediaInteraction = (event: React.SyntheticEvent) => {
+  event.stopPropagation();
+  event.nativeEvent.stopImmediatePropagation();
 };
 
 const VideoContent = React.memo(({
@@ -83,6 +85,7 @@ const VideoContent = React.memo(({
       </div>
     ) : videoUrl ? (
       <video
+        className="nodrag nopan nowheel"
         src={videoUrl}
         style={{
           width: "100%",
@@ -92,6 +95,10 @@ const VideoContent = React.memo(({
         }}
         controls
         preload="metadata"
+        onPointerDownCapture={stopMediaInteraction}
+        onMouseDownCapture={stopMediaInteraction}
+        onTouchStartCapture={stopMediaInteraction}
+        onDoubleClickCapture={stopMediaInteraction}
       />
     ) : (
       <div style={{ textAlign: "center", color: "#9ca3af" }}>
@@ -107,7 +114,6 @@ const VideoContent = React.memo(({
 
 function VideoNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
-  const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -126,7 +132,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
     return name;
   }, [data.videoName]);
 
-  const updateNodeData = React.useCallback((patch: Record<string, any>) => {
+  const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent("flow:updateNodeData", {
       detail: { id, patch },
     }));
@@ -186,11 +192,11 @@ function VideoNodeInner({ id, data, selected }: Props) {
       });
 
       console.log(`✅ Video uploaded: ${videoName} -> ${videoUrl}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("❌ Video upload failed:", err);
       updateNodeData({
         status: 'error',
-        error: err.message || lt('上传失败', 'Upload failed'),
+        error: err instanceof Error ? err.message : lt('上传失败', 'Upload failed'),
       });
     }
   }, [lt, updateNodeData, uploadVideoToOSS]);

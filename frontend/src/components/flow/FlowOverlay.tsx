@@ -623,6 +623,87 @@ const computeGroupBounds = (
   return { x, y, width, height };
 };
 
+const expandFlowSelectionWithGroupChildren = (
+  allNodes: RFNode[],
+  selectedNodes: RFNode[]
+): RFNode[] => {
+  if (!Array.isArray(selectedNodes) || selectedNodes.length === 0) return [];
+  const nodeById = new Map(
+    (Array.isArray(allNodes) ? allNodes : [])
+      .filter(Boolean)
+      .map((node) => [String(node.id), node as RFNode])
+  );
+  const out: RFNode[] = [];
+  const seen = new Set<string>();
+  const addNode = (node?: RFNode | null) => {
+    if (!node) return;
+    const id = String(node.id || "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(node);
+  };
+
+  selectedNodes.forEach((node) => {
+    const current = nodeById.get(String(node?.id || "")) || node;
+    addNode(current);
+    if (!isGroupNode(current)) return;
+    getGroupChildIds(current).forEach((childId) => {
+      const child = nodeById.get(String(childId));
+      if (!child || isGroupNode(child)) return;
+      addNode(child);
+    });
+  });
+
+  return out;
+};
+
+const remapFlowGroupChildIds = (
+  nodeType: string | undefined,
+  data: any,
+  idMap: Map<string, string>
+) => {
+  if (nodeType !== FLOW_GROUP_NODE_TYPE || !data) return data;
+  const childNodeIds = Array.isArray(data.childNodeIds)
+    ? data.childNodeIds
+        .map((childId: string) => idMap.get(String(childId)) || null)
+        .filter(Boolean)
+    : [];
+  return {
+    ...data,
+    childNodeIds: Array.from(new Set(childNodeIds)),
+  };
+};
+
+const expandFlowDeleteIdsWithGroupChildren = (
+  allNodes: RFNode[],
+  ids: Iterable<string>
+): Set<string> => {
+  const removeIds = new Set(
+    Array.from(ids || [])
+      .map((id) => String(id || ""))
+      .filter(Boolean)
+  );
+  if (!removeIds.size) return removeIds;
+
+  const nodeById = new Map(
+    (Array.isArray(allNodes) ? allNodes : [])
+      .filter(Boolean)
+      .map((node) => [String(node.id), node as RFNode])
+  );
+
+  Array.from(removeIds).forEach((id) => {
+    const node = nodeById.get(id);
+    if (!isGroupNode(node)) return;
+    getGroupChildIds(node).forEach((childId) => {
+      if (nodeById.has(String(childId))) {
+        removeIds.add(String(childId));
+      }
+    });
+  });
+
+  return removeIds;
+};
+
 type EdgeLabelEditorState = {
   visible: boolean;
   edgeId: string | null;
@@ -1266,6 +1347,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   nano2: 20, // Nano Banana 2 生图
   gptImage2: 40, // Gpt-Imgae-2 生图
   seedream5: 30, // Seedream 5.0 生图
+  videoAnalyze: 60, // 视频分析节点 - 按模型档位与渠道动态计费
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
@@ -1309,7 +1391,7 @@ const NODE_PALETTE_ITEMS = [
   // 生图节点
   { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
-  { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
+  { key: "generate4", zh: "生成多张图片节点", en: "Muti Gen", category: "image" },
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
   { key: "gptImage2", zh: "Gpt-Imgae-2", en: "Gpt-Imgae-2", category: "image" },
@@ -1796,6 +1878,22 @@ const BANANA_TEXT_ROUTE_PRICING: Record<
   },
 };
 
+const VIDEO_ANALYZE_ROUTE_PRICING: Record<
+  "normal" | "stable",
+  Record<BananaPricingTier, number>
+> = {
+  normal: {
+    fast: 60,
+    pro: 90,
+    ultra: 120,
+  },
+  stable: {
+    fast: 80,
+    pro: 120,
+    ultra: 160,
+  },
+};
+
 // GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
 const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
   "1K": 40,
@@ -2229,6 +2327,21 @@ const resolveStableRouteCredits = (params: {
       if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
         resolvedCredits = configuredCredits;
       }
+    }
+  }
+
+  if (normalizedType === "videoAnalyze") {
+    const providerKey = String(providerForPricing || "").trim().toLowerCase();
+    const tier: BananaPricingTier =
+      providerKey === "banana-2.5"
+        ? "fast"
+        : providerKey === "banana-3.1" || providerKey === "nano2"
+        ? "ultra"
+        : resolveBananaPricingTierByModel(globalImageModel) || "pro";
+    const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
+    const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      resolvedCredits = configuredCredits;
     }
   }
 
@@ -3862,6 +3975,49 @@ function FlowInner() {
         !!altState?.cloned &&
         altState?.idMap instanceof Map;
 
+      if (Array.isArray(processedChanges)) {
+        const removeChanges = processedChanges.filter(
+          (change: any) => change?.type === "remove" && change?.id
+        );
+        if (removeChanges.length > 0) {
+          const currentNodes =
+            nodesRef.current.length > 0
+              ? nodesRef.current
+              : ((rfRef.current.getNodes?.() || []) as RFNode[]);
+          const originalRemoveIds = new Set(
+            removeChanges.map((change: any) => String(change.id))
+          );
+          const expandedRemoveIds = expandFlowDeleteIdsWithGroupChildren(
+            currentNodes,
+            originalRemoveIds
+          );
+          if (expandedRemoveIds.size > originalRemoveIds.size) {
+            const existingChangeIds = new Set(
+              processedChanges
+                .map((change: any) =>
+                  change?.id ? String(change.id) : ""
+                )
+                .filter(Boolean)
+            );
+            const extraRemoveChanges = Array.from(expandedRemoveIds)
+              .filter((id) => !existingChangeIds.has(id))
+              .map((id) => ({ id, type: "remove" }));
+            if (extraRemoveChanges.length > 0) {
+              processedChanges = processedChanges.concat(extraRemoveChanges);
+            }
+          }
+          if (expandedRemoveIds.size > 0) {
+            setEdges((prev: any[]) =>
+              prev.filter(
+                (edge: any) =>
+                  !expandedRemoveIds.has(String(edge.source)) &&
+                  !expandedRemoveIds.has(String(edge.target))
+              )
+            );
+          }
+        }
+      }
+
       if (isAltDragCloning && Array.isArray(processedChanges)) {
         // ReactFlow 仍会尝试拖拽原节点；这里把“原节点的位置变化”重定向到副本，
         // 并把原节点强制回到起始位置，保证原有连线不被“带走”。
@@ -4020,7 +4176,7 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [applyFlowSnappingToChanges, onNodesChange]
+    [applyFlowSnappingToChanges, onNodesChange, setEdges]
   );
 
   const rf = useReactFlow();
@@ -5274,7 +5430,10 @@ function FlowInner() {
 
   const handleCopyFlow = React.useCallback(() => {
     const allNodes = rf.getNodes();
-    const selectedNodes = allNodes.filter((node: any) => node.selected);
+    const selectedNodes = expandFlowSelectionWithGroupChildren(
+      allNodes as RFNode[],
+      allNodes.filter((node: any) => node.selected) as RFNode[]
+    );
     if (!selectedNodes.length) return false;
 
     // 同步一份“可粘贴到画板”的数据（仅对含图片节点生效）
@@ -10738,7 +10897,7 @@ function FlowInner() {
       const allNodes = rf.getNodes();
       const targetNode = detail?.nodeId ? rf.getNode(detail.nodeId) : null;
       const selectedNodes = allNodes.filter((n: any) => n.selected);
-      const nodesToCopy =
+      const baseNodesToCopy =
         targetNode && !targetNode.selected
           ? [targetNode]
           : selectedNodes.length
@@ -10746,6 +10905,10 @@ function FlowInner() {
           : targetNode
           ? [targetNode]
           : [];
+      const nodesToCopy = expandFlowSelectionWithGroupChildren(
+        allNodes as RFNode[],
+        baseNodesToCopy as RFNode[]
+      );
 
       if (!nodesToCopy.length) return;
 
@@ -10815,12 +10978,20 @@ function FlowInner() {
       const detail = (event as CustomEvent).detail as
         | { nodeId?: string }
         | undefined;
-      const allNodes = rf.getNodes();
-      const targetNode = detail?.nodeId ? rf.getNode(detail.nodeId) : null;
+      const allNodes =
+        nodesRef.current.length > 0
+          ? nodesRef.current
+          : ((rf.getNodes?.() || []) as RFNode[]);
+      const nodeById = new Map(
+        allNodes.map((node: any) => [String(node.id), node])
+      );
+      const targetNode = detail?.nodeId
+        ? nodeById.get(String(detail.nodeId)) || rf.getNode(detail.nodeId)
+        : null;
       const selectedIds = new Set(
         allNodes.filter((n: any) => n.selected).map((n: any) => n.id)
       );
-      const ids =
+      const baseIds =
         targetNode && !targetNode.selected
           ? new Set([targetNode.id])
           : selectedIds.size
@@ -10828,6 +10999,10 @@ function FlowInner() {
           : detail?.nodeId
           ? new Set([detail.nodeId])
           : new Set<string>();
+      const ids = expandFlowDeleteIdsWithGroupChildren(
+        allNodes as RFNode[],
+        baseIds
+      );
       if (!ids.size) return;
 
       setNodes((prev: any[]) => prev.filter((n: any) => !ids.has(n.id)));
@@ -17982,8 +18157,6 @@ function FlowInner() {
       })();
 
       if (node.type === "generate4") {
-        /** 连续多次调同一接口易被限流，稍作间隔可提高 3、4 张成功率 */
-        const MULTI_GENERATE_STAGGER_MS = 650;
         const total = 4;
         setNodes((ns) =>
           ns.map((n) =>
@@ -17997,52 +18170,71 @@ function FlowInner() {
                     images: [],
                     generate4SlotErrors: undefined,
                     generate4PassIndex: 0,
+                    imageUrls: [],
+                    thumbnails: [],
                   },
                 }
               : n
           )
         );
-        const produced: string[] = [];
-        const producedThumbs: string[] = [];
+        const produced: string[] = new Array(total).fill("");
+        const producedThumbs: string[] = new Array(total).fill("");
         const slotErrors: (string | undefined)[] = Array.from(
           { length: total },
           () => undefined
         );
-        /** 已完成第几轮请求（用于 UI：与成功张数无关，避免中间槽失败后误显示「生成中」） */
-        const updateMultiGenerateProgress = (passIndex: number) => {
+        const remoteInputs = imageDatas.filter(isRemoteUrl);
+        const hasOnlyRemote =
+          imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
+        let completedCount = 0;
+        const updateMultiGenerateProgress = () => {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? {
-                    ...n,
-                  data: {
-                    ...n.data,
-                    images: Array.from({ length: total }, (__, idx) => produced[idx] || ""),
-                    thumbnails: Array.from({ length: total }, (__, idx) => producedThumbs[idx] || ""),
-                    generate4PassIndex: passIndex,
-                  },
-                }
+                ? (() => {
+                    const existingUrls = Array.isArray((n.data as any)?.imageUrls)
+                      ? ((n.data as any).imageUrls as string[])
+                      : [];
+                    const existingThumbs = Array.isArray((n.data as any)?.thumbnails)
+                      ? ((n.data as any).thumbnails as string[])
+                      : [];
+                    return {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        images: produced.map((img, idx) =>
+                          existingUrls[idx] ? "" : img
+                        ),
+                        thumbnails: producedThumbs.map(
+                          (thumb, idx) => existingThumbs[idx] || thumb
+                        ),
+                        generate4SlotErrors: slotErrors.some((e) => Boolean(e))
+                          ? [...slotErrors]
+                          : undefined,
+                        generate4PassIndex: completedCount,
+                      },
+                    };
+                  })()
                 : n
             )
           );
         };
 
-        for (let i = 0; i < total; i++) {
-          if (i > 0) {
-            await new Promise((r) => setTimeout(r, MULTI_GENERATE_STAGGER_MS));
-          }
-          let generatedImage: string | undefined;
-          let generatedModel: string | undefined;
-          let generatedMetadata: Record<string, any> | undefined;
+        const generateSingleImage = async (
+          index: number
+        ): Promise<{
+          index: number;
+          image?: string;
+          error?: string;
+          model?: string;
+          metadata?: Record<string, any>;
+        }> => {
           try {
             let result: {
               success: boolean;
               data?: AIImageResult;
               error?: { message: string };
             };
-            const remoteInputs = imageDatas.filter(isRemoteUrl);
-            const hasOnlyRemote =
-              imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
             if (imageDatas.length === 0) {
               result = await generateImageViaAPI({
                 prompt,
@@ -18095,17 +18287,12 @@ function FlowInner() {
               result.data?.imageData;
 
             if (!result.success || !result.data || !generatedSrc) {
-              slotErrors[i] =
-                result.error?.message ||
-                (result.success && !generatedSrc
-                  ? "接口成功但未返回图片"
-                  : "生成失败");
               if (result.success && result.data && !generatedSrc) {
                 console.warn(
                   "⚠️ Flow generate4 success but no image returned",
                   {
                     nodeId,
-                    slot: i,
+                    slot: index,
                     aiProvider: runProvider,
                     model: nodeSpecificModel,
                     prompt,
@@ -18113,28 +18300,54 @@ function FlowInner() {
                   }
                 );
               }
-            } else {
-              generatedImage = generatedSrc;
-              generatedModel = result.data.model || nodeSpecificModel;
-              generatedMetadata = result.data.metadata as Record<string, any> | undefined;
+              return {
+                index,
+                error:
+                  result.error?.message ||
+                  (result.success && !generatedSrc
+                    ? "接口成功但未返回图片"
+                    : "生成失败"),
+              };
             }
+
+            return {
+              index,
+              image: generatedSrc,
+              model: result.data.model || nodeSpecificModel,
+              metadata: result.data.metadata as Record<string, any> | undefined,
+            };
           } catch (err: any) {
-            slotErrors[i] =
+            const message =
               typeof err?.message === "string" && err.message.trim()
                 ? err.message.trim()
                 : "请求异常";
             console.warn("⚠️ Flow generate4 slot failed", {
               nodeId,
-              slot: i,
+              slot: index,
               err,
             });
+            return { index, error: message };
           }
+        };
 
-          if (generatedImage) {
-            produced[i] = generatedImage;
+        const tasks = Array.from({ length: total }, (_, i) =>
+          generateSingleImage(i)
+        );
+        await Promise.all(
+          tasks.map(async (task) => {
+            const result = await task;
+            if (!result.image) {
+              slotErrors[result.index] = result.error || "生成失败";
+              completedCount += 1;
+              updateMultiGenerateProgress();
+              return result;
+            }
+
+            const generatedImage = result.image;
+            produced[result.index] = generatedImage;
             const runtimeThumbnail = await createThumbnailDataUrl(generatedImage, 512).catch(() => null);
             if (runtimeThumbnail) {
-              producedThumbs[i] = runtimeThumbnail;
+              producedThumbs[result.index] = runtimeThumbnail;
             }
 
             const outs = rf
@@ -18142,7 +18355,7 @@ function FlowInner() {
               .filter(
                 (e) =>
                   e.source === nodeId &&
-                  (e as any).sourceHandle === `img${i + 1}`
+                  (e as any).sourceHandle === `img${result.index + 1}`
               );
             if (outs.length) {
               const imgB64 = generatedImage;
@@ -18167,7 +18380,7 @@ function FlowInner() {
             // 异步上传并写入远程 URL（避免 base64 落盘到项目 JSON/DB）
             try {
               const projectId = useProjectContentStore.getState().projectId;
-              const slotIndex = i;
+              const slotIndex = result.index;
               const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
               void recordImageHistoryEntry({
                 id: historyId,
@@ -18182,8 +18395,8 @@ function FlowInner() {
                 keepThumbnail: false,
                 createRemoteThumbnail: true,
                 metadata: {
-                  ...(generatedMetadata || {}),
-                  model: generatedModel || nodeSpecificModel,
+                  ...(result.metadata || {}),
+                  model: result.model || nodeSpecificModel,
                   aiProvider: runProvider,
                   provider: runProvider,
                 },
@@ -18203,6 +18416,14 @@ function FlowInner() {
                     ns.map((n) => {
                       // 更新 generate4 节点本身：写入 imageUrls 并清理对应 images 槽位
                       if (n.id === nodeId) {
+                        const prevImages = Array.isArray(
+                          (n.data as any)?.images
+                        )
+                          ? ([...(n.data as any).images] as any[])
+                          : [];
+                        if (prevImages[slotIndex] !== generatedImage) {
+                          return n;
+                        }
                         const prevUrls = Array.isArray(
                           (n.data as any)?.imageUrls
                         )
@@ -18210,13 +18431,6 @@ function FlowInner() {
                           : [];
                         if (remoteUrl) {
                           prevUrls[slotIndex] = remoteUrl;
-                        }
-                        const prevImages = Array.isArray(
-                          (n.data as any)?.images
-                        )
-                          ? ([...(n.data as any).images] as any[])
-                          : [];
-                        if (remoteUrl && prevImages[slotIndex] === generatedImage) {
                           prevImages[slotIndex] = "";
                         }
                         const prevThumbs = Array.isArray(
@@ -18262,10 +18476,12 @@ function FlowInner() {
                 })
                 .catch(() => {});
             } catch {}
-          }
 
-          updateMultiGenerateProgress(i + 1);
-        }
+            completedCount += 1;
+            updateMultiGenerateProgress();
+            return result;
+          })
+        );
 
         const okCount = produced.filter(Boolean).length;
         const hasAny = okCount > 0;
@@ -18912,7 +19128,27 @@ function FlowInner() {
     async (id: string) => {
       const node = rf.getNode(id);
       if (!node) return;
-      const anchorClient = resolveFlowNodeSendAnchorClient({ nodeId: id });
+      const resolveAnchorNodeId = (nodeId: string): string => {
+        const nodes = (rf.getNodes?.() || []) as RFNode[];
+        const current = nodes.find((item) => item.id === nodeId) || null;
+        const parentId =
+          typeof (current as any)?.parentNode === "string"
+            ? String((current as any).parentNode).trim()
+            : "";
+        if (parentId) {
+          const parent = nodes.find((item) => item.id === parentId);
+          if (isGroupNode(parent)) return parentId;
+        }
+        const ownerGroup = nodes.find(
+          (item) =>
+            isGroupNode(item) && getGroupChildIds(item).includes(nodeId)
+        );
+        return ownerGroup?.id || nodeId;
+      };
+      const anchorNodeId = resolveAnchorNodeId(id);
+      const anchorClient = resolveFlowNodeSendAnchorClient({
+        nodeId: anchorNodeId,
+      });
       const cacheKey = "flow_send_image_cache_v1";
       const getCachedUrl = (key: string): string | null => {
         try {
@@ -19118,6 +19354,7 @@ function FlowInner() {
                 operationType: "generate",
                 smartPosition: undefined,
                 anchorClient,
+                forceAnchorPosition: true,
                 sourceImageId: undefined,
                 sourceImages: undefined,
                 preferHorizontal: true,
@@ -20098,7 +20335,7 @@ function FlowInner() {
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodeWithHandlersCacheRef = React.useRef<
-    Map<string, { source: RFNode; enhanced: RFNode }>
+    Map<string, { source: RFNode; enhanced: RFNode; signature: string }>
   >(new Map());
   React.useEffect(() => {
     nodeWithHandlersCacheRef.current.clear();
@@ -20126,12 +20363,19 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(
     () => {
       const prevCache = nodeWithHandlersCacheRef.current;
-      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode }>();
+      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode; signature: string }>();
+      const pricingSignature = [
+        aiProvider,
+        bananaImageRoute,
+        imageSize || "",
+        imageModel || "",
+        isFlowBlackTheme ? "dark" : "light",
+      ].join("|");
 
       const rendered = nodes.map((n) => {
         const cacheKey = String(n.id);
         const cached = prevCache.get(cacheKey);
-        if (cached && cached.source === (n as RFNode)) {
+        if (cached && cached.source === (n as RFNode) && cached.signature === pricingSignature) {
           nextCache.set(cacheKey, cached);
           return cached.enhanced;
         }
@@ -20215,6 +20459,7 @@ function FlowInner() {
           n.type === "gptImage2" ||
           n.type === "textChat" ||
           n.type === "promptOptimize" ||
+          n.type === "videoAnalyze" ||
           n.type === "seedream5" ||
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||
@@ -20264,6 +20509,7 @@ function FlowInner() {
         nextCache.set(cacheKey, {
           source: n as RFNode,
           enhanced: enhancedNode,
+          signature: pricingSignature,
         });
         return enhancedNode;
       });
@@ -20856,7 +21102,7 @@ function FlowInner() {
             color: "#fff",
           }}
         >
-          Multi Generate
+          Muti Gen
         </button>
         <div
           style={{
@@ -21706,8 +21952,15 @@ function FlowInner() {
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);
           const allNodes = rf.getNodes();
-          const selectedNodes = allNodes.filter(
+          const directSelectedNodes = allNodes.filter(
             (n: any) => n.selected || n.id === node.id
+          );
+          const selectedNodes = expandFlowSelectionWithGroupChildren(
+            allNodes as RFNode[],
+            directSelectedNodes as RFNode[]
+          );
+          const directSelectedIdSet = new Set(
+            directSelectedNodes.map((n: any) => String(n.id))
           );
           draggingGroupNodeRef.current = selectedNodes.some(
             (n: any) => isGroupNode(n) || Boolean((n as any).parentId)
@@ -21728,7 +21981,7 @@ function FlowInner() {
                 { x: number; y: number }
               >();
               const idMap = new Map<string, string>();
-              const clonedNodes = selectedNodes.map((n: any) => {
+              selectedNodes.forEach((n: any) => {
                 startPositions.set(n.id, { x: n.position.x, y: n.position.y });
                 startAbsPositions.set(n.id, {
                   x: (n as any).positionAbsolute?.x ?? n.position.x,
@@ -21736,22 +21989,27 @@ function FlowInner() {
                 });
                 const newId = generateId(n.type || "n");
                 idMap.set(n.id, newId);
+              });
+              const clonedNodes = selectedNodes.map((n: any) => {
+                const nodeType = n.type || "default";
+                const newId = idMap.get(n.id) || generateId(nodeType || "n");
                 const rawData = { ...(n.data || {}) };
                 delete rawData.onRun;
                 delete rawData.onSend;
-                const data = sanitizeNodeData(rawData, {
+                let data = sanitizeNodeData(rawData, {
                   preserveImagePayload: true,
                 });
                 if (data) {
                   delete data.status;
                   delete data.error;
+                  data = remapFlowGroupChildIds(nodeType, data, idMap);
                 }
                 return {
                   id: newId,
-                  type: n.type || "default",
+                  type: nodeType,
                   position: { x: n.position.x, y: n.position.y }, // 原位置
                   data,
-                  selected: true, // 副本选中，符合“复制后继续操作副本”的直觉
+                  selected: directSelectedIdSet.has(String(n.id)), // 只保留用户显式选中的副本为选中态
                   width: n.width,
                   height: n.height,
                   style: n.style ? { ...n.style } : undefined,
@@ -21784,13 +22042,12 @@ function FlowInner() {
                 .filter(Boolean);
 
               // 添加副本到节点列表（拖拽期间通过 onNodesChange 把位移重映射到副本）
-              const selectedIdSet = new Set(
-                selectedNodes.map((n: any) => n.id)
-              );
               setNodes((prev: any[]) =>
                 prev
                   .map((n: any) =>
-                    selectedIdSet.has(n.id) ? { ...n, selected: false } : n
+                    directSelectedIdSet.has(String(n.id))
+                      ? { ...n, selected: false }
+                      : n
                   )
                   .concat(clonedNodes)
               );

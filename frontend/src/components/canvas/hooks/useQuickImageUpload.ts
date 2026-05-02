@@ -173,6 +173,7 @@ type MatrixLayoutContext = {
     sourceImageId?: string;
     sourceImages?: string[];
     preferHorizontal?: boolean;
+    forceAnchorPosition?: boolean;
 };
 
 type MatrixLayoutState = {
@@ -418,7 +419,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             ? new paper.Point(params.layoutContext.anchorCenter.x, params.layoutContext.anchorCenter.y)
             : params.anchor;
         let desiredAnchor = rawAnchor;
-        if (isGenerateGroup) {
+        if (isGenerateGroup && !params.layoutContext?.forceAnchorPosition) {
             const generatedImages = getAllCanvasImages().filter((img) => img.operationType === 'generate');
             if (generatedImages.length > 0) {
                 let bottomLeft = generatedImages[0];
@@ -1387,6 +1388,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
             let forcedTopAnchorPoint: paper.Point | null = null;
+            let forcedGroupExpectedHeight: number | null = null;
 
             const registerPending = (initialPoint: paper.Point | null) => {
                 const entry: PendingImageEntry = {
@@ -1443,6 +1445,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImageId,
                     sourceImages,
                     preferHorizontal,
+                    forceAnchorPosition: extraOptions?.forceAnchorPosition,
                 },
             });
 
@@ -1464,12 +1467,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
+                const parallelTotal = parallelGroupTotal ?? 1;
+                const shouldForceAnchorPositionForGroup =
+                    Boolean(extraOptions?.forceAnchorPosition) && parallelTotal > 1;
                 const shouldForceAnchorPosition =
-                    Boolean(extraOptions?.forceAnchorPosition) && (parallelGroupTotal ?? 1) <= 1;
+                    Boolean(extraOptions?.forceAnchorPosition) && parallelTotal <= 1;
                 let anchorCenterForPlacement = desiredPoint;
-                if (shouldForceAnchorPosition) {
+                if (shouldForceAnchorPosition || shouldForceAnchorPositionForGroup) {
                     // forceAnchorPosition 语义：smartPosition 表示“顶部锚点”，不是图片中心点。
-                    forcedTopAnchorPoint = desiredPoint.clone();
+                    if (shouldForceAnchorPosition) {
+                        forcedTopAnchorPoint = desiredPoint.clone();
+                    } else {
+                        forcedGroupExpectedHeight = expectedHeight;
+                    }
                     anchorCenterForPlacement = desiredPoint.add(
                         new paper.Point(0, expectedHeight / 2 + FLOW_NODE_SEND_TOP_GAP)
                     );
@@ -1477,7 +1487,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 pendingEntry = registerPending(anchorCenterForPlacement);
                 const adjustedPoint = shouldForceAnchorPosition
                     ? anchorCenterForPlacement
-                    : resolveTargetPosition(desiredPoint, pendingOperationType);
+                    : resolveTargetPosition(
+                        shouldForceAnchorPositionForGroup
+                            ? anchorCenterForPlacement
+                            : desiredPoint,
+                        pendingOperationType
+                    );
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -2012,6 +2027,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     finalPosition = new paper.Point(
                         forcedTopAnchorPoint.x,
                         forcedTopAnchorPoint.y + displayHeight / 2 + FLOW_NODE_SEND_TOP_GAP
+                    );
+                    if (pendingEntry) {
+                        pendingEntry.x = finalPosition.x;
+                        pendingEntry.y = finalPosition.y;
+                    }
+                } else if (forcedGroupExpectedHeight !== null) {
+                    finalPosition = new paper.Point(
+                        finalPosition.x,
+                        finalPosition.y - forcedGroupExpectedHeight / 2 + displayHeight / 2
                     );
                     if (pendingEntry) {
                         pendingEntry.x = finalPosition.x;

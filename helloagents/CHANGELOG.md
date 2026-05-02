@@ -10,15 +10,24 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Changed
+- Flow/Muti Gen: `generate4` 节点的 4 张图从串行请求改为并发请求，槽位按各自完成顺序写回。
+- Flow/Muti Gen: `generate4` 节点的用户可见英文名称从 `Multi Generate` 改为 `Muti Gen`。
+- Flow/Video Analysis: 视频分析节点定价从固定 `30` 积分改为按模型档位与渠道计费：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`；前端 Run 徽标和后端预扣费使用同一矩阵。
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 - Canvas/Image Toolbar: 图片底部工具栏固定前三项调整为 `生成节点`、`裁切`、`极速抠图`；`高清放大` 默认显示在固定按钮之后，并继续参与使用频次轮换。
 - Canvas/HD Upscale: 图片工具栏的 `高清放大` 改为先在原图右侧显示占位框，完成后将 4K 结果上传并添加到画布，不再直接触发下载。
 - Canvas/Grid: 网格缩放显示规则调整为 `>=40%` 显示主/次级网格、`30%-40%` 只显示主网格且覆盖完整视口、`<30%` 隐藏网格线。
+- Flow/Send To Canvas: `generate4` / `generatePro4` / `Midjourney V7` / `Niji 7` 多图发送现在使用 Flow 节点或所属 `nodeGroup` 的正下方作为锚点，避免继续接到画板已有 generate 图片队列末尾导致距离过远。
+- Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Image Group: 画布复制粘贴与 `Alt` 拖拽复制现在会一并保存和重建 `image-group` 组块元数据，按新图片 ID 重新生成灰底框与标题，避免原本带组的图片复制后只剩散图。
+- Flow/Video Node: 普通 `Video` 输入节点的原生播放控件现在会隔离 pointer/mouse/touch 事件，并标记为 `nodrag/nopan/nowheel`，避免拖动进度条时触发 React Flow 节点拖拽导致进度条“吸住”（`frontend/src/components/flow/nodes/VideoNode.tsx`）。
+- Flow/Video Analysis: 视频分析节点补齐中文模式文案，覆盖标题、运行按钮、占位文案、错误文案和默认分析提示词；旧画布里自动写入的英文默认 prompt 会按当前语言切回本地化默认值（`frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`）。
+- Flow/Video Analysis: 顶部“分析”按钮改为浅色描边样式，并补齐 hover/disabled 状态，和其他节点的次级按钮视觉保持一致。
 - Membership UI: 套餐卡外框统一使用紫色会员视觉，不再因默认选中变粗；免费档与付费档标题字号保持一致，付费套餐快乐马权益统一展示为“支持”（`frontend/src/components/payment/MembershipPanel.tsx`）。
 - Flow/Viewport: Canvas -> Flow viewport sync now uses a shared `canvasViewportFrame` RAF snapshot so `PaperCanvasManager` and `FlowOverlay` apply Paper matrix and ReactFlow viewport from the same `zoom/pan/dpr` frame, keeping Paper images and Flow nodes synchronized during pan/zoom.
 - Canvas/Image Overlay: 图片覆盖层在缩放/平移时会跳过同值 bounds、分辨率和锁定 hover 状态更新；非激活图片不再订阅高频 `zoom/pan`，并且 `DrawingController` 复用图片覆盖层元素，降低缩放时的 React 更新量。
@@ -48,6 +57,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Image: 图片生成节点统一改为 `GenerationProgressBar` 动态渐进并支持配置时长，`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle` 已切换为 `60s` 渐进�?`95%`（成功后�?`100%`）�?
 
 ### Added
+- Workspace Header: 顶部积分与工作流历史之间新增 Nano Banana/Gemini/GPT-Image-2 线路切换按钮，可在普通/尊享路线间快速切换并复用全局 `bananaImageRoute`。
+- Workspace Header: 线路切换下拉移除对号 UI，改为展示全站当天普通/尊享 API 成功率与阶梯信号条；新增 `GET /api/ai/banana-route-success-rates` 供所有已登录用户读取同一份全局统计。
 - Canvas Drawing: 绘图工具子菜单新增 `箭头` 工具，与自由绘制、直线、矩形、圆形并列；箭头以 Paper.js 路径保存并参与图层面板识别与 Shift 融图流程。
 - Admin/API Records: 后台 API 记录支持按用户关键词过滤，可匹配用户 ID、手机号、邮箱和昵称。
 - Flow Clipboard: `GeneratePro / ImagePro / GeneratePro4` 的右键“复制节点”改为写�?Flow 剪贴板（不再直接生成副本），可配�?`Ctrl/Cmd + Shift + V` 使用“保留原连线粘贴”（`Ctrl/Cmd + V` 仍保持常规粘贴）�?

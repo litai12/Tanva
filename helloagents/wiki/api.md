@@ -27,6 +27,10 @@
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
 
 ## 近期接口变更（摘要）
+- `GET /api/ai/banana-route-success-rates`：
+  - 新增登录用户可访问的全站线路成功率接口，用于工作区顶部普通/尊享线路下拉。
+  - 请求参数：`timezoneOffsetMinutes`（可选，客户端 `Date.getTimezoneOffset()`）。
+  - 响应包含当天 `startAt/endAt`、时区偏移，以及 `routes.normal` / `routes.stable` 的 `totalCalls`、`completedCalls`、`successfulCalls`、`failedCalls`、`pendingCalls`、`successRate`。
 - `POST /api/ai/analyze-image`：
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。

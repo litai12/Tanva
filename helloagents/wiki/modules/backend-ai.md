@@ -24,6 +24,7 @@
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
+- `GET banana-route-success-rates`：返回客户端当天普通/尊享线路的全站成功率统计，所有已登录用户可见。
 - `POST minimax-speech` / `POST minimax-music`
 
 ## 注意事项
@@ -48,6 +49,7 @@
 - Banana 文本链路按档位映射：`Fast (banana-2.5) -> gemini-2.5-flash`、`Pro (banana) -> gemini-3-pro-preview`、`Ultra (banana-3.1/nano2) -> gemini-3.1-pro-preview`；其�?Ultra �?147 �?Apimart 通道均统一使用 `gemini-3.1-pro-preview`�?
 - `POST /api/ai/analyze-image` 默认优先使用 `gemini-3.1-pro`（语言模型）做多模态分析；`banana-2.5` 仍保�?`gemini-2.5-flash-image-preview`�?
 - 图像分析链路遇到上游配额/限流�?29 / quota / resource exhausted）时，后端会在退款后透传 HTTP `429`，不再统一返回 `500`�?
+- `GET /api/ai/banana-route-success-rates` 会按客户端 `timezoneOffsetMinutes` 计算当天范围，统计 Nano Banana/Gemini/GPT-Image-2 相关生图、改图、融合、分析、视频分析、文本与提示词优化记录；成功率分母只包含 `success/failed` 完成记录，`pending` 仅计入待完成数量。
 - `minimax-music` 默认强制 `output_format=url`、`stream=false`，并在上游返�?`status=1`（合成中）或请求超时时返回友好错误提示�?
 
 ## 配置项（以代码与环境为准�?

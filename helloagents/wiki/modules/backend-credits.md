@@ -61,6 +61,7 @@
 ## 渠道与模型追踪（图像分析）
 - `POST /api/ai/analyze-image` 的计费请求参数会写入 `aiProvider/channelHint`，用于在积分流水中识别执行渠道。
 - 流水列表前端可直接展示“渠道 + 模型”，用于核对“使用了哪个渠道、哪个模型”。
+- `POST /api/ai/analyze-video` 的 `gemini-video-analyze` 不再使用固定 30 积分；后端按 `aiProvider + bananaImageRoute/channelHint + model` 解析视频分析矩阵：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`。前端 `VideoAnalyzeNode` Run 徽标使用同一矩阵展示。
 - 视频模型管理线路若在 `model_provider_mapping_v2.models[].vendors[]` 配置了 `creditsPerCall`，后端预扣积分会优先使用该线路价格，而不是节点管理/静态服务价。
 - 若 `model_provider_mapping_v2.models[].vendors[].metadata.specPricing` 配置了规格积分规则，后端会按数组顺序匹配第一条命中的 `match/when` 条件，再回退到厂商级 `creditsPerCall`：
   - 规则格式示例：`{ "match": { "resolution": "720P", "duration": 10 }, "creditsPerCall": 900 }`

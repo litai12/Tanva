@@ -13,6 +13,8 @@ import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
 import {
+  collectImageGroupBlockSnapshots,
+  createImageGroupBlockFromSnapshot,
   deleteImageGroupBlock,
   findGroupBlockTitle,
   getImagePaperBounds,
@@ -20,6 +22,7 @@ import {
   updateGroupBlockTitle,
 } from '@/utils/paperImageGroupBlock';
 import type { ImageAssetSnapshot } from '@/types/project';
+import type { ImageGroupBlockSnapshot } from '@/utils/paperImageGroupBlock';
 import type { SnapAlignmentAPI } from './useSnapAlignment';
 
 
@@ -224,6 +227,7 @@ export const useInteractionController = ({
   const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
   const altDragPlaceholderRef = useRef<paper.Group | null>(null); // Alt+拖拽时的占位框
   const altDragSnapshotsRef = useRef<ImageAssetSnapshot[]>([]); // Alt+拖拽时保存的图片快照
+  const altDragGroupSnapshotsRef = useRef<ImageGroupBlockSnapshot[]>([]); // Alt+拖拽时保存的图片组快照
   
   // 路径 Alt+拖拽复制相关状态
   const pathAltDragClonedRef = useRef(false); // 标记路径是否已创建克隆占位框
@@ -360,6 +364,17 @@ export const useInteractionController = ({
       pathAltDragPlaceholderRef.current = null;
     }
     pathAltDragSnapshotsRef.current = [];
+  }, []);
+
+  const collectDragImageGroupSnapshots = useCallback((
+    paths: Iterable<paper.Path | null | undefined>,
+    includedImageIds?: Set<string>
+  ): ImageGroupBlockSnapshot[] => {
+    const snapshots = collectImageGroupBlockSnapshots(Array.from(paths));
+    if (!includedImageIds || includedImageIds.size === 0) return snapshots;
+    return snapshots.filter((snapshot) =>
+      snapshot.imageIds.every((imageId) => includedImageIds.has(imageId))
+    );
   }, []);
 
   const beginGroupPathDrag = useCallback((startPoint: paper.Point | null, mode: GroupPathDragMode) => {
@@ -920,6 +935,10 @@ export const useInteractionController = ({
 
         imageDragMovedRef.current = false;
         altDragCloneIdsRef.current = [];
+        altDragGroupSnapshotsRef.current = collectDragImageGroupSnapshots(
+          previouslySelectedPaths,
+          new Set(selectedIds)
+        );
         libraryHoveringRef.current = false;
         latestImageTool.setImageDragState({
           isImageDragging: true,
@@ -999,6 +1018,12 @@ export const useInteractionController = ({
             if (first && firstId && actualFirstBounds) {
               imageDragMovedRef.current = false;
               altDragCloneIdsRef.current = [];
+              const sourceGroupPaths = new Set<paper.Path>(previouslySelectedPaths);
+              if (pathSelectedByThisClick) sourceGroupPaths.add(pathSelectedByThisClick);
+              altDragGroupSnapshotsRef.current = collectDragImageGroupSnapshots(
+                sourceGroupPaths,
+                new Set(groupIds)
+              );
               libraryHoveringRef.current = false;
               latestImageTool.setImageDragState({
                 isImageDragging: true,
@@ -1090,7 +1115,15 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag, isLockedImage, isSelectionLikeMode, isPendingUploadImage, startViewportPanDrag]);
+  }, [
+    canvasRef,
+    beginGroupPathDrag,
+    collectDragImageGroupSnapshots,
+    isLockedImage,
+    isSelectionLikeMode,
+    isPendingUploadImage,
+    startViewportPanDrag,
+  ]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(
@@ -1425,6 +1458,11 @@ export const useInteractionController = ({
             });
 
             altDragSnapshotsRef.current = snapshots;
+            const snapshotGroupIds = new Set(groupIds);
+            altDragGroupSnapshotsRef.current =
+              altDragGroupSnapshotsRef.current.filter((snapshot) =>
+                snapshot.imageIds.every((imageId) => snapshotGroupIds.has(imageId))
+              );
 
             // 创建占位框
             if (totalBounds && paper.project) {
@@ -2000,6 +2038,7 @@ export const useInteractionController = ({
           // 如果没有拖到库，则在目标位置创建副本
           const createImageFromSnapshot = latestImageTool.createImageFromSnapshot;
           if (!droppedToLibrary && typeof createImageFromSnapshot === 'function') {
+            const imageIdMap = new Map<string, string>();
             snapshots.forEach((snapshot) => {
               const newSnapshot = {
                 ...snapshot,
@@ -2010,15 +2049,29 @@ export const useInteractionController = ({
                   height: snapshot.bounds.height,
                 },
               };
-              createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+              const newId = createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+              if (newId) imageIdMap.set(snapshot.id, newId);
             });
-            logger.debug('🔄 Alt+拖拽：已在目标位置创建副本');
+            let clonedGroupCount = 0;
+            altDragGroupSnapshotsRef.current.forEach((groupSnapshot) => {
+              try {
+                const block = createImageGroupBlockFromSnapshot(groupSnapshot, imageIdMap);
+                if (block) clonedGroupCount += 1;
+              } catch (error) {
+                logger.warn('Alt+拖拽重建图片组失败', error);
+              }
+            });
+            logger.debug('🔄 Alt+拖拽：已在目标位置创建副本', {
+              images: imageIdMap.size,
+              imageGroups: clonedGroupCount,
+            });
           }
 
           // 清理占位框
           try { placeholder.remove(); } catch {}
           altDragPlaceholderRef.current = null;
           altDragSnapshotsRef.current = [];
+          altDragGroupSnapshotsRef.current = [];
 
           // 清理状态并提交历史
           latestImageTool.setImageDragState({
@@ -2045,6 +2098,7 @@ export const useInteractionController = ({
           try { altDragPlaceholderRef.current.remove(); } catch {}
           altDragPlaceholderRef.current = null;
           altDragSnapshotsRef.current = [];
+          altDragGroupSnapshotsRef.current = [];
         }
 
         // Alt+拖拽到库：检测鼠标是否在库面板区域
@@ -2101,6 +2155,7 @@ export const useInteractionController = ({
           latestImageTool.setImagesVisibility(altCloneIds, true);
         }
         altDragCloneIdsRef.current = [];
+        altDragGroupSnapshotsRef.current = [];
 
         latestImageTool.setImageDragState({
           isImageDragging: false,

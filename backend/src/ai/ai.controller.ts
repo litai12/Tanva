@@ -14,7 +14,9 @@ import {
   BadRequestException,
   ForbiddenException,
   Param,
+  Query,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
@@ -91,6 +93,36 @@ type TraceableReq = {
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
+const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
+  'gemini-2.5-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-image',
+  'gpt-image-2',
+  'gemini-2.5-image-edit',
+  'gemini-image-edit',
+  'gemini-3.1-image-edit',
+  'gemini-2.5-image-blend',
+  'gemini-image-blend',
+  'gemini-3.1-image-blend',
+  'gemini-2.5-image-analyze',
+  'gemini-image-analyze',
+  'gemini-3.1-image-analyze',
+  'gemini-video-analyze',
+  'gemini-text',
+  'gemini-prompt-optimize',
+] as const;
+
+type BananaRouteKey = 'normal' | 'stable';
+
+type BananaRouteSuccessRateStats = {
+  route: BananaRouteKey;
+  totalCalls: number;
+  completedCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number | null;
+};
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -828,6 +860,10 @@ export class AiController {
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
+    const explicitChannelHint =
+      typeof extraParams?.channelHint === 'string' && extraParams.channelHint.trim()
+        ? extraParams.channelHint.trim()
+        : undefined;
     const channelHint =
       bananaImageRoute === 'stable'
         ? 'tencent'
@@ -837,13 +873,145 @@ export class AiController {
         ? 'apimart'
         : aiProvider.startsWith('banana')
         ? '147'
-        : undefined;
+        : explicitChannelHint;
 
     return {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
       ...(bananaImageRoute ? { bananaImageRoute } : {}),
+    };
+  }
+
+  private normalizeRouteKey(value: unknown): BananaRouteKey | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'normal') return 'normal';
+    if (normalized === 'stable') return 'stable';
+    return null;
+  }
+
+  private resolveRouteFromApiUsageParams(
+    requestParams: Prisma.JsonValue | null | undefined,
+  ): BananaRouteKey {
+    const params = this.asRecord(requestParams);
+    const explicitRoute =
+      this.normalizeRouteKey(params?.bananaImageRoute) ||
+      this.normalizeRouteKey(this.asRecord(params?.providerOptions)?.bananaImageRoute) ||
+      this.normalizeRouteKey(
+        this.asRecord(this.asRecord(params?.providerOptions)?.banana)?.imageRoute,
+      );
+    if (explicitRoute) return explicitRoute;
+
+    const channelCandidates = [
+      params?.channel,
+      params?.executionChannel,
+      params?.providerChannel,
+      params?.channelHint,
+    ];
+    for (const candidate of channelCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalizedChannel = this.normalizeChannelName(candidate);
+      if (normalizedChannel === 'tencent') return 'stable';
+      if (normalizedChannel === 'apimart' || normalizedChannel === '147') return 'normal';
+    }
+
+    return 'normal';
+  }
+
+  private buildClientDayRange(timezoneOffsetMinutes?: string | number): {
+    startAt: Date;
+    endAt: Date;
+    timezoneOffsetMinutes: number;
+  } {
+    const parsedOffset =
+      typeof timezoneOffsetMinutes === 'number'
+        ? timezoneOffsetMinutes
+        : Number.parseInt(String(timezoneOffsetMinutes ?? ''), 10);
+    const fallbackOffset = new Date().getTimezoneOffset();
+    const offset =
+      Number.isFinite(parsedOffset) && Math.abs(parsedOffset) <= 14 * 60
+        ? parsedOffset
+        : fallbackOffset;
+    const now = Date.now();
+    const localNow = new Date(now - offset * 60_000);
+    localNow.setUTCHours(0, 0, 0, 0);
+    const startAt = new Date(localNow.getTime() + offset * 60_000);
+    const endAt = new Date(startAt.getTime() + 24 * 60 * 60_000);
+    return { startAt, endAt, timezoneOffsetMinutes: offset };
+  }
+
+  private createRouteSuccessRateStats(route: BananaRouteKey): BananaRouteSuccessRateStats {
+    return {
+      route,
+      totalCalls: 0,
+      completedCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      pendingCalls: 0,
+      successRate: null,
+    };
+  }
+
+  @Get('banana-route-success-rates')
+  async getBananaRouteSuccessRates(
+    @Query('timezoneOffsetMinutes') timezoneOffsetMinutes?: string,
+  ) {
+    const { startAt, endAt, timezoneOffsetMinutes: resolvedOffset } =
+      this.buildClientDayRange(timezoneOffsetMinutes);
+    const byRoute: Record<BananaRouteKey, BananaRouteSuccessRateStats> = {
+      normal: this.createRouteSuccessRateStats('normal'),
+      stable: this.createRouteSuccessRateStats('stable'),
+    };
+
+    const records = await this.prisma.apiUsageRecord.findMany({
+      where: {
+        serviceType: { in: [...BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES] },
+        responseStatus: {
+          in: [
+            ApiResponseStatus.SUCCESS,
+            ApiResponseStatus.FAILED,
+            ApiResponseStatus.PENDING,
+          ],
+        },
+        createdAt: {
+          gte: startAt,
+          lt: endAt,
+        },
+      },
+      select: {
+        responseStatus: true,
+        requestParams: true,
+      },
+    });
+
+    for (const record of records) {
+      const route = this.resolveRouteFromApiUsageParams(record.requestParams);
+      const stats = byRoute[route];
+      stats.totalCalls += 1;
+      if (record.responseStatus === ApiResponseStatus.SUCCESS) {
+        stats.successfulCalls += 1;
+        stats.completedCalls += 1;
+      } else if (record.responseStatus === ApiResponseStatus.FAILED) {
+        stats.failedCalls += 1;
+        stats.completedCalls += 1;
+      } else if (record.responseStatus === ApiResponseStatus.PENDING) {
+        stats.pendingCalls += 1;
+      }
+    }
+
+    for (const stats of Object.values(byRoute)) {
+      stats.successRate =
+        stats.completedCalls > 0
+          ? Math.round((stats.successfulCalls / stats.completedCalls) * 100)
+          : null;
+    }
+
+    return {
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      timezoneOffsetMinutes: resolvedOffset,
+      routes: byRoute,
     };
   }
 
@@ -5652,6 +5820,14 @@ export class AiController {
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
+    const videoProviderOptions = {
+      ...(dto.providerOptions || {}),
+      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
+      banana: {
+        ...((dto.providerOptions?.banana as Record<string, any> | undefined) || {}),
+        ...(dto.bananaImageRoute ? { imageRoute: dto.bananaImageRoute } : {}),
+      },
+    };
 
     return this.withCredits(req, 'gemini-video-analyze', model, async () => {
       const startTime = Date.now();
@@ -5671,7 +5847,7 @@ export class AiController {
         // follows providerOptions + backend supplier settings consistently.
         const bananaVideoMode =
           providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
-            ? await this.getBananaImageProviderMode(dto.providerOptions)
+            ? await this.getBananaImageProviderMode(videoProviderOptions)
             : null;
         const allow147DirectVideoUnderstanding =
           bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
@@ -5800,7 +5976,7 @@ export class AiController {
               prompt: framePrompt,
               sourceImage: frames[i],
               model: visionModel,
-              providerOptions: dto.providerOptions,
+              providerOptions: videoProviderOptions,
             });
             if (!result.success || !result.data) {
               throw new ServiceUnavailableException(
@@ -5824,7 +6000,7 @@ export class AiController {
           const textResult = await provider.generateText({
             prompt: summaryPrompt,
             model,
-            providerOptions: dto.providerOptions,
+            providerOptions: videoProviderOptions,
           });
           if (!textResult.success || !textResult.data) {
             throw new ServiceUnavailableException(
@@ -5941,7 +6117,15 @@ export class AiController {
           }
         } catch {}
       }
-    }, 1, 0);
+    }, 1, 0, undefined, this.buildCreditRequestParams(providerName, {
+      model,
+      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
+      ...(dto.channelHint ? { channelHint: dto.channelHint } : {}),
+      nodeConfigKey: 'videoAnalyze',
+      nodeConfigNameZh: '视频分析节点',
+      nodeConfigNameEn: 'Video Analysis',
+      billingTitleSource: 'node',
+    }, videoProviderOptions));
   }
 
   /**
