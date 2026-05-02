@@ -23,6 +23,7 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 
 type Props = {
   id: string;
@@ -408,8 +409,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           );
         }
 
-        if (sourceNode.type === "imageSplit" && /^image\d+$/i.test(sourceHandle)) {
-          const idx = Math.max(0, Number(sourceHandle.replace(/[^0-9]/g, "")) - 1);
+        if (sourceNode.type === "imageSplit") {
+          const idx = getImageSplitHandleIndex(sourceHandle);
+          if (idx === null) return undefined;
           const item = Array.isArray(sourceData.splitImages)
             ? sourceData.splitImages[idx]
             : undefined;

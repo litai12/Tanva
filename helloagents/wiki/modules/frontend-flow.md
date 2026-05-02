@@ -1,6 +1,7 @@
 # 前端模块：Flow（frontend-flow�?
 
 ## 2026-05-02 Update
+- Image Split 输出句柄现在同时兼容 `imageN` 与历史保存/导入可能出现的 `imgN`，节点渲染隐藏兼容句柄并让 Image/Grid/Generate/Analyze/Compress/ViewAngle 等下游解析两种格式，避免切片连线在自动保存或恢复后看起来消失。
 - 视频分析节点的 Run 积分徽标现在跟随全局模型档位与渠道：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`，与后端 `gemini-video-analyze` 预扣费保持一致。
 - 普通 `Video` 输入节点的原生 `<video controls>` 现在和生成视频节点一样隔离媒体控件事件，并使用 `nodrag/nopan/nowheel` 标记，防止拖动进度条时被 React Flow 当作节点拖拽处理。
 - Flow Image/ImagePro 节点、Generate/Generate4/GeneratePro4/Nano2/Seedream5 等图片生成写回链路现在优先使用 `thumbnail/thumbnails` 做节点卡片展示；`imageUrl/imageUrls/imageData` 仍作为高清预览、下载、编辑和下游 AI 输入的原图来源。

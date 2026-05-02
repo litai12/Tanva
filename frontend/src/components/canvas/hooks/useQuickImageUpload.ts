@@ -1381,9 +1381,29 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const placeholderBounds = placeholder?.data?.bounds;
             const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const defaultExpectedSize = 512;
-            const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
-            const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
+            const selectedBoundsForPlacement =
+                selectedImageBounds &&
+                Number.isFinite(selectedImageBounds.x) &&
+                Number.isFinite(selectedImageBounds.y) &&
+                Number.isFinite(selectedImageBounds.width) &&
+                Number.isFinite(selectedImageBounds.height) &&
+                selectedImageBounds.width > 0 &&
+                selectedImageBounds.height > 0
+                    ? selectedImageBounds
+                    : null;
+            const shouldFitToSelectedBounds =
+                pendingOperationType === 'text-edit' && !!selectedBoundsForPlacement;
+            const expectedWidth =
+                placeholderBounds?.width ??
+                (shouldFitToSelectedBounds && selectedBoundsForPlacement
+                    ? selectedBoundsForPlacement.width
+                    : defaultExpectedSize);
+            const expectedHeight =
+                placeholderBounds?.height ??
+                (shouldFitToSelectedBounds && selectedBoundsForPlacement
+                    ? selectedBoundsForPlacement.height
+                    : defaultExpectedSize);
             const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
             // 🔥 获取并行生成分组信息
             const parallelGroupId = extraOptions?.parallelGroupId;
@@ -1469,7 +1489,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } : null
             });
 
-            if (smartPosition) {
+            if (shouldFitToSelectedBounds && selectedBoundsForPlacement) {
+                const targetCenter = new paper.Point(
+                    selectedBoundsForPlacement.x + selectedBoundsForPlacement.width / 2,
+                    selectedBoundsForPlacement.y + selectedBoundsForPlacement.height / 2
+                );
+                pendingEntry = registerPending(targetCenter);
+                targetPosition = targetCenter;
+                if (pendingEntry) {
+                    pendingEntry.x = targetCenter.x;
+                    pendingEntry.y = targetCenter.y;
+                }
+                logger.upload(`📍 快速上传：文字修改结果覆盖原图位置 (${targetCenter.x.toFixed(1)}, ${targetCenter.y.toFixed(1)})`);
+            } else if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 const parallelTotal = parallelGroupTotal ?? 1;
                 const shouldForceAnchorPositionForGroup =
@@ -1928,7 +1960,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     const boxAspectRatio = targetBounds.width / targetBounds.height;
                     const imageAspectRatio = originalWidth / originalHeight;
 
-                    if (useOriginalSize) {
+                    if (pendingOperationType === 'text-edit') {
+                        displayWidth = targetBounds.width;
+                        displayHeight = targetBounds.height;
+                        finalPosition = targetCenter;
+                    } else if (useOriginalSize) {
                         // 原始尺寸模式：以目标边界中心为基准，使用图片原始尺寸
                         if (!smartPosition) {
                             finalPosition = targetCenter;

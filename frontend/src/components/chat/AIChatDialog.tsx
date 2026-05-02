@@ -329,7 +329,8 @@ const AIChatDialog: React.FC = () => {
   const focusMode = useUIStore((state) => state.focusMode);
   const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
   const isBlackTheme = chatTheme === "black";
-  const chatLogoSrc = isBlackTheme ? "/tanvas_ai.png" : "/Logo.svg";
+  const chatLogoSrc = "/Logo.svg";
+  const chatLogoClassName = "tanva-chat-logo-img w-4 h-4";
   const isZh = (i18n.resolvedLanguage || i18n.language || "")
     .toLowerCase()
     .startsWith("zh");
@@ -4426,7 +4427,7 @@ const AIChatDialog: React.FC = () => {
                                 <SmartImage
                                   src={chatLogoSrc}
                                   alt='Tanvas Logo'
-                                  className='w-4 h-4'
+                                  className={chatLogoClassName}
                                 />
                                 <span className='text-sm font-bold text-black'>
                                   Tanvas
@@ -4554,7 +4555,7 @@ const AIChatDialog: React.FC = () => {
                                   <SmartImage
                                     src={chatLogoSrc}
                                     alt='Tanvas Logo'
-                                    className='w-4 h-4'
+                                    className={chatLogoClassName}
                                   />
                                   <span className='text-sm font-bold text-black'>
                                     Tanvas
@@ -5498,7 +5499,7 @@ const AIChatDialog: React.FC = () => {
                       <SmartImage
                         src={chatLogoSrc}
                         alt='Tanvas Logo'
-                        className='w-4 h-4'
+                        className={chatLogoClassName}
                       />
                       <span className='text-sm font-bold text-black'>
                         Tanvas

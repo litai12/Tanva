@@ -28,6 +28,7 @@ import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/i
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
@@ -706,9 +707,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
           if (!baseRef) return null;
 
           const handle = typeof sourceHandle === "string" ? sourceHandle : "";
-          const match = handle ? /^image(\\d+)$/.exec(handle) : null;
-          if (!match) return null;
-          const idx = Math.max(0, Number(match[1]) - 1);
+          const idx = getImageSplitHandleIndex(handle);
+          if (idx === null) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
           const rect = splitRects?.[idx];

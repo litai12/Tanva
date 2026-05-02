@@ -23,6 +23,7 @@ import {
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
+import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 
 type Props = {
   id: string;
@@ -316,8 +317,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           if (!baseRef) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-          const match = h ? /^image(\d+)$/.exec(h) : null;
-          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+          const handleIndex = getImageSplitHandleIndex(h);
+          const idx = handleIndex ?? 0;
           const rect = splitRects?.[idx];
           const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
           const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
@@ -815,8 +816,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             (typeof d.inputImage === 'string' && d.inputImage.trim()) ||
             '';
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-          const match = handle ? /^image(\d+)$/.exec(handle) : null;
-          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+          const handleIndex = getImageSplitHandleIndex(handle);
+          const idx = handleIndex ?? 0;
           const rect = splitRects?.[idx];
           const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
           const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
@@ -1328,4 +1329,3 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 }
 
 export default React.memo(AnalysisNodeInner);
-

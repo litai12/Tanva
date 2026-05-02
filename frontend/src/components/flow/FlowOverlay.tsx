@@ -100,6 +100,7 @@ import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
+import { getImageSplitHandleIndex, isImageSplitHandle } from "./utils/imageSplitHandles";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import {
@@ -219,7 +220,8 @@ const normalizeFlowTargetHandle = (
   return handle;
 };
 
-// 兼容历史输出句柄：将 sourceHandle image/image1/image-1 归一化到 img/img1
+// 兼容历史输出句柄：将 sourceHandle image/image1/image-1 归一化到 img/img1。
+// ImageSplit 当前主句柄仍是 imageN，但节点会额外渲染 imgN 兼容句柄。
 const normalizeFlowSourceHandle = (
   handle?: string | null
 ): string | undefined => {
@@ -9849,12 +9851,9 @@ function FlowInner() {
               sourceHandle === "images-range"
             );
           }
-          // imageSplit 输出为 image1..imageN
+          // imageSplit 输出为 image1..imageN；兼容保存链路曾归一化出的 img1..imgN
           if (sourceNode.type === "imageSplit") {
-            return (
-              typeof sourceHandle === "string" &&
-              /^image\d+$/.test(sourceHandle)
-            );
+            return isImageSplitHandle(sourceHandle);
           }
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -10921,6 +10920,7 @@ function FlowInner() {
       let shouldAutoGenerateThumbnail = false;
       let thumbnailNodeId: string | null = null;
       let thumbnailSourceImageData: string | null = null;
+      let shouldDetachImageInput = false;
 
       setNodes((ns) => {
         const targetIndex = ns.findIndex((node) => node.id === detail.id);
@@ -10976,10 +10976,34 @@ function FlowInner() {
           };
         }
 
+        const nextData = { ...targetNode.data, ...patch };
+        if (
+          (targetNode.type === "image" || targetNode.type === "imagePro") &&
+          hasImageDataPatch &&
+          !patch.imageData
+        ) {
+          const nextImageUrl =
+            typeof (nextData as any).imageUrl === "string"
+              ? (nextData as any).imageUrl.trim()
+              : "";
+          const nextImageData =
+            typeof (nextData as any).imageData === "string"
+              ? (nextData as any).imageData.trim()
+              : "";
+          const nextCrop = (nextData as any).crop;
+          const hasValidCrop =
+            nextCrop &&
+            Number.isFinite(Number(nextCrop.x ?? 0)) &&
+            Number.isFinite(Number(nextCrop.y ?? 0)) &&
+            Number(nextCrop.width ?? 0) > 0 &&
+            Number(nextCrop.height ?? 0) > 0;
+          shouldDetachImageInput = !nextImageUrl && !nextImageData && !hasValidCrop;
+        }
+
         const nextNode = {
           ...targetNode,
           position: newPosition,
-          data: { ...targetNode.data, ...patch },
+          data: nextData,
         };
         const nextNodes = ns.slice();
         nextNodes[targetIndex] = nextNode;
@@ -11013,24 +11037,9 @@ function FlowInner() {
         })();
       }
 
-      // 若目标是 Image 且明确清空图片内容，自动断开输入连线。
-      // 注意：当 imageData 从 base64 升级为远程 imageUrl 时，不应断线。
-      const patchData = detail.patch || {};
-      const hasImageDataPatch = Object.prototype.hasOwnProperty.call(
-        patchData,
-        "imageData"
-      );
-      const clearsImageData = hasImageDataPatch && !patchData.imageData;
-      const hasImageUrlPatch = Object.prototype.hasOwnProperty.call(
-        patchData,
-        "imageUrl"
-      );
-      const hasNextImageUrl =
-        hasImageUrlPatch &&
-        (typeof patchData.imageUrl === "string"
-          ? patchData.imageUrl.trim().length > 0
-          : Boolean(patchData.imageUrl));
-      if (clearsImageData && !hasNextImageUrl) {
+      // 若目标 Image/ImagePro 更新后确实没有图片内容，自动断开输入连线。
+      // imageData -> imageUrl 或 ImageSplit 裁剪态保留时不应断线。
+      if (shouldDetachImageInput) {
         setEdges((eds) =>
           eds.filter(
             (e) => !(e.target === detail.id && e.targetHandle === "img")
@@ -12466,8 +12475,8 @@ function FlowInner() {
             "";
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-          const match = handle ? /^image(\d+)$/.exec(handle) : null;
-          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+          const handleIndex = getImageSplitHandleIndex(handle);
+          const idx = handleIndex ?? 0;
 
           const rect = splitRects?.[idx];
           const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
@@ -19728,8 +19737,8 @@ function FlowInner() {
               (typeof splitData.inputImageUrl === "string" && splitData.inputImageUrl.trim()) ||
               (typeof splitData.inputImage === "string" && splitData.inputImage.trim()) ||
               "";
-            const match = handle ? /^image(\d+)$/.exec(handle) : null;
-            const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+            const handleIndex = getImageSplitHandleIndex(handle);
+            const idx = handleIndex ?? 0;
             const splitRects = Array.isArray(splitData.splitRects) ? splitData.splitRects : [];
             const rect = splitRects?.[idx];
             const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);

@@ -1207,6 +1207,10 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .ta
   box-shadow: none !important;
 }
 
+.ai-chat-theme-premium-dark .tanva-chat-logo-img {
+  filter: grayscale(1) invert(1) brightness(1.15) contrast(1.05);
+}
+
 .ai-chat-theme-premium-dark .text-black,
 .ai-chat-theme-premium-dark .text-slate-900,
 .ai-chat-theme-premium-dark .text-slate-800,

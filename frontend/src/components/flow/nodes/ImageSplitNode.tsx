@@ -28,6 +28,11 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import {
+  getImageSplitCompatHandleId,
+  getImageSplitHandleIndex,
+  getImageSplitPrimaryHandleId,
+} from '../utils/imageSplitHandles';
 
 // 类型定义
 type SplitRectItem = {
@@ -461,16 +466,15 @@ const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): strin
   if (!node) return undefined;
   const d = (node.data ?? {}) as Record<string, unknown>;
 
-  // imageSplit：按 image1..imageN 读取
+  // imageSplit：按 image1..imageN 读取；兼容保存/导入链路曾归一化出的 img1..imgN。
   if (node.type === 'imageSplit' && typeof sourceHandle === 'string') {
-    const match = /^image(\d+)$/.exec(sourceHandle);
-    if (match) {
-      const key = `image${match[1]}`;
+    const idx = getImageSplitHandleIndex(sourceHandle);
+    if (idx !== null) {
+      const key = getImageSplitPrimaryHandleId(idx);
       const direct = normalizeString(d[key]);
       if (direct) return direct;
 
       const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
-      const idx = Math.max(0, Number(match[1]) - 1);
       const fromList = splitImages?.[idx]?.imageData;
       return normalizeString(fromList);
     }
@@ -591,17 +595,16 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
       .filter(Boolean) as UpstreamImageItem[];
   }
 
-  // imageSplit：可输出单张（imageX）或整个 splitImages（兼容少数场景）
+  // imageSplit：可输出单张（imageX/imgX）或整个 splitImages（兼容少数场景）
   if (node.type === 'imageSplit') {
     if (typeof sourceHandle === 'string') {
-      const match = /^image(\d+)$/.exec(sourceHandle);
-      if (match) {
-        const key = `image${match[1]}`;
+      const idx = getImageSplitHandleIndex(sourceHandle);
+      if (idx !== null) {
+        const key = getImageSplitPrimaryHandleId(idx);
         const direct = normalizeString(d[key]);
         if (direct) return [{ id: `${node.id}-${key}`, imageData: direct }];
 
         const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
-        const idx = Math.max(0, Number(match[1]) - 1);
         const fromList = normalizeString(splitImages?.[idx]?.imageData);
         return fromList ? [{ id: `${node.id}-split-${idx + 1}`, imageData: fromList }] : [];
       }
@@ -1390,9 +1393,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           if (!baseRef) return null;
 
           const handle = typeof sourceHandle === 'string' ? sourceHandle.trim() : '';
-          const match = handle ? /^image(\d+)$/.exec(handle) : null;
-          if (!match) return null;
-          const idx = Math.max(0, Number(match[1]) - 1);
+          const idx = getImageSplitHandleIndex(handle);
+          if (idx === null) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
           const rect = splitRects?.[idx];
@@ -2635,18 +2637,31 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 动态输出端口 */}
       {Array.from({ length: outputCount }).map((_, i) => {
-        const portId = `image${i + 1}`;
+        const portId = getImageSplitPrimaryHandleId(i);
+        const compatPortId = getImageSplitCompatHandleId(i);
         const topPercent = getHandleTopPercent(i);
         return (
-          <Handle
-            key={portId}
-            type="source"
-            position={Position.Right}
-            id={portId}
-            style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
-            onMouseEnter={() => setHover(`${portId}-out`)}
-            onMouseLeave={() => setHover(null)}
-          />
+          <React.Fragment key={portId}>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={portId}
+              style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
+              onMouseEnter={() => setHover(`${portId}-out`)}
+              onMouseLeave={() => setHover(null)}
+            />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={compatPortId}
+              style={{
+                top: `${topPercent}%`,
+                transform: 'translateY(-50%)',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+            />
+          </React.Fragment>
         );
       })}
 

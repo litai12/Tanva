@@ -63,6 +63,7 @@ const EXPAND_PRESET_PROMPT =
 const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
+const TEXT_RECOGNITION_IMAGE_ROUTE = "normal";
 
 type TextReplacementItem = {
   id: string;
@@ -649,6 +650,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     TextReplacementItem[]
   >([]);
   const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
   const [isHoveringLockedImage, setIsHoveringLockedImage] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
@@ -1779,6 +1781,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (isRecognizingText || isApplyingTextEdit) {
         return;
       }
+      setMoreMenuOpen(false);
 
       const run = async () => {
         setShowTextEditPanel(true);
@@ -1809,8 +1812,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             aiProvider: bananaProvider,
             model: bananaModel,
             providerOptions: {
-              banana: { imageRoute: bananaImageRoute },
-              bananaImageRoute,
+              banana: { imageRoute: TEXT_RECOGNITION_IMAGE_ROUTE },
+              bananaImageRoute: TEXT_RECOGNITION_IMAGE_ROUTE,
             },
           });
 
@@ -1912,6 +1915,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           model: bananaModel,
           outputFormat: "png",
           imageOnly: true,
+          providerOptions: {
+            banana: { imageRoute: bananaImageRoute },
+            bananaImageRoute,
+          },
         });
 
         if (!result.success || !result.data?.imageData) {
@@ -1923,12 +1930,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           x: realTimeBounds.x + realTimeBounds.width / 2,
           y: realTimeBounds.y + realTimeBounds.height / 2,
         };
+        const sourceBounds = {
+          x: realTimeBounds.x,
+          y: realTimeBounds.y,
+          width: realTimeBounds.width,
+          height: realTimeBounds.height,
+        };
 
         window.dispatchEvent(
           new CustomEvent("triggerQuickImageUpload", {
             detail: {
               imageData: editedImageData,
               fileName: `text-edited-${Date.now()}.png`,
+              selectedImageBounds: sourceBounds,
               smartPosition: centerPoint,
               operationType: "text-edit",
               sourceImageId: imageData.id,
@@ -1961,6 +1975,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.id,
       isApplyingTextEdit,
       isRecognizingText,
+      bananaImageRoute,
       realTimeBounds.height,
       realTimeBounds.width,
       realTimeBounds.x,
@@ -3972,7 +3987,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 renderToolbarActionButton(action)
               )}
 
-              <DropdownMenu>
+              <DropdownMenu open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant='ghost'
@@ -3993,7 +4008,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   {moreToolbarActions.map((action) => (
                     <DropdownMenuItem
                       key={action.key}
-                      onClick={action.onClick}
+                      onClick={(event) => {
+                        setMoreMenuOpen(false);
+                        action.onClick(event);
+                      }}
                       disabled={action.disabled}
                       className='flex items-center gap-2 px-3 py-2 text-sm dark:text-gray-100'
                     >
