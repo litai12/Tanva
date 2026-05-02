@@ -5,7 +5,7 @@ import { logger } from '@/utils/logger';
 import { createSafeStorage } from './storageUtils';
 
 // 工具类型定义
-export type DrawMode = 'select' | 'marquee' | 'pointer' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
+export type DrawMode = 'select' | 'marquee' | 'pointer' | 'free' | 'line' | 'arrow' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
 export type LineStyle =
   | 'solid'
   | 'dashed'
@@ -39,13 +39,14 @@ interface ToolState {
 }
 
 // 绘图工具循环顺序
-const DRAWING_TOOLS: DrawMode[] = ['free', 'line', 'rect', 'circle', 'polyline'];
+const DRAWING_TOOLS: DrawMode[] = ['free', 'line', 'arrow', 'rect', 'circle', 'polyline'];
 const ALL_DRAW_MODES: DrawMode[] = [
   'select',
   'marquee',
   'pointer',
   'free',
   'line',
+  'arrow',
   'rect',
   'circle',
   'polyline',

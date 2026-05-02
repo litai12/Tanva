@@ -2,7 +2,8 @@
 
 ## 作用
 - 提供绘图画布能力（Paper.js），包含交互控制、缩放/对齐/网格、文本编辑、选择与导出等。
-- 绘图工具支持线条样式选择：`实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`（手绘风对 `free/line` 生效，完成绘制时会转为闭合轮廓路径）。
+- 绘图工具包含自由绘制、直线、箭头、矩形、圆形；线条样式支持 `实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`（手绘风对 `free/line` 生效，完成绘制时会转为闭合轮廓路径）。
+- `PaperCanvasManager` 与 `FlowOverlay` 通过 `frontend/src/utils/canvasViewportFrame.ts` 共享同一个 RAF viewport 快照；Paper 图片层和 ReactFlow 节点层必须从同一份 `zoom/pan/dpr` 应用变换，避免缩放时出现一帧错位。
 
 ## 关键目录（节选）
 - `frontend/src/components/canvas/`：画布主组件与控制器
@@ -66,7 +67,7 @@
 ## 图片操作工具栏
 - `ImageContainer` 的图片底部工具栏固定前三项为 `生成节点`、`裁切`、`极速抠图`；`高清放大` 参与使用频次轮换，并作为默认最高优先级的轮换项显示在固定按钮之后。
 - `高清放大` 点击后会在原图右侧创建同显示尺寸的占位框；4K 结果完成后通过 `triggerQuickImageUpload` 上传并落到画布占位位置，不再触发浏览器直接下载。
-- `ImageContainer` 的覆盖层坐标同步会对 bounds、分辨率和锁定 hover 状态做同值跳过，避免缩放/平移时因新对象同值写回触发 React 更新循环。
+- `ImageContainer` 的覆盖层坐标同步会对 bounds、分辨率和锁定 hover 状态做同值跳过；非选中/非锁定 hover/非裁切扩图预览的图片不订阅高频 `zoom/pan`，只由 Paper Raster 显示，避免缩放时成批 React 更新。
 
 ## 网格缩放显示
 - `GridRenderer` 在 `zoom >= 0.4` 时显示主网格与次级网格。

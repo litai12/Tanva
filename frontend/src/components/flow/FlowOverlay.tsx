@@ -26,6 +26,10 @@ import ReactFlow, {
 import { ReactFlowProvider } from "reactflow";
 import { useCanvasStore } from "@/stores";
 import { useToolStore } from "@/stores";
+import {
+  getCanvasViewportFrame,
+  subscribeCanvasViewportFrame,
+} from "@/utils/canvasViewportFrame";
 import "reactflow/dist/style.css";
 import "./flow.css";
 import type {
@@ -5868,6 +5872,7 @@ function FlowInner() {
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
+  const flowLowDetailModeRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
     () =>
       nodes.some((node) => {
@@ -5886,15 +5891,20 @@ function FlowInner() {
         Number.isFinite(Number(rawZoom)) && Number(rawZoom) > 0
           ? Number(rawZoom)
           : 1;
-      setIsFlowLowDetailMode((prev) => {
-        if (!canEnableLowDetailMode) return false;
-        if (prev) return zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM;
-        return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
-      });
+      const prev = flowLowDetailModeRef.current;
+      const next = prev
+        ? zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM
+        : zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
+      if (prev === next) return;
+      flowLowDetailModeRef.current = next;
+      setIsFlowLowDetailMode(next);
     };
 
     if (!canEnableLowDetailMode) {
-      setIsFlowLowDetailMode(false);
+      if (flowLowDetailModeRef.current) {
+        flowLowDetailModeRef.current = false;
+        setIsFlowLowDetailMode(false);
+      }
       return;
     }
 
@@ -6155,90 +6165,41 @@ function FlowInner() {
   }, [projectId]);
 
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
-  // 使用 subscribe 直接订阅状态变化，避免 useEffect 的渲染延迟
+  // 与 PaperCanvasManager 共用同一帧 viewport 快照，避免节点层和图片层错帧。
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
-  const pendingViewportRef = React.useRef<{ x: number; y: number; z: number } | null>(
-    null
-  );
-  const viewportRafRef = React.useRef<number | null>(null);
 
-  const flushPendingViewport = React.useCallback(() => {
-    viewportRafRef.current = null;
-    const next = pendingViewportRef.current;
-    pendingViewportRef.current = null;
-    if (!next) return;
+  const applyViewportFrame = React.useCallback((frame) => {
+    const next = { x: frame.flowX, y: frame.flowY, z: frame.zoom };
+    const prev = lastApplied.current;
+    const eps = 1e-6;
+    if (
+      prev &&
+      Math.abs(prev.x - next.x) < eps &&
+      Math.abs(prev.y - next.y) < eps &&
+      Math.abs(prev.z - next.z) < eps
+    ) {
+      return;
+    }
+    lastApplied.current = next;
     try {
       rfRef.current.setViewport({ x: next.x, y: next.y, zoom: next.z }, { duration: 0 });
-    } catch {}
+    } catch {
+      /* ReactFlow instance may not be ready during early hydration. */
+    }
   }, []);
-
-  const applyViewportScheduled = React.useCallback((next: { x: number; y: number; z: number }) => {
-    pendingViewportRef.current = next;
-    if (viewportRafRef.current !== null) return;
-    viewportRafRef.current = requestAnimationFrame(flushPendingViewport);
-  }, [flushPendingViewport]);
 
   const syncViewportToCanvasStore = () => {
     try {
-      const state = useCanvasStore.getState();
-      const z = state.zoom || 1;
-      const dpr =
-        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const x = ((state.panX || 0) * z) / dpr;
-      const y = ((state.panY || 0) * z) / dpr;
-      lastApplied.current = { x, y, z };
-      applyViewportScheduled({ x, y, z });
+      applyViewportFrame(getCanvasViewportFrame());
     } catch {
       /* noop */
     }
   };
   React.useEffect(() => {
-    // 使用 Zustand subscribe 直接监听状态变化，绕过 React 渲染周期
-    const unsubscribe = useCanvasStore.subscribe((state) => {
-      const z = state.zoom || 1;
-      const dpr =
-        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const x = ((state.panX || 0) * z) / dpr;
-      const y = ((state.panY || 0) * z) / dpr;
-      const prev = lastApplied.current;
-      const eps = 1e-6;
-      if (
-        prev &&
-        Math.abs(prev.x - x) < eps &&
-        Math.abs(prev.y - y) < eps &&
-        Math.abs(prev.z - z) < eps
-      )
-        return;
-      lastApplied.current = { x, y, z };
-      // 平移与缩放均同步到下一帧，合并触控板/滚轮的高频事件。
-      applyViewportScheduled({ x, y, z });
-    });
-
-    // 初始同步
-    const state = useCanvasStore.getState();
-    const z = state.zoom || 1;
-    const dpr =
-      typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    const x = ((state.panX || 0) * z) / dpr;
-    const y = ((state.panY || 0) * z) / dpr;
-    lastApplied.current = { x, y, z };
-    try {
-      rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
-    } catch {
-      /* noop */
-    }
-
-    return () => {
-      unsubscribe();
-      if (viewportRafRef.current !== null) {
-        cancelAnimationFrame(viewportRafRef.current);
-        viewportRafRef.current = null;
-      }
-      pendingViewportRef.current = null;
-    };
-  }, [applyViewportScheduled]);
+    return subscribeCanvasViewportFrame(applyViewportFrame);
+  }, [applyViewportFrame]);
 
   React.useLayoutEffect(() => {
     if (!projectId) return;

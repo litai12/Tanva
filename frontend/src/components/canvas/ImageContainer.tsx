@@ -579,6 +579,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const enableVisibilityToggle = false; // Temporarily hide layer visibility control
+  const isImageLocked = Boolean(imageData.locked);
+  const isPendingUpload = Boolean(imageData.pendingUpload);
 
   // 获取AI聊天状态
   const {
@@ -590,32 +592,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     bananaImageRoute,
   } = useAIChatStore();
 
-  // 获取画布状态 - 用于监听画布移动变化
-  const zoom = useCanvasStore((state) => state.zoom);
-  const panX = useCanvasStore((state) => state.panX);
-  const panY = useCanvasStore((state) => state.panY);
-  const isCanvasDragging = useCanvasStore((state) => state.isDragging);
   const setOperationInProgress = useCanvasStore(
     (state) => state.setOperationInProgress
   );
-
-  // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
-  const currentZoom = zoom || 1;
-  const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
-  const toolbarScale = 1; // 固定为1，不再跟随缩放
-  const showFastBackgroundRemovalButton = true;
-
-  const sharedButtonClass = showButtonText
-    ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
-    : "px-1.5 py-1 h-7 rounded-md bg-transparent text-gray-600 transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center justify-center";
-  const sharedIconClass = "w-3.5 h-3.5 flex-shrink-0";
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
 
   // 是否正在拖拽（图片拖拽/选择拖拽会通过 body class 标记；画布中键平移通过 store 标记）
   const [isBodyDragging, setIsBodyDragging] = useState(false);
-  const isPendingUpload = Boolean(imageData.pendingUpload);
 
   // 图片真实像素尺寸（通过加载图片获取）
   const [naturalSize, setNaturalSize] = useState<{
@@ -650,7 +635,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   >([]);
   const [textEditExtraInstruction, setTextEditExtraInstruction] = useState("");
   const [showExpandSelector, setShowExpandSelector] = useState(false);
-  const isImageLocked = Boolean(imageData.locked);
   const [isHoveringLockedImage, setIsHoveringLockedImage] = useState(false);
   const [projectHistoryItems, setProjectHistoryItems] = useState<
     GlobalImageHistoryItem[]
@@ -706,6 +690,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return next;
     });
   }, []);
+
+  const needsViewportSync =
+    isSelected ||
+    isImageLocked ||
+    showPreview ||
+    showExpandSelector ||
+    isCropping ||
+    isApplyingCrop ||
+    isExpandingImage ||
+    isRemovingBackground ||
+    isFastRemovingBackground ||
+    isSeparatingLayers ||
+    isConvertingTo3D ||
+    isOptimizingHd ||
+    isRecognizingText ||
+    isApplyingTextEdit ||
+    isExtractingPalette;
+
+  // 非激活图片只由 Paper Raster 承担显示，不订阅高频 zoom/pan，避免缩放时成批 React 更新。
+  const zoom = useCanvasStore((state) => (needsViewportSync ? state.zoom : 1));
+  const panX = useCanvasStore((state) => (needsViewportSync ? state.panX : 0));
+  const panY = useCanvasStore((state) => (needsViewportSync ? state.panY : 0));
+  const isCanvasDragging = useCanvasStore((state) =>
+    needsViewportSync ? state.isDragging : false
+  );
+
+  // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
+  const currentZoom = zoom || 1;
+  const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
+  const toolbarScale = 1; // 固定为1，不再跟随缩放
+  const showFastBackgroundRemovalButton = true;
+
+  const sharedButtonClass = showButtonText
+    ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
+    : "px-1.5 py-1 h-7 rounded-md bg-transparent text-gray-600 transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center justify-center";
+  const sharedIconClass = "w-3.5 h-3.5 flex-shrink-0";
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -931,10 +951,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 监听画布状态变化，强制重新计算坐标
   useEffect(() => {
+    if (!needsViewportSync) return;
     // 当画布状态变化时，强制重新计算屏幕坐标
     const newPaperBounds = getRealTimePaperBounds();
     setRealTimeBoundsIfChanged(newPaperBounds);
-  }, [zoom, panX, panY, getRealTimePaperBounds, setRealTimeBoundsIfChanged]); // 直接监听画布状态变化
+  }, [
+    needsViewportSync,
+    zoom,
+    panX,
+    panY,
+    getRealTimePaperBounds,
+    setRealTimeBoundsIfChanged,
+  ]); // 直接监听画布状态变化
 
   // 实时同步Paper.js状态 - 只在选中时启用，使用节流减少更新频率
   useEffect(() => {
@@ -3697,6 +3725,39 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     </Button>
   );
 
+  const previewModal = (
+    <ImagePreviewModal
+      isOpen={showPreview}
+      imageSrc={activePreviewSrc}
+      imageTitle={imageData.fileName || `图片 ${imageData.id}`}
+      onClose={() => {
+        setShowPreview(false);
+        setPreviewImageId(null);
+      }}
+      imageCollection={previewCollection}
+      currentImageId={activePreviewId}
+      onImageChange={(imageId: string) => setPreviewImageId(imageId)}
+      collectionTitle='项目内图片'
+      hasMore={projectHistoryHasMore}
+      isLoading={projectHistoryLoading}
+      onLoadMore={() => {
+        if (!projectHistoryHasMore || projectHistoryLoading) return;
+        void loadProjectHistory();
+      }}
+    />
+  );
+
+  const shouldRenderCanvasOverlay =
+    visible &&
+    (isSelected ||
+      showExpandSelector ||
+      isCropping ||
+      (isImageLocked && isHoveringLockedImage));
+
+  if (!shouldRenderCanvasOverlay) {
+    return showPreview ? previewModal : null;
+  }
+
   return (
     <div
       ref={containerRef}
@@ -4148,26 +4209,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         </div>
       )}
 
-      {/* 图片预览模态框 */}
-      <ImagePreviewModal
-        isOpen={showPreview}
-        imageSrc={activePreviewSrc}
-        imageTitle={imageData.fileName || `图片 ${imageData.id}`}
-        onClose={() => {
-          setShowPreview(false);
-          setPreviewImageId(null);
-        }}
-        imageCollection={previewCollection}
-        currentImageId={activePreviewId}
-        onImageChange={(imageId: string) => setPreviewImageId(imageId)}
-        collectionTitle='项目内图片'
-        hasMore={projectHistoryHasMore}
-        isLoading={projectHistoryLoading}
-        onLoadMore={() => {
-          if (!projectHistoryHasMore || projectHistoryLoading) return;
-          void loadProjectHistory();
-        }}
-      />
+      {previewModal}
     </div>
   );
 };

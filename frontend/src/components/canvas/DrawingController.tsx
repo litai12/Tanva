@@ -3080,7 +3080,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const resolveDrawMergeTarget = useCallback(
     (path: paper.Path): DrawMergeTarget | null => {
-      const mergeModes = ["free", "line", "rect", "circle"];
+      const mergeModes = ["free", "line", "arrow", "rect", "circle"];
       if (!(mergeModes as string[]).includes(drawMode)) return null;
       if (isEraser) return null;
       if (!preciseShiftPressedRef.current) return null;
@@ -8567,6 +8567,91 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectToolHandlePathSelect,
   ]);
 
+  const allCanvasImagesData = useMemo(
+    () =>
+      imageTool.imageInstances.map((img) => ({
+        id: img.id,
+        url: img.imageData?.url,
+        src: img.imageData?.src,
+        key: img.imageData?.key,
+        remoteUrl: img.imageData?.remoteUrl,
+        localDataUrl: img.imageData?.localDataUrl,
+        fileName: img.imageData?.fileName,
+        pendingUpload: img.imageData?.pendingUpload,
+        width: img.imageData?.width,
+        height: img.imageData?.height,
+        locked: img.locked ?? img.imageData?.locked,
+      })),
+    [imageTool.imageInstances]
+  );
+
+  const selectedImageIdSet = useMemo(
+    () =>
+      new Set(
+        preciseSelectedImageIdsKey
+          ? preciseSelectedImageIdsKey.split("|").filter(Boolean)
+          : []
+      ),
+    [preciseSelectedImageIdsKey]
+  );
+
+  const imageOverlayElements = useMemo(
+    () =>
+      imageTool.imageInstances.map((image) => (
+        <ImageContainer
+          key={image.id}
+          imageData={{
+            id: image.id,
+            url: image.imageData?.url,
+            src: image.imageData?.src,
+            key: image.imageData?.key,
+            remoteUrl: image.imageData?.remoteUrl,
+            localDataUrl: image.imageData?.localDataUrl,
+            fileName: image.imageData?.fileName,
+            pendingUpload: image.imageData?.pendingUpload,
+            width: image.imageData?.width,
+            height: image.imageData?.height,
+            locked: image.locked ?? image.imageData?.locked,
+          }}
+          bounds={image.bounds}
+          isSelected={selectedImageIdSet.has(image.id)}
+          visible={image.visible}
+          drawMode={drawMode}
+          isSelectionDragging={selectionTool.isSelectionDragging}
+          allCanvasImages={allCanvasImagesData}
+          onSelect={() => imageTool.handleImageSelect(image.id)}
+          onMove={(newPosition) =>
+            imageTool.handleImageMove(image.id, newPosition)
+          }
+          onResize={(newBounds) =>
+            imageTool.handleImageResize(image.id, newBounds)
+          }
+          onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+          onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+          onToggleLock={(imageId, nextLocked) =>
+            handleImageToggleLock(imageId, nextLocked)
+          }
+          getImageDataForEditing={imageTool.getImageDataForEditing}
+          showIndividualTools={!isGroupSelection}
+        />
+      )),
+    [
+      allCanvasImagesData,
+      drawMode,
+      handleImageToggleLock,
+      handleImageToggleVisibility,
+      imageTool.getImageDataForEditing,
+      imageTool.handleImageDelete,
+      imageTool.handleImageMove,
+      imageTool.handleImageResize,
+      imageTool.handleImageSelect,
+      imageTool.imageInstances,
+      isGroupSelection,
+      selectedImageIdSet,
+      selectionTool.isSelectionDragging,
+    ]
+  );
+
   return (
     <>
       {/* 图片上传组件 */}
@@ -8607,62 +8692,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       />
 
       {/* 图片UI覆盖层实例 */}
-      {imageTool.imageInstances.map((image) => {
-        // 构建所有画布图片数据，用于预览时显示
-        const allCanvasImagesData = imageTool.imageInstances.map((img) => ({
-          id: img.id,
-          url: img.imageData?.url,
-          src: img.imageData?.src,
-          key: img.imageData?.key,
-          remoteUrl: img.imageData?.remoteUrl,
-          localDataUrl: img.imageData?.localDataUrl,
-          fileName: img.imageData?.fileName,
-          pendingUpload: img.imageData?.pendingUpload,
-          width: img.imageData?.width,
-          height: img.imageData?.height,
-          locked: img.locked ?? img.imageData?.locked,
-        }));
-        return (
-          <ImageContainer
-            key={image.id}
-            imageData={{
-              id: image.id,
-              url: image.imageData?.url,
-              src: image.imageData?.src,
-              key: image.imageData?.key,
-              remoteUrl: image.imageData?.remoteUrl,
-              localDataUrl: image.imageData?.localDataUrl,
-              fileName: image.imageData?.fileName,
-              pendingUpload: image.imageData?.pendingUpload,
-              width: image.imageData?.width,
-              height: image.imageData?.height,
-              locked: image.locked ?? image.imageData?.locked,
-            }}
-            bounds={image.bounds}
-            isSelected={imageTool.selectedImageIds.includes(image.id)}
-            visible={image.visible}
-            drawMode={drawMode}
-            isSelectionDragging={selectionTool.isSelectionDragging}
-            allCanvasImages={allCanvasImagesData}
-            onSelect={() => imageTool.handleImageSelect(image.id)}
-            onMove={(newPosition) =>
-              imageTool.handleImageMove(image.id, newPosition)
-            }
-            onResize={(newBounds) =>
-              imageTool.handleImageResize(image.id, newBounds)
-            }
-            onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
-            onToggleVisibility={(imageId) =>
-              handleImageToggleVisibility(imageId)
-            }
-            onToggleLock={(imageId, nextLocked) =>
-              handleImageToggleLock(imageId, nextLocked)
-            }
-            getImageDataForEditing={imageTool.getImageDataForEditing}
-            showIndividualTools={!isGroupSelection}
-          />
-        );
-      })}
+      {imageOverlayElements}
 
       {/* 3D模型渲染实例 */}
       {model3DTool.model3DInstances.map((model) => {

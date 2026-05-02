@@ -4,6 +4,7 @@
 - Flow Image/ImagePro 节点、Generate/Generate4/GeneratePro4/Nano2/Seedream5 等图片生成写回链路现在优先使用 `thumbnail/thumbnails` 做节点卡片展示；`imageUrl/imageUrls/imageData` 仍作为高清预览、下载、编辑和下游 AI 输入的原图来源。
 - Canvas 发送图片到 Flow 时会携带画布资产的 `previewUrl/previewKey` 作为初始 `thumbnail`，避免 4K 原图刚进入 Flow 节点时先被 `<img>` 解码。
 - 上传到画布的图片资产新增远程 `previewUrl/previewKey` 元数据，Paper Raster 渲染优先使用预览图；保存链路缺失预览时会补生成远程 WebP 预览，设计 JSON 仍只保存远程 URL/OSS key。
+- Canvas -> Flow 视口同步改为共享 `canvasViewportFrame` RAF 快照；`PaperCanvasManager` 与 `FlowOverlay` 在同一帧读取同一份 `zoom/pan/dpr`，分别应用 `paper.view.matrix` 与 `ReactFlow.setViewport`，避免缩放时节点层与图片层错帧。
 
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.
@@ -26,6 +27,8 @@
 - `GlobalZoomCapture` �?`gesturestart/gesturechange` �?Flow 区域不再旁路，可将触控板 pinch（含 Safari 手势事件）映射到画布缩放�?D 视口区域仍保持旁路以避免冲突�?
 - FPS 调试浮层复用同一开关采样节点拖拽、图片拖拽/缩放与画布缩放；画布缩放期间会显示 `Zoom FPS`、最大帧耗时和长帧数。
 - Canvas -> Flow 视口同步在缩放/平移期间按 `requestAnimationFrame` 合并，低细节模式与 FPS 缩放采样改为 store 订阅而非高频 React render；网格会在缩放停顿后再重建，降低缩放时长帧。
+- 低细节模式订阅会用 ref 记录当前阈值状态，只有跨过 `0.4/0.45` 阈值时才触发 React state 更新，避免缩放中反复 setState 导致 nested update 报错。
+- Canvas 图片覆盖层只有选中、锁定 hover、裁切/扩图/预览等激活状态才订阅高频 viewport；`DrawingController` 会复用图片覆盖层元素，避免单纯缩放时重建整批图片 UI。
 - Flow 新增低细节渲染模式：当节点数达到阈值且缩放 `<= 40%` 时自动启用（缩放恢复�?`> 45%` 时退出，避免阈值抖动）�?
 - 低细节模式下，节点缩略图不再渲染真实图像：`SmartImage` 直接降级为灰色占位块，且部分裁切缩略�?`canvas`（如 `Image/Generate/GeneratePro/Generate4/Analyze/ImageSplit/ImageGrid`）也会改为灰块占位，从而减少缩小时的大量图像重绘与解码压力�?
 - 低细节模式下会隐藏所有连线与 MiniMap（含图片叠加层），节点仍保留原始 UI 结构，以兼顾性能与可读性�?

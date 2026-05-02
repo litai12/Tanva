@@ -86,6 +86,10 @@ interface DrawingTools {
   updateLineDraw: (point: paper.Point) => void;
   finishLineDraw: (point: paper.Point) => void;
   createLinePath: (point: paper.Point) => void;
+  startArrowDraw: (point: paper.Point) => void;
+  updateArrowDraw: (point: paper.Point) => void;
+  finishArrowDraw: (point: paper.Point) => void;
+  createArrowPath: (point: paper.Point) => void;
   startRectDraw: (point: paper.Point) => void;
   updateRectDraw: (point: paper.Point) => void;
   startCircleDraw: (point: paper.Point) => void;
@@ -1057,10 +1061,16 @@ export const useInteractionController = ({
       latestDrawingTools.startFreeDraw(point);
     } else if (currentDrawMode === 'line') {
       // 直线绘制模式：第一次点击开始，第二次点击完成
-      if (!latestDrawingTools.pathRef.current || !(latestDrawingTools.pathRef.current as any).startPoint) {
+      if (!latestDrawingTools.pathRef.current || !latestDrawingTools.pathRef.current.startPoint) {
         latestDrawingTools.startLineDraw(point);
       } else {
         latestDrawingTools.finishLineDraw(point);
+      }
+    } else if (currentDrawMode === 'arrow') {
+      if (!latestDrawingTools.pathRef.current || !latestDrawingTools.pathRef.current.startPoint) {
+        latestDrawingTools.startArrowDraw(point);
+      } else {
+        latestDrawingTools.finishArrowDraw(point);
       }
     } else if (currentDrawMode === 'rect') {
       latestDrawingTools.startRectDraw(point);
@@ -1704,17 +1714,25 @@ export const useInteractionController = ({
 
     // ========== 绘图模式处理 ==========
 
-    // 直线模式：检查拖拽阈值或跟随鼠标
-    if (currentDrawMode === 'line') {
+    // 直线/箭头模式：检查拖拽阈值或跟随鼠标
+    if (currentDrawMode === 'line' || currentDrawMode === 'arrow') {
       if (latestDrawingTools.initialClickPoint && !latestDrawingTools.hasMoved && !latestDrawingTools.pathRef.current) {
         const distance = latestDrawingTools.initialClickPoint.getDistance(point);
         if (distance >= DRAG_THRESHOLD) {
-          latestDrawingTools.createLinePath(latestDrawingTools.initialClickPoint);
+          if (currentDrawMode === 'arrow') {
+            latestDrawingTools.createArrowPath(latestDrawingTools.initialClickPoint);
+          } else {
+            latestDrawingTools.createLinePath(latestDrawingTools.initialClickPoint);
+          }
         }
       }
 
-      if (latestDrawingTools.pathRef.current && (latestDrawingTools.pathRef.current as any).startPoint) {
-        latestDrawingTools.updateLineDraw(point);
+      if (latestDrawingTools.pathRef.current?.startPoint) {
+        if (currentDrawMode === 'arrow') {
+          latestDrawingTools.updateArrowDraw(point);
+        } else {
+          latestDrawingTools.updateLineDraw(point);
+        }
       }
       return;
     }
@@ -2137,10 +2155,10 @@ export const useInteractionController = ({
     }
 
     // ========== 绘图模式处理 ==========
-    const validDrawingModes: DrawMode[] = ['line', 'free', 'rect', 'circle', 'image', '3d-model'];
+    const validDrawingModes: DrawMode[] = ['line', 'arrow', 'free', 'rect', 'circle', 'image', '3d-model'];
 
-    // 直线模式特殊处理：首击抬起时不应结束绘制，否则无法等待第二次点击
-    if (currentDrawMode === 'line') {
+    // 直线/箭头模式特殊处理：首击抬起时不应结束绘制，否则无法等待第二次点击
+    if (currentDrawMode === 'line' || currentDrawMode === 'arrow') {
       const hasLinePath = !!latestDrawingTools.pathRef.current;
       const waitingForSecondClick =
         !!latestDrawingTools.initialClickPoint &&
@@ -2148,7 +2166,7 @@ export const useInteractionController = ({
         !latestDrawingTools.hasMoved;
 
       if (waitingForSecondClick) {
-        logger.debug('🟦 直线模式：首击抬起，保持起点等待第二次点击');
+        logger.debug('🟦 线性绘制模式：首击抬起，保持起点等待第二次点击');
         return;
       }
     }

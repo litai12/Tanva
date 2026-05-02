@@ -27,6 +27,18 @@ const StraightLineIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const ArrowToolIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <path
+      d="M4 12L11.2 4.8M11.2 4.8L11.1 7.4M11.2 4.8L8.6 4.9"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 // 自由绘制图标
 const FreeDrawIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
@@ -425,7 +437,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const [isAddToolsMenuOpen, setAddToolsMenuOpen] = React.useState(false);
   const selectionMenuEnabled = true;
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen || isAddToolsMenuOpen;
-  const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
+  const drawingModes = ['free', 'line', 'arrow', 'rect', 'circle'] as const;
 
   const {
     toggleDialog,
@@ -917,6 +929,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             >
               {drawMode === 'free' && <FreeDrawIcon className="w-4 h-4" />}
               {drawMode === 'line' && <StraightLineIcon className="w-4 h-4" />}
+              {drawMode === 'arrow' && <ArrowToolIcon className="w-4 h-4" />}
               {drawMode === 'rect' && <Square className="w-4 h-4" />}
               {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
               {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
@@ -927,8 +940,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             {drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
               ? lt('点击切换到自由绘制工具', 'Switch to free draw')
               : lt(
-                  `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`,
-                  `Current tool: ${drawMode === 'free' ? 'Free Draw' : drawMode === 'line' ? 'Line' : drawMode === 'rect' ? 'Rectangle' : drawMode === 'circle' ? 'Circle' : drawMode === 'polyline' ? 'Polyline' : drawMode}`
+                  `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'arrow' ? '箭头' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`,
+                  `Current tool: ${drawMode === 'free' ? 'Free Draw' : drawMode === 'line' ? 'Line' : drawMode === 'arrow' ? 'Arrow' : drawMode === 'rect' ? 'Rectangle' : drawMode === 'circle' ? 'Circle' : drawMode === 'polyline' ? 'Polyline' : drawMode}`
                 )}
           </TooltipContent>
         </Tooltip>
@@ -970,6 +983,22 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>{lt('绘制直线', 'Draw Line')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'arrow' && !isEraser ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'arrow' && !isEraser)
+                      )}
+                      onClick={() => setDrawMode('arrow')}
+                    >
+                      <ArrowToolIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>{lt('绘制箭头', 'Draw Arrow')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1019,15 +1048,17 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               </div>
 
               {/* 线条样式 */}
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-xs font-medium text-gray-600">{lt('样式', 'Style')}</span>
-                <LineStylePicker
-                  value={lineStyle}
-                  onChange={setLineStyle}
-                  disabled={isEraser}
-                  title={lt('线条样式', 'Line Style')}
-                />
-              </div>
+              {drawMode !== 'arrow' && (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs font-medium text-gray-600">{lt('样式', 'Style')}</span>
+                  <LineStylePicker
+                    value={lineStyle}
+                    onChange={setLineStyle}
+                    disabled={isEraser}
+                    title={lt('线条样式', 'Line Style')}
+                  />
+                </div>
+              )}
 
               {/* 填充控制区域 - 只在支持填充的工具时显示 */}
               {supportsFill(drawMode) && (

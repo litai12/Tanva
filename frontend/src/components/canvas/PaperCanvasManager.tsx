@@ -2,6 +2,11 @@ import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { useLayerStore } from '@/stores/layerStore';
+import {
+  getCanvasViewportFrame,
+  subscribeCanvasViewportFrame,
+  type CanvasViewportFrame,
+} from '@/utils/canvasViewportFrame';
 
 const patchPaperRasterSetSourceCompat = (() => {
   let patched = false;
@@ -44,19 +49,34 @@ interface PaperCanvasManagerProps {
   onInitialized?: () => void;
 }
 
+const applyCurrentPaperViewTransform = (
+  frame: CanvasViewportFrame = getCanvasViewportFrame()
+) => {
+  if (!paper || !paper.project || !paper.view) return;
+
+  try {
+    const matrix = new paper.Matrix(
+      frame.zoom,
+      0,
+      0,
+      frame.zoom,
+      frame.paperX,
+      frame.paperY
+    );
+    paper.view.matrix = matrix;
+  } catch {
+    /* Paper view can be unavailable while the canvas is being initialized. */
+  }
+};
+
 const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({ 
   canvasRef, 
   onInitialized 
 }) => {
-  const { 
-    zoom, 
-    panX, 
-    panY, 
-    setPan, 
-    isHydrated, 
-    hasInitialCenterApplied, 
-    markInitialCenterApplied 
-  } = useCanvasStore();
+  const setPan = useCanvasStore((state) => state.setPan);
+  const isHydrated = useCanvasStore((state) => state.isHydrated);
+  const hasInitialCenterApplied = useCanvasStore((state) => state.hasInitialCenterApplied);
+  const markInitialCenterApplied = useCanvasStore((state) => state.markInitialCenterApplied);
   const onInitializedRef = useRef(onInitialized);
 
   useEffect(() => {
@@ -139,21 +159,9 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
             console.warn('ensureActiveLayer failed during Paper init:', e);
           }
         } else {
-          // 应用视口变换
-          applyViewTransform();
+          applyCurrentPaperViewTransform();
         }
       }
-    };
-
-    // 应用视口变换 - 使用Paper.js默认左上角坐标系
-    const applyViewTransform = () => {
-      // 视口变换：screen = zoom * (world + pan)
-      // 注意：resize 回调可能在 zoom/pan 变化后触发，因此这里必须读取最新值，避免闭包过期。
-      const { zoom: currentZoom, panX: currentPanX, panY: currentPanY } = useCanvasStore.getState();
-      const tx = currentPanX * currentZoom;
-      const ty = currentPanY * currentZoom;
-      const matrix = new paper.Matrix(currentZoom, 0, 0, currentZoom, tx, ty);
-      paper.view.matrix = matrix;
     };
 
     // 初始化画布
@@ -198,6 +206,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       return;
     }
 
+    const { panX, panY } = useCanvasStore.getState();
     if (Math.abs(panX) > 0.0001 || Math.abs(panY) > 0.0001) {
       markInitialCenterApplied();
       return;
@@ -231,22 +240,14 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       });
       return () => cancelAnimationFrame(rafId);
     }
-  }, [isHydrated, hasInitialCenterApplied, panX, panY, canvasRef, setPan, markInitialCenterApplied]);
+  }, [isHydrated, hasInitialCenterApplied, canvasRef, setPan, markInitialCenterApplied]);
 
-  // 处理视口变换的effect
+  // 与 FlowOverlay 共用同一个 requestAnimationFrame 批次，避免 Paper 图片层和
+  // ReactFlow 节点层在缩放时使用不同帧的 viewport。
   useEffect(() => {
     if (!canvasRef.current) return;
-    if (!paper || !paper.project || !paper.view) return;
-    
-    // 应用视口变换（同上：screen = zoom * (world + pan)）
-    const tx = panX * zoom;
-    const ty = panY * zoom;
-    try {
-      const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
-      (paper.view as any).matrix = matrix;
-    } catch {}
-  
-  }, [zoom, panX, panY, canvasRef]);
+    return subscribeCanvasViewportFrame(applyCurrentPaperViewTransform);
+  }, [canvasRef]);
 
   return null; // 这个组件不渲染任何DOM
 };

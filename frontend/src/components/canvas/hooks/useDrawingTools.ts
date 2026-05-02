@@ -51,6 +51,55 @@ const getSketchProfileFactor = (t: number, style: LineStyle): number => {
   return 0.7 + (1 - edgeBias) * 0.95;
 };
 
+const getArrowPathPoints = (
+  startPoint: paper.Point,
+  endPoint: paper.Point,
+  strokeWidth: number
+): paper.Point[] => {
+  const bodyWidth = Math.max(2, strokeWidth);
+  let vector = endPoint.subtract(startPoint);
+  let length = vector.length;
+
+  if (!Number.isFinite(length) || length < 0.5) {
+    vector = new paper.Point(Math.max(1, bodyWidth * 2), 0);
+    length = vector.length;
+  }
+
+  const direction = vector.normalize();
+  const normal = new paper.Point(-direction.y, direction.x);
+  const headLength = Math.min(Math.max(14, bodyWidth * 5.8), Math.max(1, length * 0.58));
+  const headHalfWidth = Math.min(
+    Math.max(6, bodyWidth * 1.8),
+    Math.max(bodyWidth, length * 0.4)
+  );
+  const bodyEndDistance = length > headLength + bodyWidth ? length - headLength : length * 0.45;
+  const bodyEnd = startPoint.add(direction.multiply(Math.max(0, bodyEndDistance)));
+  const tip = startPoint.add(direction.multiply(length));
+  const halfBody = bodyWidth / 2;
+
+  return [
+    startPoint.add(normal.multiply(halfBody)),
+    bodyEnd.add(normal.multiply(halfBody)),
+    bodyEnd.add(normal.multiply(headHalfWidth)),
+    tip,
+    bodyEnd.subtract(normal.multiply(headHalfWidth)),
+    bodyEnd.subtract(normal.multiply(halfBody)),
+    startPoint.subtract(normal.multiply(halfBody)),
+  ];
+};
+
+const updateArrowPathGeometry = (
+  path: paper.Path,
+  startPoint: paper.Point,
+  endPoint: paper.Point,
+  strokeWidth: number
+) => {
+  const points = getArrowPathPoints(startPoint, endPoint, strokeWidth);
+  path.removeSegments();
+  points.forEach((point) => path.add(point));
+  path.closed = true;
+};
+
 export const useDrawingTools = ({ 
   context, 
   currentColor, 
@@ -153,6 +202,25 @@ export const useDrawingTools = ({
     }
 
     return sketchPath;
+  }, [currentColor, lineStyle, strokeWidth]);
+
+  const applyArrowStyleToPath = useCallback((path: paper.Path, startPoint: paper.Point, endPoint: paper.Point) => {
+    path.fillColor = new paper.Color(currentColor);
+    path.strokeColor = null;
+    path.strokeWidth = 0.01;
+    path.strokeCap = 'round';
+    path.strokeJoin = 'round';
+    path.dashArray = [];
+    path.dashOffset = 0;
+    path.data = {
+      ...(path.data || {}),
+      type: 'drawing',
+      tool: 'arrow',
+      lineStyle,
+      sourceStrokeWidth: strokeWidth,
+      arrowStart: { x: startPoint.x, y: startPoint.y },
+      arrowEnd: { x: endPoint.x, y: endPoint.y },
+    };
   }, [currentColor, lineStyle, strokeWidth]);
 
   // 判断当前工具是否支持填充
@@ -589,7 +657,7 @@ export const useDrawingTools = ({
     applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'line');
 
     // 保存起始点用于后续更新
-    if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
 
     // 更新移动状态
     hasMovedRef.current = true;
@@ -662,6 +730,79 @@ export const useDrawingTools = ({
       eventHandlers.onDrawEnd?.('line');
     }
   }, [convertToSketchPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
+
+  // ========== 箭头绘制功能 ==========
+
+  const startArrowDraw = useCallback((point: paper.Point) => {
+    hasMovedRef.current = false;
+    setDrawingState(prev => ({
+      ...prev,
+      initialClickPoint: point,
+      hasMoved: false
+    }));
+    logger.debug('箭头工具激活，等待拖拽');
+    eventHandlers.onDrawStart?.('arrow');
+  }, [eventHandlers.onDrawStart]);
+
+  const createArrowPath = useCallback((startPoint: paper.Point) => {
+    ensureDrawingLayer();
+    const initialEndPoint = startPoint.add(new paper.Point(1, 0));
+    pathRef.current = new paper.Path();
+    updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, initialEndPoint, strokeWidth);
+    applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, initialEndPoint);
+
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
+
+    hasMovedRef.current = true;
+    setDrawingState(prev => ({
+      ...prev,
+      currentPath: pathRef.current,
+      isDrawing: true,
+      hasMoved: true
+    }));
+    isDrawingRef.current = true;
+
+    logger.debug('创建箭头路径');
+    eventHandlers.onPathCreate?.(pathRef.current);
+  }, [ensureDrawingLayer, strokeWidth, applyArrowStyleToPath, eventHandlers.onPathCreate]);
+
+  const updateArrowDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && pathRef.current.startPoint) {
+      const startPoint = pathRef.current.startPoint;
+      updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, point, strokeWidth);
+      applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, point);
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
+    }
+  }, [strokeWidth, applyArrowStyleToPath]);
+
+  const finishArrowDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && pathRef.current.startPoint) {
+      const startPoint = pathRef.current.startPoint;
+      updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, point, strokeWidth);
+      applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, point);
+
+      if (pathRef.current) delete pathRef.current.startPoint;
+
+      logger.drawing('完成箭头绘制');
+      const completedPath = pathRef.current;
+      pathRef.current = null;
+      isDrawingRef.current = false;
+
+      setDrawingState(prev => ({
+        ...prev,
+        currentPath: null,
+        isDrawing: false,
+        initialClickPoint: null,
+        hasMoved: false
+      }));
+
+      const projectWithEmit = paper.project as (paper.Project & { emit?: (eventName: string) => void }) | null;
+      projectWithEmit?.emit?.('change');
+
+      eventHandlers.onPathComplete?.(completedPath);
+      eventHandlers.onDrawEnd?.('arrow');
+    }
+  }, [strokeWidth, applyArrowStyleToPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
 
   // ========== 通用绘制结束 ==========
   
@@ -799,6 +940,12 @@ export const useDrawingTools = ({
     updateLineDraw,
     finishLineDraw,
     createLinePath,
+
+    // 箭头绘制
+    startArrowDraw,
+    updateArrowDraw,
+    finishArrowDraw,
+    createArrowPath,
 
     // 图片占位框绘制
     startImageDraw,

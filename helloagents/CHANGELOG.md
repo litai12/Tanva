@@ -19,7 +19,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
-- Canvas/Image Overlay: 图片选中覆盖层在缩放/平移时会跳过同值 bounds、分辨率和锁定 hover 状态更新，避免特定缩放比例下触发 React `Maximum update depth exceeded`。
+- Flow/Viewport: Canvas -> Flow viewport sync now uses a shared `canvasViewportFrame` RAF snapshot so `PaperCanvasManager` and `FlowOverlay` apply Paper matrix and ReactFlow viewport from the same `zoom/pan/dpr` frame, keeping Paper images and Flow nodes synchronized during pan/zoom.
+- Canvas/Image Overlay: 图片覆盖层在缩放/平移时会跳过同值 bounds、分辨率和锁定 hover 状态更新；非激活图片不再订阅高频 `zoom/pan`，并且 `DrawingController` 复用图片覆盖层元素，降低缩放时的 React 更新量。
 - Canvas Precise Edit: Shift 框选局部编辑现在基于当前 Raster 渲染内容裁剪，等待占位框原位浮在选区上，并把选区 bounds/像素比例带入编辑请求与回退上画布，避免结果按整图尺寸或错误画幅放大回贴。
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
@@ -46,6 +47,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Image: 图片生成节点统一改为 `GenerationProgressBar` 动态渐进并支持配置时长，`Generate/GeneratePro/GenerateReference/Midjourney/Nano2/Seedream5/ViewAngle` 已切换为 `60s` 渐进�?`95%`（成功后�?`100%`）�?
 
 ### Added
+- Canvas Drawing: 绘图工具子菜单新增 `箭头` 工具，与自由绘制、直线、矩形、圆形并列；箭头以 Paper.js 路径保存并参与图层面板识别与 Shift 融图流程。
 - Admin/API Records: 后台 API 记录支持按用户关键词过滤，可匹配用户 ID、手机号、邮箱和昵称。
 - Flow Clipboard: `GeneratePro / ImagePro / GeneratePro4` 的右键“复制节点”改为写�?Flow 剪贴板（不再直接生成副本），可配�?`Ctrl/Cmd + Shift + V` 使用“保留原连线粘贴”（`Ctrl/Cmd + V` 仍保持常规粘贴）�?
 - Flow Model Switch: `Generate` / `Agent(generatePro)` 节点新增节点本地 `modelProvider` 持久化，节点�?Fast/Pro/Ultra 切换不再改写全局 `aiProvider`；同时全局设置/对话框切换会广播 `flow:sync-model-provider`，可一键批量同步相关节点（`generate/generatePro/generatePro4/analysis/textChat`）到统一模型档位�?
