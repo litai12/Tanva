@@ -121,6 +121,18 @@ const PALETTE_MIN_DISPLAY_WIDTH_PX = 14;
 type Bounds = { x: number; y: number; width: number; height: number };
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropHandle = "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
+const IMAGE_BOUNDS_EPSILON = 0.001;
+
+const boundsAlmostEqual = (
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  epsilon = IMAGE_BOUNDS_EPSILON
+): boolean =>
+  Math.abs(a.x - b.x) <= epsilon &&
+  Math.abs(a.y - b.y) <= epsilon &&
+  Math.abs(a.width - b.width) <= epsilon &&
+  Math.abs(a.height - b.height) <= epsilon;
+
 const ensureDataUrlString = (
   imageData: string,
   mime: string = "image/png"
@@ -577,7 +589,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   } = useAIChatStore();
 
   // 获取画布状态 - 用于监听画布移动变化
-  const { zoom, panX, panY, isDragging: isCanvasDragging, setOperationInProgress } = useCanvasStore();
+  const zoom = useCanvasStore((state) => state.zoom);
+  const panX = useCanvasStore((state) => state.panX);
+  const panY = useCanvasStore((state) => state.panY);
+  const isCanvasDragging = useCanvasStore((state) => state.isDragging);
+  const setOperationInProgress = useCanvasStore(
+    (state) => state.setOperationInProgress
+  );
 
   // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
   const currentZoom = zoom || 1;
@@ -859,6 +877,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const realTimeBoundsRef = useRef(realTimeBounds);
   realTimeBoundsRef.current = realTimeBounds;
 
+  const setRealTimeBoundsIfChanged = useCallback(
+    (nextBounds: { x: number; y: number; width: number; height: number }) => {
+      setRealTimeBounds((currentBounds) => {
+        if (boundsAlmostEqual(currentBounds, nextBounds)) {
+          return currentBounds;
+        }
+        realTimeBoundsRef.current = nextBounds;
+        return nextBounds;
+      });
+    },
+    []
+  );
+
   // 从Paper.js获取实时坐标 - 使用 ref 避免依赖变化
   const getRealTimePaperBounds = useCallback(() => {
     try {
@@ -900,8 +931,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   useEffect(() => {
     // 当画布状态变化时，强制重新计算屏幕坐标
     const newPaperBounds = getRealTimePaperBounds();
-    setRealTimeBounds(newPaperBounds);
-  }, [zoom, panX, panY, getRealTimePaperBounds]); // 直接监听画布状态变化
+    setRealTimeBoundsIfChanged(newPaperBounds);
+  }, [zoom, panX, panY, getRealTimePaperBounds, setRealTimeBoundsIfChanged]); // 直接监听画布状态变化
 
   // 实时同步Paper.js状态 - 只在选中时启用，使用节流减少更新频率
   useEffect(() => {
@@ -942,7 +973,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         Math.abs(paperBounds.height - currentBounds.height) > toleranceWorld;
 
       if (hasChanged) {
-        setRealTimeBounds(paperBounds);
+        setRealTimeBoundsIfChanged(paperBounds);
       }
 
       // 继续下一帧
@@ -953,7 +984,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     // 立即更新一次，然后开始循环
     const paperBounds = getRealTimePaperBounds();
-    setRealTimeBounds(paperBounds);
+    setRealTimeBoundsIfChanged(paperBounds);
     animationFrame = requestAnimationFrame(updateRealTimeBounds);
 
     return () => {
@@ -962,12 +993,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         cancelAnimationFrame(animationFrame);
       }
     };
-  }, [isSelected, getRealTimePaperBounds]);
+  }, [isSelected, getRealTimePaperBounds, setRealTimeBoundsIfChanged]);
 
   // 同步Props bounds变化
   useEffect(() => {
-    setRealTimeBounds(bounds);
-  }, [bounds]);
+    setRealTimeBoundsIfChanged(bounds);
+  }, [bounds, setRealTimeBoundsIfChanged]);
 
   // 获取图片真实像素尺寸
   useEffect(() => {
@@ -981,16 +1012,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       Number.isFinite(metaHeight) &&
       metaHeight > 0
     ) {
-      setNaturalSize({
+      const nextNaturalSize = {
         width: Math.round(metaWidth),
         height: Math.round(metaHeight),
+      };
+      setNaturalSize((current) => {
+        if (
+          current &&
+          current.width === nextNaturalSize.width &&
+          current.height === nextNaturalSize.height
+        ) {
+          return current;
+        }
+        return nextNaturalSize;
       });
       return;
     }
 
     // 仅在需要展示分辨率（选中态）且缺少元数据时才加载图片，避免重复请求/解码
     if (!isSelected) {
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
       return;
     }
 
@@ -1002,7 +1043,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       (imageData.pendingUpload ? imageData.localDataUrl : undefined);
     const src = rawSource ? toRenderableImageSrc(rawSource) || "" : "";
     if (!src) {
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
       return;
     }
 
@@ -1013,12 +1054,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
       if (w > 0 && h > 0) {
-        setNaturalSize({ width: w, height: h });
+        setNaturalSize((current) => {
+          if (current && current.width === w && current.height === h) {
+            return current;
+          }
+          return { width: w, height: h };
+        });
       }
     };
     img.onerror = () => {
       if (canceled) return;
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
     };
     img.src = src;
 
@@ -1248,7 +1294,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   useEffect(() => {
     if (!isImageLocked || typeof window === "undefined") {
-      setIsHoveringLockedImage(false);
+      setIsHoveringLockedImage((current) => (current ? false : current));
       return;
     }
 
@@ -1256,7 +1302,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const canvasEl =
         (paper?.view?.element as HTMLCanvasElement | undefined) || null;
       if (!canvasEl) {
-        setIsHoveringLockedImage(false);
+        setIsHoveringLockedImage((current) => (current ? false : current));
         return;
       }
 
@@ -1269,10 +1315,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         localY >= screenBounds.y &&
         localY <= screenBounds.y + screenBounds.height;
 
-      setIsHoveringLockedImage(inside);
+      setIsHoveringLockedImage((current) =>
+        current === inside ? current : inside
+      );
     };
 
-    const handleMouseLeave = () => setIsHoveringLockedImage(false);
+    const handleMouseLeave = () =>
+      setIsHoveringLockedImage((current) => (current ? false : current));
 
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseleave", handleMouseLeave);
@@ -3150,7 +3199,48 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       const execute = async () => {
         setIsOptimizingHd(true);
+        let hdPlaceholderId: string | null = null;
         try {
+          const placeholderWidth = Math.max(48, realTimeBounds.width || 512);
+          const placeholderHeight = Math.max(48, realTimeBounds.height || 512);
+          const placementGap = Math.max(
+            32,
+            Math.min(120, placeholderWidth * 0.1)
+          );
+          const hdResultBounds = {
+            x: realTimeBounds.x + realTimeBounds.width + placementGap,
+            y: realTimeBounds.y,
+            width: placeholderWidth,
+            height: placeholderHeight,
+          };
+          const hdResultCenter = {
+            x: hdResultBounds.x + hdResultBounds.width / 2,
+            y: hdResultBounds.y + hdResultBounds.height / 2,
+          };
+          hdPlaceholderId = `hd_upscale_${imageData.id}_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+
+          window.dispatchEvent(
+            new CustomEvent("predictImagePlaceholder", {
+              detail: {
+                action: "add",
+                placeholderId: hdPlaceholderId,
+                center: hdResultCenter,
+                width: hdResultBounds.width,
+                height: hdResultBounds.height,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 12 },
+            })
+          );
+
           // 获取图片数据
           const baseImage = await resolveImageDataUrl();
           if (!baseImage) {
@@ -3213,19 +3303,31 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             ? editResult.data.imageData
             : `data:image/png;base64,${editResult.data.imageData}`;
 
-          // 直接下载 4K 图片，不加载到画布
           const fileName = `hd-4k-${Date.now()}.png`;
-          const link = document.createElement("a");
-          link.href = resultImageData;
-          link.download = fileName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 88 },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: resultImageData,
+                fileName,
+                selectedImageBounds: hdResultBounds,
+                smartPosition: hdResultCenter,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+                placeholderId: hdPlaceholderId,
+              },
+            })
+          );
 
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: "✨ 高清放大完成（4K），已下载",
+                message: "✨ 高清放大完成（4K），已生成到画布",
                 type: "success",
               },
             })
@@ -3234,6 +3336,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const message =
             error instanceof Error ? error.message : "高清放大失败";
           logger.error("高清放大失败", error);
+          if (hdPlaceholderId) {
+            window.dispatchEvent(
+              new CustomEvent("predictImagePlaceholder", {
+                detail: { action: "remove", placeholderId: hdPlaceholderId },
+              })
+            );
+          }
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: { message, type: "error" },

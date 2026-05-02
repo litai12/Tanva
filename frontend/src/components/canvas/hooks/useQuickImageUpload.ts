@@ -141,6 +141,7 @@ const TOOLBAR_DERIVED_OPERATION_TYPES = new Set([
     'layer-split',
     'text-edit',
     'palette',
+    'hd-upscale',
 ]);
 
 type MatrixLayoutContext = {
