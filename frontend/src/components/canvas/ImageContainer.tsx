@@ -59,7 +59,8 @@ import {
 import { blobToDataUrl, canvasToBlob, canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT =
-  "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+  "请智能填充图像中的黑红色蒙版区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
 
@@ -502,7 +503,7 @@ const _composeExpandedImage = async (
   }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.fillStyle = "#000000";
+  ctx.fillStyle = EXPAND_MASK_FILL_COLOR;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
@@ -595,6 +596,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const setOperationInProgress = useCanvasStore(
     (state) => state.setOperationInProgress
   );
+  const expandOperationLockRef = useRef(false);
+  const releaseExpandOperationLock = useCallback(() => {
+    if (!expandOperationLockRef.current) return;
+    expandOperationLockRef.current = false;
+    setOperationInProgress(false);
+  }, [setOperationInProgress]);
+
+  useEffect(() => {
+    return () => {
+      if (!expandOperationLockRef.current) return;
+      expandOperationLockRef.current = false;
+      setOperationInProgress(false);
+    };
+  }, [setOperationInProgress]);
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
@@ -3056,6 +3071,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.preventDefault();
       e.stopPropagation();
       if (isExpandingImage) return;
+      expandOperationLockRef.current = true;
       setOperationInProgress(true);
       setShowExpandSelector(true);
     },
@@ -3074,6 +3090,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
     ) => {
       setShowExpandSelector(false);
+      releaseExpandOperationLock();
       setIsExpandingImage(true);
       let expandPlaceholderId: string | null = null;
 
@@ -3150,7 +3167,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           selectedBounds
         );
 
-        // 同步输出合成黑底图到画布，便于对比与调试
+        // 同步输出合成蒙版图到画布，便于对比与调试
         // 调试：在控制台查看合成图片信息
         console.log("扩展画布合成图片:", composed);
 
@@ -3226,10 +3243,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         );
       } finally {
         setIsExpandingImage(false);
+        releaseExpandOperationLock();
         setDrawMode("select");
       }
     },
-    [resolveImageDataUrl, imageData.id, realTimeBounds, setDrawMode]
+    [
+      resolveImageDataUrl,
+      imageData.id,
+      realTimeBounds,
+      releaseExpandOperationLock,
+      setDrawMode,
+    ]
   );
 
   const handleOptimizeHdImage = useCallback(
@@ -3402,9 +3426,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 处理扩图取消
   const handleExpandCancel = useCallback(() => {
     setShowExpandSelector(false);
-    setOperationInProgress(false);
+    releaseExpandOperationLock();
     setDrawMode("select");
-  }, [setDrawMode, setOperationInProgress]);
+  }, [releaseExpandOperationLock, setDrawMode]);
 
   const basePreviewSrc = useMemo(() => {
     const fromEdit = getImageDataForEditing?.(imageData.id);
