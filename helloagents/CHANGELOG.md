@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Membership UI: 套餐卡外框统一使用紫色会员视觉，不再因默认选中变粗；免费档与付费档标题字号保持一致，付费套餐快乐马权益统一展示为“支持”（`frontend/src/components/payment/MembershipPanel.tsx`）。
 - Flow/Viewport: Canvas -> Flow viewport sync now uses a shared `canvasViewportFrame` RAF snapshot so `PaperCanvasManager` and `FlowOverlay` apply Paper matrix and ReactFlow viewport from the same `zoom/pan/dpr` frame, keeping Paper images and Flow nodes synchronized during pan/zoom.
 - Canvas/Image Overlay: 图片覆盖层在缩放/平移时会跳过同值 bounds、分辨率和锁定 hover 状态更新；非激活图片不再订阅高频 `zoom/pan`，并且 `DrawingController` 复用图片覆盖层元素，降低缩放时的 React 更新量。
 - Canvas Precise Edit: Shift 框选局部编辑现在基于当前 Raster 渲染内容裁剪，等待占位框原位浮在选区上，并把选区 bounds/像素比例带入编辑请求与回退上画布，避免结果按整图尺寸或错误画幅放大回贴。

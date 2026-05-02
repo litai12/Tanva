@@ -52,7 +52,7 @@ const FREE_FEATURES: string[] = [
   "支持：有限技术支持",
 ];
 
-function getPlanMetadataObject(metadata?: Record<string, any> | null): Record<string, any> {
+function getPlanMetadataObject(metadata?: Record<string, unknown> | null): Record<string, unknown> {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
 }
 
@@ -78,11 +78,7 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
     accent.push("Seedance 2 权益：支持");
   }
 
-  if (metadata.happyhorseAccess === "enabled") {
-    accent.push("快乐马权益：支持");
-  } else {
-    accent.push("快乐马权益：充值后可用");
-  }
+  accent.push("快乐马权益：支持");
 
   accent.push(
     `${metadata.noWatermarkAccess === "enabled" ? "去水印" : "有水印"}`
@@ -137,13 +133,13 @@ function isRecommendedPlan(plan: PaymentMembershipPlan): boolean {
   return plan.sortOrder === 20 || code.includes("199") || name.includes("专业");
 }
 
-function isDailyCreationPlan(plan: PaymentMembershipPlan): boolean {
-  const name = (plan.name || "").trim().toLowerCase();
-  return name.includes("日常");
-}
-
 /** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致，与视觉稿对齐） */
 const PLAN_CARD_MIN_H = "min-h-[520px] sm:min-h-[550px] lg:min-h-[580px] xl:min-h-[600px]";
+const PLAN_CARD_TITLE_CLASS = "text-xl font-semibold tracking-tight";
+const PLAN_CARD_FRAME_LIGHT =
+  "border-[#8E86F5]/60 bg-white shadow-[0_0_24px_-14px_rgba(142,134,245,0.38),0_12px_24px_rgba(15,23,42,0.08)] hover:border-[#8E86F5]/80";
+const PLAN_CARD_FRAME_DARK =
+  "border-[#8E86F5]/65 bg-[#0f0f18] shadow-[0_0_28px_-14px_rgba(142,134,245,0.38),0_8px_32px_rgba(0,0,0,0.5)] hover:border-[#8E86F5]/80";
 
 const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSuccess, hideBackButton = false }) => {
   const [plans, setPlans] = useState<PaymentMembershipPlan[]>([]);
@@ -161,7 +157,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [hasWhitelistTopUpAccess, setHasWhitelistTopUpAccess] = useState(false);
+  const [, setHasWhitelistTopUpAccess] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const hasYearlyPlans = useMemo(() => (plans || []).some((plan) => plan.billingCycle === "yearly"), [plans]);
@@ -600,24 +596,19 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         : "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
                     )}
                   >
-                  {/* 标准档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
+                  {/* 标准档 */}
                   <div
                     className={cn(
                       "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
                       PLAN_CARD_MIN_H,
-                      isWhite
-                        ? "border-[#E8C547]/60 bg-white shadow-[0_0_24px_-14px_rgba(232,197,71,0.4),0_12px_24px_rgba(15,23,42,0.08)]"
-                        : "border-[#E8C547]/55 bg-[#0f0f18] shadow-[0_0_28px_-14px_rgba(232,197,71,0.35),0_8px_32px_rgba(0,0,0,0.5)]",
-                      isFreeUser && "ring-1 ring-[#C9A227]/25",
-                      !isFreeUser &&
-                        (isWhite ? "hover:border-[#E8C547]/80" : "hover:border-[#E8C547]/75"),
+                      isWhite ? PLAN_CARD_FRAME_LIGHT : PLAN_CARD_FRAME_DARK,
                     )}
                   >
                     <div className="flex items-center gap-2.5">
                       <Crown className="h-5 w-5 shrink-0 text-[#E8C547]" strokeWidth={1.75} aria-hidden />
                       <div
                         className={cn(
-                          "text-2xl font-bold tracking-tight",
+                          PLAN_CARD_TITLE_CLASS,
                           isWhite ? "text-slate-900" : "text-zinc-100",
                         )}
                       >
@@ -683,7 +674,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const tierTitle = plan.name;
                     const { main, accent } = vipFeatureLines(plan);
                     const isRecommended = isRecommendedPlan(plan);
-                    const isDailyCreation = !isRecommended && isDailyCreationPlan(plan);
                     const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
@@ -697,33 +687,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         className={cn(
                           "relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 xl:p-4",
                           PLAN_CARD_MIN_H,
-                          isWhite
-                            ? "bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
-                            : "bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
-                          active
-                            ? isDailyCreation
-                              ? isWhite
-                                ? "border-emerald-300/75 shadow-[0_0_22px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.16)]"
-                                : "border-emerald-300/70 shadow-[0_0_28px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.2)]"
-                              : isWhite
-                                ? "border-[#8E86F5]/45 shadow-[0_0_30px_-12px_rgba(142,134,245,0.5),inset_0_0_0_1px_rgba(182,195,249,0.24)]"
-                                : "border-[#8E86F5]/70 shadow-[0_0_40px_-12px_rgba(142,134,245,0.6),inset_0_0_0_1.5px_rgba(142,134,245,0.3)]"
-                            : isRecommended
-                              ? isWhite
-                                ? "border-[#8E86F5]/60 shadow-[0_0_24px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
-                                : "border-[#8E86F5]/65 shadow-[0_0_28px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
-                              : isDailyCreation
-                                ? isWhite
-                                  ? "border-emerald-200/85 shadow-[0_0_18px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/85"
-                                  : "border-emerald-300/45 shadow-[0_0_22px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/65"
-                                : isWhite
-                                  ? "border-slate-200 hover:border-slate-300"
-                                  : "border-zinc-800/60 hover:border-zinc-700",
-                          current?.plan?.code &&
-                            plan.code === current.plan.code &&
-                            current?.entitlement?.membershipStatus === "active"
-                            ? "ring-1 ring-emerald-500/40"
-                            : null,
+                          isWhite ? PLAN_CARD_FRAME_LIGHT : PLAN_CARD_FRAME_DARK,
                         )}
                       >
                         {isRecommended ? (
@@ -733,7 +697,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         ) : null}
                         <div
                           className={cn(
-                            "pr-14 text-xl font-semibold tracking-tight xl:text-lg 2xl:text-xl",
+                            "pr-14",
+                            PLAN_CARD_TITLE_CLASS,
                             isWhite ? "text-slate-900" : "text-zinc-100",
                           )}
                         >
