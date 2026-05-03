@@ -102,7 +102,7 @@ import NodeGroupNode from "./nodes/NodeGroupNode";
 import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
 import { getImageSplitHandleIndex, isImageSplitHandle } from "./utils/imageSplitHandles";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { recordImageHistoryEntry, recordVideoHistoryEntry } from "@/services/imageHistoryService";
 import {
   useFlowStore,
   FlowBackgroundVariant,
@@ -1612,7 +1612,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   textPrompt: { w: 240, h: 180 },
   textPromptPro: { w: 420, h: 360 },
   textNote: { w: 220, h: 140 },
-  textChat: { w: 320, h: 540 },
+  textChat: { w: 320, h: 360 },
   promptOptimize: { w: 360, h: 300 },
   image: { w: 260, h: 240 },
   imagePro: { w: 320, h: 240 },
@@ -8349,6 +8349,7 @@ function FlowInner() {
           ? {
               title: "Text Chat",
               status: "idle" as const,
+              textChatSkillId: "custom",
               manualInput: "",
               responseText: "",
               enableWebSearch: false,
@@ -8534,7 +8535,8 @@ function FlowInner() {
               status: "idle" as const,
               inputText: "",
               segments: [],
-              outputCount: 9,
+              outputCount: 0,
+              splitFormat: "",
               boxW: size.w,
               boxH: size.h,
             }
@@ -9430,6 +9432,47 @@ function FlowInner() {
       return [entry, ...deduped];
     },
     [getVideoHistoryKey]
+  );
+
+  const recordFlowVideoHistory = React.useCallback(
+    (
+      nodeId: string,
+      nodeType: string,
+      entry: Record<string, any>,
+      metadata?: Record<string, any>
+    ) => {
+      const videoUrl =
+        typeof entry?.videoUrl === "string" ? entry.videoUrl.trim() : "";
+      if (!videoUrl) return;
+
+      const createdAt =
+        typeof entry?.createdAt === "string" ? Date.parse(entry.createdAt) : undefined;
+      void recordVideoHistoryEntry({
+        id: typeof entry?.id === "string" ? entry.id : undefined,
+        videoUrl,
+        thumbnail: typeof entry?.thumbnail === "string" ? entry.thumbnail : undefined,
+        title: typeof entry?.prompt === "string" ? entry.prompt : undefined,
+        nodeId,
+        nodeType,
+        projectId: useProjectContentStore.getState().projectId,
+        timestamp: Number.isFinite(createdAt) ? createdAt : Date.now(),
+        metadata: {
+          source: "flow",
+          status: "succeeded",
+          quality: entry?.quality,
+          elapsedSeconds: entry?.elapsedSeconds,
+          referenceCount: entry?.referenceCount,
+          ...(metadata || {}),
+        },
+      }).catch((error) => {
+        console.warn("[Flow] 记录视频全局历史失败:", {
+          nodeId,
+          nodeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    []
   );
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
@@ -12140,6 +12183,11 @@ function FlowInner() {
               elapsedSeconds,
               referenceCount: params.referenceCount,
             };
+            recordFlowVideoHistory(params.nodeId, "happyhorseR2V", historyEntry, {
+              provider: "happyhorse",
+              taskId,
+              apiUsageId: params.apiUsageId,
+            });
 
             setNodes((ns) =>
               ns.map((n) => {
@@ -13291,6 +13339,10 @@ function FlowInner() {
             quality: media.map((item) => item.type).join("+"),
             createdAt: new Date().toISOString(),
           };
+          recordFlowVideoHistory(nodeId, "wan27Video", historyEntry, {
+            provider: "wan",
+            apiUsageId: wanApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -13580,6 +13632,10 @@ function FlowInner() {
             quality: hasImageInput ? "I2V" : "T2V",
             createdAt: new Date().toISOString(),
           };
+          recordFlowVideoHistory(nodeId, "wan26", historyEntry, {
+            provider: "wan",
+            apiUsageId: wanApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -13801,6 +13857,9 @@ function FlowInner() {
             createdAt: new Date().toISOString(),
             referenceCount: referenceVideoUrls.length,
           };
+          recordFlowVideoHistory(nodeId, "wan2R2V", historyEntry, {
+            provider: "wan",
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -14195,6 +14254,10 @@ function FlowInner() {
             createdAt: new Date().toISOString(),
             referenceCount: referenceImageUrls.length,
           };
+          recordFlowVideoHistory(nodeId, "happyhorseR2V", historyEntry, {
+            provider: "happyhorse",
+            apiUsageId: happyhorseApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -16323,6 +16386,42 @@ function FlowInner() {
 
               if (queryResult.status === "succeeded") {
                 stopPolling();
+                const videoUrl =
+                  typeof queryResult.videoUrl === "string"
+                    ? queryResult.videoUrl.trim()
+                    : "";
+                if (!videoUrl) {
+                  if (createResult.apiUsageId) {
+                    try {
+                      await refundVideoTask(createResult.apiUsageId);
+                    } catch (refundError) {
+                      console.warn("❌ [Flow] Failed to refund credits (empty video URL)", {
+                        nodeId,
+                        provider,
+                        apiUsageId: createResult.apiUsageId,
+                        error:
+                          refundError instanceof Error
+                            ? refundError.message
+                            : String(refundError),
+                      });
+                    }
+                  }
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              status: "failed",
+                              error: "任务已完成但未返回视频地址",
+                            },
+                          }
+                        : n
+                    )
+                  );
+                  return;
+                }
                 if (createResult.apiUsageId) {
                   const processingTime = Math.max(0, Date.now() - generationStartMs);
                   void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
@@ -16345,12 +16444,23 @@ function FlowInner() {
                 );
                 const historyEntry = {
                   id: `video-history-${Date.now()}`,
-                  videoUrl: queryResult.videoUrl,
+                  videoUrl,
                   thumbnail: queryResult.thumbnailUrl,
                   prompt: promptText,
                   createdAt: new Date().toISOString(),
                   elapsedSeconds,
                 };
+                recordFlowVideoHistory(nodeId, normalizedVideoNodeType, historyEntry, {
+                  provider,
+                  taskId: createResult.taskId,
+                  apiUsageId: createResult.apiUsageId,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  seedanceMode,
+                  viduVideoMode: viduVideoModeForAPI,
+                  referenceImageCount: referenceImageUrls.length,
+                  referenceVideoCount: referenceVideoUrls.length,
+                });
                 setNodes((ns) =>
                   ns.map((n) => {
                     if (n.id !== nodeId) return n;
@@ -16360,7 +16470,7 @@ function FlowInner() {
                       data: {
                         ...previousData,
                         status: "succeeded",
-                        videoUrl: queryResult.videoUrl,
+                        videoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
                         videoVersion:
@@ -16800,6 +16910,22 @@ function FlowInner() {
             videoUrl: typeof videoUrl === "string" ? videoUrl : undefined,
             createdAt: Date.now(),
           };
+          if (typeof videoUrl === "string" && videoUrl.trim()) {
+            recordFlowVideoHistory(
+              nodeId,
+              "tencentSpeech",
+              {
+                id: historyItemId,
+                videoUrl: videoUrl.trim(),
+                prompt: finalText,
+                createdAt: new Date().toISOString(),
+              },
+              {
+                provider: "tencentSpeech",
+                hasAudioUrl: Boolean(audioUrl),
+              }
+            );
+          }
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -21309,6 +21435,7 @@ function FlowInner() {
             ? {
                 title: "Text Chat",
                 status: "idle" as const,
+                textChatSkillId: "custom",
                 manualInput: "",
                 responseText: "",
                 enableWebSearch: false,

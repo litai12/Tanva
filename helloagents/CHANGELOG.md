@@ -20,6 +20,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas/Grid: 网格缩放显示规则调整为 `>=40%` 显示主/次级网格、`30%-40%` 只显示主网格且覆盖完整视口、`<30%` 隐藏网格线。
 - Flow/Send To Canvas: `generate4` / `generatePro4` / `Midjourney V7` / `Niji 7` 多图发送现在使用 Flow 节点或所属 `nodeGroup` 的正下方作为锚点，避免继续接到画板已有 generate 图片队列末尾导致距离过远。
 - Flow/Generate References: `Generate` / `Muti Gen` / `Agent` / `GeneratePro4` 图片参考输入上限改为跟随节点模型档位：`Fast=3`、`Pro=11`、`Ultra=14`，并统一连接容量、运行时截断、输入预览和积分预估的参考图数量。
+- Flow/Storyboard Split: 分镜拆分节点新增可选 `splitFormat` 参考格式参数；留空沿用默认解析，填写 `分镜1` / `镜头1` / `#1` / `|**1**|` 时按样例编号位置拆分；输出端口改为按拆分结果自动生成，最多 `50` 个。
 - Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
 - Flow/Node Group Performance: 整组拖拽开始时缓存组内子节点起始位置，拖拽帧内不再全量读取节点并重建索引；拖拽中跳过组归一化扫描，降低大组移动时的 JS 每帧开销。
 - Flow/Node Group Run: 分组运行中底部运行按钮会切换为停止图标；点击后不会中断当前正在执行的节点，但会阻止组内后续未开始节点继续自动运行，并立即把按钮反馈为禁用的开始图标直到当前节点跑完。
@@ -30,9 +31,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Flow/Text Chat: removed the node footer web-search toggle and status row; node requests now force web search off so global chat preferences do not affect Flow text-chat runs.
+- Flow/Text Chat: replaced the middle additional-prompt textarea with a lightweight Skill selector. New nodes default to `自定义` with the manual input visible, while built-in presets (`拆分镜头`, `提示词优化`, `中英文转换`) hide the input and combine connected Prompt text with the selected Skill instruction.
+- Flow/Text Chat: removed hidden node resizing and saved-height auto sizing; the node height now follows the active layout so built-in Skill presets collapse to a compact view.
 - Canvas/Autosave: Paper.js 兜底图片采集日志从逐张 `console.log` 收敛为 debug 汇总，避免刷新恢复画布时默认控制台刷屏。
 - AI Chat/Text Web Search: 打开联网后，Banana 文本对话优先走实际挂载 Google Search 工具的 147 legacy 通道，并把联网 metadata 回传前端；前端上下文提示也改为要求直接回答当前输入，避免把内部意图分析当成聊天回复。
-- Flow/Text Chat: node runs now send only connected Prompt text plus the node's additional prompt, without injecting global AI Chat history, operations, or cached-image context.
+- Flow/Text Chat: node runs now send only connected Prompt text plus the node-local instruction, without injecting global AI Chat history, operations, or cached-image context.
 - Flow/Text Inputs: `TextChat` connected prompt previews now refresh when upstream Prompt text changes, not only when edges change. `TextPrompt`, `PromptOptimize`, and `StoryboardSplit` also use event-patch-aware upstream text reads to avoid stale prompt text during same-tick node data updates.
 - Canvas/Image Toolbar: `图片拓展` 工具改用 `Expand` 图标，避免和 `裁切` 的 `Crop` 图标重复。
 - Flow/Quick Connect: 快速连接候选现在必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
@@ -648,3 +651,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow 节点添加面板（`Nodes` tab）新增本地搜索框，支持按 `nameZh/nameEn/nodeKey/description` 实时筛选节点。
 - 搜索结果保持原有分组布局与计数展示，未命中时显示空结果提示；节点禁用态、VIP 锁定和创建逻辑保持不变。
 - 切换到非 `Nodes` 页签时会自动清空搜索词，避免下次打开时遗留筛选状态。
+
+## [Global History Video Media - 2026-05-03]
+### Changed
+- Generated videos now write to global history using the existing `GlobalImageHistory` record shape with `metadata.mediaType=video`; the write path stores the returned video URL directly and does not re-upload videos to OSS.
+- Global history list/detail views and the library panel now render video records with video thumbnails/previews, video-aware download filenames, and video source type labels.
+- Library history videos can be sent or dragged back to the canvas as video assets via `canvas:insert-video`; image history continues to use the existing image insertion path.

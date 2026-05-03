@@ -72,7 +72,8 @@ export type StoryboardSplitData = {
   status?: StoryboardSplitStatus;
   inputText?: string;
   segments?: string[];
-  outputCount?: number; // default 9, max 20
+  outputCount?: number; // auto from segments, max 50
+  splitFormat?: string;
   error?: string;
   boxW?: number;
   boxH?: number;

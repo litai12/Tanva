@@ -13,7 +13,7 @@
 - `ApiUsageRecord`：API 调用记录（token/image 计量等）
 - `CreditPricing` / `CreditPackage`：计费配置与套餐
 - `InvitationCode` / `InvitationRedemption`：邀请码与兑换
-- `GlobalImageHistory`：全局图片历史
+- `GlobalImageHistory`：全局图片/视频历史（视频记录复用 `imageUrl` 保存媒体 URL，并用 `metadata.mediaType=video` 区分）
 - `PublicTemplate`：公共模板
 - `UserTemplate`：用户私有模板（“我的模板”云端持久化）
 - `SystemSetting`：系统配置

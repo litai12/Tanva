@@ -2,15 +2,19 @@
 
 ## 2026-05-03 Update
 - Analysis/Image Chat 节点新增轻量 Skill 选择：`Analysis` 保持原有描述式分析提示词，`提示词` 只输出一段可直接用于生图的纯提示词，`JSON` 会把图片拆解为结构化 JSON（主体、场景、风格、细节和可复用 prompt）；节点 UI 不再展示手动提示词输入框，选择 Skill 会写回节点 `analysisSkillId` 和 `analysisPrompt`，旧节点无该字段时自动回落到 `Analysis`。
+- Text Chat 节点中间的“追加描述”输入区改为 Skill 选择：默认 `自定义` 并显示手动输入框，切到内置 `拆分镜头`、`提示词优化`、`中英文转换` 时隐藏输入框；选择后写回 `textChatSkillId`，`manualInput` 保留自定义输入内容。
+- Text Chat 不再渲染隐藏 resize 控制或用 `boxH` 自动测高撑开节点；高度改由当前布局自然决定，切换到内置 Skill 时节点会立即收缩到紧凑布局。
 - Text Chat 节点底部不再展示“启用联网搜索”和“状态”行；节点运行请求固定关闭联网搜索，避免旧节点或全局聊天开关影响 Flow 内纯文本节点。
-- Text Chat 运行请求现在只使用已连接 Prompt 文本与节点内“追加描述”，不再注入全局 AI Chat 的历史消息、操作记录或缓存图像上下文，避免纯文本 Flow 节点被聊天上下文带偏。
+- Text Chat 运行请求现在只使用已连接 Prompt 文本与当前 Skill 指令，不再注入全局 AI Chat 的历史消息、操作记录或缓存图像上下文，避免纯文本 Flow 节点被聊天上下文带偏。
 - Text Chat 的已连接 Prompt 预览现在会监听上游 `flow:updateNodeData`，Prompt 内容修改后立即刷新；运行时也会重新读取当前上游文本，避免请求使用旧提示词。`TextPrompt` / `PromptOptimize` / `StoryboardSplit` 的上游文本读取同步改为合并事件 patch 后解析，避免同一事件周期读到旧节点数据。
+- Storyboard Split 节点新增 `splitFormat`（参考格式）字段：留空继续使用默认解析；填写 `分镜1`、`镜头1`、`#1`、`|**1**|` 等样例时，按样例里的编号位置拆分输入文本；输出端口不再手动输入，改为按拆分结果自动生成，最多 `50` 个。
 - Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。
 - Quick Connect 创建节点时会带上对应节点面板配置与 `defaultData`，避免后续重新开放模型节点时因缺少 metadata 回退显示为基础组件默认标题。
 - Quick Connect 候选必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
 - 节点添加面板 `Nodes` 页签新增搜索框：输入后会在本地按 `nameZh/nameEn/nodeKey/description` 实时过滤，保留原有分组结构与计数；无匹配时显示空结果提示。
 - 搜索仅影响显示列表，不改变节点可创建判定（维护中/即将开放禁用、VIP 锁定、默认数据注入等逻辑保持原样）；切到非 `Nodes` 页签会清空搜索词。
 - Generate/Generate4/Agent/GeneratePro4 的图片参考输入上限改为跟随节点模型档位：`Fast=3`、`Pro=11`、`Ultra=14`；连线容量、运行时截断、输入预览与 Run 积分参考图数量保持同一规则。
+- 生成视频现在会写入全局历史：Flow 视频节点与 AI Chat 视频成功后调用 `recordVideoHistoryEntry`，只记录当前视频 URL 与 `metadata.mediaType=video`，不会为历史记录重新上传视频到 OSS；右侧库面板可预览、下载并把历史视频作为视频资产发送/拖回画板。
 
 ## 2026-05-02 Update
 - Image Split 输出句柄现在同时兼容 `imageN` 与历史保存/导入可能出现的 `imgN`，节点渲染隐藏兼容句柄并让 Image/Grid/Generate/Analyze/Compress/ViewAngle 等下游解析两种格式，避免切片连线在自动保存或恢复后看起来消失。

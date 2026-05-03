@@ -16,6 +16,7 @@ type Props = {
     inputText?: string;
     segments?: string[];
     outputCount?: number;
+    splitFormat?: string;
     error?: string;
     boxW?: number;
     boxH?: number;
@@ -23,9 +24,7 @@ type Props = {
   selected?: boolean;
 };
 
-const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
-const DEFAULT_OUTPUT_COUNT = 9;
 
 // 中文数字映射
 const CHINESE_NUM_MAP: Record<string, number> = {
@@ -42,15 +41,21 @@ const CHINESE_NUM_MAP: Record<string, number> = {
 };
 
 /**
- * 分镜脚本解析器 - 支持多种格式，按优先级匹配
+ * 分镜脚本解析器 - 支持自定义参考格式，默认按多种格式优先级匹配
  *
+ * 自定义格式: 用户输入 "分镜1"、"镜头1"、"#1"、"|**1**|" 等样例时，按该样例中的编号位置识别后续编号
  * 优先级1: "分镜一"、"分镜二" 等中文数字格式
  * 优先级2: "分镜1"、"分镜2" 等阿拉伯数字格式
  * 优先级3: 大标题 "# 分镜" 或 "## 分镜" 后跟数字
  * 优先级4: Markdown 表格格式 |**1**| 或 | **1** |
  */
-function parseStoryboardScript(text: string): string[] {
+function parseStoryboardScript(text: string, splitFormat?: string): string[] {
   if (!text || !text.trim()) return [];
+
+  const customFormat = splitFormat?.trim();
+  if (customFormat) {
+    return parseStoryboardScriptByFormat(text, customFormat);
+  }
 
   // 优先级1: 分镜+中文数字（分镜一、分镜二...分镜五十）
   const chineseNumPattern = /分镜(一|二|三|四|五|六|七|八|九|十|十一|十二|十三|十四|十五|十六|十七|十八|十九|二十|二十一|二十二|二十三|二十四|二十五|二十六|二十七|二十八|二十九|三十|三十一|三十二|三十三|三十四|三十五|三十六|三十七|三十八|三十九|四十|四十一|四十二|四十三|四十四|四十五|四十六|四十七|四十八|四十九|五十)/g;
@@ -96,6 +101,63 @@ function parseStoryboardScript(text: string): string[] {
   return []; // 没找到任何分镜格式，返回空
 }
 
+const CHINESE_NUM_WORDS = Object.keys(CHINESE_NUM_MAP).sort((a, b) => b.length - a.length);
+const CHINESE_NUM_TOKEN_PATTERN = CHINESE_NUM_WORDS.map((word) => escapeRegExp(word)).join('|');
+
+function parseStoryboardScriptByFormat(text: string, splitFormat: string): string[] {
+  const pattern = buildCustomSplitPattern(splitFormat);
+  if (!pattern) return [];
+  const matches = [...text.matchAll(pattern)];
+  if (matches.length === 0) return [];
+  return extractSegmentsByMatches(text, matches);
+}
+
+function buildCustomSplitPattern(splitFormat: string): RegExp | null {
+  const normalized = splitFormat.trim().replace(/｜/g, '|');
+  if (!normalized) return null;
+
+  const compact = normalized.replace(/\s+/g, '');
+  if (/^\|\*\*\d+\*\*\|$/.test(compact)) {
+    return /[|｜]\s*\*\*\s*\d{1,3}\s*\*\*\s*[|｜]/g;
+  }
+
+  if (/^#+\d+$/.test(compact)) {
+    return /^#{1,6}\s*\d{1,3}\b/gm;
+  }
+
+  const tokenPattern = new RegExp(`\\d+|${CHINESE_NUM_TOKEN_PATTERN}`);
+  const tokenMatch = normalized.match(tokenPattern);
+
+  if (!tokenMatch || tokenMatch.index === undefined) {
+    const literal = formatLiteralToRegex(normalized);
+    return literal ? new RegExp(literal, 'g') : null;
+  }
+
+  const token = tokenMatch[0];
+  const tokenRegex = /^\d+$/.test(token) ? '\\d{1,3}' : `(?:${CHINESE_NUM_TOKEN_PATTERN})`;
+  const prefix = normalized.slice(0, tokenMatch.index);
+  const suffix = normalized.slice(tokenMatch.index + token.length);
+  const prefixPattern = formatLiteralToRegex(prefix);
+  const suffixPattern = formatLiteralToRegex(suffix);
+
+  if (!prefixPattern && !suffixPattern) {
+    return new RegExp(`^\\s*${tokenRegex}\\s*$`, 'gm');
+  }
+
+  const leadingBoundary = prefixPattern ? '' : '^\\s*';
+  return new RegExp(`${leadingBoundary}${prefixPattern}\\s*${tokenRegex}\\s*${suffixPattern}`, prefixPattern ? 'g' : 'gm');
+}
+
+function formatLiteralToRegex(value: string): string {
+  return escapeRegExp(value)
+    .replace(/\\\|/g, '[|｜]')
+    .replace(/\s+/g, '\\s*');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): string[] {
   const segments: string[] = [];
 
@@ -111,6 +173,24 @@ function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): st
   return segments;
 }
 
+function countSegmentsForOutputs(value: unknown): number {
+  return Array.isArray(value) ? Math.min(MAX_OUTPUT_COUNT, value.length) : 0;
+}
+
+function clearPromptOutputPatch(patch: Record<string, unknown>): void {
+  for (let i = 0; i < MAX_OUTPUT_COUNT; i++) {
+    patch[`prompt${i + 1}`] = undefined;
+  }
+}
+
+function getPromptHandleIndex(handleId?: string | null): number | null {
+  if (typeof handleId !== 'string') return null;
+  const match = /^prompt(\d+)$/.exec(handleId);
+  if (!match) return null;
+  const index = Number(match[1]) - 1;
+  return Number.isFinite(index) && index >= 0 ? index : null;
+}
+
 function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
@@ -118,12 +198,15 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const edgesRef = React.useRef<Edge[]>(edges);
+  const isComposingSplitFormatRef = React.useRef(false);
+  const committedSplitFormatRef = React.useRef(data.splitFormat || '');
 
   const [inputText, setInputText] = React.useState<string>(data.inputText || '');
   const [segments, setSegments] = React.useState<string[]>(data.segments || []);
   const [outputCount, setOutputCount] = React.useState<number>(
-    Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, data.outputCount || DEFAULT_OUTPUT_COUNT))
+    countSegmentsForOutputs(data.segments)
   );
+  const [splitFormat, setSplitFormat] = React.useState<string>(data.splitFormat || '');
   const [hover, setHover] = React.useState<string | null>(null);
 
   const shell = flowNodeShellChrome(isFlowDark, !!selected);
@@ -140,20 +223,29 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
     if (data.inputText !== undefined && data.inputText !== inputText) {
       setInputText(data.inputText);
     }
-  }, [data.inputText]);
+  }, [data.inputText, inputText]);
 
   React.useEffect(() => {
     if (data.segments && JSON.stringify(data.segments) !== JSON.stringify(segments)) {
       setSegments(data.segments);
+      setOutputCount(countSegmentsForOutputs(data.segments));
+    }
+  }, [data.segments, segments]);
+
+  React.useEffect(() => {
+    if (data.segments === undefined) {
+      setSegments([]);
+      setOutputCount(0);
     }
   }, [data.segments]);
 
   React.useEffect(() => {
-    const count = data.outputCount || DEFAULT_OUTPUT_COUNT;
-    if (count !== outputCount) {
-      setOutputCount(Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, count)));
+    if (data.splitFormat === undefined || data.splitFormat === committedSplitFormatRef.current) return;
+    committedSplitFormatRef.current = data.splitFormat;
+    if (!isComposingSplitFormatRef.current) {
+      setSplitFormat(data.splitFormat);
     }
-  }, [data.outputCount]);
+  }, [data.splitFormat]);
 
   // 更新节点数据
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
@@ -161,6 +253,22 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
       detail: { id, patch }
     }));
   }, [id]);
+
+  const commitSplitFormat = React.useCallback((value: string) => {
+    if (value === committedSplitFormatRef.current) return;
+    committedSplitFormatRef.current = value;
+    updateNodeData({ splitFormat: value });
+  }, [updateNodeData]);
+
+  const pruneOutgoingPromptEdges = React.useCallback((nextOutputCount: number) => {
+    rf.setEdges((currentEdges) =>
+      currentEdges.filter((edge) => {
+        if (edge.source !== id) return true;
+        const handleIndex = getPromptHandleIndex(edge.sourceHandle);
+        return handleIndex === null || handleIndex < nextOutputCount;
+      })
+    );
+  }, [rf, id]);
 
   // 处理输入文本
   const applyIncomingText = React.useCallback((text: string) => {
@@ -212,28 +320,34 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   // 执行拆分
   const handleSplit = React.useCallback(() => {
     if (!inputText.trim()) {
-      updateNodeData({ status: 'failed', error: lt('输入文本为空', 'Input text is empty'), segments: [] });
+      const patch: Record<string, unknown> = {
+        status: 'failed',
+        error: lt('输入文本为空', 'Input text is empty'),
+        segments: [],
+        outputCount: 0,
+      };
+      clearPromptOutputPatch(patch);
+      updateNodeData(patch);
       setSegments([]);
+      setOutputCount(0);
+      pruneOutgoingPromptEdges(0);
       return;
     }
 
     try {
-      const parsed = parseStoryboardScript(inputText);
+      commitSplitFormat(splitFormat);
+      const parsed = parseStoryboardScript(inputText, splitFormat).slice(0, MAX_OUTPUT_COUNT);
       setSegments(parsed);
+      setOutputCount(parsed.length);
 
-      // 自动扩展输出端口数量
-      const newOutputCount = Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, parsed.length));
-      if (newOutputCount !== outputCount) {
-        setOutputCount(newOutputCount);
-      }
-
-      // 构建每个输出端口对应的数据
       const segmentPatch: Record<string, unknown> = {
         status: 'succeeded',
         segments: parsed,
-        outputCount: newOutputCount,
+        outputCount: parsed.length,
         error: undefined
       };
+
+      clearPromptOutputPatch(segmentPatch);
 
       // 为每个 segment 创建对应的 promptX 字段
       parsed.forEach((seg, i) => {
@@ -241,22 +355,25 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
       });
 
       updateNodeData(segmentPatch);
+      pruneOutgoingPromptEdges(parsed.length);
     } catch (err) {
-      updateNodeData({
+      const patch: Record<string, unknown> = {
         status: 'failed',
         error: err instanceof Error ? err.message : lt('解析失败', 'Parse failed'),
-        segments: []
-      });
+        segments: [],
+        outputCount: 0,
+      };
+      clearPromptOutputPatch(patch);
+      updateNodeData(patch);
       setSegments([]);
+      setOutputCount(0);
+      pruneOutgoingPromptEdges(0);
     }
-  }, [inputText, outputCount, updateNodeData, lt]);
+  }, [inputText, splitFormat, commitSplitFormat, updateNodeData, pruneOutgoingPromptEdges, lt]);
 
-  // 更新输出端口数量
-  const handleOutputCountChange = React.useCallback((value: number) => {
-    const count = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, value));
-    setOutputCount(count);
-    updateNodeData({ outputCount: count });
-  }, [updateNodeData]);
+  const handleSplitFormatChange = React.useCallback((value: string) => {
+    setSplitFormat(value);
+  }, []);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -279,7 +396,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
   // 一键生成 Prompt 节点并连接
   const handleGeneratePromptNodes = React.useCallback(() => {
-    if (segments.length === 0) return;
+    if (segments.length === 0 || outputCount === 0) return;
 
     const currentNode = rf.getNode(id);
     if (!currentNode) return;
@@ -342,7 +459,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
     // 批量添加节点和边
     rf.setNodes((nodes) => [...nodes, ...newNodes]);
     rf.setEdges((edges) => [...edges, ...newEdges]);
-  }, [rf, id, segments, outputCount, boxW, boxH]);
+  }, [rf, id, segments, outputCount, boxW, boxH, lt]);
 
   return (
     <div style={{
@@ -412,15 +529,35 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 输出数量配置 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('输出端口', 'Output ports')}</span>
+        <span style={{ fontSize: 12, color: shell.color }}>{outputCount}</span>
+        <span style={{ fontSize: 11, color: isFlowDark ? '#6b7280' : '#9ca3af' }}>{lt('(自动，最多50)', '(auto, max 50)')}</span>
+      </div>
+
       <div className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280' }}>{lt('输出端口', 'Output ports')}</label>
+        <label style={{ fontSize: 12, color: isFlowDark ? '#9ca3af' : '#6b7280', flex: '0 0 auto' }}>{lt('参考格式', 'Format')}</label>
         <input
-          type="number"
-          min={MIN_OUTPUT_COUNT}
-          max={MAX_OUTPUT_COUNT}
-          value={outputCount}
-          onChange={(e) => handleOutputCountChange(Number(e.target.value))}
+          type="text"
+          value={splitFormat}
+          onChange={(e) => handleSplitFormatChange(e.target.value)}
+          onCompositionStart={() => {
+            isComposingSplitFormatRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingSplitFormatRef.current = false;
+            const value = e.currentTarget.value;
+            setSplitFormat(value);
+            commitSplitFormat(value);
+          }}
+          onBlur={(e) => commitSplitFormat(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !isComposingSplitFormatRef.current && !(e.nativeEvent as KeyboardEvent).isComposing) {
+              commitSplitFormat(e.currentTarget.value);
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder={lt('分镜1 / #1 / |**1**|', 'Scene1 / #1 / |**1**|')}
           onPointerDown={stopNodeDrag}
           onPointerDownCapture={stopNodeDrag}
           onMouseDown={stopNodeDrag}
@@ -429,14 +566,14 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
           onClickCapture={stopNodeDrag}
           className="nodrag nopan"
           style={{
-            width: 60,
+            minWidth: 0,
+            flex: 1,
             fontSize: 12,
-            padding: '2px 6px',
+            padding: '3px 6px',
             borderRadius: 6,
             ...controlField,
           }}
         />
-        <span style={{ fontSize: 11, color: isFlowDark ? '#6b7280' : '#9ca3af' }}>(1-50)</span>
       </div>
 
       {/* 输入预览 */}
@@ -501,11 +638,6 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
               {seg.substring(0, 60)}{seg.length > 60 ? '...' : ''}
             </div>
           ))}
-          {segments.length > outputCount && (
-            <div style={{ color: isFlowDark ? '#fbbf24' : '#f59e0b', fontStyle: 'italic' }}>
-              {lt(`还有 ${segments.length - outputCount} 个分镜未显示（请增加输出端口数量）`, `${segments.length - outputCount} storyboard items are hidden (increase output ports).`)}
-            </div>
-          )}
         </div>
       )}
 

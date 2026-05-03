@@ -59,7 +59,7 @@ import { useSnapAlignment } from "./hooks/useSnapAlignment";
 import SimpleTextEditor from "./SimpleTextEditor";
 import TextSelectionOverlay from "./TextSelectionOverlay";
 import { SnapGuideRenderer } from "./SnapGuideRenderer";
-import type { DrawingContext, ImageInstance } from "@/types/canvas";
+import type { DrawingContext, ImageInstance, StoredVideoAsset } from "@/types/canvas";
 import { paperSaveService } from "@/services/paperSaveService";
 import { historyService } from "@/services/historyService";
 import type { Model3DData } from "@/services/model3DUploadService";
@@ -1406,6 +1406,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 undefined,
                 { x: projectPoint.x, y: projectPoint.y },
                 "manual"
+              );
+              return;
+            }
+            if (parsed?.type === "video" && parsed?.url) {
+              event.preventDefault();
+              event.stopPropagation();
+              window.dispatchEvent(
+                new CustomEvent("canvas:insert-video", {
+                  detail: {
+                    asset: parsed,
+                    position: { x: projectPoint.x, y: projectPoint.y },
+                  },
+                })
               );
               return;
             }
@@ -3654,6 +3667,59 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       },
     },
   });
+
+  useEffect(() => {
+    const handleInsertVideo = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        asset?: Partial<StoredVideoAsset>;
+        url?: string;
+        position?: { x?: number; y?: number };
+      }>).detail || {};
+      const assetInput = detail.asset || {};
+      const url =
+        (typeof assetInput.url === "string" && assetInput.url.trim()) ||
+        (typeof detail.url === "string" && detail.url.trim()) ||
+        "";
+      if (!url || !paper?.project || !paper.view) return;
+
+      const rawWidth = Number(assetInput.width);
+      const rawHeight = Number(assetInput.height);
+      const aspect =
+        Number.isFinite(rawWidth) && rawWidth > 0 && Number.isFinite(rawHeight) && rawHeight > 0
+          ? rawWidth / rawHeight
+          : 16 / 9;
+      const width = Math.min(420, Math.max(240, Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : 320));
+      const height = Math.min(320, Math.max(140, width / aspect));
+      const center =
+        typeof detail.position?.x === "number" && typeof detail.position?.y === "number"
+          ? new paper.Point(detail.position.x, detail.position.y)
+          : paper.view.center;
+
+      const placeholder = videoTool.createVideoPlaceholder(
+        center.subtract([width / 2, height / 2]),
+        center.add([width / 2, height / 2])
+      );
+      videoTool.currentPlaceholderRef.current = placeholder;
+
+      const asset: StoredVideoAsset = {
+        ...assetInput,
+        id:
+          assetInput.id ||
+          `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        url,
+        fileName: assetInput.fileName || "history-video.mp4",
+        contentType: assetInput.contentType || "video/mp4",
+        sourceUrl: assetInput.sourceUrl || url,
+        metadata: assetInput.metadata,
+      };
+      videoTool.handleVideoUploaded(asset, { autoSaveReason: "video-inserted" });
+    };
+
+    window.addEventListener("canvas:insert-video", handleInsertVideo);
+    return () => {
+      window.removeEventListener("canvas:insert-video", handleInsertVideo);
+    };
+  }, [videoTool.createVideoPlaceholder, videoTool.currentPlaceholderRef, videoTool.handleVideoUploaded]);
 
   // 内存优化：视频实例也使用 ref
   const videoInstancesRef = useRef(videoTool.videoInstances);

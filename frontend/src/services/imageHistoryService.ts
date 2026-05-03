@@ -253,7 +253,21 @@ interface RecordImageHistoryOptions {
   createRemoteThumbnail?: boolean;
   thumbnailMaxSize?: number;
   skipGlobalHistory?: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+}
+
+interface RecordVideoHistoryOptions {
+  id?: string;
+  videoUrl?: string | null;
+  thumbnail?: string | null;
+  title?: string;
+  nodeId: string;
+  nodeType: string;
+  projectId?: string | null;
+  projectName?: string;
+  timestamp?: number;
+  skipGlobalHistory?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
@@ -452,6 +466,45 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   }
 
   return { id, remoteUrl: undefined, thumbnail: resolvedThumbnail };
+}
+
+/**
+ * 记录一条视频历史。视频不在这里转存或上传，只保存当前可持久化的远程 URL/路径引用。
+ */
+export async function recordVideoHistoryEntry(options: RecordVideoHistoryOptions): Promise<{
+  id: string;
+  remoteUrl?: string;
+  thumbnail?: string;
+}> {
+  const id =
+    options.id ||
+    `video_history_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const videoUrl = normalizePersistableHistoryRef(options.videoUrl ?? undefined);
+  const thumbnail = normalizePersistableHistoryRef(options.thumbnail ?? undefined);
+
+  if (!videoUrl || options.skipGlobalHistory) {
+    return { id, remoteUrl: videoUrl, thumbnail };
+  }
+
+  const recordedAt = new Date(options.timestamp ?? Date.now()).toISOString();
+  enqueuePendingGlobalHistoryWrite({
+    imageUrl: videoUrl,
+    prompt: options.title,
+    sourceType: options.nodeType,
+    sourceProjectId: options.projectId ?? undefined,
+    sourceProjectName: options.projectName,
+    metadata: {
+      ...(options.metadata || {}),
+      mediaType: 'video',
+      videoUrl,
+      videoThumbnailUrl: thumbnail,
+      nodeId: options.nodeId,
+      nodeType: options.nodeType,
+      recordedAt,
+    },
+  });
+
+  return { id, remoteUrl: videoUrl, thumbnail };
 }
 
 /**

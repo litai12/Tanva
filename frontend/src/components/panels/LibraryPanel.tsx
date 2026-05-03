@@ -13,6 +13,8 @@ import {
   Plus,
   Search,
   Loader2,
+  Film,
+  Play,
 } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 import { useProjectStore } from "@/stores/projectStore";
@@ -41,6 +43,13 @@ import {
 } from "@/services/globalImageHistoryApi";
 import type { StoredImageAsset } from "@/types/canvas";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  GLOBAL_HISTORY_SOURCE_TYPE_LABELS,
+  getGlobalHistoryDownloadFileName,
+  getGlobalHistoryMediaUrl,
+  getGlobalHistoryVideoThumbnail,
+  isGlobalHistoryVideoItem,
+} from "@/components/global-history/historyMedia";
 
 const formatSize = (bytes?: number): string => {
   if (!bytes && bytes !== 0) return "-";
@@ -58,17 +67,6 @@ const formatHistoryDate = (value: string, locale: string): string => {
     month: "2-digit",
     day: "2-digit",
   });
-};
-
-const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  generate: { zh: "图片生成", en: "Image Generate" },
-  generatePro: { zh: "图片生成Pro", en: "Image Generate Pro" },
-  generatePro4: { zh: "图片生成Pro4", en: "Image Generate Pro4" },
-  midjourney: { zh: "Midjourney", en: "Midjourney" },
-  "3d": { zh: "3D生成", en: "3D Generate" },
-  camera: { zh: "相机", en: "Camera" },
-  image: { zh: "图片", en: "Image" },
-  imagePro: { zh: "图片Pro", en: "Image Pro" },
 };
 
 type LibraryTab = "global-history" | "project-history" | "manual";
@@ -209,7 +207,7 @@ const LibraryPanel: React.FC = () => {
 
   const getSourceTypeLabel = React.useCallback(
     (type: string) => {
-      const item = SOURCE_TYPE_LABELS[type];
+      const item = GLOBAL_HISTORY_SOURCE_TYPE_LABELS[type];
       if (!item) return type;
       return lt(item.zh, item.en);
     },
@@ -224,7 +222,7 @@ const LibraryPanel: React.FC = () => {
         .assets.find((item) => item.id === assetId);
       if (current) {
         void personalLibraryApi
-          .upsert({ ...(current as any), thumbnail, updatedAt: Date.now() })
+          .upsert({ ...current, thumbnail, updatedAt: Date.now() })
           .catch((error) => {
             console.warn("[LibraryPanel] 同步 3D 缩略图到个人库失败:", error);
           });
@@ -577,17 +575,18 @@ const LibraryPanel: React.FC = () => {
   };
 
   const handleHistoryDownload = (item: GlobalImageHistoryItem) => {
+    const mediaUrl = getGlobalHistoryMediaUrl(item);
     try {
       const link = document.createElement("a");
-      link.href = item.imageUrl;
-      link.download = `history_${item.id}.png`;
+      link.href = mediaUrl;
+      link.download = getGlobalHistoryDownloadFileName(item);
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch {
-      window.open(item.imageUrl, "_blank", "noopener,noreferrer");
+      window.open(mediaUrl, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -595,8 +594,8 @@ const LibraryPanel: React.FC = () => {
     if (
       !confirm(
         lt(
-          `确定要删除这张历史图片吗？`,
-          `Delete this history image?`
+          `确定要删除这条历史记录吗？`,
+          `Delete this history item?`
         )
       )
     ) {
@@ -645,13 +644,13 @@ const LibraryPanel: React.FC = () => {
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: {
-            message: lt("历史图片已删除", "History image deleted"),
+            message: lt("历史记录已删除", "History item deleted"),
             type: "success",
           },
         })
       );
     } catch (error) {
-      console.warn("[LibraryPanel] 删除历史图片失败:", error);
+      console.warn("[LibraryPanel] 删除历史记录失败:", error);
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: {
@@ -664,18 +663,45 @@ const LibraryPanel: React.FC = () => {
   };
 
   const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
-    if (!item.imageUrl) {
-      alert(lt("历史图片缺少可用链接，无法发送到画板", "History image has no usable URL and cannot be sent to canvas."));
+    const mediaUrl = getGlobalHistoryMediaUrl(item);
+    if (!mediaUrl) {
+      alert(lt("历史记录缺少可用链接，无法发送到画板", "History item has no usable URL and cannot be sent to canvas."));
       return;
     }
-    const dataUrl = await readDataUrl(item.imageUrl);
-    const displayFileName = `history_${item.id}.png`;
+
+    if (isGlobalHistoryVideoItem(item)) {
+      const displayFileName = getGlobalHistoryDownloadFileName(item);
+      window.dispatchEvent(
+        new CustomEvent("canvas:insert-video", {
+          detail: {
+            asset: {
+              id: item.id,
+              url: mediaUrl,
+              thumbnail: getGlobalHistoryVideoThumbnail(item),
+              fileName: displayFileName,
+              contentType: "video/mp4",
+              sourceUrl: mediaUrl,
+              metadata: item.metadata,
+            },
+          },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: lt("历史视频已发送到画板", "History video sent to canvas"), type: "success" },
+        })
+      );
+      return;
+    }
+
+    const dataUrl = await readDataUrl(mediaUrl);
+    const displayFileName = getGlobalHistoryDownloadFileName(item);
     const payload: string | StoredImageAsset = dataUrl
       ? dataUrl
       : {
           id: item.id,
-          url: item.imageUrl,
-          src: item.imageUrl,
+          url: mediaUrl,
+          src: mediaUrl,
           fileName: displayFileName,
         };
 
@@ -740,8 +766,15 @@ const LibraryPanel: React.FC = () => {
 
   const handleHistoryItemDoubleClick = React.useCallback(
     (item: GlobalImageHistoryItem) => {
+      if (isGlobalHistoryVideoItem(item)) {
+        const mediaUrl = getGlobalHistoryMediaUrl(item);
+        if (mediaUrl) {
+          window.open(mediaUrl, "_blank", "noopener,noreferrer");
+        }
+        return;
+      }
       openImagePreview(
-        item.imageUrl,
+        getGlobalHistoryMediaUrl(item),
         item.prompt ||
           (activeTab === "project-history"
             ? lt("项目图片预览", "Project Image Preview")
@@ -838,17 +871,32 @@ const LibraryPanel: React.FC = () => {
     item: GlobalImageHistoryItem,
     event: React.DragEvent
   ) => {
-    event.dataTransfer.setData("text/uri-list", item.imageUrl);
-    event.dataTransfer.setData("text/plain", item.imageUrl);
+    const mediaUrl = getGlobalHistoryMediaUrl(item);
+    const isVideo = isGlobalHistoryVideoItem(item);
+    event.dataTransfer.setData("text/uri-list", mediaUrl);
+    event.dataTransfer.setData("text/plain", mediaUrl);
     event.dataTransfer.setData(
       "application/x-tanva-asset",
-      JSON.stringify({
-        type: "2d",
-        id: item.id,
-        url: item.imageUrl,
-        name: item.prompt || lt("历史图片", "History Image"),
-        fileName: `history_${item.id}.png`,
-      })
+      JSON.stringify(
+        isVideo
+          ? {
+              type: "video",
+              id: item.id,
+              url: mediaUrl,
+              thumbnail: getGlobalHistoryVideoThumbnail(item),
+              name: item.prompt || lt("历史视频", "History Video"),
+              fileName: getGlobalHistoryDownloadFileName(item),
+              contentType: "video/mp4",
+              metadata: item.metadata,
+            }
+          : {
+              type: "2d",
+              id: item.id,
+              url: mediaUrl,
+              name: item.prompt || lt("历史图片", "History Image"),
+              fileName: getGlobalHistoryDownloadFileName(item),
+            }
+      )
     );
     event.dataTransfer.effectAllowed = "copy";
   };
@@ -1151,6 +1199,24 @@ const LibraryPanel: React.FC = () => {
   const activeHistoryPageSlots = isProjectHistoryTab
     ? projectHistoryPageSlots
     : historyPageSlots;
+  const selectedHistoryIsVideo = selectedHistoryItem
+    ? isGlobalHistoryVideoItem(selectedHistoryItem)
+    : false;
+  const selectedHistoryMediaUrl = selectedHistoryItem
+    ? getGlobalHistoryMediaUrl(selectedHistoryItem)
+    : "";
+  const selectedHistoryThumbnail = selectedHistoryItem
+    ? getGlobalHistoryVideoThumbnail(selectedHistoryItem)
+    : undefined;
+  const selectedHistoryTitle =
+    selectedHistoryItem?.prompt ||
+    (activeTab === "project-history"
+      ? selectedHistoryIsVideo
+        ? lt("项目视频", "Project Video")
+        : lt("项目图片", "Project Image")
+      : selectedHistoryIsVideo
+      ? lt("历史视频", "History Video")
+      : lt("历史图片", "History Image"));
 
   // 面板关闭时隐藏
   if (!showLibraryPanel) return null;
@@ -1294,40 +1360,62 @@ const LibraryPanel: React.FC = () => {
           }}
         >
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
-            <SmartImage
-              src={selectedHistoryItem.imageUrl}
-              alt={
-                selectedHistoryItem.prompt ||
-                (activeTab === "project-history"
-                  ? lt("项目图片", "Project Image")
-                  : lt("历史图片", "History Image"))
-              }
-              className='w-full h-full object-contain'
-            />
+            {selectedHistoryIsVideo ? (
+              selectedHistoryThumbnail ? (
+                <div className='relative h-full w-full'>
+                  <SmartImage
+                    src={selectedHistoryThumbnail}
+                    alt={selectedHistoryTitle}
+                    className='h-full w-full object-contain'
+                  />
+                  <div className='absolute inset-0 flex items-center justify-center bg-black/10'>
+                    <div className='flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white'>
+                      <Play className='h-4 w-4 fill-current' />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <video
+                  src={selectedHistoryMediaUrl}
+                  className='h-full w-full object-contain'
+                  controls
+                  playsInline
+                  preload='metadata'
+                />
+              )
+            ) : (
+              <SmartImage
+                src={selectedHistoryMediaUrl}
+                alt={selectedHistoryTitle}
+                className='w-full h-full object-contain'
+              />
+            )}
           </div>
 
           <div className='p-3 space-y-2'>
             <div className='flex items-center gap-2'>
-              <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700'>
-                <ImageIcon className='w-3 h-3' />
-                IMG
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  selectedHistoryIsVideo
+                    ? "bg-fuchsia-100 text-fuchsia-700"
+                    : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                {selectedHistoryIsVideo ? (
+                  <Film className='w-3 h-3' />
+                ) : (
+                  <ImageIcon className='w-3 h-3' />
+                )}
+                {selectedHistoryIsVideo ? "VID" : "IMG"}
               </span>
             </div>
 
             <div>
               <div
                 className='text-sm font-medium text-gray-900 truncate'
-                title={
-                  selectedHistoryItem.prompt ||
-                  (activeTab === "project-history"
-                    ? lt("项目图片", "Project Image")
-                    : lt("历史图片", "History Image"))
-                }
+                title={selectedHistoryTitle}
               >
-                {selectedHistoryItem.prompt ||
-                  (activeTab === "project-history"
-                    ? lt("项目图片", "Project Image")
-                    : lt("历史图片", "History Image"))}
+                {selectedHistoryTitle}
               </div>
             </div>
 
@@ -1563,7 +1651,7 @@ const LibraryPanel: React.FC = () => {
                   className='tanva-library-filter-select h-8 max-w-[108px] rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
                 >
                   <option value=''>{lt("全部类型", "All types")}</option>
-                  {Object.keys(SOURCE_TYPE_LABELS).map((key) => (
+                  {Object.keys(GLOBAL_HISTORY_SOURCE_TYPE_LABELS).map((key) => (
                     <option key={key} value={key}>
                       {getSourceTypeLabel(key)}
                     </option>
@@ -1583,42 +1671,74 @@ const LibraryPanel: React.FC = () => {
                 </div>
               ) : (
                 <div className='grid grid-cols-2 gap-2'>
-                  {activeHistoryItems.map((item) => (
-                    <div
-                      key={item.id}
-                      data-library-thumbnail
-                      draggable
-                      className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
-                      onClick={(event) => handleHistoryItemClick(item, event)}
-                      onDoubleClick={() => handleHistoryItemDoubleClick(item)}
-                      onDragStart={(event) => handleHistoryDragStart(item, event)}
-                      title={
-                        item.prompt ||
-                        (isProjectHistoryTab
-                          ? lt("项目图片", "Project Image")
-                          : lt("历史图片", "History Image"))
-                      }
-                    >
-                      <SmartImage
-                        src={item.imageUrl}
-                        alt={
-                          item.prompt ||
-                          (isProjectHistoryTab
-                            ? lt("项目图片", "Project Image")
-                            : lt("历史图片", "History Image"))
-                        }
-                        className='w-full h-full object-cover'
-                        draggable={false}
-                        loading='lazy'
-                      />
-                      <div className='absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between text-[10px] text-white'>
-                        <span>{formatHistoryDate(item.createdAt, locale)}</span>
-                        <span className='px-1 py-0.5 rounded bg-white/25 truncate max-w-[70px] text-right'>
-                          {getSourceTypeLabel(item.sourceType)}
-                        </span>
+                  {activeHistoryItems.map((item) => {
+                    const isVideo = isGlobalHistoryVideoItem(item);
+                    const mediaUrl = getGlobalHistoryMediaUrl(item);
+                    const videoThumbnail = getGlobalHistoryVideoThumbnail(item);
+                    const title =
+                      item.prompt ||
+                      (isProjectHistoryTab
+                        ? isVideo
+                          ? lt("项目视频", "Project Video")
+                          : lt("项目图片", "Project Image")
+                        : isVideo
+                        ? lt("历史视频", "History Video")
+                        : lt("历史图片", "History Image"));
+
+                    return (
+                      <div
+                        key={item.id}
+                        data-library-thumbnail
+                        draggable
+                        className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
+                        onClick={(event) => handleHistoryItemClick(item, event)}
+                        onDoubleClick={() => handleHistoryItemDoubleClick(item)}
+                        onDragStart={(event) => handleHistoryDragStart(item, event)}
+                        title={title}
+                      >
+                        {isVideo ? (
+                          videoThumbnail ? (
+                            <SmartImage
+                              src={videoThumbnail}
+                              alt={title}
+                              className='w-full h-full object-cover'
+                              draggable={false}
+                              loading='lazy'
+                            />
+                          ) : (
+                            <video
+                              src={mediaUrl}
+                              className='h-full w-full object-cover'
+                              muted
+                              playsInline
+                              preload='metadata'
+                            />
+                          )
+                        ) : (
+                          <SmartImage
+                            src={mediaUrl}
+                            alt={title}
+                            className='w-full h-full object-cover'
+                            draggable={false}
+                            loading='lazy'
+                          />
+                        )}
+                        {isVideo ? (
+                          <div className='absolute inset-0 flex items-center justify-center bg-black/10'>
+                            <div className='flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white'>
+                              <Play className='h-3.5 w-3.5 fill-current' />
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className='absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between text-[10px] text-white'>
+                          <span>{formatHistoryDate(item.createdAt, locale)}</span>
+                          <span className='px-1 py-0.5 rounded bg-white/25 truncate max-w-[70px] text-right'>
+                            {isVideo ? "VID" : getSourceTypeLabel(item.sourceType)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
