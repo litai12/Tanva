@@ -28,6 +28,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Image Toolbar: `图片拓展` 工具改用 `Expand` 图标，避免和 `裁切` 的 `Crop` 图标重复。
 - Flow/Quick Connect: 快速连接候选现在必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
 - Flow/Quick Connect: 从 Prompt/Image 句柄拖出的快速连接菜单不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合改为绝对生效，前端默认节点配置也移除这些新建入口，避免 GPT 快捷入口创建后回退显示成 `Nano2`。
 - Flow/Image Split: Image Split 输出句柄现在兼容 `imageN` 与保存/导入链路归一化出的 `imgN`，并给节点补充不可交互的兼容 source handle，避免切片生成 Image 节点后连线在自动保存/恢复后消失；Image/ImagePro 仅在更新后确实没有图片引用时才自动断开 `img` 入线。

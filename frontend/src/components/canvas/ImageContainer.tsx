@@ -16,6 +16,7 @@ import {
   ArrowRightLeft,
   Rotate3d,
   Crop,
+  Expand,
   ImageUp,
   Type,
   Lock,
@@ -3628,7 +3629,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         : showExpandSelector
         ? "请选择扩图区域"
         : "图片拓展",
-      icon: Crop,
+      icon: Expand,
       disabled: isPendingUpload || isExpandingImage || showExpandSelector,
       loading: isExpandingImage,
       onClick: (event) => {
