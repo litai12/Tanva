@@ -2752,6 +2752,41 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
   return undefined;
 };
 
+const normalizeNodePaletteSearchTerm = (value: unknown): string => {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase();
+};
+
+const doesNodePaletteConfigMatchSearch = (
+  config: Partial<NodeConfig>,
+  searchTerm: string
+): boolean => {
+  const normalizedTerm = normalizeNodePaletteSearchTerm(searchTerm);
+  if (!normalizedTerm) return true;
+
+  const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const nodeConfig =
+    metadata.nodeConfig && typeof metadata.nodeConfig === "object"
+      ? (metadata.nodeConfig as Record<string, any>)
+      : undefined;
+  const searchText = [
+    config.nodeKey,
+    config.nameZh,
+    config.nameEn,
+    config.description,
+    buildNodePaletteCaption(config),
+    nodeConfig?.description,
+  ]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+    )
+    .join(" ")
+    .toLowerCase();
+
+  return searchText.includes(normalizedTerm);
+};
+
 const resolveNodeConfigCreditsPerCall = (config: Partial<NodeConfig>): number => {
   const metadata =
     config.metadata && typeof config.metadata === "object"
@@ -3501,6 +3536,7 @@ function FlowInner() {
   const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
   const nodesRef = React.useRef<RFNode[]>([]);
   const edgesRef = React.useRef<Edge[]>([]);
   React.useEffect(() => {
@@ -3796,6 +3832,29 @@ function FlowInner() {
       })
       .filter(Boolean);
   }, [lt, nodePaletteConfigs]);
+  const normalizedNodePaletteSearch = React.useMemo(
+    () => normalizeNodePaletteSearchTerm(nodePaletteSearch),
+    [nodePaletteSearch]
+  );
+  const visibleGroupedNodePaletteConfigs = React.useMemo(() => {
+    if (!normalizedNodePaletteSearch) return groupedNodePaletteConfigs;
+    return groupedNodePaletteConfigs
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((config) =>
+          doesNodePaletteConfigMatchSearch(config, normalizedNodePaletteSearch)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [groupedNodePaletteConfigs, normalizedNodePaletteSearch]);
+  const visibleNodePaletteItemCount = React.useMemo(
+    () =>
+      visibleGroupedNodePaletteConfigs.reduce(
+        (count, group) => count + group.items.length,
+        0
+      ),
+    [visibleGroupedNodePaletteConfigs]
+  );
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
   const isLargeGraphForSnapAlignment =
@@ -6682,6 +6741,9 @@ function FlowInner() {
   React.useEffect(() => {
     setAddTab((prev) => clampAddTab(prev, allowedAddTabs));
   }, [allowedAddTabs, clampAddTab]);
+  React.useEffect(() => {
+    if (addTab !== "nodes") setNodePaletteSearch("");
+  }, [addTab]);
 
   // 仅同步展示：打开「节点」页签时拉取后台节点管理中的最新配置（不在画板内编辑）
   React.useEffect(() => {
@@ -22933,7 +22995,56 @@ function FlowInner() {
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
-                  {groupedNodePaletteConfigs.map((group) => (
+                  <div style={{ marginTop: 10 }}>
+                    <input
+                      type='text'
+                      value={nodePaletteSearch}
+                      onChange={(event) =>
+                        setNodePaletteSearch(event.target.value)
+                      }
+                      placeholder={lt(
+                        "搜索节点（名称 / 类型 / 描述）",
+                        "Search nodes (name / type / description)"
+                      )}
+                      style={{
+                        width: "100%",
+                        height: 40,
+                        borderRadius: 10,
+                        border: isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "1px solid #d1d5db",
+                        background: isFlowBlackTheme ? "#1d1d1d" : "#ffffff",
+                        color: isFlowBlackTheme ? "#ffffff" : "#111827",
+                        outline: "none",
+                        padding: "0 12px",
+                        fontSize: 13,
+                        transition: "all 0.15s ease",
+                      }}
+                    />
+                  </div>
+                  {normalizedNodePaletteSearch &&
+                    visibleNodePaletteItemCount === 0 && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          marginBottom: 6,
+                          borderRadius: 12,
+                          border: isFlowBlackTheme
+                            ? "1px solid #333333"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1b1b1b" : "#f8fafc",
+                          color: isFlowBlackTheme ? "#b4b4b4" : "#6b7280",
+                          padding: "12px 14px",
+                          fontSize: 12,
+                        }}
+                      >
+                        {lt(
+                          "未找到匹配节点，请尝试其它关键词",
+                          "No matching nodes found. Try another keyword."
+                        )}
+                      </div>
+                    )}
+                  {visibleGroupedNodePaletteConfigs.map((group) => (
                     <section key={group.key} style={nodePaletteSectionStyle}>
                       <div style={nodePaletteSectionHeaderStyle}>
                         <div>

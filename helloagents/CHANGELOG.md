@@ -635,3 +635,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Project content updates with `markDirty:false` now return the existing state when the resulting snapshot is unchanged.
 - Flow overlay project-content hydration now skips no-op rehydrate when incoming `flow` snapshot equals current local graph snapshot, and commit path skips no-op writeback when current store already matches target signature.
 - Flow hydration no longer merges previous node runtime data into store-sourced node data, reducing stale runtime field reintroduction loops after import/zoom interactions.
+
+## [Flow Node Panel Search - 2026-05-03]
+### Changed
+- Flow 节点添加面板（`Nodes` tab）新增本地搜索框，支持按 `nameZh/nameEn/nodeKey/description` 实时筛选节点。
+- 搜索结果保持原有分组布局与计数展示，未命中时显示空结果提示；节点禁用态、VIP 锁定和创建逻辑保持不变。
+- 切换到非 `Nodes` 页签时会自动清空搜索词，避免下次打开时遗留筛选状态。

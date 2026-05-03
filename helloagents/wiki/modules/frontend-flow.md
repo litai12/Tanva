@@ -4,6 +4,8 @@
 - Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。
 - Quick Connect 创建节点时会带上对应节点面板配置与 `defaultData`，避免后续重新开放模型节点时因缺少 metadata 回退显示为基础组件默认标题。
 - Quick Connect 候选必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
+- 节点添加面板 `Nodes` 页签新增搜索框：输入后会在本地按 `nameZh/nameEn/nodeKey/description` 实时过滤，保留原有分组结构与计数；无匹配时显示空结果提示。
+- 搜索仅影响显示列表，不改变节点可创建判定（维护中/即将开放禁用、VIP 锁定、默认数据注入等逻辑保持原样）；切到非 `Nodes` 页签会清空搜索词。
 
 ## 2026-05-02 Update
 - Image Split 输出句柄现在同时兼容 `imageN` 与历史保存/导入可能出现的 `imgN`，节点渲染隐藏兼容句柄并让 Image/Grid/Generate/Analyze/Compress/ViewAngle 等下游解析两种格式，避免切片连线在自动保存或恢复后看起来消失。
