@@ -18,6 +18,7 @@ import RunCreditBadge from "./RunCreditBadge";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import {
+  getFlowImageReferenceLimit,
   getFlowModelProviderMode,
   resolveFlowModelProvider,
   type FlowModelProvider,
@@ -70,8 +71,6 @@ type ConnectedInputImage = {
     sourceHeight?: number;
   };
 };
-
-const MAX_INPUT_PREVIEWS = 6;
 
 const normalizeImageValue = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -498,6 +497,17 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     if (previewOverrideAssetId) return previewOverrideAssetUrl || "";
     return buildImageSrc(previewOverrideValue);
   }, [previewOverrideAssetId, previewOverrideAssetUrl, previewOverrideValue]);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const effectiveProvider = React.useMemo(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
 
   const connectedInputImages = useStore(
     React.useCallback(
@@ -540,9 +550,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           });
         });
 
-        return out.slice(0, MAX_INPUT_PREVIEWS);
+        return out.slice(0, maxInputPreviews);
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 
@@ -691,13 +701,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       { label: "21:9", value: "21:9" },
     ],
     [lt]
-  );
-  const aiProvider = useAIChatStore((state) => state.aiProvider);
-  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const chatTheme = useAIChatStore((state) => state.chatTheme);
-  const effectiveProvider = React.useMemo(
-    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
-    [aiProvider, data.modelProvider]
   );
   const providerMode = React.useMemo(
     () => getFlowModelProviderMode(effectiveProvider),

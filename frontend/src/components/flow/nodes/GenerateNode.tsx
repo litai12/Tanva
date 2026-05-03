@@ -19,6 +19,7 @@ import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview"
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 import {
+  getFlowImageReferenceLimit,
   getFlowModelProviderMode,
   resolveFlowModelProvider,
   type FlowModelProvider,
@@ -83,7 +84,6 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-const MAX_INPUT_PREVIEWS = 6;
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
 type OrderedInputEdge = {
@@ -523,6 +523,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
   );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -600,7 +604,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-            if (out.length >= MAX_INPUT_PREVIEWS) {
+            if (out.length >= maxInputPreviews) {
               return out;
             }
           }
@@ -608,7 +612,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
         return out;
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 
@@ -968,7 +972,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             }
           >
             {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
+              <span className='run-text-trigger'>Run</span>
             ) : (
               <>
                 <span className='run-text-trigger'>Run</span>
@@ -1202,7 +1206,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
       {/* 兼容历史多图输入句柄，避免旧连线 targetHandle=img2/img3... 报错 */}
-      {["img2", "img3", "img4", "img5", "img6"].map((legacyHandleId) => (
+      {Array.from({ length: 13 }, (_, index) => `img${index + 2}`).map((legacyHandleId) => (
         <Handle
           key={legacyHandleId}
           type='target'

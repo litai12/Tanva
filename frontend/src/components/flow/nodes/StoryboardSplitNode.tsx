@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from 'reactflow';
 import { useLocaleText } from '@/utils/localeText';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 import {
   flowNodeControlField,
   flowNodeMutedWellBackground,
@@ -168,16 +169,17 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   }, [updateNodeData]);
 
   // 从源节点同步文本
-  const syncFromSource = React.useCallback((sourceId: string) => {
+  const syncFromSource = React.useCallback((
+    sourceId: string,
+    sourceHandle?: string | null,
+    optimisticPatch?: Record<string, unknown>
+  ) => {
     const srcNode = rf.getNode(sourceId);
     if (!srcNode) return;
-    const srcData = (srcNode.data as Record<string, unknown>) || {};
-    const text =
-      (typeof srcData.text === 'string' ? srcData.text : undefined) ||
-      (typeof srcData.prompt === 'string' ? srcData.prompt : undefined) ||
-      (typeof srcData.expandedText === 'string' ? srcData.expandedText : undefined) ||
-      (typeof srcData.responseText === 'string' ? srcData.responseText : undefined) ||
-      '';
+    const sourceForRead = optimisticPatch
+      ? { ...srcNode, data: { ...(srcNode.data as Record<string, unknown>), ...optimisticPatch } }
+      : srcNode;
+    const text = resolveTextFromSourceNode(sourceForRead, sourceHandle) || '';
     if (text !== inputText) {
       applyIncomingText(text);
     }
@@ -187,7 +189,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     const incoming = edges.find((e) => e.target === id && e.targetHandle === 'text');
     if (incoming?.source) {
-      syncFromSource(incoming.source);
+      syncFromSource(incoming.source, incoming.sourceHandle);
     }
   }, [edges, id, syncFromSource]);
 
@@ -200,18 +202,7 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
       const incoming = edgesRef.current.find((e) => e.target === id && e.targetHandle === 'text');
       if (!incoming || incoming.source !== detail.id) return;
 
-      const patch = detail.patch || {};
-      const textPatch =
-        (typeof patch.text === 'string' ? patch.text : undefined) ||
-        (typeof patch.prompt === 'string' ? patch.prompt : undefined) ||
-        (typeof patch.expandedText === 'string' ? patch.expandedText : undefined) ||
-        (typeof patch.responseText === 'string' ? patch.responseText : undefined);
-
-      if (typeof textPatch === 'string') {
-        applyIncomingText(textPatch);
-      } else {
-        syncFromSource(detail.id);
-      }
+      syncFromSource(detail.id, incoming.sourceHandle, detail.patch || {});
     };
 
     window.addEventListener('flow:updateNodeData', handler as EventListener);

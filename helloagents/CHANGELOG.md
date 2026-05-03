@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas/HD Upscale: 图片工具栏的 `高清放大` 改为先在原图右侧显示占位框，完成后将 4K 结果上传并添加到画布，不再直接触发下载。
 - Canvas/Grid: 网格缩放显示规则调整为 `>=40%` 显示主/次级网格、`30%-40%` 只显示主网格且覆盖完整视口、`<30%` 隐藏网格线。
 - Flow/Send To Canvas: `generate4` / `generatePro4` / `Midjourney V7` / `Niji 7` 多图发送现在使用 Flow 节点或所属 `nodeGroup` 的正下方作为锚点，避免继续接到画板已有 generate 图片队列末尾导致距离过远。
+- Flow/Generate References: `Generate` / `Muti Gen` / `Agent` / `GeneratePro4` 图片参考输入上限改为跟随节点模型档位：`Fast=3`、`Pro=11`、`Ultra=14`，并统一连接容量、运行时截断、输入预览和积分预估的参考图数量。
 - Flow/Node Group: 选中 `nodeGroup` 后执行 `Alt` 拖拽复制、`Ctrl/Cmd+C` / `Ctrl/Cmd+V` 复制粘贴会自动包含组内子节点，并按新节点 ID 重建组的 `childNodeIds`；选中组背景后按 `Delete/Backspace` 或走 Flow 删除事件会一并删除组内节点与相关连线。
 - Flow/Node Group Performance: 整组拖拽开始时缓存组内子节点起始位置，拖拽帧内不再全量读取节点并重建索引；拖拽中跳过组归一化扫描，降低大组移动时的 JS 每帧开销。
 - Flow/Node Group Run: 分组运行中底部运行按钮会切换为停止图标；点击后不会中断当前正在执行的节点，但会阻止组内后续未开始节点继续自动运行，并立即把按钮反馈为禁用的开始图标直到当前节点跑完。
@@ -28,6 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Text Inputs: `TextChat` connected prompt previews now refresh when upstream Prompt text changes, not only when edges change. `TextPrompt`, `PromptOptimize`, and `StoryboardSplit` also use event-patch-aware upstream text reads to avoid stale prompt text during same-tick node data updates.
 - Canvas/Image Toolbar: `图片拓展` 工具改用 `Expand` 图标，避免和 `裁切` 的 `Crop` 图标重复。
 - Flow/Quick Connect: 快速连接候选现在必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
 - Flow/Quick Connect: 从 Prompt/Image 句柄拖出的快速连接菜单不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合改为绝对生效，前端默认节点配置也移除这些新建入口，避免 GPT 快捷入口创建后回退显示成 `Nano2`。

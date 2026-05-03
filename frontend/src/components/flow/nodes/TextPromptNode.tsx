@@ -49,9 +49,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }
   }, [data.text, id]);
 
-  const syncFromSource = React.useCallback((sourceId: string, sourceHandle?: string | null) => {
+  const syncFromSource = React.useCallback((
+    sourceId: string,
+    sourceHandle?: string | null,
+    optimisticPatch?: Record<string, unknown>
+  ) => {
     const srcNode = rf.getNode(sourceId);
-    const upstream = resolveTextFromSourceNode(srcNode, sourceHandle) || '';
+    const sourceForRead = srcNode && optimisticPatch
+      ? { ...srcNode, data: { ...(srcNode.data as Record<string, unknown>), ...optimisticPatch } }
+      : srcNode;
+    const upstream = resolveTextFromSourceNode(sourceForRead, sourceHandle) || '';
     applyIncomingText(upstream);
   }, [rf, applyIncomingText]);
 
@@ -65,13 +72,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     rf.setEdges(remain);
   }, [rf, id]);
 
-  const collectIncomingTexts = React.useCallback((edgeList: Edge[]) => {
+  const collectIncomingTexts = React.useCallback((
+    edgeList: Edge[],
+    optimisticSource?: { sourceId: string; patch: Record<string, unknown> } | null
+  ) => {
     const incomingEdges = edgeList
       .filter((edge) => edge.target === id && edge.targetHandle === 'text');
     if (!incomingEdges.length) return [];
 
     const decorated = incomingEdges.map((edge, index) => {
-      const handle = (edge as any).sourceHandle as string | undefined;
+      const handle = edge.sourceHandle ?? undefined;
       let order = 1000 + index;
       if (typeof handle === 'string') {
         const promptMatch = handle.match(/^prompt(\d+)$/);
@@ -92,7 +102,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return decorated
       .map(({ edge }) => {
         const node = rf.getNode(edge.source);
-        const resolved = resolveTextFromSourceNode(node, (edge as any).sourceHandle);
+        const sourceForRead = node && optimisticSource?.sourceId === edge.source
+          ? {
+              ...node,
+              data: { ...(node.data as Record<string, unknown>), ...optimisticSource.patch },
+            }
+          : node;
+        const resolved = resolveTextFromSourceNode(sourceForRead, edge.sourceHandle);
         return typeof resolved === 'string' && resolved.trim().length ? resolved.trim() : '';
       })
       .filter((text) => text.length > 0);
@@ -137,7 +153,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       );
       if (!isSourceLinked) return;
 
-      const texts = collectIncomingTexts(edgesRef.current);
+      const patch = detail.patch || {};
+      const texts = collectIncomingTexts(edgesRef.current, { sourceId: detail.id, patch });
       setIncomingTexts(texts);
       if (texts.length) {
         applyIncomingText(texts.join('\n\n'));
@@ -145,13 +162,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       }
 
       const incoming = edgesRef.current.find((edge) => edge.target === id && edge.targetHandle === 'text' && edge.source === detail.id);
-      const patch = detail.patch || {};
       const textPatch = typeof patch.text === 'string' ? patch.text : undefined;
       if (typeof textPatch === 'string') return applyIncomingText(textPatch);
       const promptPatch = typeof patch.prompt === 'string' ? patch.prompt : undefined;
       if (typeof promptPatch === 'string') return applyIncomingText(promptPatch);
       if (incoming) {
-        syncFromSource(detail.id, incoming.sourceHandle);
+        syncFromSource(detail.id, incoming.sourceHandle, patch);
       }
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);

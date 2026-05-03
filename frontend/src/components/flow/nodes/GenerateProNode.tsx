@@ -22,6 +22,7 @@ import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview'
 import { useFlowRenderMode } from '../FlowRenderModeContext';
 import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 import {
+  getFlowImageReferenceLimit,
   resolveFlowModelProvider,
   type FlowModelProvider,
 } from '@/utils/flowModelProvider';
@@ -81,7 +82,6 @@ const MIN_PROMPT_HEIGHT = 60;
 const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
 const DEFAULT_NODE_TITLE = 'Agent';
-const MAX_INPUT_PREVIEWS = 6;
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
 type OrderedInputEdge = {
@@ -617,6 +617,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
   );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
 
   type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
   const providerToggleOptions = React.useMemo<Array<{
@@ -740,7 +744,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-            if (out.length >= MAX_INPUT_PREVIEWS) {
+            if (out.length >= maxInputPreviews) {
               return out;
             }
           }
@@ -748,7 +752,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
         return out;
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 

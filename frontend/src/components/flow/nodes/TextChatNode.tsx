@@ -62,6 +62,9 @@ const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow
   return resolveTextFromSourceNode(source, edge.sourceHandle);
 };
 
+const sameTextList = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
 const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   event.stopPropagation();
   const native = event.nativeEvent as Event & {
@@ -194,6 +197,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement | null>(null);
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
+  const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
   const [isInvoking, setIsInvoking] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
   const isComposingRef = React.useRef(false);
@@ -320,15 +324,78 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     };
   }, [id, updateNodeInternals]);
 
-  const incomingTexts = React.useMemo(() => {
-    return edges
+  const readIncomingTexts = React.useCallback((optimisticSource?: {
+    sourceId: string;
+    patch: Record<string, unknown>;
+  } | null): string[] => {
+    return rf.getEdges()
       .filter((edge) => edge.target === id && edge.targetHandle === 'text')
-      .map((edge) => pickTextFromNode(edge, rf))
+      .map((edge) => {
+        if (
+          optimisticSource &&
+          edge.source === optimisticSource.sourceId &&
+          optimisticSource.patch &&
+          typeof optimisticSource.patch === 'object'
+        ) {
+          const source = rf.getNode(edge.source);
+          if (!source) return undefined;
+          return resolveTextFromSourceNode(
+            {
+              ...source,
+              data: {
+                ...(source.data as Record<string, unknown>),
+                ...optimisticSource.patch,
+              },
+            },
+            edge.sourceHandle,
+          );
+        }
+        return pickTextFromNode(edge, rf);
+      })
       .filter((text): text is string => typeof text === 'string' && text.length > 0);
-  }, [edges, id, rf]);
+  }, [id, rf]);
+
+  const updateIncomingTexts = React.useCallback((nextTexts: string[]) => {
+    setIncomingTexts((prevTexts) =>
+      sameTextList(prevTexts, nextTexts) ? prevTexts : nextTexts
+    );
+  }, []);
+
+  React.useEffect(() => {
+    updateIncomingTexts(readIncomingTexts());
+  }, [edges, readIncomingTexts, updateIncomingTexts]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        id?: string;
+        patch?: Record<string, unknown>;
+      }>).detail;
+      if (!detail?.id) return;
+
+      const isConnectedSource = rf.getEdges().some(
+        (edge) => edge.target === id && edge.targetHandle === 'text' && edge.source === detail.id
+      );
+      if (!isConnectedSource) return;
+
+      if (detail.patch && typeof detail.patch === 'object') {
+        updateIncomingTexts(readIncomingTexts({ sourceId: detail.id, patch: detail.patch }));
+        return;
+      }
+
+      window.setTimeout(() => {
+        updateIncomingTexts(readIncomingTexts());
+      }, 0);
+    };
+
+    window.addEventListener('flow:updateNodeData', handler as EventListener);
+    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
+  }, [id, readIncomingTexts, rf, updateIncomingTexts]);
 
   const runChat = React.useCallback(async () => {
-    const sources = [...incomingTexts];
+    const latestIncomingTexts = readIncomingTexts();
+    updateIncomingTexts(latestIncomingTexts);
+    const sources = [...latestIncomingTexts];
     const typed = manualInput.trim();
     if (typed.length) sources.push(typed);
     const rawPayload = sources.join('\n\n').trim();
@@ -385,7 +452,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [bananaImageRoute, effectiveProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
+  }, [bananaImageRoute, effectiveProvider, enableWebSearch, id, lt, manualInput, readIncomingTexts, textModel, updateIncomingTexts]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -797,4 +864,3 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 };
 
 export default React.memo(TextChatNode);
-

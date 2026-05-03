@@ -202,7 +202,10 @@ import {
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
-import { resolveFlowModelProvider } from "@/utils/flowModelProvider";
+import {
+  resolveFlowImageReferenceLimit,
+  resolveFlowModelProvider,
+} from "@/utils/flowModelProvider";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -10008,7 +10011,7 @@ function FlowInner() {
     ]
   );
 
-  // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
+  // 限制：Generate(text) 仅一个连接；Generate(img) 按节点模型档位限制参考图数量
   const canAcceptConnection = React.useCallback(
     (params: Connection) => {
       if (!params.target || !params.targetHandle) return false;
@@ -10025,7 +10028,13 @@ function FlowInner() {
         targetNode?.type === "generatePro4"
       ) {
         if (params.targetHandle === "text") return true; // 允许连接，新线会替换旧线
-        if (params.targetHandle === "img") return incoming.length < 6;
+        if (params.targetHandle === "img") {
+          const maxReferenceImages = resolveFlowImageReferenceLimit(
+            targetNode.data?.modelProvider,
+            aiProvider
+          );
+          return incoming.length < maxReferenceImages;
+        }
       }
       if (targetNode?.type === "generateRef") {
         const handle = params.targetHandle;
@@ -10277,6 +10286,7 @@ function FlowInner() {
     },
     [
       rf,
+      aiProvider,
       edges,
       isTextHandle,
       isImageHandle,
@@ -18331,6 +18341,14 @@ function FlowInner() {
         }
       }
 
+      const runProvider = resolveFlowModelProvider(
+        (node.data as any)?.modelProvider,
+        aiProvider
+      );
+      const maxReferenceImages = resolveFlowImageReferenceLimit(
+        runProvider,
+        aiProvider
+      );
       let imageDatas: string[] = [];
 
       if (node.type === "generateRef") {
@@ -18364,7 +18382,7 @@ function FlowInner() {
       } else {
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
-          .slice(0, 6);
+          .slice(0, maxReferenceImages);
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
@@ -18425,10 +18443,6 @@ function FlowInner() {
           ? (raw.trim() as AIImageGenerateRequest["aspectRatio"])
           : undefined;
       })();
-      const runProvider = resolveFlowModelProvider(
-        (node.data as any)?.modelProvider,
-        aiProvider
-      );
       const effectiveAspectRatio =
         node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
@@ -18614,8 +18628,8 @@ function FlowInner() {
               result = await blendImagesViaAPI({
                 prompt,
                 ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
-                  : { sourceImages: imageDatas.slice(0, 6) }),
+                  ? { sourceImageUrls: imageDatas }
+                  : { sourceImages: imageDatas }),
                 outputFormat: "png",
                 aiProvider: runProvider,
                 model: nodeSpecificModel,
@@ -18947,8 +18961,8 @@ function FlowInner() {
               result = await blendImagesViaAPI({
                 prompt,
                 ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
-                  : { sourceImages: imageDatas.slice(0, 6) }),
+                  ? { sourceImageUrls: imageDatas }
+                  : { sourceImages: imageDatas }),
                 outputFormat: "png",
                 aiProvider: runProvider,
                 model: nodeSpecificModel,
@@ -19258,8 +19272,8 @@ function FlowInner() {
           return await blendImagesViaAPI({
             prompt,
             ...(hasOnlyRemote
-              ? { sourceImageUrls: imageDatas.slice(0, 6) }
-              : { sourceImages: imageDatas.slice(0, 6) }),
+              ? { sourceImageUrls: imageDatas }
+              : { sourceImages: imageDatas }),
             outputFormat: "png",
             aiProvider: provider,
             model,

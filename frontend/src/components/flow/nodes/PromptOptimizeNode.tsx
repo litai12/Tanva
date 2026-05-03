@@ -91,13 +91,22 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   });
   const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
-  const readUpstreamText = React.useCallback(() => {
+  const readUpstreamText = React.useCallback((optimisticSource?: {
+    sourceId: string;
+    patch: FlowUpdatePatch;
+  } | null) => {
     try {
       const edges = rf.getEdges();
       const incoming = edges.find(e => e.target === id && e.targetHandle === 'text');
       if (incoming?.source) {
         const src = rf.getNode(incoming.source);
-        const value = resolveTextFromSourceNode(src, incoming.sourceHandle);
+        const sourceForRead = src && optimisticSource?.sourceId === incoming.source
+          ? {
+              ...src,
+              data: { ...(src.data as FlowUpdatePatch), ...optimisticSource.patch },
+            }
+          : src;
+        const value = resolveTextFromSourceNode(sourceForRead, incoming.sourceHandle);
         return value?.trim() || '';
       }
     } catch {}
@@ -152,7 +161,11 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         const edges = rf.getEdges();
         const incoming = edges.find(ed => ed.target === id && ed.targetHandle === 'text');
         if (!incoming || incoming.source !== detail.id) return;
-        setUpstreamText(readUpstreamText());
+        if (detail.patch && typeof detail.patch === 'object') {
+          setUpstreamText(readUpstreamText({ sourceId: detail.id, patch: detail.patch }));
+          return;
+        }
+        window.setTimeout(() => setUpstreamText(readUpstreamText()), 0);
       } catch {}
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
@@ -162,11 +175,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   // 已移除设置面板，无需处理设置变更
 
   const handleOptimize = React.useCallback(async (inputText?: string) => {
-    let text = inputText || upstreamText.trim();
-    // 若本地输入为空，尝试读取上游 text 输入
-    if (!text) {
-      text = readUpstreamText();
-    }
+    let text = inputText || readUpstreamText() || upstreamText.trim();
     // 再次兜底：使用当前预览/编辑内容
     if (!text && expandedText?.trim()) text = expandedText.trim();
     if (!text) return;
@@ -478,4 +487,3 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(PromptOptimizeNodeInner);
-
