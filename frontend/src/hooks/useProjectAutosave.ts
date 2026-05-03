@@ -4,7 +4,6 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
-import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
 import {
   getNonRemoteImageAssetIds,
@@ -21,7 +20,6 @@ const MAX_LOCAL_SNAPSHOT_LENGTH = 2 * 1024 * 1024;
 
 export function useProjectAutosave(projectId: string | null) {
   const content = useProjectContentStore((state) => state.content);
-  const version = useProjectContentStore((state) => state.version);
   const dirty = useProjectContentStore((state) => state.dirty);
   const dirtyCounter = useProjectContentStore((state) => state.dirtyCounter);
   const setSaving = useProjectContentStore((state) => state.setSaving);
@@ -177,8 +175,6 @@ export function useProjectAutosave(projectId: string | null) {
       } catch {
         // noop
       }
-
-      void refreshProjectThumbnail(currentProjectId);
 
       setProjectCache({
         projectId: currentProjectId,

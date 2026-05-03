@@ -6,6 +6,7 @@
 // @ts-nocheck
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import { logger } from '@/utils/logger';
 import type {
   TextInstance,
@@ -713,7 +714,7 @@ export const useTextToolState = () => useTextStore(state => state.toolState);
 export const useTextEditorConfig = () => useTextStore(state => state.editorConfig);
 
 // 导出文本操作方法
-export const useTextActions = () => useTextStore(state => ({
+export const useTextActions = () => useTextStore(useShallow(state => ({
   createText: state.createText,
   updateText: state.updateText,
   deleteText: state.deleteText,
@@ -725,4 +726,4 @@ export const useTextActions = () => useTextStore(state => ({
   applyStyleToSelected: state.applyStyleToSelected,
   moveText: state.moveText,
   setCurrentStyle: state.setCurrentStyle
-}));
+})));

@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Changed
+- Project Thumbnail: 移除前端自动生成和上传项目缩略图链路；项目管理预览继续从项目内容懒加载图片网格。
 - Flow/Muti Gen: `generate4` 节点的 4 张图从串行请求改为并发请求，槽位按各自完成顺序写回。
 - Flow/Muti Gen: `generate4` 节点的用户可见英文名称从 `Multi Generate` 改为 `Muti Gen`。
 - Flow/Video Analysis: 视频分析节点定价从固定 `30` 积分改为按模型档位与渠道计费：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`；前端 Run 徽标和后端预扣费使用同一矩阵。
@@ -626,3 +627,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas image assets now carry remote `previewUrl/previewKey` metadata and Paper Raster display prefers the preview while preserving original `url/remoteUrl/key` for high-resolution operations.
 - Flow Image/ImagePro and image-generation result nodes now prefer remote/runtime thumbnails for node-card display and keep originals for preview, download, edit, crop, and AI input paths.
 - Project save/upload paths generate missing WebP preview assets and keep design JSON restricted to remote references.
+
+## [Canvas Viewport Sync Stability - 2026-05-03]
+### Changed
+- Canvas zoom/pan synchronization into project content is now deduped and delayed, preventing pinch/trackpad zoom from synchronously cascading `useCanvasStore` updates into `useProjectContentStore` React rerenders.
+- Project content updates with `markDirty:false` now return the existing state when the resulting snapshot is unchanged.

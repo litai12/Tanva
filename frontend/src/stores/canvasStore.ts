@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
 import { createSafeStorage } from './storageUtils';
@@ -321,13 +322,13 @@ if (typeof window !== 'undefined') {
 // 性能优化：导出常用的选择器
 export const useCanvasUnits = () => useCanvasStore((state) => state.units);
 export const useCanvasZoom = () => useCanvasStore((state) => state.zoom);
-export const useCanvasGrid = () => useCanvasStore((state) => ({ 
+export const useCanvasGrid = () => useCanvasStore(useShallow((state) => ({
   gridSize: state.gridSize,
   gridStyle: state.gridStyle
-}));
-export const useCanvasScale = () => useCanvasStore((state) => ({
+})));
+export const useCanvasScale = () => useCanvasStore(useShallow((state) => ({
   scaleRatio: state.scaleRatio,
   showScaleBar: state.showScaleBar,
   zoom: state.zoom,
   units: state.units
-}));
+})));

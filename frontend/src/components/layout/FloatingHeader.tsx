@@ -1023,11 +1023,19 @@ const FloatingHeader: React.FC = () => {
 
       const size = Math.max(24, Math.round(height));
       const gap = 8;
-      setFpsOverlayAdminButtonLayout({
+      const nextLayout = {
         top,
         left: Math.max(12, left - gap - size),
         size,
-      });
+      };
+      setFpsOverlayAdminButtonLayout((prev) =>
+        prev &&
+        prev.top === nextLayout.top &&
+        prev.left === nextLayout.left &&
+        prev.size === nextLayout.size
+          ? prev
+          : nextLayout
+      );
     };
 
     const handleOverlayLayout = (event: Event) => {

@@ -1716,6 +1716,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 2) 预加载远程图片，等加载完成后再覆盖渲染源（避免裂图/闪白）
     // 3) 覆盖成功后再回收旧 blob: ObjectURL（避免对话参考图/画布同时引用时被提前 revoke）
     const swapTasks = new Map<string, { token: number; targetSrc: string }>();
+    const recentUpgradeAutosaveAt = new Map<string, number>();
 
     const loadImageOnce = (
       src: string,
@@ -2496,28 +2497,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       return updated;
     };
 
-	    const handler = (event: Event) => {
-	      const detail = (event as CustomEvent<any>).detail || {};
-	      const placeholderId = String(detail.placeholderId || "");
-	      const remoteUrl = typeof detail.remoteUrl === "string" ? detail.remoteUrl : "";
-	      const key = typeof detail.key === "string" ? detail.key : "";
-          const previewUrl = typeof detail.previewUrl === "string" ? detail.previewUrl : "";
-          const previewKey = typeof detail.previewKey === "string" ? detail.previewKey : "";
-	      const ref = remoteUrl || key;
-	      if (!placeholderId || !ref) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const placeholderId = String(detail.placeholderId || "");
+      const remoteUrl = typeof detail.remoteUrl === "string" ? detail.remoteUrl : "";
+      const key = typeof detail.key === "string" ? detail.key : "";
+      const previewUrl = typeof detail.previewUrl === "string" ? detail.previewUrl : "";
+      const previewKey = typeof detail.previewKey === "string" ? detail.previewKey : "";
+      const source = typeof detail.source === "string" ? detail.source : "";
+      const ref = remoteUrl || key;
+      if (!placeholderId || !ref) return;
 
-	      let attempts = 0;
-	      const maxAttempts = 10;
-        const attempt = () => {
-          const ok = tryUpgrade({ placeholderId, remoteUrl, key, previewUrl, previewKey });
-          if (ok) {
-            logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
-              placeholderId,
-              ref: String(ref).substring(0, 80),
-            });
-            try { paperSaveService.triggerAutoSave('image-uploaded'); } catch {}
-            return;
+      let attempts = 0;
+      const maxAttempts = 10;
+      const attempt = () => {
+        const ok = tryUpgrade({ placeholderId, remoteUrl, key, previewUrl, previewKey });
+        if (ok) {
+          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
+            placeholderId,
+            ref: String(ref).substring(0, 80),
+          });
+          if (source !== "paper-save-service") {
+            const autosaveKey = `${placeholderId}|${ref}|${previewUrl}|${previewKey}`;
+            const now = Date.now();
+            const last = recentUpgradeAutosaveAt.get(autosaveKey) ?? 0;
+            if (now - last > 2000) {
+              recentUpgradeAutosaveAt.set(autosaveKey, now);
+              try { paperSaveService.triggerAutoSave('image-uploaded'); } catch {}
+            }
           }
+          return;
+        }
         if (attempts >= maxAttempts) return;
         attempts += 1;
         setTimeout(attempt, 250 * attempts);

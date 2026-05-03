@@ -26,6 +26,7 @@
   - when a backend exception happens after an upstream `fetch`, `backend_error` also includes `upstream_url`, `upstream_host`, `upstream_status_code`, `upstream_payload`, `upstream_response`, and `upstream` using the latest sanitized upstream request captured in the current request context
   - process-level `unhandledRejection` / `uncaughtException` are ingested into the same stream for crash triage
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
+- Canvas viewport (`zoom/pan`) synchronization from `useCanvasStore` into `Project.contentJson.canvas` must stay deduped and delayed; high-frequency gesture handlers must not synchronously write `useProjectContentStore`, or React can hit nested update-depth limits during pinch/trackpad zoom.
 
 ## Deployment changes
 - Frontend Docker builder now installs full dependencies (`npm ci`) and accepts build args:

@@ -736,6 +736,7 @@ class PaperSaveService {
                     key: image.key,
                     previewUrl: image.previewUrl,
                     previewKey: image.previewKey,
+                    source: 'paper-save-service',
                   },
                 }));
               } catch {}
@@ -758,6 +759,7 @@ class PaperSaveService {
                   key: image.key,
                   previewUrl: image.previewUrl,
                   previewKey: image.previewKey,
+                  source: 'paper-save-service',
                 },
               }));
             } catch {}
@@ -867,6 +869,7 @@ class PaperSaveService {
                     key: image.key,
                     previewUrl: image.previewUrl,
                     previewKey: image.previewKey,
+                    source: 'paper-save-service',
                   },
                 }));
               } catch {}
