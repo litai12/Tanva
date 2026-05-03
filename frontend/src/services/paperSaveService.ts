@@ -23,6 +23,9 @@ import {
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
 import { fetchWithAuth } from '@/services/authFetch';
+import { logger } from '@/utils/logger';
+
+const paperSaveLogger = logger.scope('paper-save');
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -1027,6 +1030,7 @@ class PaperSaveService {
     }
 
     // 2. 扫描 Paper.js 中的所有 Raster，补充遗漏的图片
+    const paperFallbackImageIds: string[] = [];
     try {
       if (this.isPaperProjectReady()) {
         const rasterClass = (paper as any).Raster;
@@ -1093,10 +1097,19 @@ class PaperSaveService {
                 layerId: this.normalizeLayerId(raster?.layer?.name),
                 key: key || undefined,
               });
-              console.log(`📷 从 Paper.js 补充采集图片: ${imageId}`);
+              paperFallbackImageIds.push(String(imageId));
             }
           }
         }
+      }
+      if (paperFallbackImageIds.length > 0) {
+        paperSaveLogger.debug(
+          `从 Paper.js 补充采集 ${paperFallbackImageIds.length} 张图片`,
+          {
+            imageIds: paperFallbackImageIds.slice(0, 20),
+            omitted: Math.max(0, paperFallbackImageIds.length - 20),
+          }
+        );
       }
     } catch (error) {
       console.warn('从 Paper.js 补充采集图片失败:', error);

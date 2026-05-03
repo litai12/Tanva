@@ -8426,6 +8426,7 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               prompt: "",
+              analysisSkillId: "prompt",
               analysisPrompt: undefined,
               analysisProvider: "banana-2.5" as const,
               boxW: size.w,
@@ -21341,6 +21342,7 @@ function FlowInner() {
             ? {
                 status: "idle",
                 prompt: "",
+                analysisSkillId: "prompt",
                 analysisPrompt: undefined,
                 analysisProvider: "banana-2.5" as const,
               }

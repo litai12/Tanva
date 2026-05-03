@@ -1,6 +1,8 @@
 # 前端模块：Flow（frontend-flow�?
 
 ## 2026-05-03 Update
+- Analysis/Image Chat 节点新增轻量 Skill 选择：`Analysis` 保持原有描述式分析提示词，`提示词` 只输出一段可直接用于生图的纯提示词，`JSON` 会把图片拆解为结构化 JSON（主体、场景、风格、细节和可复用 prompt）；节点 UI 不再展示手动提示词输入框，选择 Skill 会写回节点 `analysisSkillId` 和 `analysisPrompt`，旧节点无该字段时自动回落到 `Analysis`。
+- Text Chat 节点底部不再展示“启用联网搜索”和“状态”行；节点运行请求固定关闭联网搜索，避免旧节点或全局聊天开关影响 Flow 内纯文本节点。
 - Text Chat 运行请求现在只使用已连接 Prompt 文本与节点内“追加描述”，不再注入全局 AI Chat 的历史消息、操作记录或缓存图像上下文，避免纯文本 Flow 节点被聊天上下文带偏。
 - Text Chat 的已连接 Prompt 预览现在会监听上游 `flow:updateNodeData`，Prompt 内容修改后立即刷新；运行时也会重新读取当前上游文本，避免请求使用旧提示词。`TextPrompt` / `PromptOptimize` / `StoryboardSplit` 的上游文本读取同步改为合并事件 patch 后解析，避免同一事件周期读到旧节点数据。
 - Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。

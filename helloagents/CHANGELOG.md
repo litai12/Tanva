@@ -29,6 +29,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Text Chat: removed the node footer web-search toggle and status row; node requests now force web search off so global chat preferences do not affect Flow text-chat runs.
+- Canvas/Autosave: Paper.js 兜底图片采集日志从逐张 `console.log` 收敛为 debug 汇总，避免刷新恢复画布时默认控制台刷屏。
+- AI Chat/Text Web Search: 打开联网后，Banana 文本对话优先走实际挂载 Google Search 工具的 147 legacy 通道，并把联网 metadata 回传前端；前端上下文提示也改为要求直接回答当前输入，避免把内部意图分析当成聊天回复。
 - Flow/Text Chat: node runs now send only connected Prompt text plus the node's additional prompt, without injecting global AI Chat history, operations, or cached-image context.
 - Flow/Text Inputs: `TextChat` connected prompt previews now refresh when upstream Prompt text changes, not only when edges change. `TextPrompt`, `PromptOptimize`, and `StoryboardSplit` also use event-patch-aware upstream text reads to avoid stale prompt text during same-tick node data updates.
 - Canvas/Image Toolbar: `图片拓展` 工具改用 `Expand` 图标，避免和 `裁切` 的 `Crop` 图标重复。
@@ -78,6 +81,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow Clipboard: `GeneratePro / ImagePro / GeneratePro4` 的右键“复制节点”改为写�?Flow 剪贴板（不再直接生成副本），可配�?`Ctrl/Cmd + Shift + V` 使用“保留原连线粘贴”（`Ctrl/Cmd + V` 仍保持常规粘贴）�?
 - Flow Model Switch: `Generate` / `Agent(generatePro)` 节点新增节点本地 `modelProvider` 持久化，节点�?Fast/Pro/Ultra 切换不再改写全局 `aiProvider`；同时全局设置/对话框切换会广播 `flow:sync-model-provider`，可一键批量同步相关节点（`generate/generatePro/generatePro4/analysis/textChat`）到统一模型档位�?
 - Flow/Analysis: analysis node now has an independent Fast/Pro/Ultra model switch (node-local state), and no longer mutates global aiProvider.
+- Flow/Analysis: analysis node title now displays as Image Chat and supports a lightweight Skill selector with `Analysis`, `提示词`, and `JSON` presets; the manual prompt textarea is hidden, and selecting a skill writes `analysisSkillId` plus the preset `analysisPrompt`.
 - Flow/Text Chat: text chat node now has an independent Fast/Pro/Ultra model switch (`modelProvider`) and still participates in global model-tier sync.
 - Flow/Analysis: analysis requests are pinned to Banana normal route in-node, so global normal/stable channel switching does not affect analysis execution.
 - Flow/Analysis: analysis node now routes Fast/Pro/Ultra to the same text-model mapping as Text Chat (multimodal language model path), replacing prior image-model mapping.

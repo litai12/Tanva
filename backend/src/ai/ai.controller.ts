@@ -3862,6 +3862,8 @@ export class AiController {
         if (result.success && result.data) {
           return {
             text: result.data.text,
+            webSearchResult: result.data.webSearchResult,
+            metadata: result.data.metadata,
           };
         }
         throw new Error(result.error?.message || 'Failed to generate text');

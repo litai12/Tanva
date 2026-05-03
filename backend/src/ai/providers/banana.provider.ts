@@ -2807,6 +2807,10 @@ export class BananaProvider implements IAIProvider {
                   : channel === "tencent"
                   ? "tencent"
                   : "147",
+              webSearchEnabled: Boolean(
+                request.enableWebSearch && channel === "legacy"
+              ),
+              requestedWebSearchEnabled: Boolean(request.enableWebSearch),
               ...(usedFallback
                 ? {
                     fallbackUsed: true,
@@ -2913,6 +2917,44 @@ export class BananaProvider implements IAIProvider {
     const providerMode = await this.getConfiguredTextProvider(
       request.providerOptions
     );
+
+    if (request.enableWebSearch) {
+      let legacyResult: AIProviderResponse<TextResult> | null = null;
+      let legacyError: unknown = null;
+
+      try {
+        legacyResult = await this.generateTextViaChannel(request, "legacy");
+      } catch (error) {
+        legacyError = error;
+      }
+
+      if (legacyResult?.success) return legacyResult;
+
+      const failureMessage = this.getProviderFailureMessage(
+        legacyResult,
+        legacyError
+      );
+      this.logger.warn(
+        `Web search requested but 147 text channel failed; fallback to configured text provider without guaranteed web search: ${failureMessage}`
+      );
+
+      if (providerMode === "legacy") {
+        return (
+          legacyResult || {
+            success: false,
+            error: {
+              code: "TEXT_GENERATION_FAILED",
+              message: failureMessage,
+              details: legacyError,
+            },
+          }
+        );
+      }
+
+      if (providerMode === "legacy_auto") {
+        return this.generateTextViaChannel(request, "apimart");
+      }
+    }
 
     if (providerMode === "legacy_auto") {
       let legacyResult: AIProviderResponse<TextResult> | null = null;

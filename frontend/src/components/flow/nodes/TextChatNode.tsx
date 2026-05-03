@@ -80,7 +80,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const effectiveProvider = React.useMemo<FlowModelProvider>(
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
@@ -140,9 +139,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         textareaBg: '#fff',
         textareaBorder: '#d7dce5',
         textareaText: '#111827',
-        checkboxText: '#4b5563',
-        statusText: '#4b5563',
-        statusBorder: '#e2e8f0',
         runBg: '#111827',
         runBgDisabled: '#cbd5f5',
         runText: '#fff',
@@ -166,9 +162,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       textareaBg: '#2a2a2a',
       textareaBorder: '#3d3d3d',
       textareaText: '#8a8a8a',
-      checkboxText: '#7f7f7f',
-      statusText: '#7f7f7f',
-      statusBorder: '#2f2f2f',
       runBg: '#2b2b2b',
       runBgDisabled: '#3c3c3c',
       runText: '#ffffff',
@@ -253,9 +246,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   }, [id]);
 
   const status: TextChatStatus = data.status || 'idle';
-  const errorText = data.error || '';
   const responseText = typeof data.responseText === 'string' ? data.responseText : '';
-  const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
   const normalizedHeight = typeof data.boxH === 'number'
     ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
     : DEFAULT_NODE_HEIGHT;
@@ -413,7 +404,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     try {
       const result = await aiImageService.generateTextResponse({
         prompt: requestPrompt,
-        enableWebSearch,
+        enableWebSearch: false,
         aiProvider: effectiveProvider,
         model: textModel,
         providerOptions: {
@@ -450,7 +441,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [bananaImageRoute, effectiveProvider, enableWebSearch, id, lt, manualInput, readIncomingTexts, textModel, updateIncomingTexts]);
+  }, [bananaImageRoute, effectiveProvider, id, lt, manualInput, readIncomingTexts, textModel, updateIncomingTexts]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -490,12 +481,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     setManualInput(value);
     commitManualInput(value);
   }, [commitManualInput]);
-
-  const toggleWebSearch = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-      detail: { id, patch: { enableWebSearch: event.target.checked } }
-    }));
-  }, [id]);
 
   const startTitleEditing = React.useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
@@ -550,14 +535,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     fontSize: 11,
     fontWeight: 600,
     color: themePalette.sectionLabel,
-  };
-
-  const statusStyle: React.CSSProperties = {
-    fontSize: 11,
-    color: status === 'failed' && errorText ? '#ef4444' : themePalette.statusText,
-    borderTop: `1px solid ${themePalette.statusBorder}`,
-    paddingTop: 8,
-    marginTop: 'auto',
   };
 
   return (
@@ -819,15 +796,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           </div>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: themePalette.checkboxText }}>
-          <input type="checkbox" checked={enableWebSearch} onChange={toggleWebSearch} />
-          {lt('启用联网搜索', 'Enable web search')}
-        </label>
-
-        <div style={statusStyle}>
-          {lt('状态', 'Status')}: {status}
-          {status === 'failed' && errorText ? ` - ${errorText}` : ''}
-        </div>
       </div>
 
       <Handle
