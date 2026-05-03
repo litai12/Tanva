@@ -4430,6 +4430,30 @@ function FlowInner() {
   }, []);
 
   const groupNormalizeLockRef = React.useRef(false);
+  const lastGroupNormalizeSignatureRef = React.useRef<string>("");
+  const buildGroupNormalizeSignature = React.useCallback((inputNodes: RFNode[]) => {
+    if (!Array.isArray(inputNodes) || inputNodes.length === 0) return "";
+    const parts = inputNodes
+      .filter((node) => isGroupNode(node))
+      .map((node) => {
+        const data = (node.data || {}) as any;
+        const style = (node.style || {}) as any;
+        const childIds = Array.isArray(data.childNodeIds)
+          ? data.childNodeIds.map((id: any) => String(id))
+          : [];
+        return [
+          String(node.id),
+          Number(node.position?.x ?? 0).toFixed(3),
+          Number(node.position?.y ?? 0).toFixed(3),
+          Number(style.width ?? node.width ?? 0).toFixed(3),
+          Number(style.height ?? node.height ?? 0).toFixed(3),
+          data.collapsed ? "1" : "0",
+          childIds.join(","),
+        ].join("|");
+      })
+      .sort();
+    return parts.join(";");
+  }, []);
   React.useEffect(() => {
     if (groupNormalizeLockRef.current) {
       groupNormalizeLockRef.current = false;
@@ -4437,10 +4461,21 @@ function FlowInner() {
     }
     if (nodeDraggingRef.current) return;
     const result = normalizeGroupNodes(nodes as RFNode[]);
-    if (!result.changed) return;
+    if (!result.changed) {
+      lastGroupNormalizeSignatureRef.current = "";
+      return;
+    }
+    const nextSignature = buildGroupNormalizeSignature(result.nodes as RFNode[]);
+    if (
+      nextSignature &&
+      nextSignature === lastGroupNormalizeSignatureRef.current
+    ) {
+      return;
+    }
+    lastGroupNormalizeSignatureRef.current = nextSignature;
     groupNormalizeLockRef.current = true;
     setNodes(result.nodes as any);
-  }, [nodes, normalizeGroupNodes, setNodes]);
+  }, [nodes, normalizeGroupNodes, setNodes, buildGroupNormalizeSignature]);
 
   const updateGroupNodeData = React.useCallback(
     (groupId: string, patch: Record<string, unknown>) => {

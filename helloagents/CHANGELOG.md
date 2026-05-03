@@ -633,3 +633,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Canvas zoom/pan synchronization into project content is now deduped and delayed, preventing pinch/trackpad zoom from synchronously cascading `useCanvasStore` updates into `useProjectContentStore` React rerenders.
 - Project content updates with `markDirty:false` now return the existing state when the resulting snapshot is unchanged.
+- Flow overlay project-content hydration now skips no-op rehydrate when incoming `flow` snapshot equals current local graph snapshot, and commit path skips no-op writeback when current store already matches target signature.
+- Flow hydration no longer merges previous node runtime data into store-sourced node data, reducing stale runtime field reintroduction loops after import/zoom interactions.

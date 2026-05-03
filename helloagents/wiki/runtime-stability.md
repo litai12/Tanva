@@ -27,6 +27,7 @@
   - process-level `unhandledRejection` / `uncaughtException` are ingested into the same stream for crash triage
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
 - Canvas viewport (`zoom/pan`) synchronization from `useCanvasStore` into `Project.contentJson.canvas` must stay deduped and delayed; high-frequency gesture handlers must not synchronously write `useProjectContentStore`, or React can hit nested update-depth limits during pinch/trackpad zoom.
+- Flow graph hydration from `Project.contentJson.flow` must short-circuit when incoming snapshot signature equals local graph signature, and flow commit must short-circuit when store signature already matches target, to avoid hydrate↔commit writeback loops under high-frequency viewport updates.
 
 ## Deployment changes
 - Frontend Docker builder now installs full dependencies (`npm ci`) and accepts build args:
