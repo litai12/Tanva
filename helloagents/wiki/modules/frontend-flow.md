@@ -1,6 +1,7 @@
 # 前端模块：Flow（frontend-flow�?
 
 ## 2026-05-03 Update
+- Text Chat 运行请求现在只使用已连接 Prompt 文本与节点内“追加描述”，不再注入全局 AI Chat 的历史消息、操作记录或缓存图像上下文，避免纯文本 Flow 节点被聊天上下文带偏。
 - Text Chat 的已连接 Prompt 预览现在会监听上游 `flow:updateNodeData`，Prompt 内容修改后立即刷新；运行时也会重新读取当前上游文本，避免请求使用旧提示词。`TextPrompt` / `PromptOptimize` / `StoryboardSplit` 的上游文本读取同步改为合并事件 patch 后解析，避免同一事件周期读到旧节点数据。
 - Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。
 - Quick Connect 创建节点时会带上对应节点面板配置与 `defaultData`，避免后续重新开放模型节点时因缺少 metadata 回退显示为基础组件默认标题。

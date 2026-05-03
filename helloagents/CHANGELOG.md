@@ -29,6 +29,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Text Chat: node runs now send only connected Prompt text plus the node's additional prompt, without injecting global AI Chat history, operations, or cached-image context.
 - Flow/Text Inputs: `TextChat` connected prompt previews now refresh when upstream Prompt text changes, not only when edges change. `TextPrompt`, `PromptOptimize`, and `StoryboardSplit` also use event-patch-aware upstream text reads to avoid stale prompt text during same-tick node data updates.
 - Canvas/Image Toolbar: `图片拓展` 工具改用 `Expand` 图标，避免和 `裁切` 的 `Crop` 图标重复。
 - Flow/Quick Connect: 快速连接候选现在必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。
