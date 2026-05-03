@@ -6026,6 +6026,20 @@ function FlowInner() {
     if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
+    const incomingSignature = getFlowSnapshotSignature(ns, es);
+    const localSignature = getFlowSnapshotSignature(
+      rfNodesToTplNodes(nodesRef.current as any),
+      rfEdgesToTplEdges(edgesRef.current as any)
+    );
+    if (
+      incomingSignature &&
+      localSignature &&
+      incomingSignature === localSignature
+    ) {
+      lastSyncedJSONRef.current = incomingSignature;
+      hasHydratedFlowRef.current = true;
+      return;
+    }
     hydratingFromStoreRef.current = true;
     const nextNodes = tplNodesToRfNodes(ns);
     setNodes((prev) => {
@@ -6038,7 +6052,7 @@ function FlowInner() {
         return {
           ...prevNode,
           position: node.position,
-          data: { ...(prevNode.data || {}), ...(node.data || {}) },
+          data: node.data || {},
           width: node.width ?? prevNode.width,
           height: node.height ?? prevNode.height,
           style: node.style || prevNode.style,
@@ -6047,7 +6061,7 @@ function FlowInner() {
     });
     setEdges(tplEdgesToRfEdges(es));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
-    lastSyncedJSONRef.current = getFlowSnapshotSignature(ns, es);
+    lastSyncedJSONRef.current = incomingSignature;
     hasHydratedFlowRef.current = true;
     Promise.resolve().then(() => {
       hydratingFromStoreRef.current = false;
@@ -6058,6 +6072,8 @@ function FlowInner() {
     contentFlow,
     setNodes,
     setEdges,
+    rfNodesToTplNodes,
+    rfEdgesToTplEdges,
     tplNodesToRfNodes,
     tplEdgesToRfEdges,
     getFlowSnapshotSignature,
@@ -6075,6 +6091,16 @@ function FlowInner() {
       if (json && lastSyncedJSONRef.current === json) return;
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
       commitTimerRef.current = window.setTimeout(() => {
+        const currentFlow = useProjectContentStore.getState().content?.flow;
+        const currentFlowSignature = getFlowSnapshotSignature(
+          currentFlow?.nodes || [],
+          currentFlow?.edges || []
+        );
+        if (json && currentFlowSignature === json) {
+          lastSyncedJSONRef.current = json;
+          commitTimerRef.current = null;
+          return;
+        }
         lastSyncedJSONRef.current = json;
         updateProjectPartial(
           { flow: { nodes: nodesSnapshot, edges: edgesSnapshot } },
