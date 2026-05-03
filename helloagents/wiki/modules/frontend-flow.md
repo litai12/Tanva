@@ -4,10 +4,13 @@
 - Analysis/Image Chat 节点新增轻量 Skill 选择：`Analysis` 保持原有描述式分析提示词，`提示词` 只输出一段可直接用于生图的纯提示词，`JSON` 会把图片拆解为结构化 JSON（主体、场景、风格、细节和可复用 prompt）；节点 UI 不再展示手动提示词输入框，选择 Skill 会写回节点 `analysisSkillId` 和 `analysisPrompt`，旧节点无该字段时自动回落到 `Analysis`。
 - Text Chat 节点中间的“追加描述”输入区改为 Skill 选择：默认 `自定义` 并显示手动输入框，切到内置 `拆分镜头`、`提示词优化`、`中英文转换` 时隐藏输入框；选择后写回 `textChatSkillId`，`manualInput` 保留自定义输入内容。
 - Text Chat 不再渲染隐藏 resize 控制或用 `boxH` 自动测高撑开节点；高度改由当前布局自然决定，切换到内置 Skill 时节点会立即收缩到紧凑布局。
+- Flow 节点 `flow:updateNodeData` 与 ReactFlow `dimensions` 变更后会刷新当前节点及相邻节点 internals，确保参数切换、内容预览或布局收缩导致句柄位置变化时，连线端点同步对齐。
+- Flow 连线的 source handle 保存/恢复改为感知 source 节点类型；`videoFrameExtract` 的单帧输出保留真实 `image` 句柄，并把历史误存的 `img` 自动迁回 `image`，避免 React Flow error #008 刷屏。
 - Text Chat 节点底部不再展示“启用联网搜索”和“状态”行；节点运行请求固定关闭联网搜索，避免旧节点或全局聊天开关影响 Flow 内纯文本节点。
 - Text Chat 运行请求现在只使用已连接 Prompt 文本与当前 Skill 指令，不再注入全局 AI Chat 的历史消息、操作记录或缓存图像上下文，避免纯文本 Flow 节点被聊天上下文带偏。
 - Text Chat 的已连接 Prompt 预览现在会监听上游 `flow:updateNodeData`，Prompt 内容修改后立即刷新；运行时也会重新读取当前上游文本，避免请求使用旧提示词。`TextPrompt` / `PromptOptimize` / `StoryboardSplit` 的上游文本读取同步改为合并事件 patch 后解析，避免同一事件周期读到旧节点数据。
 - Storyboard Split 节点新增 `splitFormat`（参考格式）字段：留空继续使用默认解析；填写 `分镜1`、`镜头1`、`#1`、`|**1**|` 等样例时，按样例里的编号位置拆分输入文本；输出端口不再手动输入，改为按拆分结果自动生成，最多 `50` 个。
+- 节点添加面板暂时隐藏 `Generate Refer`（参考图生成）与 `Sora2 Pro`；隐藏集合仍保留运行时组件注册，旧项目里的已有节点不会因此失效。
 - Quick Connect 从 Prompt/Image 句柄拖出时不再展示 `Nano2` / `GPT-Image-2` 候选；隐藏节点集合对节点面板与 Quick Connect 绝对生效，保留运行时组件以兼容旧项目中已存在的节点。
 - Quick Connect 创建节点时会带上对应节点面板配置与 `defaultData`，避免后续重新开放模型节点时因缺少 metadata 回退显示为基础组件默认标题。
 - Quick Connect 候选必须存在于双击添加面板的普通节点列表；`Prompt Pro` / `Image Pro` 等 Beta 或未展示节点不会再通过自动弹窗被创建。

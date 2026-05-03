@@ -8388,9 +8388,16 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 🧠 上下文管理方法实现
         initializeContext: () => {
-          // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
-          if (!hasHydratedSessions) {
+          const projectStore = useProjectContentStore.getState();
+          const hasProjectScope = !!projectStore.projectId;
+
+          // 项目内会话只从 Project.content.aiChatSessions 恢复；全局本地会话
+          // 仅用于无项目场景，防止切换/新建项目时串入旧对话。
+          if (!hasHydratedSessions && !hasProjectScope) {
             loadLocalSessions().then((stored) => {
+              if (useProjectContentStore.getState().projectId) {
+                return;
+              }
               if (stored && stored.sessions.length > 0) {
                 get().hydratePersistedSessions(
                   stored.sessions,

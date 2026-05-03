@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Project Thumbnail: 移除前端自动生成和上传项目缩略图链路；项目管理预览继续从项目内容懒加载图片网格。
+- Flow/Node Palette: 暂时隐藏 `Generate Refer`（参考图生成）与 `Sora2 Pro` 节点入口；旧项目中已有节点继续由运行时组件兼容渲染。
 - Flow/Muti Gen: `generate4` 节点的 4 张图从串行请求改为并发请求，槽位按各自完成顺序写回。
 - Flow/Muti Gen: `generate4` 节点的用户可见英文名称从 `Multi Generate` 改为 `Muti Gen`。
 - Flow/Video Analysis: 视频分析节点定价从固定 `30` 积分改为按模型档位与渠道计费：普通渠道 `Fast=60 / Pro=90 / Ultra=120`，尊享渠道 `Fast=80 / Pro=120 / Ultra=160`；前端 Run 徽标和后端预扣费使用同一矩阵。
@@ -30,6 +31,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Video Frame Extract: edge source-handle normalization is now source-node aware, so `videoFrameExtract` keeps its real `image` output handle and legacy saved `img` edges hydrate back to `image`, preventing React Flow error #008 console spam after reload.
+- Flow/Video to GIF: GIF 节点运行按钮接入运行积分徽标，悬停时显示本次转换消耗 30 积分，和后端预扣费保持一致。
+- AI Chat: project pages no longer hydrate the chat panel from global IndexedDB/localStorage sessions; conversation history is restored only from the active project's `aiChatSessions`, preventing old conversations from appearing in newly created or switched projects.
+- Library Panel: selecting any global/project/manual library item now opens the left detail popover at a fixed position with internal overflow scrolling, so lower metadata rows and action buttons are not clipped when selecting items farther down the grid.
+- Flow/Edges: node data and size updates now schedule ReactFlow node-internals refreshes for the changed node and connected neighbors, keeping edge endpoints aligned when parameter changes move handles.
 - Flow/Text Chat: removed the node footer web-search toggle and status row; node requests now force web search off so global chat preferences do not affect Flow text-chat runs.
 - Flow/Text Chat: replaced the middle additional-prompt textarea with a lightweight Skill selector. New nodes default to `自定义` with the manual input visible, while built-in presets (`拆分镜头`, `提示词优化`, `中英文转换`) hide the input and combine connected Prompt text with the selected Skill instruction.
 - Flow/Text Chat: removed hidden node resizing and saved-height auto sizing; the node height now follows the active layout so built-in Skill presets collapse to a compact view.

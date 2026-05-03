@@ -172,12 +172,8 @@ class ContextManager implements IContextManager {
 
     // 启动定期清理任务
     this.startCleanupInterval();
-    // 尝试从本地存储恢复会话数据（关闭对话框/刷新后恢复）
-    try {
-      this.loadContextsFromStorage();
-    } catch (e) {
-      console.warn("[ContextManager] 从本地恢复会话失败:", e);
-    }
+    // 会话恢复由 aiChatStore 按当前项目内容统一调度，避免构造期把旧的
+    // 全局本地会话注入到新项目。
   }
 
   /**

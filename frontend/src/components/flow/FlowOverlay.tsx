@@ -22,6 +22,7 @@ import ReactFlow, {
   EdgeLabelRenderer,
   getBezierPath,
   type EdgeProps,
+  useUpdateNodeInternals,
 } from "reactflow";
 import { ReactFlowProvider } from "reactflow";
 import { useCanvasStore } from "@/stores";
@@ -206,6 +207,7 @@ import {
   resolveFlowImageReferenceLimit,
   resolveFlowModelProvider,
 } from "@/utils/flowModelProvider";
+import { scheduleReactFlowNodeInternalsSync } from "./hooks/useNodeInternalsSync";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -223,22 +225,59 @@ const normalizeFlowTargetHandle = (
   return handle;
 };
 
+const isVideoFrameExtractNodeType = (nodeType?: string | null): boolean => {
+  if (typeof nodeType !== "string") return false;
+  return nodeType.trim().toLowerCase() === "videoframeextract";
+};
+
 // 兼容历史输出句柄：将 sourceHandle image/image1/image-1 归一化到 img/img1。
+// 特例：videoFrameExtract 的真实单帧输出句柄是 image，历史被误归一化成 img 的边需迁回 image。
 // ImageSplit 当前主句柄仍是 imageN，但节点会额外渲染 imgN 兼容句柄。
 const normalizeFlowSourceHandle = (
-  handle?: string | null
+  handle?: string | null,
+  options?: { sourceNodeType?: string | null }
 ): string | undefined => {
   if (typeof handle !== "string") return handle ?? undefined;
   const trimmed = handle.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
   if (lower === "omniimage") return "omniImage";
+  if (isVideoFrameExtractNodeType(options?.sourceNodeType)) {
+    if (lower === "img" || lower === "image") return "image";
+    if (lower === "images") return "images";
+    if (lower === "images-range") return "images-range";
+    return trimmed;
+  }
   if (lower === "image") return "img";
   const imageIndexMatch = lower.match(/^image[-_]?(\d+)$/);
   if (imageIndexMatch?.[1]) {
     return `img${imageIndexMatch[1]}`;
   }
   return trimmed;
+};
+
+const buildFlowNodeTypeById = (
+  nodes?: Array<{ id?: string | null; type?: string | null }> | null
+): Map<string, string> => {
+  const map = new Map<string, string>();
+  if (!Array.isArray(nodes)) return map;
+  nodes.forEach((node) => {
+    if (!node?.id) return;
+    if (typeof node.type !== "string") return;
+    map.set(String(node.id), node.type);
+  });
+  return map;
+};
+
+const normalizeFlowSourceHandleForEdge = (
+  edge: { source?: string | null; sourceHandle?: string | null },
+  sourceNodeTypeById?: Map<string, string>
+): string | undefined => {
+  const sourceNodeType =
+    edge?.source && sourceNodeTypeById
+      ? sourceNodeTypeById.get(String(edge.source))
+      : undefined;
+  return normalizeFlowSourceHandle(edge?.sourceHandle, { sourceNodeType });
 };
 
 const FLOW_EDGE_STANDARD_COLOR = "#9ca3af";
@@ -1662,9 +1701,11 @@ const FLOW_NODE_DEFAULT_SIZE = {
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
+  "generateRef",
   "kling26Video",
   "nano2",
   "gptImage2",
+  "sora2Video",
 ]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
@@ -3537,6 +3578,7 @@ function useFlowViewport() {
 
 function FlowInner() {
   const { lt, isZh } = useLocaleText();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
@@ -4073,6 +4115,12 @@ function FlowInner() {
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       let processedChanges = changes;
+      const collectDimensionChangeIds = (nextChanges: any): string[] =>
+        Array.isArray(nextChanges)
+          ? nextChanges
+              .filter((change: any) => change?.type === "dimensions" && change?.id)
+              .map((change: any) => String(change.id))
+          : [];
       const altState = altDragStartRef.current;
       const isAltDragCloning =
         !!altState?.altPressed &&
@@ -4203,6 +4251,10 @@ function FlowInner() {
             remapped.push(origChange);
           }
           onNodesChange(remapped);
+          scheduleReactFlowNodeInternalsSync(
+            updateNodeInternals,
+            collectDimensionChangeIds(remapped)
+          );
           // Alt+拖拽复制的历史提交由 onNodeDragStop 统一处理，避免重复 commit
           return;
         }
@@ -4334,6 +4386,10 @@ function FlowInner() {
       processedChanges = applyFlowSnappingToChanges(processedChanges);
 
       onNodesChange(processedChanges);
+      scheduleReactFlowNodeInternalsSync(
+        updateNodeInternals,
+        collectDimensionChangeIds(processedChanges)
+      );
       try {
         const needCommit =
           Array.isArray(processedChanges) &&
@@ -4348,7 +4404,7 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [applyFlowSnappingToChanges, onNodesChange, setEdges]
+    [applyFlowSnappingToChanges, onNodesChange, setEdges, updateNodeInternals]
   );
 
   const rf = useReactFlow();
@@ -5329,16 +5385,23 @@ function FlowInner() {
   );
 
   const rfEdgesToTplEdges = React.useCallback(
-    (es: Edge[]): TemplateEdge[] =>
-      es.map((e: any) => ({
+    (
+      es: Edge[],
+      sourceNodes?: Array<{ id?: string | null; type?: string | null }> | null
+    ): TemplateEdge[] => {
+      const sourceNodeTypeById = buildFlowNodeTypeById(
+        sourceNodes || nodesRef.current
+      );
+      return es.map((e: any) => ({
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
+        sourceHandle: normalizeFlowSourceHandleForEdge(e, sourceNodeTypeById),
         targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: typeof e.label === "string" ? e.label : undefined,
-      })),
+      }));
+    },
     []
   );
 
@@ -5430,16 +5493,18 @@ function FlowInner() {
   }, []);
 
   const tplEdgesToRfEdges = React.useCallback(
-    (es: TemplateEdge[]): Edge[] =>
-      es.map((e) => ({
+    (es: TemplateEdge[], sourceNodes?: TemplateNode[]): Edge[] => {
+      const sourceNodeTypeById = buildFlowNodeTypeById(sourceNodes);
+      return es.map((e) => ({
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
+        sourceHandle: normalizeFlowSourceHandleForEdge(e, sourceNodeTypeById),
         targetHandle: normalizeFlowTargetHandle(e.targetHandle),
         type: e.type || "default",
         label: e.label,
-      })) as any,
+      })) as any;
+    },
     []
   );
 
@@ -5760,6 +5825,10 @@ function FlowInner() {
       preserveLinkedEdges && Array.isArray((payload as any).linkedEdges)
         ? ((payload as any).linkedEdges as TemplateEdge[])
         : [];
+    const payloadNodeTypeById = buildFlowNodeTypeById(payload.nodes);
+    const existingNodeTypeById = buildFlowNodeTypeById(
+      rf.getNodes?.() as Array<{ id?: string | null; type?: string | null }>
+    );
     const mapEdgeSnapshot = (
       edge: TemplateEdge,
       allowExternalEndpoint: boolean
@@ -5772,10 +5841,15 @@ function FlowInner() {
       if (!mappedSource && !existingNodeIds.has(String(source))) return null;
       if (!mappedTarget && !existingNodeIds.has(String(target))) return null;
       if (!mappedSource && !mappedTarget) return null;
+      const sourceNodeType = mappedSource
+        ? payloadNodeTypeById.get(String(edge.source))
+        : existingNodeTypeById.get(String(source));
       return {
         source,
         target,
-        sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle),
+        sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle, {
+          sourceNodeType,
+        }),
         targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
         type: edge.type || "default",
         label: edge.label,
@@ -6156,7 +6230,7 @@ function FlowInner() {
         } as RFNode;
       });
     });
-    setEdges(tplEdgesToRfEdges(es));
+    setEdges(tplEdgesToRfEdges(es, ns));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
     lastSyncedJSONRef.current = incomingSignature;
     hasHydratedFlowRef.current = true;
@@ -7368,14 +7442,7 @@ function FlowInner() {
         id: templateId,
         name: templateName,
         nodes: processedNodes,
-        edges: edges.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
-          targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
-          type: e.type || "default",
-        })),
+        edges: rfEdgesToTplEdges(edges, nodes as any),
       };
 
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -7402,6 +7469,7 @@ function FlowInner() {
     stripLargeInlineBlobsInPlace,
     isRemoteUrl,
     normalizeStableRemoteUrl,
+    rfEdgesToTplEdges,
     uploadImageToStableUrl,
   ]);
 
@@ -7473,6 +7541,7 @@ function FlowInner() {
         } as any;
       });
 
+      const rawNodeTypeById = buildFlowNodeTypeById(rawNodes);
       const mappedEdges = rawEdges
         .map((e: any, idx: number) => {
           const sid = idMap.get(String(e.source)) || String(e.source);
@@ -7481,7 +7550,9 @@ function FlowInner() {
             id: String(e.id || `e_${now}_${idx}`),
             source: sid,
             target: tid,
-            sourceHandle: normalizeFlowSourceHandle(e.sourceHandle),
+            sourceHandle: normalizeFlowSourceHandle(e.sourceHandle, {
+              sourceNodeType: rawNodeTypeById.get(String(e.source)),
+            }),
             targetHandle: normalizeFlowTargetHandle(e.targetHandle),
             type: e.type || "default",
           } as any;
@@ -11189,6 +11260,22 @@ function FlowInner() {
         return nextNodes;
       });
 
+      const nodeIdsToRefresh = new Set<string>([String(detail.id)]);
+      try {
+        (edgesRef.current || []).forEach((edge: any) => {
+          if (edge?.source === detail.id || edge?.target === detail.id) {
+            if (edge.source) nodeIdsToRefresh.add(String(edge.source));
+            if (edge.target) nodeIdsToRefresh.add(String(edge.target));
+          }
+        });
+      } catch {
+        // If edge refs are temporarily unavailable, refreshing the changed node is enough.
+      }
+      scheduleReactFlowNodeInternalsSync(
+        updateNodeInternals,
+        nodeIdsToRefresh
+      );
+
       if (
         shouldAutoGenerateThumbnail &&
         thumbnailNodeId &&
@@ -11232,7 +11319,7 @@ function FlowInner() {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [setEdges, setNodes]);
+  }, [setEdges, setNodes, updateNodeInternals]);
 
   // happyhorse 节点切换 model 时，丢弃在新模式下不再合法的目标连线。
   React.useEffect(() => {
@@ -22177,11 +22264,14 @@ function FlowInner() {
           draggable: true,
         } as any;
       });
+      const tplNodeTypeById = buildFlowNodeTypeById(tpl.nodes);
       const newEdges = (tpl.edges || []).map((e) => ({
         id: generateId("e"),
         source: idMap.get(e.source) || e.source,
         target: idMap.get(e.target) || e.target,
-        sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
+        sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle, {
+          sourceNodeType: tplNodeTypeById.get(String(e.source)),
+        }),
         targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
         type: e.type || "default",
         label: e.label,
@@ -22404,15 +22494,7 @@ function FlowInner() {
         id,
         name,
         nodes: templateNodes as any,
-        edges: edgesToSave.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: normalizeFlowSourceHandle((e as any).sourceHandle),
-          targetHandle: normalizeFlowTargetHandle((e as any).targetHandle),
-          type: e.type || "default",
-          label: typeof e.label === "string" ? e.label : undefined,
-        })) as any,
+        edges: rfEdgesToTplEdges(edgesToSave as any, nodesToSave as any) as any,
       };
       await saveUserTemplate(tpl);
       const list = await listUserTemplates();
@@ -22427,6 +22509,7 @@ function FlowInner() {
     isRemoteUrl,
     normalizeStableRemoteUrl,
     rf,
+    rfEdgesToTplEdges,
     sanitizeNodeData,
     setUserTplList,
     stripLargeInlineBlobsInPlace,
@@ -22557,6 +22640,9 @@ function FlowInner() {
                   (edge: any) =>
                     selectedIds.has(edge.source) && selectedIds.has(edge.target)
                 );
+              const selectedNodeTypeById = buildFlowNodeTypeById(
+                selectedNodes as any
+              );
               const clonedEdges = relatedEdges
                 .map((edge: any) => {
                   const source = idMap.get(edge.source);
@@ -22566,7 +22652,10 @@ function FlowInner() {
                     id: generateId("e"),
                     source,
                     target,
-                    sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle),
+                    sourceHandle: normalizeFlowSourceHandleForEdge(
+                      edge,
+                      selectedNodeTypeById
+                    ),
                     targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
                     type: edge.type || "default",
                     label: edge.label,

@@ -1,6 +1,10 @@
 import React from "react";
 import { useUpdateNodeInternals } from "reactflow";
 
+const isFlowNodeDragging = (): boolean =>
+  typeof document !== "undefined" &&
+  Boolean(document.body?.classList.contains("tanva-flow-node-dragging"));
+
 export const useNodeInternalsSync = (
   id: string,
   rootRef: React.RefObject<HTMLElement | null>,
@@ -26,10 +30,7 @@ export const useNodeInternalsSync = (
       }
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
-        if (
-          typeof document !== "undefined" &&
-          document.body?.classList.contains("tanva-flow-node-dragging")
-        ) {
+        if (isFlowNodeDragging()) {
           return;
         }
         updateNodeInternals(id);
@@ -45,6 +46,31 @@ export const useNodeInternalsSync = (
       }
     };
   }, [id, rootRef, updateNodeInternals]);
+};
+
+export const scheduleReactFlowNodeInternalsSync = (
+  updateNodeInternals: ((ids: string | string[]) => void) | null | undefined,
+  nodeIds: Iterable<string | null | undefined>
+) => {
+  if (!updateNodeInternals || typeof requestAnimationFrame !== "function") return;
+
+  const ids = Array.from(
+    new Set(
+      Array.from(nodeIds)
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+  if (ids.length === 0) return;
+
+  requestAnimationFrame(() => {
+    if (isFlowNodeDragging()) return;
+    try {
+      updateNodeInternals(ids);
+    } catch {
+      // ReactFlow can skip internals updates for nodes that unmounted between frames.
+    }
+  });
 };
 
 export default useNodeInternalsSync;
