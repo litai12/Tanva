@@ -48,6 +48,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     videoUrl?: string;
     thumbnail?: string;
     error?: string;
@@ -3280,6 +3281,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       <GenerationProgressBar
         status={data.status || "idle"}
+        startedAt={data.progressStartedAt}
         runKey={id}
       />
 

@@ -16,6 +16,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     images?: string[];
     imageUrls?: string[];
     error?: string;
@@ -449,7 +450,12 @@ function Seedream5Node({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} runKey={id} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {status === "failed" && error && (
         <div

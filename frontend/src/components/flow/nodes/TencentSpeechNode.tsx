@@ -72,6 +72,7 @@ type Props = {
   id: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    progressStartedAt?: number | string | null;
     audioUrl?: string;
     videoUrl?: string;
     error?: string;
@@ -656,7 +657,11 @@ function TencentSpeechNode({ id, data, selected }: Props) {
         </div>
       </div>
 
-      <GenerationProgressBar status={data.status} runKey={id} />
+      <GenerationProgressBar
+        status={data.status}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {data.status === 'failed' && data.error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ef4444', fontSize: 12 }}>

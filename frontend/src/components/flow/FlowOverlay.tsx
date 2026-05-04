@@ -4992,6 +4992,7 @@ function FlowInner() {
         if (data) {
           delete data.status;
           delete data.error;
+          delete data.progressStartedAt;
         }
         return {
           id: n.id,
@@ -5962,6 +5963,53 @@ function FlowInner() {
       }),
     [nodes]
   );
+
+  React.useEffect(() => {
+    if (!hydrated) return;
+    const now = Date.now();
+    setNodes((prev: RFNode[]) => {
+      let changed = false;
+      const next = prev.map((node: RFNode) => {
+        const data = node?.data;
+        if (!data || typeof data !== "object") return node;
+        const status =
+          typeof data.status === "string" ? data.status.toLowerCase() : "";
+        const rawStartedAt = (data as any).progressStartedAt;
+        const hasValidStartedAt =
+          (typeof rawStartedAt === "number" &&
+            Number.isFinite(rawStartedAt) &&
+            rawStartedAt > 0) ||
+          (typeof rawStartedAt === "string" &&
+            Number.isFinite(Number(rawStartedAt)) &&
+            Number(rawStartedAt) > 0);
+
+        if (status === "running") {
+          if (hasValidStartedAt) return node;
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...data,
+              progressStartedAt: now,
+            },
+          };
+        }
+
+        if (Object.prototype.hasOwnProperty.call(data, "progressStartedAt")) {
+          const nextData = { ...data };
+          delete (nextData as any).progressStartedAt;
+          changed = true;
+          return {
+            ...node,
+            data: nextData,
+          };
+        }
+
+        return node;
+      });
+      return changed ? next : prev;
+    });
+  }, [hydrated, nodes, setNodes]);
 
   React.useEffect(() => {
     const zoom =
@@ -21292,6 +21340,7 @@ function FlowInner() {
         delete data.onSend;
         delete data.status;
         delete data.error;
+        delete data.progressStartedAt;
         if ((n as any).type === FLOW_GROUP_NODE_TYPE) {
           const explicitChildren = Array.isArray(data.childNodeIds)
             ? data.childNodeIds.map((childId: string) => idMap.get(childId) || null)
@@ -21384,6 +21433,7 @@ function FlowInner() {
           const data: any = sanitizeNodeData(raw) || {};
           delete data.status;
           delete data.error;
+          delete data.progressStartedAt;
           delete data.taskId;
           delete data.buttons;
           delete data.lastHistoryId;
@@ -21664,6 +21714,7 @@ function FlowInner() {
                 if (data) {
                   delete data.status;
                   delete data.error;
+                  delete data.progressStartedAt;
                 }
                 return {
                   id: newId,

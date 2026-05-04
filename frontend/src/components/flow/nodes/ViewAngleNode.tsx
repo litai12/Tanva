@@ -23,11 +23,13 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 
 type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string;
@@ -407,8 +409,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           );
         }
 
-        if (sourceNode.type === "imageSplit" && /^image\d+$/i.test(sourceHandle)) {
-          const idx = Math.max(0, Number(sourceHandle.replace(/[^0-9]/g, "")) - 1);
+        if (sourceNode.type === "imageSplit") {
+          const idx = getImageSplitHandleIndex(sourceHandle);
+          if (idx === null) return undefined;
           const item = Array.isArray(sourceData.splitImages)
             ? sourceData.splitImages[idx]
             : undefined;
@@ -1628,7 +1631,12 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         }}
       />
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} runKey={id} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
       {status === "failed" && data.error ? (
         <div style={{ fontSize: 12, color: "#f87171", whiteSpace: "pre-wrap" }}>
           {data.error}

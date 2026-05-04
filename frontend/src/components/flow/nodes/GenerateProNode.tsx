@@ -20,6 +20,7 @@ import RunCreditBadge from './RunCreditBadge';
 import NodeSelect from './NodeSelect';
 import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 import {
   getFlowImageReferenceLimit,
   resolveFlowModelProvider,
@@ -42,6 +43,7 @@ type Props = {
   id: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
@@ -202,15 +204,9 @@ const readConnectedImagesFromNode = (
   };
 
   if (typeof sourceHandle === 'string') {
-    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
-    if (singleMatch) {
-      const idx = Math.max(0, Number(singleMatch[1]) - 1);
-      return pickAt(idx);
-    }
-
-    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
-    if (splitMatch) {
-      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+    const splitIdx = node.type === 'imageSplit' ? getImageSplitHandleIndex(sourceHandle) : null;
+    if (splitIdx !== null) {
+      const idx = splitIdx;
       const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
       const rect = splitRects[idx];
       const rectRecord =
@@ -266,6 +262,12 @@ const readConnectedImagesFromNode = (
       return value
         ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
         : [];
+    }
+
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
     }
   }
 
@@ -1625,7 +1627,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             right: 16,
             zIndex: 10,
           }}>
-            <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} runKey={id} />
+            <GenerationProgressBar
+              status={status}
+              simulateDurationMs={60 * 1000}
+              startedAt={data.progressStartedAt}
+              runKey={id}
+            />
           </div>
         )}
       </div>

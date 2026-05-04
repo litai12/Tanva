@@ -16,6 +16,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     videoUrl?: string;
     thumbnail?: string;
     error?: string;
@@ -2348,6 +2349,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       </div>
       <GenerationProgressBar
         status={data.status || "idle"}
+        startedAt={data.progressStartedAt}
         runKey={id}
       />
 

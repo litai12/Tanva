@@ -26,6 +26,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     videoUrl?: string;
     thumbnail?: string;
     error?: string;
@@ -1127,6 +1128,7 @@ function Wan26Node({ id, data, selected }: Props) {
       {/* 进度条 */}
       <GenerationProgressBar
         status={data.status || "idle"}
+        startedAt={data.progressStartedAt}
         runKey={id}
       />
 

@@ -21,6 +21,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string;
@@ -315,7 +316,12 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         />
       </div>
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} runKey={id} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
       {status === "failed" && displayError ? (
         <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
           {displayError}

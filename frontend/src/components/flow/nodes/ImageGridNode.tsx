@@ -18,6 +18,7 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 
 type ImageItem = {
   id: string;
@@ -283,9 +284,8 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             };
 
             if (typeof sourceHandle === 'string') {
-              const match = /^image(\d+)$/.exec(sourceHandle);
-              if (match) {
-                const idx = Math.max(0, Number(match[1]) - 1);
+              const idx = getImageSplitHandleIndex(sourceHandle);
+              if (idx !== null) {
                 const rect = splitRects?.[idx];
                 const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
                 const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);

@@ -4,6 +4,7 @@ import SmartImage from '../../ui/SmartImage';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useLocaleText } from '@/utils/localeText';
+import RunCreditBadge from './RunCreditBadge';
 
 type Props = {
   id: string;
@@ -14,6 +15,7 @@ type Props = {
     gifUrl?: string;
     fps?: number;
     width?: number;
+    creditsPerCall?: number;
   };
   selected?: boolean;
 };
@@ -25,6 +27,7 @@ const API_BASE_URL =
 
 const DEFAULT_FPS = 10;
 const DEFAULT_WIDTH = 480;
+const DEFAULT_CREDITS_PER_CALL = 30;
 
 const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
   if (!raw || typeof raw !== 'string') return undefined;
@@ -106,6 +109,10 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
 
   const fps = typeof data.fps === 'number' ? data.fps : DEFAULT_FPS;
   const width = typeof data.width === 'number' ? data.width : DEFAULT_WIDTH;
+  const runCredits =
+    typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0
+      ? data.creditsPerCall
+      : DEFAULT_CREDITS_PER_CALL;
 
   const updateNodeData = React.useCallback(
     (patch: Record<string, any>) => {
@@ -228,19 +235,37 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
             </a>
           )}
           <button
+            className='run-btn-with-credit'
             onClick={handleConvert}
             disabled={!canConvert}
+            title={
+              status === 'converting'
+                ? lt('转换中...', 'Converting...')
+                : `${lt('本次消耗', 'Cost')}: ${runCredits} ${lt('积分', 'credits')}`
+            }
             style={{
               fontSize: 12,
               padding: '4px 10px',
+              minWidth: 78,
               background: canConvert ? '#111827' : '#e5e7eb',
               color: '#fff',
               borderRadius: 6,
               border: 'none',
               cursor: canConvert ? 'pointer' : 'not-allowed',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
             }}
           >
-            {status === 'converting' ? lt('转换中...', 'Converting...') : lt('生成 GIF', 'Create GIF')}
+            {status === 'converting' ? (
+              <span className='run-text-trigger'>{lt('转换中...', 'Converting...')}</span>
+            ) : (
+              <>
+                <span className='run-text-trigger'>{lt('生成 GIF', 'Create GIF')}</span>
+                <RunCreditBadge credits={runCredits} runButton />
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -28,8 +28,11 @@
 
 - `fac143d9` — `fix(frontend): harden canvas viewport updates and flow node perf`
 - `f44864b1` — `feat(flow): panel search, hydrate skip, Analyze skills, Text Chat prompt`
+- `c9682f22` — `feat(flow): Text Chat skills, storyboard formats, ref caps, video analysis`
+- `dc470fdf` — `feat(flow): stable progress by runKey and group run stop`
+- `df85ec3c` — `feat(global-history): video records, playback UI, AI Chat Seedance write`
 
-## 一批已完成但未提交的迁移（摘要）
+## 已完成迁移摘要（一）
 
 ### 1. `TextChatNode.tsx`
 
@@ -85,7 +88,7 @@
 - `helloagents/CHANGELOG.md`
 - `helloagents/wiki/modules/frontend-flow.md`
 
-### 涉及文件列表（未提交批次）
+### 涉及文件列表
 
 - `frontend/docs/06-变更日志.md`
 - `frontend/src/components/flow/FlowOverlay.tsx`
@@ -172,6 +175,76 @@
 - `git diff --check` 通过
 - `cd frontend && npm run build` 通过（仅现有 Vite chunk / dynamic import 警告）
 
+## 2026-05-04 继续迁移（三）
+
+### 已完成
+
+- Flow 运行态进度补齐：
+  - `FlowOverlay` 会给运行中的节点补 `progressStartedAt`
+  - 非运行状态会自动清理 `progressStartedAt`
+  - Flow 复制、模板实例化、保存模板等导出链路会删除 `progressStartedAt`
+  - 该字段只作为运行时 UI 状态使用，不进入设计 JSON 持久化
+- 生成/视频/音频节点进度条补齐：
+  - `GenerateNode`
+  - `GenerateProNode`
+  - `GenerateReferenceNode`
+  - `MidjourneyNode`
+  - `Nano2Node`
+  - `Seedream5Node`
+  - `ViewAngleNode`
+  - `GenericVideoNode`
+  - `KlingO3VideoNode`
+  - `Sora2VideoNode`
+  - `Wan26Node`
+  - `Wan27VideoNode`
+  - `Wan2R2VNode`
+  - `HappyhorseR2VNode`
+  - `MinimaxMusicNode`
+  - `MinimaxSpeechNode`
+  - `TencentSpeechNode`
+- Image Split 下游句柄解析统一：
+  - `GenerateNode` / `GenerateProNode` 使用 `getImageSplitHandleIndex`
+  - `ImageCompressNode` / `ImageGridNode` / `ViewAngleNode` 使用共享 helper 解析 `imageN/imgN`
+  - 避免手写正则只认 `imageN` 导致旧兼容句柄或归一化句柄漏解析
+- 小 UI/交互迁移：
+  - `VideoToGifNode` Run 按钮显示本次积分消耗
+  - `VideoNode` 的 `<video controls>` 增加 `nodrag/nopan/nowheel` 与事件隔离，避免拖动/播放控件时触发画布拖拽
+
+### 本轮涉及文件
+
+- `frontend/src/components/flow/FlowOverlay.tsx`
+- `frontend/src/components/flow/nodes/GenerateNode.tsx`
+- `frontend/src/components/flow/nodes/GenerateProNode.tsx`
+- `frontend/src/components/flow/nodes/GenerateReferenceNode.tsx`
+- `frontend/src/components/flow/nodes/MidjourneyNode.tsx`
+- `frontend/src/components/flow/nodes/Nano2Node.tsx`
+- `frontend/src/components/flow/nodes/Seedream5Node.tsx`
+- `frontend/src/components/flow/nodes/ViewAngleNode.tsx`
+- `frontend/src/components/flow/nodes/GenericVideoNode.tsx`
+- `frontend/src/components/flow/nodes/KlingO3VideoNode.tsx`
+- `frontend/src/components/flow/nodes/Sora2VideoNode.tsx`
+- `frontend/src/components/flow/nodes/Wan26Node.tsx`
+- `frontend/src/components/flow/nodes/Wan27VideoNode.tsx`
+- `frontend/src/components/flow/nodes/Wan2R2VNode.tsx`
+- `frontend/src/components/flow/nodes/HappyhorseR2VNode.tsx`
+- `frontend/src/components/flow/nodes/MinimaxMusicNode.tsx`
+- `frontend/src/components/flow/nodes/MinimaxSpeechNode.tsx`
+- `frontend/src/components/flow/nodes/TencentSpeechNode.tsx`
+- `frontend/src/components/flow/nodes/ImageCompressNode.tsx`
+- `frontend/src/components/flow/nodes/ImageGridNode.tsx`
+- `frontend/src/components/flow/nodes/VideoNode.tsx`
+- `frontend/src/components/flow/nodes/VideoToGifNode.tsx`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
+
+### 本轮验证
+
+- 待本轮完成后更新：
+  - `git diff --check`
+  - `cd frontend && npm run build`
+
 ## 建议下一步
 
 1. 检查当前工作区：
@@ -192,8 +265,24 @@
      frontend/src/utils
    ```
 
+## 下一轮候选
+
+- 继续筛 `frontend/src/components/flow/nodes/*` 中的纯 UI/运行体验差异：
+  - 不改保存结构
+  - 不引入新服务依赖
+  - 不碰图片预览资产转存
+- 可单独评估 `contextManager` 的提示语小修和项目内会话恢复边界，但需要先确认不会影响 AI Chat 历史恢复。
+- 可单独评估 `aiBackendAPI.generateTextResponseViaAPI` 返回 `metadata` 的前端透传，但需要确认后端当前响应结构和调用方展示逻辑。
+- 可继续检查 Global History / Library 侧的媒体展示补齐，但不迁移缩略图远程转存逻辑。
+
 ## 暂时不要迁移
 
 - Banana web-search 旧后端 route（后端/API 耦合较高）
-- 保存、画布持久化、object URL、项目预览资产链路
+- `bananaRouteStatsApi` / 后端 banana route 统计（API 耦合较高，需后端同步确认）
+- `nodeConfigService` 中定价/节点默认配置变更（可能影响线上计费与节点可见性）
+- `imagePreviewAssetService`
+- `objectUrlRegistry`
+- `paperSaveService`
+- `DrawingController`
+- 保存、画布持久化、项目预览资产链路
 - 后端积分 / provider route 大改（除非用户明确要求）

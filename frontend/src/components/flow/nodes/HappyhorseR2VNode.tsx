@@ -33,6 +33,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     videoUrl?: string;
     thumbnail?: string;
     error?: string;
@@ -1094,7 +1095,11 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
       >
         {renderPreview()}
       </div>
-      <GenerationProgressBar status={data.status || "idle"} runKey={id} />
+      <GenerationProgressBar
+        status={data.status || "idle"}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {historyItems.length > 0 && (
         <div
