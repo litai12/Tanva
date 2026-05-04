@@ -8,17 +8,21 @@ const isFlowNodeDragging = (): boolean =>
 export const useNodeInternalsSync = (
   id: string,
   rootRef: React.RefObject<HTMLElement | null>,
-  deps: ReadonlyArray<unknown> = []
+  deps: ReadonlyArray<unknown> = [],
+  options: { disabled?: boolean } = {}
 ) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const rafRef = React.useRef<number | null>(null);
+  const disabled = Boolean(options.disabled);
+  const disabledRef = React.useRef(disabled);
+  disabledRef.current = disabled;
 
   React.useLayoutEffect(() => {
-    if (!id) return;
+    if (!id || disabledRef.current) return;
     updateNodeInternals(id);
     // Caller-controlled dependency list allows syncing after logical layout changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, updateNodeInternals, ...deps]);
+  }, [id, updateNodeInternals, disabled, ...deps]);
 
   React.useEffect(() => {
     const element = rootRef.current;
@@ -30,7 +34,7 @@ export const useNodeInternalsSync = (
       }
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
-        if (isFlowNodeDragging()) {
+        if (disabledRef.current || isFlowNodeDragging()) {
           return;
         }
         updateNodeInternals(id);

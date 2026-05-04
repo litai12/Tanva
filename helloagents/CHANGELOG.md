@@ -5,6 +5,11 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Fixed
+- Flow viewport sync no longer calls `ReactFlow.setViewport` on every canvas zoom/pan frame; high-frequency frames update the DOM transform directly, with debounced internal viewport sync and an immediate flush before coordinate conversion.
+- Flow zoom performance now temporarily switches large graphs to low-detail rendering during active zoom, and crop/WebGL preview ResizeObserver callbacks are deferred to animation frames to reduce long frames and browser resize-loop warnings.
+- Flow Prompt node resize now suppresses `ResizeObserver`-driven ReactFlow internals sync during local preview and syncs after the final size commit, reducing resize jank.
+
 ### Integration
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.

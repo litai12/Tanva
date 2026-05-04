@@ -112,11 +112,8 @@ const GlobalZoomCapture = () => {
     };
 
     const scheduleViewport = (viewport: { panX: number; panY: number; zoom: number }) => {
-      if (viewportRafRef.current !== null) {
-        pendingViewportRef.current = viewport;
-        return;
-      }
-      useCanvasStore.getState().setViewport(viewport);
+      pendingViewportRef.current = viewport;
+      if (viewportRafRef.current !== null) return;
       viewportRafRef.current = window.requestAnimationFrame(flushViewport);
     };
 

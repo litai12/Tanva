@@ -594,6 +594,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
   const textureRef = React.useRef<THREE.Texture | null>(null);
   const renderPendingRef = React.useRef<number | null>(null);
   const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
+  const resizeRafRef = React.useRef<number | null>(null);
 
   const renderNow = React.useCallback(() => {
     const renderer = rendererRef.current;
@@ -730,10 +731,18 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
     subjectMeshRef.current = subject;
 
     try {
-      resizeObserverRef.current = new ResizeObserver(() => {
-        syncRendererSize();
-      });
+      const scheduleResize = () => {
+        if (resizeRafRef.current !== null) {
+          cancelAnimationFrame(resizeRafRef.current);
+        }
+        resizeRafRef.current = requestAnimationFrame(() => {
+          resizeRafRef.current = null;
+          syncRendererSize();
+        });
+      };
+      resizeObserverRef.current = new ResizeObserver(scheduleResize);
       resizeObserverRef.current.observe(container);
+      scheduleResize();
     } catch {
       resizeObserverRef.current = null;
     }
@@ -751,6 +760,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           resizeObserverRef.current.disconnect();
         } catch {}
         resizeObserverRef.current = null;
+      }
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
       }
 
       if (textureRef.current) {

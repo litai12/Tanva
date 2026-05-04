@@ -312,7 +312,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     );
   }, [commitResize]);
 
-  useNodeInternalsSync(id, nodeRootRef, [data.boxW, data.boxH, isEditingTitle]);
+  useNodeInternalsSync(
+    id,
+    nodeRootRef,
+    [data.boxW, data.boxH, isEditingTitle],
+    { disabled: isResizing }
+  );
 
   const renderedBoxW = isResizing && resizePreview ? resizePreview.width : (data.boxW || 240);
   const renderedBoxH = isResizing && resizePreview ? resizePreview.height : (data.boxH || 180);

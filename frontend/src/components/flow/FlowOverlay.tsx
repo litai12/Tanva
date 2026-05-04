@@ -28,6 +28,7 @@ import { ReactFlowProvider } from "reactflow";
 import { useCanvasStore } from "@/stores";
 import { useToolStore } from "@/stores";
 import {
+  type CanvasViewportFrame,
   getCanvasViewportFrame,
   subscribeCanvasViewportFrame,
 } from "@/utils/canvasViewportFrame";
@@ -297,6 +298,22 @@ const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
 const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.45;
+const FLOW_REACTFLOW_VIEWPORT_SYNC_DELAY_MS = 96;
+
+type FlowViewportSnapshot = { x: number; y: number; z: number };
+
+const areFlowViewportsEqual = (
+  a: FlowViewportSnapshot | null | undefined,
+  b: FlowViewportSnapshot | null | undefined,
+  eps = 1e-6
+): boolean =>
+  Boolean(
+    a &&
+      b &&
+      Math.abs(a.x - b.x) < eps &&
+      Math.abs(a.y - b.y) < eps &&
+      Math.abs(a.z - b.z) < eps
+  );
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -6342,7 +6359,12 @@ function FlowInner() {
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
+  const [isCanvasZooming, setIsCanvasZooming] = React.useState(false);
   const flowLowDetailModeRef = React.useRef(false);
+  const canvasZoomIdleTimerRef = React.useRef<number | null>(null);
+  const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
+  const zoomFpsActiveUntilRef = React.useRef(0);
+  const isCanvasZoomingRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
     () =>
       nodes.some((node) => {
@@ -6433,8 +6455,62 @@ function FlowInner() {
     );
   }, [canEnableLowDetailMode]);
 
+  React.useEffect(() => {
+    const clearCanvasZoomIdleTimer = () => {
+      if (canvasZoomIdleTimerRef.current !== null) {
+        window.clearTimeout(canvasZoomIdleTimerRef.current);
+        canvasZoomIdleTimerRef.current = null;
+      }
+    };
+
+    const markCanvasZooming = (nextZoomRaw: number) => {
+      const nextZoom =
+        Number.isFinite(Number(nextZoomRaw)) && Number(nextZoomRaw) > 0
+          ? Number(nextZoomRaw)
+          : 1;
+      const prevZoom = Number(canvasZoomRef.current);
+      if (
+        Number.isFinite(nextZoom) &&
+        Number.isFinite(prevZoom) &&
+        Math.abs(nextZoom - prevZoom) <= 0.0001
+      ) {
+        return;
+      }
+
+      canvasZoomRef.current = nextZoomRaw;
+      if (!isCanvasZoomingRef.current) {
+        isCanvasZoomingRef.current = true;
+        setIsCanvasZooming(true);
+      }
+      clearCanvasZoomIdleTimer();
+      canvasZoomIdleTimerRef.current = window.setTimeout(() => {
+        canvasZoomIdleTimerRef.current = null;
+        if (isCanvasZoomingRef.current) {
+          isCanvasZoomingRef.current = false;
+          setIsCanvasZooming(false);
+        }
+      }, 180);
+    };
+
+    canvasZoomRef.current = useCanvasStore.getState().zoom;
+
+    const unsubscribe = useCanvasStore.subscribe(
+      (state) => state.zoom,
+      (nextZoom) => markCanvasZooming(nextZoom)
+    );
+
+    return () => {
+      unsubscribe();
+      clearCanvasZoomIdleTimer();
+      isCanvasZoomingRef.current = false;
+      setIsCanvasZooming(false);
+    };
+  }, []);
+
   const effectiveFlowLowDetailMode =
-    isFlowLowDetailMode && !hasRunningFlowNode;
+    (isFlowLowDetailMode ||
+      (isCanvasZooming && nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD)) &&
+    !hasRunningFlowNode;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
@@ -6448,8 +6524,6 @@ function FlowInner() {
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
   const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | "Zoom" | null>(null);
   const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
-  const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
-  const zoomFpsActiveUntilRef = React.useRef(0);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
   React.useEffect(() => {
@@ -6686,6 +6760,11 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const lastReactFlowViewportSyncRef =
+    React.useRef<FlowViewportSnapshot | null>(null);
+  const pendingReactFlowViewportSyncRef =
+    React.useRef<FlowViewportSnapshot | null>(null);
+  const pendingReactFlowViewportTimerRef = React.useRef<number | null>(null);
   const flowViewportElementRef = React.useRef<HTMLElement | null>(null);
 
   const getFlowViewportElement = React.useCallback(() => {
@@ -6702,49 +6781,115 @@ function FlowInner() {
     return next;
   }, []);
 
-  const applyViewportFrame = React.useCallback((frame) => {
-    const next = { x: frame.flowX, y: frame.flowY, z: frame.zoom };
-    const prev = lastApplied.current;
-    const eps = 1e-6;
-    if (
-      prev &&
-      Math.abs(prev.x - next.x) < eps &&
-      Math.abs(prev.y - next.y) < eps &&
-      Math.abs(prev.z - next.z) < eps
-    ) {
-      return;
-    }
-
-    let applied = false;
-    try {
-      const viewportElement = getFlowViewportElement();
-      if (viewportElement) {
-        viewportElement.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.z})`;
-        viewportElement.style.transformOrigin = "0 0";
-        applied = true;
+  const applyFlowViewportDom = React.useCallback(
+    (next: FlowViewportSnapshot) => {
+      try {
+        const viewportElement = getFlowViewportElement();
+        if (viewportElement) {
+          viewportElement.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.z})`;
+          viewportElement.style.transformOrigin = "0 0";
+          lastApplied.current = next;
+          return true;
+        }
+      } catch {
+        /* ReactFlow DOM can be unavailable while mounting. */
       }
-    } catch {
-      /* ReactFlow DOM can be unavailable while mounting. */
-    }
+      return false;
+    },
+    [getFlowViewportElement]
+  );
 
-    try {
-      rfRef.current.setViewport({ x: next.x, y: next.y, zoom: next.z }, { duration: 0 });
-      applied = true;
-    } catch {
-      /* ReactFlow instance may not be ready during early hydration. */
-    }
-    if (applied) {
-      lastApplied.current = next;
-    }
-  }, [getFlowViewportElement]);
+  const commitReactFlowViewportSync = React.useCallback(
+    (next: FlowViewportSnapshot) => {
+      if (areFlowViewportsEqual(lastReactFlowViewportSyncRef.current, next)) {
+        return false;
+      }
+      try {
+        rfRef.current.setViewport(
+          { x: next.x, y: next.y, zoom: next.z },
+          { duration: 0 }
+        );
+        lastReactFlowViewportSyncRef.current = next;
+        return true;
+      } catch {
+        /* ReactFlow instance may not be ready during early hydration. */
+      }
+      return false;
+    },
+    []
+  );
 
-  const syncViewportToCanvasStore = () => {
+  const clearPendingReactFlowViewportSync = React.useCallback(() => {
+    if (pendingReactFlowViewportTimerRef.current !== null) {
+      window.clearTimeout(pendingReactFlowViewportTimerRef.current);
+      pendingReactFlowViewportTimerRef.current = null;
+    }
+    pendingReactFlowViewportSyncRef.current = null;
+  }, []);
+
+  const flushReactFlowViewportSync = React.useCallback(() => {
+    const frame = getCanvasViewportFrame();
+    const next = { x: frame.flowX, y: frame.flowY, z: frame.zoom };
+    clearPendingReactFlowViewportSync();
+    if (!areFlowViewportsEqual(lastApplied.current, next)) {
+      applyFlowViewportDom(next);
+    }
+    commitReactFlowViewportSync(next);
+    return next;
+  }, [
+    applyFlowViewportDom,
+    clearPendingReactFlowViewportSync,
+    commitReactFlowViewportSync,
+  ]);
+
+  const scheduleReactFlowViewportSync = React.useCallback(
+    (next: FlowViewportSnapshot) => {
+      pendingReactFlowViewportSyncRef.current = next;
+      if (pendingReactFlowViewportTimerRef.current !== null) {
+        window.clearTimeout(pendingReactFlowViewportTimerRef.current);
+      }
+      pendingReactFlowViewportTimerRef.current = window.setTimeout(() => {
+        pendingReactFlowViewportTimerRef.current = null;
+        const pending = pendingReactFlowViewportSyncRef.current;
+        pendingReactFlowViewportSyncRef.current = null;
+        if (!pending) return;
+        commitReactFlowViewportSync(pending);
+      }, FLOW_REACTFLOW_VIEWPORT_SYNC_DELAY_MS);
+    },
+    [commitReactFlowViewportSync]
+  );
+
+  const applyViewportFrame = React.useCallback(
+    (frame: CanvasViewportFrame) => {
+      const next = { x: frame.flowX, y: frame.flowY, z: frame.zoom };
+      if (areFlowViewportsEqual(lastApplied.current, next)) return;
+      if (applyFlowViewportDom(next)) {
+        scheduleReactFlowViewportSync(next);
+      }
+    },
+    [applyFlowViewportDom, scheduleReactFlowViewportSync]
+  );
+
+  const screenToFlowPosition = React.useCallback(
+    (position: { x: number; y: number }) => {
+      flushReactFlowViewportSync();
+      return rf.screenToFlowPosition(position);
+    },
+    [flushReactFlowViewportSync, rf]
+  );
+
+  React.useEffect(() => {
+    return () => clearPendingReactFlowViewportSync();
+  }, [clearPendingReactFlowViewportSync]);
+
+  const syncViewportToCanvasStore = React.useCallback(() => {
     try {
-      applyViewportFrame(getCanvasViewportFrame());
+      flushReactFlowViewportSync();
     } catch {
       /* noop */
     }
-  };
+  }, [flushReactFlowViewportSync]);
+
   React.useEffect(() => {
     return subscribeCanvasViewportFrame(applyViewportFrame, {
       priority: 1,
@@ -6754,7 +6899,7 @@ function FlowInner() {
   React.useLayoutEffect(() => {
     if (!projectId) return;
     syncViewportToCanvasStore();
-  }, [projectId]);
+  }, [projectId, syncViewportToCanvasStore]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -6957,11 +7102,11 @@ function FlowInner() {
         Number.isFinite(worldOverride.y);
       const world = hasWorldOverride
         ? { x: worldOverride.x, y: worldOverride.y }
-        : rf.screenToFlowPosition(panelScreen);
+        : screenToFlowPosition(panelScreen);
       setAddPanel({ visible: true, screen: panelScreen, world });
     },
     [
-      rf,
+      screenToFlowPosition,
       addTab,
       setAddTabWithMemory,
       setTemplateScope,
@@ -8081,7 +8226,7 @@ function FlowInner() {
         Math.hypot(last.x - x, last.y - y) < 10
       ) {
         if (isBlankArea(x, y)) {
-          const world = rf.screenToFlowPosition({ x, y });
+          const world = screenToFlowPosition({ x, y });
           openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
@@ -8095,7 +8240,7 @@ function FlowInner() {
         );
       }
     },
-    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode, rf]
+    [openAddPanelAtContainerCenter, isBlankArea, setNodes, isPointerMode, screenToFlowPosition]
   );
 
   React.useEffect(() => {
@@ -8303,7 +8448,7 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
-          const world = rf.screenToFlowPosition({ x, y });
+          const world = screenToFlowPosition({ x, y });
           openAddPanelAtContainerCenter({
             tab: "nodes",
             allowedTabs: ["nodes", "beta", "custom"],
@@ -8320,7 +8465,7 @@ function FlowInner() {
 
     window.addEventListener("click", onNativeClick, true);
     return () => window.removeEventListener("click", onNativeClick, true);
-  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, screenToFlowPosition]);
 
   // 🔥 备选方案：监听原生 dblclick 事件，解决自定义双击检测在某些模式下失效的问题
   React.useEffect(() => {
@@ -8367,7 +8512,7 @@ function FlowInner() {
       if (isBlankArea(x, y)) {
         e.stopPropagation();
         e.preventDefault();
-        const world = rf.screenToFlowPosition({ x, y });
+        const world = screenToFlowPosition({ x, y });
         openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
@@ -8378,7 +8523,7 @@ function FlowInner() {
 
     window.addEventListener("dblclick", onNativeDblClick, true);
     return () => window.removeEventListener("dblclick", onNativeDblClick, true);
-  }, [openAddPanelAtContainerCenter, isBlankArea, rf]);
+  }, [openAddPanelAtContainerCenter, isBlankArea, screenToFlowPosition]);
 
   const createNodeAtWorldCenter = React.useCallback(
     (
@@ -9211,7 +9356,7 @@ function FlowInner() {
         setConnectQuickMenu({
           visible: true,
           screen: { x, y },
-          world: rf.screenToFlowPosition({ x, y }),
+          world: screenToFlowPosition({ x, y }),
           alignEdge: latest.direction === "reverse" ? "right" : "left",
           options,
         });
@@ -9230,7 +9375,7 @@ function FlowInner() {
     clearConnectHoverTimer,
     getForwardQuickConnectOptions,
     getReverseQuickConnectOptions,
-    rf,
+    screenToFlowPosition,
   ]);
 
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
@@ -11841,7 +11986,7 @@ function FlowInner() {
           60 +
           (Math.random() * 80 - 40),
       };
-      const position = rf.screenToFlowPosition(screenPosition);
+      const position = screenToFlowPosition(screenPosition);
       const id = `img_${Date.now()}`;
       setNodes((ns) =>
         ns.concat([
@@ -21306,7 +21451,7 @@ function FlowInner() {
         dataPatch?: Record<string, any>
       ) => {
         const id = `three_${Date.now()}`;
-        const position = rf.screenToFlowPosition({
+        const position = screenToFlowPosition({
           x: screenX,
           y: screenY,
         });
@@ -21407,11 +21552,11 @@ function FlowInner() {
           const relativeY = screenRect.y - containerRect.top;
 
           // 将屏幕坐标的选择框转换为 Flow 坐标
-          const topLeft = rf.screenToFlowPosition({
+          const topLeft = screenToFlowPosition({
             x: relativeX,
             y: relativeY,
           });
-          const bottomRight = rf.screenToFlowPosition({
+          const bottomRight = screenToFlowPosition({
             x: relativeX + screenRect.width,
             y: relativeY + screenRect.height,
           });
@@ -21483,7 +21628,7 @@ function FlowInner() {
     return () => {
       delete (window as any).tanvaFlow;
     };
-  }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf]);
+  }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf, screenToFlowPosition]);
 
   const addAtCenter = React.useCallback(
     (
@@ -21505,7 +21650,7 @@ function FlowInner() {
         x: (rect?.width || window.innerWidth) / 2,
         y: (rect?.height || window.innerHeight) / 2,
       };
-      const center = rf.screenToFlowPosition(centerScreen);
+      const center = screenToFlowPosition(centerScreen);
       const id = `${type}_${Date.now()}`;
       const base: any = {
         id,
@@ -21568,7 +21713,7 @@ function FlowInner() {
       } catch {}
       return id;
     },
-    [aiProvider, rf, setNodes]
+    [aiProvider, screenToFlowPosition, setNodes]
   );
 
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
@@ -22016,7 +22161,7 @@ function FlowInner() {
   const handleContainerDoubleClick = React.useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (isBlankArea(e.clientX, e.clientY)) {
-        const world = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        const world = screenToFlowPosition({ x: e.clientX, y: e.clientY });
         openAddPanelAtContainerCenter({
           tab: "nodes",
           allowedTabs: ["nodes", "beta", "custom"],
@@ -22024,7 +22169,7 @@ function FlowInner() {
         });
       }
     },
-    [openAddPanelAtContainerCenter, isBlankArea, rf]
+    [openAddPanelAtContainerCenter, isBlankArea, screenToFlowPosition]
   );
 
   const commitEdgeLabelValue = React.useCallback(
@@ -22297,14 +22442,14 @@ function FlowInner() {
       const rect = container?.getBoundingClientRect();
       const centerX = rect ? rect.width / 2 : 400;
       const centerY = rect ? rect.height / 2 : 300;
-      const world = rf.screenToFlowPosition({ x: centerX, y: centerY });
+      const world = screenToFlowPosition({ x: centerX, y: centerY });
       console.log("[FlowOverlay] 收到模板实例化事件，位置:", world);
       instantiateTemplateAt(detail.template, world);
     };
     window.addEventListener("flow:instantiateTemplate", handler as EventListener);
     return () =>
       window.removeEventListener("flow:instantiateTemplate", handler as EventListener);
-  }, [rf, instantiateTemplateAt]);
+  }, [screenToFlowPosition, instantiateTemplateAt]);
 
   const saveCurrentAsTemplate = React.useCallback(async () => {
     const allNodes = rf.getNodes();

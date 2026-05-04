@@ -86,6 +86,7 @@ const CanvasCropPreview = React.memo(({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const resizeRafRef = React.useRef<number | null>(null);
 
   React.useLayoutEffect(() => {
     const container = containerRef.current;
@@ -104,18 +105,32 @@ const CanvasCropPreview = React.memo(({
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
 
-    update();
+    const scheduleUpdate = () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        update();
+      });
+    };
+
+    scheduleUpdate();
 
     let ro: ResizeObserver | null = null;
     try {
-      ro = new ResizeObserver(update);
+      ro = new ResizeObserver(scheduleUpdate);
       ro.observe(container);
     } catch {}
 
-    window.addEventListener('resize', update);
+    window.addEventListener('resize', scheduleUpdate);
     return () => {
-      window.removeEventListener('resize', update);
+      window.removeEventListener('resize', scheduleUpdate);
       try { ro?.disconnect(); } catch {}
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
     };
   }, []);
 

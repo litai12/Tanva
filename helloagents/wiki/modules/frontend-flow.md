@@ -1,6 +1,11 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-04 Update
+- Canvas -> Flow 视口同步在缩放/平移高频帧只写 `.react-flow__viewport` DOM transform，不再每帧调用 `ReactFlow.setViewport`；ReactFlow 内部 viewport 改为延迟同步，并在 `screenToFlowPosition` 等坐标换算前立即 flush，避免交互坐标过期。
+- 复杂 Flow 图缩放期间会临时启用低细节渲染，隐藏裁切/图片预览、连线与 MiniMap 等重内容；Image/ImageSplit 裁切预览和 ViewAngle WebGL 预览的 `ResizeObserver` 回调改为 rAF 后测量，避免同步 resize 回调里触发状态/renderer 尺寸更新。
+
 ## 2026-05-03 Update
+- 普通 `Prompt` 节点缩放预览期间会暂停 `ResizeObserver` 触发的 `updateNodeInternals`，只在最终 `boxW/boxH` 提交后同步句柄/连线，避免缩放时每帧重算 ReactFlow internals 导致卡顿。
 - 普通 `Prompt` 节点拖拽缩放性能优化：`TextPromptNode` 缩放中只做节点本地预览尺寸，松手后一次性提交 `position + boxW/boxH` 到 ReactFlow 全局状态，`textarea` 自身不再提供浏览器原生缩放手柄，避免 resize 期间高频触发全局 ReactFlow `nodes` 更新与重复布局。
 - Analysis/Image Chat 节点新增轻量 Skill 选择：`Analysis` 保持原有描述式分析提示词，`提示词` 只输出一段可直接用于生图的纯提示词，`JSON` 会把图片拆解为结构化 JSON（主体、场景、风格、细节和可复用 prompt）；节点 UI 不再展示手动提示词输入框，选择 Skill 会写回节点 `analysisSkillId` 和 `analysisPrompt`，旧节点无该字段时自动回落到 `Analysis`。
 - Text Chat 节点中间的“追加描述”输入区改为 Skill 选择：默认 `自定义` 并显示手动输入框，切到内置 `拆分镜头`、`提示词优化`、`中英文转换` 时隐藏输入框；选择后写回 `textChatSkillId`，`manualInput` 保留自定义输入内容。
