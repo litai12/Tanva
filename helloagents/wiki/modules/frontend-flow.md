@@ -8,8 +8,9 @@
 - Global History has a shared `historyMedia.ts` helper for image/video detection, labels, media URLs, video thumbnails, and download names. The history page and detail modal now render video records with thumbnails/playback; AI Chat Seedance video success records remote video URL metadata through `recordVideoHistoryEntry`.
 - Image Split downstream parsing now uses the shared `imageSplitHandles` helper in Generate/Agent/ImageCompress/ImageGrid/ViewAngle paths, preserving `imageN/imgN` compatibility for crop-based inputs.
 - `VideoToGifNode` shows the run credit badge, and `VideoNode` isolates native video controls with `nodrag/nopan/nowheel` plus event capture guards.
-- Workspace header has a quick Nano Banana/Gemini/GPT-Image-2 route switch that updates the existing `bananaImageRoute` setting without adding route stats API dependencies.
+- Workspace header has a quick Nano Banana/Gemini/GPT-Image-2 route switch that updates the existing `bananaImageRoute` setting and displays today's normal/stable route success rates.
 - Canvas drawing tools include an `arrow` mode exposed in the toolbar; the drawing hook creates a filled Paper path tagged with `data.tool = "arrow"`, and the layer panel maps it to an Arrow layer type/icon.
+- `GeneratePro4Node` now uses node-local Fast/Pro/Ultra selection (`modelProvider`) and previews run credits with the connected reference-image count capped by shared `flowModelProvider` limits.
 
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.

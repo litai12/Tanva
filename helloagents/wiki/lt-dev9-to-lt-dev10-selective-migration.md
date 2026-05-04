@@ -339,6 +339,57 @@
 - `ai-metadata-sync` 未跑通：本地脚本仍缺失
   `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
 
+## 2026-05-04 继续迁移（六）
+
+### 已完成
+
+- P0：Banana route 成功率统计与顶部展示：
+  - 后端新增 `GET /api/ai/banana-route-success-rates`
+  - 按客户端时区统计当天 `normal/stable` 路线的成功/失败/处理中调用数
+  - 前端新增 `bananaRouteStatsApi`
+  - 右上角路线快捷切换下拉展示今日成功率与信号条
+- P1：`GeneratePro4Node` 模型/参考图能力补齐：
+  - 节点本地支持 `Fast / Pro / Ultra` 模型切换
+  - 缺省时从全局 `aiProvider` 解析并写入 `modelProvider`
+  - 运行积分预览按当前节点模型与已连接参考图数量计算
+  - 参考图数量按共享 `flowModelProvider` 限制收敛（Fast=3、Pro=11、Ultra=14）
+- P1：项目管理弹窗预览宫格：
+  - 每页从 6 项扩展到 12 项
+  - 仅懒加载当前页项目内容并从 `assets` / Flow 节点数据提取图片引用
+  - 卡片预览从单张缩略图改为最多 16 张的宫格预览
+  - 重命名/删除改为悬浮 icon 操作
+  - 仅读取项目内容，不做缩略图转存，不改保存链路
+
+### 本轮刻意未迁移
+
+- `paperSaveService` / `DrawingController` / 保存链路重构
+- `objectUrlRegistry` / `imagePreviewAssetService`
+- `nodeConfigService` 定价/节点默认配置变更
+- `projectContentStore` dirty 判等优化
+- Banana web-search 旧后端 route
+
+### 本轮涉及文件
+
+- `backend/src/ai/ai.controller.ts`
+- `frontend/src/services/bananaRouteStatsApi.ts`
+- `frontend/src/components/layout/FloatingHeader.tsx`
+- `frontend/src/components/flow/nodes/GeneratePro4Node.tsx`
+- `frontend/src/components/projects/ProjectManagerModal.tsx`
+- `frontend/src/i18n/locales/zh-CN.ts`
+- `frontend/src/i18n/locales/en-US.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/backend-ai.md`
+- `helloagents/wiki/modules/frontend-app.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `cd backend && npm run build` 通过
+
 ## 建议下一步
 
 1. 检查当前工作区：
@@ -371,7 +422,6 @@
 ## 暂时不要迁移
 
 - Banana web-search 旧后端 route（后端/API 耦合较高）
-- `bananaRouteStatsApi` / 后端 banana route 统计（API 耦合较高，需后端同步确认）
 - `nodeConfigService` 中定价/节点默认配置变更（可能影响线上计费与节点可见性）
 - `imagePreviewAssetService`
 - `objectUrlRegistry`

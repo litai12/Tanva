@@ -1,19 +1,38 @@
 import React from "react";
-import { Handle, Position, useReactFlow, type Node as RFNode } from "reactflow";
-import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
+import {
+  Handle,
+  Position,
+  useReactFlow,
+  useStore,
+  type Node as RFNode,
+  type Node as FlowNode,
+  type ReactFlowState,
+} from "reactflow";
+import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon, Check } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { cn } from "@/lib/utils";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import ContextMenu from "../../ui/context-menu";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import { useLocaleText } from "@/utils/localeText";
 import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import {
+  getFlowImageReferenceLimit,
+  resolveFlowModelProvider,
+  type FlowModelProvider,
+} from "@/utils/flowModelProvider";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -48,6 +67,7 @@ type Props = {
     imageSize?: "1K" | "2K" | "4K" | null;
     prompts?: string[];
     imageWidth?: number;
+    modelProvider?: FlowModelProvider;
     creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
@@ -58,6 +78,99 @@ type Props = {
 const DEFAULT_IMAGE_WIDTH = 340;
 const MIN_IMAGE_WIDTH = 200;
 const MAX_IMAGE_WIDTH = 800;
+
+type OrderedInputEdge = {
+  edge: ReactFlowState["edges"][number];
+  index: number;
+};
+
+const isImageInputHandle = (handle?: string | null): boolean => {
+  if (!handle || handle === "img") return true;
+  return /^img\d+$/.test(handle);
+};
+
+const imageInputHandleRank = (handle?: string | null): number => {
+  if (!handle || handle === "img") return 0;
+  const match = /^img(\d+)$/.exec(handle);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return Math.max(0, Number(match[1]) - 1);
+};
+
+const collectOrderedInputEdges = (
+  edges: ReactFlowState["edges"],
+  targetId: string
+): OrderedInputEdge[] => {
+  const matched: OrderedInputEdge[] = [];
+  for (let i = 0; i < edges.length; i += 1) {
+    const edge = edges[i];
+    if (edge.target !== targetId) continue;
+    if (!isImageInputHandle(edge.targetHandle)) continue;
+    matched.push({ edge, index: i });
+  }
+  if (matched.length <= 1) return matched;
+  matched.sort((a, b) => {
+    const rankDelta =
+      imageInputHandleRank(a.edge.targetHandle) -
+      imageInputHandleRank(b.edge.targetHandle);
+    if (rankDelta !== 0) return rankDelta;
+    return a.index - b.index;
+  });
+  return matched;
+};
+
+const normalizeImageValue = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const readConnectedImageCountFromNode = (
+  node: FlowNode,
+  sourceHandle?: string | null
+): number => {
+  const d = (node.data ?? {}) as Record<string, unknown>;
+  const getStringAt = (list: unknown, idx: number): string | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    return normalizeImageValue(list[idx]);
+  };
+  const hasImageAt = (idx: number): boolean =>
+    Boolean(
+      getStringAt(d.imageUrls, idx) ||
+        getStringAt(d.images, idx) ||
+        getStringAt(d.thumbnails, idx)
+    );
+
+  if (typeof sourceHandle === "string") {
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) return hasImageAt(Math.max(0, Number(singleMatch[1]) - 1)) ? 1 : 0;
+  }
+
+  if (
+    typeof sourceHandle === "string" &&
+    (sourceHandle === "images" || sourceHandle.startsWith("images-"))
+  ) {
+    const max = Math.max(
+      Array.isArray(d.imageUrls) ? d.imageUrls.length : 0,
+      Array.isArray(d.images) ? d.images.length : 0,
+      Array.isArray(d.thumbnails) ? d.thumbnails.length : 0
+    );
+    let count = 0;
+    for (let idx = 0; idx < max; idx += 1) {
+      if (hasImageAt(idx)) count += 1;
+    }
+    return count;
+  }
+
+  return normalizeImageValue(d.imageData) ||
+    normalizeImageValue(d.imageUrl) ||
+    normalizeImageValue(d.outputImage) ||
+    normalizeImageValue(d.inputImage) ||
+    normalizeImageValue(d.inputImageUrl) ||
+    normalizeImageValue(d.thumbnailDataUrl) ||
+    normalizeImageValue(d.thumbnail)
+    ? 1
+    : 0;
+};
 
 // 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string => {
@@ -89,11 +202,96 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const chatTheme = useAIChatStore((state) => state.chatTheme);
   const isFlowDark = chatTheme === "black";
-  const isProMode =
-    aiProvider === 'gemini-pro' ||
-    aiProvider === 'banana' ||
-    aiProvider === 'banana-3.1' ||
-    aiProvider === 'nano2';
+  const effectiveProvider = React.useMemo<FlowModelProvider>(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
+  const isProMode = true;
+  type ProviderToggleValue = "banana-2.5" | "banana" | "banana-3.1";
+  const providerToggleOptions = React.useMemo<Array<{
+    value: ProviderToggleValue;
+    label: string;
+    description: string;
+  }>>(
+    () => [
+      {
+        value: "banana-2.5",
+        label: "Fast",
+        description: lt("Nano Banana/Gemini 2.5", "Nano Banana/Gemini 2.5"),
+      },
+      {
+        value: "banana",
+        label: "Pro",
+        description: lt("Nano Banana Pro+Gemini 3.0", "Nano Banana Pro+Gemini 3.0"),
+      },
+      {
+        value: "banana-3.1",
+        label: "Ultra",
+        description: lt("Nano Banana 2/Gemini 3.1", "Nano Banana 2/Gemini 3.1"),
+      },
+    ],
+    [lt]
+  );
+  const currentProviderValue = effectiveProvider;
+  const currentProviderOption = React.useMemo(
+    () =>
+      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
+      providerToggleOptions[1],
+    [currentProviderValue, providerToggleOptions]
+  );
+  const maxReferenceImages = React.useMemo(
+    () => getFlowImageReferenceLimit(currentProviderValue),
+    [currentProviderValue]
+  );
+
+  React.useEffect(() => {
+    if (
+      typeof data.modelProvider === "string" &&
+      data.modelProvider.trim().length > 0
+    ) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { modelProvider: currentProviderValue } },
+      })
+    );
+  }, [currentProviderValue, data.modelProvider, id]);
+  const connectedInputImageCount = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edgeWithOrder = collectOrderedInputEdges(state.edges, id);
+        if (edgeWithOrder.length === 0) return 0;
+
+        const nodeLookup = (
+          state as ReactFlowState & { nodeLookup?: Map<string, FlowNode> }
+        ).nodeLookup;
+        const hasNodeLookup =
+          nodeLookup && typeof nodeLookup.get === "function";
+        const fallbackNodes = hasNodeLookup
+          ? null
+          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes ||
+            state.getNodes());
+        const fallbackNodeById = fallbackNodes
+          ? new Map(fallbackNodes.map((node) => [node.id, node]))
+          : null;
+        const resolveSourceNode = (sourceId: string): FlowNode | undefined => {
+          const fromLookup = hasNodeLookup ? nodeLookup!.get(sourceId) : undefined;
+          return fromLookup || fallbackNodeById?.get(sourceId);
+        };
+
+        let count = 0;
+        for (let edgeIdx = 0; edgeIdx < edgeWithOrder.length; edgeIdx += 1) {
+          const { edge } = edgeWithOrder[edgeIdx];
+          const sourceNode = resolveSourceNode(edge.source);
+          if (!sourceNode) continue;
+          count += readConnectedImageCountFromNode(sourceNode, edge.sourceHandle);
+        }
+        return Math.min(count, maxReferenceImages);
+      },
+      [id, maxReferenceImages]
+    )
+  );
 
   // 检测外部文本连接
   const rf = useReactFlow();
@@ -356,12 +554,12 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "generatePro",
-    aiProvider,
+    aiProvider: currentProviderValue,
     bananaImageRoute,
     imageSize: imageSizeValue,
     aspectRatio: aspectRatioValue || undefined,
     outputImageCount: 4,
-    referenceImageCount: 0,
+    referenceImageCount: connectedInputImageCount,
     enabled: true,
   });
   const resolvedRunCredits =
@@ -599,6 +797,95 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         }
       `}</style>
       {/* 图片区域容器 */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type='button'
+              onPointerDownCapture={stopNodeDrag}
+              style={{
+                height: 26,
+                minWidth: 54,
+                borderRadius: 999,
+                padding: "0 10px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+                ...(chatTheme === "black"
+                  ? {
+                      color: "#ffffff",
+                      background: "#343434",
+                      border: "1px solid #4a4a4a",
+                    }
+                  : {
+                      color:
+                        currentProviderValue === "banana-3.1"
+                          ? "#0f172a"
+                          : "#475569",
+                      background:
+                        currentProviderValue === "banana-3.1"
+                          ? "#e2e8f0"
+                          : "#f1f5f9",
+                      border: "1px solid #e2e8f0",
+                    }),
+              }}
+            >
+              {currentProviderOption.label}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align='start'
+            side='bottom'
+            sideOffset={8}
+            className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+          >
+            <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+              {lt("模型切换", "Model switch")}
+            </DropdownMenuLabel>
+            {providerToggleOptions.map((option) => {
+              const isActive = currentProviderValue === option.value;
+              return (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (currentProviderValue !== option.value) {
+                      const nextImageSize =
+                        option.value === "banana-2.5"
+                          ? "1K"
+                          : data.imageSize === "2K" || data.imageSize === "4K"
+                          ? data.imageSize
+                          : "1K";
+                      window.dispatchEvent(
+                        new CustomEvent("flow:updateNodeData", {
+                          detail: {
+                            id,
+                            patch: {
+                              modelProvider: option.value,
+                              imageSize: nextImageSize,
+                            },
+                          },
+                        })
+                      );
+                    }
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                    isActive ? "bg-gray-100 text-gray-800" : "text-slate-600"
+                  }`}
+                >
+                  <div className='flex-1 space-y-0.5'>
+                    <div className='font-medium leading-none'>{option.label}</div>
+                    <div className='text-[11px] leading-snug text-slate-400'>{option.description}</div>
+                  </div>
+                  {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <div ref={imageBoxRef} style={{ position: "relative" }}>
         {/* 选中时的蓝色边框 */}
         {selected && (

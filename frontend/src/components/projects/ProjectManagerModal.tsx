@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
 import SmartImage from '@/components/ui/SmartImage';
-import { Check, Trash2 } from 'lucide-react';
+import { Check, Pencil, Trash2 } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 import { useTranslation } from 'react-i18next';
+import { projectApi } from '@/services/projectApi';
+import type { ProjectContentSnapshot } from '@/types/project';
 
 function formatDate(iso: string, locale?: string) {
   try {
@@ -18,13 +20,248 @@ function formatDate(iso: string, locale?: string) {
   }
 }
 
-const placeholderThumb =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="20">No Preview</text></svg>`
-  );
+const PAGE_SIZE = 12;
+const MAX_PREVIEW_IMAGES = 16;
+const PREVIEW_FETCH_LIMIT = 32;
 
-const PAGE_SIZE = 6;
+type ProjectPreviewCacheEntry = {
+  version: number;
+  images: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function pickFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const normalized = normalizeString(item);
+    return normalized ? [normalized] : [];
+  });
+}
+
+function isLikelyImageRef(value: string): boolean {
+  if (/^data:/i.test(value)) return /^data:image\//i.test(value);
+  if (/^(blob:|flow-asset:)/i.test(value)) return true;
+  if (/^https?:\/\//i.test(value)) return true;
+  if (/^(projects|uploads|templates|videos|ai)\//i.test(value)) return true;
+  if (/\.(png|jpe?g|webp|gif|avif|svg)([?#].*)?$/i.test(value)) return true;
+
+  const compact = value.replace(/\s+/g, '');
+  return compact.length > 1024 && compact.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+}
+
+function addPreviewImage(images: string[], seen: Set<string>, value: unknown) {
+  if (images.length >= PREVIEW_FETCH_LIMIT) return;
+  const normalized = normalizeString(value);
+  if (!normalized || !isLikelyImageRef(normalized) || seen.has(normalized)) return;
+  seen.add(normalized);
+  images.push(normalized);
+}
+
+function addObjectImage(images: string[], seen: Set<string>, value: unknown) {
+  if (!isRecord(value)) {
+    addPreviewImage(images, seen, value);
+    return;
+  }
+
+  addPreviewImage(
+    images,
+    seen,
+    pickFirstString(
+      value.previewUrl,
+      value.previewKey,
+      value.thumbnail,
+      value.thumbnailDataUrl,
+      value.thumbnailData,
+      value.imageUrl,
+      value.imageData,
+      value.remoteUrl,
+      value.key,
+      value.url,
+      value.src
+    )
+  );
+}
+
+function addObjectArrayImages(images: string[], seen: Set<string>, value: unknown) {
+  if (!Array.isArray(value)) return;
+  for (const item of value) {
+    addObjectImage(images, seen, item);
+    if (images.length >= PREVIEW_FETCH_LIMIT) return;
+  }
+}
+
+function addIndexedImages(
+  images: string[],
+  seen: Set<string>,
+  sourceValues: unknown,
+  thumbnailValues?: unknown
+) {
+  const sources = toStringArray(sourceValues);
+  const thumbnails = toStringArray(thumbnailValues);
+  const count = Math.max(sources.length, thumbnails.length);
+
+  for (let index = 0; index < count; index += 1) {
+    addPreviewImage(images, seen, thumbnails[index] || sources[index]);
+    if (images.length >= PREVIEW_FETCH_LIMIT) return;
+  }
+}
+
+function addNodeDataImages(images: string[], seen: Set<string>, data: unknown) {
+  if (!isRecord(data)) return;
+
+  addIndexedImages(images, seen, data.imageUrls, data.thumbnails);
+  addIndexedImages(images, seen, data.images, data.thumbnails);
+
+  addObjectArrayImages(images, seen, data.images);
+  addObjectArrayImages(images, seen, data.thumbnails);
+  addObjectArrayImages(images, seen, data.frames);
+  addObjectArrayImages(images, seen, data.splitImages);
+  addObjectArrayImages(images, seen, data.referenceImages);
+  addObjectArrayImages(images, seen, data.inputImages);
+  addObjectArrayImages(images, seen, data.outputs);
+  addObjectArrayImages(images, seen, data.results);
+  addObjectArrayImages(images, seen, data.items);
+
+  addPreviewImage(
+    images,
+    seen,
+    pickFirstString(
+      data.thumbnail,
+      data.thumbnailDataUrl,
+      data.thumbnailData,
+      data.previewUrl,
+      data.imageUrl,
+      data.imageData,
+      data.inputImage,
+      data.sourceImage
+    )
+  );
+}
+
+function extractProjectPreviewImages(content: ProjectContentSnapshot): string[] {
+  const images: string[] = [];
+  const seen = new Set<string>();
+  const assets = content.assets;
+
+  if (isRecord(assets)) {
+    if (Array.isArray(assets.images)) {
+      for (const asset of assets.images) {
+        addPreviewImage(
+          images,
+          seen,
+          isRecord(asset)
+            ? pickFirstString(asset.previewUrl, asset.previewKey, asset.remoteUrl, asset.key, asset.url, asset.src)
+            : asset
+        );
+        if (images.length >= PREVIEW_FETCH_LIMIT) return images;
+      }
+    }
+
+    if (Array.isArray(assets.videos)) {
+      for (const asset of assets.videos) {
+        const videoAsset = asset as unknown as Record<string, unknown>;
+        addPreviewImage(
+          images,
+          seen,
+          pickFirstString(videoAsset.thumbnail, videoAsset.previewUrl, videoAsset.poster)
+        );
+        if (images.length >= PREVIEW_FETCH_LIMIT) return images;
+      }
+    }
+  }
+
+  const nodes = content.flow?.nodes;
+  if (Array.isArray(nodes)) {
+    for (const node of nodes) {
+      addNodeDataImages(images, seen, node?.data);
+      if (images.length >= PREVIEW_FETCH_LIMIT) return images;
+    }
+  }
+
+  return images;
+}
+
+function getPreviewGridSize(count: number): number {
+  if (count <= 1) return 1;
+  if (count <= 4) return 2;
+  if (count <= 9) return 3;
+  return 4;
+}
+
+function ProjectPreviewGrid({
+  images,
+  noPreviewLabel,
+}: {
+  images?: string[];
+  noPreviewLabel: string;
+}) {
+  const sourceImages = Array.isArray(images) && images.length > 0
+    ? images.slice(0, MAX_PREVIEW_IMAGES)
+    : [];
+  const gridSize = getPreviewGridSize(sourceImages.length);
+  const cellCount = sourceImages.length > 0 ? gridSize * gridSize : 0;
+  const overflowCount = Array.isArray(images) && images.length > MAX_PREVIEW_IMAGES
+    ? images.length - MAX_PREVIEW_IMAGES
+    : 0;
+
+  if (sourceImages.length === 0) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-xs text-slate-400">
+        {noPreviewLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="absolute inset-0 grid bg-white"
+      style={{
+        gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${gridSize}, minmax(0, 1fr))`,
+        gap: '1px',
+      }}
+    >
+      {Array.from({ length: cellCount }).map((_, index) => {
+        const image = sourceImages[index];
+        if (!image) {
+          return <div key={`empty-${index}`} className="bg-slate-100" />;
+        }
+
+        return (
+          <div key={`${image}-${index}`} className="relative min-h-0 min-w-0 overflow-hidden bg-slate-100">
+            <SmartImage
+              src={image}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+            {overflowCount > 0 && index === sourceImages.length - 1 && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-semibold text-white">
+                +{overflowCount}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function ProjectManagerModal() {
   const { i18n } = useTranslation();
@@ -39,6 +276,8 @@ export default function ProjectManagerModal() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [newName, setNewName] = useState('');
   const [page, setPage] = useState(0);
+  const [previewCache, setPreviewCache] = useState<Record<string, ProjectPreviewCacheEntry>>({});
+  const previewRequestsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (modalOpen && projects.length === 0 && !loading) {
@@ -84,6 +323,43 @@ export default function ProjectManagerModal() {
     const start = page * PAGE_SIZE;
     return projects.slice(start, start + PAGE_SIZE);
   }, [projects, page]);
+
+  useEffect(() => {
+    if (!modalOpen || paginatedProjects.length === 0) return;
+
+    for (const project of paginatedProjects) {
+      const cached = previewCache[project.id];
+      const hasFreshCache = cached?.version === project.contentVersion;
+      if (hasFreshCache || previewRequestsRef.current.has(project.id)) continue;
+
+      previewRequestsRef.current.add(project.id);
+      void projectApi
+        .getContent(project.id)
+        .then(({ content }) => {
+          const images = extractProjectPreviewImages(content);
+          setPreviewCache((prev) => ({
+            ...prev,
+            [project.id]: {
+              version: project.contentVersion,
+              images,
+            },
+          }));
+        })
+        .catch((err) => {
+          console.warn('加载项目预览图片失败:', err);
+          setPreviewCache((prev) => ({
+            ...prev,
+            [project.id]: {
+              version: project.contentVersion,
+              images: [],
+            },
+          }));
+        })
+        .finally(() => {
+          previewRequestsRef.current.delete(project.id);
+        });
+    }
+  }, [modalOpen, paginatedProjects, previewCache]);
 
   const selectedCount = selectionMode ? selectedIds.size : 0;
   const isSelectAll = selectionMode && projects.length > 0 && projects.every((p) => selectedIds.has(p.id));
@@ -167,13 +443,13 @@ export default function ProjectManagerModal() {
   const node = (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
-      <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[620px] overflow-hidden border">
+      <div className="relative flex h-[720px] max-h-[calc(100vh-48px)] w-[1180px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-xl border bg-white shadow-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">{lt('项目管理', 'Project Manager')}</div>
           <div />
         </div>
 
-        <div className="p-4 h-[calc(620px-48px)] flex flex-col min-h-0 gap-4">
+        <div className="p-4 flex-1 flex flex-col min-h-0 gap-3">
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
@@ -270,9 +546,12 @@ export default function ProjectManagerModal() {
                   {lt('暂无项目，点击上方“新建项目”开始', 'No projects yet. Click "New project" above to start')}
                 </div>
               ) : (
-                <div className="mx-auto max-w-[880px] grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-6 gap-y-8 items-start pb-6">
+                <div className="mx-auto grid w-full max-w-[1060px] grid-cols-2 gap-4 pb-4 md:grid-cols-3 lg:grid-cols-4">
                   {paginatedProjects.map((p) => {
                     const isSelected = selectedIds.has(p.id);
+                    const previewEntry = previewCache[p.id];
+                    const previewImages =
+                      previewEntry?.version === p.contentVersion ? previewEntry.images : undefined;
                     return (
                       <div
                         key={p.id}
@@ -301,86 +580,90 @@ export default function ProjectManagerModal() {
                             }
                           }
                         }}
-                        className={`group border rounded-lg overflow-hidden bg-white shadow-sm transition cursor-pointer hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:border-sky-400 focus-within:border-sky-400 ${
-                          selectionMode && isSelected ? 'border-sky-500 bg-sky-50' : ''
+                        className={`group relative aspect-[16/10] overflow-hidden rounded-lg border bg-slate-100 shadow-sm transition cursor-pointer hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:border-sky-400 focus-within:border-sky-400 ${
+                          selectionMode && isSelected ? 'border-sky-500 ring-2 ring-sky-200' : ''
                         }`}
                       >
-                        <div className="aspect-[2/1] bg-slate-100 overflow-hidden relative flex items-center justify-center">
-                          {selectionMode && (
-                            <button
-                              type="button"
-                              className={`absolute top-2 left-2 z-10 flex h-6 w-6 items-center justify-center rounded border ${
-                                isSelected
-                                  ? 'border-sky-500 bg-sky-500 text-white shadow-sm'
-                                  : 'border-slate-300 bg-white text-transparent hover:border-sky-400'
-                              }`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleSelect(p.id);
-                              }}
-                              aria-pressed={isSelected}
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                          )}
-                          <SmartImage
-                            src={p.thumbnailUrl || placeholderThumb}
-                            alt={p.name}
-                            className="h-full w-auto max-w-full object-contain"
-                          />
+                        <ProjectPreviewGrid
+                          images={previewImages}
+                          noPreviewLabel={previewImages === undefined ? lt('加载中', 'Loading') : lt('暂无预览', 'No Preview')}
+                        />
+
+                        {selectionMode && (
+                          <button
+                            type="button"
+                            className={`absolute top-2 left-2 z-20 flex h-6 w-6 items-center justify-center rounded border ${
+                              isSelected
+                                ? 'border-sky-500 bg-sky-500 text-white shadow-sm'
+                                : 'border-slate-300 bg-white/95 text-transparent shadow-sm hover:border-sky-400'
+                            }`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSelect(p.id);
+                            }}
+                            aria-pressed={isSelected}
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        )}
+
+                        <div
+                          className={`absolute right-2 top-2 z-20 flex gap-1 transition-opacity ${
+                            selectionMode
+                              ? 'opacity-0 pointer-events-none'
+                              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'
+                          }`}
+                        >
+                          <Button
+                            size="sm"
+                            className="h-7 w-7 bg-white/95 px-0 text-slate-700 shadow-sm hover:bg-white"
+                            variant="ghost"
+                            title={lt('重命名', 'Rename')}
+                            aria-label={lt('重命名', 'Rename')}
+                            onClick={async (event) => {
+                              event.stopPropagation();
+                              const name = prompt(lt('重命名为：', 'Rename to:'), p.name);
+                              if (name && name !== p.name) {
+                                try {
+                                  await rename(p.id, name);
+                                } catch (e) {
+                                  alert(lt('重命名失败：', 'Rename failed: ') + (e as Error).message);
+                                }
+                              }
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 w-7 bg-white/95 px-0 text-red-600 shadow-sm hover:bg-red-50"
+                            variant="ghost"
+                            disabled={isDeleting}
+                            title={lt('删除', 'Delete')}
+                            aria-label={lt('删除', 'Delete')}
+                            onClick={async (event) => {
+                              event.stopPropagation();
+                              if (confirm(lt('确定删除该项目？', 'Delete this project?'))) {
+                                try {
+                                  await remove(p.id);
+                                } catch (e) {
+                                  alert(lt('删除失败：', 'Delete failed: ') + (e as Error).message);
+                                }
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <div className="px-3 py-1.5 flex items-center justify-between gap-2">
+
+                        <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/75 via-black/45 to-transparent px-3 pb-2.5 pt-8 text-white">
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate" title={p.name}>
+                            <div className="truncate text-sm font-semibold leading-5 drop-shadow" title={p.name}>
                               {p.name || lt('未命名', 'Untitled')}
                             </div>
-                            <div className="text-[11px] leading-4 text-slate-500">
+                            <div className="truncate text-[11px] leading-4 text-white/80 drop-shadow">
                               {lt('更新于', 'Updated')} {formatDate(p.updatedAt, locale)}
                             </div>
-                          </div>
-                          <div
-                            className={`flex gap-1 shrink-0 transition-opacity ${
-                              selectionMode
-                                ? 'opacity-0 pointer-events-none'
-                                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'
-                            }`}
-                          >
-                            <Button
-                              size="sm"
-                              className="h-6 px-2 text-[11px]"
-                              variant="ghost"
-                              onClick={async (event) => {
-                                event.stopPropagation();
-                                const name = prompt(lt('重命名为：', 'Rename to:'), p.name);
-                                if (name && name !== p.name) {
-                                  try {
-                                    await rename(p.id, name);
-                                  } catch (e) {
-                                    alert(lt('重命名失败：', 'Rename failed: ') + (e as Error).message);
-                                  }
-                                }
-                              }}
-                            >
-                              {lt('重命名', 'Rename')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="h-6 px-2 text-[11px]"
-                              variant="ghost"
-                              disabled={isDeleting}
-                              onClick={async (event) => {
-                                event.stopPropagation();
-                                if (confirm(lt('确定删除该项目？', 'Delete this project?'))) {
-                                  try {
-                                    await remove(p.id);
-                                  } catch (e) {
-                                    alert(lt('删除失败：', 'Delete failed: ') + (e as Error).message);
-                                  }
-                                }
-                              }}
-                            >
-                              {lt('删除', 'Delete')}
-                            </Button>
                           </div>
                         </div>
                       </div>
@@ -390,20 +673,8 @@ export default function ProjectManagerModal() {
                     <div
                       key={`filler-${index}`}
                       aria-hidden="true"
-                      className="group border rounded-lg overflow-hidden bg-white shadow-sm opacity-0 pointer-events-none select-none"
-                    >
-                      <div className="aspect-[2/1] bg-slate-100" />
-                      <div className="px-3 py-1.5 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">&nbsp;</div>
-                          <div className="text-[11px] leading-4 text-slate-500">&nbsp;</div>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <div className="h-6 w-10" />
-                          <div className="h-6 w-10" />
-                        </div>
-                      </div>
-                    </div>
+                      className="aspect-[16/10] rounded-lg border bg-white opacity-0 pointer-events-none select-none"
+                    />
                   ))}
                 </div>
               )}

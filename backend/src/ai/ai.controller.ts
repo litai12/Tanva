@@ -14,6 +14,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Param,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
@@ -91,6 +92,36 @@ type TraceableReq = {
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
 const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
+const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
+  'gemini-2.5-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-image',
+  'gpt-image-2',
+  'gemini-2.5-image-edit',
+  'gemini-image-edit',
+  'gemini-3.1-image-edit',
+  'gemini-2.5-image-blend',
+  'gemini-image-blend',
+  'gemini-3.1-image-blend',
+  'gemini-2.5-image-analyze',
+  'gemini-image-analyze',
+  'gemini-3.1-image-analyze',
+  'gemini-video-analyze',
+  'gemini-text',
+  'gemini-prompt-optimize',
+] as const;
+
+type BananaRouteKey = 'normal' | 'stable';
+
+type BananaRouteSuccessRateStats = {
+  route: BananaRouteKey;
+  totalCalls: number;
+  completedCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number | null;
+};
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -844,6 +875,136 @@ export class AiController {
       aiProvider,
       channelHint,
       ...(bananaImageRoute ? { bananaImageRoute } : {}),
+    };
+  }
+
+  private normalizeRouteKey(value: unknown): BananaRouteKey | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'normal') return 'normal';
+    if (normalized === 'stable') return 'stable';
+    return null;
+  }
+
+  private resolveRouteFromApiUsageParams(requestParams: unknown): BananaRouteKey {
+    const params = this.asRecord(requestParams);
+    const providerOptions = this.asRecord(params?.providerOptions);
+    const bananaOptions = this.asRecord(providerOptions?.banana);
+    const explicitRoute =
+      this.normalizeRouteKey(params?.bananaImageRoute) ||
+      this.normalizeRouteKey(providerOptions?.bananaImageRoute) ||
+      this.normalizeRouteKey(bananaOptions?.imageRoute);
+    if (explicitRoute) return explicitRoute;
+
+    const channelCandidates = [
+      params?.channel,
+      params?.executionChannel,
+      params?.providerChannel,
+      params?.channelHint,
+      params?.routedProvider,
+      params?.provider,
+    ];
+
+    for (const candidate of channelCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalized = this.normalizeChannelName(candidate);
+      if (normalized === 'tencent') return 'stable';
+      if (normalized === 'apimart' || normalized === '147') return 'normal';
+    }
+
+    return 'normal';
+  }
+
+  private buildClientDayRange(timezoneOffsetMinutes?: string): {
+    startAt: Date;
+    endAt: Date;
+    timezoneOffsetMinutes: number;
+  } {
+    const parsedOffset = Number.parseInt(String(timezoneOffsetMinutes ?? ''), 10);
+    const fallbackOffset = new Date().getTimezoneOffset();
+    const offset =
+      Number.isFinite(parsedOffset) && Math.abs(parsedOffset) <= 14 * 60
+        ? parsedOffset
+        : fallbackOffset;
+    const now = Date.now();
+    const localNow = new Date(now - offset * 60_000);
+    localNow.setUTCHours(0, 0, 0, 0);
+    const startAt = new Date(localNow.getTime() + offset * 60_000);
+    const endAt = new Date(startAt.getTime() + 24 * 60 * 60_000);
+    return { startAt, endAt, timezoneOffsetMinutes: offset };
+  }
+
+  private createRouteSuccessRateStats(route: BananaRouteKey): BananaRouteSuccessRateStats {
+    return {
+      route,
+      totalCalls: 0,
+      completedCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      pendingCalls: 0,
+      successRate: null,
+    };
+  }
+
+  @Get('banana-route-success-rates')
+  async getBananaRouteSuccessRates(
+    @Query('timezoneOffsetMinutes') timezoneOffsetMinutes?: string,
+  ) {
+    const { startAt, endAt, timezoneOffsetMinutes: resolvedOffset } =
+      this.buildClientDayRange(timezoneOffsetMinutes);
+    const byRoute: Record<BananaRouteKey, BananaRouteSuccessRateStats> = {
+      normal: this.createRouteSuccessRateStats('normal'),
+      stable: this.createRouteSuccessRateStats('stable'),
+    };
+
+    const records = await this.prisma.apiUsageRecord.findMany({
+      where: {
+        serviceType: { in: [...BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES] },
+        responseStatus: {
+          in: [
+            ApiResponseStatus.SUCCESS,
+            ApiResponseStatus.FAILED,
+            ApiResponseStatus.PENDING,
+          ],
+        },
+        createdAt: {
+          gte: startAt,
+          lt: endAt,
+        },
+      },
+      select: {
+        responseStatus: true,
+        requestParams: true,
+      },
+    });
+
+    for (const record of records) {
+      const route = this.resolveRouteFromApiUsageParams(record.requestParams);
+      const stats = byRoute[route];
+      stats.totalCalls += 1;
+      if (record.responseStatus === ApiResponseStatus.SUCCESS) {
+        stats.successfulCalls += 1;
+        stats.completedCalls += 1;
+      } else if (record.responseStatus === ApiResponseStatus.FAILED) {
+        stats.failedCalls += 1;
+        stats.completedCalls += 1;
+      } else if (record.responseStatus === ApiResponseStatus.PENDING) {
+        stats.pendingCalls += 1;
+      }
+    }
+
+    for (const stats of Object.values(byRoute)) {
+      stats.successRate =
+        stats.completedCalls > 0
+          ? Math.round((stats.successfulCalls / stats.completedCalls) * 100)
+          : null;
+    }
+
+    return {
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      timezoneOffsetMinutes: resolvedOffset,
+      routes: byRoute,
     };
   }
 

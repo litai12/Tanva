@@ -25,6 +25,7 @@
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
 - `POST minimax-speech` / `POST minimax-music`
+- `GET banana-route-success-rates`：按客户端时区统计当天 Banana `normal/stable` 路线成功率，返回成功/失败/处理中调用数，供工作区顶部路线切换展示
 
 ## 注意事项
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?

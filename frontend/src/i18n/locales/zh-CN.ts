@@ -165,9 +165,15 @@ const zhCN = {
       globalAutoRunning: "全局运行中...",
       globalAutoStop: "终止",
       routeSwitch: {
-        buttonTitle: "当前路线：{{route}}",
-        menuTitle: "生文/生图路线",
+        buttonTitle: "当前：{{route}}，点击切换",
+        menuTitle: "生文/生图线路",
+        normalShort: "普通",
+        stableShort: "尊享",
         toast: "已切换到{{route}}",
+        todayRate: "今日 {{rate}}",
+        todayRateUnknown: "今日 --",
+        rateTitle: "今日成功率：{{rate}}（成功 {{successful}} / 完成 {{completed}}）",
+        rateNoData: "今日暂无完成的 API 记录",
       },
     },
     appearance: {

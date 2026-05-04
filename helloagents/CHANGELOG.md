@@ -10,8 +10,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
-- Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and does not migrate the higher-coupling route success-rate API.
+- Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and now shows today's normal/stable route success rates from `GET /api/ai/banana-route-success-rates`.
 - Canvas Tools: added an `arrow` drawing mode in the tool store, toolbar, drawing hooks, interaction controller, and layer panel type/icon mapping. Arrows are stored as Paper paths with `data.tool = "arrow"` and do not change design JSON persistence rules.
+- Project Manager: project cards now lazy-load current-page content previews and render a multi-image grid, with 12 projects per page and icon-only rename/delete actions.
 
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
@@ -36,6 +37,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Image References: `Generate`, `Agent(generatePro)`, and `Generate4` now cap connected reference-image previews by model tier (`Fast=3`, `Pro=11`, `Ultra=14`) using shared `flowModelProvider` limits.
 - Flow/Video Analysis: default analysis prompts localize between Chinese/English and requests now carry Banana route/channel hints for route-aware backend handling.
 - Flow/Runtime: `Generate4` now resolves Image Split references through the shared `imageN/imgN` handle helper; `Seedream` uses available thumbnails for node preview, and `Video Analysis` run UI/localized copy is aligned with other run-credit buttons.
+- Flow/GeneratePro4: the four-image pro node now has node-local Fast/Pro/Ultra selection, persists `modelProvider`, and previews run credits using the connected reference-image count capped by shared model-tier limits.
 - AI Chat: `/api/ai/text-chat` response `metadata` is preserved on chat messages/context, and context prompts now instruct the model to answer the current user input directly without exposing internal intent analysis.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.

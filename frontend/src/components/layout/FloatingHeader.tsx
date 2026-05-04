@@ -70,6 +70,10 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import {
+  getBananaRouteSuccessRates,
+  type BananaRouteSuccessRatesResponse,
+} from "@/services/bananaRouteStatsApi";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
@@ -161,6 +165,14 @@ const getTodayDateKey = () => {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
+  if (typeof rate !== "number") return 0;
+  if (rate >= 98) return 4;
+  if (rate >= 95) return 3;
+  if (rate >= 90) return 2;
+  return 1;
 };
 
 const FloatingHeader: React.FC = () => {
@@ -321,6 +333,8 @@ const FloatingHeader: React.FC = () => {
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
+  const [bananaRouteSuccessRates, setBananaRouteSuccessRates] =
+    useState<BananaRouteSuccessRatesResponse | null>(null);
   const [dailyRewardStatus, setDailyRewardStatus] =
     useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
@@ -649,11 +663,31 @@ const FloatingHeader: React.FC = () => {
   );
   const authUser = useAuthStore((s) => s.user);
 
+  const refreshBananaRouteSuccessRates = useCallback(async () => {
+    try {
+      const result = await getBananaRouteSuccessRates();
+      setBananaRouteSuccessRates(result);
+    } catch (error) {
+      setBananaRouteSuccessRates(null);
+      console.warn("[FloatingHeader] 加载 Banana 线路成功率失败:", error);
+    }
+  }, []);
+
   // 获取全局历史数量（仅在已登录时调用，避免未登录时触发受保护接口）
   useEffect(() => {
     if (!authUser) return;
     fetchGlobalHistoryCount();
   }, [fetchGlobalHistoryCount, authUser]);
+
+  useEffect(() => {
+    if (!authUser) {
+      setBananaRouteSuccessRates(null);
+      return;
+    }
+    void refreshBananaRouteSuccessRates();
+    const timer = window.setInterval(refreshBananaRouteSuccessRates, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [authUser, refreshBananaRouteSuccessRates]);
 
   const handleClearImageHistory = React.useCallback(() => {
     if (historyCount === 0) {
@@ -879,6 +913,7 @@ const FloatingHeader: React.FC = () => {
       {
         value: "normal" as BananaImageRoute,
         label: t("workspace.settings.aiTab.bananaRoute.normal"),
+        shortLabel: t("workspace.header.routeSwitch.normalShort"),
         description: t("workspace.settings.aiTab.bananaRoute.normalDesc"),
         Icon: Zap,
         activeClass:
@@ -890,6 +925,7 @@ const FloatingHeader: React.FC = () => {
       {
         value: "stable" as BananaImageRoute,
         label: t("workspace.settings.aiTab.bananaRoute.stable"),
+        shortLabel: t("workspace.header.routeSwitch.stableShort"),
         description: t("workspace.settings.aiTab.bananaRoute.stableDesc"),
         Icon: Star,
         activeClass:
@@ -2257,7 +2293,7 @@ const FloatingHeader: React.FC = () => {
                 align='center'
                 sideOffset={10}
                 className={cn(
-                  "w-[284px] rounded-2xl border p-2 shadow-[0_18px_40px_rgba(15,23,42,0.14)]",
+                  "w-[300px] rounded-2xl border p-2 shadow-[0_18px_40px_rgba(15,23,42,0.14)]",
                   isDarkTheme
                     ? "border-slate-700 bg-slate-900/95"
                     : "border-slate-200 bg-white/95"
@@ -2275,9 +2311,31 @@ const FloatingHeader: React.FC = () => {
                   {bananaRouteOptions.map((option) => {
                     const active = option.value === bananaImageRoute;
                     const Icon = option.Icon;
+                    const routeStats =
+                      bananaRouteSuccessRates?.routes?.[option.value] ?? null;
+                    const successRate = routeStats?.successRate ?? null;
+                    const signalLevel = resolveRouteSignalLevel(successRate);
+                    const rateLabel =
+                      typeof successRate === "number"
+                        ? t("workspace.header.routeSwitch.todayRate", {
+                            rate: `${successRate}%`,
+                          })
+                        : t("workspace.header.routeSwitch.todayRateUnknown");
+                    const rateTitle =
+                      typeof successRate === "number" && routeStats
+                        ? t("workspace.header.routeSwitch.rateTitle", {
+                            rate: `${successRate}%`,
+                            successful: routeStats.successfulCalls,
+                            completed: routeStats.completedCalls,
+                          })
+                        : t("workspace.header.routeSwitch.rateNoData");
+                    const filledBarClass =
+                      option.value === "stable" ? "bg-emerald-500" : "bg-sky-500";
+                    const emptyBarClass = isDarkTheme ? "bg-slate-600" : "bg-slate-200";
                     return (
                       <DropdownMenuItem
                         key={option.value}
+                        type='button'
                         onClick={() => handleBananaRouteSelect(option.value)}
                         className={cn(
                           "group flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:bg-transparent dark:hover:bg-transparent",
@@ -2307,14 +2365,36 @@ const FloatingHeader: React.FC = () => {
                             {option.description}
                           </span>
                         </span>
-                        {active && (
-                          <Check
+                        <span
+                          className='ml-auto flex shrink-0 flex-col items-end justify-center gap-1 pl-2'
+                          title={rateTitle}
+                        >
+                          <span className='flex h-4 items-end gap-[2px]' aria-hidden='true'>
+                            {Array.from({ length: 4 }, (_, index) => {
+                              const filled = index < signalLevel;
+                              return (
+                                <span
+                                  key={index}
+                                  className={cn(
+                                    "w-[3px] rounded-full transition-colors",
+                                    filled ? filledBarClass : emptyBarClass
+                                  )}
+                                  style={{ height: 5 + index * 3 }}
+                                />
+                              );
+                            })}
+                          </span>
+                          <span
                             className={cn(
-                              "mt-0.5 h-4 w-4 shrink-0",
-                              option.iconClass
+                              "text-[11px] font-semibold leading-none tabular-nums",
+                              option.value === "stable"
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : "text-sky-700 dark:text-sky-300"
                             )}
-                          />
-                        )}
+                          >
+                            {rateLabel}
+                          </span>
+                        </span>
                       </DropdownMenuItem>
                     );
                   })}

@@ -165,9 +165,15 @@ const enUS = {
       globalAutoRunning: "Global Run in Progress...",
       globalAutoStop: "Terminate",
       routeSwitch: {
-        buttonTitle: "Current route: {{route}}",
+        buttonTitle: "Current: {{route}}. Click to switch.",
         menuTitle: "Text/Image Route",
+        normalShort: "Normal",
+        stableShort: "Premium",
         toast: "Switched to {{route}}",
+        todayRate: "Today {{rate}}",
+        todayRateUnknown: "Today --",
+        rateTitle: "Today's success rate: {{rate}} ({{successful}} / {{completed}} completed)",
+        rateNoData: "No completed API records today",
       },
     },
     appearance: {

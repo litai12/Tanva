@@ -40,7 +40,7 @@
 - `AIChatDialog`（`frontend/src/components/chat/AIChatDialog.tsx`）底部参数栏与上传菜单、历史会话工具条、图片/视频预览操作 tooltip 已按中英文切换（组件内通过 `i18n.language` + `lt()` 本地文案映射实现）。
 - `PromptOptimizationPanel`（`frontend/src/components/chat/PromptOptimizationPanel.tsx`）已接入双语文案：输出语言/长度倾向/风格/重点字段标签、占位符、错误提示和底部操作按钮按语言切换。
 - `KeyboardShortcuts`（`frontend/src/components/KeyboardShortcuts.tsx`）已接入双语文案：快捷键复制/导入 JSON 的 toast 提示，以及云端保存阻断与失败文案按语言切换。
-- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。
+- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。项目卡片会懒加载当前页内容快照，从 `assets` 与 Flow 节点数据提取图片引用并渲染宫格预览；该逻辑只读项目内容，不做缩略图转存或保存链路改动。
 - `AccountBadge`（`frontend/src/components/AccountBadge.tsx`）已接入双语文案：问候语、认证状态标签与来源 tooltip、退出登录按钮按语言切换。
 - `AppLoader` / `AppLoadingIndicator`（`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`）默认加载提示已按语言切换。
 - `AuthWrapper`（`frontend/src/components/AuthWrapper.tsx`）会话过期 toast、登录状态校验加载文案、错误态“重新加载”按钮已按语言切换。
@@ -64,6 +64,7 @@
 - `GlobalImageHistoryPage` / `GlobalImageDetailModal`（`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`）已接入双语文案：历史页标题、搜索/筛选、加载与空态、删除撤销提示，以及详情弹窗元数据标签按语言切换。
 - `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
 - 工作区顶部项目名右侧新增快捷 `+` 新建按钮（`FloatingHeader`），点击可直接创建并切换到新项目；项目下拉中的“新建项目”复用同一创建逻辑并带防连点保护。
+- 工作区右上角 Nano Banana/Gemini/GPT-Image-2 路线快捷切换会读取今日普通/尊享路线成功率并在下拉内显示信号条；数据来自 `/api/ai/banana-route-success-rates`。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）已下架“双倍/首充翻倍”角标展示；`送X%` 等赠送百分比角标同样保持前端屏蔽。
 - `LayerPanel` + `layerStore`（`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/stores/layerStore.ts`）已补充图层名双语兼容：新建图层默认名按当前语言生成，历史 `图层 N`/`Layer N` 显示按当前语言映射。
 
