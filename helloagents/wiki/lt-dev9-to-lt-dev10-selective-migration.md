@@ -85,6 +85,7 @@
 
 - `frontend/src/components/flow/types.ts`
 - `frontend/docs/06-变更日志.md`
+- `helloagents/project.md`
 - `helloagents/CHANGELOG.md`
 - `helloagents/wiki/modules/frontend-flow.md`
 
@@ -256,7 +257,7 @@
 - `contextManager` 提示语小修：
   - 上下文尾部提示改为直接回答当前输入
   - 明确要求不要输出内部意图分析/关键要素拆解/回复策略
-  - 未迁移 lt-dev9 的构造期会话恢复变更，避免影响项目内 AI Chat 历史恢复边界
+  - 项目内 AI Chat 会话恢复边界已在 2026-05-05 继续迁移（九）补回
 - Flow 低风险 UI/运行体验补齐：
   - `Generate4Node` 使用共享 Image Split 句柄 helper 解析 `imageN/imgN`
   - `Seedream5Node` 节点展示优先使用 `thumbnails[]` 首图，预览仍使用完整图片列表
@@ -292,6 +293,7 @@
 
 - `git diff --check` 通过
 - `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `cd backend && npm run build` 通过
 - `ai-metadata-sync` 未跑通：本地脚本仍缺失
   `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
 
@@ -389,6 +391,110 @@
 - `git diff --check` 通过
 - `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
 - `cd backend && npm run build` 通过
+- `ai-metadata-sync` 未跑通：本地脚本仍缺失
+  `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
+
+## 2026-05-05 继续迁移（七）
+
+### 已完成
+
+- P1：Flow 参考图数量运行层对齐：
+  - `FlowOverlay` 连接接纳与运行请求统一复用 `flowModelProvider` 档位上限
+  - Fast=3、Pro=11、Ultra=14，不再出现 UI 可预览但运行时只发送 6 张参考图
+  - `GenerateNode` 补齐 `img2..img14` 历史输入句柄兼容
+- P1：后端文本回复透传补齐：
+  - `/api/ai/text-chat` 非 Gemini provider 路径返回 `webSearchResult` 与 `metadata`
+  - `buildCreditRequestParams` 保留显式 `channelHint`
+- P2：视频与缓存低风险补齐：
+  - Flow 视频节点成功输出写入 Global History 远程视频记录
+  - 覆盖 Wan、HappyHorse、Sora2、Seedance/Kling/Vidu 系列与 Tencent Speech 视频输出
+  - `VideoProviderService` 视频转存缓存增加 1 小时 TTL 与 500 条上限清理
+- P2：Image Split 句柄兼容补齐：
+  - Image Grid 连接校验使用共享 `isImageSplitHandle`
+  - 允许 `imageN/imgN` 两类 Image Split 输出句柄
+
+### 本轮刻意未迁移
+
+- `paperSaveService` / `DrawingController` / 保存链路重构
+- `objectUrlRegistry` / `imagePreviewAssetService`
+- Banana web-search 旧后端 route
+- Video Analyze route-aware billing/providerOptions 整套后端改动
+- Flow group 拖拽/复制/删除大块交互改动
+
+### 本轮涉及文件
+
+- `backend/src/ai/ai.controller.ts`
+- `backend/src/ai/services/video-provider.service.ts`
+- `frontend/src/components/flow/FlowOverlay.tsx`
+- `frontend/src/components/flow/nodes/GenerateNode.tsx`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/backend-ai.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `cd backend && npm run build` 通过
+
+## 2026-05-05 继续迁移（八）
+
+### 已完成
+
+- 生文/生图线路 UI 对齐 `lt-dev9`：
+  - 尊享路线恢复为 `Crown` 图标
+  - 菜单卡片、设置页卡片、成功率信号条与文字统一使用 amber 状态色
+- Shift 精确局部修改原位占位对齐：
+  - `DrawingController` 在框选完成时传递 `cropCanvasBounds`
+  - 裁剪结果记录像素宽高与比例
+  - `AIChatStore.editImage` 使用局部选区 bounds 作为预测占位框位置，并标记 `precise-edit`/`lockToBounds`
+  - `useQuickImageUpload` 对 `precise-edit` 跳过普通 `edit` 右侧偏移、矩阵避让与 48px 最小占位尺寸放大，确保占位框完全锁在原图选区上
+- 高清放大行为对齐：
+  - `ImageContainer` 运行前创建 `hd-upscale` 预测占位框
+  - 成功后通过 `triggerQuickImageUpload` 发送到画布
+  - 不再直接触发浏览器下载
+
+### 本轮涉及文件
+
+- `frontend/src/components/layout/FloatingHeader.tsx`
+- `frontend/src/components/canvas/DrawingController.tsx`
+- `frontend/src/components/canvas/ImageContainer.tsx`
+- `frontend/src/components/canvas/hooks/useQuickImageUpload.ts`
+- `frontend/src/stores/aiChatStore.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/project.md`
+- `helloagents/wiki/modules/frontend-app.md`
+- `helloagents/wiki/modules/frontend-canvas.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `cd backend && npm run build` 通过
+
+## 2026-05-05 继续迁移（九）
+
+### 已完成
+
+- AI Chat 项目会话恢复边界对齐 `lt-dev9`：
+  - `ContextManager` 构造期不再自动读取 `tanva:contexts:v1` 全局本地会话
+  - `aiChatStore.initializeContext()` 有项目 ID 时阻断 IndexedDB/localStorage 全局会话恢复
+  - 项目内对话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合
+  - 无项目场景仍保留本地会话恢复
+  - 防止打开/切换项目时旧本地 AI Chat 历史串入当前项目对话框
+
+### 本轮涉及文件
+
+- `frontend/src/services/contextManager.ts`
+- `frontend/src/stores/aiChatStore.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/project.md`
+- `helloagents/wiki/modules/frontend-app.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
 
 ## 建议下一步
 
@@ -416,7 +522,7 @@
   - 不改保存结构
   - 不引入新服务依赖
   - 不碰图片预览资产转存
-- 可单独评估项目内会话恢复边界，但需要先确认不会影响 AI Chat 历史恢复。
+- 可继续评估 AI Chat 普通文本回复是否需要更细的上下文注入开关；当前本轮只修复项目会话来源边界。
 - 可继续检查 Global History / Library 侧的媒体展示补齐，但不迁移缩略图远程转存逻辑。
 
 ## 暂时不要迁移

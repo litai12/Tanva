@@ -34,6 +34,7 @@ import {
   Sparkles,
   Trash2,
   Cloud,
+  Crown,
   Zap,
   Key,
   Eye,
@@ -927,12 +928,12 @@ const FloatingHeader: React.FC = () => {
         label: t("workspace.settings.aiTab.bananaRoute.stable"),
         shortLabel: t("workspace.header.routeSwitch.stableShort"),
         description: t("workspace.settings.aiTab.bananaRoute.stableDesc"),
-        Icon: Star,
+        Icon: Crown,
         activeClass:
-          "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-400 dark:bg-emerald-900/30 dark:text-emerald-200",
+          "border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-400 dark:bg-amber-900/30 dark:text-amber-200",
         inactiveClass:
-          "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20",
-        iconClass: "text-emerald-600 dark:text-emerald-400",
+          "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/20",
+        iconClass: "text-amber-600 dark:text-amber-400",
       },
     ],
     [t]
@@ -1745,14 +1746,14 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     bananaImageRoute === "stable"
-                      ? "border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-900/30"
-                      : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20"
+                      ? "border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-900/30"
+                      : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-amber-500 dark:hover:bg-amber-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Star className='w-4 h-4 text-emerald-600 dark:text-emerald-400' />
+                        <Crown className='w-4 h-4 text-amber-600 dark:text-amber-400' />
                         <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.bananaRoute.stable")}
                         </span>
@@ -1762,7 +1763,7 @@ const FloatingHeader: React.FC = () => {
                       </div>
                     </div>
                     {bananaImageRoute === "stable" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-emerald-600 dark:text-emerald-400' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-amber-600 dark:text-amber-400' />
                     )}
                   </div>
                 </button>
@@ -2330,7 +2331,7 @@ const FloatingHeader: React.FC = () => {
                           })
                         : t("workspace.header.routeSwitch.rateNoData");
                     const filledBarClass =
-                      option.value === "stable" ? "bg-emerald-500" : "bg-sky-500";
+                      option.value === "stable" ? "bg-amber-500" : "bg-sky-500";
                     const emptyBarClass = isDarkTheme ? "bg-slate-600" : "bg-slate-200";
                     return (
                       <DropdownMenuItem
@@ -2388,7 +2389,7 @@ const FloatingHeader: React.FC = () => {
                             className={cn(
                               "text-[11px] font-semibold leading-none tabular-nums",
                               option.value === "stable"
-                                ? "text-emerald-700 dark:text-emerald-300"
+                                ? "text-amber-700 dark:text-amber-300"
                                 : "text-sky-700 dark:text-sky-300"
                             )}
                           >

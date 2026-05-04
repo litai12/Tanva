@@ -155,7 +155,9 @@ export interface VideoGenerationResult {
 @Injectable()
 export class VideoProviderService {
   private readonly logger = new Logger(VideoProviderService.name);
-  private readonly doubaoVideoCache = new Map<string, string>();
+  private readonly doubaoVideoCache = new Map<string, { url: string; touchedAt: number }>();
+  private readonly doubaoVideoCacheTtlMs = 60 * 60 * 1000;
+  private readonly doubaoVideoCacheMaxEntries = 500;
   private readonly managedV2TaskPrefix = "managedv2:";
 
   constructor(
@@ -163,6 +165,36 @@ export class VideoProviderService {
     private readonly tencentVodAigcService: TencentVodAigcService,
     private readonly modelRoutingService: ModelRoutingService,
   ) {}
+
+  private getCachedDoubaoVideoUrl(taskId: string): string | null {
+    const cached = this.doubaoVideoCache.get(taskId);
+    if (!cached) return null;
+    if (Date.now() - cached.touchedAt > this.doubaoVideoCacheTtlMs) {
+      this.doubaoVideoCache.delete(taskId);
+      return null;
+    }
+    cached.touchedAt = Date.now();
+    return cached.url;
+  }
+
+  private rememberDoubaoVideoUrl(taskId: string, url: string): void {
+    const now = Date.now();
+    this.doubaoVideoCache.set(taskId, { url, touchedAt: now });
+
+    for (const [key, value] of this.doubaoVideoCache.entries()) {
+      if (now - value.touchedAt > this.doubaoVideoCacheTtlMs) {
+        this.doubaoVideoCache.delete(key);
+      }
+    }
+
+    if (this.doubaoVideoCache.size <= this.doubaoVideoCacheMaxEntries) return;
+    const overflow = this.doubaoVideoCache.size - this.doubaoVideoCacheMaxEntries;
+    const oldestKeys = Array.from(this.doubaoVideoCache.entries())
+      .sort((a, b) => a[1].touchedAt - b[1].touchedAt)
+      .slice(0, overflow)
+      .map(([key]) => key);
+    oldestKeys.forEach((key) => this.doubaoVideoCache.delete(key));
+  }
 
   private withExecutionMetadata(
     result: VideoGenerationResult,
@@ -355,7 +387,7 @@ export class VideoProviderService {
       throw new ServiceUnavailableException("OSS 未配置，无法上传视频");
     }
 
-    const cached = this.doubaoVideoCache.get(taskId);
+    const cached = this.getCachedDoubaoVideoUrl(taskId);
     if (cached) return cached;
 
     let parsed: URL;
@@ -410,7 +442,7 @@ export class VideoProviderService {
       headers: { "Content-Type": contentType },
     });
 
-    this.doubaoVideoCache.set(taskId, url);
+    this.rememberDoubaoVideoUrl(taskId, url);
     return url;
   }
 

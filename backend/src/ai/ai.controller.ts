@@ -859,6 +859,10 @@ export class AiController {
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
+    const explicitChannelHint =
+      typeof extraParams?.channelHint === 'string' && extraParams.channelHint.trim()
+        ? extraParams.channelHint.trim()
+        : undefined;
     const channelHint =
       bananaImageRoute === 'stable'
         ? 'tencent'
@@ -868,7 +872,7 @@ export class AiController {
         ? 'apimart'
         : aiProvider.startsWith('banana')
         ? '147'
-        : undefined;
+        : explicitChannelHint;
 
     return {
       ...(extraParams || {}),
@@ -3855,6 +3859,8 @@ export class AiController {
         if (result.success && result.data) {
           return {
             text: result.data.text,
+            webSearchResult: result.data.webSearchResult,
+            metadata: result.data.metadata,
           };
         }
         throw new Error(result.error?.message || 'Failed to generate text');

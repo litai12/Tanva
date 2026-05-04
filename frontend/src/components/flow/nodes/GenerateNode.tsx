@@ -1206,7 +1206,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
       {/* 兼容历史多图输入句柄，避免旧连线 targetHandle=img2/img3... 报错 */}
-      {["img2", "img3", "img4", "img5", "img6"].map((legacyHandleId) => (
+      {Array.from({ length: 13 }, (_, index) => `img${index + 2}`).map((legacyHandleId) => (
         <Handle
           key={legacyHandleId}
           type='target'

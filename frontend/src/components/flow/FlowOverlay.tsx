@@ -96,8 +96,9 @@ import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
+import { isImageSplitHandle } from "./utils/imageSplitHandles";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { recordImageHistoryEntry, recordVideoHistoryEntry } from "@/services/imageHistoryService";
 import {
   useFlowStore,
   FlowBackgroundVariant,
@@ -197,7 +198,10 @@ import {
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
-import { resolveFlowModelProvider } from "@/utils/flowModelProvider";
+import {
+  resolveFlowImageReferenceLimit,
+  resolveFlowModelProvider,
+} from "@/utils/flowModelProvider";
 import {
   detectAlignments,
   deduplicateAlignments,
@@ -9059,6 +9063,47 @@ function FlowInner() {
     [getVideoHistoryKey]
   );
 
+  const recordFlowVideoHistory = React.useCallback(
+    (
+      nodeId: string,
+      nodeType: string,
+      entry: Record<string, any>,
+      metadata?: Record<string, any>
+    ) => {
+      const videoUrl =
+        typeof entry?.videoUrl === "string" ? entry.videoUrl.trim() : "";
+      if (!videoUrl) return;
+
+      const createdAt =
+        typeof entry?.createdAt === "string" ? Date.parse(entry.createdAt) : undefined;
+      void recordVideoHistoryEntry({
+        id: typeof entry?.id === "string" ? entry.id : undefined,
+        videoUrl,
+        thumbnail: typeof entry?.thumbnail === "string" ? entry.thumbnail : undefined,
+        title: typeof entry?.prompt === "string" ? entry.prompt : undefined,
+        nodeId,
+        nodeType,
+        projectId: useProjectContentStore.getState().projectId,
+        timestamp: Number.isFinite(createdAt) ? createdAt : Date.now(),
+        metadata: {
+          source: "flow",
+          status: "succeeded",
+          quality: entry?.quality,
+          elapsedSeconds: entry?.elapsedSeconds,
+          referenceCount: entry?.referenceCount,
+          ...(metadata || {}),
+        },
+      }).catch((error) => {
+        console.warn("[Flow] 记录视频全局历史失败:", {
+          nodeId,
+          nodeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    []
+  );
+
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback(
     (connection: Connection) => {
@@ -9588,12 +9633,9 @@ function FlowInner() {
               sourceHandle === "images-range"
             );
           }
-          // imageSplit 输出为 image1..imageN
+          // imageSplit 输出为 image1..imageN；兼容 img1..imgN 历史句柄
           if (sourceNode.type === "imageSplit") {
-            return (
-              typeof sourceHandle === "string" &&
-              /^image\d+$/.test(sourceHandle)
-            );
+            return isImageSplitHandle(sourceHandle);
           }
           return isImageSource(sourceNode, sourceHandle);
         }
@@ -9642,7 +9684,7 @@ function FlowInner() {
     ]
   );
 
-  // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
+  // 限制：Generate(text) 仅一个连接；Generate(img) 按节点模型档位限制参考图数量
   const canAcceptConnection = React.useCallback(
     (params: Connection) => {
       if (!params.target || !params.targetHandle) return false;
@@ -9659,7 +9701,13 @@ function FlowInner() {
         targetNode?.type === "generatePro4"
       ) {
         if (params.targetHandle === "text") return true; // 允许连接，新线会替换旧线
-        if (params.targetHandle === "img") return incoming.length < 6;
+        if (params.targetHandle === "img") {
+          const maxReferenceImages = resolveFlowImageReferenceLimit(
+            targetNode.data?.modelProvider,
+            aiProvider
+          );
+          return incoming.length < maxReferenceImages;
+        }
       }
       if (targetNode?.type === "generateRef") {
         const handle = params.targetHandle;
@@ -9917,6 +9965,7 @@ function FlowInner() {
       canKlingNodeUseAudioInput,
       canKlingNodeUseImage2Input,
       getSeedanceModeSpec,
+      aiProvider,
       isSeedanceVideoNode,
     ]
   );
@@ -11681,6 +11730,11 @@ function FlowInner() {
               elapsedSeconds,
               referenceCount: params.referenceCount,
             };
+            recordFlowVideoHistory(params.nodeId, "happyhorseR2V", historyEntry, {
+              provider: "happyhorse",
+              taskId,
+              apiUsageId: params.apiUsageId,
+            });
 
             setNodes((ns) =>
               ns.map((n) => {
@@ -11722,7 +11776,7 @@ function FlowInner() {
         happyhorsePollingRef.current.delete(pollKey);
       }
     },
-    [appendVideoHistory, setNodes]
+    [appendVideoHistory, recordFlowVideoHistory, setNodes]
   );
 
   React.useEffect(() => {
@@ -12832,6 +12886,10 @@ function FlowInner() {
             quality: media.map((item) => item.type).join("+"),
             createdAt: new Date().toISOString(),
           };
+          recordFlowVideoHistory(nodeId, "wan27Video", historyEntry, {
+            provider: "wan",
+            apiUsageId: wanApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -13121,6 +13179,10 @@ function FlowInner() {
             quality: hasImageInput ? "I2V" : "T2V",
             createdAt: new Date().toISOString(),
           };
+          recordFlowVideoHistory(nodeId, "wan26", historyEntry, {
+            provider: "wan",
+            apiUsageId: wanApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -13342,6 +13404,9 @@ function FlowInner() {
             createdAt: new Date().toISOString(),
             referenceCount: referenceVideoUrls.length,
           };
+          recordFlowVideoHistory(nodeId, "wan2R2V", historyEntry, {
+            provider: "wan",
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -13736,6 +13801,10 @@ function FlowInner() {
             createdAt: new Date().toISOString(),
             referenceCount: referenceImageUrls.length,
           };
+          recordFlowVideoHistory(nodeId, "happyhorseR2V", historyEntry, {
+            provider: "happyhorse",
+            apiUsageId: happyhorseApiUsageId,
+          });
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -14520,15 +14589,34 @@ function FlowInner() {
             console.warn("⚠️ [Flow] Failed to upload video to OSS, using original URL", uploadErr);
           }
 
+          const elapsedSeconds = Math.max(
+            1,
+            Math.round((Date.now() - generationStartMs) / 1000)
+          );
+          recordFlowVideoHistory(
+            nodeId,
+            "sora2Video",
+            {
+              id: `sora2-history-${Date.now()}`,
+              videoUrl: persistedVideoUrl,
+              thumbnail: persistedThumbnail,
+              prompt: finalPromptText,
+              quality: videoQuality,
+              createdAt: new Date().toISOString(),
+              elapsedSeconds,
+            },
+            {
+              provider: "sora2",
+              taskId: videoResult.taskId,
+              quality: videoQuality,
+            }
+          );
+
           setNodes((ns) =>
             ns.map((n) => {
               if (n.id !== nodeId) return n;
               const previousData = (n.data as any) || {};
               const nextThumbnail = persistedThumbnail || previousData.thumbnail;
-              const elapsedSeconds = Math.max(
-                1,
-                Math.round((Date.now() - generationStartMs) / 1000)
-              );
               const historyEntry: Sora2VideoHistoryItem = {
                 id: `sora2-history-${Date.now()}`,
                 videoUrl: persistedVideoUrl,
@@ -15892,6 +15980,16 @@ function FlowInner() {
                   createdAt: new Date().toISOString(),
                   elapsedSeconds,
                 };
+                recordFlowVideoHistory(nodeId, normalizedVideoNodeType, historyEntry, {
+                  provider,
+                  taskId: createResult.taskId,
+                  apiUsageId: createResult.apiUsageId,
+                  duration: durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  seedanceMode,
+                  viduVideoMode: viduVideoModeForAPI,
+                  referenceImageCount: referenceImageUrls.length,
+                });
                 setNodes((ns) =>
                   ns.map((n) => {
                     if (n.id !== nodeId) return n;
@@ -16341,6 +16439,19 @@ function FlowInner() {
             videoUrl: typeof videoUrl === "string" ? videoUrl : undefined,
             createdAt: Date.now(),
           };
+          if (typeof videoUrl === "string" && videoUrl.trim()) {
+            recordFlowVideoHistory(
+              nodeId,
+              "tencentSpeech",
+              {
+                id: historyItemId,
+                videoUrl: videoUrl.trim(),
+                prompt: finalText,
+                createdAt: new Date(historyItem.createdAt).toISOString(),
+              },
+              { provider: "tencent-speech" }
+            );
+          }
 
           setNodes((ns) =>
             ns.map((n) =>
@@ -17813,6 +17924,10 @@ function FlowInner() {
         }
       }
 
+      const maxFlowReferenceImages = resolveFlowImageReferenceLimit(
+        (node.data as any)?.modelProvider,
+        aiProvider
+      );
       let imageDatas: string[] = [];
 
       if (node.type === "generateRef") {
@@ -17846,7 +17961,7 @@ function FlowInner() {
       } else {
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
-          .slice(0, 6);
+          .slice(0, maxFlowReferenceImages);
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
@@ -18077,8 +18192,8 @@ function FlowInner() {
               result = await blendImagesViaAPI({
                 prompt,
                 ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
-                  : { sourceImages: imageDatas.slice(0, 6) }),
+                  ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+                  : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
                 outputFormat: "png",
                 aiProvider: runProvider,
                 model: nodeSpecificModel,
@@ -18353,8 +18468,8 @@ function FlowInner() {
               result = await blendImagesViaAPI({
                 prompt,
                 ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, 6) }
-                  : { sourceImages: imageDatas.slice(0, 6) }),
+                  ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+                  : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
                 outputFormat: "png",
                 aiProvider: runProvider,
                 model: nodeSpecificModel,
@@ -18627,8 +18742,8 @@ function FlowInner() {
           return await blendImagesViaAPI({
             prompt,
             ...(hasOnlyRemote
-              ? { sourceImageUrls: imageDatas.slice(0, 6) }
-              : { sourceImages: imageDatas.slice(0, 6) }),
+              ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+              : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
             outputFormat: "png",
             aiProvider: provider,
             model,
@@ -18825,6 +18940,7 @@ function FlowInner() {
       imageModel,
       inferSeedanceMode,
       pollHappyhorseTask,
+      recordFlowVideoHistory,
       rf,
       setNodes,
       uploadImageToStableUrl,

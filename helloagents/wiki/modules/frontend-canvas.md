@@ -67,6 +67,10 @@
 - 点击后会基于当前图片数据做降采样与主色聚类，提取 6 个主色，并生成一张独立的竖向调色板图片放在原图右侧（复用 `triggerQuickImageUpload` 链路）。
 - 调色板图片按普通图片资产处理：先本地显示，后续上传并持久化为远程 URL/OSS key，不会把内联 base64 落库。
 
+## AI 图片局部编辑 / 高清放大
+- Shift 精确局部修改对齐 `lt-dev9`：框选完成后会记录选区画布 bounds、裁剪像素尺寸与比例，AI Chat 编辑占位框使用 `precise-edit`/`lockToBounds` 锁定原选区位置，跳过普通编辑右侧偏移与矩阵避让，结果继续原位覆盖。
+- 高清放大对齐 `lt-dev9`：运行时在原图右侧创建 `hd-upscale` 占位框，完成后通过 `triggerQuickImageUpload` 发送到画布，不直接下载文件。
+
 ## 图层面板反向选中
 - 当用户在画板中选中图片/3D/路径时，`DrawingController` 会派发 `tanva-canvas-selection-updated`，`LayerPanel` 会据此自动高亮对应图元项。
 - 同步时会自动展开并激活对应图层，避免“画板已选中但图层面板无反馈”；图片场景仍兼容 `tanva-image-instances-updated`。

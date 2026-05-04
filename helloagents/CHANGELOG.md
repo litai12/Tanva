@@ -21,10 +21,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
 - Canvas/Performance: `ImageContainer` now skips high-frequency viewport subscriptions for inactive image overlays, `GridRenderer` reduces low-zoom grid work and coalesces zoom redraws, and Flow node-internals updates are deferred while dragging.
 - Flow/Runtime: `GenerationProgressBar` now keeps simulated progress stable per node `runKey` across rerenders, and Flow node groups can stop pending group runs after the current child node finishes.
 - Flow/Runtime: running flow nodes now receive a transient `progressStartedAt` timestamp that is removed when runs finish and stripped from copy/template export paths, keeping progress stable without persisting runtime UI state.
+- Workspace Route Switch: stable route UI is aligned with `lt-dev9` using the amber Crown treatment instead of the green Star treatment.
+- Canvas/AI Edit: Shift precise-local-edit now carries crop canvas bounds/pixel aspect into AI Chat and uses `precise-edit`/`lockToBounds` to keep the predictive placeholder on the selected region without matrix reflow.
+- Canvas/HD Upscale: HD upscale now creates a predictive placeholder and sends the 4K result to canvas instead of downloading it directly.
 - Flow/Image Split: downstream consumers now use the shared Image Split handle helper for `imageN/imgN` inputs; `VideoToGif` shows run credits and `VideoNode` isolates native video controls from canvas drag/pan gestures.
 - Global History: image history UI now supports video media records with shared media helpers, video thumbnails/playback in list/detail views, and AI Chat Seedance video success writes to global history.
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
@@ -35,10 +39,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Text Nodes: `TextChat` now supports built-in Skill presets (Custom, Shot Split, Prompt Optimize, CN/EN Convert) and `PromptOptimize`/`TextChat` consume optimistic upstream text patches so Run uses the latest connected text.
 - Flow/Storyboard Split: `StoryboardSplitNode` now supports a custom split-format sample (`分镜1`, `#1`, `|**1**|` etc.), auto-sizes output handles from parsed segments, and prunes stale prompt outputs/edges after re-splitting.
 - Flow/Image References: `Generate`, `Agent(generatePro)`, and `Generate4` now cap connected reference-image previews by model tier (`Fast=3`, `Pro=11`, `Ultra=14`) using shared `flowModelProvider` limits.
+- Flow/Image References: Flow connection admission and runtime request assembly now use the same model-tier reference-image limits (`Fast=3`, `Pro=11`, `Ultra=14`), so Pro/Ultra runs are no longer truncated to six references.
+- Flow/Global History: successful Flow video outputs now write remote video records to Global History for Wan, HappyHorse, Sora2, Seedance/Kling/Vidu-family provider nodes, and Tencent Speech video output without changing design JSON persistence.
 - Flow/Video Analysis: default analysis prompts localize between Chinese/English and requests now carry Banana route/channel hints for route-aware backend handling.
 - Flow/Runtime: `Generate4` now resolves Image Split references through the shared `imageN/imgN` handle helper; `Seedream` uses available thumbnails for node preview, and `Video Analysis` run UI/localized copy is aligned with other run-credit buttons.
 - Flow/GeneratePro4: the four-image pro node now has node-local Fast/Pro/Ultra selection, persists `modelProvider`, and previews run credits using the connected reference-image count capped by shared model-tier limits.
 - AI Chat: `/api/ai/text-chat` response `metadata` is preserved on chat messages/context, and context prompts now instruct the model to answer the current user input directly without exposing internal intent analysis.
+- Backend AI: non-Gemini `/api/ai/text-chat` responses now pass through `webSearchResult` and `metadata`; credit request params preserve explicit `channelHint`; provider video OSS transfer cache now has TTL and max-entry cleanup.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.

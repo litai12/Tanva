@@ -463,6 +463,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             ? params.expectedHeight + GENERATE_COLLISION_PADDING
             : params.expectedHeight;
 
+        if (params.operationType === 'precise-edit' && groupTotal <= 1) {
+            return lockPoint(desiredAnchor.clone());
+        }
+
         // 单图生成：只向下排版（取当前 generate 中“最下面，若同层取最左”再向下偏移）
         if (params.operationType === 'generate' && groupTotal <= 1) {
             const images = getAllCanvasImages().filter((img) => img.operationType === 'generate');
@@ -705,6 +709,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 return editPosition;
             }
 
+            case 'precise-edit': {
+                const anchor = layoutContext?.anchorCenter
+                    && Number.isFinite(layoutContext.anchorCenter.x)
+                    && Number.isFinite(layoutContext.anchorCenter.y)
+                    ? layoutContext.anchorCenter
+                    : (paper.view?.center ? { x: paper.view.center.x, y: paper.view.center.y } : { x: 0, y: 0 });
+                return { x: anchor.x, y: anchor.y };
+            }
+
             case 'blend': {
                 // 融合图：基于第一张源图向右偏移
                 const spacingH = getSpacingHorizontal();
@@ -743,6 +756,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         groupTotal?: number;
         preferHorizontal?: boolean;
         groupAnchor?: { x: number; y: number } | null;
+        lockToBounds?: boolean;
     }) => {
         if (!params?.placeholderId) return;
 
@@ -757,8 +771,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         ensureDrawingLayer();
 
         const minSize = 48;
-        const width = Math.max(params.width || 0, minSize);
-        const height = Math.max(params.height || 0, minSize);
+        const lockToBounds =
+            Boolean(params.lockToBounds) || params.operationType === 'precise-edit';
+        const width = lockToBounds
+            ? Math.max(params.width || 0, 1)
+            : Math.max(params.width || 0, minSize);
+        const height = lockToBounds
+            ? Math.max(params.height || 0, 1)
+            : Math.max(params.height || 0, minSize);
         const preferHorizontal = params.preferHorizontal || (params.groupTotal ?? 1) > 1;
         const layoutContext = {
             groupId: params.groupId,
@@ -808,17 +828,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const desiredPoint = new paper.Point(baseCenter.x, baseCenter.y);
         let centerPoint = desiredPoint;
 
-        try {
-            centerPoint = resolveMatrixPosition({
-                operationType: params.operationType || 'generate',
-                anchor: desiredPoint,
-                expectedWidth: width,
-                expectedHeight: height,
-                currentImageId: params.placeholderId,
-                layoutContext,
-            });
-        } catch (e) {
-            logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+        if (!lockToBounds && params.preferSmartLayout !== false) {
+            try {
+                centerPoint = resolveMatrixPosition({
+                    operationType: params.operationType || 'generate',
+                    anchor: desiredPoint,
+                    expectedWidth: width,
+                    expectedHeight: height,
+                    currentImageId: params.placeholderId,
+                    layoutContext,
+                });
+            } catch (e) {
+                logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+            }
         }
 
         // ========== Agent 风格占位符 - 内部动效设计 ==========
@@ -1110,6 +1132,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
             forceAnchorPosition?: boolean;
+            lockToBounds?: boolean;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
             // 🔥 并行生成分组信息，用于 X4/X8 自动打组
             parallelGroupId?: string;
@@ -1320,6 +1343,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
+            const lockToBounds =
+                Boolean(extraOptions?.lockToBounds) || pendingOperationType === 'precise-edit';
             const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
             // 🔥 获取并行生成分组信息
             const parallelGroupId = extraOptions?.parallelGroupId;
@@ -1406,7 +1431,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 const shouldForceAnchorPosition =
-                    Boolean(extraOptions?.forceAnchorPosition) && (parallelGroupTotal ?? 1) <= 1;
+                    !lockToBounds &&
+                    Boolean(extraOptions?.forceAnchorPosition) &&
+                    (parallelGroupTotal ?? 1) <= 1;
                 let anchorCenterForPlacement = desiredPoint;
                 if (shouldForceAnchorPosition) {
                     // forceAnchorPosition 语义：smartPosition 表示“顶部锚点”，不是图片中心点。
@@ -1416,7 +1443,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     );
                 }
                 pendingEntry = registerPending(anchorCenterForPlacement);
-                const adjustedPoint = shouldForceAnchorPosition
+                const adjustedPoint = lockToBounds || shouldForceAnchorPosition
                     ? anchorCenterForPlacement
                     : resolveTargetPosition(desiredPoint, pendingOperationType);
                 targetPosition = adjustedPoint;
@@ -1433,7 +1460,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             } else if (placeholderCenter) {
                 pendingEntry = registerPending(placeholderCenter);
-                targetPosition = resolveTargetPosition(placeholderCenter, pendingOperationType);
+                targetPosition = lockToBounds
+                    ? placeholderCenter
+                    : resolveTargetPosition(placeholderCenter, pendingOperationType);
                 if (pendingEntry) {
                     pendingEntry.x = targetPosition.x;
                     pendingEntry.y = targetPosition.y;

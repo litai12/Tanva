@@ -15,6 +15,10 @@
 - 手动模式会根据当前图片数量自动禁用不支持选项，并在不兼容时回退到 Auto。
 - 发送按钮在模式不支持当前图片数量时禁用并提示原因。
 
+## AI 对话框会话边界
+- `ContextManager` 不在构造期自动恢复全局本地会话；恢复由 `aiChatStore.initializeContext()` 按项目作用域调度。
+- 有项目 ID 时，对话框会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；IndexedDB/localStorage 中的全局本地会话仅用于无项目场景，避免切换/新建项目时旧历史串入当前项目。
+
 ## 离开保护（上传中/待上传）
 - 编辑器（`/app`）内若存在上传中/待上传图片（含 Flow 内联图片引用），在离开页面/切换项目/退出登录/浏览器前进后退时会弹出确认提示，避免误操作导致图片丢失或无法保存到云端。
 
@@ -65,6 +69,7 @@
 - `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
 - 工作区顶部项目名右侧新增快捷 `+` 新建按钮（`FloatingHeader`），点击可直接创建并切换到新项目；项目下拉中的“新建项目”复用同一创建逻辑并带防连点保护。
 - 工作区右上角 Nano Banana/Gemini/GPT-Image-2 路线快捷切换会读取今日普通/尊享路线成功率并在下拉内显示信号条；数据来自 `/api/ai/banana-route-success-rates`。
+- 生文/生图线路的尊享路线视觉对齐 `lt-dev9`：菜单与设置页均使用 amber 王冠样式，不使用绿色星标。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）已下架“双倍/首充翻倍”角标展示；`送X%` 等赠送百分比角标同样保持前端屏蔽。
 - `LayerPanel` + `layerStore`（`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/stores/layerStore.ts`）已补充图层名双语兼容：新建图层默认名按当前语言生成，历史 `图层 N`/`Layer N` 显示按当前语言映射。
 

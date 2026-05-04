@@ -3212,7 +3212,48 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       const execute = async () => {
         setIsOptimizingHd(true);
+        let hdPlaceholderId: string | null = null;
         try {
+          const placeholderWidth = Math.max(48, realTimeBounds.width || 512);
+          const placeholderHeight = Math.max(48, realTimeBounds.height || 512);
+          const placementGap = Math.max(
+            32,
+            Math.min(120, placeholderWidth * 0.1)
+          );
+          const hdResultBounds = {
+            x: realTimeBounds.x + realTimeBounds.width + placementGap,
+            y: realTimeBounds.y,
+            width: placeholderWidth,
+            height: placeholderHeight,
+          };
+          const hdResultCenter = {
+            x: hdResultBounds.x + hdResultBounds.width / 2,
+            y: hdResultBounds.y + hdResultBounds.height / 2,
+          };
+          hdPlaceholderId = `hd_upscale_${imageData.id}_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+
+          window.dispatchEvent(
+            new CustomEvent("predictImagePlaceholder", {
+              detail: {
+                action: "add",
+                placeholderId: hdPlaceholderId,
+                center: hdResultCenter,
+                width: hdResultBounds.width,
+                height: hdResultBounds.height,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 12 },
+            })
+          );
+
           // 获取图片数据
           const baseImage = await resolveImageDataUrl();
           if (!baseImage) {
@@ -3275,19 +3316,31 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             ? editResult.data.imageData
             : `data:image/png;base64,${editResult.data.imageData}`;
 
-          // 直接下载 4K 图片，不加载到画布
           const fileName = `hd-4k-${Date.now()}.png`;
-          const link = document.createElement("a");
-          link.href = resultImageData;
-          link.download = fileName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 88 },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: resultImageData,
+                fileName,
+                selectedImageBounds: hdResultBounds,
+                smartPosition: hdResultCenter,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+                placeholderId: hdPlaceholderId,
+              },
+            })
+          );
 
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: "✨ 高清放大完成（4K），已下载",
+                message: "✨ 高清放大完成（4K），已生成到画布",
                 type: "success",
               },
             })
@@ -3296,6 +3349,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const message =
             error instanceof Error ? error.message : "高清放大失败";
           logger.error("高清放大失败", error);
+          if (hdPlaceholderId) {
+            window.dispatchEvent(
+              new CustomEvent("predictImagePlaceholder", {
+                detail: { action: "remove", placeholderId: hdPlaceholderId },
+              })
+            );
+          }
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: { message, type: "error" },
