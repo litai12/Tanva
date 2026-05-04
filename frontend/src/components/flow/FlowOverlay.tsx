@@ -7927,6 +7927,7 @@ function FlowInner() {
               status: "idle" as const,
               manualInput: "",
               responseText: "",
+              textChatSkillId: "custom",
               enableWebSearch: false,
               modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               boxW: size.w,
@@ -20537,6 +20538,7 @@ function FlowInner() {
                 status: "idle" as const,
                 manualInput: "",
                 responseText: "",
+                textChatSkillId: "custom",
                 enableWebSearch: false,
                 modelProvider: resolveFlowModelProvider(undefined, aiProvider),
               }

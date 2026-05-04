@@ -23,6 +23,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Text Route Pricing: `gemini-text` and `gemini-prompt-optimize` now both use flat route pricing by channel for Fast/Pro/Ultra (`normal=5`, `stable=10`) in preview and deduction.
 - Flow/Text Nodes: `PromptOptimize` now has a working Fast/Pro/Ultra node-level model switch (synced to backend request params), and `PromptOptimize` + `TextChat` Run-button credit badge interaction is aligned with image-node behavior.
+- Flow/Text Nodes: `TextChat` now supports built-in Skill presets (Custom, Shot Split, Prompt Optimize, CN/EN Convert) and `PromptOptimize`/`TextChat` consume optimistic upstream text patches so Run uses the latest connected text.
+- Flow/Storyboard Split: `StoryboardSplitNode` now supports a custom split-format sample (`分镜1`, `#1`, `|**1**|` etc.), auto-sizes output handles from parsed segments, and prunes stale prompt outputs/edges after re-splitting.
+- Flow/Image References: `Generate`, `Agent(generatePro)`, and `Generate4` now cap connected reference-image previews by model tier (`Fast=3`, `Pro=11`, `Ultra=14`) using shared `flowModelProvider` limits.
+- Flow/Video Analysis: default analysis prompts localize between Chinese/English and requests now carry Banana route/channel hints for route-aware backend handling.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.

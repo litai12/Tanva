@@ -18,6 +18,7 @@ import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import {
+  getFlowImageReferenceLimit,
   getFlowModelProviderMode,
   resolveFlowModelProvider,
   type FlowModelProvider,
@@ -81,7 +82,6 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-const MAX_INPUT_PREVIEWS = 6;
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
 type OrderedInputEdge = {
@@ -521,6 +521,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
   );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -598,7 +602,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-            if (out.length >= MAX_INPUT_PREVIEWS) {
+            if (out.length >= maxInputPreviews) {
               return out;
             }
           }
@@ -606,7 +610,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
         return out;
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 

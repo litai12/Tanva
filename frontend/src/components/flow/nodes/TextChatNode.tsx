@@ -29,6 +29,7 @@ type Props = {
     error?: string;
     responseText?: string;
     manualInput?: string;
+    textChatSkillId?: string;
     enableWebSearch?: boolean;
     lastPrompt?: string;
     boxW?: number;
@@ -47,6 +48,24 @@ const MIN_NODE_HEIGHT = 260;
 const LEGACY_NODE_HEIGHT = 540;
 const NODE_VERTICAL_PADDING = 24;
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
+type TextChatSkillId = 'custom' | 'shotSplit' | 'promptOptimize' | 'translate';
+
+type TextChatSkillOption = {
+  id: TextChatSkillId;
+  label: string;
+  description: string;
+  prompt: string;
+};
+
+const DEFAULT_TEXT_CHAT_SKILL_ID: TextChatSkillId = 'custom';
+
+const normalizeTextChatSkillId = (value?: string): TextChatSkillId => {
+  if (value === 'custom') return 'custom';
+  if (value === 'promptOptimize') return 'promptOptimize';
+  if (value === 'translate') return 'translate';
+  if (value === 'shotSplit') return 'shotSplit';
+  return DEFAULT_TEXT_CHAT_SKILL_ID;
+};
 
 const buildNodeRequestPrompt = (rawPrompt: string): string => {
   if (rawPrompt.length <= MAX_TEXT_CHAT_PROMPT_LENGTH) {
@@ -59,6 +78,9 @@ const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow
   const source = rfInstance.getNode(edge.source);
   return resolveTextFromSourceNode(source, edge.sourceHandle);
 };
+
+const sameTextList = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
 
 const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   event.stopPropagation();
@@ -192,9 +214,78 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement | null>(null);
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
+  const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
   const [isInvoking, setIsInvoking] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
   const isComposingRef = React.useRef(false);
+
+  const textChatSkillOptions = React.useMemo<TextChatSkillOption[]>(
+    () => [
+      {
+        id: 'custom',
+        label: lt('自定义', 'Custom'),
+        description: lt('手动输入追加提示词', 'Manually enter an additional prompt'),
+        prompt: '',
+      },
+      {
+        id: 'shotSplit',
+        label: lt('拆分镜头', 'Shot Split'),
+        description: lt('把文本拆成可执行的镜头/分镜', 'Split text into actionable shots'),
+        prompt: lt(
+          `请把输入内容拆分为适合生图或视频生成的镜头列表。
+输出要求：
+1. 按镜头顺序编号。
+2. 每个镜头包含：画面描述、主体动作、景别/构图、镜头运动、光线氛围、可直接用于生成的提示词。
+3. 保留原始叙事逻辑，不要添加无关剧情。
+4. 只输出拆分后的镜头内容，不要解释你的分析过程。`,
+          `Split the input into a shot list suitable for image or video generation.
+Output requirements:
+1. Number each shot in sequence.
+2. Each shot should include: visual description, subject action, framing/composition, camera movement, lighting/mood, and a ready-to-use generation prompt.
+3. Preserve the original narrative logic and do not add unrelated story beats.
+4. Return only the shot breakdown, without explaining your analysis process.`
+        ),
+      },
+      {
+        id: 'promptOptimize',
+        label: lt('提示词优化', 'Prompt Optimize'),
+        description: lt('优化成更清晰稳定的生成提示词', 'Refine into a clearer generation prompt'),
+        prompt: lt(
+          `请把输入内容优化为一段高质量、可直接用于生图或视频生成的提示词。
+要求保留原意，并强化主体、场景、构图、光线、色彩、材质、风格和关键细节。
+只输出优化后的提示词，不要解释，不要写标题，不要使用 Markdown。`,
+          `Refine the input into a high-quality prompt ready for image or video generation.
+Preserve the original intent and strengthen the subject, scene, composition, lighting, colors, materials, style, and key details.
+Return only the optimized prompt. Do not explain, add headings, or use Markdown.`
+        ),
+      },
+      {
+        id: 'translate',
+        label: lt('中英文转换', 'CN/EN Convert'),
+        description: lt('中文转英文，英文转中文', 'Convert Chinese to English or English to Chinese'),
+        prompt: lt(
+          `请对输入内容进行中英文转换。
+规则：
+1. 如果主要是中文，转换为自然、准确、适合提示词使用的英文。
+2. 如果主要是英文，转换为自然、准确的中文。
+3. 保留原有结构、编号、参数、专有名词和模型关键词。
+4. 只输出转换结果，不要解释，不要添加额外内容。`,
+          `Convert the input between Chinese and English.
+Rules:
+1. If the input is mainly Chinese, convert it into natural, accurate English suitable for prompt use.
+2. If the input is mainly English, convert it into natural, accurate Chinese.
+3. Preserve the original structure, numbering, parameters, proper nouns, and model keywords.
+4. Return only the converted result, without explanation or extra content.`
+        ),
+      },
+    ],
+    [lt]
+  );
+  const currentTextChatSkillId = normalizeTextChatSkillId(data.textChatSkillId);
+  const currentTextChatSkill =
+    textChatSkillOptions.find((option) => option.id === currentTextChatSkillId) ??
+    textChatSkillOptions[0];
+  const isCustomSkill = currentTextChatSkillId === 'custom';
 
   React.useEffect(() => {
     if (isComposingRef.current) return;
@@ -216,6 +307,13 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       titleInputRef.current?.select();
     });
   }, [isEditingTitle]);
+
+  React.useEffect(() => {
+    if (data.textChatSkillId === currentTextChatSkillId) return;
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { textChatSkillId: currentTextChatSkillId } }
+    }));
+  }, [currentTextChatSkillId, data.textChatSkillId, id]);
 
   React.useEffect(() => {
     if (data.sizeVersion === TEXT_CHAT_NODE_SIZE_VERSION) return;
@@ -318,18 +416,94 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     };
   }, [id, updateNodeInternals]);
 
-  const incomingTexts = React.useMemo(() => {
-    return edges
+  const readIncomingTexts = React.useCallback((optimisticSource?: {
+    sourceId: string;
+    patch: Record<string, unknown>;
+  } | null): string[] => {
+    return rf.getEdges()
       .filter((edge) => edge.target === id && edge.targetHandle === 'text')
-      .map((edge) => pickTextFromNode(edge, rf))
+      .map((edge) => {
+        if (
+          optimisticSource &&
+          edge.source === optimisticSource.sourceId &&
+          optimisticSource.patch &&
+          typeof optimisticSource.patch === 'object'
+        ) {
+          const source = rf.getNode(edge.source);
+          if (!source) return undefined;
+          return resolveTextFromSourceNode(
+            {
+              ...source,
+              data: {
+                ...(source.data as Record<string, unknown>),
+                ...optimisticSource.patch,
+              },
+            },
+            edge.sourceHandle,
+          );
+        }
+        return pickTextFromNode(edge, rf);
+      })
       .filter((text): text is string => typeof text === 'string' && text.length > 0);
-  }, [edges, id, rf]);
+  }, [id, rf]);
+
+  const updateIncomingTexts = React.useCallback((nextTexts: string[]) => {
+    setIncomingTexts((prevTexts) =>
+      sameTextList(prevTexts, nextTexts) ? prevTexts : nextTexts
+    );
+  }, []);
+
+  React.useEffect(() => {
+    updateIncomingTexts(readIncomingTexts());
+  }, [edges, readIncomingTexts, updateIncomingTexts]);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        id?: string;
+        patch?: Record<string, unknown>;
+      }>).detail;
+      if (!detail?.id) return;
+
+      const isConnectedSource = rf.getEdges().some(
+        (edge) => edge.target === id && edge.targetHandle === 'text' && edge.source === detail.id
+      );
+      if (!isConnectedSource) return;
+
+      if (detail.patch && typeof detail.patch === 'object') {
+        updateIncomingTexts(readIncomingTexts({ sourceId: detail.id, patch: detail.patch }));
+        return;
+      }
+
+      window.setTimeout(() => {
+        updateIncomingTexts(readIncomingTexts());
+      }, 0);
+    };
+
+    window.addEventListener('flow:updateNodeData', handler as EventListener);
+    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
+  }, [id, readIncomingTexts, rf, updateIncomingTexts]);
 
   const runChat = React.useCallback(async () => {
-    const sources = [...incomingTexts];
+    const latestIncomingTexts = readIncomingTexts();
+    updateIncomingTexts(latestIncomingTexts);
     const typed = manualInput.trim();
-    if (typed.length) sources.push(typed);
-    const rawPayload = sources.join('\n\n').trim();
+    const rawPayload = (() => {
+      if (isCustomSkill) {
+        const sources = [...latestIncomingTexts];
+        if (typed.length) sources.push(typed);
+        return sources.join('\n\n').trim();
+      }
+
+      const inputPayload = latestIncomingTexts
+        .map((text, index) => `#${index + 1}\n${text}`)
+        .join('\n\n')
+        .trim();
+      const skillPrompt = currentTextChatSkill.prompt.trim();
+      return inputPayload
+        ? `${skillPrompt}\n\n${lt('输入内容：', 'Input content:')}\n${inputPayload}`.trim()
+        : skillPrompt;
+    })();
     if (!rawPayload.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
         detail: { id, patch: { status: 'failed', error: lt('请输入或连接至少一个提示文本', 'Please enter or connect at least one prompt text') } }
@@ -383,7 +557,19 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [bananaImageRoute, effectiveProvider, enableWebSearch, id, incomingTexts, lt, manualInput, textModel]);
+  }, [
+    bananaImageRoute,
+    currentTextChatSkill.prompt,
+    effectiveProvider,
+    enableWebSearch,
+    id,
+    isCustomSkill,
+    lt,
+    manualInput,
+    readIncomingTexts,
+    textModel,
+    updateIncomingTexts,
+  ]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -404,6 +590,22 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     return () =>
       window.removeEventListener('flow:run-node', handler as EventListener);
   }, [id, runChat]);
+
+  const onSelectTextChatSkill = React.useCallback(
+    (skill: TextChatSkillOption) => {
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: {
+            id,
+            patch: {
+              textChatSkillId: skill.id,
+            },
+          },
+        })
+      );
+    },
+    [id]
+  );
 
   const onManualInputChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
@@ -719,30 +921,106 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={labelStyle}>{lt('追加描述', 'Additional prompt')}</div>
-          <textarea
-            value={manualInput}
-            onChange={onManualInputChange}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            placeholder={lt("输入附加提示信息", "Enter additional prompt information")}
-            style={{
-              width: '100%',
-              minHeight: 80,
-              resize: 'vertical',
-              fontSize: 12,
-              lineHeight: 1.4,
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: `1px solid ${themePalette.textareaBorder}`,
-              background: themePalette.textareaBg,
-              color: themePalette.textareaText,
-              fontFamily: 'inherit',
-              boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
-            }}
-            onWheelCapture={stopFlowPan}
-            onPointerDownCapture={stopFlowPan}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={labelStyle}>{lt('Skill', 'Skill')}</div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={status === 'running' || isInvoking}
+                  onPointerDownCapture={stopFlowPan}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  className="nodrag nopan"
+                  title={lt('切换 Text Chat Skill', 'Switch Text Chat skill')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    minWidth: 104,
+                    height: 26,
+                    padding: '0 9px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: status === 'running' || isInvoking ? 'not-allowed' : 'pointer',
+                    color: isDarkTheme ? '#f8fafc' : '#111827',
+                    background: isDarkTheme ? '#262626' : '#f8fafc',
+                    border: `1px solid ${isDarkTheme ? '#3d3d3d' : '#d7dce5'}`,
+                    boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
+                  }}
+                >
+                  {currentTextChatSkill.label}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align='end'
+                side='bottom'
+                sideOffset={6}
+                className='min-w-[230px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
+              >
+                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
+                  {lt('Skill', 'Skill')}
+                </DropdownMenuLabel>
+                {textChatSkillOptions.map((skill) => {
+                  const isActive = currentTextChatSkill.id === skill.id;
+                  return (
+                    <DropdownMenuItem
+                      key={skill.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!isActive) {
+                          onSelectTextChatSkill(skill);
+                        }
+                      }}
+                      onPointerDownCapture={stopFlowPan}
+                      className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                        isActive
+                          ? 'bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800'
+                          : 'text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100'
+                      }`}
+                    >
+                      <div className='flex-1 space-y-0.5'>
+                        <div className='font-medium leading-none'>{skill.label}</div>
+                        <div className='text-[11px] leading-snug text-slate-400 dark:!text-slate-400'>{skill.description}</div>
+                      </div>
+                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {isCustomSkill && (
+            <textarea
+              className="nodrag nopan nowheel"
+              value={manualInput}
+              onChange={onManualInputChange}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
+              placeholder={lt("输入附加提示信息", "Enter additional prompt information")}
+              disabled={status === 'running' || isInvoking}
+              style={{
+                width: '100%',
+                minHeight: 80,
+                resize: 'vertical',
+                fontSize: 12,
+                lineHeight: 1.4,
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: `1px solid ${themePalette.textareaBorder}`,
+                background: themePalette.textareaBg,
+                color: themePalette.textareaText,
+                fontFamily: 'inherit',
+                boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
+              }}
+              onWheelCapture={stopFlowPan}
+              onPointerDownCapture={stopFlowPan}
+              onMouseDownCapture={stopFlowPan}
+            />
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
