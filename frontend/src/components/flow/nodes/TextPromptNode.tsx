@@ -12,6 +12,8 @@ type Props = {
 };
 
 const DEFAULT_TITLE = 'Prompt';
+const MIN_NODE_WIDTH = 180;
+const MIN_NODE_HEIGHT = 120;
 
 function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
@@ -197,6 +199,73 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setTitleDraft(title);
   }, [title]);
 
+  const updateNodeSize = React.useCallback((width: number, height: number) => {
+    const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
+    const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.round(height));
+    rf.setNodes((ns) => {
+      const targetIndex = ns.findIndex((node) => node.id === id);
+      if (targetIndex < 0) return ns;
+
+      const targetNode = ns[targetIndex];
+      const targetData = targetNode.data || {};
+      if (targetData.boxW === nextWidth && targetData.boxH === nextHeight) {
+        return ns;
+      }
+
+      const nextNodes = ns.slice();
+      nextNodes[targetIndex] = {
+        ...targetNode,
+        data: { ...targetData, boxW: nextWidth, boxH: nextHeight },
+      };
+      return nextNodes;
+    });
+  }, [id, rf]);
+
+  const resizeRafRef = React.useRef<number | null>(null);
+  const resizePendingRef = React.useRef<{ width: number; height: number } | null>(null);
+  const flushResizeRef = React.useRef<(() => void) | null>(null);
+
+  flushResizeRef.current = () => {
+    resizeRafRef.current = null;
+    const pending = resizePendingRef.current;
+    resizePendingRef.current = null;
+    if (!pending) return;
+    updateNodeSize(pending.width, pending.height);
+  };
+
+  const scheduleResize = React.useCallback((width: number, height: number) => {
+    resizePendingRef.current = { width, height };
+    if (resizeRafRef.current !== null) return;
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      flushResizeRef.current?.();
+    });
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      resizePendingRef.current = null;
+    };
+  }, []);
+
+  const handleResize = React.useCallback((_: unknown, params: { width: number; height: number }) => {
+    if (!params) return;
+    scheduleResize(params.width, params.height);
+  }, [scheduleResize]);
+
+  const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number }) => {
+    if (resizeRafRef.current !== null) {
+      window.cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = null;
+    }
+    resizePendingRef.current = null;
+    if (!params) return;
+    updateNodeSize(params.width, params.height);
+  }, [updateNodeSize]);
+
   useNodeInternalsSync(id, nodeRootRef, [data.boxW, data.boxH, isEditingTitle]);
 
   return (
@@ -215,17 +284,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }}>
       <NodeResizer
         isVisible
-        minWidth={180}
-        minHeight={120}
+        minWidth={MIN_NODE_WIDTH}
+        minHeight={MIN_NODE_HEIGHT}
         color="transparent"
         lineStyle={{ display: 'none' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
-        onResize={(evt, params) => {
-          rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: params.width, boxH: params.height } } : n));
-        }}
-        onResizeEnd={(evt, params) => {
-          rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: params.width, boxH: params.height } } : n));
-        }}
+        onResize={handleResize}
+        onResizeEnd={handleResizeEnd}
       />
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         {isEditingTitle ? (
@@ -314,7 +379,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         style={{
           width: '100%',
           flex: 1,
-          resize: 'vertical',
+          resize: 'none',
           maxHeight: '100%',
           minHeight: 60,
           overflowY: 'auto',

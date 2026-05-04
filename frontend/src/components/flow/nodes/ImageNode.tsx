@@ -31,6 +31,7 @@ import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import { loadSharedImage } from "../utils/sharedImageLoad";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
@@ -275,10 +276,7 @@ const CanvasCropPreview = React.memo(({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.decoding = "async";
-
-    const onLoad = () => {
+    loadSharedImage(src).then((img) => {
       if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
@@ -312,29 +310,21 @@ const CanvasCropPreview = React.memo(({
 
       canvas.style.width = `${dw}px`;
       canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      canvas.width = Math.max(1, Math.round(dw * dpr));
+      canvas.height = Math.max(1, Math.round(dh * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      ctx.clearRect(0, 0, sw, sh);
+      ctx.clearRect(0, 0, dw, dh);
       ctx.fillStyle = letterboxBg;
-      ctx.fillRect(0, 0, sw, sh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-    };
-
-    const onError = () => {
+      ctx.fillRect(0, 0, dw, dh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    }).catch(() => {
       if (cancelled) return;
       drawPlaceholder();
-    };
-
-    img.onload = onLoad;
-    img.onerror = onError;
-    img.src = src;
+    });
 
     return () => {
       cancelled = true;
-      img.onload = null;
-      img.onerror = null;
     };
   }, [
     rect?.height,

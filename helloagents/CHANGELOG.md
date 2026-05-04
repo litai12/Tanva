@@ -31,6 +31,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/TextPrompt: ordinary `Prompt` node resizing now batches size writes with `requestAnimationFrame`, skips unchanged dimensions, and disables the textarea's native resize handle to reduce ReactFlow-wide node updates and layout work during drag resize.
 - Flow/Video Frame Extract: edge source-handle normalization is now source-node aware, so `videoFrameExtract` keeps its real `image` output handle and legacy saved `img` edges hydrate back to `image`, preventing React Flow error #008 console spam after reload.
 - Flow/Video to GIF: GIF 节点运行按钮接入运行积分徽标，悬停时显示本次转换消耗 30 积分，和后端预扣费保持一致。
 - AI Chat: project pages no longer hydrate the chat panel from global IndexedDB/localStorage sessions; conversation history is restored only from the active project's `aiChatSessions`, preventing old conversations from appearing in newly created or switched projects.
@@ -663,3 +664,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Generated videos now write to global history using the existing `GlobalImageHistory` record shape with `metadata.mediaType=video`; the write path stores the returned video URL directly and does not re-upload videos to OSS.
 - Global history list/detail views and the library panel now render video records with video thumbnails/previews, video-aware download filenames, and video source type labels.
 - Library history videos can be sent or dragged back to the canvas as video assets via `canvas:insert-video`; image history continues to use the existing image insertion path.
+
+## [Flow ImageSplit Crop Preview Performance - 2026-05-04]
+### Changed
+- Flow Image/ImageSplit crop previews now share decoded source image loads and draw canvases at display size instead of source crop resolution, reducing FPS drops when many ImageSplit output nodes are visible while preserving `original image ref + crop` persistence semantics.

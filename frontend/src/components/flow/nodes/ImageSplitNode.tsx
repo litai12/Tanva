@@ -33,6 +33,7 @@ import {
   getImageSplitHandleIndex,
   getImageSplitPrimaryHandleId,
 } from '../utils/imageSplitHandles';
+import { loadSharedImage } from '../utils/sharedImageLoad';
 
 // 类型定义
 type SplitRectItem = {
@@ -91,9 +92,15 @@ const CanvasCropPreview = React.memo(({
     if (!container) return;
 
     const update = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width));
-      const h = Math.max(1, Math.round(rect.height));
+      let w = container.offsetWidth || container.clientWidth;
+      let h = container.offsetHeight || container.clientHeight;
+      if (!w || !h) {
+        const rect = container.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+      }
+      w = Math.max(1, Math.round(w));
+      h = Math.max(1, Math.round(h));
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
 
@@ -139,9 +146,9 @@ const CanvasCropPreview = React.memo(({
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    let cancelled = false;
+    loadSharedImage(src).then((img) => {
+      if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
       if (!naturalW || !naturalH) {
@@ -168,9 +175,14 @@ const CanvasCropPreview = React.memo(({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    }).catch(() => {
+      if (cancelled) return;
+      drawPlaceholder();
+    });
+
+    return () => {
+      cancelled = true;
     };
-    img.onerror = drawPlaceholder;
-    img.src = src;
   }, [
     rect.height,
     rect.width,
@@ -1131,14 +1143,10 @@ function SplitRectPreview({
         return;
       }
 
-      const img = new Image();
-      img.decoding = 'async';
-      img.onload = () => draw(img);
-      img.onerror = () => {
+      loadSharedImage(nextSrc).then(draw).catch(() => {
         if (cancelled) return;
         tryLoad(index + 1);
-      };
-      img.src = nextSrc;
+      });
     };
 
     tryLoad(0);
