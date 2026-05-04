@@ -4540,8 +4540,10 @@ function FlowInner() {
   );
 
   const [runningGroupIds, setRunningGroupIds] = React.useState<string[]>([]);
+  const [stoppingGroupIds, setStoppingGroupIds] = React.useState<string[]>([]);
   const [isGlobalRunning, setIsGlobalRunning] = React.useState(false);
   const globalRunStopRequestedRef = React.useRef(false);
+  const groupRunStopRequestedRef = React.useRef<Set<string>>(new Set());
 
   const onEdgesChangeWithHistory = React.useCallback(
     (changes: any) => {
@@ -19432,6 +19434,8 @@ function FlowInner() {
         return prev.concat(groupId);
       });
       if (!started) return;
+      groupRunStopRequestedRef.current.delete(groupId);
+      setStoppingGroupIds((prev) => prev.filter((id) => id !== groupId));
 
       try {
         const allNodes = (rf.getNodes?.() || []) as RFNode[];
@@ -19519,8 +19523,13 @@ function FlowInner() {
 
         let successCount = 0;
         let failedCount = 0;
+        let stoppedByUser = false;
 
         for (const node of runnableNodes) {
+          if (groupRunStopRequestedRef.current.has(groupId)) {
+            stoppedByUser = true;
+            break;
+          }
           try {
             const nodeType = String(node.type || "");
             if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
@@ -19560,8 +19569,16 @@ function FlowInner() {
           }
         }
 
+        if (groupRunStopRequestedRef.current.has(groupId)) {
+          stoppedByUser = true;
+        }
+        const executedCount = successCount + failedCount;
         const message =
-          failedCount > 0
+          stoppedByUser
+            ? failedCount > 0
+              ? `分组运行已停止：已执行 ${executedCount} 个节点（成功 ${successCount}，失败 ${failedCount}）`
+              : `分组运行已停止：已执行 ${executedCount} 个节点`
+          : failedCount > 0
             ? `分组运行完成：成功 ${successCount}，失败 ${failedCount}`
             : `分组运行完成：共执行 ${successCount} 个节点`;
 
@@ -19569,16 +19586,36 @@ function FlowInner() {
           new CustomEvent("toast", {
             detail: {
               message,
-              type: failedCount > 0 ? "warning" : "success",
+              type: stoppedByUser || failedCount > 0 ? "warning" : "success",
             },
           })
         );
       } finally {
+        groupRunStopRequestedRef.current.delete(groupId);
         setRunningGroupIds((prev) => prev.filter((id) => id !== groupId));
+        setStoppingGroupIds((prev) => prev.filter((id) => id !== groupId));
       }
     },
     [rf, runNode]
   );
+
+  const stopGroupRun = React.useCallback((groupId: string) => {
+    if (!groupId) return;
+    const running = runningGroupIds.includes(groupId);
+    if (!running) return;
+    groupRunStopRequestedRef.current.add(groupId);
+    setStoppingGroupIds((prev) =>
+      prev.includes(groupId) ? prev : prev.concat(groupId)
+    );
+    window.dispatchEvent(
+      new CustomEvent("toast", {
+        detail: {
+          message: "已请求停止分组：当前节点完成后不会继续运行后续节点",
+          type: "warning",
+        },
+      })
+    );
+  }, [runningGroupIds]);
 
   const runGlobalNodes = React.useCallback(async () => {
     let started = false;
@@ -19990,7 +20027,9 @@ function FlowInner() {
     changeGroupColor,
     dissolveGroups,
     runGroupNodes,
+    stopGroupRun,
     runningGroupIds,
+    stoppingGroupIds,
     seedance2AccessEnabled,
     seedance2AccessResolved,
     toggleGroupCollapsed,
@@ -20005,7 +20044,7 @@ function FlowInner() {
       const rendered = nodes.map((n) => {
         const cacheKey = String(n.id);
         const cached = prevCache.get(cacheKey);
-        if (cached && cached.source === (n as RFNode)) {
+        if (cached && cached.source === (n as RFNode) && n.type !== FLOW_GROUP_NODE_TYPE) {
           nextCache.set(cacheKey, cached);
           return cached.enhanced;
         }
@@ -20067,7 +20106,9 @@ function FlowInner() {
               onChangeGroupColor: changeGroupColor,
               onUngroup: (groupId: string) => dissolveGroups([groupId]),
               onRunGroup: runGroupNodes,
+              onStopGroup: stopGroupRun,
               groupRunning: runningGroupIds.includes(n.id),
+              groupStopping: stoppingGroupIds.includes(n.id),
               onToggleCollapse: toggleGroupCollapsed,
               groupCollapsed: isGroupCollapsed(n as RFNode),
               groupChildCount: getGroupChildIds(n as RFNode).length,
@@ -20160,7 +20201,9 @@ function FlowInner() {
       changeGroupColor,
       dissolveGroups,
       runGroupNodes,
+      stopGroupRun,
       runningGroupIds,
+      stoppingGroupIds,
       seedance2AccessEnabled,
       seedance2AccessResolved,
       toggleGroupCollapsed,

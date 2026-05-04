@@ -407,7 +407,7 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={data.status} />
+      <GenerationProgressBar status={data.status} runKey={id} />
 
       {runDisabled && (
         <div style={{ fontSize: 11, color: "#b45309" }}>

@@ -315,7 +315,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         />
       </div>
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} runKey={id} />
       {status === "failed" && displayError ? (
         <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
           {displayError}

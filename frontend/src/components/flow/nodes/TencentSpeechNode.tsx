@@ -656,7 +656,7 @@ function TencentSpeechNode({ id, data, selected }: Props) {
         </div>
       </div>
 
-      <GenerationProgressBar status={data.status} />
+      <GenerationProgressBar status={data.status} runKey={id} />
 
       {data.status === 'failed' && data.error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#ef4444', fontSize: 12 }}>

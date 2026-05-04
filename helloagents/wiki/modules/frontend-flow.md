@@ -1,5 +1,10 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-04 Update
+- `GenerationProgressBar` accepts `runKey`/`startedAt`; flow generation and video nodes pass their node id as `runKey` so simulated progress is calculated from a stable run start instead of resetting on rerender.
+- `NodeGroupNode` supports a stop state: when a group is running, the footer button switches from Play to Square and calls `FlowOverlay.stopGroupRun`; `FlowOverlay` marks the group as stopping and skips remaining queued child nodes after the current child run resolves.
+- Group nodes bypass the generic `nodesWithHandlers` cache so `groupRunning/groupStopping` and injected callbacks stay current while preserving the cache for normal nodes.
+
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.
 - Analysis node requests are forced to Banana normal route, independent from global normal/stable channel toggles.

@@ -18,6 +18,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
 - Canvas/Performance: `ImageContainer` now skips high-frequency viewport subscriptions for inactive image overlays, `GridRenderer` reduces low-zoom grid work and coalesces zoom redraws, and Flow node-internals updates are deferred while dragging.
+- Flow/Runtime: `GenerationProgressBar` now keeps simulated progress stable per node `runKey` across rerenders, and Flow node groups can stop pending group runs after the current child node finishes.
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).

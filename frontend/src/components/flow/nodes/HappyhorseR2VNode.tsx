@@ -1094,7 +1094,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
       >
         {renderPreview()}
       </div>
-      <GenerationProgressBar status={data.status || "idle"} />
+      <GenerationProgressBar status={data.status || "idle"} runKey={id} />
 
       {historyItems.length > 0 && (
         <div

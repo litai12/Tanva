@@ -3280,6 +3280,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       <GenerationProgressBar
         status={data.status || "idle"}
+        runKey={id}
       />
 
       {historyItems.length > 0 && (

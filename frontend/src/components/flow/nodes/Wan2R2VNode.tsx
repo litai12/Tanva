@@ -829,6 +829,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       </div>
       <GenerationProgressBar
         status={data.status || "idle"}
+        runKey={id}
       />
 
       {historyItems.length > 0 && (

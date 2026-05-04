@@ -469,7 +469,7 @@ function Wan27VideoNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={data.status || "idle"} />
+      <GenerationProgressBar status={data.status || "idle"} runKey={id} />
 
       {validationMessages.length > 0 && (
         <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", color: "#92400e", fontSize: 11, display: "grid", gap: 4 }}>

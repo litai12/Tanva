@@ -973,6 +973,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       {/* Progress bar */}
       <GenerationProgressBar
         status={data.status || 'idle'}
+        runKey={id}
         progress={
           isCreateCharacterMode
             ? (data.status === 'succeeded' ? 100 : progressValue || (data.status === 'running' ? 15 : 0))
