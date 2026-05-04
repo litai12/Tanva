@@ -1,6 +1,7 @@
 import React from "react";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { revokeObjectUrl as revokeRegisteredObjectUrl } from "@/utils/objectUrlRegistry";
 import { dataUrlToBlob } from "@/utils/imageConcurrency";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 
@@ -80,9 +81,7 @@ export function useNonBase64ImageSrc(
     const existing = objectUrlRef.current;
     if (!existing) return;
     objectUrlRef.current = null;
-    try {
-      URL.revokeObjectURL(existing);
-    } catch {}
+    revokeRegisteredObjectUrl(existing);
   }, []);
 
   const needsInlineConversion = React.useMemo(() => {

@@ -8,6 +8,11 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
+import {
+  collectObjectUrlsFromImageData,
+  isBlobObjectUrl,
+  revokeObjectUrlsWhenUnused,
+} from '@/utils/objectUrlRegistry';
 import { isGroup, isRaster } from '@/utils/paperCoords';
 import { syncImageGroupBlocksForImageIds, findImagePaperItem } from '@/utils/paperImageGroupBlock';
 import {
@@ -136,6 +141,29 @@ function findRasterByImageId(imageId: string): paper.Raster | null {
   } catch {}
   return null;
 }
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+
+const collectObjectUrlsFromPaperItem = (item: unknown, urls: Set<string>) => {
+  const record = asRecord(item);
+  if (!record) return;
+  collectObjectUrlsFromImageData(record.data).forEach((url) => urls.add(url));
+  try {
+    const source = record.source;
+    if (isBlobObjectUrl(source)) urls.add(source);
+    const sourceSrc = asRecord(source)?.src;
+    if (isBlobObjectUrl(sourceSrc)) urls.add(sourceSrc);
+  } catch {}
+  try {
+    const tracked = record.__tanvaSourceRef;
+    if (isBlobObjectUrl(tracked)) urls.add(tracked);
+  } catch {}
+  try {
+    const children = Array.isArray(record.children) ? record.children : [];
+    children.forEach((child) => collectObjectUrlsFromPaperItem(child, urls));
+  } catch {}
+};
 
 interface UseImageToolProps {
   context: DrawingContext;
@@ -1366,6 +1394,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   // ========== 图片删除 ==========
   const handleImageDelete = useCallback((imageId: string) => {
     logger.debug('🗑️ 开始删除图片:', imageId);
+    const objectUrlsToRevoke = new Set<string>();
+    const removedInstance = imageInstances.find((img) => img.id === imageId);
+    collectObjectUrlsFromImageData(removedInstance?.imageData).forEach((url) =>
+      objectUrlsToRevoke.add(url)
+    );
 
     // 从Paper.js中移除图片对象（深度清理，防止残留）
     try {
@@ -1381,9 +1414,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
         if (matches.length > 0) {
           matches.forEach((item) => {
+            collectObjectUrlsFromPaperItem(item, objectUrlsToRevoke);
             let target: any = item;
             while (target && !(target instanceof paper.Layer)) {
               if (target?.data?.type === 'image' && target?.data?.imageId === imageId) {
+                collectObjectUrlsFromPaperItem(target, objectUrlsToRevoke);
                 try { target.remove(); } catch {}
                 return;
               }
@@ -1404,6 +1439,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 从React状态中移除图片
     setImageInstances(prev => {
+      const removed = prev.find(img => img.id === imageId);
+      collectObjectUrlsFromImageData(removed?.imageData).forEach((url) =>
+        objectUrlsToRevoke.add(url)
+      );
       const filtered = prev.filter(img => img.id !== imageId);
       logger.debug('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
       return filtered;
@@ -1420,9 +1459,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
+    revokeObjectUrlsWhenUnused(objectUrlsToRevoke);
     try { paperSaveService.triggerAutoSave(); } catch {}
     historyService.commit('delete-image').catch(() => {});
-  }, [eventHandlers.onImageDelete]);
+  }, [eventHandlers.onImageDelete, imageInstances]);
 
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {

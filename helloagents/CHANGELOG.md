@@ -32,7 +32,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
-- Flow/TextPrompt: ordinary `Prompt` node resizing now batches size writes with `requestAnimationFrame`, skips unchanged dimensions, and disables the textarea's native resize handle to reduce ReactFlow-wide node updates and layout work during drag resize.
+- Flow/TextPrompt: ordinary `Prompt` node resizing now uses node-local preview sizing during drag and commits `position + boxW/boxH` to ReactFlow only once on resize end; the textarea's native resize handle is disabled to reduce ReactFlow-wide node updates and layout work during drag resize.
 - Flow/Video Frame Extract: edge source-handle normalization is now source-node aware, so `videoFrameExtract` keeps its real `image` output handle and legacy saved `img` edges hydrate back to `image`, preventing React Flow error #008 console spam after reload.
 - Flow/Video to GIF: GIF 节点运行按钮接入运行积分徽标，悬停时显示本次转换消耗 30 积分，和后端预扣费保持一致。
 - AI Chat: project pages no longer hydrate the chat panel from global IndexedDB/localStorage sessions; conversation history is restored only from the active project's `aiChatSessions`, preventing old conversations from appearing in newly created or switched projects.
@@ -669,3 +669,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Flow ImageSplit Crop Preview Performance - 2026-05-04]
 ### Changed
 - Flow Image/ImageSplit crop previews now share decoded source image loads and draw canvases at display size instead of source crop resolution, reducing FPS drops when many ImageSplit output nodes are visible while preserving `original image ref + crop` persistence semantics.
+
+## [Object URL Memory Hardening - 2026-05-04]
+### Changed
+- Frontend canvas and AI chat runtime `blob:` ObjectURLs now use a shared lifecycle registry; local upload previews, deleted canvas images, precise crop references, and AI-chat-owned source images are revoked once no active reference remains.
+- Backend BioAuth task storage and Doubao video upload URL cache now enforce TTL/max-entry cleanup to avoid unbounded in-process Map growth.

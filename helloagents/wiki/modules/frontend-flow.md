@@ -1,7 +1,7 @@
 # 前端模块：Flow（frontend-flow�?
 
 ## 2026-05-03 Update
-- 普通 `Prompt` 节点拖拽缩放性能优化：`TextPromptNode` 的尺寸写回改为 `requestAnimationFrame` 合并并跳过相同尺寸更新，`textarea` 自身不再提供浏览器原生缩放手柄，避免 resize 期间高频触发全局 ReactFlow `nodes` 更新与重复布局。
+- 普通 `Prompt` 节点拖拽缩放性能优化：`TextPromptNode` 缩放中只做节点本地预览尺寸，松手后一次性提交 `position + boxW/boxH` 到 ReactFlow 全局状态，`textarea` 自身不再提供浏览器原生缩放手柄，避免 resize 期间高频触发全局 ReactFlow `nodes` 更新与重复布局。
 - Analysis/Image Chat 节点新增轻量 Skill 选择：`Analysis` 保持原有描述式分析提示词，`提示词` 只输出一段可直接用于生图的纯提示词，`JSON` 会把图片拆解为结构化 JSON（主体、场景、风格、细节和可复用 prompt）；节点 UI 不再展示手动提示词输入框，选择 Skill 会写回节点 `analysisSkillId` 和 `analysisPrompt`，旧节点无该字段时自动回落到 `Analysis`。
 - Text Chat 节点中间的“追加描述”输入区改为 Skill 选择：默认 `自定义` 并显示手动输入框，切到内置 `拆分镜头`、`提示词优化`、`中英文转换` 时隐藏输入框；选择后写回 `textChatSkillId`，`manualInput` 保留自定义输入内容。
 - Text Chat 不再渲染隐藏 resize 控制或用 `boxH` 自动测高撑开节点；高度改由当前布局自然决定，切换到内置 Skill 时节点会立即收缩到紧凑布局。

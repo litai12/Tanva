@@ -59,6 +59,13 @@ class ContextManager implements IContextManager {
     };
   }
 
+  getCachedImagesSnapshot(): ConversationContext["cachedImages"] | null {
+    const context = this.getCurrentContext();
+    if (!context) return null;
+    const cached = this.ensureCachedImages(context);
+    return { ...cached };
+  }
+
   private ensureCachedImages(
     context: ConversationContext
   ): ConversationContext["cachedImages"] {

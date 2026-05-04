@@ -1,6 +1,7 @@
 import React from "react";
 import { useNonBase64ImageSrc } from "@/hooks/useNonBase64ImageSrc";
 import { resolveImageToObjectUrl } from "@/utils/imageSource";
+import { revokeObjectUrl } from "@/utils/objectUrlRegistry";
 import { useFlowRenderMode } from "@/components/flow/FlowRenderModeContext";
 
 export type SmartImageProps = Omit<
@@ -35,9 +36,7 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
       const existing = fallbackUrlRef.current;
       if (!existing) return;
       fallbackUrlRef.current = null;
-      try {
-        URL.revokeObjectURL(existing);
-      } catch {}
+      revokeObjectUrl(existing);
     }, []);
 
     React.useEffect(() => {
@@ -82,9 +81,7 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
           (objectUrl) => {
             if (!objectUrl) return;
             if (requestId !== fallbackReqRef.current) {
-              try {
-                URL.revokeObjectURL(objectUrl);
-              } catch {}
+              revokeObjectUrl(objectUrl);
               return;
             }
             fallbackUrlRef.current = objectUrl;

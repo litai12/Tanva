@@ -6,6 +6,7 @@ import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { createUploadedImagePreviewAsset } from '@/services/imagePreviewAssetService';
 import type { StoredImageAsset } from '@/types/canvas';
 import { generateOssKey } from '@/services/ossUploadService';
+import { registerObjectUrl } from '@/utils/objectUrlRegistry';
 import { useTranslation } from 'react-i18next';
 
 interface ImageUploadComponentProps {
@@ -47,7 +48,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
 
       // 1) Put a local blob preview on canvas immediately.
-      const blobUrl = URL.createObjectURL(file);
+      const blobUrl = registerObjectUrl(URL.createObjectURL(file), 'canvas');
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const { key } = generateOssKey({
         projectId,
@@ -119,7 +120,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       if (file) {
         try {
           // Fallback: keep local blob visible and mark as pending upload.
-          const blobUrl = URL.createObjectURL(file);
+          const blobUrl = registerObjectUrl(URL.createObjectURL(file), 'canvas');
           const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const fallbackAsset: StoredImageAsset = {
             id: imageId,

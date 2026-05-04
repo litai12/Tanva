@@ -70,6 +70,11 @@ import PromptOptimizationPanel from "@/components/chat/PromptOptimizationPanel";
 import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimizationPanel";
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
+import {
+  isBlobObjectUrl,
+  registerObjectUrl,
+  revokeObjectUrlsWhenUnused,
+} from "@/utils/objectUrlRegistry";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import {
   getTencentBananaMaxReferenceImages,
@@ -1342,27 +1347,20 @@ const AIChatDialog: React.FC = () => {
   const createOwnedObjectUrl = useCallback((file: File): string => {
     const url = URL.createObjectURL(file);
     ownedObjectUrlsRef.current.add(url);
-    return url;
+    return registerObjectUrl(url, "ai-chat");
   }, []);
 
   const revokeOwnedObjectUrl = useCallback((url?: string | null) => {
-    if (!url || typeof url !== "string") return;
-    if (!url.startsWith("blob:")) return;
+    if (!isBlobObjectUrl(url)) return;
     if (!ownedObjectUrlsRef.current.has(url)) return;
-    try {
-      URL.revokeObjectURL(url);
-    } catch {}
     ownedObjectUrlsRef.current.delete(url);
+    revokeObjectUrlsWhenUnused([url], { owner: "ai-chat" });
   }, []);
 
   // 组件卸载时，回收本组件创建的所有 ObjectURL，避免内存泄漏
   useEffect(() => {
     return () => {
-      ownedObjectUrlsRef.current.forEach((url) => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      });
+      revokeObjectUrlsWhenUnused(ownedObjectUrlsRef.current, { owner: "ai-chat" });
       ownedObjectUrlsRef.current.clear();
     };
   }, []);
@@ -1385,9 +1383,7 @@ const AIChatDialog: React.FC = () => {
   useEffect(() => {
     const referenced = new Set<string>();
     const addIfBlob = (value?: unknown) => {
-      if (typeof value !== "string") return;
-      if (!value.startsWith("blob:")) return;
-      referenced.add(value);
+      if (isBlobObjectUrl(value)) referenced.add(value);
     };
 
     addIfBlob(sourceImageForEditing);

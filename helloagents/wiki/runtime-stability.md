@@ -78,6 +78,18 @@
 - Prevent accidental page leave while generation/upload is in progress.
 - Make loss risk explicit before user confirms force-leave.
 
+## Object URL Memory Hardening (2026-05-04)
+
+### Frontend changes
+- Added `frontend/src/utils/objectUrlRegistry.ts` as the shared lifecycle helper for runtime `blob:` ObjectURLs.
+- Canvas local image upload previews are registered as `canvas` object URLs and are revoked after remote upgrade, image deletion, project switch, or paper clear once no active canvas/DOM/chat reference remains.
+- AI chat owned image object URLs are registered as `ai-chat`; source image setters, blending removal/clear, message clear, and reset only revoke URLs owned by AI chat to avoid breaking canvas-owned previews.
+- Precise local crop-to-chat now registers its generated crop `blob:` as AI-chat owned so repeated local refine flows do not accumulate unreleased blobs.
+
+### Backend changes
+- BioAuth in-memory task records now have TTL cleanup and max-entry trimming.
+- Doubao video upload URL cache now has TTL and max-entry trimming instead of an unbounded `Map`.
+
 
 
 

@@ -3,7 +3,6 @@
  */
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import { useAIChatStore } from '@/stores/aiChatStore';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
@@ -24,6 +23,10 @@ import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
 import { fetchWithAuth } from '@/services/authFetch';
 import { logger } from '@/utils/logger';
+import {
+  registerObjectUrl,
+  revokeObjectUrlsWhenUnused,
+} from '@/utils/objectUrlRegistry';
 
 const paperSaveLogger = logger.scope('paper-save');
 
@@ -80,67 +83,6 @@ class PaperSaveService {
     return '';
   }
 
-  private isObjectUrlStillUsed(url: string): boolean {
-    if (typeof window === 'undefined') return false;
-    if (!url || typeof url !== 'string') return false;
-    const trimmed = url.trim();
-    if (!trimmed.startsWith('blob:')) return false;
-
-    try {
-      const instances = (window as any).tanvaImageInstances as any[] | undefined;
-      if (Array.isArray(instances)) {
-        const usedByInstances = instances.some((inst) => {
-          const d = inst?.imageData;
-          return d?.localDataUrl === trimmed || d?.url === trimmed || d?.src === trimmed;
-        });
-        if (usedByInstances) return true;
-      }
-    } catch {}
-
-    try {
-      const project = paper?.project as any;
-      const rasterClass = (paper as any).Raster;
-      if (project?.getItems && rasterClass) {
-        const rasters = project.getItems({ class: rasterClass }) as any[];
-        const usedByRaster = rasters.some(
-          (raster) => this.getRasterSourceString(raster) === trimmed
-        );
-        if (usedByRaster) return true;
-      }
-    } catch {}
-
-    // AI 对话框可能会临时引用 blob: 作为参考图预览，不能提前 revoke
-    try {
-      const chat = useAIChatStore.getState();
-      if (chat.sourceImageForEditing === trimmed) return true;
-      if (chat.sourceImageForAnalysis === trimmed) return true;
-      if (
-        Array.isArray(chat.sourceImagesForBlending) &&
-        chat.sourceImagesForBlending.some((v) => v === trimmed)
-      ) {
-        return true;
-      }
-    } catch {}
-
-    // DOM 中仍在展示该 blob:（例如参考图平滑切换的双缓冲），不能提前 revoke
-    try {
-      const images = Array.from(document.images || []);
-      const usedByDom = images.some((img) => {
-        try {
-          return (
-            (img as any)?.currentSrc === trimmed ||
-            (typeof (img as any)?.src === 'string' && (img as any).src === trimmed)
-          );
-        } catch {
-          return false;
-        }
-      });
-      if (usedByDom) return true;
-    } catch {}
-
-    return false;
-  }
-
   private isInlineImageSource(value: unknown): value is string {
     if (typeof value !== 'string') return false;
     const trimmed = value.trim();
@@ -155,23 +97,7 @@ class PaperSaveService {
     if (!url || typeof url !== 'string') return;
     const trimmed = url.trim();
     if (!trimmed.startsWith('blob:')) return;
-    try {
-      let attempts = 0;
-      const maxAttempts = 30; // 最多等 ~30s，避免提前 revoke 导致裂图
-      const attempt = () => {
-        attempts += 1;
-        if (this.isObjectUrlStillUsed(trimmed)) {
-          if (attempts < maxAttempts) {
-            window.setTimeout(attempt, 1000);
-          }
-          return;
-        }
-        try {
-          URL.revokeObjectURL(trimmed);
-        } catch {}
-      };
-      window.setTimeout(attempt, 1000);
-    } catch {}
+    revokeObjectUrlsWhenUnused([trimmed], { delayMs: 1000, maxAttempts: 30 });
   }
 
   private trackImageObjectUrl(imageId: string, url: string) {
@@ -248,7 +174,7 @@ class PaperSaveService {
         const blob = await decodeDataUrlToBlob(trimmed);
         if (!blob || blob.size <= 0) continue;
 
-        const blobUrl = URL.createObjectURL(blob);
+        const blobUrl = registerObjectUrl(URL.createObjectURL(blob), 'canvas');
         this.trackImageObjectUrl(image.id, blobUrl);
 
         const updates: Partial<ImageAssetSnapshot> = {};
@@ -266,7 +192,7 @@ class PaperSaveService {
         const blob = await decodeRawBase64ToBlob(trimmed);
         if (!blob || blob.size <= 0) continue;
 
-        const blobUrl = URL.createObjectURL(blob);
+        const blobUrl = registerObjectUrl(URL.createObjectURL(blob), 'canvas');
         this.trackImageObjectUrl(image.id, blobUrl);
 
         const updates: Partial<ImageAssetSnapshot> = {};

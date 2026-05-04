@@ -67,6 +67,11 @@ import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
 import {
+  registerObjectUrl,
+  revokeObjectUrl,
+  revokeObjectUrlsWhenUnused,
+} from "@/utils/objectUrlRegistry";
+import {
   isAssetKeyRef,
   isPersistableImageRef,
   isRemoteUrl,
@@ -306,9 +311,7 @@ const loadImageFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
       image.src = objectUrl;
     });
   } finally {
-    try {
-      URL.revokeObjectURL(objectUrl);
-    } catch {}
+    revokeObjectUrl(objectUrl);
   }
 };
 
@@ -846,6 +849,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       const cropObjectUrl = URL.createObjectURL(cropResult.blob);
+      registerObjectUrl(cropObjectUrl, "ai-chat");
       const preciseContext: PreciseEditContext = {
         targetImageId: params.imageId,
         targetImageSource: stableTargetSource,
@@ -1802,88 +1806,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       );
     };
 
-    const isObjectUrlStillUsed = (url: string): boolean => {
-        if (!url || typeof url !== "string" || !url.startsWith("blob:"))
-          return false;
-
-        try {
-          const instances = (window as any).tanvaImageInstances as
-            | any[]
-            | undefined;
-          if (Array.isArray(instances)) {
-            const usedByInstances = instances.some((inst) => {
-              const d = inst?.imageData;
-              return d?.localDataUrl === url || d?.url === url || d?.src === url;
-            });
-            if (usedByInstances) return true;
-          }
-        } catch {}
-
-        try {
-          const project = paper?.project as any;
-          const rasterClass = (paper as any).Raster;
-          if (project?.getItems && rasterClass) {
-            const rasters = project.getItems({ class: rasterClass }) as any[];
-            const usedByRasters = rasters.some(
-              (raster) => getRasterSourceString(raster) === url
-            );
-            if (usedByRasters) return true;
-          }
-        } catch {}
-
-        // AI 对话框可能会临时引用画布的 blob:（作为参考图预览），不能提前 revoke
-        try {
-          const chat = useAIChatStore.getState();
-          if (chat.sourceImageForEditing === url) return true;
-          if (chat.sourceImageForAnalysis === url) return true;
-          if (
-            Array.isArray(chat.sourceImagesForBlending) &&
-            chat.sourceImagesForBlending.some((v) => v === url)
-          ) {
-            return true;
-          }
-        } catch {}
-
-        // DOM 中仍在展示该 blob:（例如参考图平滑切换的双缓冲），不能提前 revoke
-        try {
-          const images = Array.from(document.images || []);
-          const usedByDom = images.some((img) => {
-            try {
-              return (
-                (img as any)?.currentSrc === url ||
-                (typeof (img as any)?.src === "string" && (img as any).src === url)
-              );
-            } catch {
-              return false;
-            }
-          });
-          if (usedByDom) return true;
-        } catch {}
-
-        return false;
-      };
-
       const revokeObjectUrlsIfUnused = (urls: Set<string>, attempt: number = 0) => {
+        void attempt;
         if (!urls || urls.size === 0) return;
-        const stillUsed = new Set<string>();
-        urls.forEach((url) => {
-          if (!url || typeof url !== "string" || !url.startsWith("blob:")) return;
-          if (isObjectUrlStillUsed(url)) {
-            stillUsed.add(url);
-            return;
-          }
-          try {
-            URL.revokeObjectURL(url);
-          } catch {}
-        });
-
-        if (stillUsed.size > 0 && attempt < 30) {
-          try {
-            window.setTimeout(() => {
-              revokeObjectUrlsIfUnused(stillUsed, attempt + 1);
-            }, 500);
-          } catch {}
-        }
+        revokeObjectUrlsWhenUnused(urls);
       };
 
       const swapChatSelectionIfMatches = (params: {
@@ -4132,11 +4058,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         (window as any).tanvaTextItems = [];
       } catch {}
 
-      blobUrlsToRevoke.forEach((url) => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      });
+      revokeObjectUrlsWhenUnused(blobUrlsToRevoke);
     };
 
     window.addEventListener("paper-project-cleared", handlePaperCleared);
@@ -4218,11 +4140,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 清空选择工具状态
       clearProjectSelections();
 
-      blobUrlsToRevoke.forEach((url) => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      });
+      revokeObjectUrlsWhenUnused(blobUrlsToRevoke);
     } finally {
       clearingInProgressRef.current = false;
     }

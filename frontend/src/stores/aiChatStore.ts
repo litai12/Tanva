@@ -61,6 +61,11 @@ import {
   responseToBlob,
 } from "@/utils/imageConcurrency";
 import {
+  isBlobObjectUrl,
+  isObjectUrlOwnedBy,
+  revokeObjectUrlsWhenUnused,
+} from "@/utils/objectUrlRegistry";
+import {
   STORE_NAMES,
   idbGet,
   idbPut,
@@ -104,6 +109,27 @@ type AIChatVideoDurationSeconds =
 let generatingImageCount = 0;
 
 const placeholderLogger = logger.scope("placeholder");
+
+const releaseOwnedChatObjectUrls = (values: Iterable<string | null | undefined>) => {
+  const urls = new Set<string>();
+  for (const value of values) {
+    if (!isBlobObjectUrl(value)) continue;
+    if (!isObjectUrlOwnedBy(value, "ai-chat")) continue;
+    urls.add(value);
+  }
+  if (urls.size === 0) return;
+  try {
+    const cached = contextManager.getCurrentContext()?.cachedImages;
+    if (cached?.latest && urls.has(cached.latest)) {
+      contextManager.clearImageCache();
+    }
+  } catch {}
+  revokeObjectUrlsWhenUnused(urls, { owner: "ai-chat" });
+};
+
+const releaseOwnedChatObjectUrl = (value: string | null | undefined) => {
+  releaseOwnedChatObjectUrls([value]);
+};
 
 // 限制图片上传并发，避免同时 atob/encode/上传导致内存峰值
 const aiChatUploadLimiter = createAsyncLimiter(2);
@@ -795,9 +821,8 @@ const loadImageElementFromBlob = async (blob: Blob): Promise<HTMLImageElement> =
       image.src = objectUrl;
     });
   } finally {
-    try {
-      URL.revokeObjectURL(objectUrl);
-    } catch {}
+    releaseOwnedChatObjectUrls([objectUrl]);
+    revokeObjectUrlsWhenUnused([objectUrl]);
   }
 };
 
@@ -3102,11 +3127,21 @@ export const useAIChatStore = create<AIChatState>()(
 
         clearMessages: () => {
           const currentMessages = get().messages;
+          const releasableImageUrls = new Set<string>();
           currentMessages.forEach((msg) => {
             if (msg.videoLocalUrl) {
               revokeVideoObjectUrlForMessage(msg.id);
             }
+            if (isBlobObjectUrl(msg.imageData)) releasableImageUrls.add(msg.imageData);
+            if (isBlobObjectUrl(msg.thumbnail)) releasableImageUrls.add(msg.thumbnail);
+            if (isBlobObjectUrl(msg.sourceImageData)) {
+              releasableImageUrls.add(msg.sourceImageData);
+            }
+            msg.sourceImagesData?.forEach((value) => {
+              if (isBlobObjectUrl(value)) releasableImageUrls.add(value);
+            });
           });
+          releaseOwnedChatObjectUrls(releasableImageUrls);
           const state = get();
           const sessionId =
             state.currentSessionId || contextManager.getCurrentSessionId();
@@ -4942,19 +4977,25 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         setSourceImageForEditing: (imageData: string | null) => {
+          const previous = get().sourceImageForEditing;
           if (!imageData) {
             set({ sourceImageForEditing: null });
+            releaseOwnedChatObjectUrl(previous);
             return;
           }
 
           const normalizedImage = sanitizeImageInput(imageData);
           if (!normalizedImage) {
             set({ sourceImageForEditing: null });
+            releaseOwnedChatObjectUrl(previous);
             return;
           }
 
           ensureActiveSession();
           set({ sourceImageForEditing: normalizedImage });
+          if (previous !== normalizedImage) {
+            releaseOwnedChatObjectUrl(previous);
+          }
 
           // 🔥 立即缓存用户上传的图片
           const imageId = `user_upload_${Date.now()}`;
@@ -4979,6 +5020,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 画布选中图片同步到AI对话框
         setSourceImagesFromCanvas: (images: string[]) => {
+          const previous = get();
           const normalizedImages = images
             .map((img) => sanitizeImageInput(img))
             .filter((img): img is string => Boolean(img));
@@ -4990,6 +5032,10 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImagesForBlending: [],
               preciseEditContext: null,
             });
+            releaseOwnedChatObjectUrls([
+              previous.sourceImageForEditing,
+              ...previous.sourceImagesForBlending,
+            ]);
             return;
           }
 
@@ -5003,6 +5049,12 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImagesForBlending: [],
               preciseEditContext: null,
             });
+            releaseOwnedChatObjectUrls([
+              ...(previous.sourceImageForEditing === singleImage
+                ? []
+                : [previous.sourceImageForEditing]),
+              ...previous.sourceImagesForBlending,
+            ]);
             // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           } else {
             // 多张图片：设置为融合源图
@@ -5011,6 +5063,11 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImagesForBlending: normalizedImages,
               preciseEditContext: null,
             });
+            const nextSet = new Set(normalizedImages);
+            releaseOwnedChatObjectUrls([
+              previous.sourceImageForEditing,
+              ...previous.sourceImagesForBlending.filter((value) => !nextSet.has(value)),
+            ]);
             // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           }
         },
@@ -5631,15 +5688,19 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         removeImageFromBlending: (index: number) => {
+          const removed = get().sourceImagesForBlending[index];
           set((state) => ({
             sourceImagesForBlending: state.sourceImagesForBlending.filter(
               (_, i) => i !== index
             ),
           }));
+          releaseOwnedChatObjectUrl(removed);
         },
 
         clearImagesForBlending: () => {
+          const previous = get().sourceImagesForBlending;
           set({ sourceImagesForBlending: [] });
+          releaseOwnedChatObjectUrls(previous);
         },
 
         executeMidjourneyAction: async ({
@@ -6040,19 +6101,25 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         setSourceImageForAnalysis: (imageData: string | null) => {
+          const previous = get().sourceImageForAnalysis;
           if (!imageData) {
             set({ sourceImageForAnalysis: null });
+            releaseOwnedChatObjectUrl(previous);
             return;
           }
 
           const normalizedImage = sanitizeImageInput(imageData);
           if (!normalizedImage) {
             set({ sourceImageForAnalysis: null });
+            releaseOwnedChatObjectUrl(previous);
             return;
           }
 
           ensureActiveSession();
           set({ sourceImageForAnalysis: normalizedImage });
+          if (previous !== normalizedImage) {
+            releaseOwnedChatObjectUrl(previous);
+          }
 
           // 🔥 立即缓存用户上传的分析图片
           const imageId = `user_analysis_upload_${Date.now()}`;
@@ -8366,6 +8433,28 @@ export const useAIChatStore = create<AIChatState>()(
         // 重置状态
         resetState: () => {
           revokeAllVideoObjectUrls();
+          const current = get();
+          const releasableImageUrls = new Set<string>();
+          if (isBlobObjectUrl(current.sourceImageForEditing)) {
+            releasableImageUrls.add(current.sourceImageForEditing);
+          }
+          if (isBlobObjectUrl(current.sourceImageForAnalysis)) {
+            releasableImageUrls.add(current.sourceImageForAnalysis);
+          }
+          current.sourceImagesForBlending.forEach((value) => {
+            if (isBlobObjectUrl(value)) releasableImageUrls.add(value);
+          });
+          current.messages.forEach((msg) => {
+            if (isBlobObjectUrl(msg.imageData)) releasableImageUrls.add(msg.imageData);
+            if (isBlobObjectUrl(msg.thumbnail)) releasableImageUrls.add(msg.thumbnail);
+            if (isBlobObjectUrl(msg.sourceImageData)) {
+              releasableImageUrls.add(msg.sourceImageData);
+            }
+            msg.sourceImagesData?.forEach((value) => {
+              if (isBlobObjectUrl(value)) releasableImageUrls.add(value);
+            });
+          });
+          releaseOwnedChatObjectUrls(releasableImageUrls);
           set({
             isVisible: false,
             isMaximized: false,
@@ -8544,6 +8633,9 @@ if (typeof window !== "undefined") {
     const globalAny = window as any;
     globalAny.__tanvaBananaImageRoute =
       useAIChatStore.getState().bananaImageRoute;
+    globalAny.__tanvaAiChatStoreGetState = () => useAIChatStore.getState();
+    globalAny.__tanvaContextManagerGetCachedImages = () =>
+      contextManager.getCachedImagesSnapshot();
     const prevUnsub = globalAny.__tanvaAIChatDebugUnsubscribe;
     if (typeof prevUnsub === "function") {
       try {

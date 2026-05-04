@@ -22,6 +22,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [value, setValue] = React.useState<string>(data.text || '');
   const [hover, setHover] = React.useState<string | null>(null);
   const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
+  const [isResizing, setIsResizing] = React.useState(false);
+  const [resizePreview, setResizePreview] = React.useState<{
+    width: number;
+    height: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
   const edgesRef = React.useRef<Edge[]>(edges);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
@@ -40,6 +47,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
+  const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
+  const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
+  const resizePreviewRafRef = React.useRef<number | null>(null);
 
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
@@ -199,85 +209,129 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setTitleDraft(title);
   }, [title]);
 
-  const updateNodeSize = React.useCallback((width: number, height: number) => {
+  const commitResize = React.useCallback((width: number, height: number, x: number, y: number) => {
     const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
     const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.round(height));
+    const nextX = Math.round(x);
+    const nextY = Math.round(y);
     rf.setNodes((ns) => {
       const targetIndex = ns.findIndex((node) => node.id === id);
       if (targetIndex < 0) return ns;
 
       const targetNode = ns[targetIndex];
       const targetData = targetNode.data || {};
-      if (targetData.boxW === nextWidth && targetData.boxH === nextHeight) {
+      const positionChanged = targetNode.position.x !== nextX || targetNode.position.y !== nextY;
+      const sizeChanged = targetData.boxW !== nextWidth || targetData.boxH !== nextHeight;
+      if (!positionChanged && !sizeChanged) {
         return ns;
       }
 
       const nextNodes = ns.slice();
       nextNodes[targetIndex] = {
         ...targetNode,
-        data: { ...targetData, boxW: nextWidth, boxH: nextHeight },
+        position: positionChanged
+          ? { x: nextX, y: nextY }
+          : targetNode.position,
+        data: sizeChanged
+          ? { ...targetData, boxW: nextWidth, boxH: nextHeight }
+          : targetData,
       };
       return nextNodes;
     });
   }, [id, rf]);
 
-  const resizeRafRef = React.useRef<number | null>(null);
-  const resizePendingRef = React.useRef<{ width: number; height: number } | null>(null);
-  const flushResizeRef = React.useRef<(() => void) | null>(null);
-
-  flushResizeRef.current = () => {
-    resizeRafRef.current = null;
-    const pending = resizePendingRef.current;
-    resizePendingRef.current = null;
-    if (!pending) return;
-    updateNodeSize(pending.width, pending.height);
-  };
-
-  const scheduleResize = React.useCallback((width: number, height: number) => {
-    resizePendingRef.current = { width, height };
-    if (resizeRafRef.current !== null) return;
-    resizeRafRef.current = window.requestAnimationFrame(() => {
-      flushResizeRef.current?.();
-    });
-  }, []);
-
   React.useEffect(() => {
     return () => {
-      if (resizeRafRef.current !== null) {
-        window.cancelAnimationFrame(resizeRafRef.current);
-        resizeRafRef.current = null;
+      if (resizePreviewRafRef.current !== null) {
+        window.cancelAnimationFrame(resizePreviewRafRef.current);
+        resizePreviewRafRef.current = null;
       }
       resizePendingRef.current = null;
+      resizeStartRef.current = null;
     };
   }, []);
 
-  const handleResize = React.useCallback((_: unknown, params: { width: number; height: number }) => {
-    if (!params) return;
-    scheduleResize(params.width, params.height);
-  }, [scheduleResize]);
-
-  const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number }) => {
-    if (resizeRafRef.current !== null) {
-      window.cancelAnimationFrame(resizeRafRef.current);
-      resizeRafRef.current = null;
-    }
+  const handleResizeStart = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
+    resizeStartRef.current = {
+      width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
+      height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
+      x: Math.round(params.x),
+      y: Math.round(params.y),
+    };
     resizePendingRef.current = null;
-    if (!params) return;
-    updateNodeSize(params.width, params.height);
-  }, [updateNodeSize]);
+    setResizePreview(null);
+    setIsResizing(true);
+  }, []);
+
+  const shouldResize = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
+    const start = resizeStartRef.current;
+    if (!start) return false;
+
+    resizePendingRef.current = {
+      width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
+      height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
+      offsetX: Math.round(params.x - start.x),
+      offsetY: Math.round(params.y - start.y),
+    };
+
+    if (resizePreviewRafRef.current !== null) return false;
+    resizePreviewRafRef.current = window.requestAnimationFrame(() => {
+      resizePreviewRafRef.current = null;
+      setResizePreview(resizePendingRef.current);
+    });
+    return false;
+  }, []);
+
+  const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
+    setIsResizing(false);
+    if (resizePreviewRafRef.current !== null) {
+      window.cancelAnimationFrame(resizePreviewRafRef.current);
+      resizePreviewRafRef.current = null;
+    }
+
+    const start = resizeStartRef.current;
+    const pending = resizePendingRef.current;
+    resizeStartRef.current = null;
+    resizePendingRef.current = null;
+    setResizePreview(null);
+
+    const finalPreview = pending || {
+      width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
+      height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
+      offsetX: start ? Math.round(params.x - start.x) : 0,
+      offsetY: start ? Math.round(params.y - start.y) : 0,
+    };
+
+    const baseX = start?.x ?? Math.round(params.x);
+    const baseY = start?.y ?? Math.round(params.y);
+    commitResize(
+      finalPreview.width,
+      finalPreview.height,
+      baseX + finalPreview.offsetX,
+      baseY + finalPreview.offsetY
+    );
+  }, [commitResize]);
 
   useNodeInternalsSync(id, nodeRootRef, [data.boxW, data.boxH, isEditingTitle]);
 
+  const renderedBoxW = isResizing && resizePreview ? resizePreview.width : (data.boxW || 240);
+  const renderedBoxH = isResizing && resizePreview ? resizePreview.height : (data.boxH || 180);
+  const renderedOffsetX = isResizing && resizePreview ? resizePreview.offsetX : 0;
+  const renderedOffsetY = isResizing && resizePreview ? resizePreview.offsetY : 0;
+
   return (
     <div ref={nodeRootRef} style={{
-      width: data.boxW || 240,
-      height: data.boxH || 180,
+      width: renderedBoxW,
+      height: renderedBoxH,
       padding: 8,
       background: '#fff',
       border: `1px solid ${borderColor}`,
       borderRadius: 8,
       boxShadow,
-      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+      transition: isResizing ? 'none' : 'border-color 0.15s ease, box-shadow 0.15s ease',
+      transform: isResizing ? `translate(${renderedOffsetX}px, ${renderedOffsetY}px)` : undefined,
+      willChange: isResizing ? 'transform, width, height' : undefined,
+      contain: isResizing ? 'layout paint' : undefined,
       display: 'flex',
       flexDirection: 'column',
       position: 'relative'
@@ -289,7 +343,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         color="transparent"
         lineStyle={{ display: 'none' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
-        onResize={handleResize}
+        onResizeStart={handleResizeStart}
+        shouldResize={shouldResize}
         onResizeEnd={handleResizeEnd}
       />
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

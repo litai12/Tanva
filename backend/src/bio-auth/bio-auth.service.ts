@@ -59,6 +59,9 @@ type BioAuthGroupDelegate = {
 export class BioAuthService implements OnModuleInit {
   private readonly logger = new Logger(BioAuthService.name);
   private readonly tasks = new Map<string, TaskRecord>();
+  private readonly taskTimers = new Map<string, NodeJS.Timeout>();
+  private readonly taskTtlMs = 60 * 60 * 1000;
+  private readonly maxTasks = 1000;
   private env!: VolcEnv;
 
   constructor(
@@ -68,6 +71,31 @@ export class BioAuthService implements OnModuleInit {
 
   private getBioAuthGroupDelegate(): BioAuthGroupDelegate {
     return (this.prisma as unknown as { bioAuthGroup: BioAuthGroupDelegate }).bioAuthGroup;
+  }
+
+  private rememberTask(record: TaskRecord): void {
+    this.tasks.set(record.taskId, record);
+    const existingTimer = this.taskTimers.get(record.taskId);
+    if (existingTimer) clearTimeout(existingTimer);
+    const timer = setTimeout(() => {
+      this.tasks.delete(record.taskId);
+      this.taskTimers.delete(record.taskId);
+    }, this.taskTtlMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    this.taskTimers.set(record.taskId, timer);
+
+    if (this.tasks.size <= this.maxTasks) return;
+    const overflow = this.tasks.size - this.maxTasks;
+    const oldestIds = Array.from(this.tasks.values())
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, overflow)
+      .map((task) => task.taskId);
+    oldestIds.forEach((taskId) => {
+      this.tasks.delete(taskId);
+      const oldTimer = this.taskTimers.get(taskId);
+      if (oldTimer) clearTimeout(oldTimer);
+      this.taskTimers.delete(taskId);
+    });
   }
 
   onModuleInit() {
@@ -159,7 +187,7 @@ export class BioAuthService implements OnModuleInit {
       status: 'processing',
       createdAt: Date.now(),
     };
-    this.tasks.set(resp.BytedToken, record);
+    this.rememberTask(record);
     this.logger.log(`bio-auth task created: ${resp.BytedToken.slice(0, 20)}… for user ${userId}`);
     return { taskId: resp.BytedToken, h5Link: resp.H5Link };
   }
@@ -299,7 +327,7 @@ export class BioAuthService implements OnModuleInit {
       assetId: taskId,
       createdAt: Date.now(),
     };
-    this.tasks.set(taskId, record);
+    this.rememberTask(record);
     this.logger.log(`bio-auth createAssetInGroup: assetId=${taskId.slice(0, 20)}… group=${groupId.slice(0, 20)}…`);
     this.pollAsset(taskId, taskId);
     return { taskId };
