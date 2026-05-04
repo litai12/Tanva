@@ -4,7 +4,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles, ImageUp } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles, ImageUp, MoveUpRight } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -20,7 +20,7 @@ import { useLocaleText } from '@/utils/localeText';
 interface LayerItemData {
     id: string;
     name: string;
-    type: 'path' | 'circle' | 'rectangle' | 'line' | 'image' | 'model3d' | 'group';
+    type: 'path' | 'circle' | 'rectangle' | 'line' | 'arrow' | 'image' | 'model3d' | 'group';
     visible: boolean;
     locked: boolean;
     selected: boolean;
@@ -201,6 +201,7 @@ const LayerPanel: React.FC = () => {
             'circle': lt('圆形', 'Circle'),
             'rectangle': lt('矩形', 'Rectangle'),
             'line': lt('直线', 'Line'),
+            'arrow': lt('箭头', 'Arrow'),
             'path': lt('路径', 'Path'),
             'image': lt('图片', 'Image'),
             'model3d': lt('3D模型', '3D Model'),
@@ -230,7 +231,9 @@ const LayerPanel: React.FC = () => {
             const isPath = item.className === 'Path' || item instanceof paper.Path;
 
             if (isPath) {
-                if (item instanceof paper.Path.Circle || item.className === 'Path' && (item as any)._class === 'Circle') {
+                if (item.data?.tool === 'arrow') {
+                    type = 'arrow';
+                } else if (item instanceof paper.Path.Circle || item.className === 'Path' && (item as any)._class === 'Circle') {
                     type = 'circle';
                 } else if (item instanceof paper.Path.Rectangle) {
                     type = 'rectangle';
@@ -1190,6 +1193,8 @@ const LayerPanel: React.FC = () => {
                 return <Square className="w-3 h-3" />;
             case 'line':
                 return <Minus className="w-3 h-3" />;
+            case 'arrow':
+                return <MoveUpRight className="w-3 h-3" />;
             case 'image':
                 return <Image className="w-3 h-3" />;
             case 'model3d':

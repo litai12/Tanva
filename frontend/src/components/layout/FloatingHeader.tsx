@@ -82,6 +82,7 @@ import {
   type DailyRewardStatus,
   type UserCreditsInfo,
 } from "@/services/adminApi";
+import type { BananaImageRoute } from "@/types/ai";
 
 // Nano Banana 通道定价常量
 type BananaPricingTier = "fast" | "pro" | "ultra";
@@ -873,6 +874,62 @@ const FloatingHeader: React.FC = () => {
       : isEnglish
         ? "Switch to night theme"
         : "切换到夜晚主题";
+  const bananaRouteOptions = useMemo(
+    () => [
+      {
+        value: "normal" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.normal"),
+        description: t("workspace.settings.aiTab.bananaRoute.normalDesc"),
+        Icon: Zap,
+        activeClass:
+          "border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-sky-500 dark:hover:bg-sky-900/20",
+        iconClass: "text-sky-600 dark:text-sky-400",
+      },
+      {
+        value: "stable" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.stable"),
+        description: t("workspace.settings.aiTab.bananaRoute.stableDesc"),
+        Icon: Star,
+        activeClass:
+          "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-400 dark:bg-emerald-900/30 dark:text-emerald-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20",
+        iconClass: "text-emerald-600 dark:text-emerald-400",
+      },
+    ],
+    [t]
+  );
+  const currentBananaRouteOption =
+    bananaRouteOptions.find((option) => option.value === bananaImageRoute) ||
+    bananaRouteOptions[0];
+  const CurrentBananaRouteIcon = currentBananaRouteOption.Icon;
+  const bananaRouteButtonTitle = t("workspace.header.routeSwitch.buttonTitle", {
+    route: currentBananaRouteOption.label,
+  });
+  const handleBananaRouteSelect = useCallback(
+    (route: BananaImageRoute) => {
+      if (route === bananaImageRoute) return;
+      setBananaImageRoute(route);
+      const selected =
+        bananaRouteOptions.find((option) => option.value === route) ||
+        bananaRouteOptions[0];
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: t("workspace.header.routeSwitch.toast", {
+                route: selected.label,
+              }),
+              type: "success",
+            },
+          })
+        );
+      }
+    },
+    [bananaImageRoute, bananaRouteOptions, setBananaImageRoute, t]
+  );
 
   const displayName =
     user?.name ||
@@ -2184,6 +2241,96 @@ const FloatingHeader: React.FC = () => {
               </span>
               <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                type='button'
+                className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 flex items-center justify-center'
+                title={bananaRouteButtonTitle}
+                aria-label={bananaRouteButtonTitle}
+              >
+                <CurrentBananaRouteIcon
+                  className={cn("w-4 h-4", currentBananaRouteOption.iconClass)}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align='center'
+                sideOffset={10}
+                className={cn(
+                  "w-[284px] rounded-2xl border p-2 shadow-[0_18px_40px_rgba(15,23,42,0.14)]",
+                  isDarkTheme
+                    ? "border-slate-700 bg-slate-900/95"
+                    : "border-slate-200 bg-white/95"
+                )}
+              >
+                <DropdownMenuLabel
+                  className={cn(
+                    "px-2 pb-2 pt-1 text-[11px] font-semibold",
+                    isDarkTheme ? "text-slate-400" : "text-slate-500"
+                  )}
+                >
+                  {t("workspace.header.routeSwitch.menuTitle")}
+                </DropdownMenuLabel>
+                <div className='space-y-1'>
+                  {bananaRouteOptions.map((option) => {
+                    const active = option.value === bananaImageRoute;
+                    const Icon = option.Icon;
+                    return (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => handleBananaRouteSelect(option.value)}
+                        className={cn(
+                          "group flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:bg-transparent dark:hover:bg-transparent",
+                          active ? option.activeClass : option.inactiveClass
+                        )}
+                      >
+                        <Icon
+                          className={cn(
+                            "mt-0.5 h-4 w-4 shrink-0",
+                            option.iconClass
+                          )}
+                        />
+                        <span className='min-w-0 flex-1'>
+                          <span className='block text-sm font-semibold leading-5'>
+                            {option.label}
+                          </span>
+                          <span
+                            className={cn(
+                              "mt-0.5 block text-xs leading-4",
+                              active
+                                ? "text-current opacity-75"
+                                : isDarkTheme
+                                  ? "text-slate-400"
+                                  : "text-slate-500"
+                            )}
+                          >
+                            {option.description}
+                          </span>
+                        </span>
+                        {active && (
+                          <Check
+                            className={cn(
+                              "mt-0.5 h-4 w-4 shrink-0",
+                              option.iconClass
+                            )}
+                          />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </div>
+                {!bananaProviderSelected && (
+                  <div
+                    className={cn(
+                      "px-2 pt-2 text-[11px] leading-4",
+                      isDarkTheme ? "text-amber-300" : "text-amber-600"
+                    )}
+                  >
+                    {t("workspace.settings.aiTab.bananaRoute.hint")}
+                  </div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 

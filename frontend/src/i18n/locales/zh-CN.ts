@@ -164,6 +164,11 @@ const zhCN = {
       globalAutoRun: "全局运行",
       globalAutoRunning: "全局运行中...",
       globalAutoStop: "终止",
+      routeSwitch: {
+        buttonTitle: "当前路线：{{route}}",
+        menuTitle: "生文/生图路线",
+        toast: "已切换到{{route}}",
+      },
     },
     appearance: {
       languageTitle: "界面语言",

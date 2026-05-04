@@ -295,6 +295,50 @@
 - `ai-metadata-sync` 未跑通：本地脚本仍缺失
   `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
 
+## 2026-05-04 继续迁移（五）
+
+### 已完成
+
+- 用户明确点名的路线快捷开关：
+  - 右上角顶栏新增 Nano Banana/Gemini/GPT-Image-2 生文/生图路线下拉快捷切换
+  - 复用现有 `bananaImageRoute` / `setBananaImageRoute`，与设置面板状态一致
+  - 仅迁移前端快捷入口；未迁移 lt-dev9 的 `bananaRouteStatsApi` / 成功率统计轮询，避免引入后端 API 耦合
+- 用户明确点名的箭头工具：
+  - `DrawMode` 增加 `arrow`
+  - 工具栏绘制菜单新增箭头按钮，主按钮可显示当前箭头工具
+  - `useDrawingTools` 新增箭头路径几何、开始/更新/完成逻辑
+  - `useInteractionController` 将箭头接入点击-点击与拖拽绘制流程
+  - `LayerPanel` 识别 `data.tool = "arrow"` 并显示箭头类型/icon
+  - 箭头以普通 Paper Path + `data.tool` 运行态/画布图元保存，不改设计 JSON 保存链路
+
+### 本轮刻意未迁移
+
+- `bananaRouteStatsApi` / 后端 banana route 成功率统计
+- `paperSaveService` / `DrawingController` / 保存链路重构
+- `objectUrlRegistry` / `imagePreviewAssetService`
+
+### 本轮涉及文件
+
+- `frontend/src/components/layout/FloatingHeader.tsx`
+- `frontend/src/components/toolbar/ToolBar.tsx`
+- `frontend/src/components/canvas/hooks/useDrawingTools.ts`
+- `frontend/src/components/canvas/hooks/useInteractionController.ts`
+- `frontend/src/components/panels/LayerPanel.tsx`
+- `frontend/src/stores/toolStore.ts`
+- `frontend/src/i18n/locales/zh-CN.ts`
+- `frontend/src/i18n/locales/en-US.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `ai-metadata-sync` 未跑通：本地脚本仍缺失
+  `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
+
 ## 建议下一步
 
 1. 检查当前工作区：

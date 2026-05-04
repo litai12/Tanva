@@ -164,6 +164,11 @@ const enUS = {
       globalAutoRun: "Global Auto Run",
       globalAutoRunning: "Global Run in Progress...",
       globalAutoStop: "Terminate",
+      routeSwitch: {
+        buttonTitle: "Current route: {{route}}",
+        menuTitle: "Text/Image Route",
+        toast: "Switched to {{route}}",
+      },
     },
     appearance: {
       languageTitle: "Interface Language",
