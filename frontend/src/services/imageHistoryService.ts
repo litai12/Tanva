@@ -253,6 +253,20 @@ interface RecordImageHistoryOptions {
   metadata?: Record<string, any>;
 }
 
+interface RecordVideoHistoryOptions {
+  id?: string;
+  videoUrl?: string | null;
+  thumbnail?: string | null;
+  title?: string;
+  nodeId: string;
+  nodeType: string;
+  projectId?: string | null;
+  projectName?: string;
+  timestamp?: number;
+  skipGlobalHistory?: boolean;
+  metadata?: Record<string, any>;
+}
+
 const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
   if (value.startsWith('data:') || value.startsWith('http')) {
     return value;
@@ -404,6 +418,44 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   }
 
   return { id, remoteUrl: undefined, thumbnail: resolvedThumbnail };
+}
+
+/**
+ * 记录一条视频历史。只写入全局历史，不做额外转存。
+ */
+export async function recordVideoHistoryEntry(options: RecordVideoHistoryOptions): Promise<{
+  id: string;
+  remoteUrl?: string;
+  thumbnail?: string;
+}> {
+  const id =
+    options.id ||
+    `video_history_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const videoUrl = normalizePersistableHistoryRef(options.videoUrl ?? undefined);
+  const thumbnail = normalizePersistableHistoryRef(options.thumbnail ?? undefined);
+
+  if (!videoUrl || options.skipGlobalHistory) {
+    return { id, remoteUrl: videoUrl, thumbnail };
+  }
+
+  enqueuePendingGlobalHistoryWrite({
+    imageUrl: videoUrl,
+    prompt: options.title,
+    sourceType: options.nodeType,
+    sourceProjectId: options.projectId ?? undefined,
+    sourceProjectName: options.projectName,
+    metadata: {
+      ...(options.metadata || {}),
+      mediaType: 'video',
+      videoUrl,
+      videoThumbnailUrl: thumbnail,
+      nodeId: options.nodeId,
+      nodeType: options.nodeType,
+      recordedAt: new Date(options.timestamp ?? Date.now()).toISOString(),
+    },
+  });
+
+  return { id, remoteUrl: videoUrl, thumbnail };
 }
 
 /**

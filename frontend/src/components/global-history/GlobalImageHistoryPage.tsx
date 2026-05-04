@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, Trash2, Search, Loader2 } from 'lucide-react';
+import { X, Download, Trash2, Search, Loader2, Play, Film } from 'lucide-react';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
@@ -11,22 +11,18 @@ import {
   getHistoryRequestPrompt,
   getHistoryRequestThumbnail,
 } from './historyRequestInfo';
+import {
+  GLOBAL_HISTORY_SOURCE_TYPE_LABELS,
+  getGlobalHistoryDownloadFileName,
+  getGlobalHistoryMediaUrl,
+  getGlobalHistoryVideoThumbnail,
+  isGlobalHistoryVideoItem,
+} from './historyMedia';
 
 interface GlobalImageHistoryPageProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  generate: { zh: '图片生成', en: 'Image Generate' },
-  generatePro: { zh: '图片生成Pro', en: 'Image Generate Pro' },
-  generatePro4: { zh: '图片生成Pro4', en: 'Image Generate Pro4' },
-  midjourney: { zh: 'Midjourney', en: 'Midjourney' },
-  '3d': { zh: '3D生成', en: '3D Generate' },
-  camera: { zh: '相机', en: 'Camera' },
-  image: { zh: '图片', en: 'Image' },
-  imagePro: { zh: '图片Pro', en: 'Image Pro' },
-};
 
 // Header 子组件
 interface HeaderProps {
@@ -47,7 +43,7 @@ const Header: React.FC<HeaderProps> = ({
   lt,
 }) => (
   <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-    <h2 className="text-xl font-semibold text-white">{lt('全局图片历史', 'Global Image History')}</h2>
+    <h2 className="text-xl font-semibold text-white">{lt('全局历史', 'Global History')}</h2>
     <div className="flex items-center gap-4">
       {/* 搜索框 */}
       <div className="relative">
@@ -67,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({
         className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="">{lt('全部类型', 'All Types')}</option>
-        {Object.entries(SOURCE_TYPE_LABELS).map(([key, label]) => (
+        {Object.entries(GLOBAL_HISTORY_SOURCE_TYPE_LABELS).map(([key, label]) => (
           <option key={key} value={key}>
             {lt(label.zh, label.en)}
           </option>
@@ -112,20 +108,54 @@ const ImageCard: React.FC<ImageCardProps> = ({
   });
   const typeLabel = resolveSourceTypeLabel(item.sourceType);
   const requestPrompt = getHistoryRequestPrompt(item);
-  const requestThumbnail = getHistoryRequestThumbnail(item);
+  const isVideo = isGlobalHistoryVideoItem(item);
+  const mediaUrl = getGlobalHistoryMediaUrl(item);
+  const videoThumbnail = getGlobalHistoryVideoThumbnail(item);
+  const requestThumbnail = isVideo ? undefined : getHistoryRequestThumbnail(item);
+  const mediaLabel = isVideo ? lt('视频', 'Video') : lt('图片', 'Image');
 
   return (
     <div
       className="group relative rounded-lg overflow-hidden bg-white/5 cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
       onClick={() => onSelect(item)}
     >
-      <div className="aspect-square">
-        <SmartImage
-          src={item.imageUrl}
-          alt={requestPrompt || lt('图片', 'Image')}
-          className="w-full h-full object-cover"
-          loading="lazy"
-        />
+      <div className="relative aspect-square bg-black/50">
+        {isVideo ? (
+          videoThumbnail ? (
+            <SmartImage
+              src={videoThumbnail}
+              alt={requestPrompt || mediaLabel}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          ) : mediaUrl ? (
+            <video
+              src={mediaUrl}
+              className="h-full w-full object-cover"
+              muted
+              playsInline
+              preload="metadata"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-white/55">
+              <Film className="h-8 w-8" />
+            </div>
+          )
+        ) : (
+          <SmartImage
+            src={mediaUrl}
+            alt={requestPrompt || mediaLabel}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        )}
+        {isVideo ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white shadow-lg">
+              <Play className="h-5 w-5 fill-current" />
+            </div>
+          </div>
+        ) : null}
       </div>
       {requestThumbnail ? (
         <div className="absolute left-2 top-2 rounded-lg border border-white/15 bg-black/55 p-1 backdrop-blur-sm">
@@ -165,9 +195,9 @@ const ImageCard: React.FC<ImageCardProps> = ({
               onSelect(item);
             }}
             className="rounded-md bg-white/20 px-2.5 py-1 text-xs text-white hover:bg-white/30"
-            title={lt('查看完整请求', 'View full request')}
+            title={isVideo ? lt('查看详情', 'View details') : lt('查看完整请求', 'View full request')}
           >
-            {lt('查看完整请求', 'View Full Request')}
+            {isVideo ? lt('查看详情', 'View Details') : lt('查看完整请求', 'View Full Request')}
           </button>
         </div>
       </div>
@@ -176,11 +206,15 @@ const ImageCard: React.FC<ImageCardProps> = ({
         <div className="space-y-1 text-xs text-white/80">
           <div className="flex items-center justify-between">
             <span>{formattedDate}</span>
-            <span className="px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{typeLabel}</span>
+            <span className="px-1.5 py-0.5 bg-white/20 rounded text-[10px]">{isVideo ? mediaLabel : typeLabel}</span>
           </div>
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-white/65">
-              {requestThumbnail ? lt('含请求缩略图', 'Has request thumbnail') : lt('无请求缩略图', 'No request thumbnail')}
+              {isVideo
+                ? typeLabel
+                : requestThumbnail
+                  ? lt('含请求缩略图', 'Has request thumbnail')
+                  : lt('无请求缩略图', 'No request thumbnail')}
             </span>
             <span className="shrink-0 text-white/65">
               {requestPrompt ? lt('提示词已隐藏', 'Prompt hidden') : lt('无提示词', 'No prompt')}
@@ -221,8 +255,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({
   <div className="flex-1 overflow-y-auto p-6">
     {items.length === 0 && !isLoading ? (
       <div className="flex flex-col items-center justify-center h-full text-gray-400">
-        <p className="text-lg">{lt('暂无图片历史', 'No image history yet')}</p>
-        <p className="text-sm mt-2">{lt('生成的图片会自动保存到这里', 'Generated images will appear here automatically')}</p>
+        <p className="text-lg">{lt('暂无历史记录', 'No history yet')}</p>
+        <p className="text-sm mt-2">{lt('生成的图片和视频会自动保存到这里', 'Generated images and videos will appear here automatically')}</p>
       </div>
     ) : (
       <>
@@ -293,7 +327,7 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   };
   const resolveSourceTypeLabel = useCallback(
     (sourceType: string) => {
-      const label = SOURCE_TYPE_LABELS[sourceType];
+      const label = GLOBAL_HISTORY_SOURCE_TYPE_LABELS[sourceType];
       return label ? lt(label.zh, label.en) : sourceType;
     },
     [lt]
@@ -407,8 +441,8 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   // 下载图片
   const handleDownload = useCallback((item: GlobalImageHistoryItem) => {
     const link = document.createElement('a');
-    link.href = item.imageUrl;
-    link.download = `image_${item.id}.png`;
+    link.href = getGlobalHistoryMediaUrl(item);
+    link.download = getGlobalHistoryDownloadFileName(item);
     link.target = '_blank';
     document.body.appendChild(link);
     link.click();

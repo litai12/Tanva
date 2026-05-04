@@ -33,7 +33,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { recordImageHistoryEntry, recordVideoHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
@@ -6439,6 +6439,29 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               const remoteVideoUrl = videoUrl;
+              void recordVideoHistoryEntry({
+                videoUrl: remoteVideoUrl,
+                thumbnail: thumbnailUrl,
+                title: prompt,
+                nodeId: aiMessageId,
+                nodeType: String(AI_CHAT_SEEDANCE_MODEL || "").includes("2.0")
+                  ? "seedance20Video"
+                  : "doubaoVideo",
+                projectId: useProjectContentStore.getState().projectId,
+                metadata: {
+                  source: "aiChat",
+                  provider,
+                  seedanceModel: AI_CHAT_SEEDANCE_MODEL,
+                  videoMode,
+                  aspectRatio,
+                  durationSeconds,
+                  taskId: createResult.taskId,
+                  apiUsageId: createResult.apiUsageId,
+                  status: status ?? "succeeded",
+                },
+              }).catch((error) => {
+                console.warn("⚠️ 视频全局历史写入失败:", error);
+              });
               get().updateMessage(aiMessageId, (msg) => ({
                 ...msg,
                 type: "ai",

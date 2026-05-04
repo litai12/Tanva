@@ -141,6 +141,37 @@
 - `ai-metadata-sync` 未跑通：本地脚本仍缺失  
   `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
 
+## 2026-05-04 继续迁移（二）
+
+### 已完成
+
+- Global History 媒体体验：
+  - 新增 `frontend/src/components/global-history/historyMedia.ts`
+  - `GlobalImageHistoryPage` 支持图片/视频统一展示、视频封面、播放 icon、视频下载文件名
+  - `GlobalImageDetailModal` 支持视频详情与 `<video controls>` 播放
+  - `imageHistoryService` 新增 `recordVideoHistoryEntry`，仅写全局历史远程视频 URL + 元数据，不做额外转存
+  - AI Chat Seedance 视频生成成功后写入全局历史
+- 本轮刻意未迁移：
+  - `imagePreviewAssetService` 相关远程缩略图生成/转存
+  - `objectUrlRegistry`
+  - 保存/画布持久化链路
+
+### 本轮涉及文件
+
+- `frontend/src/components/global-history/historyMedia.ts`
+- `frontend/src/components/global-history/GlobalImageHistoryPage.tsx`
+- `frontend/src/components/global-history/GlobalImageDetailModal.tsx`
+- `frontend/src/services/imageHistoryService.ts`
+- `frontend/src/stores/aiChatStore.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite chunk / dynamic import 警告）
+
 ## 建议下一步
 
 1. 检查当前工作区：
@@ -160,14 +191,6 @@
      frontend/src/stores \
      frontend/src/utils
    ```
-
-## 优先候选（后续迁移）
-
-- global history 相关媒体体验优化：
-  - `global-history/historyMedia.ts`
-  - `GlobalImageHistoryPage`
-  - detail modal
-  - `imageHistoryService`
 
 ## 暂时不要迁移
 

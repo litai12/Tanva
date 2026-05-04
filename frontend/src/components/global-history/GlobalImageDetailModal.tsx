@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Download, Trash2, Calendar, Folder, Tag } from 'lucide-react';
+import { X, Download, Trash2, Calendar, Folder, Tag, Film } from 'lucide-react';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
@@ -8,17 +8,12 @@ import {
   getHistoryRequestPrompt,
   getHistoryRequestThumbnail,
 } from './historyRequestInfo';
-
-const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
-  generate: { zh: '图片生成', en: 'Image Generate' },
-  generatePro: { zh: '图片生成Pro', en: 'Image Generate Pro' },
-  generatePro4: { zh: '图片生成Pro4', en: 'Image Generate Pro4' },
-  midjourney: { zh: 'Midjourney', en: 'Midjourney' },
-  '3d': { zh: '3D生成', en: '3D Generate' },
-  camera: { zh: '相机', en: 'Camera' },
-  image: { zh: '图片', en: 'Image' },
-  imagePro: { zh: '图片Pro', en: 'Image Pro' },
-};
+import {
+  GLOBAL_HISTORY_SOURCE_TYPE_LABELS,
+  getGlobalHistoryMediaUrl,
+  getGlobalHistoryVideoThumbnail,
+  isGlobalHistoryVideoItem,
+} from './historyMedia';
 
 const BANANA_31_MODEL = 'gemini-3.1-flash-image-preview';
 const BANANA_PRO_MODEL = 'gemini-3-flash-preview';
@@ -85,7 +80,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
     .startsWith('zh');
   const lt = (zh: string, en: string) => (isZh ? zh : en);
   const formattedDate = new Date(item.createdAt).toLocaleString(isZh ? 'zh-CN' : 'en-US');
-  const sourceTypeLabel = SOURCE_TYPE_LABELS[item.sourceType];
+  const sourceTypeLabel = GLOBAL_HISTORY_SOURCE_TYPE_LABELS[item.sourceType];
   const typeLabel =
     typeof sourceTypeLabel === 'string'
       ? sourceTypeLabel
@@ -94,7 +89,10 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
         : item.sourceType;
   const modelInfo = resolveModelLabel(item);
   const requestPrompt = getHistoryRequestPrompt(item);
-  const requestThumbnail = getHistoryRequestThumbnail(item);
+  const isVideo = isGlobalHistoryVideoItem(item);
+  const mediaUrl = getGlobalHistoryMediaUrl(item);
+  const videoThumbnail = getGlobalHistoryVideoThumbnail(item);
+  const requestThumbnail = isVideo ? undefined : getHistoryRequestThumbnail(item);
 
   return (
     <div
@@ -108,7 +106,9 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
       >
         {/* 头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h3 className="text-white font-medium">{lt('图片详情', 'Image Details')}</h3>
+          <h3 className="text-white font-medium">
+            {isVideo ? lt('视频详情', 'Video Details') : lt('图片详情', 'Image Details')}
+          </h3>
           <div className="flex items-center gap-2">
             <Button
               onClick={onDownload}
@@ -143,11 +143,28 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
         <div className="flex-1 overflow-auto p-4 flex gap-4">
           {/* 图片预览 */}
           <div className="flex-1 flex items-center justify-center bg-black/50 rounded-lg">
-            <SmartImage
-              src={item.imageUrl}
-              alt={item.prompt || lt('图片', 'Image')}
-              className="max-w-full max-h-[60vh] object-contain"
-            />
+            {isVideo ? (
+              mediaUrl ? (
+                <video
+                  src={mediaUrl}
+                  poster={videoThumbnail}
+                  className="max-h-[60vh] max-w-full object-contain"
+                  controls
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <div className="flex h-56 w-full items-center justify-center text-white/55">
+                  <Film className="h-10 w-10" />
+                </div>
+              )
+            ) : (
+              <SmartImage
+                src={mediaUrl}
+                alt={item.prompt || lt('图片', 'Image')}
+                className="max-w-full max-h-[60vh] object-contain"
+              />
+            )}
           </div>
 
           {/* 信息面板 */}
