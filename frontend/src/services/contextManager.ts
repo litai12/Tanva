@@ -956,7 +956,7 @@ class ContextManager implements IContextManager {
         contextPrompt.substring(0, maxContextLength) + "\n...(上下文已截断)";
     }
 
-    contextPrompt += `\n请根据上下文理解用户意图。`;
+    contextPrompt += `\n请根据上下文直接回答“用户当前输入”。不要输出内部意图分析、关键要素拆解或回复策略。`;
 
     return contextPrompt;
   }

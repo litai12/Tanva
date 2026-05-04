@@ -6247,6 +6247,10 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: result.data!.text,
                           webSearchResult: result.data!.webSearchResult,
+                          metadata: {
+                            ...(msg.metadata || {}),
+                            ...(result.data!.metadata || {}),
+                          },
                           generationStatus: {
                             isGenerating: false,
                             progress: 100,
@@ -6267,6 +6271,10 @@ export const useAIChatStore = create<AIChatState>()(
                 if (message) {
                   message.content = result.data!.text;
                   message.webSearchResult = result.data!.webSearchResult;
+                  message.metadata = {
+                    ...(message.metadata || {}),
+                    ...(result.data!.metadata || {}),
+                  };
                   message.generationStatus = {
                     isGenerating: false,
                     progress: 100,

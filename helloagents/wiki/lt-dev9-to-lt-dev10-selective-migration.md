@@ -241,9 +241,59 @@
 
 ### 本轮验证
 
-- 待本轮完成后更新：
-  - `git diff --check`
-  - `cd frontend && npm run build`
+- 已完成并提交为 `7e9e69c4`。
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过
+
+## 2026-05-04 继续迁移（四）
+
+### 已完成
+
+- AI Chat 文本回复 metadata 透传：
+  - `AITextChatResult` 增加 `metadata`
+  - `generateTextResponseViaAPI` 将后端 `/api/ai/text-chat` 返回的 `metadata` 透传给调用方
+  - `aiChatStore.generateTextResponse` 将 metadata 合并到消息和 `contextManager` 会话消息
+- `contextManager` 提示语小修：
+  - 上下文尾部提示改为直接回答当前输入
+  - 明确要求不要输出内部意图分析/关键要素拆解/回复策略
+  - 未迁移 lt-dev9 的构造期会话恢复变更，避免影响项目内 AI Chat 历史恢复边界
+- Flow 低风险 UI/运行体验补齐：
+  - `Generate4Node` 使用共享 Image Split 句柄 helper 解析 `imageN/imgN`
+  - `Seedream5Node` 节点展示优先使用 `thumbnails[]` 首图，预览仍使用完整图片列表
+  - `VideoAnalyzeNode` 标题、按钮、占位文案本地化，并复用运行积分按钮样式
+  - `flow.css` 补充 ReactFlow viewport transform hint 和 Video Analyze run 按钮样式
+
+### 本轮刻意未迁移
+
+- `imagePreviewAssetService` 及 Image/ImagePro 上传缩略图远程转存
+- `objectUrlRegistry` 和 AI Chat object URL 生命周期大改
+- `paperSaveService` / `DrawingController` / 设计 JSON 保存链路
+- `GeneratePro4Node` 模型切换大块改动
+- `nodeConfigService` 定价/节点默认配置变更
+- `toolStore` arrow 工具与画布绘制链路变更
+- `projectContentStore` dirty 判等优化（涉及保存触发边界，需单独评估）
+
+### 本轮涉及文件
+
+- `frontend/src/components/flow/flow.css`
+- `frontend/src/components/flow/nodes/Generate4Node.tsx`
+- `frontend/src/components/flow/nodes/Seedream5Node.tsx`
+- `frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx`
+- `frontend/src/services/aiBackendAPI.ts`
+- `frontend/src/services/contextManager.ts`
+- `frontend/src/stores/aiChatStore.ts`
+- `frontend/src/types/ai.ts`
+- `frontend/docs/06-变更日志.md`
+- `helloagents/CHANGELOG.md`
+- `helloagents/wiki/modules/frontend-flow.md`
+- `helloagents/wiki/lt-dev9-to-lt-dev10-selective-migration.md`
+
+### 本轮验证
+
+- `git diff --check` 通过
+- `cd frontend && npm run build` 通过（仅现有 Vite dynamic import / chunk size 警告）
+- `ai-metadata-sync` 未跑通：本地脚本仍缺失
+  `/Users/litai/.codex/Skills/ai-metadata-sync/scripts/sync-repo.mjs`
 
 ## 建议下一步
 
@@ -271,8 +321,7 @@
   - 不改保存结构
   - 不引入新服务依赖
   - 不碰图片预览资产转存
-- 可单独评估 `contextManager` 的提示语小修和项目内会话恢复边界，但需要先确认不会影响 AI Chat 历史恢复。
-- 可单独评估 `aiBackendAPI.generateTextResponseViaAPI` 返回 `metadata` 的前端透传，但需要确认后端当前响应结构和调用方展示逻辑。
+- 可单独评估项目内会话恢复边界，但需要先确认不会影响 AI Chat 历史恢复。
 - 可继续检查 Global History / Library 侧的媒体展示补齐，但不迁移缩略图远程转存逻辑。
 
 ## 暂时不要迁移

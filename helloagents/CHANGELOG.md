@@ -31,6 +31,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Storyboard Split: `StoryboardSplitNode` now supports a custom split-format sample (`分镜1`, `#1`, `|**1**|` etc.), auto-sizes output handles from parsed segments, and prunes stale prompt outputs/edges after re-splitting.
 - Flow/Image References: `Generate`, `Agent(generatePro)`, and `Generate4` now cap connected reference-image previews by model tier (`Fast=3`, `Pro=11`, `Ultra=14`) using shared `flowModelProvider` limits.
 - Flow/Video Analysis: default analysis prompts localize between Chinese/English and requests now carry Banana route/channel hints for route-aware backend handling.
+- Flow/Runtime: `Generate4` now resolves Image Split references through the shared `imageN/imgN` handle helper; `Seedream` uses available thumbnails for node preview, and `Video Analysis` run UI/localized copy is aligned with other run-credit buttons.
+- AI Chat: `/api/ai/text-chat` response `metadata` is preserved on chat messages/context, and context prompts now instruct the model to answer the current user input directly without exposing internal intent analysis.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.

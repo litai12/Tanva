@@ -256,30 +256,20 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600, color: shell.color }}>Video Analysis</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>{lt('视频分析', 'Video Analysis')}</div>
         <button
-          className="run-btn-with-credit"
+          className="tanva-video-analyze-run-btn run-btn-with-credit"
           onClick={onAnalyze}
           disabled={!canRun}
           style={{
-            fontSize: 12,
-            padding: '4px 8px',
-            background: canRun ? '#111827' : '#e5e7eb',
-            color: canRun ? '#fff' : '#9ca3af',
-            borderRadius: 6,
-            border: 'none',
             cursor: canRun ? 'pointer' : 'not-allowed',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 0,
           }}
         >
           {status === 'running' || isAnalyzing ? (
-            <span className="run-text-trigger">{lt('Analyzing...', 'Analyzing...')}</span>
+            <span className="run-text-trigger">{lt('分析中...', 'Analyzing...')}</span>
           ) : (
             <>
-              <span className="run-text-trigger">{lt('Analyze', 'Analyze')}</span>
+              <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
               {hasRunCredits ? <RunCreditBadge credits={data.creditsPerCall} runButton /> : null}
             </>
           )}
@@ -309,15 +299,15 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
             {hasVideoConnection
-              ? lt('Waiting for video input', 'Waiting for video input')
-              : lt('Please connect a video node', 'Please connect a video node')}
+              ? lt('等待视频输入', 'Waiting for video input')
+              : lt('请连接视频节点', 'Please connect a video node')}
           </span>
         )}
       </div>
 
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: shell.color }}>
-          {lt('Analysis prompt', 'Analysis prompt')}
+          {lt('分析提示词', 'Analysis prompt')}
         </div>
         <textarea
           className="nodrag nopan nowheel"
@@ -328,7 +318,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             event.stopPropagation();
           }}
           onPointerDownCapture={(e) => e.stopPropagation()}
-          placeholder={lt('Enter analysis prompt', 'Enter analysis prompt')}
+          placeholder={lt('输入分析提示词', 'Enter analysis prompt')}
           style={{
             width: '100%',
             minHeight: 60,
@@ -361,7 +351,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           data.prompt || data.text
         ) : (
           <span style={{ color: '#9ca3af' }}>
-            {lt('Analysis result will appear here', 'Analysis result will appear here')}
+            {lt('分析结果将显示在这里', 'Analysis result will appear here')}
           </span>
         )}
       </div>

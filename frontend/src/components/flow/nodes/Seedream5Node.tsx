@@ -19,6 +19,7 @@ type Props = {
     progressStartedAt?: number | string | null;
     images?: string[];
     imageUrls?: string[];
+    thumbnails?: string[];
     error?: string;
     batchMode?: boolean;
     batchCount?: number;
@@ -165,14 +166,16 @@ function Seedream5Node({ id, data, selected }: Props) {
 
   // 获取第一张图片用于预览
   const firstImage = images[0];
-  const assetId = React.useMemo(() => parseFlowImageAssetRef(firstImage), [firstImage]);
+  const thumbnails = React.useMemo(() => data.thumbnails || [], [data.thumbnails]);
+  const firstDisplayImage = thumbnails[0] || firstImage;
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(firstDisplayImage), [firstDisplayImage]);
   const assetUrl = useFlowImageAssetUrl(assetId);
   const resolvePreviewImageSrc = React.useCallback((value?: string): string => {
     const resolved = buildImageSrc(value);
     if (resolved) return resolved;
     return typeof value === "string" ? value.trim() : "";
   }, []);
-  const displaySrc = assetId ? assetUrl : resolvePreviewImageSrc(firstImage);
+  const displaySrc = assetId ? assetUrl : resolvePreviewImageSrc(firstDisplayImage);
 
   // 预览用集合
   const previewCollection = React.useMemo(

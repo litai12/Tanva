@@ -1244,6 +1244,7 @@ export async function generateTextResponseViaAPI(
         text: data.text,
         model: requestWithRoute.model || "gemini-3-flash-preview",
         webSearchResult: data.webSearchResult || undefined,
+        metadata: data.metadata || undefined,
       },
     };
   } catch (error) {
