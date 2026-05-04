@@ -9,7 +9,9 @@ const ZoomIndicator: React.FC = () => {
     const { i18n } = useTranslation();
     const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
     const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
-    const { zoom, setZoom, setPan } = useCanvasStore();
+    const zoom = useCanvasStore((state) => state.zoom);
+    const setZoom = useCanvasStore((state) => state.setZoom);
+    const setViewport = useCanvasStore((state) => state.setViewport);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -191,8 +193,7 @@ const ZoomIndicator: React.FC = () => {
 
         if (bounds.length === 0) {
             if (options?.fallbackToCenter) {
-                setZoom(1.0);
-                setPan(metrics.centerX, metrics.centerY);
+                setViewport({ zoom: 1.0, panX: metrics.centerX, panY: metrics.centerY });
             }
             setMenuOpen(false);
             return false;
@@ -223,8 +224,7 @@ const ZoomIndicator: React.FC = () => {
         const newPanX = metrics.centerX / newZoom - contentCenterX;
         const newPanY = metrics.centerY / newZoom - contentCenterY;
 
-        setZoom(newZoom);
-        setPan(newPanX, newPanY);
+        setViewport({ zoom: newZoom, panX: newPanX, panY: newPanY });
         setMenuOpen(false);
         return true;
     };
@@ -280,11 +280,10 @@ const ZoomIndicator: React.FC = () => {
         const metrics = getViewMetrics();
         if (!metrics) {
             // 备用方案：简单重置
-            setZoom(1.0);
             const dpr = window.devicePixelRatio || 1;
             const centerX = (window.innerWidth / 2) * dpr;
             const centerY = (window.innerHeight / 2) * dpr;
-            setPan(centerX, centerY);
+            setViewport({ zoom: 1.0, panX: centerX, panY: centerY });
             setMenuOpen(false);
             return;
         }
@@ -294,8 +293,7 @@ const ZoomIndicator: React.FC = () => {
 
         if (bounds.length === 0) {
             // 没有内容时，将世界坐标原点居中
-            setZoom(1.0);
-            setPan(metrics.centerX, metrics.centerY);
+            setViewport({ zoom: 1.0, panX: metrics.centerX, panY: metrics.centerY });
             setMenuOpen(false);
             return;
         }
@@ -314,7 +312,6 @@ const ZoomIndicator: React.FC = () => {
 
         // 设置缩放为 100%
         const newZoom = 1.0;
-        setZoom(newZoom);
 
         // 视口变换公式：screen = zoom * (world + pan)
         // 要让内容中心显示在屏幕中心：
@@ -323,7 +320,7 @@ const ZoomIndicator: React.FC = () => {
         const newPanX = metrics.centerX / newZoom - contentCenterX;
         const newPanY = metrics.centerY / newZoom - contentCenterY;
 
-        setPan(newPanX, newPanY);
+        setViewport({ zoom: newZoom, panX: newPanX, panY: newPanY });
         setMenuOpen(false);
     };
 

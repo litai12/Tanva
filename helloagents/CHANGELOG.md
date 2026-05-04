@@ -31,6 +31,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
 - Flow/TextPrompt: ordinary `Prompt` node resizing now batches size writes with `requestAnimationFrame`, skips unchanged dimensions, and disables the textarea's native resize handle to reduce ReactFlow-wide node updates and layout work during drag resize.
 - Flow/Video Frame Extract: edge source-handle normalization is now source-node aware, so `videoFrameExtract` keeps its real `image` output handle and legacy saved `img` edges hydrate back to `image`, preventing React Flow error #008 console spam after reload.
 - Flow/Video to GIF: GIF 节点运行按钮接入运行积分徽标，悬停时显示本次转换消耗 30 积分，和后端预扣费保持一致。

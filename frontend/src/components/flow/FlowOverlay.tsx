@@ -8031,7 +8031,7 @@ function FlowInner() {
 
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
         const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
-        useCanvasStore.setState({
+        store.setViewport({
           panX: pan2x,
           panY: pan2y,
           zoom: z2,

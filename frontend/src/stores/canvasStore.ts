@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
+import { shallow } from 'zustand/shallow';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
 import { createSafeStorage } from './storageUtils';
@@ -9,10 +10,22 @@ import { useProjectStore } from './projectStore';
 
 // 视口持久化：使用独立存储，降低高频写入对主 store 的影响
 const VIEWPORT_STORAGE_PREFIX = 'canvas-viewport-v1';
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 4;
+const VIEWPORT_EPSILON = 1e-6;
 type ViewportSnapshot = { panX: number; panY: number; zoom: number };
 
 const getViewportStorageKey = (projectId?: string | null) =>
   `${VIEWPORT_STORAGE_PREFIX}:${projectId || 'global'}`;
+
+const toFiniteNumber = (value: number, fallback: number) =>
+  Number.isFinite(value) ? value : fallback;
+
+const clampZoom = (zoom: number) =>
+  Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, toFiniteNumber(zoom, 1)));
+
+const sameViewportValue = (prev: number, next: number) =>
+  Math.abs(prev - next) < VIEWPORT_EPSILON;
 
 const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | null => {
   if (typeof window === 'undefined') return null;
@@ -99,6 +112,7 @@ interface CanvasState {
   setGridBgEnabled: (enabled: boolean) => void;
   setZoom: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
+  setViewport: (viewport: ViewportSnapshot) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   resetView: () => void;
   markInitialCenterApplied: () => void;
@@ -129,9 +143,9 @@ export const useCanvasStore = create<CanvasState>()(
       gridColor: '#000000',
       gridBgColor: '#ffffff',
       gridBgEnabled: false,
-      zoom: initialViewport?.zoom ?? 1.0,
-      panX: initialViewport?.panX ?? 0,
-      panY: initialViewport?.panY ?? 0,
+      zoom: clampZoom(initialViewport?.zoom ?? 1.0),
+      panX: toFiniteNumber(initialViewport?.panX ?? 0, 0),
+      panY: toFiniteNumber(initialViewport?.panY ?? 0, 0),
       isHydrated: false,
       hasInitialCenterApplied: !!initialViewport,
       
@@ -155,15 +169,49 @@ export const useCanvasStore = create<CanvasState>()(
       setGridColor: (color) => set({ gridColor: color }),
       setGridBgColor: (color) => set({ gridBgColor: color }),
       setGridBgEnabled: (enabled) => set({ gridBgEnabled: !!enabled }),
-      setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(4, zoom)) }), // 限制缩放范围 10%-400%
-      setPan: (x, y) => set({ panX: x, panY: y }),
+      setZoom: (zoom) => set((state) => {
+        const nextZoom = clampZoom(zoom);
+        return sameViewportValue(state.zoom, nextZoom) ? state : { zoom: nextZoom };
+      }), // 限制缩放范围 10%-400%
+      setPan: (x, y) => set((state) => {
+        const nextPanX = toFiniteNumber(x, state.panX);
+        const nextPanY = toFiniteNumber(y, state.panY);
+        if (
+          sameViewportValue(state.panX, nextPanX) &&
+          sameViewportValue(state.panY, nextPanY)
+        ) {
+          return state;
+        }
+        return { panX: nextPanX, panY: nextPanY };
+      }),
+      setViewport: (viewport) => set((state) => {
+        const nextZoom = clampZoom(viewport.zoom);
+        const nextPanX = toFiniteNumber(viewport.panX, state.panX);
+        const nextPanY = toFiniteNumber(viewport.panY, state.panY);
+        if (
+          sameViewportValue(state.zoom, nextZoom) &&
+          sameViewportValue(state.panX, nextPanX) &&
+          sameViewportValue(state.panY, nextPanY)
+        ) {
+          return state;
+        }
+        return {
+          panX: nextPanX,
+          panY: nextPanY,
+          zoom: nextZoom,
+        };
+      }),
       panBy: (deltaX, deltaY) => {
         const { panX, panY } = get();
-        set({ panX: panX + deltaX, panY: panY + deltaY });
+        get().setPan(panX + deltaX, panY + deltaY);
       },
-      resetView: () => set({ zoom: 1.0, panX: 0, panY: 0 }),
-      markInitialCenterApplied: () => set({ hasInitialCenterApplied: true }),
-      setHydrated: (hydrated) => set({ isHydrated: hydrated }),
+      resetView: () => get().setViewport({ zoom: 1.0, panX: 0, panY: 0 }),
+      markInitialCenterApplied: () => set((state) => (
+        state.hasInitialCenterApplied ? state : { hasInitialCenterApplied: true }
+      )),
+      setHydrated: (hydrated) => set((state) => (
+        state.isHydrated === hydrated ? state : { isHydrated: hydrated }
+      )),
       
       // 交互状态操作方法
       setDragging: (dragging) => set({ isDragging: dragging }),
@@ -294,7 +342,8 @@ if (typeof window !== 'undefined') {
   // 监听视口变化，持久化
   useCanvasStore.subscribe(
     (state) => ({ panX: state.panX, panY: state.panY, zoom: state.zoom }),
-    (viewport) => schedulePersist(viewport)
+    (viewport) => schedulePersist(viewport),
+    { equalityFn: shallow }
   );
 
   // 监听项目切换：加载对应项目的视角并覆盖当前视角
