@@ -65,6 +65,7 @@ export const useCanvasActions = () => {
     setGridSize: canvasStore.setGridSize,
     setZoom: canvasStore.setZoom,
     setPan: canvasStore.setPan,
+    setViewport: canvasStore.setViewport,
     panBy: canvasStore.panBy,
     resetView: canvasStore.resetView,
     setUnits: canvasStore.setUnits,

@@ -28,6 +28,12 @@ import {
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import {
+  getImageSplitCompatHandleId,
+  getImageSplitHandleIndex,
+  getImageSplitPrimaryHandleId,
+} from '../utils/imageSplitHandles';
+import { loadSharedImage } from '../utils/sharedImageLoad';
 
 // 类型定义
 type SplitRectItem = {
@@ -77,33 +83,55 @@ const CanvasCropPreview = React.memo(({
   sourceHeight?: number;
 }) => {
   const { lowDetailMode } = useFlowRenderMode();
+  const { x: rectX, y: rectY, width: rectWidth, height: rectHeight } = rect;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const resizeRafRef = React.useRef<number | null>(null);
 
   React.useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const update = () => {
-      const rect = container.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width));
-      const h = Math.max(1, Math.round(rect.height));
+      let w = container.offsetWidth || container.clientWidth;
+      let h = container.offsetHeight || container.clientHeight;
+      if (!w || !h) {
+        const rect = container.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+      }
+      w = Math.max(1, Math.round(w));
+      h = Math.max(1, Math.round(h));
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
 
-    update();
+    const scheduleUpdate = () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        update();
+      });
+    };
+
+    scheduleUpdate();
 
     let ro: ResizeObserver | null = null;
     try {
-      ro = new ResizeObserver(update);
+      ro = new ResizeObserver(scheduleUpdate);
       ro.observe(container);
     } catch {}
 
-    window.addEventListener('resize', update);
+    window.addEventListener('resize', scheduleUpdate);
     return () => {
-      window.removeEventListener('resize', update);
+      window.removeEventListener('resize', scheduleUpdate);
       try { ro?.disconnect(); } catch {}
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
     };
   }, []);
 
@@ -129,14 +157,14 @@ const CanvasCropPreview = React.memo(({
       ctx.fillRect(0, 0, w, h);
     };
 
-    if (!src || !rect || rect.width <= 0 || rect.height <= 0 || w <= 0 || h <= 0) {
+    if (!src || rectWidth <= 0 || rectHeight <= 0 || w <= 0 || h <= 0) {
       drawPlaceholder();
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    let cancelled = false;
+    loadSharedImage(src).then((img) => {
+      if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
       if (!naturalW || !naturalH) {
@@ -149,10 +177,10 @@ const CanvasCropPreview = React.memo(({
       const scaleX = srcW > 0 ? naturalW / srcW : 1;
       const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-      const sx = Math.max(0, Math.min(naturalW - 1, Math.round(rect.x * scaleX)));
-      const sy = Math.max(0, Math.min(naturalH - 1, Math.round(rect.y * scaleY)));
-      const swRaw = Math.max(1, Math.round(rect.width * scaleX));
-      const shRaw = Math.max(1, Math.round(rect.height * scaleY));
+      const sx = Math.max(0, Math.min(naturalW - 1, Math.round(rectX * scaleX)));
+      const sy = Math.max(0, Math.min(naturalH - 1, Math.round(rectY * scaleY)));
+      const swRaw = Math.max(1, Math.round(rectWidth * scaleX));
+      const shRaw = Math.max(1, Math.round(rectHeight * scaleY));
       const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
       const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
@@ -163,14 +191,19 @@ const CanvasCropPreview = React.memo(({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    }).catch(() => {
+      if (cancelled) return;
+      drawPlaceholder();
+    });
+
+    return () => {
+      cancelled = true;
     };
-    img.onerror = drawPlaceholder;
-    img.src = src;
   }, [
-    rect.height,
-    rect.width,
-    rect.x,
-    rect.y,
+    rectHeight,
+    rectWidth,
+    rectX,
+    rectY,
     size.h,
     size.w,
     sourceHeight,
@@ -461,16 +494,15 @@ const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): strin
   if (!node) return undefined;
   const d = (node.data ?? {}) as Record<string, unknown>;
 
-  // imageSplit：按 image1..imageN 读取
+  // imageSplit：按 image1..imageN 读取；兼容保存/导入链路曾归一化出的 img1..imgN。
   if (node.type === 'imageSplit' && typeof sourceHandle === 'string') {
-    const match = /^image(\d+)$/.exec(sourceHandle);
-    if (match) {
-      const key = `image${match[1]}`;
+    const idx = getImageSplitHandleIndex(sourceHandle);
+    if (idx !== null) {
+      const key = getImageSplitPrimaryHandleId(idx);
       const direct = normalizeString(d[key]);
       if (direct) return direct;
 
       const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
-      const idx = Math.max(0, Number(match[1]) - 1);
       const fromList = splitImages?.[idx]?.imageData;
       return normalizeString(fromList);
     }
@@ -591,17 +623,16 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
       .filter(Boolean) as UpstreamImageItem[];
   }
 
-  // imageSplit：可输出单张（imageX）或整个 splitImages（兼容少数场景）
+  // imageSplit：可输出单张（imageX/imgX）或整个 splitImages（兼容少数场景）
   if (node.type === 'imageSplit') {
     if (typeof sourceHandle === 'string') {
-      const match = /^image(\d+)$/.exec(sourceHandle);
-      if (match) {
-        const key = `image${match[1]}`;
+      const idx = getImageSplitHandleIndex(sourceHandle);
+      if (idx !== null) {
+        const key = getImageSplitPrimaryHandleId(idx);
         const direct = normalizeString(d[key]);
         if (direct) return [{ id: `${node.id}-${key}`, imageData: direct }];
 
         const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
-        const idx = Math.max(0, Number(match[1]) - 1);
         const fromList = normalizeString(splitImages?.[idx]?.imageData);
         return fromList ? [{ id: `${node.id}-split-${idx + 1}`, imageData: fromList }] : [];
       }
@@ -1128,14 +1159,10 @@ function SplitRectPreview({
         return;
       }
 
-      const img = new Image();
-      img.decoding = 'async';
-      img.onload = () => draw(img);
-      img.onerror = () => {
+      loadSharedImage(nextSrc).then(draw).catch(() => {
         if (cancelled) return;
         tryLoad(index + 1);
-      };
-      img.src = nextSrc;
+      });
     };
 
     tryLoad(0);
@@ -1390,9 +1417,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           if (!baseRef) return null;
 
           const handle = typeof sourceHandle === 'string' ? sourceHandle.trim() : '';
-          const match = handle ? /^image(\d+)$/.exec(handle) : null;
-          if (!match) return null;
-          const idx = Math.max(0, Number(match[1]) - 1);
+          const idx = getImageSplitHandleIndex(handle);
+          if (idx === null) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
           const rect = splitRects?.[idx];
@@ -2635,18 +2661,31 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 动态输出端口 */}
       {Array.from({ length: outputCount }).map((_, i) => {
-        const portId = `image${i + 1}`;
+        const portId = getImageSplitPrimaryHandleId(i);
+        const compatPortId = getImageSplitCompatHandleId(i);
         const topPercent = getHandleTopPercent(i);
         return (
-          <Handle
-            key={portId}
-            type="source"
-            position={Position.Right}
-            id={portId}
-            style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
-            onMouseEnter={() => setHover(`${portId}-out`)}
-            onMouseLeave={() => setHover(null)}
-          />
+          <React.Fragment key={portId}>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={portId}
+              style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
+              onMouseEnter={() => setHover(`${portId}-out`)}
+              onMouseLeave={() => setHover(null)}
+            />
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={compatPortId}
+              style={{
+                top: `${topPercent}%`,
+                transform: 'translateY(-50%)',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+            />
+          </React.Fragment>
         );
       })}
 

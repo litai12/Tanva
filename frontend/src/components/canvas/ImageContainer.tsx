@@ -117,6 +117,18 @@ const PALETTE_MIN_DISPLAY_WIDTH_PX = 14;
 type Bounds = { x: number; y: number; width: number; height: number };
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropHandle = "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
+const IMAGE_BOUNDS_EPSILON = 0.001;
+
+const boundsAlmostEqual = (
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  epsilon = IMAGE_BOUNDS_EPSILON
+): boolean =>
+  Math.abs(a.x - b.x) <= epsilon &&
+  Math.abs(a.y - b.y) <= epsilon &&
+  Math.abs(a.width - b.width) <= epsilon &&
+  Math.abs(a.height - b.height) <= epsilon;
+
 const ensureDataUrlString = (
   imageData: string,
   mime: string = "image/png"
@@ -572,19 +584,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     bananaImageRoute,
   } = useAIChatStore();
 
-  // 获取画布状态 - 用于监听画布移动变化
-  const { zoom, panX, panY, isDragging: isCanvasDragging, setOperationInProgress } = useCanvasStore();
-
-  // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
-  const currentZoom = zoom || 1;
-  const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
-  const toolbarScale = 1; // 固定为1，不再跟随缩放
-  const showFastBackgroundRemovalButton = true;
-
-  const sharedButtonClass = showButtonText
-    ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
-    : "px-1.5 py-1 h-7 rounded-md bg-transparent text-gray-600 transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center justify-center";
-  const sharedIconClass = "w-3.5 h-3.5 flex-shrink-0";
+  const setOperationInProgress = useCanvasStore(
+    (state) => state.setOperationInProgress
+  );
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
@@ -682,6 +684,42 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return next;
     });
   }, []);
+
+  const needsViewportSync =
+    isSelected ||
+    isImageLocked ||
+    showPreview ||
+    showExpandSelector ||
+    isCropping ||
+    isApplyingCrop ||
+    isExpandingImage ||
+    isRemovingBackground ||
+    isFastRemovingBackground ||
+    isSeparatingLayers ||
+    isConvertingTo3D ||
+    isOptimizingHd ||
+    isRecognizingText ||
+    isApplyingTextEdit ||
+    isExtractingPalette;
+
+  // 非激活图片只由 Paper Raster 承担显示，不订阅高频 zoom/pan，避免缩放时成批 React 更新。
+  const zoom = useCanvasStore((state) => (needsViewportSync ? state.zoom : 1));
+  const panX = useCanvasStore((state) => (needsViewportSync ? state.panX : 0));
+  const panY = useCanvasStore((state) => (needsViewportSync ? state.panY : 0));
+  const isCanvasDragging = useCanvasStore((state) =>
+    needsViewportSync ? state.isDragging : false
+  );
+
+  // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
+  const currentZoom = zoom || 1;
+  const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
+  const toolbarScale = 1; // 固定为1，不再跟随缩放
+  const showFastBackgroundRemovalButton = true;
+
+  const sharedButtonClass = showButtonText
+    ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
+    : "px-1.5 py-1 h-7 rounded-md bg-transparent text-gray-600 transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center justify-center";
+  const sharedIconClass = "w-3.5 h-3.5 flex-shrink-0";
 
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -855,6 +893,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const realTimeBoundsRef = useRef(realTimeBounds);
   realTimeBoundsRef.current = realTimeBounds;
 
+  const setRealTimeBoundsIfChanged = useCallback(
+    (nextBounds: { x: number; y: number; width: number; height: number }) => {
+      setRealTimeBounds((currentBounds) => {
+        if (boundsAlmostEqual(currentBounds, nextBounds)) {
+          return currentBounds;
+        }
+        realTimeBoundsRef.current = nextBounds;
+        return nextBounds;
+      });
+    },
+    []
+  );
+
   // 从Paper.js获取实时坐标 - 使用 ref 避免依赖变化
   const getRealTimePaperBounds = useCallback(() => {
     try {
@@ -894,10 +945,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 监听画布状态变化，强制重新计算坐标
   useEffect(() => {
+    if (!needsViewportSync) return;
     // 当画布状态变化时，强制重新计算屏幕坐标
     const newPaperBounds = getRealTimePaperBounds();
-    setRealTimeBounds(newPaperBounds);
-  }, [zoom, panX, panY, getRealTimePaperBounds]); // 直接监听画布状态变化
+    setRealTimeBoundsIfChanged(newPaperBounds);
+  }, [
+    needsViewportSync,
+    zoom,
+    panX,
+    panY,
+    getRealTimePaperBounds,
+    setRealTimeBoundsIfChanged,
+  ]); // 直接监听画布状态变化
 
   // 实时同步Paper.js状态 - 只在选中时启用，使用节流减少更新频率
   useEffect(() => {
@@ -938,7 +997,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         Math.abs(paperBounds.height - currentBounds.height) > toleranceWorld;
 
       if (hasChanged) {
-        setRealTimeBounds(paperBounds);
+        setRealTimeBoundsIfChanged(paperBounds);
       }
 
       // 继续下一帧
@@ -949,7 +1008,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     // 立即更新一次，然后开始循环
     const paperBounds = getRealTimePaperBounds();
-    setRealTimeBounds(paperBounds);
+    setRealTimeBoundsIfChanged(paperBounds);
     animationFrame = requestAnimationFrame(updateRealTimeBounds);
 
     return () => {
@@ -958,12 +1017,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         cancelAnimationFrame(animationFrame);
       }
     };
-  }, [isSelected, getRealTimePaperBounds]);
+  }, [isSelected, getRealTimePaperBounds, setRealTimeBoundsIfChanged]);
 
   // 同步Props bounds变化
   useEffect(() => {
-    setRealTimeBounds(bounds);
-  }, [bounds]);
+    setRealTimeBoundsIfChanged(bounds);
+  }, [bounds, setRealTimeBoundsIfChanged]);
 
   // 获取图片真实像素尺寸
   useEffect(() => {
@@ -977,16 +1036,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       Number.isFinite(metaHeight) &&
       metaHeight > 0
     ) {
-      setNaturalSize({
+      const nextNaturalSize = {
         width: Math.round(metaWidth),
         height: Math.round(metaHeight),
+      };
+      setNaturalSize((current) => {
+        if (
+          current &&
+          current.width === nextNaturalSize.width &&
+          current.height === nextNaturalSize.height
+        ) {
+          return current;
+        }
+        return nextNaturalSize;
       });
       return;
     }
 
     // 仅在需要展示分辨率（选中态）且缺少元数据时才加载图片，避免重复请求/解码
     if (!isSelected) {
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
       return;
     }
 
@@ -998,7 +1067,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       (imageData.pendingUpload ? imageData.localDataUrl : undefined);
     const src = rawSource ? toRenderableImageSrc(rawSource) || "" : "";
     if (!src) {
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
       return;
     }
 
@@ -1009,12 +1078,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
       if (w > 0 && h > 0) {
-        setNaturalSize({ width: w, height: h });
+        setNaturalSize((current) => {
+          if (current && current.width === w && current.height === h) {
+            return current;
+          }
+          return { width: w, height: h };
+        });
       }
     };
     img.onerror = () => {
       if (canceled) return;
-      setNaturalSize(null);
+      setNaturalSize((current) => (current === null ? current : null));
     };
     img.src = src;
 
@@ -1040,14 +1114,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
 
-  const screenPerWorldX =
-    realTimeBounds.width > 0 && screenBounds.width > 0
-      ? screenBounds.width / realTimeBounds.width
-      : 1;
-  const screenPerWorldY =
-    realTimeBounds.height > 0 && screenBounds.height > 0
-      ? screenBounds.height / realTimeBounds.height
-      : 1;
   const worldPerScreenX =
     screenBounds.width > 0 && realTimeBounds.width > 0
       ? realTimeBounds.width / screenBounds.width
