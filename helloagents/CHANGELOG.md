@@ -600,3 +600,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas viewport writes on the `lt-dev10` worktree now use guarded atomic `setViewport` updates, with RAF-batched global gesture zoom and reduced inactive overlay subscriptions.
 - Flow `ImageSplit` previews now reuse shared image loading and support both `imageN` and legacy `imgN` output handles.
 - Flow `TextPrompt` resize now batches ReactFlow node state updates until resize end, using local preview during the drag.
+- Flow node palette now supports search by name/type/description, Quick Connect is filtered to palette-visible enabled node types, and redundant Flow snapshot hydration/write-back is skipped when signatures match.
+- Flow `TextChat` now sends only its connected/manual node prompt to text generation, without global chat context injection.
+- Flow `AnalyzeNode` now exposes Analysis/Prompt/JSON skill presets, stores `analysisSkillId`, and keeps connected text prompts as appended instructions.

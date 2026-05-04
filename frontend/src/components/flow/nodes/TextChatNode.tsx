@@ -11,7 +11,6 @@ import {
   type Edge,
 } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
-import { contextManager } from '@/services/contextManager';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
@@ -50,11 +49,10 @@ const NODE_VERTICAL_PADDING = 24;
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
 
 const buildNodeRequestPrompt = (rawPrompt: string): string => {
-  const contextualPrompt = contextManager.buildContextPrompt(rawPrompt);
-  if (contextualPrompt.length <= MAX_TEXT_CHAT_PROMPT_LENGTH) {
-    return contextualPrompt;
+  if (rawPrompt.length <= MAX_TEXT_CHAT_PROMPT_LENGTH) {
+    return rawPrompt;
   }
-  return `${contextualPrompt.slice(0, MAX_TEXT_CHAT_PROMPT_LENGTH)}\n\n[Prompt truncated for stability]`;
+  return `${rawPrompt.slice(0, MAX_TEXT_CHAT_PROMPT_LENGTH)}\n\n[Prompt truncated for stability]`;
 };
 
 const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow>): string | undefined => {
@@ -797,4 +795,3 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 };
 
 export default React.memo(TextChatNode);
-

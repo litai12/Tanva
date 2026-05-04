@@ -1111,8 +1111,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "midjourney", targetHandle: "text" },
-    { nodeType: "nano2", targetHandle: "text" },
-    { nodeType: "gptImage2", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
@@ -1126,8 +1124,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
     { nodeType: "imagePro", targetHandle: "img" },
-    { nodeType: "nano2", targetHandle: "img" },
-    { nodeType: "gptImage2", targetHandle: "img" },
     { nodeType: "imageGrid", targetHandle: "images" },
     { nodeType: "imageSplit", targetHandle: "img" },
     { nodeType: "imageCompress", targetHandle: "img" },
@@ -1177,8 +1173,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "midjourneyV7", sourceHandle: "img" },
     { nodeType: "niji7", sourceHandle: "img" },
     { nodeType: "seedream5", sourceHandle: "img" },
-    { nodeType: "nano2", sourceHandle: "img" },
-    { nodeType: "gptImage2", sourceHandle: "img" },
     { nodeType: "camera", sourceHandle: "img" },
   ],
   video: [
@@ -1522,6 +1516,7 @@ type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
   "kling26Video",
   "nano2",
+  "gptImage2",
 ]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
@@ -2591,6 +2586,41 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
   return undefined;
 };
 
+const normalizeNodePaletteSearchTerm = (value: unknown): string => {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase();
+};
+
+const doesNodePaletteConfigMatchSearch = (
+  config: Partial<NodeConfig>,
+  searchTerm: string
+): boolean => {
+  const normalizedTerm = normalizeNodePaletteSearchTerm(searchTerm);
+  if (!normalizedTerm) return true;
+
+  const metadata = (config.metadata ?? {}) as Record<string, any>;
+  const nodeConfig =
+    metadata.nodeConfig && typeof metadata.nodeConfig === "object"
+      ? (metadata.nodeConfig as Record<string, any>)
+      : undefined;
+  const searchText = [
+    config.nodeKey,
+    config.nameZh,
+    config.nameEn,
+    config.description,
+    buildNodePaletteCaption(config),
+    nodeConfig?.description,
+  ]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+    )
+    .join(" ")
+    .toLowerCase();
+
+  return searchText.includes(normalizedTerm);
+};
+
 const resolveNodeConfigCreditsPerCall = (config: Partial<NodeConfig>): number => {
   const metadata =
     config.metadata && typeof config.metadata === "object"
@@ -3340,6 +3370,7 @@ function FlowInner() {
   const { lt, isZh } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
   const nodesRef = React.useRef<RFNode[]>([]);
   const edgesRef = React.useRef<Edge[]>([]);
   React.useEffect(() => {
@@ -3637,6 +3668,29 @@ function FlowInner() {
       })
       .filter(Boolean);
   }, [lt, nodePaletteConfigs]);
+  const normalizedNodePaletteSearch = React.useMemo(
+    () => normalizeNodePaletteSearchTerm(nodePaletteSearch),
+    [nodePaletteSearch]
+  );
+  const visibleGroupedNodePaletteConfigs = React.useMemo(() => {
+    if (!normalizedNodePaletteSearch) return groupedNodePaletteConfigs;
+    return groupedNodePaletteConfigs
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((config) =>
+          doesNodePaletteConfigMatchSearch(config, normalizedNodePaletteSearch)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [groupedNodePaletteConfigs, normalizedNodePaletteSearch]);
+  const visibleNodePaletteItemCount = React.useMemo(
+    () =>
+      visibleGroupedNodePaletteConfigs.reduce(
+        (count, group) => count + group.items.length,
+        0
+      ),
+    [visibleGroupedNodePaletteConfigs]
+  );
 
   const snapAlignmentEnabled = useUIStore((s) => s.snapAlignmentEnabled);
   const isLargeGraphForSnapAlignment =
@@ -5749,6 +5803,20 @@ function FlowInner() {
     if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
+    const incomingSignature = getFlowSnapshotSignature(ns, es);
+    const localSignature = getFlowSnapshotSignature(
+      rfNodesToTplNodes(nodesRef.current as any),
+      rfEdgesToTplEdges(edgesRef.current as any)
+    );
+    if (
+      incomingSignature &&
+      localSignature &&
+      incomingSignature === localSignature
+    ) {
+      lastSyncedJSONRef.current = incomingSignature;
+      hasHydratedFlowRef.current = true;
+      return;
+    }
     hydratingFromStoreRef.current = true;
     const nextNodes = tplNodesToRfNodes(ns);
     setNodes((prev) => {
@@ -5761,7 +5829,7 @@ function FlowInner() {
         return {
           ...prevNode,
           position: node.position,
-          data: { ...(prevNode.data || {}), ...(node.data || {}) },
+          data: node.data || {},
           width: node.width ?? prevNode.width,
           height: node.height ?? prevNode.height,
           style: node.style || prevNode.style,
@@ -5770,7 +5838,7 @@ function FlowInner() {
     });
     setEdges(tplEdgesToRfEdges(es));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
-    lastSyncedJSONRef.current = getFlowSnapshotSignature(ns, es);
+    lastSyncedJSONRef.current = incomingSignature;
     hasHydratedFlowRef.current = true;
     Promise.resolve().then(() => {
       hydratingFromStoreRef.current = false;
@@ -5781,6 +5849,8 @@ function FlowInner() {
     contentFlow,
     setNodes,
     setEdges,
+    rfNodesToTplNodes,
+    rfEdgesToTplEdges,
     tplNodesToRfNodes,
     tplEdgesToRfEdges,
     getFlowSnapshotSignature,
@@ -5798,6 +5868,16 @@ function FlowInner() {
       if (json && lastSyncedJSONRef.current === json) return;
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
       commitTimerRef.current = window.setTimeout(() => {
+        const currentFlow = useProjectContentStore.getState().content?.flow;
+        const currentFlowSignature = getFlowSnapshotSignature(
+          currentFlow?.nodes || [],
+          currentFlow?.edges || []
+        );
+        if (json && currentFlowSignature === json) {
+          lastSyncedJSONRef.current = json;
+          commitTimerRef.current = null;
+          return;
+        }
         lastSyncedJSONRef.current = json;
         updateProjectPartial(
           { flow: { nodes: nodesSnapshot, edges: edgesSnapshot } },
@@ -6240,6 +6320,9 @@ function FlowInner() {
   React.useEffect(() => {
     setAddTab((prev) => clampAddTab(prev, allowedAddTabs));
   }, [allowedAddTabs, clampAddTab]);
+  React.useEffect(() => {
+    if (addTab !== "nodes") setNodePaletteSearch("");
+  }, [addTab]);
 
   // 仅同步展示：打开「节点」页签时拉取后台节点管理中的最新配置（不在画板内编辑）
   React.useEffect(() => {
@@ -7919,6 +8002,7 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               prompt: "",
+              analysisSkillId: "prompt",
               analysisPrompt: undefined,
               analysisProvider: "banana-2.5" as const,
               boxW: size.w,
@@ -8416,6 +8500,16 @@ function FlowInner() {
 
     return map;
   }, [lt, nodePaletteConfigs]);
+  const quickConnectVisibleNodeTypes = React.useMemo(() => {
+    const set = new Set<string>();
+    nodePaletteConfigs.forEach((config) => {
+      const resolvedType = resolveFlowNodeTypeFromConfig(config);
+      const normalizedType = normalizeFlowNodeType(resolvedType);
+      if (resolvedType) set.add(resolvedType);
+      if (normalizedType) set.add(normalizedType);
+    });
+    return set;
+  }, [nodePaletteConfigs]);
   const inferQuickConnectSourceKind = React.useCallback(
     (sourceType?: string, sourceHandle?: string): QuickConnectSourceKind => {
       const handle = typeof sourceHandle === "string" ? sourceHandle.trim() : "";
@@ -8491,19 +8585,14 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (!quickConnectVisibleNodeTypes.has(resolvedType)) continue;
         const cacheKey = `${resolvedType}::${preset.targetHandle}`;
         if (seen.has(cacheKey)) continue;
         seen.add(cacheKey);
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
-        const sourceConfig = nodePaletteConfigs.find(
-          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
-        );
-        if (
-          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
-          !isManagedPaletteConfig(sourceConfig)
-        ) {
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) {
           continue;
         }
         if (
@@ -8528,6 +8617,7 @@ function FlowInner() {
       rf,
       inferQuickConnectSourceKind,
       quickConnectMetaByType,
+      quickConnectVisibleNodeTypes,
       rankQuickConnectOptions,
       pinQuickConnectBaseOption,
     ]
@@ -8548,6 +8638,7 @@ function FlowInner() {
         const resolvedType = normalizedType || preset.nodeType;
         if (!resolvedType) continue;
         if (!normalizedType && !(resolvedType in FLOW_NODE_DEFAULT_SIZE)) continue;
+        if (!quickConnectVisibleNodeTypes.has(resolvedType)) continue;
         if (!preset.sourceHandle) continue;
         const cacheKey = `${resolvedType}::${preset.sourceHandle}`;
         if (seen.has(cacheKey)) continue;
@@ -8555,13 +8646,7 @@ function FlowInner() {
 
         const meta = quickConnectMetaByType.get(resolvedType);
         const status = meta?.status;
-        const sourceConfig = nodePaletteConfigs.find(
-          (config) => resolveFlowNodeTypeFromConfig(config) === resolvedType
-        );
-        if (
-          HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType) &&
-          !isManagedPaletteConfig(sourceConfig)
-        ) {
+        if (HIDDEN_FLOW_NODE_TYPES.has(resolvedType as FlowNodeType)) {
           continue;
         }
         if (
@@ -8586,6 +8671,7 @@ function FlowInner() {
       rf,
       inferQuickConnectTargetKind,
       quickConnectMetaByType,
+      quickConnectVisibleNodeTypes,
       rankQuickConnectOptions,
       pinQuickConnectBaseOption,
     ]
@@ -20482,6 +20568,7 @@ function FlowInner() {
             ? {
                 status: "idle",
                 prompt: "",
+                analysisSkillId: "prompt",
                 analysisPrompt: undefined,
                 analysisProvider: "banana-2.5" as const,
               }
@@ -22130,7 +22217,56 @@ function FlowInner() {
                 }}
               >
                 <div style={{ padding: "0 20px 20px" }}>
-                  {groupedNodePaletteConfigs.map((group) => (
+                  <div style={{ marginTop: 10 }}>
+                    <input
+                      type='text'
+                      value={nodePaletteSearch}
+                      onChange={(event) =>
+                        setNodePaletteSearch(event.target.value)
+                      }
+                      placeholder={lt(
+                        "搜索节点（名称 / 类型 / 描述）",
+                        "Search nodes (name / type / description)"
+                      )}
+                      style={{
+                        width: "100%",
+                        height: 40,
+                        borderRadius: 10,
+                        border: isFlowBlackTheme
+                          ? "1px solid #404040"
+                          : "1px solid #d1d5db",
+                        background: isFlowBlackTheme ? "#1d1d1d" : "#ffffff",
+                        color: isFlowBlackTheme ? "#ffffff" : "#111827",
+                        outline: "none",
+                        padding: "0 12px",
+                        fontSize: 13,
+                        transition: "all 0.15s ease",
+                      }}
+                    />
+                  </div>
+                  {normalizedNodePaletteSearch &&
+                    visibleNodePaletteItemCount === 0 && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          marginBottom: 6,
+                          borderRadius: 12,
+                          border: isFlowBlackTheme
+                            ? "1px solid #333333"
+                            : "1px solid #e5e7eb",
+                          background: isFlowBlackTheme ? "#1b1b1b" : "#f8fafc",
+                          color: isFlowBlackTheme ? "#b4b4b4" : "#6b7280",
+                          padding: "12px 14px",
+                          fontSize: 12,
+                        }}
+                      >
+                        {lt(
+                          "未找到匹配节点，请尝试其它关键词",
+                          "No matching nodes found. Try another keyword."
+                        )}
+                      </div>
+                    )}
+                  {visibleGroupedNodePaletteConfigs.map((group) => (
                     <section key={group.key} style={nodePaletteSectionStyle}>
                       <div style={nodePaletteSectionHeaderStyle}>
                         <div>
