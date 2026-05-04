@@ -622,7 +622,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     () => [
       {
         id: 'prompt',
-        label: lt('Analysis', 'Analysis'),
+        label: 'Analysis',
         description: lt('描述图片并输出一段可复用提示词', 'Describe the image as a reusable prompt'),
         prompt: lt(
           '分析这张图片内容，尽可能描述场景中的物体和特征，并输出一段提示词。',
@@ -1259,8 +1259,8 @@ Use an empty string or empty array when a field cannot be determined.`
             status === 'running' || isAnalyzing
               ? 'Running...'
               : resolvedRunCredits
-              ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
-              : lt('Run analysis', 'Run analysis')
+              ? `${lt('消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
+              : lt('运行分析', 'Run analysis')
           }
         >
           {status === 'running' || isAnalyzing ? (
@@ -1320,7 +1320,7 @@ Use an empty string or empty array when a field cannot be determined.`
             background: flowNodeMutedWellBackground(isFlowDark),
           }}
         >
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>Waiting for image input</span>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待图片输入', 'Waiting for image input')}</span>
         </div>
       )}
       {incomingImageCount > 1 && (
@@ -1340,7 +1340,7 @@ Use an empty string or empty array when a field cannot be determined.`
           }}
         >
           <div style={{ fontSize: 11, fontWeight: 600, color: shell.color }}>
-            {lt('Skill', 'Skill')}
+            Skill
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1380,7 +1380,7 @@ Use an empty string or empty array when a field cannot be determined.`
               className='min-w-[210px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
             >
               <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                {lt('Skill', 'Skill')}
+                Skill
               </DropdownMenuLabel>
               {analysisSkillOptions.map((skill) => {
                 const isActive = currentAnalysisSkill.id === skill.id;
@@ -1424,7 +1424,7 @@ Use an empty string or empty array when a field cannot be determined.`
           whiteSpace: 'pre-wrap',
         }}
       >
-        {data.prompt ? data.prompt : <span style={{ color: '#9ca3af' }}>Analysis result will appear here</span>}
+        {data.prompt ? data.prompt : <span style={{ color: '#9ca3af' }}>{lt('分析结果将在此处显示', 'Analysis result will appear here')}</span>}
       </div>
 
       {status === 'failed' && error && (

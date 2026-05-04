@@ -11,6 +11,7 @@
 - Workspace header has a quick Nano Banana/Gemini/GPT-Image-2 route switch that updates the existing `bananaImageRoute` setting and displays today's normal/stable route success rates.
 - Canvas drawing tools include an `arrow` mode exposed in the toolbar; the drawing hook creates a filled Paper path tagged with `data.tool = "arrow"`, and the layer panel maps it to an Arrow layer type/icon.
 - `GeneratePro4Node` now uses node-local Fast/Pro/Ultra selection (`modelProvider`) and previews run credits with the connected reference-image count capped by shared `flowModelProvider` limits.
+- `TextChatNode` no longer renders the bottom web-search checkbox/status row; `AnalyzeNode` keeps `Image Chat` / `Run` / `Skill` in English while localizing helper and placeholder copy in zh mode.
 
 ## 2026-04-15 Update
 - Analysis node now uses node-local Fast/Pro/Ultra selection (analysisProvider) and does not change global provider state.
