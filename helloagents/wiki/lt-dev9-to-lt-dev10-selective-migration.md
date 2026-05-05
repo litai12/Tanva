@@ -38,15 +38,16 @@
 | P2 | Project Manager | 项目管理弹窗每页 12 项；当前页懒加载内容并从 `assets` / Flow 节点抽取图片宫格；重命名/删除改为悬浮 icon。 | `ProjectManagerModal.tsx` | 已 build |
 | P2 | Canvas 箭头工具 | 新增箭头绘制模式，工具栏入口、绘制 hook、交互控制、图层类型/icon 已接入；不改变设计 JSON 规则。 | `toolStore.ts`、`ToolBar.tsx`、`useDrawingTools.ts`、`LayerPanel.tsx` | 已 build |
 | P2 | 缓存/转存 | Provider 视频 OSS 转存缓存增加 1 小时 TTL 与 500 条上限。 | `video-provider.service.ts` | 后端 build |
+| P2 | Global History / Library 媒体体验 | 库面板全局历史/项目库复用共享媒体 helper：图片/视频标签、封面、播放入口、详情播放与下载文件名统一；视频禁用发送/拖拽到画板，避免误走图片上传链路。 | `LibraryPanel.tsx`、`historyMedia.ts` | 已 build |
+| P2 | Video Analyze route-aware billing/providerOptions | 已对照 `lt-dev9`：前端 `VideoAnalyzeNode` 无差异；后端保留 `providerOptions.banana.imageRoute`、`bananaImageRoute`、`channelHint` 的路线解析与 Fast/Pro/Ultra 计费矩阵，当前实现为共享 helper 版本，无需额外迁移。 | `VideoAnalyzeNode.tsx`、`credits.service.ts`、`ai.controller.ts` | diff 对照 |
 | P2 | 文档同步 | `frontend/docs/06-变更日志.md`、`helloagents/CHANGELOG.md`、`helloagents/project.md` 与模块 wiki 已按迁移更新。 | `frontend/docs/`、`helloagents/` | `git diff --check` |
 
 ## 未完成 / 后续候选
 
+P2 候选已清空；以下为暂缓项，需单独设计和回归。
+
 | 优先级 | 候选项 | 当前建议 | 风险/注意点 |
 |---|---|---|---|
-| P2 | Global History / Library 媒体体验补齐 | 可继续做筛选、详情、发送/下载等展示侧补齐。 | 不迁移远程缩略图转存，不改资产持久化。 |
-| P2 | Flow group 拖拽/复制/删除交互 | 可单独评估组节点更完整的交互迁移。 | 涉及 ReactFlow 选择、复制、边恢复，回归面较大。 |
-| P2 | Video Analyze route-aware billing/providerOptions 全量对齐 | 需要再对照 lt-dev9 后端计费和 provider 参数差异。 | 牵涉积分、供应商路由和失败退款，需单独验证。 |
 | P3 | `nodeConfigService` 定价/默认节点配置 | 暂缓，除非明确要改线上节点配置策略。 | 可能影响计费、节点可见性、后台配置优先级。 |
 | P3 | Banana web-search 旧后端 route | 暂缓。 | 后端/API 耦合高，且当前文本链路已有 route-aware 计费约束。 |
 | P3 | `imagePreviewAssetService` 远程缩略图转存 | 暂缓。 | 容易碰项目预览资产和保存链路，可能引入 data/blob 持久化风险。 |

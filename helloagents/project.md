@@ -44,6 +44,7 @@
 - AI Chat 普通文本请求默认只发送当前输入；只有“继续/调整/再试”等迭代意图才拼接会话历史上下文。Flow Text Chat 节点是独立路径，不继承这个上下文注入策略。
 - Flow 生图节点参考图数量统一走 `frontend/src/utils/flowModelProvider.ts`：Fast=3、Pro=11、Ultra=14；节点预览、连接接纳与运行请求必须使用同一上限。
 - Flow 视频节点成功后可写入 Global History，但只记录已有远程视频 URL/缩略图引用，不把视频或缩略图内联进设计 JSON。
+- Library 历史视频记录只支持封面/播放/下载展示，不走图片发送或拖拽到画板；历史图片仍可按远程 URL/可持久化资产引用发送到画板。
 - 后端 AI 积分请求参数应保留显式 `channelHint`，除非 Banana route/provider 已解析出更明确的供应商通道。
 - 画布 AI 图片操作应以当前渲染资源为准；Shift 精确局部修改需要把选区 bounds/比例传入 Chat，并通过 `precise-edit`/`lockToBounds` 在原位显示占位框，高清放大结果应走 `triggerQuickImageUpload` 上画布而不是直接下载。
 
