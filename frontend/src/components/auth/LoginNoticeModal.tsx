@@ -90,8 +90,10 @@ export default function LoginNoticeModal() {
       aria-modal='true'
       aria-labelledby='login-notice-title'
     >
-      <div className='w-full max-w-lg overflow-hidden rounded-[28px] border border-liquid-glass bg-white/80 shadow-[0_24px_80px_rgba(15,23,42,0.16)] backdrop-blur-liquid backdrop-saturate-125'>
-        <div className='flex items-center gap-3 border-b border-slate-200/60 px-6 py-5'>
+      <div className='relative w-full max-w-lg overflow-hidden rounded-[28px] border border-liquid-glass bg-white/80 shadow-[0_24px_80px_rgba(15,23,42,0.16)] backdrop-blur-liquid backdrop-saturate-125'>
+        <div className='pointer-events-none absolute inset-0 opacity-80 [background:linear-gradient(135deg,rgba(253,224,71,0.22)_0%,rgba(253,224,71,0)_34%),linear-gradient(225deg,rgba(125,211,252,0.22)_0%,rgba(125,211,252,0)_38%),linear-gradient(315deg,rgba(216,180,254,0.20)_0%,rgba(216,180,254,0)_36%)]' />
+        <div className='pointer-events-none absolute inset-0 bg-white/35' />
+        <div className='relative z-10 flex items-center gap-3 border-b border-slate-200/60 px-6 py-5'>
           <div className='flex items-center gap-3'>
             <div className='flex h-10 w-10 items-center justify-center rounded-full border border-liquid-glass-light bg-white/70 text-slate-700 shadow-liquid-glass backdrop-blur-minimal'>
               <Bell className='h-4 w-4' />
@@ -104,13 +106,13 @@ export default function LoginNoticeModal() {
           </div>
         </div>
 
-        <div className='max-h-[56vh] overflow-y-auto px-6 py-6'>
+        <div className='relative z-10 max-h-[56vh] overflow-y-auto px-6 py-6'>
           <div className='whitespace-pre-wrap break-words text-sm font-medium leading-7 text-slate-700'>
             {notice.content}
           </div>
         </div>
 
-        <div className='flex justify-center border-t border-slate-200/60 bg-white/35 px-6 py-5'>
+        <div className='relative z-10 flex justify-center border-t border-slate-200/60 bg-white/35 px-6 py-5'>
           <Button
             onClick={handleClose}
             className='h-10 min-w-[112px] rounded-xl border border-liquid-glass bg-white/75 text-slate-700 shadow-liquid-glass backdrop-blur-minimal hover:bg-white/90'
