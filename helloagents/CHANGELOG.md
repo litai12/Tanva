@@ -21,6 +21,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Image Groups: Alt-drag copying grouped images now rebuilds the image-group block/title/style around cloned images using source-to-clone id mapping, while keeping the extra work to drag start and drop completion only.
 - Flow/Node Groups: Alt-drag copying a selected group now expands the copy set to its child nodes, remaps cloned `childNodeIds`, and normalizes internal edge handles by source node type so the cloned group keeps its children and links intact without changing normal drag behavior.
 - AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
 - Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).

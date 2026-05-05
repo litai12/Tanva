@@ -57,6 +57,10 @@
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 - `frontend/src/components/ui/ImagePreviewModal.tsx` 已接入双语文案：默认标题/历史标题、关闭提示、加载文案、生成时间 tooltip 与兜底 alt 文案按语言切换。
 
+## 图片组 Alt 拖拽复制
+- `useInteractionController` 在图片拖拽启动时只采集当前拖拽集合覆盖到的图片组快照；首次确认 Alt 拖拽时再裁到实际被复制的图片 id。
+- 松手落到画布时，`createImageFromSnapshot` 返回旧图到新图的 id 映射，随后通过 `paperImageGroupBlock` 重建组块、标题和样式；移动过程仍只更新占位框，不增加每帧组块扫描。
+
 ## 双语适配补充
 - `ExpandImageSelector`（`frontend/src/components/canvas/ExpandImageSelector.tsx`）已接入双语文案：扩图操作提示、常用尺寸选择、发送/取消按钮 tooltip 按语言切换。
 - `BackgroundRemovalTool` / `BackgroundRemovedImageExport`（`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`）已接入双语文案：上传提示、成功反馈、导出操作和空态文案按语言切换。
