@@ -2,6 +2,7 @@
 
 ## 2026-05-05 Update
 - `FlowOverlay` 的节点组 Alt 拖拽复制现在只在复制开始时扩展选中组的 `childNodeIds`，为组内子节点建立克隆 `idMap`，并重写克隆组的 `childNodeIds` 与内部边 `sourceHandle/targetHandle`，避免只复制组壳或复制后组内连线断开；普通拖拽路径保持不变。
+- Flow 节点右上角发送到画布时会先把源节点解析到所属 `nodeGroup`；组内节点发送图片会以组节点底部作为 `anchorClient`，多图发送也强制使用该锚点，避免落到子节点正下方或被智能定位改写。
 
 ## 2026-05-04 Update
 - `GenerationProgressBar` accepts `runKey`/`startedAt`; flow generation and video nodes pass their node id as `runKey` so simulated progress is calculated from a stable run start instead of resetting on rerender.

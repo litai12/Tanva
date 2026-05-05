@@ -19071,7 +19071,27 @@ function FlowInner() {
     async (id: string) => {
       const node = rf.getNode(id);
       if (!node) return;
-      const anchorClient = resolveFlowNodeSendAnchorClient({ nodeId: id });
+      const resolveAnchorNodeId = (nodeId: string): string => {
+        const nodes = (rf.getNodes?.() || []) as RFNode[];
+        const current = nodes.find((item) => item.id === nodeId) || null;
+        const parentId =
+          typeof (current as any)?.parentNode === "string"
+            ? String((current as any).parentNode).trim()
+            : "";
+        if (parentId) {
+          const parent = nodes.find((item) => item.id === parentId);
+          if (isGroupNode(parent)) return parentId;
+        }
+        const ownerGroup = nodes.find(
+          (item) =>
+            isGroupNode(item) && getGroupChildIds(item).includes(nodeId)
+        );
+        return ownerGroup?.id || nodeId;
+      };
+      const anchorNodeId = resolveAnchorNodeId(id);
+      const anchorClient = resolveFlowNodeSendAnchorClient({
+        nodeId: anchorNodeId,
+      });
       const cacheKey = "flow_send_image_cache_v1";
       const getCachedUrl = (key: string): string | null => {
         try {
@@ -19277,6 +19297,7 @@ function FlowInner() {
                 operationType: "generate",
                 smartPosition: undefined,
                 anchorClient,
+                forceAnchorPosition: true,
                 sourceImageId: undefined,
                 sourceImages: undefined,
                 preferHorizontal: true,

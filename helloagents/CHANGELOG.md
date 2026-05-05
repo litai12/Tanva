@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Canvas/Image Groups: Alt-drag copying grouped images now rebuilds the image-group block/title/style around cloned images using source-to-clone id mapping, while keeping the extra work to drag start and drop completion only.
+- Flow/Send To Canvas: node header send now anchors to the owning node group when the source node is grouped, so images land below the group instead of below the child node; multi-image sends also force the resolved anchor position.
 - Flow/Node Groups: Alt-drag copying a selected group now expands the copy set to its child nodes, remaps cloned `childNodeIds`, and normalizes internal edge handles by source node type so the cloned group keeps its children and links intact without changing normal drag behavior.
 - AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
 - Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).
