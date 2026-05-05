@@ -28,6 +28,12 @@
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
 - 登录页与注册页已补充移动端适配：小屏下认证卡片改为顶部对齐并允许纵向滚动，标签切换改为三列紧凑布局，验证码输入区改为纵向堆叠，协议文案允许多行左对齐，避免窄屏遮挡与横向溢出（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
 
+## 登录提醒弹窗
+- 组件：`frontend/src/components/auth/LoginNoticeModal.tsx`
+- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content }`）。
+- 读取：登录后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗。
+- 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
+
 ## 我的积分（`/my-credits`）
 - 页面与应用入口都不再静默触发 `claimDailyReward()`；签到积分必须由用户手动触发领取，不再自动签到。
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。

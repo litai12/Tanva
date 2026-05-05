@@ -22,11 +22,15 @@
 - `personal-library`：个人素材库
 - `global-image-history`：全局图片历史
 - `templates`：公共模板
+- `settings`：公开系统设置（如登录提醒、微信二维码）
 - `health`：健康检查
 
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
 
 ## 近期接口变更（摘要）
+- `GET /api/settings/login-notice`：
+  - 公开读取登录后用户提醒弹窗配置，返回 `{ enabled, content, updatedAt }`。
+  - 管理端对应系统设置 key 为 `login_notice`，值为 JSON 字符串 `{ enabled, content }`。
 - `POST /api/ai/analyze-image`：
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。

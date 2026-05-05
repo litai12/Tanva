@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- Admin/Auth: added configurable login notice popup support. Full admins can edit `login_notice` in `/admin` system settings, users fetch `GET /api/settings/login-notice` after login, and the popup requires manual dismissal once per login.
 - Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and now shows today's normal/stable route success rates from `GET /api/ai/banana-route-success-rates`.
 - Flow/Image Node: added a fullscreen annotation editor from the image-node paintbrush action. It supports brush, arrow, rectangle, circle, and text markup, saves the flattened PNG back to the image node via OSS, and keeps node-local history versions for restore.
 - Flow/Canvas Eraser: eraser strokes now mark touched ReactFlow connection edges as a thick preview and delete the whole touched edge batch on mouseup; selected edges also render thicker, blank clicks clear selected edges, and Paper eraser trails are tagged as transient and force-cleared after mouseup/cancel.

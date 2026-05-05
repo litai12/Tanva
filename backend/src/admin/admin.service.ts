@@ -58,6 +58,14 @@ export interface ApiUsageStats {
 
 export type CreditChangeSource = 'recharge' | 'admin_add' | 'admin_deduct';
 
+export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
+
+export interface LoginNoticeView {
+  enabled: boolean;
+  content: string;
+  updatedAt: string | null;
+}
+
 export interface CreditChangeRecord {
   id: string;
   source: CreditChangeSource;
@@ -116,6 +124,31 @@ export class AdminService {
       return value as Record<string, any>;
     }
     return null;
+  }
+
+  private parseLoginNoticeValue(value: string | null | undefined): { enabled: boolean; content: string } {
+    if (!value) {
+      return { enabled: false, content: '' };
+    }
+
+    try {
+      const parsed = JSON.parse(value);
+      const objectValue = this.asJsonObject(parsed);
+      if (objectValue) {
+        const content = typeof objectValue.content === 'string' ? objectValue.content : '';
+        return {
+          enabled: objectValue.enabled === true,
+          content,
+        };
+      }
+    } catch {
+      // Legacy/plain-string setting values are treated as enabled content.
+    }
+
+    return {
+      enabled: true,
+      content: value,
+    };
   }
 
   private isUuid(value: string): boolean {
@@ -993,6 +1026,18 @@ export class AdminService {
     return this.prisma.systemSetting.findUnique({
       where: { key },
     });
+  }
+
+  async getLoginNotice(): Promise<LoginNoticeView> {
+    const setting = await this.getSetting(LOGIN_NOTICE_SETTING_KEY);
+    const parsed = this.parseLoginNoticeValue(setting?.value);
+    const content = parsed.content.trim();
+
+    return {
+      enabled: parsed.enabled && content.length > 0,
+      content: parsed.content,
+      updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
+    };
   }
 
   /**
