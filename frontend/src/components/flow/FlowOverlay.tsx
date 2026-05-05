@@ -219,21 +219,57 @@ const normalizeFlowTargetHandle = (
   return handle;
 };
 
+const isVideoFrameExtractNodeType = (nodeType?: string | null): boolean => {
+  if (typeof nodeType !== "string") return false;
+  return nodeType.trim().toLowerCase() === "videoframeextract";
+};
+
 // 兼容历史输出句柄：将 sourceHandle image/image1/image-1 归一化到 img/img1
 const normalizeFlowSourceHandle = (
-  handle?: string | null
+  handle?: string | null,
+  options?: { sourceNodeType?: string | null }
 ): string | undefined => {
   if (typeof handle !== "string") return handle ?? undefined;
   const trimmed = handle.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
   if (lower === "omniimage") return "omniImage";
+  if (isVideoFrameExtractNodeType(options?.sourceNodeType)) {
+    if (lower === "img" || lower === "image") return "image";
+    if (lower === "images") return "images";
+    if (lower === "images-range") return "images-range";
+    return trimmed;
+  }
   if (lower === "image") return "img";
   const imageIndexMatch = lower.match(/^image[-_]?(\d+)$/);
   if (imageIndexMatch?.[1]) {
     return `img${imageIndexMatch[1]}`;
   }
   return trimmed;
+};
+
+const buildFlowNodeTypeById = (
+  nodes?: Array<{ id?: string | null; type?: string | null }> | null
+): Map<string, string> => {
+  const map = new Map<string, string>();
+  if (!Array.isArray(nodes)) return map;
+  nodes.forEach((node) => {
+    if (!node?.id) return;
+    if (typeof node.type !== "string") return;
+    map.set(String(node.id), node.type);
+  });
+  return map;
+};
+
+const normalizeFlowSourceHandleForEdge = (
+  edge: { source?: string | null; sourceHandle?: string | null },
+  sourceNodeTypeById?: Map<string, string>
+): string | undefined => {
+  const sourceNodeType =
+    edge?.source && sourceNodeTypeById
+      ? sourceNodeTypeById.get(String(edge.source))
+      : undefined;
+  return normalizeFlowSourceHandle(edge?.sourceHandle, { sourceNodeType });
 };
 
 const FLOW_EDGE_STANDARD_COLOR = "#9ca3af";
@@ -621,6 +657,57 @@ const computeGroupBounds = (
   const width = Math.max(FLOW_GROUP_MIN_WIDTH, maxX - minX + FLOW_GROUP_PADDING * 2);
   const height = Math.max(FLOW_GROUP_MIN_HEIGHT, maxY - minY + FLOW_GROUP_PADDING * 2);
   return { x, y, width, height };
+};
+
+const expandFlowSelectionWithGroupChildren = (
+  allNodes: RFNode[],
+  selectedNodes: RFNode[]
+): RFNode[] => {
+  if (!Array.isArray(selectedNodes) || selectedNodes.length === 0) return [];
+  const nodeById = new Map(
+    (Array.isArray(allNodes) ? allNodes : [])
+      .filter(Boolean)
+      .map((node) => [String(node.id), node as RFNode])
+  );
+  const out: RFNode[] = [];
+  const seen = new Set<string>();
+  const addNode = (node?: RFNode | null) => {
+    if (!node) return;
+    const id = String(node.id || "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(node);
+  };
+
+  selectedNodes.forEach((node) => {
+    const current = nodeById.get(String(node?.id || "")) || node;
+    addNode(current);
+    if (!isGroupNode(current)) return;
+    getGroupChildIds(current).forEach((childId) => {
+      const child = nodeById.get(String(childId));
+      if (!child || isGroupNode(child)) return;
+      addNode(child);
+    });
+  });
+
+  return out;
+};
+
+const remapFlowGroupChildIds = (
+  nodeType: string | undefined,
+  data: Record<string, unknown> | null | undefined,
+  idMap: Map<string, string>
+) => {
+  if (nodeType !== FLOW_GROUP_NODE_TYPE || !data) return data;
+  const childNodeIds = Array.isArray(data.childNodeIds)
+    ? data.childNodeIds
+        .map((childId: string) => idMap.get(String(childId)) || null)
+        .filter(Boolean)
+    : [];
+  return {
+    ...data,
+    childNodeIds: Array.from(new Set(childNodeIds)),
+  };
 };
 
 type EdgeLabelEditorState = {
@@ -21836,15 +21923,26 @@ function FlowInner() {
         onNodeDragStart={(event, node) => {
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);
-          const allNodes = rf.getNodes();
-          const selectedNodes = allNodes.filter(
-            (n: any) => n.selected || n.id === node.id
+          const allNodes = rf.getNodes() as RFNode[];
+          const directSelectedNodes = allNodes.filter(
+            (n) => n.selected || n.id === node.id
+          );
+          const altPressed = event.altKey;
+          const selectedNodes = altPressed
+            ? expandFlowSelectionWithGroupChildren(
+                allNodes,
+                directSelectedNodes
+              )
+            : directSelectedNodes;
+          const directSelectedIdSet = new Set(
+            directSelectedNodes.map((n) => String(n.id))
           );
           draggingGroupNodeRef.current = selectedNodes.some(
-            (n: any) => isGroupNode(n) || Boolean((n as any).parentId)
+            (n) =>
+              isGroupNode(n) ||
+              Boolean((n as { parentId?: unknown }).parentId)
           );
           // 检测 Alt 键是否按下
-          const altPressed = event.altKey;
           if (altPressed) {
             // Alt+拖拽复制时关闭吸附，避免副本与原节点重叠后“回吸”。
             clearFlowSnapState();
@@ -21859,31 +21957,41 @@ function FlowInner() {
                 { x: number; y: number }
               >();
               const idMap = new Map<string, string>();
-              const clonedNodes = selectedNodes.map((n: any) => {
+              selectedNodes.forEach((n) => {
                 startPositions.set(n.id, { x: n.position.x, y: n.position.y });
+                const absolutePosition = (
+                  n as { positionAbsolute?: { x?: number; y?: number } }
+                ).positionAbsolute;
                 startAbsPositions.set(n.id, {
-                  x: (n as any).positionAbsolute?.x ?? n.position.x,
-                  y: (n as any).positionAbsolute?.y ?? n.position.y,
+                  x: absolutePosition?.x ?? n.position.x,
+                  y: absolutePosition?.y ?? n.position.y,
                 });
                 const newId = generateId(n.type || "n");
                 idMap.set(n.id, newId);
-                const rawData = { ...(n.data || {}) };
+              });
+              const clonedNodes = selectedNodes.map((n) => {
+                const nodeType = n.type || "default";
+                const newId = idMap.get(n.id) || generateId(nodeType || "n");
+                const rawData: Record<string, unknown> = {
+                  ...((n.data || {}) as Record<string, unknown>),
+                };
                 delete rawData.onRun;
                 delete rawData.onSend;
-                const data = sanitizeNodeData(rawData, {
+                let data = sanitizeNodeData(rawData, {
                   preserveImagePayload: true,
                 });
                 if (data) {
                   delete data.status;
                   delete data.error;
                   delete data.progressStartedAt;
+                  data = remapFlowGroupChildIds(nodeType, data, idMap);
                 }
                 return {
                   id: newId,
-                  type: n.type || "default",
+                  type: nodeType,
                   position: { x: n.position.x, y: n.position.y }, // 原位置
                   data,
-                  selected: true, // 副本选中，符合“复制后继续操作副本”的直觉
+                  selected: directSelectedIdSet.has(String(n.id)),
                   width: n.width,
                   height: n.height,
                   style: n.style ? { ...n.style } : undefined,
@@ -21891,15 +21999,18 @@ function FlowInner() {
               });
 
               // 复制相关的边
-              const selectedIds = new Set(selectedNodes.map((n: any) => n.id));
+              const selectedIds = new Set(selectedNodes.map((n) => n.id));
               const relatedEdges = rf
                 .getEdges()
                 .filter(
-                  (edge: any) =>
+                  (edge) =>
                     selectedIds.has(edge.source) && selectedIds.has(edge.target)
                 );
+              const selectedNodeTypeById = buildFlowNodeTypeById(
+                selectedNodes
+              );
               const clonedEdges = relatedEdges
-                .map((edge: any) => {
+                .map((edge) => {
                   const source = idMap.get(edge.source);
                   const target = idMap.get(edge.target);
                   if (!source || !target) return null;
@@ -21907,7 +22018,10 @@ function FlowInner() {
                     id: generateId("e"),
                     source,
                     target,
-                    sourceHandle: normalizeFlowSourceHandle(edge.sourceHandle),
+                    sourceHandle: normalizeFlowSourceHandleForEdge(
+                      edge,
+                      selectedNodeTypeById
+                    ),
                     targetHandle: normalizeFlowTargetHandle(edge.targetHandle),
                     type: edge.type || "default",
                     label: edge.label,
@@ -21916,18 +22030,17 @@ function FlowInner() {
                 .filter(Boolean);
 
               // 添加副本到节点列表（拖拽期间通过 onNodesChange 把位移重映射到副本）
-              const selectedIdSet = new Set(
-                selectedNodes.map((n: any) => n.id)
-              );
-              setNodes((prev: any[]) =>
+              setNodes((prev) =>
                 prev
-                  .map((n: any) =>
-                    selectedIdSet.has(n.id) ? { ...n, selected: false } : n
+                  .map((n) =>
+                    directSelectedIdSet.has(String(n.id))
+                      ? { ...n, selected: false }
+                      : n
                   )
                   .concat(clonedNodes)
               );
               if (clonedEdges.length > 0) {
-                setEdges((prev: any[]) => [...prev, ...clonedEdges]);
+                setEdges((prev) => [...prev, ...clonedEdges]);
               }
 
               // 记录已创建副本，用于在 dragStop 时提交历史

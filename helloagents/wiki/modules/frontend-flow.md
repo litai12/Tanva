@@ -1,5 +1,8 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-05 Update
+- `FlowOverlay` 的节点组 Alt 拖拽复制现在只在复制开始时扩展选中组的 `childNodeIds`，为组内子节点建立克隆 `idMap`，并重写克隆组的 `childNodeIds` 与内部边 `sourceHandle/targetHandle`，避免只复制组壳或复制后组内连线断开；普通拖拽路径保持不变。
+
 ## 2026-05-04 Update
 - `GenerationProgressBar` accepts `runKey`/`startedAt`; flow generation and video nodes pass their node id as `runKey` so simulated progress is calculated from a stable run start instead of resetting on rerender.
 - `FlowOverlay` maintains `progressStartedAt` as transient runtime state for running nodes and strips it from Flow copy/template export paths so it does not persist into design JSON.
