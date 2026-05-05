@@ -21,9 +21,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Node Groups: Delete/Backspace and node context-menu delete now expand selected `nodeGroup` removals to child nodes and related edges, preventing group shells from being deleted alone.
+- Flow/Node Groups: normal group drag now snapshots child start positions at drag start and applies child deltas from that snapshot, avoiding per-frame node-map rebuilds while keeping group children moving with the group.
+- Flow Clipboard: Ctrl/Cmd+C and node context-menu copy now expand copied `nodeGroup` selections to child nodes/internal edges and preserve remapped `childNodeIds` on paste.
+- Canvas/Image Groups: canvas copy/paste payloads now include image-group block snapshots and rebuild the group block/title/style around pasted images via source-to-new image id mapping.
 - Canvas/Image Groups: Alt-drag copying grouped images now rebuilds the image-group block/title/style around cloned images using source-to-clone id mapping, while keeping the extra work to drag start and drop completion only.
 - Flow/Send To Canvas: node header send now anchors to the owning node group when the source node is grouped, so images land below the group instead of below the child node; multi-image sends also force the resolved anchor position.
-- Flow/Node Groups: Alt-drag copying a selected group now expands the copy set to its child nodes, remaps cloned `childNodeIds`, and normalizes internal edge handles by source node type so the cloned group keeps its children and links intact without changing normal drag behavior.
+- Flow/Node Groups: Alt-drag copying a selected group now expands the copy set to its child nodes, remaps cloned `childNodeIds`, and normalizes internal edge handles by source node type so the cloned group keeps its children and links intact.
 - AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
 - Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.

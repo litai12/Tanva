@@ -31,7 +31,13 @@ import { logger } from '@/utils/logger';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
-import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
+import {
+  collectImageGroupBlockSnapshots,
+  createImageGroupBlock,
+  createImageGroupBlockFromSnapshot,
+  formatImageGroupTitle,
+  removeGroupBlockTitle,
+} from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
@@ -5442,6 +5448,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const collectCanvasClipboardData =
     useCallback((): CanvasClipboardData | null => {
+      const imageGroupSnapshots =
+        collectImageGroupBlockSnapshots(selectedGroupBlocks);
       const selectedImageIdsSet = new Set<string>(
         (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0
           ? imageTool.selectedImageIds
@@ -5449,6 +5457,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               .filter((img) => img.isSelected)
               .map((img) => img.id)) ?? []
       );
+      imageGroupSnapshots.forEach((group) => {
+        group.imageIds.forEach((id) => selectedImageIdsSet.add(id));
+      });
       const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
         .filter((img) => selectedImageIdsSet.has(img.id))
         .map((img) => {
@@ -5525,7 +5536,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
         .filter(
           (path) =>
-            !!path && path.isInserted() && !(path.data && path.data.isHelper)
+            !!path &&
+            path.isInserted() &&
+            !(path.data && path.data.isHelper) &&
+            path.data?.type !== "image-group"
         )
         .map((path) => ({
           json: path.exportJSON({ asString: true }),
@@ -5591,6 +5605,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       const hasAny =
         imageSnapshots.length > 0 ||
+        imageGroupSnapshots.length > 0 ||
         modelSnapshots.length > 0 ||
         pathSnapshots.length > 0 ||
         textSnapshots.length > 0 ||
@@ -5604,6 +5619,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         texts: textSnapshots,
         videos: videoSnapshots,
         paths: pathSnapshots,
+        imageGroups: imageGroupSnapshots,
       };
     }, [
       imageTool.imageInstances,
@@ -5614,6 +5630,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       videoTool.selectedVideoIds,
       selectionTool.selectedPath,
       selectionTool.selectedPaths,
+      selectedGroupBlocks,
       simpleTextTool.textItems,
     ]);
 
@@ -5626,6 +5643,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     clipboardService.setCanvasData(payload);
     logger.debug("画布内容已复制到剪贴板:", {
       images: payload.images.length,
+      imageGroups: payload.imageGroups?.length ?? 0,
       models: payload.models.length,
       texts: payload.texts.length,
       paths: payload.paths.length,
@@ -5638,6 +5656,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (!payload) return false;
     logger.debug("尝试从剪贴板粘贴画布内容:", {
       images: payload.images.length,
+      imageGroups: payload.imageGroups?.length ?? 0,
       models: payload.models.length,
       texts: payload.texts.length,
       paths: payload.paths.length,
@@ -5649,9 +5668,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     deselectSimpleText();
 
     const newImageIds: string[] = [];
+    const imageIdMap = new Map<string, string>();
     payload.images.forEach((snapshot) => {
       const id = createImageFromSnapshot?.(snapshot, { offset });
-      if (id) newImageIds.push(id);
+      if (id) {
+        newImageIds.push(id);
+        imageIdMap.set(snapshot.id, id);
+      }
+    });
+
+    const newGroupBlocks: paper.Path[] = [];
+    (payload.imageGroups ?? []).forEach((snapshot) => {
+      try {
+        const block = createImageGroupBlockFromSnapshot(snapshot, imageIdMap);
+        if (block) newGroupBlocks.push(block);
+      } catch (error) {
+        console.warn("粘贴图片组失败:", error);
+      }
     });
 
     const newModelIds: string[] = [];
@@ -5768,6 +5801,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const hasNew =
       newImageIds.length > 0 ||
+      newGroupBlocks.length > 0 ||
       newModelIds.length > 0 ||
       newPaths.length > 0 ||
       newTextIds.length > 0;
@@ -5779,16 +5813,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     logger.debug("粘贴创建的对象数量:", {
       images: newImageIds.length,
+      imageGroups: newGroupBlocks.length,
       models: newModelIds.length,
       paths: newPaths.length,
       texts: newTextIds.length,
     });
 
+    const groupedNewImageIds = new Set<string>();
+    (payload.imageGroups ?? []).forEach((group) => {
+      group.imageIds.forEach((sourceId) => {
+        const mapped = imageIdMap.get(sourceId);
+        if (mapped) groupedNewImageIds.add(mapped);
+      });
+    });
+    const imageIdsToSelect =
+      newGroupBlocks.length > 0
+        ? newImageIds.filter((id) => !groupedNewImageIds.has(id))
+        : newImageIds;
+
     if (
-      newImageIds.length > 0 &&
+      imageIdsToSelect.length > 0 &&
       typeof handleImageMultiSelect === "function"
     ) {
-      handleImageMultiSelect(newImageIds);
+      handleImageMultiSelect(imageIdsToSelect);
     } else {
       setSelectedImageIds([]);
     }
@@ -5802,8 +5849,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       setSelectedModel3DIds([]);
     }
 
-    if (newPaths.length > 0) {
-      newPaths.forEach((path) => {
+    const newSelectedPaths = [...newPaths, ...newGroupBlocks];
+    if (newSelectedPaths.length > 0) {
+      newSelectedPaths.forEach((path) => {
         try {
           path.selected = true;
           path.fullySelected = true;
@@ -5812,8 +5860,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           selectToolHandlePathSelect?.(path);
         } catch {}
       });
-      setSelectedPaths?.(newPaths);
-      setSelectedPath?.(newPaths[newPaths.length - 1]);
+      setSelectedPaths?.(newSelectedPaths);
+      setSelectedPath?.(newSelectedPaths[newSelectedPaths.length - 1]);
     } else {
       setSelectedPaths?.([]);
       setSelectedPath?.(null);
