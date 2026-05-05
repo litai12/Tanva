@@ -11,6 +11,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
 
 type Props = {
   id: string;
@@ -107,6 +108,19 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     }
   }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
 
+  const commitAnalysisPrompt = React.useCallback(
+    (value: string) => {
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: { id, patch: { analysisPrompt: value } },
+        }),
+      );
+    },
+    [id],
+  );
+  const analysisPromptInput = useImeSafeTextValue(promptInput, commitAnalysisPrompt);
+  const analysisPromptDraft = analysisPromptInput.value;
+
   const onAnalyze = React.useCallback(async () => {
     if (!effectiveVideoUrl) {
       window.dispatchEvent(
@@ -128,7 +142,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
     if (status === 'running' || isAnalyzing) return;
 
-    const promptToUse = promptInput.trim();
+    const promptToUse = analysisPromptDraft.trim();
     if (!promptToUse.length) {
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
@@ -205,7 +219,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, analyzeBananaImageRoute, effectiveVideoUrl, id, isAnalyzing, lt, promptInput, status, textModel]);
+  }, [aiProvider, analysisPromptDraft, analyzeBananaImageRoute, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -224,17 +238,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     window.addEventListener('flow:run-node', handler as EventListener);
     return () => window.removeEventListener('flow:run-node', handler as EventListener);
   }, [id, onAnalyze]);
-
-  const onPromptChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      window.dispatchEvent(
-        new CustomEvent('flow:updateNodeData', {
-          detail: { id, patch: { analysisPrompt: event.target.value } },
-        }),
-      );
-    },
-    [id],
-  );
 
   const canRun = !!effectiveVideoUrl && status !== 'running' && !isAnalyzing;
 
@@ -311,8 +314,10 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         </div>
         <textarea
           className="nodrag nopan nowheel"
-          value={promptInput}
-          onChange={onPromptChange}
+          value={analysisPromptInput.value}
+          onChange={analysisPromptInput.onChange}
+          onCompositionStart={analysisPromptInput.onCompositionStart}
+          onCompositionEnd={analysisPromptInput.onCompositionEnd}
           onWheelCapture={(event) => {
             if (shouldPassWheelToCanvas(event)) return;
             event.stopPropagation();

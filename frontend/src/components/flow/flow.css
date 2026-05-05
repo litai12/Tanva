@@ -177,16 +177,23 @@
 
 /* 鼠标悬停时突出显示连线，轻微增大宽度 */
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke-width: 1.8px;
+  stroke-width: 2.6px;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke-width: 1.8px;
+  stroke-width: 3.8px;
 }
 
 /* 为连线的底层添加隐形击中区域（提高可选性）*/
 .react-flow__edge {
   position: relative;
+}
+
+.tanva-flow-overlay.eraser-mode .react-flow__edge,
+.tanva-flow-overlay.eraser-mode .react-flow__edge *,
+body.tanva-flow-edge-eraser-active .tanva-flow-overlay .react-flow__edge,
+body.tanva-flow-edge-eraser-active .tanva-flow-overlay .react-flow__edge * {
+  pointer-events: none !important;
 }
 
 .react-flow__connection-path {

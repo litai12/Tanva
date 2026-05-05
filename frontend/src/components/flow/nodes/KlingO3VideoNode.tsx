@@ -11,6 +11,7 @@ import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { imageUploadService } from "@/services/imageUploadService";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
+import { useImeSafeTextList } from "../hooks/useImeSafeTextInput";
 
 type Props = {
   id: string;
@@ -967,6 +968,14 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       );
     },
     [applyStoryboardShots, storyboardShots]
+  );
+  const storyboardPromptValues = React.useMemo(
+    () => storyboardShots.map((shot) => String(shot.prompt || "")),
+    [storyboardShots]
+  );
+  const storyboardPromptInputs = useImeSafeTextList(
+    storyboardPromptValues,
+    handleStoryboardPromptChange
   );
 
   const handleStoryboardDurationChange = React.useCallback(
@@ -2079,7 +2088,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {storyboardShots.map((shot, index) => (
+                {storyboardShots.map((shot, index) => {
+                  const promptInput = storyboardPromptInputs.bind(index);
+                  return (
                   <div
                     key={`storyboard-shot-${index}`}
                     style={{
@@ -2125,10 +2136,10 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       </button>
                     </div>
                     <textarea
-                      value={shot.prompt}
-                      onChange={(event) =>
-                        handleStoryboardPromptChange(index, event.target.value)
-                      }
+                      value={promptInput.value}
+                      onChange={promptInput.onChange}
+                      onCompositionStart={promptInput.onCompositionStart}
+                      onCompositionEnd={promptInput.onCompositionEnd}
                       placeholder={lt("描述这个镜头的画面内容", "Describe this shot")}
                       style={{
                         width: "100%",
@@ -2169,7 +2180,8 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                       <span style={{ fontSize: 12, color: storyboardPanelTheme.durationUnit }}>{lt("秒", "s")}</span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <div
                 style={{

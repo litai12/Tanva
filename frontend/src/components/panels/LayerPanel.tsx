@@ -16,6 +16,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { paperSaveService } from '@/services/paperSaveService';
 import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 import { useLocaleText } from '@/utils/localeText';
+import { isActivePaperEraserTrail } from '@/utils/paperEraserTrail';
 
 interface LayerItemData {
     id: string;
@@ -455,6 +456,20 @@ const LayerPanel: React.FC = () => {
             // 保存当前活动图层和可见性状态
             const originalActiveLayer = paper.project.activeLayer;
             const helperVisibilityStates = new Map<paper.Item, boolean>();
+            const restoreHelperVisibility = () => {
+                const hadHiddenHelpers = helperVisibilityStates.size > 0;
+                helperVisibilityStates.forEach((visible, item) => {
+                    try {
+                        item.visible = visible;
+                    } catch {}
+                });
+                helperVisibilityStates.clear();
+                if (hadHiddenHelpers) {
+                    try {
+                        paper.view?.update();
+                    } catch {}
+                }
+            };
 
             try {
                 // 激活目标图层
@@ -463,6 +478,7 @@ const LayerPanel: React.FC = () => {
                 // 临时隐藏所有辅助元素
                 paper.project.layers.forEach(layer => {
                     layer.children.forEach(item => {
+                        if (isActivePaperEraserTrail(item)) return;
                         if (item.data?.isHelper || item.data?.type === 'grid' || item.data?.type === 'scalebar' ||
                             layer.name === 'grid' || layer.name === 'scalebar' || layer.name === 'background') {
                             helperVisibilityStates.set(item, item.visible);
@@ -484,10 +500,6 @@ const LayerPanel: React.FC = () => {
                 );
 
                 if (items.length === 0) {
-                    // 恢复辅助元素的可见性
-                    helperVisibilityStates.forEach((visible, item) => {
-                        item.visible = visible;
-                    });
                     return null;
                 }
 
@@ -500,10 +512,6 @@ const LayerPanel: React.FC = () => {
                 });
 
                 if (!bounds || bounds.width === 0 || bounds.height === 0) {
-                    // 恢复辅助元素的可见性
-                    helperVisibilityStates.forEach((visible, item) => {
-                        item.visible = visible;
-                    });
                     return null;
                 }
 
@@ -518,10 +526,6 @@ const LayerPanel: React.FC = () => {
 
                 if (!raster) {
                     tempGroup.remove();
-                    // 恢复辅助元素的可见性
-                    helperVisibilityStates.forEach((visible, item) => {
-                        item.visible = visible;
-                    });
                     return null;
                 }
 
@@ -530,10 +534,6 @@ const LayerPanel: React.FC = () => {
                 if (!sourceCanvas) {
                     raster.remove();
                     tempGroup.remove();
-                    // 恢复辅助元素的可见性
-                    helperVisibilityStates.forEach((visible, item) => {
-                        item.visible = visible;
-                    });
                     return null;
                 }
 
@@ -545,10 +545,6 @@ const LayerPanel: React.FC = () => {
                 if (!ctx) {
                     raster.remove();
                     tempGroup.remove();
-                    // 恢复辅助元素的可见性
-                    helperVisibilityStates.forEach((visible, item) => {
-                        item.visible = visible;
-                    });
                     return null;
                 }
 
@@ -581,11 +577,6 @@ const LayerPanel: React.FC = () => {
                 raster.remove();
                 tempGroup.remove();
 
-                // 恢复辅助元素的可见性
-                helperVisibilityStates.forEach((visible, item) => {
-                    item.visible = visible;
-                });
-
                 // 返回 Blob object URL，处理跨域污染错误
                 try {
                     const blob = await canvasToBlob(thumbCanvas, { type: 'image/png', quality: 1.0 });
@@ -611,6 +602,9 @@ const LayerPanel: React.FC = () => {
                     throw e;
                 }
             } finally {
+                // 确保任何异常/提前返回都能恢复辅助元素可见性，
+                // 避免 helper（如橡皮轨迹）被长期隐藏。
+                restoreHelperVisibility();
                 // 恢复原始活动图层
                 if (originalActiveLayer && originalActiveLayer !== pl) {
                     originalActiveLayer.activate();

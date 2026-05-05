@@ -13,6 +13,8 @@ import {
   FolderPlus,
   FileJson,
   FileInput,
+  Group,
+  Link2,
   Play,
   Square,
 } from 'lucide-react';
@@ -7102,6 +7104,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
+  const handleCreateFlowNodeGroup = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("flow:create-group-from-selection"));
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const handleStartFlowBatchOutputConnect = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("flow:start-batch-output-connect", {
+        detail: {
+          x: contextMenuState?.x,
+          y: contextMenuState?.y,
+        },
+      })
+    );
+    closeContextMenu();
+  }, [closeContextMenu, contextMenuState?.x, contextMenuState?.y]);
+
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
 
@@ -7151,6 +7170,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     ];
 
     if (isCanvasContext) {
+      items.push({
+        label: "节点打组 (G)",
+        icon: <Group className='w-4 h-4' />,
+        onClick: handleCreateFlowNodeGroup,
+      });
+      items.push({
+        label: "批量连接输出",
+        icon: <Link2 className='w-4 h-4' />,
+        onClick: handleStartFlowBatchOutputConnect,
+      });
+
       items.push({
         label: isGlobalFlowRunning ? "终止全局运行" : "全局运行",
         icon: isGlobalFlowRunning ? (
@@ -7243,6 +7273,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleCanvasPaste,
     handleExportCanvasJson,
     handleImportCanvasJson,
+    handleCreateFlowNodeGroup,
+    handleStartFlowBatchOutputConnect,
     handleAddImageToLibrary,
     handleDeleteSelection,
     handleDownloadImage,

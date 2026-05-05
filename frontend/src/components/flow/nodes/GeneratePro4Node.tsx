@@ -21,6 +21,7 @@ import { flowLetterboxBackground, FLOW_NODE_DARK_SURFACE } from "./flowNodeDarkT
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import { useImeSafeTextList } from "../hooks/useImeSafeTextInput";
 import {
   getFlowImageReferenceLimit,
   resolveFlowModelProvider,
@@ -416,6 +417,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     },
     [id, prompts]
   );
+  const promptInputs = useImeSafeTextList(prompts, updatePrompt);
 
   // 添加新提示词
   const addPrompt = React.useCallback(() => {
@@ -1051,7 +1053,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* 多个提示词输入框 */}
-      {prompts.map((prompt, index) => (
+      {prompts.map((_prompt, index) => {
+        const promptInput = promptInputs.bind(index);
+        return (
         <div
           key={index}
           ref={index === 0 ? promptBoxRef : undefined}
@@ -1126,8 +1130,10 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
             <textarea
               className='nodrag nopan nowheel'
-              value={prompt}
-              onChange={(event) => updatePrompt(index, event.target.value)}
+              value={promptInput.value}
+              onChange={promptInput.onChange}
+              onCompositionStart={promptInput.onCompositionStart}
+              onCompositionEnd={promptInput.onCompositionEnd}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -1264,7 +1270,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             </>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* 选中或文字聚焦时显示：添加提示词按钮和按钮组 */}
       {(selected || isTextFocused) && (

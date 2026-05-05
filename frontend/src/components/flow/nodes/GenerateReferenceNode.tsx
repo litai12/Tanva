@@ -6,7 +6,6 @@ import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { toRenderableImageSrc } from "@/utils/imageSource";
@@ -16,6 +15,7 @@ import { explainGenerateReferenceImageError } from "@/utils/flowGenerateRefError
 import RunCreditBadge from "./RunCreditBadge";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import { useImeSafeTextValue } from "../hooks/useImeSafeTextInput";
 
 type Props = {
   id: string;
@@ -159,15 +159,19 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
-  const onReferencePromptChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const commitReferencePrompt = React.useCallback(
+    (value: string) => {
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
-          detail: { id, patch: { referencePrompt: event.target.value } },
+          detail: { id, patch: { referencePrompt: value } },
         })
       );
     },
     [id]
+  );
+  const referencePromptInput = useImeSafeTextValue(
+    referencePromptValue,
+    commitReferencePrompt
   );
 
   const tooltipStyleBase = React.useMemo(
@@ -281,8 +285,10 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         </div>
         <textarea
           className="nodrag nopan nowheel"
-          value={referencePromptValue}
-          onChange={onReferencePromptChange}
+          value={referencePromptInput.value}
+          onChange={referencePromptInput.onChange}
+          onCompositionStart={referencePromptInput.onCompositionStart}
+          onCompositionEnd={referencePromptInput.onCompositionEnd}
           onWheelCapture={(event) => {
             event.stopPropagation();
             if (event.nativeEvent?.stopImmediatePropagation) {

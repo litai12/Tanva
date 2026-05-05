@@ -17,8 +17,8 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
-import NodeSelect from './NodeSelect';
 import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
+import { useImeSafeTextList } from '../hooks/useImeSafeTextInput';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
 import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 import {
@@ -48,6 +48,7 @@ type Props = {
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
     responseText?: string;
+    textResponse?: string;
     title?: string;
     enableWebSearch?: boolean;
     error?: string;
@@ -540,7 +541,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const responseText = (
     (typeof data.responseText === 'string' ? data.responseText : '') ||
-    (typeof (data as any)?.textResponse === 'string' ? (data as any).textResponse : '')
+    (typeof data.textResponse === 'string' ? data.textResponse : '')
   ).trim();
 
   // 原图用于预览和下载
@@ -858,6 +859,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id, prompts]);
+  const promptInputs = useImeSafeTextList(prompts, updatePrompt);
 
   // 添加新提示词
   const addPrompt = React.useCallback(() => {
@@ -1638,7 +1640,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       </div>
 
       {/* 多个提示词输入框 - 带白色背景和圆角 */}
-      {prompts.map((prompt, index) => (
+      {prompts.map((_prompt, index) => {
+        const promptInput = promptInputs.bind(index);
+        return (
         <div key={index} style={{ marginTop: index === 0 ? 0 : 8, position: 'relative' }}>
           <div
             className="group"
@@ -1691,8 +1695,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             )}
             <textarea
               className="nodrag nopan nowheel"
-              value={prompt}
-              onChange={(event) => updatePrompt(index, event.target.value)}
+              value={promptInput.value}
+              onChange={promptInput.onChange}
+              onCompositionStart={promptInput.onCompositionStart}
+              onCompositionEnd={promptInput.onCompositionEnd}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -1832,7 +1838,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             </>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {responseText && (
         <div style={{ marginTop: 8, position: 'relative' }}>

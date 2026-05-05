@@ -102,6 +102,8 @@ interface DrawingTools {
   start3DModelDraw: (point: paper.Point) => void;
   update3DModelDraw: (point: paper.Point) => void;
   finishDraw: (drawMode: DrawMode, ...args: any[]) => void;
+  clearTemporaryEraserPaths?: () => number;
+  resetEraserToolState?: () => void;
   pathRef: React.RefObject<any>;
   isDrawingRef: React.RefObject<boolean>;
   initialClickPoint: paper.Point | null;
@@ -2254,6 +2256,10 @@ export const useInteractionController = ({
       historyService.commit(`finish-${String(currentDrawMode)}`).catch(() => {});
     }
 
+    if (isEraserRef.current) {
+      latestDrawingTools.resetEraserToolState?.();
+    }
+
     latestDrawingTools.isDrawingRef.current = false;
   }, [canvasRef, isLockedImage, resetGroupPathDrag, stopSpacePan]);
 
@@ -2797,6 +2803,9 @@ export const useInteractionController = ({
       isAltPressedRef.current = false;
       isSpacePressedRef.current = false;
       stopSpacePan();
+      if (isEraserRef.current) {
+        drawingToolsRef.current?.clearTemporaryEraserPaths?.();
+      }
     };
     const handleWindowBlur = () => resetModifierKeys();
     const handleVisibilityChange = () => {

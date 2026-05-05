@@ -40,6 +40,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
+  const isComposingRef = React.useRef(false);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
@@ -128,6 +129,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     // keep internal state in sync if external changes happen
+    if (isComposingRef.current) return;
     if ((data.text || '') !== value) setValue(data.text || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.text]);
@@ -208,6 +210,32 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setIsEditingTitle(false);
     setTitleDraft(title);
   }, [title]);
+
+  const commitValue = React.useCallback((next: string) => {
+    // write through to node data via DOM event (handled in FlowOverlay)
+    const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: next } } });
+    window.dispatchEvent(ev);
+  }, [id]);
+
+  const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const next = event.target.value;
+    const nativeEvent = event.nativeEvent as InputEvent & { isComposing?: boolean };
+    setValue(next);
+    if (!isComposingRef.current && !nativeEvent.isComposing) {
+      commitValue(next);
+    }
+  }, [commitValue]);
+
+  const handleCompositionStart = React.useCallback(() => {
+    isComposingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isComposingRef.current = false;
+    const next = event.currentTarget.value;
+    setValue(next);
+    commitValue(next);
+  }, [commitValue]);
 
   const commitResize = React.useCallback((width: number, height: number, x: number, y: number) => {
     const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
@@ -412,13 +440,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       <textarea
         className="nodrag nopan nowheel"
         value={value}
-        onChange={(e) => {
-          const v = e.target.value;
-          setValue(v);
-          // write through to node data via DOM event (handled in FlowOverlay)
-          const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: v } } });
-          window.dispatchEvent(ev);
-        }}
+        onChange={handleValueChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onWheelCapture={(event) => {
           if (shouldPassWheelToCanvas(event)) return;
           event.stopPropagation();
