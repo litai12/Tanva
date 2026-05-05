@@ -3,6 +3,8 @@
 ## 2026-05-05 Update
 - `TextChatNode` 对齐 `lt-dev9` 轻量形态：移除节点动态 resize / ResizeObserver / 高频 `updateNodeInternals`，运行时固定 `enableWebSearch: false`，避免继承全局联网搜索状态。
 - 节点添加面板与 Quick Connect 隐藏集合补齐 `generateRef`、`sora2Video`，避免隐藏/暂缓节点从快捷入口被创建。
+- Flow 低细节模式恢复为 Zustand 外部订阅 `canvas.zoom`，只在进入/退出阈值时更新 React 状态；画布缩放中且节点数较多时也会临时进入低细节模式，FPS overlay 重新标记 `Zoom` 模式。
+- `ImageNode` 裁切预览复用共享图片加载缓存，并把尺寸观测更新合并到 RAF；`ViewAngleNode` 的 Three.js 预览尺寸同步也改为 RAF 合并，避免 ResizeObserver 高频直接触发渲染。
 - `FlowOverlay` 的节点组 Alt 拖拽复制现在只在复制开始时扩展选中组的 `childNodeIds`，为组内子节点建立克隆 `idMap`，并重写克隆组的 `childNodeIds` 与内部边 `sourceHandle/targetHandle`，避免只复制组壳或复制后组内连线断开。
 - 节点组 P0 迁移继续补齐：Delete/Backspace 与右键删除会把 `nodeGroup` 的 `childNodeIds` 和相关边一起移除；普通拖拽在 dragStart 缓存组内子节点位置并按快照派发子节点位移，避免拖拽中每帧重建节点映射；Flow 复制/粘贴会扩展组选区并在粘贴时重映射 `childNodeIds`。
 - Flow 节点右上角发送到画布时会先把源节点解析到所属 `nodeGroup`；组内节点发送图片会以组节点底部作为 `anchorClient`，多图发送也强制使用该锚点，避免落到子节点正下方或被智能定位改写。

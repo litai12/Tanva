@@ -19,6 +19,7 @@
 | 优先级 | 模块 | 已完成内容 | 主要文件/范围 | 验证 |
 |---|---|---|---|---|
 | P0 | Canvas 性能 | 缩放/平移走 guarded `setViewport`，高频 viewport 更新 RAF 合并，非激活图片覆盖层降订阅，低缩放网格降负载。 | `frontend/src/components/canvas/*`、`frontend/src/stores/*` | 已 build |
+| P0 | 剩余性能小补齐 | 全局手势缩放只在 RAF 中提交 viewport；项目 canvas 视角同步增加 160ms 防抖与同值跳过；`projectContentStore` 对 `markDirty:false` 的无变化内容直接跳过；Flow 低细节模式通过 store subscribe 监听 zoom，Image/ViewAngle 节点尺寸观测合并到 RAF。 | `GlobalZoomCapture.tsx`、`ProjectAutosaveManager.tsx`、`projectContentStore.ts`、`FlowOverlay.tsx`、`ImageNode.tsx`、`ViewAngleNode.tsx` | 已 build |
 | P0 | Flow 进度稳定 | `GenerationProgressBar` 支持 `runKey/startedAt`；运行态 `progressStartedAt` 只作为 UI 状态，复制/模板/非运行时清理。 | `FlowOverlay.tsx`、`GenerationProgressBar.tsx`、多类生成/视频节点 | 已 build |
 | P0 | Flow 分组停止 | `NodeGroupNode` 运行时按钮切换为停止；当前子节点结束后跳过后续队列；group 状态绕过普通节点缓存。 | `FlowOverlay.tsx`、`NodeGroupNode.tsx` | 已 build |
 | P0 | AI Chat 会话边界 | 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免历史串入项目。 | `contextManager.ts`、`aiChatStore.ts` | 已 build |
@@ -30,6 +31,7 @@
 | P1 | Video Analysis | 默认 prompt 跟随语言；请求显式携带 Banana route/channel；按钮、标题、占位和积分样式与其他运行节点对齐。 | `VideoAnalyzeNode.tsx`、`FlowOverlay.tsx` | 已 build |
 | P1 | 后端文本/路线 | 非 Gemini `/api/ai/text-chat` 透传 `webSearchResult/metadata`；积分请求保留显式 `channelHint`；新增当天 Banana normal/stable 成功率接口。 | `backend/src/ai/ai.controller.ts`、`bananaRouteStatsApi.ts` | 前后端 build |
 | P1 | 顶部路线切换 | 工作区右上角 Nano Banana/Gemini/GPT-Image-2 普通/尊享路线快捷切换，显示当日成功率；尊享路线恢复 amber Crown 样式。 | `FloatingHeader.tsx` | 已 build |
+| P1 | Membership UI | VIP 订阅页顶部改为当前会员摘要栏，计费周期切换与额度说明收敛到同一区域；套餐卡片高度与留白收紧，日常创作/专业进阶等档位使用更清晰的卡片与按钮色彩区分。 | `MembershipPanel.tsx` | 已 build |
 | P1 | Canvas 精确改图/高清放大 | Shift 局部修改传递裁剪 bounds、像素尺寸和比例；`precise-edit/lockToBounds` 原位占位；高清放大改为发送到画布而不是下载。 | `DrawingController.tsx`、`aiChatStore.ts`、`useQuickImageUpload.ts`、`ImageContainer.tsx` | 已 build |
 | P1 | Canvas 扩图 UI | 图片扩图按钮使用独立 `Expand` 图标，扩图 prompt/合成蒙版改为红色蒙版语义，扩图选择结束后释放操作锁，并跳过非激活图片 overlay 渲染。 | `ImageContainer.tsx` | 已 build |
 | P1 | Global History 媒体 | 全局历史支持图片/视频统一展示、封面/播放/详情播放；AI Chat Seedance 和 Flow 视频成功输出写入远程视频历史；库面板历史视频可按视频资产发送/拖拽到画板。 | `historyMedia.ts`、`GlobalImageHistoryPage.tsx`、`GlobalImageDetailModal.tsx`、`imageHistoryService.ts`、`LibraryPanel.tsx`、`DrawingController.tsx` | 已 build |
@@ -54,7 +56,6 @@ P2 候选已清空；以下为暂缓项，需单独设计和回归。
 | P3 | `imagePreviewAssetService` 远程缩略图转存 | 暂缓。 | 容易碰项目预览资产和保存链路，可能引入 data/blob 持久化风险。 |
 | P3 | `objectUrlRegistry` 与 AI Chat object URL 生命周期大改 | 暂缓。 | 横跨运行时预览、释放、刷新恢复，容易产生裂图或过早 revoke。 |
 | P3 | `paperSaveService` / 保存 / 项目预览资产链路 | 默认不迁移。 | 高风险核心保存链路，必须单独设计和回归。 |
-| P3 | `projectContentStore` dirty 判等优化 | 暂缓。 | 会影响自动保存触发边界，需配合项目保存回归。 |
 
 ## 验证记录
 

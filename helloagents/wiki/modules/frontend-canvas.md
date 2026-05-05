@@ -77,6 +77,10 @@
 - 高清放大对齐 `lt-dev9`：运行时在原图右侧创建 `hd-upscale` 占位框，完成后通过 `triggerQuickImageUpload` 发送到画布，不直接下载文件。
 - 图片扩图 UI 对齐 `lt-dev9`：工具栏使用独立 `Expand` 图标，扩图 prompt/合成图使用红色蒙版语义；扩图选择完成或取消后会释放画布操作锁，非激活图片 overlay 直接跳过渲染。
 
+## 视口性能
+- `GlobalZoomCapture` 的触控板/手势缩放只通过 RAF 批量提交 `setViewport`，避免同一帧内同步写入多次 canvas store。
+- `ProjectAutosaveManager` 同步 canvas `zoom/pan` 到项目内容时使用 160ms 防抖，并跳过与内容快照或上次同步值相同的视角，避免缩放/平移期间把高频视角变化转成项目内容更新。
+
 ## 历史视频上画布
 - 库面板全局历史/项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。
 
@@ -89,7 +93,7 @@
 - 顶部提供三标签：`全局历史`、`项目库` 与 `手动素材`。
 - `手动素材` 维持原逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传/删除/详情/发送到画板。
 - `全局历史` / `项目库` 在库面板内独立拉取，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽图片到画板。
-- 历史视频记录在库面板内只做展示/详情播放/下载：通过 `global-history/historyMedia.ts` 解析视频 URL 和封面，禁用发送与拖拽到画板，避免视频误进入图片上传链路。
+- 历史视频记录在库面板内复用 `global-history/historyMedia.ts` 解析视频 URL 和封面；发送/拖拽到画板时走 `canvas:insert-video` 创建视频资产，避免视频误进入图片上传链路。
 - 库面板主内容区使用固定滚动容器（`flex + min-h-0 + overflow-y-auto`），避免历史列表在部分视口下无法下滑的问题。
 
 ## 3D 拍照白图防护

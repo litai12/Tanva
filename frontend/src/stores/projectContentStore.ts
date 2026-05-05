@@ -5,6 +5,37 @@ type UpdateOptions = {
   markDirty?: boolean;
 };
 
+const sameCanvasSnapshot = (
+  prev: ProjectContentSnapshot['canvas'] | null | undefined,
+  next: ProjectContentSnapshot['canvas'] | null | undefined
+) =>
+  prev === next ||
+  (
+    !!prev &&
+    !!next &&
+    prev.zoom === next.zoom &&
+    prev.panX === next.panX &&
+    prev.panY === next.panY
+  );
+
+const sameProjectContentSnapshot = (
+  prev: ProjectContentSnapshot,
+  next: ProjectContentSnapshot
+) =>
+  prev === next ||
+  (
+    prev.layers === next.layers &&
+    prev.activeLayerId === next.activeLayerId &&
+    sameCanvasSnapshot(prev.canvas, next.canvas) &&
+    prev.paperJson === next.paperJson &&
+    prev.meta === next.meta &&
+    prev.assets === next.assets &&
+    prev.flow === next.flow &&
+    prev.aiChatSessions === next.aiChatSessions &&
+    prev.aiChatActiveSessionId === next.aiChatActiveSessionId &&
+    prev.updatedAt === next.updatedAt
+  );
+
 type ProjectContentState = {
   projectId: string | null;
   content: ProjectContentSnapshot | null;
@@ -92,6 +123,10 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       }
       if (partial.updatedAt && !markDirty) {
         nextContent.updatedAt = partial.updatedAt;
+      }
+
+      if (!markDirty && state.content && sameProjectContentSnapshot(state.content, nextContent)) {
+        return state;
       }
 
       if (!markDirty) {

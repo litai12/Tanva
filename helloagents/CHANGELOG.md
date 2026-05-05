@@ -21,6 +21,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Membership UI: VIP subscription page now uses a compact current-membership summary bar, tighter plan cards, and clearer tier-specific card/CTA styling without changing membership order or payment logic.
 - Library/History: Library panel global/project history now reuses shared media helpers for image/video labels, thumbnails, detail playback, and download names; video records can be sent or dragged to the canvas as video assets without going through image upload paths.
 - AI Chat Context: plain text chat requests now send the current input directly by default; conversation history is only included for iterative/continue-style prompts, and Flow Text Chat remains unaffected.
 - Flow/Text Chat UI: run-button credit tooltip now uses the same localized `消耗/积分` wording as other Flow run buttons.
@@ -36,6 +37,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
 - Canvas/Performance: `ImageContainer` now skips high-frequency viewport subscriptions for inactive image overlays, `GridRenderer` reduces low-zoom grid work and coalesces zoom redraws, and Flow node-internals updates are deferred while dragging.
+- Canvas/Flow Performance: global pinch/wheel viewport commits are now batched strictly through `requestAnimationFrame`; project canvas-view sync is debounced and skips unchanged snapshots; Flow low-detail mode subscribes to canvas zoom outside React render, and `Image`/`ViewAngle` node resize observers are RAF-coalesced.
 - Flow/Runtime: `GenerationProgressBar` now keeps simulated progress stable per node `runKey` across rerenders, and Flow node groups can stop pending group runs after the current child node finishes.
 - Flow/Runtime: running flow nodes now receive a transient `progressStartedAt` timestamp that is removed when runs finish and stripped from copy/template export paths, keeping progress stable without persisting runtime UI state.
 - Workspace Route Switch: stable route UI is aligned with `lt-dev9` using the amber Crown treatment instead of the green Star treatment.

@@ -6222,7 +6222,6 @@ function FlowInner() {
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
-  const canvasZoom = useCanvasStore((s) => s.zoom);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
   const isLargeGraphForMiniMapImageOverlay =
@@ -6231,6 +6230,12 @@ function FlowInner() {
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
+  const [isCanvasZooming, setIsCanvasZooming] = React.useState(false);
+  const flowLowDetailModeRef = React.useRef(false);
+  const canvasZoomIdleTimerRef = React.useRef<number | null>(null);
+  const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
+  const zoomFpsActiveUntilRef = React.useRef(0);
+  const isCanvasZoomingRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
     () =>
       nodes.some((node) => {
@@ -6291,18 +6296,98 @@ function FlowInner() {
   }, [hydrated, nodes, setNodes]);
 
   React.useEffect(() => {
-    const zoom =
-      Number.isFinite(Number(canvasZoom)) && Number(canvasZoom) > 0
-        ? Number(canvasZoom)
-        : 1;
-    setIsFlowLowDetailMode((prev) => {
-      if (!canEnableLowDetailMode) return false;
-      if (prev) return zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM;
-      return zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
-    });
-  }, [canEnableLowDetailMode, canvasZoom]);
+    const updateLowDetailMode = (rawZoom: number) => {
+      const zoom =
+        Number.isFinite(Number(rawZoom)) && Number(rawZoom) > 0
+          ? Number(rawZoom)
+          : 1;
+      const prev = flowLowDetailModeRef.current;
+      const next = prev
+        ? zoom <= FLOW_LOW_DETAIL_EXIT_ZOOM
+        : zoom <= FLOW_LOW_DETAIL_ENTER_ZOOM;
+      if (prev === next) return;
+      flowLowDetailModeRef.current = next;
+      setIsFlowLowDetailMode(next);
+    };
+
+    if (!canEnableLowDetailMode) {
+      if (flowLowDetailModeRef.current) {
+        flowLowDetailModeRef.current = false;
+        setIsFlowLowDetailMode(false);
+      }
+      return;
+    }
+
+    updateLowDetailMode(useCanvasStore.getState().zoom);
+
+    return useCanvasStore.subscribe(
+      (state) => state.zoom,
+      (nextZoom) => updateLowDetailMode(nextZoom)
+    );
+  }, [canEnableLowDetailMode]);
+
+  React.useEffect(() => {
+    const clearCanvasZoomIdleTimer = () => {
+      if (canvasZoomIdleTimerRef.current !== null) {
+        window.clearTimeout(canvasZoomIdleTimerRef.current);
+        canvasZoomIdleTimerRef.current = null;
+      }
+    };
+
+    const markCanvasZooming = (nextZoomRaw: number) => {
+      const nextZoom =
+        Number.isFinite(Number(nextZoomRaw)) && Number(nextZoomRaw) > 0
+          ? Number(nextZoomRaw)
+          : 1;
+      const prevZoom = Number(canvasZoomRef.current);
+      if (
+        Number.isFinite(nextZoom) &&
+        Number.isFinite(prevZoom) &&
+        Math.abs(nextZoom - prevZoom) <= 0.0001
+      ) {
+        return;
+      }
+
+      const now =
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      zoomFpsActiveUntilRef.current = now + 700;
+      canvasZoomRef.current = nextZoomRaw;
+      if (!isCanvasZoomingRef.current) {
+        isCanvasZoomingRef.current = true;
+        setIsCanvasZooming(true);
+      }
+      clearCanvasZoomIdleTimer();
+      canvasZoomIdleTimerRef.current = window.setTimeout(() => {
+        canvasZoomIdleTimerRef.current = null;
+        if (isCanvasZoomingRef.current) {
+          isCanvasZoomingRef.current = false;
+          setIsCanvasZooming(false);
+        }
+      }, 180);
+    };
+
+    canvasZoomRef.current = useCanvasStore.getState().zoom;
+
+    const unsubscribe = useCanvasStore.subscribe(
+      (state) => state.zoom,
+      (nextZoom) => markCanvasZooming(nextZoom)
+    );
+
+    return () => {
+      unsubscribe();
+      clearCanvasZoomIdleTimer();
+      isCanvasZoomingRef.current = false;
+      setIsCanvasZooming(false);
+    };
+  }, []);
+
   const effectiveFlowLowDetailMode =
-    isFlowLowDetailMode && !hasRunningFlowNode;
+    (isFlowLowDetailMode ||
+      (isCanvasZooming && nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD)) &&
+    !hasRunningFlowNode;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
@@ -6314,7 +6399,7 @@ function FlowInner() {
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
-  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | null>(null);
+  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | "Zoom" | null>(null);
   const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
@@ -6336,7 +6421,7 @@ function FlowInner() {
     let acc = 0;
     let longFrames = 0;
     let maxDt = 0;
-    let lastMode: "Drag" | "Image" | null = null;
+    let lastMode: "Drag" | "Image" | "Zoom" | null = null;
 
     const tick = (nowArg: number) => {
       const now =
@@ -6351,10 +6436,13 @@ function FlowInner() {
       const isImageDragging =
         typeof document !== "undefined" &&
         Boolean(document.body?.classList.contains("tanva-canvas-dragging"));
-      const mode: "Drag" | "Image" | null = isImageDragging
+      const isCanvasZoomingForFps = now <= zoomFpsActiveUntilRef.current;
+      const mode: "Drag" | "Image" | "Zoom" | null = isImageDragging
         ? "Image"
         : nodeDraggingRef.current
         ? "Drag"
+        : isCanvasZoomingForFps
+        ? "Zoom"
         : null;
 
       if (mode !== lastMode) {
@@ -21379,7 +21467,7 @@ function FlowInner() {
             gap: 6,
             fontSize: 12,
           }}
-          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放；每 250ms 刷新一次）'
+          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放、画布缩放；每 250ms 刷新一次）'
         >
           <input
             type='checkbox'

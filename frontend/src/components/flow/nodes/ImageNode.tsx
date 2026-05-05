@@ -29,6 +29,7 @@ import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import { loadSharedImage } from "../utils/sharedImageLoad";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
@@ -210,6 +211,7 @@ const CanvasCropPreview = React.memo(({
   const letterboxBg = flowLetterboxBackground(isFlowDark);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const resizeRafRef = React.useRef<number | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   React.useLayoutEffect(() => {
@@ -230,18 +232,32 @@ const CanvasCropPreview = React.memo(({
       setSize((prev) => (prev.w === nextW && prev.h === nextH ? prev : { w: nextW, h: nextH }));
     };
 
-    update();
+    const scheduleUpdate = () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        update();
+      });
+    };
+
+    scheduleUpdate();
 
     let ro: ResizeObserver | null = null;
     try {
-      ro = new ResizeObserver(update);
+      ro = new ResizeObserver(scheduleUpdate);
       ro.observe(container);
     } catch {}
 
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", scheduleUpdate);
     return () => {
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", scheduleUpdate);
       try { ro?.disconnect(); } catch {}
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
     };
   }, []);
 
@@ -273,10 +289,8 @@ const CanvasCropPreview = React.memo(({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.decoding = "async";
 
-    const onLoad = () => {
+    loadSharedImage(src).then((img) => {
       if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
@@ -310,29 +324,21 @@ const CanvasCropPreview = React.memo(({
 
       canvas.style.width = `${dw}px`;
       canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      canvas.width = Math.max(1, Math.round(dw * dpr));
+      canvas.height = Math.max(1, Math.round(dh * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      ctx.clearRect(0, 0, sw, sh);
+      ctx.clearRect(0, 0, dw, dh);
       ctx.fillStyle = letterboxBg;
-      ctx.fillRect(0, 0, sw, sh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-    };
-
-    const onError = () => {
+      ctx.fillRect(0, 0, dw, dh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    }).catch(() => {
       if (cancelled) return;
       drawPlaceholder();
-    };
-
-    img.onload = onLoad;
-    img.onerror = onError;
-    img.src = src;
+    });
 
     return () => {
       cancelled = true;
-      img.onload = null;
-      img.onerror = null;
     };
   }, [
     rect?.height,
