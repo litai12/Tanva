@@ -218,14 +218,8 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
               cursor: status === "running" ? "not-allowed" : "pointer",
             }}
           >
-            {status === "running" ? (
-              <span className='run-text-trigger'>{lt("运行中...", "Running...")}</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                <RunCreditBadge credits={resolvedRunCredits} runButton />
-              </>
-            )}
+            <span className='run-text-trigger'>Run</span>
+            <RunCreditBadge credits={resolvedRunCredits} runButton />
           </button>
           <button
             onClick={onSend}

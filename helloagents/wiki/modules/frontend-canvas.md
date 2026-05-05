@@ -57,6 +57,12 @@
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 - `frontend/src/components/ui/ImagePreviewModal.tsx` 已接入双语文案：默认标题/历史标题、关闭提示、加载文案、生成时间 tooltip 与兜底 alt 文案按语言切换。
 
+## Flow Image 全屏标注
+- `frontend/src/components/flow/nodes/ImageNode.tsx` 在 image 节点头部新增画笔入口，打开 `frontend/src/components/ui/ImageAnnotationModal.tsx` 全屏标注界面。
+- 标注工具包含画笔、箭头、矩形、圆形、文字、撤销/重做、清空与保存；编辑期间标注对象仅为运行时状态，保存时会把当前渲染图片（含裁剪结果）与标注合成为 PNG Blob。
+- 保存链路：合成 PNG 通过 `imageUploadService.uploadImageSource` 上传到 OSS，再把节点 `imageUrl` 替换为远程 URL，并清理 `imageData/thumbnail/crop`；若节点来自上游输入，会断开 `img/image` 输入边，避免上游继续覆盖标注结果。
+- 历史链路：保存前会在必要时记录当前渲染版本，保存后把标注后的远程 URL 写入 `imageHistoryStore`/全局历史；全屏右侧历史栏可把当前 image 节点恢复到任一历史版本。
+
 ## 图片组 Alt 拖拽复制
 - `useInteractionController` 在图片拖拽启动时只采集当前拖拽集合覆盖到的图片组快照；首次确认 Alt 拖拽时再裁到实际被复制的图片 id。
 - 松手落到画布时，`createImageFromSnapshot` 返回旧图到新图的 id 映射，随后通过 `paperImageGroupBlock` 重建组块、标题和样式；移动过程仍只更新占位框，不增加每帧组块扫描。

@@ -3,8 +3,12 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
-import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound } from "lucide-react";
+import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import ImageAnnotationModal, {
+  type ImageAnnotationHistoryItem,
+  type ImageAnnotationSavePayload,
+} from "../../ui/ImageAnnotationModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
@@ -19,6 +23,7 @@ import {
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import {
   isPersistableImageRef,
+  normalizePersistableImageRef,
   pickPersistedImageRefFromUploadAsset,
   resolveImageToBlob,
   toRenderableImageSrc,
@@ -887,6 +892,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [annotationOpen, setAnnotationOpen] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
   const [isResizing, setIsResizing] = React.useState(false);
   const updateNodeSize = React.useCallback(
@@ -997,6 +1003,38 @@ function ImageNodeInner({ id, data, selected }: Props) {
     () => projectHistory.find((item) => item.nodeId === id),
     [projectHistory, id]
   );
+  const annotationHistoryItems = React.useMemo<ImageAnnotationHistoryItem[]>(
+    () =>
+      projectHistory
+        .filter((item) => item.nodeId === id)
+        .slice()
+        .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+        .map((item) => ({
+          id: item.id,
+          src: item.remoteUrl || item.src,
+          remoteUrl: item.remoteUrl,
+          title: item.title,
+          timestamp: item.timestamp,
+        })),
+    [projectHistory, id]
+  );
+  const currentAnnotationImageId = React.useMemo(() => {
+    const rawCurrent =
+      (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+      (typeof data.imageData === "string" && data.imageData.trim()) ||
+      fullSrc ||
+      "";
+    const normalizedCurrent = normalizePersistableImageRef(rawCurrent);
+    if (normalizedCurrent) {
+      const hit = annotationHistoryItems.find((item) => {
+        const itemRef = normalizePersistableImageRef(item.remoteUrl || item.src);
+        return itemRef && itemRef === normalizedCurrent;
+      });
+      if (hit) return hit.id;
+    }
+    return currentImageId;
+  }, [annotationHistoryItems, currentImageId, data.imageData, data.imageUrl, fullSrc, rawFullValue]);
   const resolvedImageName = React.useMemo(() => {
     const direct =
       typeof data.imageName === "string" ? data.imageName.trim() : "";
@@ -1017,6 +1055,32 @@ function ImageNodeInner({ id, data, selected }: Props) {
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
+  const canAnnotate = Boolean(cropInfo?.baseRef || canvasCrop?.src || displaySrc || fullSrc);
+  const annotationImageSrc =
+    (canvasCrop?.src && canvasCrop.src.trim()) ||
+    (displaySrc && displaySrc.trim()) ||
+    (fullSrc && fullSrc.trim()) ||
+    "";
+  const annotationCrop = React.useMemo(
+    () =>
+      cropInfo?.baseRef
+        ? {
+            baseRef: cropInfo.baseRef,
+            rect: cropInfo.rect,
+            sourceWidth: cropInfo.sourceWidth,
+            sourceHeight: cropInfo.sourceHeight,
+          }
+        : null,
+    [
+      cropInfo?.baseRef,
+      cropInfo?.rect?.height,
+      cropInfo?.rect?.width,
+      cropInfo?.rect?.x,
+      cropInfo?.rect?.y,
+      cropInfo?.sourceHeight,
+      cropInfo?.sourceWidth,
+    ]
+  );
 
   // ── Volc Asset Library audit state ──────────────────────────────────────────
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
@@ -1563,6 +1627,320 @@ function ImageNodeInner({ id, data, selected }: Props) {
     }
   }, [id, projectId, rf]);
 
+  const detachImageInput = React.useCallback(() => {
+    try {
+      const edges = rf.getEdges();
+      const remain = edges.filter(
+        (edge) =>
+          !(
+            edge.target === id &&
+            (edge.targetHandle === "img" || edge.targetHandle === "image")
+          )
+      );
+      if (remain.length !== edges.length) {
+        rf.setEdges(remain);
+      }
+    } catch {}
+  }, [id, rf]);
+
+  const notify = React.useCallback(
+    (message: string, type: "success" | "warning" | "error") => {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type },
+        })
+      );
+    },
+    []
+  );
+  const errorMessage = React.useCallback((error: unknown, fallback: string) => {
+    if (
+      error &&
+      typeof error === "object" &&
+      "message" in error &&
+      typeof (error as { message?: unknown }).message === "string"
+    ) {
+      return (error as { message: string }).message;
+    }
+    return fallback;
+  }, []);
+
+  const makeAnnotationFileName = React.useCallback(
+    (suffix: string) => {
+      const rawBase = (resolvedImageName || nodeLabel || `image_${id}`).trim();
+      const withoutExt = rawBase.replace(/\.(png|jpe?g|webp|gif)$/i, "");
+      const safeBase =
+        withoutExt
+          .replace(/[^a-zA-Z0-9_.-]+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 72) || `image_${id}`;
+      return `${safeBase}_${suffix}_${Date.now()}.png`;
+    },
+    [id, nodeLabel, resolvedImageName]
+  );
+
+  const uploadAnnotationBlob = React.useCallback(
+    async (blob: Blob, fileName: string) => {
+      const uploadDir = projectId
+        ? `projects/${projectId}/images/`
+        : "uploads/images/";
+      const { key } = generateOssKey({
+        projectId,
+        dir: uploadDir,
+        fileName,
+        contentType: "image/png",
+      });
+      const uploadResult = await imageUploadService.uploadImageSource(blob, {
+        projectId: projectId ?? undefined,
+        dir: uploadDir,
+        fileName,
+        contentType: "image/png",
+        key,
+      });
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        throw new Error(
+          uploadResult.error || lt("标注图片上传失败", "Annotation upload failed")
+        );
+      }
+      return { uploadResult, key };
+    },
+    [lt, projectId]
+  );
+
+  const recordAnnotationBaseVersion = React.useCallback(
+    async (payload: ImageAnnotationSavePayload) => {
+      const sourceRef =
+        (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+        (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+        (typeof data.imageData === "string" && data.imageData.trim()) ||
+        fullSrc ||
+        "";
+      const normalizedSource = normalizePersistableImageRef(sourceRef);
+      const sourceAlreadyInHistory =
+        !annotationCrop &&
+        normalizedSource &&
+        annotationHistoryItems.some((item) => {
+          const historyRef = normalizePersistableImageRef(item.remoteUrl || item.src);
+          return historyRef && historyRef === normalizedSource;
+        });
+
+      if (sourceAlreadyInHistory) return;
+
+      const title = resolvedImageName || nodeLabel || lt("原图", "Original image");
+      const baseHistoryId = `${id}-annotation-base-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      try {
+        if (!annotationCrop && normalizedSource && isPersistableImageRef(normalizedSource)) {
+          await recordImageHistoryEntry({
+            id: baseHistoryId,
+            remoteUrl: normalizedSource,
+            title,
+            nodeId: id,
+            nodeType: "image",
+            projectId,
+            keepThumbnail: false,
+            skipGlobalHistory: true,
+            metadata: {
+              operation: "annotation-base",
+            },
+          });
+          return;
+        }
+
+        const fileName = makeAnnotationFileName("original");
+        const { uploadResult } = await uploadAnnotationBlob(payload.baseBlob, fileName);
+        await recordImageHistoryEntry({
+          id: baseHistoryId,
+          remoteUrl: uploadResult.asset.url,
+          title,
+          nodeId: id,
+          nodeType: "image",
+          projectId,
+          fileName: uploadResult.asset.fileName || fileName,
+          keepThumbnail: false,
+          skipGlobalHistory: true,
+          metadata: {
+            operation: "annotation-base",
+            flattenedCrop: Boolean(annotationCrop),
+            width: payload.width,
+            height: payload.height,
+          },
+        });
+      } catch (error) {
+        console.warn("[ImageNode] 保存标注前历史版本失败:", error);
+      }
+    },
+    [
+      annotationCrop,
+      annotationHistoryItems,
+      data.imageData,
+      data.imageUrl,
+      fullSrc,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      projectId,
+      rawFullValue,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
+
+  const handleAnnotationSave = React.useCallback(
+    async (payload: ImageAnnotationSavePayload) => {
+      try {
+        await recordAnnotationBaseVersion(payload);
+
+        const fileName = makeAnnotationFileName("annotated");
+        const { uploadResult, key } = await uploadAnnotationBlob(payload.blob, fileName);
+        const persistedRef = pickPersistedImageRefFromUploadAsset(
+          uploadResult.asset,
+          key
+        ).trim();
+        const persistedDisplayRef =
+          (typeof uploadResult.asset.url === "string" &&
+            uploadResult.asset.url.trim()) ||
+          persistedRef;
+        if (!persistedDisplayRef) {
+          throw new Error(lt("标注图片地址为空", "Annotation image URL is empty"));
+        }
+
+        detachImageInput();
+        patchNode({
+          imageUrl: persistedDisplayRef,
+          imageData: undefined,
+          thumbnail: undefined,
+          crop: undefined,
+          uploading: false,
+          uploadError: undefined,
+          uploadToken: undefined,
+          volcAssetId: undefined,
+          volcAssetStatus: undefined,
+          volcAssetError: undefined,
+          volcReviewDate: undefined,
+          bioAuthId: undefined,
+          bioAuthStatus: undefined,
+          bioAuthError: undefined,
+          bioAuthDate: undefined,
+        });
+
+        const historyId = `${id}-annotation-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        await recordImageHistoryEntry({
+          id: historyId,
+          remoteUrl: uploadResult.asset.url || persistedDisplayRef,
+          title: resolvedImageName || nodeLabel || lt("标注图片", "Annotated image"),
+          nodeId: id,
+          nodeType: "image",
+          projectId,
+          fileName: uploadResult.asset.fileName || fileName,
+          keepThumbnail: false,
+          metadata: {
+            operation: "annotation-save",
+            annotationCount: payload.annotationCount,
+            width: payload.width,
+            height: payload.height,
+          },
+        });
+        setCurrentImageId(historyId);
+        notify(lt("标注已保存到图片", "Annotation saved to image"), "success");
+      } catch (error: unknown) {
+        notify(errorMessage(error, lt("标注保存失败", "Annotation save failed")), "error");
+        throw error;
+      }
+    },
+    [
+      detachImageInput,
+      errorMessage,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      notify,
+      patchNode,
+      projectId,
+      recordAnnotationBaseVersion,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
+
+  const handleAnnotationRestore = React.useCallback(
+    async (item: ImageAnnotationHistoryItem) => {
+      const rawSource = (item.remoteUrl || item.src || "").trim();
+      if (!rawSource) {
+        throw new Error(lt("历史图片地址为空", "History image URL is empty"));
+      }
+
+      try {
+        let persistedSource = normalizePersistableImageRef(rawSource);
+        if (!persistedSource || !isPersistableImageRef(persistedSource)) {
+          const blob = await resolveImageToBlob(rawSource, { preferProxy: true });
+          if (!blob) {
+            throw new Error(lt("无法读取历史图片", "Unable to read history image"));
+          }
+          const fileName = makeAnnotationFileName("restore");
+          const { uploadResult } = await uploadAnnotationBlob(blob, fileName);
+          persistedSource = uploadResult.asset.url;
+          await recordImageHistoryEntry({
+            id: item.id,
+            remoteUrl: uploadResult.asset.url,
+            title: item.title || resolvedImageName || nodeLabel || lt("恢复图片", "Restored image"),
+            nodeId: id,
+            nodeType: "image",
+            projectId,
+            fileName: uploadResult.asset.fileName || fileName,
+            keepThumbnail: false,
+            skipGlobalHistory: true,
+            metadata: {
+              operation: "annotation-restore-upload",
+            },
+          });
+        }
+
+        detachImageInput();
+        patchNode({
+          imageUrl: persistedSource,
+          imageData: undefined,
+          thumbnail: undefined,
+          crop: undefined,
+          uploading: false,
+          uploadError: undefined,
+          uploadToken: undefined,
+          volcAssetId: undefined,
+          volcAssetStatus: undefined,
+          volcAssetError: undefined,
+          volcReviewDate: undefined,
+          bioAuthId: undefined,
+          bioAuthStatus: undefined,
+          bioAuthError: undefined,
+          bioAuthDate: undefined,
+        });
+        setCurrentImageId(item.id);
+        notify(lt("已恢复历史版本", "History version restored"), "success");
+      } catch (error: unknown) {
+        notify(errorMessage(error, lt("恢复失败", "Restore failed")), "error");
+        throw error;
+      }
+    },
+    [
+      detachImageInput,
+      errorMessage,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      notify,
+      patchNode,
+      projectId,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
+
   const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1771,6 +2149,33 @@ function ImageNodeInner({ id, data, selected }: Props) {
             );
           })()}
           <button
+            type="button"
+            onClick={() => {
+              if (!canAnnotate) {
+                notify(lt("没有可标注的图片", "No image available to annotate"), "warning");
+                return;
+              }
+              setAnnotationOpen(true);
+            }}
+            disabled={!canAnnotate}
+            title={
+              !canAnnotate
+                ? lt("没有可标注的图片", "No image available to annotate")
+                : lt("全屏标注图片", "Annotate image fullscreen")
+            }
+            aria-label={lt("全屏标注图片", "Annotate image fullscreen")}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: !canAnnotate ? "#e5e7eb" : "#fff",
+              cursor: !canAnnotate ? "not-allowed" : "pointer",
+            }}
+          >
+            <Paintbrush size={14} strokeWidth={2} />
+          </button>
+          <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
             title={
@@ -1959,6 +2364,17 @@ function ImageNodeInner({ id, data, selected }: Props) {
             setCurrentImageId(imageId);
           }
         }}
+      />
+      <ImageAnnotationModal
+        isOpen={annotationOpen}
+        imageSrc={annotationImageSrc}
+        imageTitle={resolvedImageName || nodeLabel}
+        crop={annotationCrop}
+        historyItems={annotationHistoryItems}
+        currentImageId={currentAnnotationImageId}
+        onClose={() => setAnnotationOpen(false)}
+        onSave={handleAnnotationSave}
+        onRestore={handleAnnotationRestore}
       />
       {/* Bio Auth Modal */}
       <BioAuthModal

@@ -50,6 +50,9 @@ type Props = {
   selected?: boolean;
 };
 
+const EMPTY_IMAGE_VALUES: string[] = [];
+const EMPTY_SLOT_ERRORS: (string | undefined)[] = [];
+
 // 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string => {
   if (!value) return "";
@@ -474,10 +477,10 @@ function InputImageThumb({
 function Generate4NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
-  const images = data.images || [];
-  const imageUrls = data.imageUrls || [];
-  const thumbnails = data.thumbnails || [];
-  const slotErrors = data.generate4SlotErrors || [];
+  const images = data.images || EMPTY_IMAGE_VALUES;
+  const imageUrls = data.imageUrls || EMPTY_IMAGE_VALUES;
+  const thumbnails = data.thumbnails || EMPTY_IMAGE_VALUES;
+  const slotErrors = data.generate4SlotErrors || EMPTY_SLOT_ERRORS;
   const passIndex =
     typeof data.generate4PassIndex === "number" && Number.isFinite(data.generate4PassIndex)
       ? Math.max(0, data.generate4PassIndex)
@@ -588,8 +591,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>)
-      .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    const nativeEvent = event.nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
@@ -687,7 +689,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   );
 
   const boxW = data.boxW || 300;
-  const boxH = data.boxH || 240;
   const aspectRatioValue = data.aspectRatio ?? "";
   const imageSizeValue = data.imageSize ?? "";
   const aspectOptions = React.useMemo(
@@ -990,16 +991,10 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 : lt("运行生成", "Run generation")
             }
           >
-            {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                {resolvedRunCredits ? (
-                  <RunCreditBadge credits={resolvedRunCredits} runButton />
-                ) : null}
-              </>
-            )}
+            <span className='run-text-trigger'>Run</span>
+            {resolvedRunCredits ? (
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            ) : null}
           </button>
           <button
             onClick={onSend}

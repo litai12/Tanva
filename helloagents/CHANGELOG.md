@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 - Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and now shows today's normal/stable route success rates from `GET /api/ai/banana-route-success-rates`.
+- Flow/Image Node: added a fullscreen annotation editor from the image-node paintbrush action. It supports brush, arrow, rectangle, circle, and text markup, saves the flattened PNG back to the image node via OSS, and keeps node-local history versions for restore.
 - Flow/Canvas Eraser: eraser strokes now mark touched ReactFlow connection edges as a thick preview and delete the whole touched edge batch on mouseup; selected edges also render thicker, blank clicks clear selected edges, and Paper eraser trails are tagged as transient and force-cleared after mouseup/cancel.
 - Flow/Canvas Eraser: eraser single-clicks without dragging now return to Select, delayed Paper trail cleanup only removes trails created before that mouseup so the next eraser stroke is not cleared, and Flow handle/node interactions are ignored by the eraser so normal connection gestures still work while the eraser tool is active.
 - Flow/Canvas Eraser: delayed trail cleanup now uses a monotonic eraser-trail serial snapshot, so deleting a connection force-clears the current stroke after mouseup while never removing a later stroke that starts immediately after it.
@@ -24,6 +25,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Image Nodes: `Generate`, `Multi Generate`, and `Generate Refer` run buttons now keep the `Run` label while disabled instead of switching to `Running...`.
 - Canvas/Eraser: active Paper eraser trails are now exempt from layer-thumbnail/helper serialization cleanup, Paper view refreshes after helper restoration, mouseup resets transient eraser refs, drawing start points use refs to avoid native mousemove reading stale React state, and Flow connection erasing now mirrors a Paper eraser trail when the pointer starts on ReactFlow SVG/pane elements instead of the Paper canvas.
 - Flow/Text Nodes: Prompt Optimizer preview editing now defers Flow node-data writes during IME composition, preventing Chinese input from committing raw pinyin fragments while candidates are still being selected.
 - Flow/Text Inputs: Flow textarea editors now share IME-safe draft handling across Prompt, Prompt Pro, Agent prompts, Generate Refer, Video Analysis, MiniMax Music, and Kling O3 storyboard prompts, so Chinese composition is not interrupted by React Flow node-data writes.

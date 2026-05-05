@@ -971,16 +971,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 : lt("运行生成", "Run generation")
             }
           >
-            {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                {resolvedRunCredits ? (
-                  <RunCreditBadge credits={resolvedRunCredits} runButton />
-                ) : null}
-              </>
-            )}
+            <span className='run-text-trigger'>Run</span>
+            {resolvedRunCredits ? (
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            ) : null}
           </button>
           <button
             onClick={onSend}

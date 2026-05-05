@@ -1,5 +1,8 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-06 Update
+- `Generate`、`Multi Generate`、`Generate Refer` 的 Run 按钮运行态保留 `Run` 文案，只通过禁用灰色态表达运行中，避免按钮显示 `Running...`。
+
 ## 2026-05-05 Update
 - `PromptOptimizeNode` 的预览输入框补齐中文输入法 composition 防护：拼音组词期间只更新本地 textarea，候选词确认后再写回 Flow 节点数据，避免旧节点数据重渲染打断 IME 并留下拼音片段。
 - Flow 文字输入类 `textarea` 统一补齐 IME-safe draft 处理，覆盖 `TextPrompt`、`TextPromptPro`、`GeneratePro`、`GeneratePro4`、`GenerateReference`、`VideoAnalyze`、`MinimaxMusic`、`KlingO3` 自定义分镜等节点；已存在防护的 `TextChat`、`TextNote`、`StoryboardSplit` 保持原逻辑。
