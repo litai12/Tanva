@@ -75,6 +75,10 @@
 ## AI 图片局部编辑 / 高清放大
 - Shift 精确局部修改对齐 `lt-dev9`：框选完成后会记录选区画布 bounds、裁剪像素尺寸与比例，AI Chat 编辑占位框使用 `precise-edit`/`lockToBounds` 锁定原选区位置，跳过普通编辑右侧偏移与矩阵避让，结果继续原位覆盖。
 - 高清放大对齐 `lt-dev9`：运行时在原图右侧创建 `hd-upscale` 占位框，完成后通过 `triggerQuickImageUpload` 发送到画布，不直接下载文件。
+- 图片扩图 UI 对齐 `lt-dev9`：工具栏使用独立 `Expand` 图标，扩图 prompt/合成图使用红色蒙版语义；扩图选择完成或取消后会释放画布操作锁，非激活图片 overlay 直接跳过渲染。
+
+## 历史视频上画布
+- 库面板全局历史/项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。
 
 ## 图层面板反向选中
 - 当用户在画板中选中图片/3D/路径时，`DrawingController` 会派发 `tanva-canvas-selection-updated`，`LayerPanel` 会据此自动高亮对应图元项。

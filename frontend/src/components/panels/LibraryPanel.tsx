@@ -701,28 +701,38 @@ const LibraryPanel: React.FC = () => {
   };
 
   const handleHistorySendToCanvas = async (item: GlobalImageHistoryItem) => {
+    const mediaUrl = getGlobalHistoryMediaUrl(item);
+    if (!mediaUrl) {
+      alert(lt("历史记录缺少可用链接，无法发送到画板", "History item has no usable URL and cannot be sent to canvas."));
+      return;
+    }
+
+    const displayFileName = getGlobalHistoryDownloadFileName(item);
     if (isGlobalHistoryVideoItem(item)) {
       window.dispatchEvent(
-        new CustomEvent("toast", {
+        new CustomEvent("canvas:insert-video", {
           detail: {
-            message: lt(
-              "视频历史暂不支持发送到画板",
-              "Video history cannot be sent to canvas yet"
-            ),
-            type: "warning",
+            asset: {
+              id: item.id,
+              url: mediaUrl,
+              thumbnail: getGlobalHistoryVideoThumbnail(item),
+              fileName: displayFileName,
+              contentType: "video/mp4",
+              sourceUrl: mediaUrl,
+              metadata: item.metadata,
+            },
           },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: lt("历史视频已发送到画板", "History video sent to canvas"), type: "success" },
         })
       );
       return;
     }
 
-    const mediaUrl = getGlobalHistoryMediaUrl(item);
-    if (!mediaUrl) {
-      alert(lt("历史图片缺少可用链接，无法发送到画板", "History image has no usable URL and cannot be sent to canvas."));
-      return;
-    }
     const dataUrl = await readDataUrl(mediaUrl);
-    const displayFileName = getGlobalHistoryDownloadFileName(item);
     const payload: string | StoredImageAsset = dataUrl
       ? dataUrl
       : {
@@ -879,39 +889,37 @@ const LibraryPanel: React.FC = () => {
     item: GlobalImageHistoryItem,
     event: React.DragEvent
   ) => {
-    if (isGlobalHistoryVideoItem(item)) {
-      event.preventDefault();
-      window.dispatchEvent(
-        new CustomEvent("toast", {
-          detail: {
-            message: lt(
-              "视频历史暂不支持拖拽到画板",
-              "Video history cannot be dragged to canvas yet"
-            ),
-            type: "warning",
-          },
-        })
-      );
-      return;
-    }
-
     const mediaUrl = getGlobalHistoryMediaUrl(item);
     if (!mediaUrl) {
       event.preventDefault();
       return;
     }
 
+    const isVideo = isGlobalHistoryVideoItem(item);
     event.dataTransfer.setData("text/uri-list", mediaUrl);
     event.dataTransfer.setData("text/plain", mediaUrl);
     event.dataTransfer.setData(
       "application/x-tanva-asset",
-      JSON.stringify({
-        type: "2d",
-        id: item.id,
-        url: mediaUrl,
-        name: item.prompt || lt("历史图片", "History Image"),
-        fileName: getGlobalHistoryDownloadFileName(item),
-      })
+      JSON.stringify(
+        isVideo
+          ? {
+              type: "video",
+              id: item.id,
+              url: mediaUrl,
+              thumbnail: getGlobalHistoryVideoThumbnail(item),
+              name: item.prompt || lt("历史视频", "History Video"),
+              fileName: getGlobalHistoryDownloadFileName(item),
+              contentType: "video/mp4",
+              metadata: item.metadata,
+            }
+          : {
+              type: "2d",
+              id: item.id,
+              url: mediaUrl,
+              name: item.prompt || lt("历史图片", "History Image"),
+              fileName: getGlobalHistoryDownloadFileName(item),
+            }
+      )
     );
     event.dataTransfer.effectAllowed = "copy";
   };
@@ -1446,16 +1454,8 @@ const LibraryPanel: React.FC = () => {
               variant='outline'
               size='sm'
               className='h-8 w-8 p-0'
-              disabled={selectedHistoryIsVideo}
               onClick={() => void handleHistorySendToCanvas(selectedHistoryItem)}
-              title={
-                selectedHistoryIsVideo
-                  ? lt(
-                      "视频历史暂不支持发送到画板",
-                      "Video history cannot be sent to canvas yet"
-                    )
-                  : lt("发送到画板", "Send to canvas")
-              }
+              title={lt("发送到画板", "Send to canvas")}
             >
               <Send className='h-3 w-3' />
             </Button>

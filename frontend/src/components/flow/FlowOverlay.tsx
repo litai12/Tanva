@@ -1432,7 +1432,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
-  gptImage2: 40, // Gpt-Imgae-2 生图
+  gptImage2: 40, // GPT-Image-2 生图
   seedream5: 30, // Seedream 5.0 生图
   videoAnalyze: 60, // 视频分析节点 - 按模型档位与渠道动态计费
   three: 200, // 三维节点 - convert-2d-to-3d
@@ -1481,7 +1481,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
-  { key: "gptImage2", zh: "Gpt-Imgae-2", en: "Gpt-Imgae-2", category: "image" },
+  { key: "gptImage2", zh: "GPT-Image-2", en: "GPT-Image-2", category: "image" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
@@ -1693,9 +1693,11 @@ const FLOW_NODE_DEFAULT_SIZE = {
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
 
 const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
+  "generateRef",
   "kling26Video",
   "nano2",
   "gptImage2",
+  "sora2Video",
 ]);
 
 const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
@@ -17827,7 +17829,7 @@ function FlowInner() {
           if (!result.success || !result.data) {
             const msg =
               result.error?.message ||
-              (node.type === "gptImage2" ? "Gpt-Imgae-2 生成失败" : "Nano2 生成失败");
+              (node.type === "gptImage2" ? "GPT-Image-2 生成失败" : "Nano2 生成失败");
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -17900,7 +17902,7 @@ function FlowInner() {
               const historyId = `${nodeId}-${Date.now()}`;
               const historyRemote =
                 !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
-              const historyPrefix = node.type === "gptImage2" ? "Gpt-Imgae-2" : "Nano2";
+              const historyPrefix = node.type === "gptImage2" ? "GPT-Image-2" : "Nano2";
               void recordImageHistoryEntry({
                 id: historyId,
                 base64: historyRemote ? undefined : stableImageRef,
@@ -17925,7 +17927,7 @@ function FlowInner() {
             error instanceof Error
               ? error.message
               : node.type === "gptImage2"
-              ? "Gpt-Imgae-2 生成失败"
+              ? "GPT-Image-2 生成失败"
               : "Nano2 生成失败";
           setNodes((ns) =>
             ns.map((n) =>

@@ -414,9 +414,9 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
     setPendingDelete(null);
   }, [pendingDelete, restoreHiddenItem]);
 
-  // 删除图片（5 秒撤销窗口）
+  // 删除历史记录（5 秒撤销窗口）
   const handleDelete = useCallback(async (id: string) => {
-    if (!window.confirm(lt('确定要删除这张图片吗？', 'Delete this image?'))) return;
+    if (!window.confirm(lt('确定要删除这条历史记录吗？', 'Delete this history item?'))) return;
 
     if (pendingDelete) {
       clearTimeout(pendingDelete.timer);
@@ -438,7 +438,7 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
     setPendingDelete({ id, timer });
   }, [deleteItem, hideItem, lt, pendingDelete, restoreHiddenItem]);
 
-  // 下载图片
+  // 下载媒体
   const handleDownload = useCallback((item: GlobalImageHistoryItem) => {
     const link = document.createElement('a');
     link.href = getGlobalHistoryMediaUrl(item);

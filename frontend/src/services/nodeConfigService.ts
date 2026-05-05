@@ -129,8 +129,8 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
     {
       nodeKey: "gptImage2",
-      nameZh: "Gpt-Imgae-2",
-      nameEn: "Gpt-Imgae-2",
+      nameZh: "GPT-Image-2",
+      nameEn: "GPT-Image-2",
       category: "image",
       status: "normal",
       sortOrder: 18,
@@ -158,7 +158,7 @@ function getDefaultConfigs(): NodeConfig[] {
           googleImageSearch: false,
         },
       },
-      description: "Gpt-Imgae-2 生图，支持文生图/图生图，最多 16 张参考图",
+      description: "GPT-Image-2 生图，支持文生图/图生图，最多 16 张参考图",
     },
 
     // 视频节点

@@ -3,10 +3,8 @@ import { Check } from 'lucide-react';
 import {
   Handle,
   Position,
-  NodeResizer,
   useReactFlow,
   useStore,
-  useUpdateNodeInternals,
   type ReactFlowState,
   type Edge,
 } from 'reactflow';
@@ -43,10 +41,6 @@ type Props = {
 
 const TEXT_CHAT_NODE_SIZE_VERSION = 2;
 const DEFAULT_TITLE = 'Text Chat';
-const DEFAULT_NODE_HEIGHT = 300;
-const MIN_NODE_HEIGHT = 260;
-const LEGACY_NODE_HEIGHT = 540;
-const NODE_VERTICAL_PADDING = 24;
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
 type TextChatSkillId = 'custom' | 'shotSplit' | 'promptOptimize' | 'translate';
 
@@ -95,11 +89,9 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
-  const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const globalWebSearchEnabled = useAIChatStore((state) => state.enableWebSearch);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
   const effectiveProvider = React.useMemo<FlowModelProvider>(
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
@@ -312,13 +304,10 @@ Rules:
   React.useEffect(() => {
     if (data.sizeVersion === TEXT_CHAT_NODE_SIZE_VERSION) return;
     const patch: Record<string, unknown> = { sizeVersion: TEXT_CHAT_NODE_SIZE_VERSION };
-    if (typeof data.boxH !== 'number' || data.boxH === LEGACY_NODE_HEIGHT) {
-      patch.boxH = DEFAULT_NODE_HEIGHT;
-    }
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch }
     }));
-  }, [data.boxH, data.sizeVersion, id]);
+  }, [data.sizeVersion, id]);
 
   React.useEffect(() => {
     if (
@@ -342,72 +331,6 @@ Rules:
 
   const status: TextChatStatus = data.status || 'idle';
   const responseText = typeof data.responseText === 'string' ? data.responseText : '';
-  const enableWebSearch = data.enableWebSearch ?? globalWebSearchEnabled;
-  const normalizedHeight = typeof data.boxH === 'number'
-    ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
-    : DEFAULT_NODE_HEIGHT;
-  const nodeHeight = Math.max(MIN_NODE_HEIGHT, normalizedHeight);
-  const contentRef = React.useRef<HTMLDivElement | null>(null);
-  const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
-  const [contentHeight, setContentHeight] = React.useState(nodeHeight);
-
-  const updateAutoHeight = React.useCallback(() => {
-    const element = contentRef.current;
-    if (!element) return;
-    const measured = element.scrollHeight + NODE_VERTICAL_PADDING;
-    const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.ceil(measured));
-    setContentHeight((prev) => (prev === nextHeight ? prev : nextHeight));
-  }, []);
-
-  React.useLayoutEffect(() => {
-    updateAutoHeight();
-    const element = contentRef.current;
-    if (!element) return;
-
-    if (typeof ResizeObserver === 'function') {
-      const observer = new ResizeObserver(() => updateAutoHeight());
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-
-    const handler = () => updateAutoHeight();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('resize', handler);
-    }
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('resize', handler);
-      }
-    };
-  }, [updateAutoHeight]);
-
-  const computedHeight = Math.max(nodeHeight, contentHeight);
-  React.useLayoutEffect(() => {
-    updateNodeInternals(id);
-  }, [computedHeight, id, updateNodeInternals]);
-
-  React.useEffect(() => {
-    const element = nodeRootRef.current;
-    if (!element || typeof ResizeObserver !== 'function') return;
-    let rafId = 0;
-    const observer = new ResizeObserver(() => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        if (
-          typeof document !== 'undefined' &&
-          document.body?.classList.contains('tanva-flow-node-dragging')
-        ) {
-          return;
-        }
-        updateNodeInternals(id);
-      });
-    });
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [id, updateNodeInternals]);
 
   const readIncomingTexts = React.useCallback((optimisticSource?: {
     sourceId: string;
@@ -513,7 +436,7 @@ Rules:
     try {
       const result = await aiImageService.generateTextResponse({
         prompt: requestPrompt,
-        enableWebSearch,
+        enableWebSearch: false,
         aiProvider: effectiveProvider,
         model: textModel,
         providerOptions: {
@@ -554,7 +477,6 @@ Rules:
     bananaImageRoute,
     currentTextChatSkill.prompt,
     effectiveProvider,
-    enableWebSearch,
     id,
     isCustomSkill,
     lt,
@@ -643,7 +565,6 @@ Rules:
   }, [title]);
 
   const contentStyle: React.CSSProperties = {
-    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     gap: 12,
@@ -676,10 +597,8 @@ Rules:
 
   return (
     <div
-      ref={nodeRootRef}
       style={{
         width: data.boxW || 320,
-        height: computedHeight,
         padding: 12,
         background: themePalette.nodeBg,
         border: `1px solid ${themePalette.nodeBorder}`,
@@ -693,25 +612,7 @@ Rules:
         boxSizing: 'border-box',
       }}
     >
-      <NodeResizer
-        isVisible
-        minWidth={260}
-        minHeight={MIN_NODE_HEIGHT}
-        color="transparent"
-        lineStyle={{ display: 'none' }}
-        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
-        onResizeEnd={(_, params) => {
-          rf.setNodes((nodes) => nodes.map((node) => node.id === id
-            ? { ...node, data: { ...node.data, boxW: params.width, boxH: params.height } }
-            : node));
-        }}
-        onResize={(_, params) => {
-          rf.setNodes((nodes) => nodes.map((node) => node.id === id
-            ? { ...node, data: { ...node.data, boxW: params.width, boxH: params.height } }
-            : node));
-        }}
-      />
-      <div style={contentStyle} ref={contentRef}>
+      <div style={contentStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             {isEditingTitle ? (

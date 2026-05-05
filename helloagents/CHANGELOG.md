@@ -21,9 +21,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
-- Library/History: Library panel global/project history now reuses shared media helpers for image/video labels, thumbnails, detail playback, and download names; video records are display/download only and no longer enter image send/drag-to-canvas paths.
+- Library/History: Library panel global/project history now reuses shared media helpers for image/video labels, thumbnails, detail playback, and download names; video records can be sent or dragged to the canvas as video assets without going through image upload paths.
 - AI Chat Context: plain text chat requests now send the current input directly by default; conversation history is only included for iterative/continue-style prompts, and Flow Text Chat remains unaffected.
 - Flow/Text Chat UI: run-button credit tooltip now uses the same localized `消耗/积分` wording as other Flow run buttons.
+- Flow/Node Palette: `generateRef` and `sora2Video` are hidden from the node palette and Quick Connect, matching the `lt-dev9` selective-migration visibility rules.
 - Flow/Node Groups: Delete/Backspace and node context-menu delete now expand selected `nodeGroup` removals to child nodes and related edges, preventing group shells from being deleted alone.
 - Flow/Node Groups: normal group drag now snapshots child start positions at drag start and applies child deltas from that snapshot, avoiding per-frame node-map rebuilds while keeping group children moving with the group.
 - Flow Clipboard: Ctrl/Cmd+C and node context-menu copy now expand copied `nodeGroup` selections to child nodes/internal edges and preserve remapped `childNodeIds` on paste.
@@ -40,13 +41,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Workspace Route Switch: stable route UI is aligned with `lt-dev9` using the amber Crown treatment instead of the green Star treatment.
 - Canvas/AI Edit: Shift precise-local-edit now carries crop canvas bounds/pixel aspect into AI Chat and uses `precise-edit`/`lockToBounds` to keep the predictive placeholder on the selected region without matrix reflow.
 - Canvas/HD Upscale: HD upscale now creates a predictive placeholder and sends the 4K result to canvas instead of downloading it directly.
+- Canvas/Image Expand: image expand UI now uses the dedicated Expand icon, red-mask prompt/fill semantics, releases the expand selector operation lock, and skips inactive image overlay rendering.
 - Flow/Image Split: downstream consumers now use the shared Image Split handle helper for `imageN/imgN` inputs; `VideoToGif` shows run credits and `VideoNode` isolates native video controls from canvas drag/pan gestures.
 - Global History: image history UI now supports video media records with shared media helpers, video thumbnails/playback in list/detail views, and AI Chat Seedance video success writes to global history.
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Text Route Pricing: `gemini-text` and `gemini-prompt-optimize` now both use flat route pricing by channel for Fast/Pro/Ultra (`normal=5`, `stable=10`) in preview and deduction.
-- Flow/Text Nodes: Text Chat node chrome no longer shows the bottom web-search checkbox/status row; Image Chat keeps the English title, Run, and Skill chrome while localizing helper/placeholder copy in zh mode.
+- Flow/Text Nodes: Text Chat node chrome no longer shows the bottom web-search checkbox/status row, runs with web search disabled, and no longer uses dynamic node resizing/internals syncing; Image Chat keeps the English title, Run, and Skill chrome while localizing helper/placeholder copy in zh mode.
 - Flow/Text Nodes: `PromptOptimize` now has a working Fast/Pro/Ultra node-level model switch (synced to backend request params), and `PromptOptimize` + `TextChat` Run-button credit badge interaction is aligned with image-node behavior.
 - Flow/Text Nodes: `TextChat` now supports built-in Skill presets (Custom, Shot Split, Prompt Optimize, CN/EN Convert) and `PromptOptimize`/`TextChat` consume optimistic upstream text patches so Run uses the latest connected text.
 - Flow/Storyboard Split: `StoryboardSplitNode` now supports a custom split-format sample (`分镜1`, `#1`, `|**1**|` etc.), auto-sizes output handles from parsed segments, and prunes stale prompt outputs/edges after re-splitting.

@@ -141,7 +141,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
 
         {/* 内容区 */}
         <div className="flex-1 overflow-auto p-4 flex gap-4">
-          {/* 图片预览 */}
+          {/* 媒体预览 */}
           <div className="flex-1 flex items-center justify-center bg-black/50 rounded-lg">
             {isVideo ? (
               mediaUrl ? (
