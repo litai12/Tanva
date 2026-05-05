@@ -855,8 +855,8 @@ Rules:
               status === 'running' || isInvoking
                 ? 'Running...'
                 : resolvedRunCredits
-                ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
-                : lt('Run chat', 'Run chat')
+                ? `${lt('消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
+                : lt('运行对话', 'Run chat')
             }
             style={{
               fontSize: 12,

@@ -442,6 +442,12 @@ type MessageOverride = {
   aiMessageId: string;
 };
 
+type TextResponseOptions = {
+  override?: MessageOverride;
+  metrics?: ProcessMetrics;
+  includeConversationContext?: boolean;
+};
+
 type ExecuteProcessFlowOptions = {
   override?: MessageOverride;
   selectedTool?: AvailableTool | null;
@@ -2641,7 +2647,7 @@ interface AIChatState {
   // 文本对话功能
   generateTextResponse: (
     prompt: string,
-    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+    options?: TextResponseOptions
   ) => Promise<void>;
 
   // 视频生成功能
@@ -6263,7 +6269,7 @@ export const useAIChatStore = create<AIChatState>()(
         // 文本对话功能（支持并行）
         generateTextResponse: async (
           prompt: string,
-          options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+          options?: TextResponseOptions
         ) => {
           // 🔥 并行模式：不检查全局状态
 
@@ -6331,7 +6337,12 @@ export const useAIChatStore = create<AIChatState>()(
             // 调用后端API生成文本
             const state = get();
             const modelToUse = getTextModelForProvider(state.aiProvider);
-            const contextPrompt = contextManager.buildContextPrompt(prompt);
+            const includeConversationContext =
+              options?.includeConversationContext ??
+              contextManager.detectIterativeIntent(prompt);
+            const requestPrompt = includeConversationContext
+              ? contextManager.buildContextPrompt(prompt)
+              : prompt;
             const providerOptions = withBananaRouteProviderOptions(
               state.aiProvider,
               undefined,
@@ -6343,7 +6354,7 @@ export const useAIChatStore = create<AIChatState>()(
               `generateTextResponse calling API (${modelToUse})`
             );
             const result = await generateTextResponseViaAPI({
-              prompt: contextPrompt,
+              prompt: requestPrompt,
               model: modelToUse,
               aiProvider: state.aiProvider,
               enableWebSearch: state.enableWebSearch,
@@ -7299,7 +7310,11 @@ export const useAIChatStore = create<AIChatState>()(
           // 总图像数量 = 显式图片 + 缓存图片（如果存在）
           const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
 
-          const toolSelectionContext = contextManager.buildContextPrompt(input);
+          const shouldIncludeToolSelectionContext =
+            isIterative || totalImageCount > 0 || Boolean(state.sourcePdfForAnalysis);
+          const toolSelectionContext = shouldIncludeToolSelectionContext
+            ? contextManager.buildContextPrompt(input)
+            : input;
           const isSingleExplicitImage =
             explicitImageCount === 1 &&
             state.sourceImagesForBlending.length === 0;
@@ -7614,7 +7629,11 @@ export const useAIChatStore = create<AIChatState>()(
                   await store.generateTextResponse(parameters.prompt, {
                     override: messageOverride,
                     metrics,
+                    includeConversationContext: isIterative,
                   });
+                  if (!isIterative) {
+                    contextManager.resetIteration();
+                  }
                   logProcessStep(metrics, "generateTextResponse finished");
                 } catch (error) {
                   console.error("❌ generateTextResponse 执行失败:", error);

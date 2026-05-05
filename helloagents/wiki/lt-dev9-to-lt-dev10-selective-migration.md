@@ -32,6 +32,8 @@
 | P1 | 顶部路线切换 | 工作区右上角 Nano Banana/Gemini/GPT-Image-2 普通/尊享路线快捷切换，显示当日成功率；尊享路线恢复 amber Crown 样式。 | `FloatingHeader.tsx` | 已 build |
 | P1 | Canvas 精确改图/高清放大 | Shift 局部修改传递裁剪 bounds、像素尺寸和比例；`precise-edit/lockToBounds` 原位占位；高清放大改为发送到画布而不是下载。 | `DrawingController.tsx`、`aiChatStore.ts`、`useQuickImageUpload.ts`、`ImageContainer.tsx` | 已 build |
 | P1 | Global History 媒体 | 全局历史支持图片/视频统一展示、封面/播放/详情播放；AI Chat Seedance 和 Flow 视频成功输出写入远程视频历史。 | `historyMedia.ts`、`GlobalImageHistoryPage.tsx`、`GlobalImageDetailModal.tsx`、`imageHistoryService.ts` | 已 build |
+| P1 | AI Chat 文本上下文策略 | 普通 Text 请求默认只发送当前输入；只有命中继续/调整/再试等迭代意图时才拼接会话历史，避免无关历史污染当前问题；Flow Text Chat 不受影响。 | `aiChatStore.ts` | 已 build |
+| P1 | Flow 节点纯 UI 小补齐 | `TextChatNode` 运行按钮积分 tooltip 与其他 Flow 节点统一为本地化的“消耗/积分”文案；剩余 Flow 节点差异已筛过，涉及保存/预览资产链路的项暂不迁移。 | `TextChatNode.tsx` | 已 build |
 | P2 | 视频节点体验 | 视频节点运行进度改走共享进度条；`VideoToGif` 显示积分；原生视频控件隔离拖拽/滚轮事件；HappyHorse 支持 taskId 轮询恢复。 | `GenericVideoNode.tsx`、`VideoNode.tsx`、`VideoToGifNode.tsx`、`HappyhorseR2VNode.tsx` | 已 build |
 | P2 | Project Manager | 项目管理弹窗每页 12 项；当前页懒加载内容并从 `assets` / Flow 节点抽取图片宫格；重命名/删除改为悬浮 icon。 | `ProjectManagerModal.tsx` | 已 build |
 | P2 | Canvas 箭头工具 | 新增箭头绘制模式，工具栏入口、绘制 hook、交互控制、图层类型/icon 已接入；不改变设计 JSON 规则。 | `toolStore.ts`、`ToolBar.tsx`、`useDrawingTools.ts`、`LayerPanel.tsx` | 已 build |
@@ -42,8 +44,6 @@
 
 | 优先级 | 候选项 | 当前建议 | 风险/注意点 |
 |---|---|---|---|
-| P1 | AI Chat 普通文本上下文注入策略 | 继续评估是否加开关：普通文本默认只发当前输入，迭代模式或显式继续时才拼历史。 | 可能影响连续对话体验；需区分 AI Chat 与 Flow Text Chat。 |
-| P1 | Flow 节点纯 UI/运行体验差异 | 继续筛 `frontend/src/components/flow/nodes/*` 中不碰保存结构的差异。 | 只迁移局部 UI、文案、按钮、运行态；避免引入新服务依赖。 |
 | P2 | Global History / Library 媒体体验补齐 | 可继续做筛选、详情、发送/下载等展示侧补齐。 | 不迁移远程缩略图转存，不改资产持久化。 |
 | P2 | Flow group 拖拽/复制/删除交互 | 可单独评估组节点更完整的交互迁移。 | 涉及 ReactFlow 选择、复制、边恢复，回归面较大。 |
 | P2 | Video Analyze route-aware billing/providerOptions 全量对齐 | 需要再对照 lt-dev9 后端计费和 provider 参数差异。 | 牵涉积分、供应商路由和失败退款，需单独验证。 |

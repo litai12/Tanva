@@ -9,6 +9,7 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
+- AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；只有命中“继续/调整/再试”等迭代意图时才通过 `contextManager.buildContextPrompt` 拼接对话历史。Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
 - AI 图片工具链路（融合/编辑）在源图为远程 URL 时仅对白名单 host 直传 `sourceImageUrls/sourceImageUrl`；非白名单远程图会先尝试在前端读取并上传 OSS，再传可持久化 URL，避免后端 `imageUrl host not allowed`。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
 

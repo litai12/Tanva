@@ -21,6 +21,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Context: plain text chat requests now send the current input directly by default; conversation history is only included for iterative/continue-style prompts, and Flow Text Chat remains unaffected.
+- Flow/Text Chat UI: run-button credit tooltip now uses the same localized `消耗/积分` wording as other Flow run buttons.
 - Flow/Node Groups: Delete/Backspace and node context-menu delete now expand selected `nodeGroup` removals to child nodes and related edges, preventing group shells from being deleted alone.
 - Flow/Node Groups: normal group drag now snapshots child start positions at drag start and applies child deltas from that snapshot, avoiding per-frame node-map rebuilds while keeping group children moving with the group.
 - Flow Clipboard: Ctrl/Cmd+C and node context-menu copy now expand copied `nodeGroup` selections to child nodes/internal edges and preserve remapped `childNodeIds` on paste.
