@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
+- Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).
 - Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
 - Canvas/Performance: `ImageContainer` now skips high-frequency viewport subscriptions for inactive image overlays, `GridRenderer` reduces low-zoom grid work and coalesces zoom redraws, and Flow node-internals updates are deferred while dragging.
 - Flow/Runtime: `GenerationProgressBar` now keeps simulated progress stable per node `runKey` across rerenders, and Flow node groups can stop pending group runs after the current child node finishes.

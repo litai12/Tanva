@@ -73,6 +73,14 @@ const SOURCE_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
 
 type LibraryTab = "global-history" | "project-history" | "manual";
 const HISTORY_PAGE_SIZE = 20;
+const LIBRARY_DETAIL_PANEL_TOP = 185;
+const LIBRARY_DETAIL_PANEL_BOTTOM_GAP = 24;
+const LIBRARY_DETAIL_PANEL_STYLE: React.CSSProperties = {
+  top: LIBRARY_DETAIL_PANEL_TOP,
+  maxHeight: `calc(100vh - ${
+    LIBRARY_DETAIL_PANEL_TOP + LIBRARY_DETAIL_PANEL_BOTTOM_GAP
+  }px)`,
+};
 
 type HistoryPageSlot = number | "ellipsis-left" | "ellipsis-right";
 
@@ -145,9 +153,6 @@ const LibraryPanel: React.FC = () => {
     React.useState<PersonalLibraryAsset | null>(null);
   const [selectedHistoryItem, setSelectedHistoryItem] =
     React.useState<GlobalImageHistoryItem | null>(null);
-  const [detailPosition, setDetailPosition] = React.useState<{
-    top: number;
-  } | null>(null);
   const [previewState, setPreviewState] = React.useState<{
     src: string;
     title: string;
@@ -223,8 +228,13 @@ const LibraryPanel: React.FC = () => {
         .getState()
         .assets.find((item) => item.id === assetId);
       if (current) {
+        const nextAsset: PersonalLibraryAsset = {
+          ...current,
+          thumbnail,
+          updatedAt: Date.now(),
+        };
         void personalLibraryApi
-          .upsert({ ...(current as any), thumbnail, updatedAt: Date.now() })
+          .upsert(nextAsset)
           .catch((error) => {
             console.warn("[LibraryPanel] 同步 3D 缩略图到个人库失败:", error);
           });
@@ -305,7 +315,7 @@ const LibraryPanel: React.FC = () => {
         console.warn("[LibraryPanel] 同步图片资源到个人库失败:", error);
       });
     },
-    [addAsset]
+    [addAsset, lt]
   );
 
   const upsertModelAsset = React.useCallback(
@@ -349,7 +359,7 @@ const LibraryPanel: React.FC = () => {
           });
       }
     },
-    [addAsset, handleModelThumbnailUpdate]
+    [addAsset, handleModelThumbnailUpdate, lt]
   );
 
   const handleUploadFiles = async (
@@ -751,23 +761,12 @@ const LibraryPanel: React.FC = () => {
     [activeTab, lt, openImagePreview]
   );
 
-  const handleHistoryItemClick = (
-    item: GlobalImageHistoryItem,
-    event: React.MouseEvent
-  ) => {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    setDetailPosition({ top: rect.top });
+  const handleHistoryItemClick = (item: GlobalImageHistoryItem) => {
     setSelectedHistoryItem(item);
     setSelectedAsset(null);
   };
 
-  const handleAssetClick = (
-    asset: PersonalLibraryAsset,
-    event: React.MouseEvent
-  ) => {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    // 计算详情面板的位置，使其与点击的缩略图对齐
-    setDetailPosition({ top: rect.top });
+  const handleAssetClick = (asset: PersonalLibraryAsset) => {
     setSelectedAsset(asset);
     setSelectedHistoryItem(null);
   };
@@ -949,7 +948,7 @@ const LibraryPanel: React.FC = () => {
         handleAddToLibrary as EventListener
       );
     };
-  }, [addAsset]);
+  }, [addAsset, lt]);
 
   // 点击外部关闭详情面板
   React.useEffect(() => {
@@ -1161,11 +1160,8 @@ const LibraryPanel: React.FC = () => {
       {activeTab === "manual" && selectedAsset && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-hidden'
-          style={{
-            top: detailPosition?.top ?? 100,
-            maxHeight: "calc(100vh - 100px)",
-          }}
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           {/* 预览图 */}
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
@@ -1287,11 +1283,8 @@ const LibraryPanel: React.FC = () => {
         selectedHistoryItem && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-hidden'
-          style={{
-            top: detailPosition?.top ?? 100,
-            maxHeight: "calc(100vh - 100px)",
-          }}
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
             <SmartImage
@@ -1494,7 +1487,7 @@ const LibraryPanel: React.FC = () => {
                       className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
                         isSelected ? "ring-2 ring-blue-500" : ""
                       }`}
-                      onClick={(e) => handleAssetClick(asset, e)}
+                      onClick={() => handleAssetClick(asset)}
                       onDoubleClick={() => handleAssetDoubleClick(asset)}
                       onDragStart={(e) => handleDragStart(asset, e)}
                     >
@@ -1589,7 +1582,7 @@ const LibraryPanel: React.FC = () => {
                       data-library-thumbnail
                       draggable
                       className='aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative'
-                      onClick={(event) => handleHistoryItemClick(item, event)}
+                      onClick={() => handleHistoryItemClick(item)}
                       onDoubleClick={() => handleHistoryItemDoubleClick(item)}
                       onDragStart={(event) => handleHistoryDragStart(item, event)}
                       title={

@@ -54,6 +54,7 @@
 ## 2026-05-05 lt-dev9 选择性迁移补充
 - `POST /api/ai/text-chat` 在非 Gemini provider 路径会把 provider 返回的 `webSearchResult` 与 `metadata` 一并透传给前端，保持 AI Chat/Flow 文本节点元数据链路一致。
 - `buildCreditRequestParams` 会保留调用方显式传入的 `channelHint`；仅当 Banana route 或 Banana/Nano provider 有更明确路线时才覆盖。
+- `POST /api/ai/analyze-video` 计费对齐 `lt-dev9`：节点默认 `60` 积分，且按 Banana route/channel 与 Fast/Pro/Ultra 档位动态扣费（normal `60/90/120`，stable `80/120/160`）。
 - `VideoProviderService` 的远程视频转存缓存改为 `{ url, touchedAt }`，缓存命中会刷新访问时间，并按 1 小时 TTL / 500 条上限清理，避免长时间运行的后端进程无限增长。
 
 ## 配置项（以代码与环境为准�?

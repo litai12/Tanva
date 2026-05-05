@@ -1260,6 +1260,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   nano2: 20, // Nano Banana 2 生图
   gptImage2: 40, // Gpt-Imgae-2 生图
   seedream5: 30, // Seedream 5.0 生图
+  videoAnalyze: 60, // 视频分析节点 - 按模型档位与渠道动态计费
   three: 200, // 三维节点 - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
@@ -1791,6 +1792,22 @@ const BANANA_TEXT_ROUTE_PRICING: Record<
   },
 };
 
+const VIDEO_ANALYZE_ROUTE_PRICING: Record<
+  "normal" | "stable",
+  Record<BananaPricingTier, number>
+> = {
+  normal: {
+    fast: 60,
+    pro: 90,
+    ultra: 120,
+  },
+  stable: {
+    fast: 80,
+    pro: 120,
+    ultra: 160,
+  },
+};
+
 // GPT-Image-2 在 Stable(尊享/腾讯) 路由下独立计费
 const GPT_IMAGE_2_STABLE_ROUTE_PRICING: Record<"1K" | "2K" | "4K", number> = {
   "1K": 40,
@@ -2224,6 +2241,21 @@ const resolveStableRouteCredits = (params: {
       if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
         resolvedCredits = configuredCredits;
       }
+    }
+  }
+
+  if (normalizedType === "videoAnalyze") {
+    const providerKey = String(providerForPricing || "").trim().toLowerCase();
+    const tier: BananaPricingTier =
+      providerKey === "banana-2.5"
+        ? "fast"
+        : providerKey === "banana-3.1" || providerKey === "nano2"
+        ? "ultra"
+        : resolveBananaPricingTierByModel(globalImageModel) || "pro";
+    const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
+    const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+    if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
+      resolvedCredits = configuredCredits;
     }
   }
 
@@ -20173,7 +20205,7 @@ function FlowInner() {
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodeWithHandlersCacheRef = React.useRef<
-    Map<string, { source: RFNode; enhanced: RFNode }>
+    Map<string, { source: RFNode; enhanced: RFNode; signature: string }>
   >(new Map());
   React.useEffect(() => {
     nodeWithHandlersCacheRef.current.clear();
@@ -20203,12 +20235,24 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(
     () => {
       const prevCache = nodeWithHandlersCacheRef.current;
-      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode }>();
+      const nextCache = new Map<string, { source: RFNode; enhanced: RFNode; signature: string }>();
+      const pricingSignature = [
+        aiProvider,
+        bananaImageRoute,
+        imageSize || "",
+        imageModel || "",
+        isFlowBlackTheme ? "dark" : "light",
+      ].join("|");
 
       const rendered = nodes.map((n) => {
         const cacheKey = String(n.id);
         const cached = prevCache.get(cacheKey);
-        if (cached && cached.source === (n as RFNode) && n.type !== FLOW_GROUP_NODE_TYPE) {
+        if (
+          cached &&
+          cached.source === (n as RFNode) &&
+          cached.signature === pricingSignature &&
+          n.type !== FLOW_GROUP_NODE_TYPE
+        ) {
           nextCache.set(cacheKey, cached);
           return cached.enhanced;
         }
@@ -20294,6 +20338,7 @@ function FlowInner() {
           n.type === "gptImage2" ||
           n.type === "textChat" ||
           n.type === "promptOptimize" ||
+          n.type === "videoAnalyze" ||
           n.type === "seedream5" ||
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||
@@ -20343,6 +20388,7 @@ function FlowInner() {
         nextCache.set(cacheKey, {
           source: n as RFNode,
           enhanced: enhancedNode,
+          signature: pricingSignature,
         });
         return enhancedNode;
       });

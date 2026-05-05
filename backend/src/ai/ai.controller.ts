@@ -5819,6 +5819,14 @@ export class AiController {
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
+    const videoProviderOptions = {
+      ...(dto.providerOptions || {}),
+      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
+      banana: {
+        ...((dto.providerOptions?.banana as Record<string, any> | undefined) || {}),
+        ...(dto.bananaImageRoute ? { imageRoute: dto.bananaImageRoute } : {}),
+      },
+    };
 
     return this.withCredits(req, 'gemini-video-analyze', model, async () => {
       const startTime = Date.now();
@@ -5838,7 +5846,7 @@ export class AiController {
         // follows providerOptions + backend supplier settings consistently.
         const bananaVideoMode =
           providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
-            ? await this.getBananaImageProviderMode(dto.providerOptions)
+            ? await this.getBananaImageProviderMode(videoProviderOptions)
             : null;
         const allow147DirectVideoUnderstanding =
           bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
@@ -5967,7 +5975,7 @@ export class AiController {
               prompt: framePrompt,
               sourceImage: frames[i],
               model: visionModel,
-              providerOptions: dto.providerOptions,
+              providerOptions: videoProviderOptions,
             });
             if (!result.success || !result.data) {
               throw new ServiceUnavailableException(
@@ -5991,7 +5999,7 @@ export class AiController {
           const textResult = await provider.generateText({
             prompt: summaryPrompt,
             model,
-            providerOptions: dto.providerOptions,
+            providerOptions: videoProviderOptions,
           });
           if (!textResult.success || !textResult.data) {
             throw new ServiceUnavailableException(
@@ -6108,7 +6116,15 @@ export class AiController {
           }
         } catch {}
       }
-    }, 1, 0);
+    }, 1, 0, undefined, this.buildCreditRequestParams(providerName, {
+      model,
+      ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
+      ...(dto.channelHint ? { channelHint: dto.channelHint } : {}),
+      nodeConfigKey: 'videoAnalyze',
+      nodeConfigNameZh: '视频分析节点',
+      nodeConfigNameEn: 'Video Analysis',
+      billingTitleSource: 'node',
+    }, videoProviderOptions));
   }
 
   /**
