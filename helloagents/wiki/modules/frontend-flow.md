@@ -1,6 +1,10 @@
 # 前端模块：Flow（frontend-flow�?
 
 ## 2026-05-06 Update
+- Canvas → Flow 视口同步现在会优先以当前选中 Flow 节点为锚点，把 ReactFlow 的 `x/y` 平移值对齐到物理像素，减少同一缩放倍率下文字、图标、边框因半像素 transform 整体发虚。
+- Flow viewport 不再长期设置 `will-change: transform`，避免浏览器把整层文本/图片持续合成栅格化后出现静止态发虚；视口原点仍保持与 Canvas 同步所需的 `transform-origin: 0 0`。
+- Flow 选中连线的红色删除按钮改为 `pointerdown` 即派发 `flow:deleteEdge`，由 `FlowOverlay` 本地受控 `edges` 状态统一删除、清理标签编辑器并触发 `flow:edgesChange`；避免自定义 Edge 直接调用 ReactFlow instance setter 时被受控状态回灌或 click 抑制导致删除无效。
+- GPT-Image-2 Flow 节点从隐藏集合恢复展示；节点添加面板与 Quick Connect 会重新显示 `gptImage2`，运行逻辑仍复用 `Nano2Node` 的 GPT-Image-2 分支。
 - `Generate`、`Multi Generate`、`Generate Refer` 的 Run 按钮运行态保留 `Run` 文案，只通过禁用灰色态表达运行中，避免按钮显示 `Running...`。
 
 ## 2026-05-05 Update

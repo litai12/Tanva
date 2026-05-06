@@ -120,6 +120,23 @@ export class PaymentService implements OnModuleInit {
     return { ...base, ...patch };
   }
 
+  private getMembershipOrderPlanName(order: {
+    orderType: string;
+    businessCode: string | null;
+    planSnapshot: Prisma.JsonValue | null;
+  }): string | null {
+    if (order.orderType !== 'membership') {
+      return null;
+    }
+
+    const snapshot =
+      order.planSnapshot && typeof order.planSnapshot === 'object' && !Array.isArray(order.planSnapshot)
+        ? (order.planSnapshot as Record<string, unknown>)
+        : null;
+    const snapshotName = typeof snapshot?.name === 'string' ? snapshot.name.trim() : '';
+    return snapshotName || order.businessCode || '会员订阅';
+  }
+
   /**
    * 🛡️ 密钥标准化函数 (PKCS1 专用版)
    */
@@ -870,6 +887,7 @@ export class PaymentService implements OnModuleInit {
           paymentMethod: order.paymentMethod,
           orderType: order.orderType,
           businessCode: order.businessCode,
+          planName: this.getMembershipOrderPlanName(order),
           membershipPlanId: order.membershipPlanId,
           subscriptionId: order.subscriptionId,
           status: order.status,
@@ -917,6 +935,7 @@ export class PaymentService implements OnModuleInit {
           order.orderType === 'membership'
             ? order.businessCode || '会员订阅'
             : `积分充值（${order.credits} 积分）`,
+        planName: this.getMembershipOrderPlanName(order),
         amount: Number(order.amount),
         credits: order.credits,
         paymentMethod: order.paymentMethod,

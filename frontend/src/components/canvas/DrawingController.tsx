@@ -8842,7 +8842,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onTextResizeStart={simpleTextTool.startTextResize}
         onTextResize={simpleTextTool.resizeTextDrag}
         onTextResizeEnd={simpleTextTool.endTextResize}
-        onTextDoubleClick={simpleTextTool.startEditText}
       />
 
       {/* 简单文本编辑器 */}

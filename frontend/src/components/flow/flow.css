@@ -13,8 +13,19 @@
 .tanva-flow-overlay .react-flow__node-resizer-handle,
 .tanva-flow-overlay .tanva-flow-toolbar,
 .tanva-flow-overlay .tanva-add-panel,
+.tanva-flow-overlay .tanva-flow-edge-delete,
+.tanva-flow-overlay .tanva-flow-edge-delete-button,
 .tanva-flow-overlay .tanva-edge-label-editor {
   pointer-events: auto;
+}
+
+.tanva-flow-overlay .tanva-flow-edge-delete,
+.tanva-flow-overlay .tanva-flow-edge-delete * {
+  pointer-events: auto;
+}
+
+.tanva-flow-overlay .tanva-flow-edge-delete-button {
+  touch-action: none;
 }
 
 .tanva-flow-overlay .react-flow__node-nodeGroup {
@@ -26,7 +37,6 @@
 
 .tanva-flow-overlay .react-flow__viewport {
   transform-origin: 0 0;
-  will-change: transform;
 }
 
 .tanva-flow-overlay .tanva-node-group-header {

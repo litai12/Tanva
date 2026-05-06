@@ -3027,9 +3027,14 @@ export class BananaProvider implements IAIProvider {
   ): ToolSelectionResult | null {
     const prompt = (request.prompt || "").trim();
     const lowerPrompt = prompt.toLowerCase();
+    const contextText =
+      typeof request.context === "string" ? request.context.toLowerCase() : "";
     const explicitImageCount = request.imageCount ?? 0;
     const hasImageInput =
       !!request.hasImages || !!request.hasCachedImage || explicitImageCount > 0;
+    const contextSuggestsCachedImageEdit =
+      contextText.includes("可能需要编辑缓存图像") ||
+      contextText.includes("may need to edit the cached image");
 
     const select = (
       selectedTool: string,
@@ -3103,6 +3108,12 @@ export class BananaProvider implements IAIProvider {
     const editKeywords = [
       "\u7f16\u8f91",
       "\u4fee\u6539",
+      "\u6539\u6210",
+      "\u6539\u4e3a",
+      "\u6539\u6587\u5b57",
+      "\u6587\u5b57\u6539",
+      "\u5b57\u6539",
+      "\u6362\u6210",
       "\u4fee\u56fe",
       "\u62a0\u56fe",
       "\u53bb\u6389",
@@ -3119,8 +3130,15 @@ export class BananaProvider implements IAIProvider {
       "replace",
       "erase",
       "retouch",
+      "change text",
+      "replace text",
+      "text to",
     ] as const;
-    if (hasImageInput && this.includesAny(lowerPrompt, editKeywords)) {
+    if (
+      hasImageInput &&
+      (this.includesAny(lowerPrompt, editKeywords) ||
+        contextSuggestsCachedImageEdit)
+    ) {
       const result = select(
         "editImage",
         "Detected image-edit intent with image input.",
@@ -3296,7 +3314,14 @@ ${vectorRule ? `${vectorRule}\n\n` : ""}Return strict JSON only:
           const result = await this.withTimeout(
             this.makeTextRequest(
               toolSelectionModel,
-              [{ text: systemPrompt }, { text: `User input: ${request.prompt}` }],
+              [
+                { text: systemPrompt },
+                {
+                  text: request.context
+                    ? `Context:\n${request.context}\n\nUser input: ${request.prompt}`
+                    : `User input: ${request.prompt}`,
+                },
+              ],
               { responseModalities: ["Text"] },
               channel
             ),

@@ -207,6 +207,10 @@ import {
   resolveFlowModelProvider,
 } from "@/utils/flowModelProvider";
 import {
+  canvasStateToFlowViewport,
+  type FlowViewportAnchor,
+} from "@/utils/flowViewportTransform";
+import {
   detectAlignments,
   deduplicateAlignments,
   type AlignmentLine,
@@ -993,6 +997,16 @@ const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
   padding: 0,
 };
 
+const FLOW_DELETE_EDGE_EVENT = "flow:deleteEdge";
+
+const stopFlowEdgeDeleteEvent = (event: React.SyntheticEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    event.nativeEvent?.stopImmediatePropagation?.();
+  } catch {}
+};
+
 const CustomEdge = React.memo(function CustomEdge({
   id,
   sourceX,
@@ -1006,8 +1020,6 @@ const CustomEdge = React.memo(function CustomEdge({
   markerEnd,
   data,
 }: EdgeProps) {
-  const { setEdges } = useReactFlow();
-
   const [edgePath] = getBezierPath({
     sourceX,
     sourceY,
@@ -1028,19 +1040,24 @@ const CustomEdge = React.memo(function CustomEdge({
     }),
     [isEraserHovered, selected, style]
   );
+  const deleteDispatchedRef = React.useRef(false);
+  const edgeIdForDelete = String(data?.originalEdgeId || id);
 
   const handleDelete = React.useCallback(
-    (event: React.MouseEvent) => {
-      event.stopPropagation();
-      setEdges((edges) => edges.filter((e) => e.id !== id));
-      try {
-        historyService.commit("flow-edge-delete").catch(() => {});
-      } catch {}
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("flow:edgesChange"));
+    (event: React.SyntheticEvent) => {
+      stopFlowEdgeDeleteEvent(event);
+      if (deleteDispatchedRef.current) return;
+      deleteDispatchedRef.current = true;
+      window.dispatchEvent(
+        new CustomEvent(FLOW_DELETE_EDGE_EVENT, {
+          detail: { edgeId: edgeIdForDelete },
+        })
+      );
+      window.setTimeout(() => {
+        deleteDispatchedRef.current = false;
       }, 0);
     },
-    [id, setEdges]
+    [edgeIdForDelete]
   );
 
   return (
@@ -1062,11 +1079,21 @@ const CustomEdge = React.memo(function CustomEdge({
               pointerEvents: "all",
               zIndex: 10000,
             }}
-            className='nodrag nopan'
+            className='tanva-flow-edge-delete nodrag nopan'
+            data-prevent-add-panel
           >
             <button
-              onMouseDown={(e) => e.stopPropagation()}
+              type='button'
+              className='tanva-flow-edge-delete-button nodrag nopan'
+              onPointerDownCapture={handleDelete}
+              onMouseDownCapture={handleDelete}
+              onPointerUpCapture={stopFlowEdgeDeleteEvent}
+              onMouseUpCapture={stopFlowEdgeDeleteEvent}
               onClick={handleDelete}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                handleDelete(event);
+              }}
               style={EDGE_DELETE_BUTTON_STYLE}
               title='删除连线'
             >
@@ -2157,7 +2184,6 @@ const HIDDEN_FLOW_NODE_TYPES = new Set<FlowNodeType>([
   "generateRef",
   "kling26Video",
   "nano2",
-  "gptImage2",
   "sora2Video",
 ]);
 
@@ -4060,6 +4086,55 @@ function FlowInner() {
   React.useEffect(() => {
     edgesRef.current = edges as Edge[];
   }, [edges]);
+
+  const flowViewportAnchorKey = React.useMemo(() => {
+    const selectedNode =
+      (nodes as RFNode[]).find((node) => node?.selected) ||
+      (nodes as RFNode[]).find((node) =>
+        lastSelectedFlowNodeIdsRef.current.includes(String(node?.id || ""))
+      );
+    if (!selectedNode) return "";
+    const absolutePosition = (selectedNode as {
+      positionAbsolute?: { x?: unknown; y?: unknown };
+    }).positionAbsolute;
+    const rawX =
+      typeof absolutePosition?.x === "number"
+        ? absolutePosition.x
+        : selectedNode.position?.x;
+    const rawY =
+      typeof absolutePosition?.y === "number"
+        ? absolutePosition.y
+        : selectedNode.position?.y;
+    const x = typeof rawX === "number" && Number.isFinite(rawX) ? rawX : 0;
+    const y = typeof rawY === "number" && Number.isFinite(rawY) ? rawY : 0;
+    return `${selectedNode.id}:${x}:${y}`;
+  }, [nodes]);
+
+  const getFlowViewportAnchor = React.useCallback((): FlowViewportAnchor | null => {
+    const currentNodes = nodesRef.current || [];
+    const selectedNode =
+      currentNodes.find((node) => node?.selected) ||
+      currentNodes.find((node) =>
+        lastSelectedFlowNodeIdsRef.current.includes(String(node?.id || ""))
+      );
+    if (!selectedNode) return null;
+    const absolutePosition = (selectedNode as {
+      positionAbsolute?: { x?: unknown; y?: unknown };
+    }).positionAbsolute;
+    const rawX =
+      typeof absolutePosition?.x === "number"
+        ? absolutePosition.x
+        : selectedNode.position?.x;
+    const rawY =
+      typeof absolutePosition?.y === "number"
+        ? absolutePosition.y
+        : selectedNode.position?.y;
+    return {
+      x: typeof rawX === "number" && Number.isFinite(rawX) ? rawX : 0,
+      y: typeof rawY === "number" && Number.isFinite(rawY) ? rawY : 0,
+    };
+  }, []);
+
   // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
   const altDragStartRef = React.useRef<any>(null);
   const groupDragSnapshotRef = React.useRef<any>(null);
@@ -5608,6 +5683,7 @@ function FlowInner() {
   >(() => new Set());
   const isFlowEdgeEraserActiveRef = React.useRef(isFlowEdgeEraserActive);
   const suppressEraserClickRef = React.useRef(false);
+  const suppressEdgeDeleteClickRef = React.useRef(false);
 
   const setEraserHoverEdgeIdsIfChanged = React.useCallback(
     (nextIds: Set<string>) => {
@@ -5637,22 +5713,19 @@ function FlowInner() {
     []
   );
 
-  React.useEffect(() => {
-    isFlowEdgeEraserActiveRef.current = isFlowEdgeEraserActive;
-    if (!isFlowEdgeEraserActive) {
-      setEraserHoverEdgeIdsIfChanged(new Set());
-      clearPaperEraserTrails();
-    }
-  }, [isFlowEdgeEraserActive, setEraserHoverEdgeIdsIfChanged]);
-
-  const deleteFlowEdgesByEraser = React.useCallback(
-    (edgeIds: Set<string>) => {
-      if (!edgeIds.size) return 0;
+  const deleteFlowEdgesByIds = React.useCallback(
+    (edgeIds: Iterable<unknown>) => {
+      const requestedIds = new Set<string>();
+      Array.from(edgeIds || []).forEach((value) => {
+        const edgeId = String(value || "").trim();
+        if (edgeId) requestedIds.add(edgeId);
+      });
+      if (!requestedIds.size) return 0;
 
       const existingIds = new Set(
         (edgesRef.current || []).map((edge) => String(edge.id))
       );
-      const idsToRemove = Array.from(edgeIds).filter((edgeId) =>
+      const idsToRemove = Array.from(requestedIds).filter((edgeId) =>
         existingIds.has(edgeId)
       );
       if (!idsToRemove.length) return 0;
@@ -5673,6 +5746,59 @@ function FlowInner() {
     },
     [setEdges]
   );
+
+  React.useEffect(() => {
+    isFlowEdgeEraserActiveRef.current = isFlowEdgeEraserActive;
+    if (!isFlowEdgeEraserActive) {
+      setEraserHoverEdgeIdsIfChanged(new Set());
+      clearPaperEraserTrails();
+    }
+  }, [isFlowEdgeEraserActive, setEraserHoverEdgeIdsIfChanged]);
+
+  const deleteFlowEdgesByEraser = React.useCallback(
+    (edgeIds: Set<string>) => {
+      return deleteFlowEdgesByIds(edgeIds);
+    },
+    [deleteFlowEdgesByIds]
+  );
+
+  React.useEffect(() => {
+    const handleDeleteEdge = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const edgeIds = Array.isArray(detail.edgeIds)
+        ? detail.edgeIds
+        : [detail.edgeId];
+      const removed = deleteFlowEdgesByIds(edgeIds);
+      if (removed <= 0) return;
+
+      suppressEdgeDeleteClickRef.current = true;
+      window.setTimeout(() => {
+        suppressEdgeDeleteClickRef.current = false;
+      }, 250);
+
+      try {
+        historyService.commit("flow-edge-delete").catch(() => {});
+      } catch {}
+    };
+
+    const suppressDeleteClick = (event: MouseEvent) => {
+      if (!suppressEdgeDeleteClickRef.current) return;
+      suppressEdgeDeleteClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    window.addEventListener(FLOW_DELETE_EDGE_EVENT, handleDeleteEdge as EventListener);
+    window.addEventListener("click", suppressDeleteClick, true);
+    return () => {
+      window.removeEventListener(
+        FLOW_DELETE_EDGE_EVENT,
+        handleDeleteEdge as EventListener
+      );
+      window.removeEventListener("click", suppressDeleteClick, true);
+    };
+  }, [deleteFlowEdgesByIds]);
 
   const getFlowEdgeIdsNearScreenPoint = React.useCallback(
     (point: ScreenPoint) => {
@@ -7290,16 +7416,11 @@ function FlowInner() {
   const initialViewport = React.useMemo(() => {
     try {
       const state = useCanvasStore.getState();
-      const z = state.zoom || 1;
-      const dpr =
-        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const x = ((state.panX || 0) * z) / dpr;
-      const y = ((state.panY || 0) * z) / dpr;
-      return { x, y, zoom: z };
+      return canvasStateToFlowViewport(state, getFlowViewportAnchor());
     } catch {
       return { x: 0, y: 0, zoom: 1 };
     }
-  }, [projectId]);
+  }, [getFlowViewportAnchor, projectId]);
 
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
   // 使用 subscribe 直接订阅状态变化，避免 useEffect 的渲染延迟
@@ -7318,28 +7439,32 @@ function FlowInner() {
     }
   }, []);
 
-  const syncViewportToCanvasStore = () => {
+  const syncViewportToCanvasStore = React.useCallback(() => {
     try {
       const state = useCanvasStore.getState();
-      const z = state.zoom || 1;
-      const dpr =
-        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const x = ((state.panX || 0) * z) / dpr;
-      const y = ((state.panY || 0) * z) / dpr;
+      const { x, y, zoom: z } = canvasStateToFlowViewport(
+        state,
+        getFlowViewportAnchor()
+      );
       lastApplied.current = { x, y, z };
       applyViewportImmediate({ x, y, z });
     } catch {
       /* noop */
     }
-  };
+  }, [applyViewportImmediate, getFlowViewportAnchor]);
+
+  React.useLayoutEffect(() => {
+    if (nodeDraggingRef.current) return;
+    syncViewportToCanvasStore();
+  }, [flowViewportAnchorKey, syncViewportToCanvasStore]);
+
   React.useEffect(() => {
     // 使用 Zustand subscribe 直接监听状态变化，绕过 React 渲染周期
     const unsubscribe = useCanvasStore.subscribe((state) => {
-      const z = state.zoom || 1;
-      const dpr =
-        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-      const x = ((state.panX || 0) * z) / dpr;
-      const y = ((state.panY || 0) * z) / dpr;
+      const { x, y, zoom: z } = canvasStateToFlowViewport(
+        state,
+        getFlowViewportAnchor()
+      );
       const prev = lastApplied.current;
       const eps = 1e-6;
       if (
@@ -7356,11 +7481,10 @@ function FlowInner() {
 
     // 初始同步
     const state = useCanvasStore.getState();
-    const z = state.zoom || 1;
-    const dpr =
-      typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    const x = ((state.panX || 0) * z) / dpr;
-    const y = ((state.panY || 0) * z) / dpr;
+    const { x, y, zoom: z } = canvasStateToFlowViewport(
+      state,
+      getFlowViewportAnchor()
+    );
     lastApplied.current = { x, y, z };
     try {
       rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
@@ -7369,12 +7493,12 @@ function FlowInner() {
     }
 
     return unsubscribe;
-  }, [applyViewportImmediate]);
+  }, [applyViewportImmediate, getFlowViewportAnchor]);
 
   React.useLayoutEffect(() => {
     if (!projectId) return;
     syncViewportToCanvasStore();
-  }, [projectId]);
+  }, [projectId, syncViewportToCanvasStore]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -23279,20 +23403,14 @@ function FlowInner() {
     );
     if (!selectedEdgeIds.size) return false;
 
-    setEdges((prev: any[]) => prev.filter((e: any) => !selectedEdgeIds.has(e.id)));
-    setEdgeLabelEditor((prev) =>
-      prev.edgeId && selectedEdgeIds.has(prev.edgeId)
-        ? createEdgeLabelEditorState()
-        : prev
-    );
+    const removed = deleteFlowEdgesByIds(selectedEdgeIds);
+    if (removed <= 0) return false;
+
     try {
       historyService.commit("flow-delete-edge").catch(() => {});
     } catch {}
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("flow:edgesChange"));
-    }, 0);
     return true;
-  }, [rf, setEdges]);
+  }, [deleteFlowEdgesByIds, rf]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -2508,9 +2508,6 @@ export const useInteractionController = ({
 
       const point = clientToProject(canvas, event.clientX, event.clientY);
 
-      const currentDrawMode = drawModeRef.current;
-      const latestSimpleTextTool = simpleTextToolRef.current;
-
       // 检查是否双击了组块标题（用于编辑标题）
       const tryEditGroupBlockTitle = () => {
         try {
@@ -2657,7 +2654,7 @@ export const useInteractionController = ({
       // 先检查是否双击了组块标题
       if (tryEditGroupBlockTitle()) return;
 
-      const tryEnterPathEditMode = () => {
+      const tryDeleteLineOnDoubleClick = () => {
         if (!isSelectionLikeMode()) return false;
         const latestSelectionTool = selectionToolRef.current as any;
         if (!latestSelectionTool) return false;
@@ -2709,20 +2706,56 @@ export const useInteractionController = ({
                 return false;
               }
 
+              const path = current as paper.Path;
+              const data = (path.data || {}) as Record<string, any>;
+              const isLinePath =
+                data.tool === 'line' ||
+                (path.closed === false && Array.isArray(path.segments) && path.segments.length === 2);
+
+              if (isLinePath) {
+                try {
+                  path.remove();
+                } catch {
+                  return false;
+                }
+
+                try {
+                  if (latestSelectionTool?.selectedPath === path) {
+                    latestSelectionTool?.setSelectedPath?.(null);
+                  }
+                } catch {}
+                try {
+                  const selectedPaths = latestSelectionTool?.selectedPaths;
+                  if (Array.isArray(selectedPaths)) {
+                    latestSelectionTool?.setSelectedPaths?.(
+                      selectedPaths.filter((p: paper.Path) => p && p !== path)
+                    );
+                  }
+                } catch {}
+
+                try { paper.view.update(); } catch {}
+                event.preventDefault();
+                event.stopPropagation();
+                historyService.commit('delete-line-double-click').catch(() => {});
+                try { paperSaveService.triggerAutoSave('delete-line-double-click'); } catch {}
+                logger.debug('🗑️ 双击删除线条');
+                return true;
+              }
+
               if (typeof latestSelectionTool.handlePathSelect === 'function') {
-                latestSelectionTool.handlePathSelect(current, false, {
+                latestSelectionTool.handlePathSelect(path, false, {
                   enterEditMode: true,
                 });
-                latestSelectionTool?.setSelectedPath?.(current);
-                latestSelectionTool?.setSelectedPaths?.([current]);
+                latestSelectionTool?.setSelectedPath?.(path);
+                latestSelectionTool?.setSelectedPaths?.([path]);
               } else {
                 try {
-                  current.selected = true;
-                  current.fullySelected = true;
-                  current.data = { ...(current.data || {}), isPathEditing: true };
+                  path.selected = true;
+                  path.fullySelected = true;
+                  path.data = { ...(path.data || {}), isPathEditing: true };
                 } catch {}
-                latestSelectionTool?.setSelectedPath?.(current);
-                latestSelectionTool?.setSelectedPaths?.([current]);
+                latestSelectionTool?.setSelectedPath?.(path);
+                latestSelectionTool?.setSelectedPaths?.([path]);
               }
 
               try { paper.view.update(); } catch {}
@@ -2735,12 +2768,12 @@ export const useInteractionController = ({
             current = current.parent;
           }
         } catch (err) {
-          console.warn('hitTest path on dblclick failed', err);
+          console.warn('hitTest line on dblclick failed', err);
         }
         return false;
       };
 
-      if (tryEnterPathEditMode()) return;
+      if (tryDeleteLineOnDoubleClick()) return;
 
       const tryOpenImagePreview = () => {
         try {
@@ -2780,11 +2813,7 @@ export const useInteractionController = ({
 
       if (tryOpenImagePreview()) return;
 
-      logger.debug('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
-      
-      // 允许在任何模式下双击文本进行编辑
-      // 这样即使在选择模式下也能双击编辑文本
-      latestSimpleTextTool?.handleDoubleClick(point);
+      logger.debug('🎯 检测到原生双击事件');
     };
 
     // 绑定事件监听器

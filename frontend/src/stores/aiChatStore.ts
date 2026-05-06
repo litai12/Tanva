@@ -3009,6 +3009,68 @@ export const useAIChatStore = create<AIChatState>()(
         );
       };
 
+      const prefersEditImage = (prompt: string): boolean => {
+        const text = (prompt || "").trim();
+        if (!text) return false;
+        const lower = text.toLowerCase();
+        const keywords = [
+          "edit",
+          "modify",
+          "adjust",
+          "remove",
+          "replace",
+          "change text",
+          "replace text",
+          "text to",
+          "编辑",
+          "修改",
+          "调整",
+          "改成",
+          "改为",
+          "改文字",
+          "文字改",
+          "字改",
+          "换成",
+          "替换",
+          "替换文字",
+          "去掉",
+          "去除",
+          "删除",
+        ];
+        return keywords.some((keyword) =>
+          keyword === keyword.toLowerCase()
+            ? lower.includes(keyword)
+            : text.includes(keyword)
+        );
+      };
+
+      const fallbackToolSelection = (params: {
+        prompt: string;
+        isSingleExplicitImage: boolean;
+        hasCachedImage: boolean;
+        hasMultiExplicitImages: boolean;
+        allowAnalyzeImageTool: boolean;
+      }): AvailableTool => {
+        if (
+          params.isSingleExplicitImage ||
+          (params.hasCachedImage && prefersEditImage(params.prompt))
+        ) {
+          return "editImage";
+        }
+
+        if (params.hasMultiExplicitImages) {
+          if (
+            prefersAnalyzeForMultiImage(params.prompt) &&
+            params.allowAnalyzeImageTool
+          ) {
+            return "analyzeImage";
+          }
+          return "blendImages";
+        }
+
+        return "chatResponse";
+      };
+
       return {
         // 初始状态
         isVisible: true,
@@ -7413,14 +7475,24 @@ export const useAIChatStore = create<AIChatState>()(
                   const errorMsg =
                     toolSelectionResult.error?.message || "工具选择失败";
                   console.error("❌ 工具选择失败:", errorMsg);
-                  throw new Error(errorMsg);
+                  selectedTool = fallbackToolSelection({
+                    prompt: input,
+                    isSingleExplicitImage,
+                    hasCachedImage: !!cachedImage,
+                    hasMultiExplicitImages,
+                    allowAnalyzeImageTool,
+                  });
+                  logProcessStep(
+                    metrics,
+                    `tool selection failed, fallback decided: ${selectedTool}`
+                  );
+                } else {
+                  selectedTool = toolSelectionResult.data
+                    .selectedTool as AvailableTool | null;
+                  parameters = {
+                    prompt: toolSelectionResult.data.parameters?.prompt || input,
+                  };
                 }
-
-                selectedTool = toolSelectionResult.data
-                  .selectedTool as AvailableTool | null;
-                parameters = {
-                  prompt: toolSelectionResult.data.parameters?.prompt || input,
-                };
                 if (
                   hasMultiExplicitImages &&
                   preferAnalyzeForMultiImage &&
@@ -7903,30 +7975,26 @@ export const useAIChatStore = create<AIChatState>()(
                     `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 } else {
-                  selectedTool = isSingleExplicitImage
-                    ? "editImage"
-                    : hasMultiExplicitImages
-                      ? prefersAnalyzeForMultiImage(input)
-                        ? allowAnalyzeImageTool
-                          ? "analyzeImage"
-                          : "blendImages"
-                        : "blendImages"
-                      : "chatResponse";
+                  selectedTool = fallbackToolSelection({
+                    prompt: input,
+                    isSingleExplicitImage,
+                    hasCachedImage: !!cachedImage,
+                    hasMultiExplicitImages,
+                    allowAnalyzeImageTool,
+                  });
                   console.warn(
                     `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 }
               } catch (error) {
                 console.error("❌ 工具选择异常:", error);
-                selectedTool = isSingleExplicitImage
-                  ? "editImage"
-                  : hasMultiExplicitImages
-                    ? prefersAnalyzeForMultiImage(input)
-                      ? allowAnalyzeImageTool
-                        ? "analyzeImage"
-                        : "blendImages"
-                      : "blendImages"
-                    : "chatResponse";
+                selectedTool = fallbackToolSelection({
+                  prompt: input,
+                  isSingleExplicitImage,
+                  hasCachedImage: !!cachedImage,
+                  hasMultiExplicitImages,
+                  allowAnalyzeImageTool,
+                });
               }
 
               if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {

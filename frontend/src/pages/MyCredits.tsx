@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle, Crown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
@@ -12,11 +12,14 @@ import {
   getMyCredits,
   getMembershipCurrent,
   getMyTransactions,
+  getMembershipOrders,
   type DailyRewardStatus,
   type ExpiringCreditsInfo,
   type CheckInCalendar,
   type MembershipCurrentResponse,
   type UserCreditsInfo,
+  type MembershipOrderRecord,
+  type PaymentStatus,
 } from '@/services/adminApi';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +45,13 @@ interface Transaction {
   billingRemark?: string | null;
   apiResponseStatus?: string | null;
   processingTime?: number | null;
+  recordKind?: 'credit' | 'membershipOrder';
+  paymentAmount?: number | null;
+  paymentMethod?: string | null;
+  paymentStatus?: PaymentStatus | null;
+  orderNo?: string | null;
+  planCode?: string | null;
+  planName?: string | null;
 }
 
 interface ApiUsageRecord {
@@ -129,6 +139,7 @@ const MyCredits: React.FC = () => {
   const { t, i18n } = useTranslation();
   const [credits, setCredits] = useState<UserCreditsInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [membershipOrders, setMembershipOrders] = useState<MembershipOrderRecord[]>([]);
   const [apiUsage, setApiUsage] = useState<ApiUsageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyRewardStatus, setDailyRewardStatus] = useState<DailyRewardStatus | null>(null);
@@ -157,7 +168,7 @@ const MyCredits: React.FC = () => {
   const loadData = async (showLoading: boolean = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [creditsData, transactionsData, usageData, expiringData, calendarData] = await Promise.all([
+      const [creditsData, transactionsData, usageData, expiringData, calendarData, membershipOrdersData] = await Promise.all([
         getMyCredits(),
         getMyTransactions({ pageSize: 100 }),
         getMyApiUsage({ pageSize: 100 }).catch((error) => {
@@ -166,9 +177,14 @@ const MyCredits: React.FC = () => {
         }),
         getExpiringCredits(),
         getCheckInCalendar(),
+        getMembershipOrders({ page: 1, pageSize: 100, includeRecharge: false }).catch((error) => {
+          console.warn('Failed to load membership orders:', error);
+          return { items: [] as MembershipOrderRecord[], page: 1, pageSize: 100, total: 0 };
+        }),
       ]);
       setCredits(creditsData);
       setTransactions(transactionsData.transactions || []);
+      setMembershipOrders(membershipOrdersData.items || []);
       setApiUsage(usageData.records || []);
       setExpiringCredits(expiringData);
       setCheckInCalendar(calendarData);
@@ -250,6 +266,57 @@ const MyCredits: React.FC = () => {
     };
   };
 
+  const getPaymentStatusMeta = (
+    status: PaymentStatus | null | undefined
+  ): { label: string; className: string } | null => {
+    const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+    if (!normalized) return null;
+
+    if (normalized === 'paid') {
+      return {
+        label: t('creditsPage.transactions.paymentStatus.paid'),
+        className: 'bg-green-100 text-green-700 border border-green-200',
+      };
+    }
+
+    if (normalized === 'pending') {
+      return {
+        label: t('creditsPage.transactions.paymentStatus.pending'),
+        className: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+      };
+    }
+
+    if (normalized === 'failed') {
+      return {
+        label: t('creditsPage.transactions.paymentStatus.failed'),
+        className: 'bg-red-100 text-red-700 border border-red-200',
+      };
+    }
+
+    return {
+      label: t(`creditsPage.transactions.paymentStatus.${normalized}`, {
+        defaultValue: normalized,
+      }),
+      className: 'bg-slate-100 text-slate-600 border border-slate-200',
+    };
+  };
+
+  const getPaymentMethodLabel = (method: string | null | undefined) => {
+    const normalized = typeof method === 'string' ? method.trim().toLowerCase() : '';
+    if (!normalized) return t('creditsPage.transactions.notAvailable');
+    return t(`creditsPage.transactions.paymentMethods.${normalized}`, {
+      defaultValue: method,
+    });
+  };
+
+  const formatMoney = (value: number | null | undefined) => {
+    const amount = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    return amount.toLocaleString(currentLocale, {
+      minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
   const filteredTransactions = useMemo(() => {
     const vip69Pattern = /vip[\s_-]*69/i;
     return transactions.filter((tx) => {
@@ -264,6 +331,42 @@ const MyCredits: React.FC = () => {
       return !isVip69DailyGift;
     });
   }, [transactions]);
+
+  const paidMembershipOrderRecords = useMemo<Transaction[]>(() => {
+    return membershipOrders
+      .filter((order) => order.orderType === 'membership' && order.status === 'paid')
+      .map((order) => {
+        const planName = (order.planName || order.planCode || '').trim() || t('creditsPage.transactions.membershipOrder');
+        return {
+          id: `membership-order:${order.orderId}`,
+          type: 'membership_order',
+          amount: 0,
+          balanceBefore: 0,
+          balanceAfter: 0,
+          description: planName,
+          createdAt: order.paidAt || order.createdAt,
+          businessType: 'membership_order',
+          recordKind: 'membershipOrder',
+          paymentAmount: order.amount,
+          paymentMethod: order.paymentMethod,
+          paymentStatus: order.status,
+          orderNo: order.orderNo,
+          planCode: order.planCode,
+          planName,
+        };
+      });
+  }, [membershipOrders, t]);
+
+  const combinedTransactions = useMemo(() => {
+    return [
+      ...filteredTransactions.map((tx) => ({ ...tx, recordKind: tx.recordKind ?? ('credit' as const) })),
+      ...paidMembershipOrderRecords,
+    ].sort((a, b) => {
+      const aTime = Date.parse(a.createdAt);
+      const bTime = Date.parse(b.createdAt);
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
+  }, [filteredTransactions, paidMembershipOrderRecords]);
 
   const displayTransactions = useMemo(() => {
     const GROUP_GAP_MS = 90 * 1000;
@@ -284,7 +387,7 @@ const MyCredits: React.FC = () => {
       Transaction & { __groupKey: string; __groupTailTs: number }
     > = [];
 
-    for (const tx of filteredTransactions) {
+    for (const tx of combinedTransactions) {
       const createdAtTs = Number.isFinite(Date.parse(tx.createdAt))
         ? Date.parse(tx.createdAt)
         : 0;
@@ -377,7 +480,7 @@ const MyCredits: React.FC = () => {
     }
 
     return grouped.map(({ __groupTailTs, __groupKey, ...tx }) => tx);
-  }, [filteredTransactions]);
+  }, [combinedTransactions]);
 
   const dailyUsageData = useMemo(() => {
     const days = 14;
@@ -683,11 +786,14 @@ const MyCredits: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {displayTransactions.slice(0, 50).map(tx => {
+                      const isMembershipOrder = tx.recordKind === 'membershipOrder';
                       const isPositive = tx.amount > 0;
                       const durationSeconds = typeof tx.processingTime === 'number'
                         ? Math.max(0, Math.round(tx.processingTime / 1000))
                         : null;
-                      const statusMeta = getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
+                      const statusMeta = isMembershipOrder
+                        ? getPaymentStatusMeta(tx.paymentStatus)
+                        : getTransactionStatusMeta(tx.apiResponseStatus, Boolean(tx.apiUsageId));
                       const modelLabel = typeof tx.model === 'string' && tx.model.trim().length > 0
                         ? tx.model.trim()
                         : t('creditsPage.transactions.notAvailable');
@@ -712,9 +818,11 @@ const MyCredits: React.FC = () => {
                             <div className="flex items-center gap-2">
                               <div className={cn(
                                 "w-7 h-7 rounded-full flex items-center justify-center",
-                                isPositive ? "bg-green-100" : "bg-orange-100"
+                                isMembershipOrder ? "bg-violet-100" : isPositive ? "bg-green-100" : "bg-orange-100"
                               )}>
-                                {isPositive ? (
+                                {isMembershipOrder ? (
+                                  <Crown className="w-3.5 h-3.5 text-violet-600" />
+                                ) : isPositive ? (
                                   <TrendingUp className="w-3.5 h-3.5 text-green-600" />
                                 ) : (
                                   <TrendingDown className="w-3.5 h-3.5 text-orange-600" />
@@ -722,10 +830,17 @@ const MyCredits: React.FC = () => {
                               </div>
                               <div className="min-w-0">
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
-                                <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
-                                  {outputCount && outputCount > 1 ? `数量：x${outputCount} · ` : ''}{routeLabel ? `渠道：${routeLabel} · ` : ''}{t('creditsPage.transactions.model', { model: modelLabel })}
-                                </div>
-                                {billingRemark && (
+                                {isMembershipOrder ? (
+                                  <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
+                                    {t('creditsPage.transactions.membershipOrder')} · {getPaymentMethodLabel(tx.paymentMethod)}
+                                    {tx.orderNo ? ` · ${tx.orderNo}` : ''}
+                                  </div>
+                                ) : (
+                                  <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
+                                    {outputCount && outputCount > 1 ? `数量：x${outputCount} · ` : ''}{routeLabel ? `渠道：${routeLabel} · ` : ''}{t('creditsPage.transactions.model', { model: modelLabel })}
+                                  </div>
+                                )}
+                                {!isMembershipOrder && billingRemark && (
                                   <div className="mt-0.5 text-[11px] leading-4 text-slate-400 max-w-[280px] break-words">
                                     {billingRemark}
                                   </div>
@@ -747,18 +862,20 @@ const MyCredits: React.FC = () => {
                           </td>
                           <td className={cn(
                             "px-4 py-3 text-right font-semibold",
-                            isPositive ? "text-green-600" : "text-orange-600"
+                            isMembershipOrder ? "text-violet-600" : isPositive ? "text-green-600" : "text-orange-600"
                           )}>
-                            {isPositive ? '+' : ''}{tx.amount}
+                            {isMembershipOrder
+                              ? `-¥${formatMoney(tx.paymentAmount)}`
+                              : `${isPositive ? '+' : ''}${tx.amount}`}
                           </td>
                           <td className="px-4 py-3 text-right font-semibold text-blue-600 whitespace-nowrap">
-                            {tx.balanceAfter}
+                            {isMembershipOrder ? t('creditsPage.transactions.notAvailable') : tx.balanceAfter}
                           </td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                             {new Date(tx.createdAt).toLocaleString(currentLocale)}
                           </td>
                           <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                            {durationSeconds !== null
+                            {!isMembershipOrder && durationSeconds !== null
                               ? `${durationSeconds}${t('creditsPage.transactions.durationUnit')}`
                               : t('creditsPage.transactions.notAvailable')}
                           </td>

@@ -675,6 +675,11 @@ export const useDrawingTools = ({
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
     applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'line');
+    pathRef.current.data = {
+      ...(pathRef.current.data || {}),
+      type: 'drawing',
+      tool: 'line',
+    };
 
     // 保存起始点用于后续更新
     if (pathRef.current) (pathRef.current as any).startPoint = startPoint;

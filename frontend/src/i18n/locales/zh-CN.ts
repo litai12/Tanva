@@ -411,7 +411,7 @@ const zhCN = {
       columns: {
         item: "项目",
         status: "状态",
-        amount: "积分",
+        amount: "金额/积分",
         remaining: "剩余积分",
         generatedAt: "生成时间",
         duration: "花费时间",
@@ -420,6 +420,18 @@ const zhCN = {
       notAvailable: "--",
       channel: "渠道：{{channel}}",
       model: "模型：{{model}}",
+      membershipOrder: "会员订阅",
+      paymentStatus: {
+        paid: "已支付",
+        pending: "待支付",
+        failed: "支付失败",
+        expired: "已过期",
+        cancelled: "已取消",
+      },
+      paymentMethods: {
+        alipay: "支付宝",
+        wechat: "微信支付",
+      },
     },
     usage: {
       title: "API 调用记录",

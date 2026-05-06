@@ -34,6 +34,7 @@
 | P1 | Membership UI | VIP 订阅页顶部改为当前会员摘要栏，计费周期切换与额度说明收敛到同一区域；套餐卡片高度与留白收紧，日常创作/专业进阶等档位使用更清晰的卡片与按钮色彩区分。 | `MembershipPanel.tsx` | 已 build |
 | P1 | Canvas 精确改图/高清放大 | Shift 局部修改传递裁剪 bounds、像素尺寸和比例；`precise-edit/lockToBounds` 原位占位；高清放大改为发送到画布而不是下载。 | `DrawingController.tsx`、`aiChatStore.ts`、`useQuickImageUpload.ts`、`ImageContainer.tsx` | 已 build |
 | P1 | Canvas 扩图 UI | 图片扩图按钮使用独立 `Expand` 图标，扩图 prompt/合成蒙版改为红色蒙版语义，扩图选择结束后释放操作锁，并跳过非激活图片 overlay 渲染。 | `ImageContainer.tsx` | 已 build |
+| P1 | Canvas 图片浮动工具栏 | 图片选中浮动工具栏固定入口/更多菜单排序对齐 `lt-dev9`：固定展示 `生成节点 / 裁切 / 极速抠图`，其余图片能力按本地使用频次轮换。 | `ImageContainer.tsx` | 已 build |
 | P1 | Global History 媒体 | 全局历史支持图片/视频统一展示、封面/播放/详情播放；AI Chat Seedance 和 Flow 视频成功输出写入远程视频历史；库面板历史视频可按视频资产发送/拖拽到画板。 | `historyMedia.ts`、`GlobalImageHistoryPage.tsx`、`GlobalImageDetailModal.tsx`、`imageHistoryService.ts`、`LibraryPanel.tsx`、`DrawingController.tsx` | 已 build |
 | P1 | AI Chat 文本上下文策略 | 普通 Text 请求默认只发送当前输入；只有命中继续/调整/再试等迭代意图时才拼接会话历史，避免无关历史污染当前问题；Flow Text Chat 不受影响。 | `aiChatStore.ts` | 已 build |
 | P1 | Flow 节点纯 UI 小补齐 | `TextChatNode` 运行按钮积分 tooltip 与其他 Flow 节点统一为本地化的“消耗/积分”文案；节点面板/Quick Connect 按 `lt-dev9` 规则隐藏 `generateRef` 与 `sora2Video`；剩余 Flow 节点差异已筛过，涉及保存/预览资产链路的项暂不迁移。 | `TextChatNode.tsx`、`FlowOverlay.tsx` | 已 build |

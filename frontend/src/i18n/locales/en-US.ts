@@ -412,7 +412,7 @@ const enUS = {
       columns: {
         item: "Item",
         status: "Status",
-        amount: "Credits",
+        amount: "Amount/Credits",
         remaining: "Remaining",
         generatedAt: "Generated At",
         duration: "Duration",
@@ -421,6 +421,18 @@ const enUS = {
       notAvailable: "--",
       channel: "Channel: {{channel}}",
       model: "Model: {{model}}",
+      membershipOrder: "Membership subscription",
+      paymentStatus: {
+        paid: "Paid",
+        pending: "Pending",
+        failed: "Failed",
+        expired: "Expired",
+        cancelled: "Cancelled",
+      },
+      paymentMethods: {
+        alipay: "Alipay",
+        wechat: "WeChat Pay",
+      },
     },
     usage: {
       title: "API Usage Records",

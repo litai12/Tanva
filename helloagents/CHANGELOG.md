@@ -18,6 +18,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Canvas Eraser: delayed trail cleanup now uses a monotonic eraser-trail serial snapshot, so deleting a connection force-clears the current stroke after mouseup while never removing a later stroke that starts immediately after it.
 - Canvas Tools: added an `arrow` drawing mode in the tool store, toolbar, drawing hooks, interaction controller, and layer panel type/icon mapping. Arrows are stored as Paper paths with `data.tool = "arrow"` and do not change design JSON persistence rules.
 - Project Manager: project cards now lazy-load current-page content previews and render a multi-image grid, with 12 projects per page and icon-only rename/delete actions.
+- My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
@@ -26,6 +27,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Double Click: disabled double-click text edit entry on canvas text items/overlays, and changed selection-mode double-click on line paths to delete the line directly (with history + autosave commit).
+- Flow/Viewport: Canvas-to-Flow viewport translation is now snapped to physical pixels using the selected node as the anchor when available, reducing whole-node softness from fractional transform offsets at the same zoom level.
+- Flow/Viewport: removed the persistent `will-change: transform` hint from the ReactFlow viewport so static Flow text and image previews are not kept in a softened composited layer after zoom/pan interactions.
+- Flow/Edges: the selected-edge red delete button now deletes through `FlowOverlay`'s controlled edge state instead of calling the ReactFlow instance setter directly, and it handles pointer-down before ReactFlow/canvas click suppression can swallow the interaction.
 - Flow/Image Nodes: `Generate`, `Multi Generate`, and `Generate Refer` run buttons now keep the `Run` label while disabled instead of switching to `Running...`.
 - Canvas/Eraser: active Paper eraser trails are now exempt from layer-thumbnail/helper serialization cleanup, Paper view refreshes after helper restoration, mouseup resets transient eraser refs, drawing start points use refs to avoid native mousemove reading stale React state, and Flow connection erasing now mirrors a Paper eraser trail when the pointer starts on ReactFlow SVG/pane elements instead of the Paper canvas.
 - Flow/Text Nodes: Prompt Optimizer preview editing now defers Flow node-data writes during IME composition, preventing Chinese input from committing raw pinyin fragments while candidates are still being selected.
@@ -33,6 +38,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Membership UI: VIP subscription page now uses a compact current-membership summary bar, tighter plan cards, and clearer tier-specific card/CTA styling without changing membership order or payment logic.
 - Library/History: Library panel global/project history now reuses shared media helpers for image/video labels, thumbnails, detail playback, and download names; video records can be sent or dragged to the canvas as video assets without going through image upload paths.
 - AI Chat Context: plain text chat requests now send the current input directly by default; conversation history is only included for iterative/continue-style prompts, and Flow Text Chat remains unaffected.
+- AI Chat Tool Routing: cached-image edit prompts such as `改文字` / `改成` now fall back to `editImage` instead of `chatResponse` when tool selection is unavailable, and Banana stable-route tool selection passes context into the Tencent text router.
 - Flow/Text Chat UI: run-button credit tooltip now uses the same localized `消耗/积分` wording as other Flow run buttons.
 - Flow/Node Palette: `generateRef` and `sora2Video` are hidden from the node palette and Quick Connect, matching the `lt-dev9` selective-migration visibility rules.
 - Flow/Node Groups: Delete/Backspace and node context-menu delete now expand selected `nodeGroup` removals to child nodes and related edges, preventing group shells from being deleted alone.
@@ -51,8 +57,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Runtime: running flow nodes now receive a transient `progressStartedAt` timestamp that is removed when runs finish and stripped from copy/template export paths, keeping progress stable without persisting runtime UI state.
 - Workspace Route Switch: stable route UI is aligned with `lt-dev9` using the amber Crown treatment instead of the green Star treatment.
 - Canvas/AI Edit: Shift precise-local-edit now carries crop canvas bounds/pixel aspect into AI Chat and uses `precise-edit`/`lockToBounds` to keep the predictive placeholder on the selected region without matrix reflow.
+- Canvas/Text Edit: selected-image `改文字` OCR, internal text detection, and apply-edit requests now force Banana `normal` route so global stable-route selection does not break text recognition/replacement.
 - Canvas/HD Upscale: HD upscale now creates a predictive placeholder and sends the 4K result to canvas instead of downloading it directly.
 - Canvas/Image Expand: image expand UI now uses the dedicated Expand icon, red-mask prompt/fill semantics, releases the expand selector operation lock, and skips inactive image overlay rendering.
+- Canvas/Image Toolbar: selected-image floating toolbar fixed entries and More-menu rotation now match `lt-dev9`: `生成节点 / 裁切 / 极速抠图` stay fixed, while the remaining image actions rotate by local usage.
 - Flow/Image Split: downstream consumers now use the shared Image Split handle helper for `imageN/imgN` inputs; `VideoToGif` shows run credits and `VideoNode` isolates native video controls from canvas drag/pan gestures.
 - Global History: image history UI now supports video media records with shared media helpers, video thumbnails/playback in list/detail views, and AI Chat Seedance video success writes to global history.
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。

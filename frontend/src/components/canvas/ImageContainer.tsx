@@ -64,6 +64,11 @@ const EXPAND_PRESET_PROMPT =
 const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
+const TEXT_EDIT_BANANA_ROUTE = "normal" as const;
+const TEXT_EDIT_BANANA_PROVIDER_OPTIONS = {
+  banana: { imageRoute: TEXT_EDIT_BANANA_ROUTE },
+  bananaImageRoute: TEXT_EDIT_BANANA_ROUTE,
+} as const;
 
 type TextReplacementItem = {
   id: string;
@@ -95,18 +100,22 @@ type ToolbarAction = {
 
 const TOOLBAR_USAGE_STORAGE_KEY = "tanva:image-toolbar-usage:v1";
 const FIXED_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
-  "fastRemoveBackground",
-  "hdUpscale",
   "generateNode",
+  "cropImage",
+  "fastRemoveBackground",
 ];
 const ROTATABLE_TOOLBAR_KEYS: readonly ToolbarActionKey[] = [
+  "hdUpscale",
   "removeBackground",
   "layerSeparation",
   "convertTo3D",
   "expandImage",
-  "cropImage",
   "editText",
   "extractPalette",
+];
+const TOOLBAR_USAGE_KEYS: readonly ToolbarActionKey[] = [
+  ...FIXED_TOOLBAR_KEYS,
+  ...ROTATABLE_TOOLBAR_KEYS,
 ];
 
 const DEFAULT_PALETTE_SIZE = 6;
@@ -583,7 +592,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     showDialog,
     sourceImageForEditing,
     sourceImagesForBlending,
-    bananaImageRoute,
   } = useAIChatStore();
 
   const setOperationInProgress = useCanvasStore(
@@ -668,7 +676,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (!raw) return;
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       const next: Partial<Record<ToolbarActionKey, number>> = {};
-      [...FIXED_TOOLBAR_KEYS, ...ROTATABLE_TOOLBAR_KEYS].forEach((key) => {
+      TOOLBAR_USAGE_KEYS.forEach((key) => {
         const value = parsed[key];
         if (typeof value !== "number" || !Number.isFinite(value)) return;
         const safeValue = Math.max(0, Math.floor(value));
@@ -1780,10 +1788,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             sourceImage,
             aiProvider: bananaProvider,
             model: bananaModel,
-            providerOptions: {
-              banana: { imageRoute: bananaImageRoute },
-              bananaImageRoute,
-            },
+            providerOptions: TEXT_EDIT_BANANA_PROVIDER_OPTIONS,
           });
 
           if (!result.success || !result.data?.analysis) {
@@ -1884,6 +1889,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           model: bananaModel,
           outputFormat: "png",
           imageOnly: true,
+          providerOptions: TEXT_EDIT_BANANA_PROVIDER_OPTIONS,
         });
 
         if (!result.success || !result.data?.imageData) {
@@ -2262,10 +2268,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       sourceImage: baseImage,
       aiProvider: bananaProvider,
       model: bananaModel,
-      providerOptions: {
-        banana: { imageRoute: bananaImageRoute },
-        bananaImageRoute,
-      },
+      providerOptions: TEXT_EDIT_BANANA_PROVIDER_OPTIONS,
     });
 
     if (!result.success || !result.data?.analysis) {
@@ -2273,7 +2276,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     return parseRecognizedTexts(result.data.analysis);
-  }, [bananaImageRoute]);
+  }, []);
 
   const extractTextLayer = useCallback(async (baseImage: string): Promise<string> => {
     const TEXT_LAYER_MODEL = "gemini-2.5-flash-image";
