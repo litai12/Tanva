@@ -1958,7 +1958,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "generatePro", label: "自定义图片节点", category: "image" },
     { value: "seedream5", label: "Seedream 5 节点", category: "image" },
     { value: "midjourney", label: "Midjourney 节点", category: "image" },
-    { value: "analysis", label: "图像分析节点", category: "image" },
+    { value: "analysis", label: "Image Chat", category: "image" },
   ],
   video: [
     { value: "kling26Video", label: "Kling 2.6 视频节点", category: "video" },

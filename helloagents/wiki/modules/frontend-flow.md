@@ -4,8 +4,12 @@
 - Canvas → Flow 视口同步现在会优先以当前选中 Flow 节点为锚点，把 ReactFlow 的 `x/y` 平移值对齐到物理像素，减少同一缩放倍率下文字、图标、边框因半像素 transform 整体发虚。
 - Flow viewport 不再长期设置 `will-change: transform`，避免浏览器把整层文本/图片持续合成栅格化后出现静止态发虚；视口原点仍保持与 Canvas 同步所需的 `transform-origin: 0 0`。
 - Flow 选中连线的红色删除按钮改为 `pointerdown` 即派发 `flow:deleteEdge`，由 `FlowOverlay` 本地受控 `edges` 状态统一删除、清理标签编辑器并触发 `flow:edgesChange`；避免自定义 Edge 直接调用 ReactFlow instance setter 时被受控状态回灌或 click 抑制导致删除无效。
+- Flow 连线文字编辑新增手动双击兜底：`onEdgeClick` 会记录同一条 edge 的快速二次点击并打开标签编辑器，同时编辑器定位改用鼠标双击点，避免第一次点击选中连线导致 DOM 重渲染后 ReactFlow 原生 `dblclick` 不触发或输入框位置偏移。
+- Flow 连线文字提交修复：输入框 `Enter` 直接按当前编辑器状态写回 `edge.label`，并在 `CustomEdge` 中用 `EdgeLabelRenderer` 渲染已保存 label；输入框会拦截键盘/鼠标事件，避免 Flow 全局快捷键或画布交互抢走提交。
 - GPT-Image-2 Flow 节点从隐藏集合恢复展示；节点添加面板与 Quick Connect 会重新显示 `gptImage2`，运行逻辑仍复用 `Nano2Node` 的 GPT-Image-2 分支。
 - `Generate`、`Multi Generate`、`Generate Refer` 的 Run 按钮运行态保留 `Run` 文案，只通过禁用灰色态表达运行中，避免按钮显示 `Running...`。
+- `analysis` 节点外层名称统一为 `Image Chat`：节点添加面板、前端 fallback、后台导入模板、后端 NodeConfig 兼容输出和回填均保持同名，描述文案为“图像对话与提示词提取”，节点类型仍保留 `analysis`。
+- Image Chat 的 Skill 列表新增 `Custom`：选中后展示 IME-safe 的自定义提示词输入框，运行时会把自定义输入与 `text` 句柄连接输入合并后发送。
 
 ## 2026-05-05 Update
 - `PromptOptimizeNode` 的预览输入框补齐中文输入法 composition 防护：拼音组词期间只更新本地 textarea，候选词确认后再写回 Flow 节点数据，避免旧节点数据重渲染打断 IME 并留下拼音片段。

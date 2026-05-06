@@ -22,6 +22,7 @@ import {
 import { useFlowRenderMode } from '../FlowRenderModeContext';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
+import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
 
 type Props = {
   id: string;
@@ -37,13 +38,14 @@ type Props = {
     vendorKey?: string;
     platformKey?: string;
     analysisSkillId?: string;
+    analysisCustomPrompt?: string;
     analysisProvider?: ProviderToggleValue;
   };
   selected?: boolean;
 };
 
 type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
-type AnalysisSkillId = 'prompt' | 'json' | 'promptOnly';
+type AnalysisSkillId = 'custom' | 'prompt' | 'json' | 'promptOnly';
 
 type AnalysisSkillOption = {
   id: AnalysisSkillId;
@@ -55,6 +57,7 @@ type AnalysisSkillOption = {
 const DEFAULT_ANALYSIS_SKILL_ID: AnalysisSkillId = 'prompt';
 
 const normalizeAnalysisSkillId = (value?: string): AnalysisSkillId => {
+  if (value === 'custom') return 'custom';
   if (value === 'json') return 'json';
   if (value === 'promptOnly') return 'promptOnly';
   return DEFAULT_ANALYSIS_SKILL_ID;
@@ -621,6 +624,12 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const analysisSkillOptions = React.useMemo<AnalysisSkillOption[]>(
     () => [
       {
+        id: 'custom',
+        label: lt('自定义', 'Custom'),
+        description: lt('手动输入图片分析提示词', 'Manually enter an image analysis prompt'),
+        prompt: '',
+      },
+      {
         id: 'prompt',
         label: 'Analysis',
         description: lt('描述图片并输出一段可复用提示词', 'Describe the image as a reusable prompt'),
@@ -710,7 +719,24 @@ Use an empty string or empty array when a field cannot be determined.`
   const currentAnalysisSkill =
     analysisSkillOptions.find((option) => option.id === currentAnalysisSkillId) ??
     analysisSkillOptions[0];
+  const isCustomAnalysisSkill = currentAnalysisSkillId === 'custom';
   const defaultAnalysisPrompt = currentAnalysisSkill.prompt;
+  const customAnalysisPrompt =
+    typeof data.analysisCustomPrompt === 'string' ? data.analysisCustomPrompt : '';
+
+  const commitCustomAnalysisPrompt = React.useCallback(
+    (value: string) => {
+      window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { analysisCustomPrompt: value } }
+      }));
+    },
+    [id]
+  );
+  const customAnalysisPromptInput = useImeSafeTextValue(
+    customAnalysisPrompt,
+    commitCustomAnalysisPrompt
+  );
+  const customAnalysisPromptDraft = customAnalysisPromptInput.value;
 
   // 鐢ㄤ簬杩借釜鍒嗘瀽杩涜涓殑鐘舵€?
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
@@ -721,7 +747,7 @@ Use an empty string or empty array when a field cannot be determined.`
     if (data.analysisSkillId !== currentAnalysisSkillId) {
       patch.analysisSkillId = currentAnalysisSkillId;
     }
-    if (data.analysisPrompt !== defaultAnalysisPrompt) {
+    if (!isCustomAnalysisSkill && data.analysisPrompt !== defaultAnalysisPrompt) {
       patch.analysisPrompt = defaultAnalysisPrompt;
     }
     if (Object.keys(patch).length > 0) {
@@ -729,7 +755,7 @@ Use an empty string or empty array when a field cannot be determined.`
         detail: { id, patch }
       }));
     }
-  }, [currentAnalysisSkillId, data.analysisPrompt, data.analysisSkillId, defaultAnalysisPrompt, id]);
+  }, [currentAnalysisSkillId, data.analysisPrompt, data.analysisSkillId, defaultAnalysisPrompt, id, isCustomAnalysisSkill]);
 
   React.useEffect(() => {
     if (typeof data.analysisProvider === 'undefined') {
@@ -766,12 +792,20 @@ Use an empty string or empty array when a field cannot be determined.`
   const onAnalyze = React.useCallback(async () => {
     if (!hasAnyInput || status === 'running' || isAnalyzing) return;
 
-    const basePrompt = defaultAnalysisPrompt.trim();
+    const basePrompt = (isCustomAnalysisSkill ? customAnalysisPromptDraft : defaultAnalysisPrompt).trim();
     const extraPrompt = readConnectedExtraPrompt();
-    const promptToUse = extraPrompt ? `${basePrompt}\n\n${extraPrompt}` : basePrompt;
+    const promptToUse = [basePrompt, extraPrompt]
+      .filter((part) => part.trim().length > 0)
+      .join('\n\n');
     if (!promptToUse.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { status: 'failed', error: 'Prompt cannot be empty' } }
+        detail: {
+          id,
+          patch: {
+            status: 'failed',
+            error: lt('请输入自定义提示词或连接提示文本', 'Enter a custom prompt or connect prompt text'),
+          },
+        },
       }));
       return;
     }
@@ -1091,7 +1125,7 @@ Use an empty string or empty array when a field cannot be determined.`
     } finally {
       setIsAnalyzing(false);
     }
-  }, [analysisModel, analyzeBananaImageRoute, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, incomingEdges, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
+  }, [analysisModel, analyzeBananaImageRoute, customAnalysisPromptDraft, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, incomingEdges, isAnalyzing, isCustomAnalysisSkill, lt, readConnectedExtraPrompt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -1128,7 +1162,7 @@ Use an empty string or empty array when a field cannot be determined.`
             id,
             patch: {
               analysisSkillId: skill.id,
-              analysisPrompt: skill.prompt,
+              ...(skill.id === 'custom' ? {} : { analysisPrompt: skill.prompt }),
             },
           },
         })
@@ -1409,6 +1443,36 @@ Use an empty string or empty array when a field cannot be determined.`
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        {isCustomAnalysisSkill && (
+          <textarea
+            className="nodrag nopan nowheel"
+            value={customAnalysisPromptInput.value}
+            onChange={customAnalysisPromptInput.onChange}
+            onCompositionStart={customAnalysisPromptInput.onCompositionStart}
+            onCompositionEnd={customAnalysisPromptInput.onCompositionEnd}
+            placeholder={lt('输入自定义图片分析提示词', 'Enter a custom image analysis prompt')}
+            disabled={status === 'running' || isAnalyzing}
+            style={{
+              width: '100%',
+              minHeight: 80,
+              resize: 'vertical',
+              fontSize: 12,
+              lineHeight: 1.4,
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${flowNodeWellOutlineBorder(isFlowDark)}`,
+              background: isFlowDark ? '#171717' : '#ffffff',
+              color: isFlowDark ? '#f3f4f6' : '#111827',
+              fontFamily: 'inherit',
+              boxShadow: isFlowDark
+                ? '0 1px 2px rgba(15, 23, 42, 0.2)'
+                : '0 1px 2px rgba(15, 23, 42, 0.04)',
+            }}
+            onWheelCapture={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          />
+        )}
       </div>
 
       <div

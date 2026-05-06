@@ -847,7 +847,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const halfW = width / 2;
         const halfH = height / 2;
         const cornerRadius = Math.min(width, height) * 0.02;
-        const mainColor = new paper.Color('#4b5563'); // 黑灰色
+        const isPreciseEditPlaceholder = params.operationType === 'precise-edit';
+        const mainColor = isPreciseEditPlaceholder
+            ? new paper.Color('#2563eb')
+            : new paper.Color('#4b5563'); // 黑灰色
 
         // 背景矩形
         // 背景 - 更深的灰色调
@@ -859,6 +862,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             radius: cornerRadius,
             fillColor: new paper.Color(0.58, 0.64, 0.72, 0.25) // slate-400 色调
         });
+        if (isPreciseEditPlaceholder) {
+            bg.visible = false;
+        }
 
         // 静态边框 - 虚线样式
         const border = new paper.Path.Rectangle({
@@ -867,8 +873,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(width, height)
             ),
             radius: cornerRadius,
-            strokeColor: new paper.Color(0.39, 0.45, 0.55, 0.4), // slate-500 色调
-            strokeWidth: 1,
+            strokeColor: isPreciseEditPlaceholder
+                ? new paper.Color(0.15, 0.39, 0.92, 0.85)
+                : new paper.Color(0.39, 0.45, 0.55, 0.4), // slate-500 色调
+            strokeWidth: isPreciseEditPlaceholder ? 1.25 : 1,
             dashArray: [6, 4], // 虚线
             fillColor: null as any
         });
@@ -908,6 +916,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         // 将光晕和裁剪蒙版放入一个组
         const shimmerGroup = new paper.Group([clipMask, shimmer]);
+        shimmerGroup.visible = !isPreciseEditPlaceholder;
 
         // 内部扫描线（保留但调整颜色）
         const scanLineY = -halfH + 10;
@@ -940,7 +949,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(barWidth, barHeight)
             ),
             radius: barHeight / 2,
-            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6)
+            fillColor: isPreciseEditPlaceholder
+                ? new paper.Color(1, 1, 1, 0.72)
+                : new paper.Color(0.9, 0.9, 0.92, 0.6)
         });
 
         const barFg = new paper.Path.Rectangle({
@@ -951,13 +962,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             radius: barHeight / 2,
             fillColor: mainColor
         });
+        if (isPreciseEditPlaceholder) {
+            barBg.visible = false;
+            barFg.visible = false;
+        }
 
         // 进度文字
         const progressLabel = new paper.PointText({
             point: centerPoint.add([0, barY + 18]),
             content: '0%',
             justification: 'center',
-            fillColor: new paper.Color('#6b7280'),
+            fillColor: isPreciseEditPlaceholder
+                ? new paper.Color('#2563eb')
+                : new paper.Color('#6b7280'),
             fontSize: Math.max(14, Math.min(18, width * 0.028)),
             fontWeight: '600',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
@@ -1029,7 +1046,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             paper.view.update();
             animationFrameId = requestAnimationFrame(animate);
         };
-        animationFrameId = requestAnimationFrame(animate);
+        if (!isPreciseEditPlaceholder) {
+            animationFrameId = requestAnimationFrame(animate);
+        }
 
         (group as any)._spinnerAnimationId = animationFrameId;
 
@@ -2030,6 +2049,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImages: sourceImages,
                     videoInfo: extraOptions?.videoInfo
                 };
+
+                if (operationType === 'precise-edit' || lockToBounds) {
+                    console.log("🧩 [Precise Edit] quick upload 最终落点", {
+                        imageId,
+                        operationType,
+                        sourceSize: { width: originalWidth, height: originalHeight },
+                        displaySize: { width: displayWidth, height: displayHeight },
+                        finalPosition: { x: finalPosition.x, y: finalPosition.y },
+                        boundsSource,
+                        placeholderId,
+                        lockToBounds,
+                    });
+                }
 
                 // 创建选择区域（透明点击热区，避免 Raster hitTest/异步加载导致“点不到图片”）
                 const selectionArea = new paper.Path.Rectangle({

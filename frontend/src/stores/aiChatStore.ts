@@ -469,6 +469,14 @@ export type PreciseEditContext = {
     width: number;
     height: number;
   };
+  targetCanvasBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  targetPixelWidth?: number;
+  targetPixelHeight?: number;
   cropPixelWidth?: number;
   cropPixelHeight?: number;
   cropAspectRatio?: number;
@@ -811,6 +819,52 @@ const loadImageElementFromBlob = async (blob: Blob): Promise<HTMLImageElement> =
   }
 };
 
+const describeImageSourceForDebug = (value?: string | null): string => {
+  if (!value || typeof value !== "string") return "empty";
+  const trimmed = value.trim();
+  if (!trimmed) return "empty";
+  if (trimmed.startsWith("data:")) return "data";
+  if (trimmed.startsWith("blob:")) return "blob";
+  if (trimmed.startsWith("flow-asset:")) return "flow-asset";
+  if (/^https?:\/\//i.test(trimmed)) return "remote";
+  if (trimmed.startsWith("/api/assets/proxy")) return "asset-proxy";
+  if (/^(projects|templates|uploads|videos)\//i.test(trimmed.replace(/^\/+/, ""))) {
+    return "asset-key";
+  }
+  return "other";
+};
+
+const readImageDimensionsForDebug = async (
+  value?: string | null
+): Promise<{
+  width: number;
+  height: number;
+  bytes: number;
+  kind: string;
+  preview: string;
+} | null> => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+  if (!blob || blob.size <= 0) return null;
+  const image = await loadImageElementFromBlob(blob);
+  const width = Math.max(
+    1,
+    Math.round(image.naturalWidth || image.width || 1)
+  );
+  const height = Math.max(
+    1,
+    Math.round(image.naturalHeight || image.height || 1)
+  );
+  return {
+    width,
+    height,
+    bytes: blob.size,
+    kind: describeImageSourceForDebug(trimmed),
+    preview: trimmed.slice(0, 120),
+  };
+};
+
 const mergePrecisePatchIntoImage = async (params: {
   baseImageSource: string;
   patchImageSource: string;
@@ -862,6 +916,29 @@ const mergePrecisePatchIntoImage = async (params: {
     1,
     Math.min(baseHeight - cropY, Math.round(nh * baseHeight))
   );
+  const patchWidth = Math.max(
+    1,
+    Math.round(patchImage.naturalWidth || patchImage.width || 1)
+  );
+  const patchHeight = Math.max(
+    1,
+    Math.round(patchImage.naturalHeight || patchImage.height || 1)
+  );
+
+  console.log("🧩 [Precise Edit] 合成尺寸检查", {
+    basePixels: { width: baseWidth, height: baseHeight },
+    patchPixels: { width: patchWidth, height: patchHeight },
+    patchAspectRatio: Number((patchWidth / patchHeight).toFixed(4)),
+    cropPixelsOnBase: {
+      x: cropX,
+      y: cropY,
+      width: cropWidth,
+      height: cropHeight,
+    },
+    cropAspectRatio: Number((cropWidth / cropHeight).toFixed(4)),
+    baseSourceKind: describeImageSourceForDebug(params.baseImageSource),
+    patchSourceKind: describeImageSourceForDebug(params.patchImageSource),
+  });
 
   ctx.drawImage(patchImage, cropX, cropY, cropWidth, cropHeight);
 
@@ -4283,6 +4360,40 @@ export const useAIChatStore = create<AIChatState>()(
           const metrics = options?.metrics;
           logProcessStep(metrics, "editImage entered");
 
+          if (isPreciseLocalEdit) {
+            console.groupCollapsed("🧩 [Precise Edit] editImage 上下文");
+            console.log("选区/目标尺寸", {
+              targetImageId: preciseEditContext?.targetImageId,
+              cropCanvasBounds: preciseEditContext?.cropCanvasBounds,
+              targetCanvasBounds: preciseEditContext?.targetCanvasBounds,
+              cropPixels:
+                preciseEditContext?.cropPixelWidth &&
+                preciseEditContext?.cropPixelHeight
+                  ? {
+                      width: preciseEditContext.cropPixelWidth,
+                      height: preciseEditContext.cropPixelHeight,
+                    }
+                  : null,
+              targetPixels:
+                preciseEditContext?.targetPixelWidth &&
+                preciseEditContext?.targetPixelHeight
+                  ? {
+                      width: preciseEditContext.targetPixelWidth,
+                      height: preciseEditContext.targetPixelHeight,
+                    }
+                  : null,
+              cropAspectRatio: preciseEditContext?.cropAspectRatio,
+              requestAspectRatio: preciseEditAspectRatio,
+            });
+            console.log("源引用类型", {
+              editSourceKind: describeImageSourceForDebug(sourceImage),
+              targetSourceKind: describeImageSourceForDebug(
+                preciseEditContext?.targetImageSource
+              ),
+            });
+            console.groupEnd();
+          }
+
           // 🔥 并行模式：不检查全局状态
           const displaySourceImage = showImagePlaceholder
             ? toRenderableImageSrc(sourceImage)
@@ -4590,6 +4701,23 @@ export const useAIChatStore = create<AIChatState>()(
               imageSize: state.imageSize ?? "1K",
               aspectRatio:
                 preciseEditAspectRatio ?? state.aspectRatio ?? "auto",
+              isPreciseLocalEdit,
+              preciseCropPixels:
+                preciseEditContext?.cropPixelWidth &&
+                preciseEditContext?.cropPixelHeight
+                  ? {
+                      width: preciseEditContext.cropPixelWidth,
+                      height: preciseEditContext.cropPixelHeight,
+                    }
+                  : null,
+              preciseTargetPixels:
+                preciseEditContext?.targetPixelWidth &&
+                preciseEditContext?.targetPixelHeight
+                  ? {
+                      width: preciseEditContext.targetPixelWidth,
+                      height: preciseEditContext.targetPixelHeight,
+                    }
+                  : null,
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
               prompt: prompt.substring(0, 50) + "...",
@@ -4726,6 +4854,45 @@ export const useAIChatStore = create<AIChatState>()(
                 return;
               }
 
+              if (isPreciseLocalEdit) {
+                try {
+                  const [sourceDimensions, outputDimensions] =
+                    await Promise.all([
+                      readImageDimensionsForDebug(sourceImage),
+                      readImageDimensionsForDebug(placementImageData),
+                    ]);
+                  console.log("🧩 [Precise Edit] 生成前后自然尺寸", {
+                    requestAspectRatio:
+                      preciseEditAspectRatio ?? state.aspectRatio ?? "auto",
+                    imageSize: state.imageSize ?? "1K",
+                    sourceCropImage: sourceDimensions,
+                    generatedOutput: outputDimensions,
+                    preciseContext: {
+                      cropCanvasBounds: preciseEditContext?.cropCanvasBounds,
+                      targetCanvasBounds: preciseEditContext?.targetCanvasBounds,
+                      cropPixels:
+                        preciseEditContext?.cropPixelWidth &&
+                        preciseEditContext?.cropPixelHeight
+                          ? {
+                              width: preciseEditContext.cropPixelWidth,
+                              height: preciseEditContext.cropPixelHeight,
+                            }
+                          : null,
+                      targetPixels:
+                        preciseEditContext?.targetPixelWidth &&
+                        preciseEditContext?.targetPixelHeight
+                          ? {
+                              width: preciseEditContext.targetPixelWidth,
+                              height: preciseEditContext.targetPixelHeight,
+                            }
+                          : null,
+                    },
+                  });
+                } catch (error) {
+                  console.warn("🧩 [Precise Edit] 读取生成前后尺寸失败", error);
+                }
+              }
+
               console.log(
                 "✅ [editImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
               );
@@ -4836,12 +5003,41 @@ export const useAIChatStore = create<AIChatState>()(
 		                    patchImageSources,
 		                    getResultImageRemoteUrl(result.data)
 		                  );
+		                  console.log("🧩 [Precise Edit] 准备整图合成", {
+		                    baseCandidateCount: baseImageSources.length,
+		                    patchCandidateCount: patchImageSources.length,
+		                    cropRectNormalized:
+		                      preciseEditContext.cropRectNormalized,
+		                    targetCanvasBounds:
+		                      preciseEditContext.targetCanvasBounds,
+		                    targetPixels:
+		                      preciseEditContext.targetPixelWidth &&
+		                      preciseEditContext.targetPixelHeight
+		                        ? {
+		                            width: preciseEditContext.targetPixelWidth,
+		                            height: preciseEditContext.targetPixelHeight,
+		                          }
+		                        : null,
+		                  });
 		                  const mergedBlob = await mergePrecisePatchWithFallback({
 		                    baseImageSources,
 		                    patchImageSources,
 		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
 		                  });
 		                  if (mergedBlob) {
+		                    console.log("🧩 [Precise Edit] 整图合成成功，准备回写画布", {
+		                      mergedBytes: mergedBlob.size,
+		                      targetPixels:
+		                        preciseEditContext.targetPixelWidth &&
+		                        preciseEditContext.targetPixelHeight
+		                          ? {
+		                              width: preciseEditContext.targetPixelWidth,
+		                              height: preciseEditContext.targetPixelHeight,
+		                            }
+		                          : null,
+		                      targetCanvasBounds:
+		                        preciseEditContext.targetCanvasBounds,
+		                    });
 		                    const mergedDataUrl = await blobToDataUrlLimited(mergedBlob);
 		                    try {
 	                      window.dispatchEvent(
@@ -4849,6 +5045,9 @@ export const useAIChatStore = create<AIChatState>()(
 	                          detail: {
 	                            imageId: preciseEditContext.targetImageId,
 	                            source: mergedDataUrl,
+	                            bounds: preciseEditContext.targetCanvasBounds,
+	                            width: preciseEditContext.targetPixelWidth,
+	                            height: preciseEditContext.targetPixelHeight,
 	                            contentType: "image/png",
 	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
 	                            historyLabel: "precise-edit",
@@ -4860,10 +5059,13 @@ export const useAIChatStore = create<AIChatState>()(
 	                      // ignore
 	                    }
 		                  } else {
-		                    console.warn("⚠️ 精准微调回贴失败：未能合成局部覆盖图");
+		                    console.warn("🧩 [Precise Edit] 整图合成失败，将回退 quick upload", {
+		                      baseCandidateCount: baseImageSources.length,
+		                      patchCandidateCount: patchImageSources.length,
+		                    });
 		                  }
 		                } catch (error) {
-		                  console.warn("⚠️ 精准微调回贴失败，回退普通上画布:", error);
+		                  console.warn("🧩 [Precise Edit] 整图合成异常，将回退 quick upload:", error);
 		                }
 		              }
 
@@ -4875,6 +5077,14 @@ export const useAIChatStore = create<AIChatState>()(
 	              if (usedPreciseOverlay) {
 	                removePredictivePlaceholder();
 	              } else {
+	                if (isPreciseLocalEdit) {
+	                  console.warn("🧩 [Precise Edit] 未走整图回写，准备上传/插入 raw output", {
+	                    placementKind: describeImageSourceForDebug(placementImageData),
+	                    preciseCropBounds,
+	                    preciseTargetBounds:
+	                      preciseEditContext?.targetCanvasBounds,
+	                  });
+	                }
 	                setTimeout(() => {
 	                  if (result.data) {
 	                    console.log(

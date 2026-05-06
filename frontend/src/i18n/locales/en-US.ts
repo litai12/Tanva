@@ -335,7 +335,7 @@ const enUS = {
           normal: "Normal Route",
           normalDesc: "Image/text use normal third-party channels (admin controlled)",
           stable: "Premium Route",
-          stableDesc: "Image/text use direct channel (stability first)",
+          stableDesc: "Image/text use official channel",
           hint: "Only applies when Nano Banana providers are selected",
         },
         googleKey: {

@@ -815,6 +815,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageSource: string;
       cropRectNormalized: { x: number; y: number; width: number; height: number };
       cropCanvasBounds?: { x: number; y: number; width: number; height: number };
+      targetCanvasBounds?: { x: number; y: number; width: number; height: number };
+      targetPixelWidth?: number;
+      targetPixelHeight?: number;
     }) => {
       let stableTargetSource = params.imageSource;
       try {
@@ -848,12 +851,62 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
+      const expectedCropPixelWidth =
+        Number.isFinite(Number(params.targetPixelWidth)) &&
+        Number(params.targetPixelWidth) > 0
+          ? Math.round(Number(params.targetPixelWidth) * params.cropRectNormalized.width)
+          : undefined;
+      const expectedCropPixelHeight =
+        Number.isFinite(Number(params.targetPixelHeight)) &&
+        Number(params.targetPixelHeight) > 0
+          ? Math.round(Number(params.targetPixelHeight) * params.cropRectNormalized.height)
+          : undefined;
+
+      console.groupCollapsed("🧩 [Precise Edit] 选区已准备");
+      console.log("canvas 尺寸", {
+        imageId: params.imageId,
+        cropCanvasBounds: params.cropCanvasBounds,
+        targetCanvasBounds: params.targetCanvasBounds,
+      });
+      console.log("像素尺寸", {
+        targetPixelSize:
+          params.targetPixelWidth && params.targetPixelHeight
+            ? {
+                width: params.targetPixelWidth,
+                height: params.targetPixelHeight,
+              }
+            : null,
+        expectedCropFromTargetPixels:
+          expectedCropPixelWidth && expectedCropPixelHeight
+            ? {
+                width: expectedCropPixelWidth,
+                height: expectedCropPixelHeight,
+              }
+            : null,
+        actualCropPixels: {
+          width: cropResult.width,
+          height: cropResult.height,
+        },
+        cropAspectRatio: Number((cropResult.width / cropResult.height).toFixed(4)),
+      });
+      console.log("选区归一化参数", params.cropRectNormalized);
+      console.log("源图引用", {
+        originalSourcePrefix: params.imageSource.slice(0, 80),
+        stableSourcePrefix: stableTargetSource.slice(0, 80),
+      });
+      console.groupEnd();
+
       const cropObjectUrl = URL.createObjectURL(cropResult.blob);
       const preciseContext: PreciseEditContext = {
         targetImageId: params.imageId,
         targetImageSource: stableTargetSource,
         cropRectNormalized: params.cropRectNormalized,
         cropCanvasBounds: params.cropCanvasBounds,
+        targetCanvasBounds: params.targetCanvasBounds
+          ? { ...params.targetCanvasBounds }
+          : undefined,
+        targetPixelWidth: params.targetPixelWidth,
+        targetPixelHeight: params.targetPixelHeight,
         cropPixelWidth: cropResult.width,
         cropPixelHeight: cropResult.height,
         cropAspectRatio: cropResult.width / cropResult.height,
@@ -2646,6 +2699,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         typeof detail.historyLabel === "string" && detail.historyLabel.trim()
           ? detail.historyLabel.trim()
           : "replace-image-source";
+      const isPreciseReplace = historyLabel === "precise-edit";
       const sourceWidthRaw =
         typeof detail.width === "number" ? detail.width : Number(detail.width);
       const sourceHeightRaw =
@@ -2679,6 +2733,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         return { x, y, width, height };
       })();
+
+      if (isPreciseReplace) {
+        console.log("🧩 [Precise Edit] canvas:replace-image-source 参数", {
+          imageId,
+          fileName,
+          sourceWidth,
+          sourceHeight,
+          explicitBounds,
+          sourceKind: renderableSource.startsWith("data:image/")
+            ? "data"
+            : isPersistableSource
+            ? "persistable"
+            : "other",
+          pendingUpload,
+          clearRemoteUrl,
+          clearKey,
+        });
+      }
       const buildImageDataUpdates = (currentData: any) => {
         const updates: any = {
           src: stateSource,
@@ -2849,6 +2921,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 }
 
                 raster.data = nextRasterData;
+                if (isPreciseReplace) {
+                  console.log("🧩 [Precise Edit] canvas:replace-image-source 已回写", {
+                    imageId,
+                    rasterBounds: {
+                      x: raster.bounds.x,
+                      y: raster.bounds.y,
+                      width: raster.bounds.width,
+                      height: raster.bounds.height,
+                    },
+                    rasterSize: {
+                      width: raster.width,
+                      height: raster.height,
+                    },
+                    storedOriginalSize: {
+                      width: nextRasterData.originalWidth,
+                      height: nextRasterData.originalHeight,
+                    },
+                    storedAspectRatio: nextRasterData.aspectRatio,
+                    sourceWidth,
+                    sourceHeight,
+                  });
+                }
               } catch {}
             }
             didUpdate = true;
@@ -5246,6 +5340,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageId: string;
       imageSource: string;
       imageBounds: { x: number; y: number; width: number; height: number };
+      targetPixelWidth?: number;
+      targetPixelHeight?: number;
       startPoint: paper.Point;
       currentPoint: paper.Point;
       overlayRect: paper.Path.Rectangle;
@@ -5401,6 +5497,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         imageId: selectedImage.id,
         imageSource,
         imageBounds: bounds,
+        targetPixelWidth:
+          Number.isFinite(Number(selectedImage.imageData?.width)) &&
+          Number(selectedImage.imageData?.width) > 0
+            ? Math.round(Number(selectedImage.imageData?.width))
+            : undefined,
+        targetPixelHeight:
+          Number.isFinite(Number(selectedImage.imageData?.height)) &&
+          Number(selectedImage.imageData?.height) > 0
+            ? Math.round(Number(selectedImage.imageData?.height))
+            : undefined,
         startPoint: clampedStart,
         currentPoint: clampedStart,
         overlayRect,
@@ -5473,6 +5579,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         imageSource: active.imageSource,
         cropRectNormalized: normalizedRect,
         cropCanvasBounds: rect,
+        targetCanvasBounds: { ...active.imageBounds },
+        targetPixelWidth: active.targetPixelWidth,
+        targetPixelHeight: active.targetPixelHeight,
       });
       event.preventDefault();
       event.stopPropagation();

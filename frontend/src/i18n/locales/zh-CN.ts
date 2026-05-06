@@ -335,7 +335,7 @@ const zhCN = {
           normal: "普通路线",
           normalDesc: "生图/生文走普通三方渠道",
           stable: "尊享路线",
-          stableDesc: "生图/生文走直连链路（稳定优先）",
+          stableDesc: "生图/生文走官方线路",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {

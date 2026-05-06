@@ -998,6 +998,8 @@ const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
 };
 
 const FLOW_DELETE_EDGE_EVENT = "flow:deleteEdge";
+const FLOW_EDGE_DOUBLE_CLICK_MS = 260;
+const FLOW_EDGE_DOUBLE_CLICK_DISTANCE_PX = 12;
 
 const stopFlowEdgeDeleteEvent = (event: React.SyntheticEvent) => {
   event.preventDefault();
@@ -1018,9 +1020,10 @@ const CustomEdge = React.memo(function CustomEdge({
   selected,
   style,
   markerEnd,
+  label,
   data,
 }: EdgeProps) {
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -1042,6 +1045,12 @@ const CustomEdge = React.memo(function CustomEdge({
   );
   const deleteDispatchedRef = React.useRef(false);
   const edgeIdForDelete = String(data?.originalEdgeId || id);
+  const edgeLabel =
+    typeof label === "string"
+      ? label.trim()
+      : typeof (data as any)?.label === "string"
+      ? (data as any).label.trim()
+      : "";
 
   const handleDelete = React.useCallback(
     (event: React.SyntheticEvent) => {
@@ -1068,6 +1077,23 @@ const CustomEdge = React.memo(function CustomEdge({
         markerEnd={markerEnd}
         style={edgeStyle}
       />
+      {!data?.collapsedProxy && edgeLabel && (
+        <EdgeLabelRenderer>
+          <div
+            className='tanva-flow-edge-label nodrag nopan'
+            style={{
+              position: "absolute",
+              left: labelX,
+              top: labelY,
+              transform: "translate(-50%, -50%)",
+              pointerEvents: "none",
+              zIndex: 9998,
+            }}
+          >
+            {edgeLabel}
+          </div>
+        </EdgeLabelRenderer>
+      )}
       {!data?.collapsedProxy && selected && (
         <EdgeLabelRenderer>
           <div
@@ -1482,7 +1508,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   textChat: 10, // 纯文本交互节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
   promptOptimize: 10, // 提示词优化节点 - gemini-text
-  analysis: 10, // 图像分析节点 - gemini-2.5-image-analyze (Fast default)
+  analysis: 10, // Image Chat - gemini-2.5-image-analyze (Fast default)
   image: 0, // 图片节点 - 不消耗积分
   // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
   generate: "20-40",
@@ -1544,7 +1570,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
   { key: "gptImage2", zh: "GPT-Image-2", en: "GPT-Image-2", category: "image" },
-  { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
+  { key: "analysis", zh: "Image Chat", en: "Image Chat", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
@@ -5662,6 +5688,12 @@ function FlowInner() {
   const [edgeLabelEditor, setEdgeLabelEditor] =
     React.useState<EdgeLabelEditorState>(() => createEdgeLabelEditorState());
   const edgeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
+  const lastEdgeClickRef = React.useRef<{
+    edgeId: string;
+    t: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   React.useEffect(() => {
     if (edgeLabelEditor.visible) {
@@ -23265,13 +23297,15 @@ function FlowInner() {
   const commitEdgeLabelValue = React.useCallback(
     (edgeId: string, value: string) => {
       const trimmed = value.trim();
-      let changed = false;
+      const currentEdge = edgesRef.current.find(
+        (edge) => String(edge.id) === edgeId
+      );
+      const currentValue =
+        typeof currentEdge?.label === "string" ? currentEdge.label : "";
+      if (currentValue === trimmed) return;
       setEdges((prev) =>
         prev.map((edge) => {
           if (edge.id !== edgeId) return edge;
-          const prevValue = typeof edge.label === "string" ? edge.label : "";
-          if (prevValue === trimmed) return edge;
-          changed = true;
           if (trimmed) {
             return { ...edge, label: trimmed };
           }
@@ -23280,25 +23314,21 @@ function FlowInner() {
           return next;
         })
       );
-      if (changed) {
-        try {
-          historyService.commit("flow-edge-label").catch(() => {});
-        } catch {}
-      }
+      try {
+        historyService.commit("flow-edge-label").catch(() => {});
+      } catch {}
     },
     [setEdges]
   );
 
   const finalizeEdgeLabelEditor = React.useCallback(
     (commit: boolean) => {
-      setEdgeLabelEditor((prev) => {
-        if (commit && prev.edgeId) {
-          commitEdgeLabelValue(prev.edgeId, prev.value);
-        }
-        return createEdgeLabelEditorState();
-      });
+      if (commit && edgeLabelEditor.edgeId) {
+        commitEdgeLabelValue(edgeLabelEditor.edgeId, edgeLabelEditor.value);
+      }
+      setEdgeLabelEditor(createEdgeLabelEditorState());
     },
-    [commitEdgeLabelValue]
+    [commitEdgeLabelValue, edgeLabelEditor]
   );
 
   const handleEdgeLabelChange = React.useCallback(
@@ -23311,6 +23341,8 @@ function FlowInner() {
 
   const handleEdgeLabelKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
+      event.stopPropagation();
+      if ((event.nativeEvent as any)?.isComposing) return;
       if (event.key === "Enter") {
         event.preventDefault();
         finalizeEdgeLabelEditor(true);
@@ -23326,22 +23358,19 @@ function FlowInner() {
     finalizeEdgeLabelEditor(true);
   }, [finalizeEdgeLabelEditor]);
 
-  const handleEdgeDoubleClick = React.useCallback(
-    (event: React.MouseEvent, edge: Edge) => {
+  const openEdgeLabelEditor = React.useCallback(
+    (event: React.MouseEvent | React.PointerEvent, edge: Edge) => {
       event.preventDefault();
       event.stopPropagation();
 
+      const edgeId = String((edge as any)?.data?.originalEdgeId || edge.id);
       const containerRect = containerRef.current?.getBoundingClientRect();
-      const targetElement = event.target as HTMLElement | null;
-      const targetRect = targetElement?.getBoundingClientRect?.();
-      const globalX = targetRect
-        ? targetRect.left + targetRect.width / 2
+      let localX = containerRect
+        ? event.clientX - containerRect.left
         : event.clientX;
-      const globalY = targetRect
-        ? targetRect.top + targetRect.height / 2
+      let localY = containerRect
+        ? event.clientY - containerRect.top
         : event.clientY;
-      let localX = containerRect ? globalX - containerRect.left : globalX;
-      let localY = containerRect ? globalY - containerRect.top : globalY;
       if (containerRect) {
         const margin = 16;
         localX = Math.min(
@@ -23354,18 +23383,18 @@ function FlowInner() {
         );
       }
 
-      const allEdges = (rf.getEdges?.() || edges) as Edge[];
-      const currentEdge = allEdges.find((e) => e.id === edge.id);
+      const currentEdge =
+        edgesRef.current.find((e) => String(e.id) === edgeId) || edge;
       const existingValue =
         typeof currentEdge?.label === "string" ? currentEdge.label : "";
 
       setEdgeLabelEditor((prev) => {
-        if (prev.visible && prev.edgeId && prev.edgeId !== edge.id) {
+        if (prev.visible && prev.edgeId && prev.edgeId !== edgeId) {
           commitEdgeLabelValue(prev.edgeId, prev.value);
         }
         return {
           visible: true,
-          edgeId: edge.id,
+          edgeId,
           value: existingValue,
           position: { x: localX, y: localY },
         };
@@ -23376,22 +23405,42 @@ function FlowInner() {
         selection?.removeAllRanges?.();
       } catch {}
     },
-    [rf, edges, commitEdgeLabelValue]
+    [commitEdgeLabelValue]
+  );
+
+  const handleEdgeDoubleClick = React.useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      openEdgeLabelEditor(event, edge);
+    },
+    [openEdgeLabelEditor]
   );
 
   const handleEdgeClick = React.useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.preventDefault();
       event.stopPropagation();
-      const edgeId = edge.id;
+      const edgeId = String((edge as any)?.data?.originalEdgeId || edge.id);
+      const now = Date.now();
+      const last = lastEdgeClickRef.current;
+      const isDoubleClick =
+        !!last &&
+        last.edgeId === edgeId &&
+        now - last.t < FLOW_EDGE_DOUBLE_CLICK_MS &&
+        Math.hypot(last.x - event.clientX, last.y - event.clientY) <
+          FLOW_EDGE_DOUBLE_CLICK_DISTANCE_PX;
+      lastEdgeClickRef.current = { edgeId, t: now, x: event.clientX, y: event.clientY };
       setNodes((prev: any[]) =>
         prev.map((node) => (node.selected ? { ...node, selected: false } : node))
       );
       setEdges((prev: any[]) =>
         prev.map((e) => ({ ...e, selected: e.id === edgeId }))
       );
+      if (isDoubleClick) {
+        lastEdgeClickRef.current = null;
+        openEdgeLabelEditor(event, edge);
+      }
     },
-    [setEdges, setNodes]
+    [openEdgeLabelEditor, setEdges, setNodes]
   );
 
   const deleteSelectedEdges = React.useCallback(() => {
@@ -24249,12 +24298,14 @@ function FlowInner() {
             top: edgeLabelEditor.position.y,
           }}
           data-prevent-add-panel
+          onPointerDownCapture={(event) => event.stopPropagation()}
+          onMouseDownCapture={(event) => event.stopPropagation()}
         >
           <input
             ref={edgeLabelInputRef}
             value={edgeLabelEditor.value}
             onChange={handleEdgeLabelChange}
-            onKeyDown={handleEdgeLabelKeyDown}
+            onKeyDownCapture={handleEdgeLabelKeyDown}
             onBlur={handleEdgeLabelBlur}
             placeholder={lt("输入文本", "Enter text")}
           />

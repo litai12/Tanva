@@ -486,9 +486,18 @@ export class NodeConfigService {
     return nextMetadata;
   }
 
-  private normalizeNodeConfigOutput<T extends { nodeKey: string; description?: string | null; metadata?: any }>(
+  private normalizeNodeConfigOutput<T extends { nodeKey: string; nameZh?: string; nameEn?: string; description?: string | null; metadata?: any }>(
     config: T,
   ): T {
+    if (config.nodeKey === 'analysis') {
+      return {
+        ...config,
+        nameZh: 'Image Chat',
+        nameEn: 'Image Chat',
+        description: '图像对话与提示词提取',
+      };
+    }
+
     if (
       config.nodeKey !== 'doubaoVideo' &&
       config.nodeKey !== 'seedance20Video' &&
@@ -1352,14 +1361,14 @@ export class NodeConfigService {
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       {
         nodeKey: 'analysis',
-        nameZh: '图像分析节点',
-        nameEn: 'Analysis',
+        nameZh: 'Image Chat',
+        nameEn: 'Image Chat',
         category: 'other',
         sortOrder: 33,
         creditsPerCall: 10,
         serviceType: 'gemini-2.5-image-analyze',
         priceYuan: 0.1,
-        description: '分析图像内容',
+        description: '图像对话与提示词提取',
         metadata: buildManagedImageNodeMetadata({
           modelKeys: ['gemini-2.5-image-analyze', 'gemini-image-analyze', 'gemini-3.1-image-analyze'],
           managedModelKey: 'gemini-2.5-image-analyze',
@@ -1893,14 +1902,14 @@ export class NodeConfigService {
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
       {
         nodeKey: 'analysis',
-        nameZh: '图像分析节点',
-        nameEn: 'Analysis',
+        nameZh: 'Image Chat',
+        nameEn: 'Image Chat',
         category: 'other',
         sortOrder: 33,
         creditsPerCall: 10,
         serviceType: 'gemini-2.5-image-analyze',
         priceYuan: 0.1,
-        description: '分析图像内容',
+        description: '图像对话与提示词提取',
         metadata: buildManagedImageNodeMetadata({
           modelKeys: ['gemini-2.5-image-analyze', 'gemini-image-analyze', 'gemini-3.1-image-analyze'],
           managedModelKey: 'gemini-2.5-image-analyze',

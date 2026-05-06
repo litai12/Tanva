@@ -2105,6 +2105,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               detail: {
                 imageData: removedData,
                 fileName,
+                selectedImageBounds: realTimeBounds,
                 smartPosition: centerPoint,
                 operationType: "background-removal",
                 sourceImageId: imageData.id,
@@ -2189,6 +2190,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               detail: {
                 imageData: removedData,
                 fileName,
+                selectedImageBounds: realTimeBounds,
                 smartPosition: centerPoint,
                 operationType: "background-removal-fast",
                 sourceImageId: imageData.id,
@@ -2864,8 +2866,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const cropY = cropTopPx;
       const cropWidth = Math.max(1, cropRightPx - cropLeftPx);
       const cropHeight = Math.max(1, cropBottomPx - cropTopPx);
-      const outputWidth = cropWidth;
-      const outputHeight = cropHeight;
+      // Bake the current canvas display ratio into the cropped asset.
+      const outputScaleCandidates = [scaleX, scaleY].filter(
+        (value) => Number.isFinite(value) && value > 0
+      );
+      const outputScale =
+        outputScaleCandidates.length > 0
+          ? Math.max(...outputScaleCandidates)
+          : 1;
+      const outputWidth = Math.max(1, Math.round(safeCropRect.width * outputScale));
+      const outputHeight = Math.max(1, Math.round(safeCropRect.height * outputScale));
 
       const canvas = document.createElement("canvas");
       canvas.width = outputWidth;
