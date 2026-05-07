@@ -32,6 +32,7 @@ import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/i
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
+import { getImageSplitHandleIndex, getImageSplitPrimaryHandleId } from "../utils/imageSplitHandles";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { loadSharedImage } from "../utils/sharedImageLoad";
@@ -151,6 +152,12 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
+const normalizeImageRef = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
@@ -172,6 +179,46 @@ const EMPTY_INPUT_CONNECTION_SNAPSHOT: InputConnectionSnapshot = {
   connectedFrameImage: undefined,
 };
 
+const isPrimaryImageInputHandle = (handle?: string | null): boolean =>
+  handle === "img" || handle === "image" || !handle;
+
+const readImageSplitOutputRef = (
+  nodeData: Record<string, unknown>,
+  sourceHandle?: string | null
+): string | undefined => {
+  const idx = getImageSplitHandleIndex(sourceHandle);
+  if (idx === null) return undefined;
+
+  const primaryKey = getImageSplitPrimaryHandleId(idx);
+  const direct =
+    normalizeImageRef(nodeData[primaryKey]) ||
+    normalizeImageRef(nodeData[`img${idx + 1}`]);
+  if (direct) return direct;
+
+  const splitImages = Array.isArray(nodeData.splitImages)
+    ? (nodeData.splitImages as Array<Record<string, unknown> | undefined>)
+    : [];
+  const legacy = splitImages[idx];
+  const legacyRef = legacy ? normalizeImageRef(legacy.imageData) : undefined;
+  if (legacyRef) return legacyRef;
+
+  const splitRects = Array.isArray(nodeData.splitRects)
+    ? (nodeData.splitRects as Array<Record<string, unknown> | undefined>)
+    : [];
+  const rect = splitRects[idx];
+  const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+  const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+  const width =
+    typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+  const height =
+    typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return normalizeImageRef(nodeData.inputImageUrl) || normalizeImageRef(nodeData.inputImage);
+};
+
 const buildNodeByIdMap = (state: ReactFlowState): Map<string, FlowNodeLike> => {
   const nodeLookup = (
     state as ReactFlowState & { nodeLookup?: Map<string, FlowNodeLike> }
@@ -191,7 +238,7 @@ const buildPrimaryImgInputEdgeByTargetMap = (
   const map = new Map<string, FlowEdgeLike>();
   for (let i = 0; i < edges.length; i += 1) {
     const edge = edges[i];
-    if (edge.targetHandle !== "img") continue;
+    if (!isPrimaryImageInputHandle(edge.targetHandle)) continue;
     if (map.has(edge.target)) continue;
     map.set(edge.target, edge);
   }
@@ -517,7 +564,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const [nodeLabelDraft, setNodeLabelDraft] = React.useState<string>(normalizedNodeLabel);
   const [isEditingNodeLabel, setIsEditingNodeLabel] = React.useState(false);
   const nodeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
-  // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
+  // 从连接的节点读取图片（支持 imageSplit / imageGrid / videoFrameExtract / image 的链式传递）
   const inputConnectionSnapshot = useStore(
     React.useCallback(
       (state: ReactFlowState): InputConnectionSnapshot => {
@@ -539,6 +586,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
           if (!node) return undefined;
 
           const nodeData = node.data || {};
+
+          // imageSplit 节点 - 按输出端口读取对应切片的基底引用；实际裁切由 cropInfo 链路处理
+          if (node.type === "imageSplit") {
+            return readImageSplitOutputRef(nodeData, incomingEdge?.sourceHandle);
+          }
 
           // imageGrid 节点 - 读取拼合后的图片
           if (node.type === "imageGrid") {
@@ -715,10 +767,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             "";
           if (!baseRef) return null;
 
-          const handle = typeof sourceHandle === "string" ? sourceHandle : "";
-          const match = handle ? /^image(\\d+)$/.exec(handle) : null;
-          if (!match) return null;
-          const idx = Math.max(0, Number(match[1]) - 1);
+          const idx = getImageSplitHandleIndex(sourceHandle);
+          if (idx === null) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
           const rect = splitRects?.[idx];
@@ -1578,6 +1628,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
         (typeof uploadResult.asset.url === "string" &&
           uploadResult.asset.url.trim()) ||
         persistedRef;
+      try {
+        const edges = rf.getEdges();
+        const remain = edges.filter(
+          (edge) =>
+            !(
+              edge.target === id &&
+              isPrimaryImageInputHandle(edge.targetHandle)
+            )
+        );
+        if (remain.length !== edges.length) {
+          rf.setEdges(remain);
+        }
+      } catch {}
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
@@ -1586,6 +1649,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               imageUrl: persistedDisplayRef,
               imageData: undefined,
               thumbnail: undefined,
+              crop: undefined,
               uploading: false,
               uploadError: undefined,
               uploadToken: undefined,
@@ -1634,7 +1698,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         (edge) =>
           !(
             edge.target === id &&
-            (edge.targetHandle === "img" || edge.targetHandle === "image")
+            isPrimaryImageInputHandle(edge.targetHandle)
           )
       );
       if (remain.length !== edges.length) {
@@ -2201,7 +2265,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 try {
                   const edges = rf.getEdges();
                   const remain = edges.filter(
-                    (e) => !(e.target === id && e.targetHandle === "img")
+                    (e) => !(e.target === id && isPrimaryImageInputHandle(e.targetHandle))
                   );
                   rf.setEdges(remain);
                 } catch {}
@@ -2242,7 +2306,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 try {
                   const edges = rf.getEdges();
                   const remain = edges.filter(
-                    (e) => !(e.target === id && e.targetHandle === "img")
+                    (e) => !(e.target === id && isPrimaryImageInputHandle(e.targetHandle))
                   );
                   rf.setEdges(remain);
                 } catch {}

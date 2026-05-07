@@ -28,6 +28,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Image Node: local image upload now detaches the node's existing image input edge and clears stale crop metadata after a successful OSS write, so a newly uploaded image is displayed instead of the upstream/old connected image.
 - Flow/Batch Connect: pending batch-output preview lines now fall back per source node handle order when a DOM handle is temporarily unavailable, keeping single-output nodes anchored to their actual output handle instead of using the whole batch index.
 - Canvas/Flow Performance: Flow-overlay wheel zoom/pan now batches canvas viewport writes through `requestAnimationFrame`, and `GridRenderer`'s initialization fallback no longer reruns on every zoom tick.
 - Canvas/Double Click: disabled double-click text edit entry on canvas text items/overlays, and changed selection-mode double-click on line paths to delete the line directly (with history + autosave commit).
@@ -267,6 +268,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?�?AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
+- Flow: Image nodes now resolve `ImageSplit` outputs as connected image inputs, including `imageN`/legacy `imgN` source handles and legacy `targetHandle=image` inputs, so `ImageSplit -> Image -> Image` keeps the cropped resource available (`frontend/src/components/flow/nodes/ImageNode.tsx`).
 - Flow Image 节点：修复“上传失败后刷新出现幽灵图”。上传失败时会回滚预分配但未落地�?`imageUrl(key)`，避免把不存在的 OSS key 持久化；同时�?`uploading=true` 且携带图片数据的节点视为不可持久化，阻止自动保存在上传未完成时写入不稳定引用（`frontend/src/components/flow/nodes/ImageNode.tsx`, `frontend/src/utils/projectContentValidation.ts`）�?
 - Flow：`Image Split` 读取 `seedream5` 上游时补�?`imageUrls/images` 兜底，并将分割加载源改为“强制代理优先、直连回退”候选策略，修复 Seedream 外链图在分割节点报“图片加载失败”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）�?
 - Flow：`Analysis` 节点输入解析改为多候选回退（`imageData/imageUrl/outputImage/thumbnail`）并在裁切链路支持多 baseRef 尝试；同�?`resolveImageToDataUrl/resolveImageToBlob` 对白名单远程 URL 增加“强�?`/api/assets/proxy`”候选兜底，修复线上偶发 `图片加载失败/缺少图片输入`（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/utils/imageSource.ts`）�?
