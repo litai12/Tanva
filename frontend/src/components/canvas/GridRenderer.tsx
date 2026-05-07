@@ -597,6 +597,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     backgroundRectRef.current = backgroundRect as any;
   };
 
+  const createGridRef = useRef(createGrid);
+  createGridRef.current = createGrid;
+
   // 统一网格渲染控制 - 合并所有触发条件到单一useEffect
   useEffect(() => {
     if (!isPaperInitialized || !canvasRef.current) return;
@@ -687,16 +690,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   // 额外的初始化兜底：在 Paper 初始化后的下一帧与100ms后各触发一次渲染
   useEffect(() => {
     if (!isPaperInitialized || !showGrid) return;
-    const raf = requestAnimationFrame(() => createGrid(gridSize));
-    const timer = setTimeout(() => createGrid(gridSize), 120);
+    const raf = requestAnimationFrame(() => createGridRef.current(gridSizeRef.current));
+    const timer = setTimeout(() => createGridRef.current(gridSizeRef.current), 120);
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
-  }, [isPaperInitialized, showGrid, gridSize, createGrid]);
+  }, [isPaperInitialized, showGrid, gridSize]);
 
   // 监听项目变更（如 importJSON 后）强制重绘网格
   // 使用 ref 来获取最新的 createGrid 和 gridSize，避免依赖变化导致事件监听器频繁重建
-  const createGridRef = useRef(createGrid);
-  createGridRef.current = createGrid;
-
   useEffect(() => {
     const handler = () => {
       isInitializedRef.current = false;

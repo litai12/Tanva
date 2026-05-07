@@ -346,6 +346,10 @@ const enUS = {
       advancedTab: {
         openPanel: "Open Panel",
         closePanel: "Close Panel",
+        frameMonitor: {
+          title: "Frame Monitor",
+          desc: "Show FPS and long-frame stats for node drag, image drag, canvas pan, and zoom",
+        },
         memory: {
           title: "Memory Monitor",
           desc: "Debug tool available only in development mode",

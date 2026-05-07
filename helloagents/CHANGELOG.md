@@ -13,21 +13,23 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Admin/Auth: added configurable login notice popup support. Full admins can edit `login_notice` in `/admin` system settings, users fetch `GET /api/settings/login-notice` after login, and the popup requires manual dismissal once per login.
 - Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and now shows today's normal/stable route success rates from `GET /api/ai/banana-route-success-rates`.
 - Flow/Image Node: added a fullscreen annotation editor from the image-node paintbrush action. It supports brush, arrow, rectangle, circle, and text markup, saves the flattened PNG back to the image node via OSS, and keeps node-local history versions for restore.
-- Flow/Canvas Eraser: eraser strokes now mark touched ReactFlow connection edges as a thick preview and delete the whole touched edge batch on mouseup; selected edges also render thicker, blank clicks clear selected edges, and Paper eraser trails are tagged as transient and force-cleared after mouseup/cancel.
-- Flow/Canvas Eraser: eraser single-clicks without dragging now return to Select, delayed Paper trail cleanup only removes trails created before that mouseup so the next eraser stroke is not cleared, and Flow handle/node interactions are ignored by the eraser so normal connection gestures still work while the eraser tool is active.
-- Flow/Canvas Eraser: delayed trail cleanup now uses a monotonic eraser-trail serial snapshot, so deleting a connection force-clears the current stroke after mouseup while never removing a later stroke that starts immediately after it.
+- Flow/Edges: holding `Shift` and clicking an edge now deletes that edge through the same controlled Flow deletion path used by the delete button and keyboard shortcuts, including label-editor cleanup and history commit.
+- Flow/Edges: increased the invisible edge interaction width to 32px, explicitly enabled stroke hit-testing for the interaction path, and show a red minus cursor while Shift is held over an edge.
 - Canvas Tools: added an `arrow` drawing mode in the tool store, toolbar, drawing hooks, interaction controller, and layer panel type/icon mapping. Arrows are stored as Paper paths with `data.tool = "arrow"` and do not change design JSON persistence rules.
+- Workspace Settings: FPS frame monitoring is now controlled from Settings -> Advanced and reports a `Canvas` mode during canvas pan/move interactions in addition to node drag, image drag, and zoom.
 - Project Manager: project cards now lazy-load current-page content previews and render a multi-image grid, with 12 projects per page and icon-only rename/delete actions.
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
+- Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
 - Flow/Batch Connect: pending batch-output preview lines now fall back per source node handle order when a DOM handle is temporarily unavailable, keeping single-output nodes anchored to their actual output handle instead of using the whole batch index.
+- Canvas/Flow Performance: Flow-overlay wheel zoom/pan now batches canvas viewport writes through `requestAnimationFrame`, and `GridRenderer`'s initialization fallback no longer reruns on every zoom tick.
 - Canvas/Double Click: disabled double-click text edit entry on canvas text items/overlays, and changed selection-mode double-click on line paths to delete the line directly (with history + autosave commit).
 - Flow/Viewport: Canvas-to-Flow viewport translation is now snapped to physical pixels using the selected node as the anchor when available, reducing whole-node softness from fractional transform offsets at the same zoom level.
 - Flow/Viewport: removed the persistent `will-change: transform` hint from the ReactFlow viewport so static Flow text and image previews are not kept in a softened composited layer after zoom/pan interactions.

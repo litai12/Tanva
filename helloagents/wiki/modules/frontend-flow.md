@@ -2,11 +2,14 @@
 
 ## 2026-05-07 Update
 - `批量连接输出` 的预览线源点兜底改为按每个源节点自己的输出端口列表计算；当真实 DOM 句柄暂不可读时，单输出节点仍回到右侧输出句柄中心，多输出节点按本节点端口顺序分布，避免用整批连线序号导致源点偏移。
+- Flow 覆盖层内的滚轮缩放/平移现在也会通过 RAF 合并写入 canvas viewport，避免在触控板/滚轮高频事件下每个 wheel tick 都同步触发 Canvas store、Paper view 与 ReactFlow viewport 更新。
 
 ## 2026-05-06 Update
 - Canvas → Flow 视口同步现在会优先以当前选中 Flow 节点为锚点，把 ReactFlow 的 `x/y` 平移值对齐到物理像素，减少同一缩放倍率下文字、图标、边框因半像素 transform 整体发虚。
 - Flow viewport 不再长期设置 `will-change: transform`，避免浏览器把整层文本/图片持续合成栅格化后出现静止态发虚；视口原点仍保持与 Canvas 同步所需的 `transform-origin: 0 0`。
 - Flow 选中连线的红色删除按钮改为 `pointerdown` 即派发 `flow:deleteEdge`，由 `FlowOverlay` 本地受控 `edges` 状态统一删除、清理标签编辑器并触发 `flow:edgesChange`；避免自定义 Edge 直接调用 ReactFlow instance setter 时被受控状态回灌或 click 抑制导致删除无效。
+- Flow 连线新增 `Shift` + 点击删除入口：`onEdgeClick` 在检测到 Shift 时直接走 `deleteFlowEdgesByIds()`，复用现有边状态清理、`flow:edgesChange` 通知与历史提交。
+- Flow 连线命中热区扩大到 32px：`CustomEdge` 将 `BaseEdge.interactionWidth` 下限设为 `32`，并在 CSS 中让 `.react-flow__edge-interaction` 明确参与 `stroke` 命中检测；按住 Shift 悬停连线时通过 body class 切换红色减号删除光标，提升选中与 Shift 删除的可点性但不改变视觉线宽。
 - Flow 连线文字编辑新增手动双击兜底：`onEdgeClick` 会记录同一条 edge 的快速二次点击并打开标签编辑器，同时编辑器定位改用鼠标双击点，避免第一次点击选中连线导致 DOM 重渲染后 ReactFlow 原生 `dblclick` 不触发或输入框位置偏移。
 - Flow 连线文字提交修复：输入框 `Enter` 直接按当前编辑器状态写回 `edge.label`，并在 `CustomEdge` 中用 `EdgeLabelRenderer` 渲染已保存 label；输入框会拦截键盘/鼠标事件，避免 Flow 全局快捷键或画布交互抢走提交。
 - GPT-Image-2 Flow 节点从隐藏集合恢复展示；节点添加面板与 Quick Connect 会重新显示 `gptImage2`，运行逻辑仍复用 `Nano2Node` 的 GPT-Image-2 分支。
@@ -17,15 +20,14 @@
 ## 2026-05-05 Update
 - `PromptOptimizeNode` 的预览输入框补齐中文输入法 composition 防护：拼音组词期间只更新本地 textarea，候选词确认后再写回 Flow 节点数据，避免旧节点数据重渲染打断 IME 并留下拼音片段。
 - Flow 文字输入类 `textarea` 统一补齐 IME-safe draft 处理，覆盖 `TextPrompt`、`TextPromptPro`、`GeneratePro`、`GeneratePro4`、`GenerateReference`、`VideoAnalyze`、`MinimaxMusic`、`KlingO3` 自定义分镜等节点；已存在防护的 `TextChat`、`TextNote`、`StoryboardSplit` 保持原逻辑。
-- 画布橡皮擦现在会同步命中 Flow 连线：`FlowOverlay` 在橡皮模式下按屏幕轨迹检测 `.react-flow__edge-path`，拖动时把触碰到的连接线加入待删集合并加粗预览，鼠标松开后批量删除整条 edge；选中的连线也会加粗显示，空白点击会清掉已选中连线。Paper 橡皮轨迹会标记为 transient helper，并在松开/取消/失焦后强制清理；橡皮点击删除连线时不会退出橡皮模式。
-- 橡皮工具的单击/拖拽/连线路径已拆开处理：空白单击不产生轨迹并回到选择模式；拖拽擦除保持橡皮模式；延迟清理只清掉本次 mouseup 之前创建的橡皮轨迹，避免下一笔橡皮轨迹被误删；Flow 节点/句柄交互会跳过橡皮擦监听，保证橡皮工具激活时仍可正常从句柄拉线。
-- 删除 Flow 连线后的 Paper 轨迹清理改为按橡皮轨迹递增序号清理：mouseup 时记录当前序号并强制清掉该序号及之前的临时轨迹；如果用户马上开始下一笔，新轨迹序号更大，不会被上一笔删除线后的清理扫掉。
+- 画布橡皮擦对 Flow 连线保持点击命中删除：`FlowOverlay` 在橡皮模式下点击到 `.react-flow__edge-path` 会直接删除整条 edge 并保留橡皮模式；拖拽划线删除连线已取消，空白点击仍按原逻辑清掉已选中连线，Flow 节点/句柄交互继续跳过橡皮擦监听，保证正常连线不受影响。
 - 画板右键菜单新增 `节点打组 (G)`，通过 `flow:create-group-from-selection` 复用 FlowOverlay 中 `G` 快捷键的 `createGroupFromSelection()` 逻辑。
 - Flow 连接新增点击式待连接模式：单击输出句柄会进入鼠标跟随连线，再单击目标输入句柄完成连接；画板右键菜单新增 `批量连接输出`，可把当前选中 Flow 节点的输出端口批量带到鼠标，句柄未渲染时按节点类型兜底生成源端口，待连接期间锁定滚轮/拖拽视口并持续重算源点屏幕位置；批量模式点击目标节点会自动匹配兼容输入句柄，并允许多 Prompt 输出接入 GeneratePro/TextPrompt/TextChat/Analysis 等可共享文本输入。
 - `TextChatNode` 对齐 `lt-dev9` 轻量形态：移除节点动态 resize / ResizeObserver / 高频 `updateNodeInternals`，运行时固定 `enableWebSearch: false`，避免继承全局联网搜索状态。
 - 节点添加面板与 Quick Connect 隐藏集合补齐 `generateRef`、`sora2Video`，避免隐藏/暂缓节点从快捷入口被创建。
 - 节点添加面板滚轮事件会先在面板内消费；反转滚轮模式下，鼠标位于 `.tanva-add-panel` 内时优先滚动节点列表，不再把滚轮传给背后的 Flow 画布缩放/平移。
 - Flow 低细节模式恢复为 Zustand 外部订阅 `canvas.zoom`，只在进入/退出阈值时更新 React 状态；画布缩放中且节点数较多时也会临时进入低细节模式，FPS overlay 重新标记 `Zoom` 模式。
+- FPS overlay 开关迁移到「设置 -> 高级 -> 帧检测」，不再开发环境默认自动打开；检测模式新增 `Canvas`，覆盖空格/中键拖动画布与滚轮/触控板平移。
 - `ImageNode` 裁切预览复用共享图片加载缓存，并把尺寸观测更新合并到 RAF；`ViewAngleNode` 的 Three.js 预览尺寸同步也改为 RAF 合并，避免 ResizeObserver 高频直接触发渲染。
 - `FlowOverlay` 的节点组 Alt 拖拽复制现在只在复制开始时扩展选中组的 `childNodeIds`，为组内子节点建立克隆 `idMap`，并重写克隆组的 `childNodeIds` 与内部边 `sourceHandle/targetHandle`，避免只复制组壳或复制后组内连线断开。
 - 节点组 P0 迁移继续补齐：Delete/Backspace 与右键删除会把 `nodeGroup` 的 `childNodeIds` 和相关边一起移除；普通拖拽在 dragStart 缓存组内子节点位置并按快照派发子节点位移，避免拖拽中每帧重建节点映射；Flow 复制/粘贴会扩展组选区并在粘贴时重映射 `childNodeIds`。

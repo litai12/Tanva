@@ -345,6 +345,10 @@ const zhCN = {
       advancedTab: {
         openPanel: "打开面板",
         closePanel: "关闭面板",
+        frameMonitor: {
+          title: "帧检测",
+          desc: "显示节点拖拽、图片拖拽、画布移动/缩放的 FPS 与长帧数据",
+        },
         memory: {
           title: "内存监控",
           desc: "仅开发模式可用的调试工具",

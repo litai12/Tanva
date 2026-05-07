@@ -998,6 +998,8 @@ const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
 };
 
 const FLOW_DELETE_EDGE_EVENT = "flow:deleteEdge";
+const FLOW_EDGE_SHIFT_DELETE_CURSOR_CLASS = "tanva-flow-shift-delete-edge";
+const FLOW_EDGE_INTERACTION_WIDTH_PX = 32;
 const FLOW_EDGE_DOUBLE_CLICK_MS = 260;
 const FLOW_EDGE_DOUBLE_CLICK_DISTANCE_PX = 12;
 
@@ -1020,6 +1022,7 @@ const CustomEdge = React.memo(function CustomEdge({
   selected,
   style,
   markerEnd,
+  interactionWidth,
   label,
   data,
 }: EdgeProps) {
@@ -1051,6 +1054,10 @@ const CustomEdge = React.memo(function CustomEdge({
       : typeof (data as any)?.label === "string"
       ? (data as any).label.trim()
       : "";
+  const edgeInteractionWidth =
+    typeof interactionWidth === "number" && Number.isFinite(interactionWidth)
+      ? Math.max(interactionWidth, FLOW_EDGE_INTERACTION_WIDTH_PX)
+      : FLOW_EDGE_INTERACTION_WIDTH_PX;
 
   const handleDelete = React.useCallback(
     (event: React.SyntheticEvent) => {
@@ -1076,6 +1083,7 @@ const CustomEdge = React.memo(function CustomEdge({
         path={edgePath}
         markerEnd={markerEnd}
         style={edgeStyle}
+        interactionWidth={edgeInteractionWidth}
       />
       {!data?.collapsedProxy && edgeLabel && (
         <EdgeLabelRenderer>
@@ -5890,6 +5898,48 @@ function FlowInner() {
   }, [isFlowEdgeEraserActive]);
 
   React.useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    const setShiftDeleteCursorActive = (active: boolean) => {
+      document.body.classList.toggle(
+        FLOW_EDGE_SHIFT_DELETE_CURSOR_CLASS,
+        active
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift" || event.shiftKey) {
+        setShiftDeleteCursorActive(true);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift" || !event.shiftKey) {
+        setShiftDeleteCursorActive(false);
+      }
+    };
+
+    const clearShiftDeleteCursor = () => setShiftDeleteCursorActive(false);
+    const handleVisibilityChange = () => {
+      if (document.hidden) clearShiftDeleteCursor();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", clearShiftDeleteCursor);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", clearShiftDeleteCursor);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearShiftDeleteCursor();
+    };
+  }, []);
+
+  React.useEffect(() => {
     const eraseFlowEdgeAtPoint = (point: ScreenPoint) => {
       const hitIds = getFlowEdgeIdsNearScreenPoint(point);
       setEraserHoverEdgeIdsIfChanged(hitIds);
@@ -7080,7 +7130,6 @@ function FlowInner() {
   const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
-  const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
   const isLargeGraphForMiniMapImageOverlay =
@@ -7093,7 +7142,12 @@ function FlowInner() {
   const flowLowDetailModeRef = React.useRef(false);
   const canvasZoomIdleTimerRef = React.useRef<number | null>(null);
   const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
+  const canvasPanRef = React.useRef({
+    panX: useCanvasStore.getState().panX,
+    panY: useCanvasStore.getState().panY,
+  });
   const zoomFpsActiveUntilRef = React.useRef(0);
+  const canvasPanFpsActiveUntilRef = React.useRef(0);
   const isCanvasZoomingRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
     () =>
@@ -7228,15 +7282,52 @@ function FlowInner() {
       }, 180);
     };
 
-    canvasZoomRef.current = useCanvasStore.getState().zoom;
+    const markCanvasPanning = (nextPanXRaw: number, nextPanYRaw: number) => {
+      const nextPanX = Number(nextPanXRaw);
+      const nextPanY = Number(nextPanYRaw);
+      const prevPan = canvasPanRef.current;
+      if (
+        Number.isFinite(nextPanX) &&
+        Number.isFinite(nextPanY) &&
+        Math.abs(nextPanX - prevPan.panX) <= 0.0001 &&
+        Math.abs(nextPanY - prevPan.panY) <= 0.0001
+      ) {
+        return;
+      }
 
-    const unsubscribe = useCanvasStore.subscribe(
+      const now =
+        typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      canvasPanFpsActiveUntilRef.current = now + 700;
+      canvasPanRef.current = { panX: nextPanX, panY: nextPanY };
+    };
+
+    const initialCanvasState = useCanvasStore.getState();
+    canvasZoomRef.current = initialCanvasState.zoom;
+    canvasPanRef.current = {
+      panX: initialCanvasState.panX,
+      panY: initialCanvasState.panY,
+    };
+
+    const unsubscribeZoom = useCanvasStore.subscribe(
       (state) => state.zoom,
       (nextZoom) => markCanvasZooming(nextZoom)
     );
+    const unsubscribePanX = useCanvasStore.subscribe(
+      (state) => state.panX,
+      (nextPanX) => markCanvasPanning(nextPanX, useCanvasStore.getState().panY)
+    );
+    const unsubscribePanY = useCanvasStore.subscribe(
+      (state) => state.panY,
+      (nextPanY) => markCanvasPanning(useCanvasStore.getState().panX, nextPanY)
+    );
 
     return () => {
-      unsubscribe();
+      unsubscribeZoom();
+      unsubscribePanX();
+      unsubscribePanY();
       clearCanvasZoomIdleTimer();
       isCanvasZoomingRef.current = false;
       setIsCanvasZooming(false);
@@ -7258,14 +7349,10 @@ function FlowInner() {
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
-  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | "Zoom" | null>(null);
+  const [fpsMode, setFpsMode] = React.useState<
+    "Drag" | "Image" | "Zoom" | "Canvas" | null
+  >(null);
   const fpsOverlayRef = React.useRef<HTMLDivElement | null>(null);
-
-  // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
-  React.useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    setShowFpsOverlay(true);
-  }, [setShowFpsOverlay]);
 
   React.useEffect(() => {
     if (!showFpsOverlay) return;
@@ -7280,7 +7367,7 @@ function FlowInner() {
     let acc = 0;
     let longFrames = 0;
     let maxDt = 0;
-    let lastMode: "Drag" | "Image" | "Zoom" | null = null;
+    let lastMode: "Drag" | "Image" | "Zoom" | "Canvas" | null = null;
 
     const tick = (nowArg: number) => {
       const now =
@@ -7296,12 +7383,17 @@ function FlowInner() {
         typeof document !== "undefined" &&
         Boolean(document.body?.classList.contains("tanva-canvas-dragging"));
       const isCanvasZoomingForFps = now <= zoomFpsActiveUntilRef.current;
-      const mode: "Drag" | "Image" | "Zoom" | null = isImageDragging
+      const canvasState = useCanvasStore.getState();
+      const isCanvasPanningForFps =
+        Boolean(canvasState.isDragging) || now <= canvasPanFpsActiveUntilRef.current;
+      const mode: "Drag" | "Image" | "Zoom" | "Canvas" | null = isImageDragging
         ? "Image"
         : nodeDraggingRef.current
         ? "Drag"
         : isCanvasZoomingForFps
         ? "Zoom"
+        : isCanvasPanningForFps
+        ? "Canvas"
         : null;
 
       if (mode !== lastMode) {
@@ -8753,6 +8845,53 @@ function FlowInner() {
     };
   }, [drawMode, isPointerMode, isMarqueeMode]);
 
+  const pendingCanvasViewportRef = React.useRef<{
+    panX: number;
+    panY: number;
+    zoom: number;
+  } | null>(null);
+  const canvasViewportRafRef = React.useRef<number | null>(null);
+
+  const flushCanvasViewport = React.useCallback(() => {
+    canvasViewportRafRef.current = null;
+    const next = pendingCanvasViewportRef.current;
+    pendingCanvasViewportRef.current = null;
+    if (!next) return;
+    useCanvasStore.getState().setViewport(next);
+  }, []);
+
+  const scheduleCanvasViewport = React.useCallback(
+    (viewport: { panX: number; panY: number; zoom: number }) => {
+      pendingCanvasViewportRef.current = viewport;
+      if (canvasViewportRafRef.current !== null) return;
+      canvasViewportRafRef.current = window.requestAnimationFrame(
+        flushCanvasViewport
+      );
+    },
+    [flushCanvasViewport]
+  );
+
+  const getCanvasViewportForWheel = React.useCallback(() => {
+    const pending = pendingCanvasViewportRef.current;
+    if (pending) return pending;
+    const store = useCanvasStore.getState();
+    return {
+      panX: store.panX,
+      panY: store.panY,
+      zoom: store.zoom || 1,
+    };
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      if (canvasViewportRafRef.current !== null) {
+        window.cancelAnimationFrame(canvasViewportRafRef.current);
+        canvasViewportRafRef.current = null;
+      }
+      pendingCanvasViewportRef.current = null;
+    };
+  }, []);
+
   const handleWheelCapture = React.useCallback(
     (event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
@@ -8825,15 +8964,16 @@ function FlowInner() {
         const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
         if (Math.abs(delta) < 1e-6) return;
 
-        const z1 = store.zoom || 1;
+        const viewport = getCanvasViewportForWheel();
+        const z1 = viewport.zoom || 1;
         const z2 = computeSmoothZoom(z1, delta, {
           sensitivity: store.zoomSensitivity,
         });
         if (z1 === z2) return;
 
-        const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
-        const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
-        store.setViewport({
+        const pan2x = viewport.panX + sx * (1 / z2 - 1 / z1);
+        const pan2y = viewport.panY + sy * (1 / z2 - 1 / z1);
+        scheduleCanvasViewport({
           panX: pan2x,
           panY: pan2y,
           zoom: z2,
@@ -8848,12 +8988,22 @@ function FlowInner() {
       event.preventDefault();
       event.stopPropagation();
 
-      const zoom = store.zoom || 1;
+      const viewport = getCanvasViewportForWheel();
+      const zoom = viewport.zoom || 1;
       const worldDeltaX = (-event.deltaX * dpr) / zoom;
       const worldDeltaY = (-event.deltaY * dpr) / zoom;
-      store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
+      scheduleCanvasViewport({
+        panX: viewport.panX + worldDeltaX,
+        panY: viewport.panY + worldDeltaY,
+        zoom,
+      });
     },
-    [allowNativeScroll, isInsideThreeViewport]
+    [
+      allowNativeScroll,
+      getCanvasViewportForWheel,
+      isInsideThreeViewport,
+      scheduleCanvasViewport,
+    ]
   );
 
   React.useEffect(() => {
@@ -23114,22 +23264,6 @@ function FlowInner() {
             gap: 6,
             fontSize: 12,
           }}
-          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放、画布缩放；每 250ms 刷新一次）'
-        >
-          <input
-            type='checkbox'
-            checked={showFpsOverlay}
-            onChange={(e) => setShowFpsOverlay(e.target.checked)}
-          />{" "}
-          FPS
-        </label>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-          }}
         >
           连线色
           <select
@@ -23435,6 +23569,16 @@ function FlowInner() {
       event.preventDefault();
       event.stopPropagation();
       const edgeId = String((edge as any)?.data?.originalEdgeId || edge.id);
+      if (event.shiftKey) {
+        lastEdgeClickRef.current = null;
+        const removed = deleteFlowEdgesByIds([edgeId]);
+        if (removed > 0) {
+          try {
+            historyService.commit("flow-shift-click-delete-edge").catch(() => {});
+          } catch {}
+        }
+        return;
+      }
       const now = Date.now();
       const last = lastEdgeClickRef.current;
       const isDoubleClick =
@@ -23455,7 +23599,7 @@ function FlowInner() {
         openEdgeLabelEditor(event, edge);
       }
     },
-    [openEdgeLabelEditor, setEdges, setNodes]
+    [deleteFlowEdgesByIds, openEdgeLabelEditor, setEdges, setNodes]
   );
 
   const deleteSelectedEdges = React.useCallback(() => {

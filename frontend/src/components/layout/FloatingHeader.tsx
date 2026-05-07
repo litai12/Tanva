@@ -229,6 +229,8 @@ const FloatingHeader: React.FC = () => {
   } = useCanvasStore();
   const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
+  const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
+  const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
 
   // AI 配置
   const {
@@ -1892,6 +1894,22 @@ const FloatingHeader: React.FC = () => {
       case "advanced":
         return (
           <div className='pb-6 space-y-6'>
+            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
+              <div>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
+                  {t("workspace.settings.advancedTab.frameMonitor.title")}
+                </div>
+                <div className='text-xs text-slate-500 dark:text-slate-400'>
+                  {t("workspace.settings.advancedTab.frameMonitor.desc")}
+                </div>
+              </div>
+              <Switch
+                checked={showFpsOverlay}
+                onCheckedChange={setShowFpsOverlay}
+                className='h-5 w-9'
+                aria-label={t("workspace.settings.advancedTab.frameMonitor.title")}
+              />
+            </div>
             {import.meta.env.DEV && (
               <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
