@@ -128,6 +128,146 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
   return null;
 };
 
+type RectLike = { x: number; y: number; width: number; height: number };
+
+const PRECISE_EDIT_ASPECT_RATIO_LABELS = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+] as const;
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min;
+  if (min > max) return min;
+  return Math.min(Math.max(value, min), max);
+};
+
+const parseRatioLabel = (value?: string | null): number | null => {
+  if (!value) return null;
+  const [rawWidth, rawHeight] = value.split(":");
+  const width = Number(rawWidth);
+  const height = Number(rawHeight);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return width / height;
+};
+
+const getClosestPreciseEditAspectRatio = (
+  ratio?: number | null
+): { label: (typeof PRECISE_EDIT_ASPECT_RATIO_LABELS)[number]; ratio: number } | null => {
+  if (!Number.isFinite(ratio) || !ratio || ratio <= 0) return null;
+
+  let bestLabel: (typeof PRECISE_EDIT_ASPECT_RATIO_LABELS)[number] | null = null;
+  let bestRatio = 1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  PRECISE_EDIT_ASPECT_RATIO_LABELS.forEach((label) => {
+    const candidateRatio = parseRatioLabel(label);
+    if (!candidateRatio) return;
+    const distance = Math.abs(Math.log(ratio / candidateRatio));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestLabel = label;
+      bestRatio = candidateRatio;
+    }
+  });
+
+  return bestLabel ? { label: bestLabel, ratio: bestRatio } : null;
+};
+
+const fitRectToAspectRatioWithinBounds = (
+  rect: RectLike,
+  bounds: RectLike,
+  targetRatio: number
+): RectLike => {
+  if (
+    !Number.isFinite(targetRatio) ||
+    targetRatio <= 0 ||
+    rect.width <= 0 ||
+    rect.height <= 0 ||
+    bounds.width <= 0 ||
+    bounds.height <= 0
+  ) {
+    return rect;
+  }
+
+  const boundsRight = bounds.x + bounds.width;
+  const boundsBottom = bounds.y + bounds.height;
+  const rectRight = rect.x + rect.width;
+  const rectBottom = rect.y + rect.height;
+  const rectCenterX = rect.x + rect.width / 2;
+  const rectCenterY = rect.y + rect.height / 2;
+  const rectRatio = rect.width / rect.height;
+
+  let width = rect.width;
+  let height = rect.height;
+  if (targetRatio >= rectRatio) {
+    width = rect.height * targetRatio;
+  } else {
+    height = rect.width / targetRatio;
+  }
+
+  if (width > bounds.width || height > bounds.height) {
+    const maxWidthFromBoundsHeight = bounds.height * targetRatio;
+    if (maxWidthFromBoundsHeight <= bounds.width) {
+      width = maxWidthFromBoundsHeight;
+      height = bounds.height;
+    } else {
+      width = bounds.width;
+      height = bounds.width / targetRatio;
+    }
+  }
+
+  width = Math.min(width, bounds.width);
+  height = Math.min(height, bounds.height);
+
+  const idealLeft = rectCenterX - width / 2;
+  const idealTop = rectCenterY - height / 2;
+  const minLeft = bounds.x;
+  const maxLeft = boundsRight - width;
+  const minTop = bounds.y;
+  const maxTop = boundsBottom - height;
+
+  let left = clampNumber(idealLeft, minLeft, maxLeft);
+  let top = clampNumber(idealTop, minTop, maxTop);
+
+  const containLeftMin = Math.max(minLeft, rectRight - width);
+  const containLeftMax = Math.min(maxLeft, rect.x);
+  if (containLeftMin <= containLeftMax) {
+    left = clampNumber(idealLeft, containLeftMin, containLeftMax);
+  }
+
+  const containTopMin = Math.max(minTop, rectBottom - height);
+  const containTopMax = Math.min(maxTop, rect.y);
+  if (containTopMin <= containTopMax) {
+    top = clampNumber(idealTop, containTopMin, containTopMax);
+  }
+
+  return {
+    x: left,
+    y: top,
+    width,
+    height,
+  };
+};
+
 const dispatchImageInstancesUpdated = (instances: ImageInstance[]) => {
   try {
     window.dispatchEvent(
@@ -5568,17 +5708,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
+      const drawnRatio = rect.width / rect.height;
+      const closestRatio = getClosestPreciseEditAspectRatio(drawnRatio);
+      const adjustedRect = closestRatio
+        ? fitRectToAspectRatioWithinBounds(
+            rect,
+            active.imageBounds,
+            closestRatio.ratio
+          )
+        : rect;
+
+      if (closestRatio) {
+        console.log("🧩 [Precise Edit] 选区比例已校准", {
+          drawnRatio: Number(drawnRatio.toFixed(4)),
+          targetAspectRatio: closestRatio.label,
+          targetRatio: Number(closestRatio.ratio.toFixed(4)),
+          originalCanvasBounds: rect,
+          adjustedCanvasBounds: adjustedRect,
+        });
+      }
+
       const normalizedRect = {
-        x: clamp01((rect.x - active.imageBounds.x) / active.imageBounds.width),
-        y: clamp01((rect.y - active.imageBounds.y) / active.imageBounds.height),
-        width: clamp01(rect.width / active.imageBounds.width),
-        height: clamp01(rect.height / active.imageBounds.height),
+        x: clamp01((adjustedRect.x - active.imageBounds.x) / active.imageBounds.width),
+        y: clamp01((adjustedRect.y - active.imageBounds.y) / active.imageBounds.height),
+        width: clamp01(adjustedRect.width / active.imageBounds.width),
+        height: clamp01(adjustedRect.height / active.imageBounds.height),
       };
       void startPreciseLocalRefine({
         imageId: active.imageId,
         imageSource: active.imageSource,
         cropRectNormalized: normalizedRect,
-        cropCanvasBounds: rect,
+        cropCanvasBounds: adjustedRect,
         targetCanvasBounds: { ...active.imageBounds },
         targetPixelWidth: active.targetPixelWidth,
         targetPixelHeight: active.targetPixelHeight,

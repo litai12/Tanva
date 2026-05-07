@@ -12134,11 +12134,7 @@ function FlowInner() {
   );
 
   const getPendingSourceScreenCenter = React.useCallback(
-    (
-      source: PendingOutputConnectSource,
-      index = 0,
-      total = 1
-    ): { x: number; y: number } => {
+    (source: PendingOutputConnectSource): { x: number; y: number } => {
       const descriptors = getVisibleHandleDescriptorsForNode(
         source.sourceId,
         "source"
@@ -12155,9 +12151,32 @@ function FlowInner() {
         (rf.getNode(source.sourceId) as RFNode | undefined) ||
         nodesRef.current.find((node) => String(node.id) === source.sourceId);
       if (!sourceNode) return source.start;
-      return getFallbackHandleScreenCenter(sourceNode, "source", index, total);
+
+      const fallbackHandles = getFallbackSourceHandlesForFlowNode(sourceNode).sort(
+        (a, b) =>
+          getSourceHandlePriority(sourceNode.type, a) -
+          getSourceHandlePriority(sourceNode.type, b)
+      );
+      const fallbackIndex = fallbackHandles.findIndex((handleId) => {
+        const normalized = normalizeFlowSourceHandle(handleId, {
+          sourceNodeType: sourceNode.type,
+        });
+        return (normalized || "") === (source.sourceHandle || "");
+      });
+      if (fallbackIndex < 0) return source.start;
+      return getFallbackHandleScreenCenter(
+        sourceNode,
+        "source",
+        fallbackIndex,
+        fallbackHandles.length
+      );
     },
-    [getFallbackHandleScreenCenter, getVisibleHandleDescriptorsForNode, rf]
+    [
+      getFallbackHandleScreenCenter,
+      getSourceHandlePriority,
+      getVisibleHandleDescriptorsForNode,
+      rf,
+    ]
   );
 
   const startPendingOutputConnect = React.useCallback(
@@ -12539,13 +12558,9 @@ function FlowInner() {
         prev
           ? {
               ...prev,
-              sources: prev.sources.map((source, index) => ({
+              sources: prev.sources.map((source) => ({
                 ...source,
-                start: getPendingSourceScreenCenter(
-                  source,
-                  index,
-                  prev.sources.length
-                ),
+                start: getPendingSourceScreenCenter(source),
               })),
               cursor: { x: event.clientX, y: event.clientY },
             }

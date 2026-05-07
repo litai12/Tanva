@@ -1,5 +1,8 @@
 # 前端模块：Flow（frontend-flow�?
 
+## 2026-05-07 Update
+- `批量连接输出` 的预览线源点兜底改为按每个源节点自己的输出端口列表计算；当真实 DOM 句柄暂不可读时，单输出节点仍回到右侧输出句柄中心，多输出节点按本节点端口顺序分布，避免用整批连线序号导致源点偏移。
+
 ## 2026-05-06 Update
 - Canvas → Flow 视口同步现在会优先以当前选中 Flow 节点为锚点，把 ReactFlow 的 `x/y` 平移值对齐到物理像素，减少同一缩放倍率下文字、图标、边框因半像素 transform 整体发虚。
 - Flow viewport 不再长期设置 `will-change: transform`，避免浏览器把整层文本/图片持续合成栅格化后出现静止态发虚；视口原点仍保持与 Canvas 同步所需的 `transform-origin: 0 0`。
