@@ -1,5 +1,6 @@
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { TemplateEdge, TemplateNode } from '@/types/template';
+import type { ImageGroupBlockSnapshot } from '@/utils/paperImageGroupBlock';
 
 export type ClipboardZone = 'canvas' | 'flow';
 
@@ -18,6 +19,7 @@ export interface CanvasClipboardData {
   texts: TextAssetSnapshot[];
   videos: VideoAssetSnapshot[];
   paths: PathClipboardSnapshot[];
+  imageGroups?: ImageGroupBlockSnapshot[];
 }
 
 export interface ClipboardFlowNode extends TemplateNode {

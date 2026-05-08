@@ -596,6 +596,15 @@ async function performEditImageRequest(
       requestWithRoute.providerOptions?.banana?.imageRoute ||
       requestWithRoute.providerOptions?.bananaImageRoute,
     prompt: requestWithRoute.prompt?.substring(0, 50) + "...",
+    sourceImageKind: requestWithRoute.sourceImageUrl
+      ? "sourceImageUrl"
+      : requestWithRoute.sourceImage
+      ? requestWithRoute.sourceImage.startsWith("data:")
+        ? "data"
+        : requestWithRoute.sourceImage.startsWith("blob:")
+        ? "blob"
+        : "inline-or-ref"
+      : "missing",
     sourceImage: requestWithRoute.sourceImageUrl ? requestWithRoute.sourceImageUrl.substring(0, 80) + '...' : (requestWithRoute.sourceImage?.substring(0, 80) + '...' || 'N/A'),
   });
   
@@ -625,6 +634,19 @@ async function performEditImageRequest(
     }
 
     const data = await response.json();
+    console.log("📦 [Backend → Frontend] edit-image 响应摘要:", {
+      hasImageData:
+        typeof data?.imageData === "string" && data.imageData.length > 0,
+      imageDataLength:
+        typeof data?.imageData === "string" ? data.imageData.length : 0,
+      imageUrl:
+        typeof data?.imageUrl === "string"
+          ? data.imageUrl.substring(0, 120)
+          : undefined,
+      metadata: data?.metadata,
+      textResponseLength:
+        typeof data?.textResponse === "string" ? data.textResponse.length : 0,
+    });
 
     const resolvedModel = resolveDefaultModel(
       requestWithRoute.model,
@@ -1244,6 +1266,7 @@ export async function generateTextResponseViaAPI(
         text: data.text,
         model: requestWithRoute.model || "gemini-3-flash-preview",
         webSearchResult: data.webSearchResult || undefined,
+        metadata: data.metadata || undefined,
       },
     };
   } catch (error) {

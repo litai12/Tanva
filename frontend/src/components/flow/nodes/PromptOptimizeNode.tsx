@@ -35,6 +35,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   const [upstreamText, setUpstreamText] = React.useState<string>('');
   const [hover, setHover] = React.useState<string | null>(null);
   const [expandedText, setExpandedText] = React.useState<string>(data.expandedText || '');
+  const isComposingRef = React.useRef(false);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : 'none';
 
@@ -91,13 +92,22 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   });
   const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
-  const readUpstreamText = React.useCallback(() => {
+  const readUpstreamText = React.useCallback((optimisticSource?: {
+    sourceId: string;
+    patch: FlowUpdatePatch;
+  } | null) => {
     try {
       const edges = rf.getEdges();
       const incoming = edges.find(e => e.target === id && e.targetHandle === 'text');
       if (incoming?.source) {
         const src = rf.getNode(incoming.source);
-        const value = resolveTextFromSourceNode(src, incoming.sourceHandle);
+        const sourceForRead = src && optimisticSource?.sourceId === incoming.source
+          ? {
+              ...src,
+              data: { ...(src.data as FlowUpdatePatch), ...optimisticSource.patch },
+            }
+          : src;
+        const value = resolveTextFromSourceNode(sourceForRead, incoming.sourceHandle);
         return value?.trim() || '';
       }
     } catch {}
@@ -114,16 +124,22 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     window.dispatchEvent(ev);
   }, [id]);
 
+  const commitExpandedText = React.useCallback((value: string) => {
+    updateNodeData({ expandedText: value, text: value });
+  }, [updateNodeData]);
+
   React.useEffect(() => {
-    if ((data.expandedText || '') !== expandedText) setExpandedText(data.expandedText || '');
-  }, [data.expandedText, expandedText]);
+    if (isComposingRef.current) return;
+    const next = data.expandedText || '';
+    setExpandedText((prev) => (prev === next ? prev : next));
+  }, [data.expandedText]);
 
   React.useEffect(() => {
     if (result?.optimizedPrompt) {
       setExpandedText(result.optimizedPrompt);
-      updateNodeData({ expandedText: result.optimizedPrompt, text: result.optimizedPrompt });
+      commitExpandedText(result.optimizedPrompt);
     }
-  }, [result, updateNodeData]);
+  }, [commitExpandedText, result]);
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
     const native = (event as React.SyntheticEvent<unknown, Event>).nativeEvent as Event & {
@@ -152,7 +168,11 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         const edges = rf.getEdges();
         const incoming = edges.find(ed => ed.target === id && ed.targetHandle === 'text');
         if (!incoming || incoming.source !== detail.id) return;
-        setUpstreamText(readUpstreamText());
+        if (detail.patch && typeof detail.patch === 'object') {
+          setUpstreamText(readUpstreamText({ sourceId: detail.id, patch: detail.patch }));
+          return;
+        }
+        window.setTimeout(() => setUpstreamText(readUpstreamText()), 0);
       } catch {}
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
@@ -162,11 +182,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   // 已移除设置面板，无需处理设置变更
 
   const handleOptimize = React.useCallback(async (inputText?: string) => {
-    let text = inputText || upstreamText.trim();
-    // 若本地输入为空，尝试读取上游 text 输入
-    if (!text) {
-      text = readUpstreamText();
-    }
+    let text = inputText || readUpstreamText() || upstreamText.trim();
     // 再次兜底：使用当前预览/编辑内容
     if (!text && expandedText?.trim()) text = expandedText.trim();
     if (!text) return;
@@ -220,6 +236,26 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   }, [id, handleOptimize]);
 
   // 不需要中间激活按钮；Run 后即写入 expandedText 与 text
+
+  const handlePreviewChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value;
+    const nativeEvent = event.nativeEvent as InputEvent & { isComposing?: boolean };
+    setExpandedText(value);
+    if (!isComposingRef.current && !nativeEvent.isComposing) {
+      commitExpandedText(value);
+    }
+  }, [commitExpandedText]);
+
+  const handleCompositionStart = React.useCallback(() => {
+    isComposingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isComposingRef.current = false;
+    const value = event.currentTarget.value;
+    setExpandedText(value);
+    commitExpandedText(value);
+  }, [commitExpandedText]);
 
   return (
     <div style={{
@@ -379,12 +415,9 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
           <textarea
             className="nodrag nopan nowheel"
             value={loading ? '' : expandedText}
-            onChange={(e) => {
-              const v = e.target.value;
-              setExpandedText(v);
-              // 编辑即生效：向右输出编辑后的文本
-              updateNodeData({ expandedText: v, text: v });
-            }}
+            onChange={handlePreviewChange}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             onPointerDownCapture={(event) => {
               event.stopPropagation();
               if (event.nativeEvent?.stopImmediatePropagation) {
@@ -478,4 +511,3 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
 }
 
 export default React.memo(PromptOptimizeNodeInner);
-

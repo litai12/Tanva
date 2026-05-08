@@ -10,6 +10,11 @@ export type FlowViewport = {
   zoom: number;
 };
 
+export type FlowViewportAnchor = {
+  x?: number;
+  y?: number;
+};
+
 export const getDevicePixelRatio = (explicitDpr?: number): number => {
   const dpr =
     typeof explicitDpr === "number" && Number.isFinite(explicitDpr)
@@ -21,7 +26,8 @@ export const getDevicePixelRatio = (explicitDpr?: number): number => {
 };
 
 export const canvasStateToFlowViewport = (
-  state: CanvasViewportState
+  state: CanvasViewportState,
+  anchor?: FlowViewportAnchor | null
 ): FlowViewport => {
   const zoom =
     typeof state.zoom === "number" && Number.isFinite(state.zoom) && state.zoom > 0
@@ -36,10 +42,44 @@ export const canvasStateToFlowViewport = (
       ? state.panY
       : 0;
   const dpr = getDevicePixelRatio();
+  const anchorX =
+    typeof anchor?.x === "number" && Number.isFinite(anchor.x) ? anchor.x : 0;
+  const anchorY =
+    typeof anchor?.y === "number" && Number.isFinite(anchor.y) ? anchor.y : 0;
   return {
-    x: (panX * zoom) / dpr,
-    y: (panY * zoom) / dpr,
+    x: snapFlowViewportTranslate((panX * zoom) / dpr, {
+      anchor: anchorX,
+      dpr,
+      zoom,
+    }),
+    y: snapFlowViewportTranslate((panY * zoom) / dpr, {
+      anchor: anchorY,
+      dpr,
+      zoom,
+    }),
     zoom,
   };
 };
 
+export const snapFlowViewportTranslate = (
+  value: number,
+  options?: {
+    anchor?: number;
+    dpr?: number;
+    zoom?: number;
+  }
+): number => {
+  if (!Number.isFinite(value)) return 0;
+  const dpr = getDevicePixelRatio(options?.dpr);
+  const zoom =
+    typeof options?.zoom === "number" &&
+    Number.isFinite(options.zoom) &&
+    options.zoom > 0
+      ? options.zoom
+      : 1;
+  const anchor =
+    typeof options?.anchor === "number" && Number.isFinite(options.anchor)
+      ? options.anchor
+      : 0;
+  return Math.round((value + anchor * zoom) * dpr) / dpr - anchor * zoom;
+};

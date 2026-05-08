@@ -4,6 +4,8 @@ import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { fetchWithAuth } from "@/services/authFetch";
 import {
   getDashboardStats,
@@ -93,6 +95,14 @@ type AdminTabKey =
   | "node-configs"
   | "settings"
   | "templates"
+  | "volc-review";
+
+type SettingsSubTabKey =
+  | "system"
+  | "login-notice"
+  | "vip-management"
+  | "model-management"
+  | "unified-model-management"
   | "volc-review";
 
 const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
@@ -215,6 +225,7 @@ function DashboardTrendChart({
 }
 
 const MODEL_PROVIDER_MAPPING_SETTING_KEY = "model_provider_mapping_v2";
+const LOGIN_NOTICE_SETTING_KEY = "login_notice";
 type ModelVendorRouteType = "legacy" | "tencent_vod";
 type ManagedModelTaskType = "text" | "image" | "video";
 
@@ -1947,7 +1958,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "generatePro", label: "自定义图片节点", category: "image" },
     { value: "seedream5", label: "Seedream 5 节点", category: "image" },
     { value: "midjourney", label: "Midjourney 节点", category: "image" },
-    { value: "analysis", label: "图像分析节点", category: "image" },
+    { value: "analysis", label: "Image Chat", category: "image" },
   ],
   video: [
     { value: "kling26Video", label: "Kling 2.6 视频节点", category: "video" },
@@ -8024,6 +8035,156 @@ function ModelManagementTab() {
   );
 }
 
+const parseLoginNoticeSetting = (setting?: SystemSetting | null) => {
+  if (!setting?.value) {
+    return { enabled: false, content: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(setting.value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return {
+        enabled: parsed.enabled === true,
+        content: typeof parsed.content === "string" ? parsed.content : "",
+      };
+    }
+  } catch {
+    return { enabled: true, content: setting.value };
+  }
+
+  return { enabled: false, content: "" };
+};
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+function LoginNoticeSettingsTab() {
+  const [enabled, setEnabled] = useState(false);
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+
+  const loadNotice = useCallback(async () => {
+    setLoading(true);
+    setStatusText("");
+    try {
+      const setting = await getSetting(LOGIN_NOTICE_SETTING_KEY);
+      const parsed = parseLoginNoticeSetting(setting);
+      setEnabled(parsed.enabled);
+      setContent(parsed.content);
+      setLastUpdatedAt(setting.updatedAt);
+    } catch {
+      setEnabled(false);
+      setContent("");
+      setLastUpdatedAt(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadNotice();
+  }, [loadNotice]);
+
+  const handleSave = async () => {
+    const normalizedContent = content.trim();
+    if (enabled && normalizedContent.length === 0) {
+      setStatusText("开启提醒时，提醒文字不能为空");
+      return;
+    }
+
+    setSaving(true);
+    setStatusText("");
+    try {
+      const saved = await upsertSetting({
+        key: LOGIN_NOTICE_SETTING_KEY,
+        value: JSON.stringify(
+          {
+            enabled,
+            content,
+          },
+          null,
+          2
+        ),
+        description: "登录后用户提醒弹窗配置",
+      });
+      setLastUpdatedAt(saved.updatedAt);
+      setStatusText("保存成功");
+    } catch (error) {
+      setStatusText(getErrorMessage(error, "保存失败，请稍后重试"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className='text-center py-8 text-gray-500'>加载中...</div>;
+  }
+
+  return (
+    <div className='space-y-6'>
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
+          <div>
+            <h3 className='text-lg font-semibold mb-2'>登录提醒弹窗</h3>
+            <p className='text-sm text-gray-500'>
+              开启后，用户每次登录后会看到此提醒，并需要手动点击关闭。
+            </p>
+            {lastUpdatedAt ? (
+              <div className='mt-2 text-xs text-gray-400'>
+                最后更新：{new Date(lastUpdatedAt).toLocaleString()}
+              </div>
+            ) : null}
+          </div>
+          <label className='flex items-center gap-3 text-sm text-gray-700'>
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            {enabled ? "已开启" : "已关闭"}
+          </label>
+        </div>
+
+        <div className='mt-6 space-y-2'>
+          <label className='block text-sm font-medium text-gray-700'>提醒文字</label>
+          <Textarea
+            value={content}
+            onChange={(event) => {
+              setContent(event.target.value);
+              if (statusText) setStatusText("");
+            }}
+            rows={8}
+            maxLength={2000}
+            placeholder='请输入用户登录后需要看到的提醒内容'
+            className='min-h-[180px] resize-y bg-white'
+          />
+          <div className='flex justify-between text-xs text-gray-400'>
+            <span>支持换行，前端会按纯文本展示。</span>
+            <span>{content.length}/2000</span>
+          </div>
+        </div>
+
+        <div className='mt-5 flex flex-wrap items-center gap-3'>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
+          <Button variant='outline' onClick={() => void loadNotice()} disabled={saving}>
+            重新加载
+          </Button>
+          {statusText ? (
+            <span
+              className={`text-sm ${
+                statusText === "保存成功" ? "text-emerald-600" : "text-red-500"
+              }`}
+            >
+              {statusText}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(false);
@@ -13078,9 +13239,7 @@ export default function Admin() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<AdminTabKey>("dashboard");
-  const [settingsSubTab, setSettingsSubTab] = useState<
-    "system" | "vip-management" | "model-management" | "unified-model-management" | "volc-review"
-  >("system");
+  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTabKey>("system");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -13269,6 +13428,7 @@ export default function Admin() {
               <div className='flex flex-wrap gap-2'>
                 {[
                   { key: "system", label: "当前系统设置" },
+                  { key: "login-notice", label: "登录提醒" },
                   { key: "vip-management", label: "VIP管理" },
                   { key: "unified-model-management", label: "统一模型管理" },
                   { key: "model-management", label: "视频模型管理" },
@@ -13276,16 +13436,7 @@ export default function Admin() {
                 ].map((tab) => (
                   <button
                     key={tab.key}
-                    onClick={() =>
-                      setSettingsSubTab(
-                        tab.key as
-                          | "system"
-                          | "vip-management"
-                          | "model-management"
-                          | "unified-model-management"
-                          | "volc-review"
-                      )
-                    }
+                    onClick={() => setSettingsSubTab(tab.key as SettingsSubTabKey)}
                     className={`rounded-md px-4 py-2 text-sm font-medium transition ${
                       settingsSubTab === tab.key
                         ? "bg-blue-100 text-blue-700"
@@ -13299,6 +13450,7 @@ export default function Admin() {
             </div>
 
             {settingsSubTab === "system" && <SettingsTab />}
+            {settingsSubTab === "login-notice" && <LoginNoticeSettingsTab />}
             {settingsSubTab === "vip-management" && <VipManagementTab />}
             {settingsSubTab === "unified-model-management" && <UnifiedModelManagementTab />}
             {settingsSubTab === "model-management" && <ModelManagementTab />}

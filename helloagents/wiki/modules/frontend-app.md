@@ -15,6 +15,10 @@
 - 手动模式会根据当前图片数量自动禁用不支持选项，并在不兼容时回退到 Auto。
 - 发送按钮在模式不支持当前图片数量时禁用并提示原因。
 
+## AI 对话框会话边界
+- `ContextManager` 不在构造期自动恢复全局本地会话；恢复由 `aiChatStore.initializeContext()` 按项目作用域调度。
+- 有项目 ID 时，对话框会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；IndexedDB/localStorage 中的全局本地会话仅用于无项目场景，避免切换/新建项目时旧历史串入当前项目。
+
 ## 离开保护（上传中/待上传）
 - 编辑器（`/app`）内若存在上传中/待上传图片（含 Flow 内联图片引用），在离开页面/切换项目/退出登录/浏览器前进后退时会弹出确认提示，避免误操作导致图片丢失或无法保存到云端。
 
@@ -24,11 +28,19 @@
 - 受保护：`/workspace`、`/app`、`/admin`、`/my-credits`
 - 登录页与注册页已补充移动端适配：小屏下认证卡片改为顶部对齐并允许纵向滚动，标签切换改为三列紧凑布局，验证码输入区改为纵向堆叠，协议文案允许多行左对齐，避免窄屏遮挡与横向溢出（`frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`）。
 
+## 登录提醒弹窗
+- 组件：`frontend/src/components/auth/LoginNoticeModal.tsx`
+- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content }`）。
+- 读取：登录后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗。
+- 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
+
 ## 我的积分（`/my-credits`）
 - 页面与应用入口都不再静默触发 `claimDailyReward()`；签到积分必须由用户手动触发领取，不再自动签到。
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
+- 记录列表会额外读取已支付会员订单，并把 VIP 订阅消费按 `PaymentOrder.planName/amount/paymentMethod/orderNo` 合并展示；普通充值仍沿用积分流水展示，避免重复。
 - 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
 - `MembershipPanel` 中“积分充值”区域对所有用户开放，且在会员页顶部优先展示（打开即见），无需先选择或购买 VIP。
+- `MembershipPanel` 的 VIP 订阅视图使用紧凑的当前会员摘要栏承载计费周期切换、当前额度和刷新说明；套餐卡片按档位强化视觉区分，减少长卡片大留白，但不改变订单创建、支付方式切换和轮询逻辑。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）核心交互文案已接入 `useLocaleText`（订单状态、筛选、支付提示、二维码状态、手动核对按钮）。
 - 概览与趋势的“消耗”口径为净消耗：按 `spend - refund` 计算（最小值为 0），避免失败后退款仍被算入“今日/近 7 天消耗”。
 
@@ -36,11 +48,12 @@
 - `LayerPanel`（`frontend/src/components/panels/LayerPanel.tsx`）已接入 `useLocaleText`：面板标题、操作 tooltip、上下文菜单、待上传标识与底部统计文案均按语言切换。
 - `LibraryPanel`（`frontend/src/components/panels/LibraryPanel.tsx`）已接入 `useLocaleText`：上传/删除/发送提示、详情面板字段、全局历史筛选和分页文案按语言切换。
 - `LibraryPanel` 新增独立 `项目库` 标签：按当前 `currentProjectId` 过滤展示项目内历史记录（与 `全局历史` 分离），并复用单击详情弹层、发送/下载/删除操作与双击全屏预览交互。
+- `LibraryPanel` 的全局历史/项目库复用 `global-history/historyMedia.ts`：图片与视频记录共享类型标签、媒体 URL、视频封面和下载文件名解析；视频记录支持封面/播放/详情下载，但禁用发送或拖拽到画板。
 - `ToolBar`（`frontend/src/components/toolbar/ToolBar.tsx`）已接入 `useLocaleText`：主工具 tooltip、线条样式面板、清空画布确认等高频交互文案双语化。
 - `AIChatDialog`（`frontend/src/components/chat/AIChatDialog.tsx`）底部参数栏与上传菜单、历史会话工具条、图片/视频预览操作 tooltip 已按中英文切换（组件内通过 `i18n.language` + `lt()` 本地文案映射实现）。
 - `PromptOptimizationPanel`（`frontend/src/components/chat/PromptOptimizationPanel.tsx`）已接入双语文案：输出语言/长度倾向/风格/重点字段标签、占位符、错误提示和底部操作按钮按语言切换。
 - `KeyboardShortcuts`（`frontend/src/components/KeyboardShortcuts.tsx`）已接入双语文案：快捷键复制/导入 JSON 的 toast 提示，以及云端保存阻断与失败文案按语言切换。
-- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。
+- `ProjectManagerModal`（`frontend/src/components/projects/ProjectManagerModal.tsx`）已接入双语文案：项目管理头部、创建/批量选择/删除、离开保护确认、重命名/删除确认、空态与分页文案按语言切换。项目卡片会懒加载当前页内容快照，从 `assets` 与 Flow 节点数据提取图片引用并渲染宫格预览；该逻辑只读项目内容，不做缩略图转存或保存链路改动。
 - `AccountBadge`（`frontend/src/components/AccountBadge.tsx`）已接入双语文案：问候语、认证状态标签与来源 tooltip、退出登录按钮按语言切换。
 - `AppLoader` / `AppLoadingIndicator`（`frontend/src/components/AppLoader.tsx`, `frontend/src/components/AppLoadingIndicator.tsx`）默认加载提示已按语言切换。
 - `AuthWrapper`（`frontend/src/components/AuthWrapper.tsx`）会话过期 toast、登录状态校验加载文案、错误态“重新加载”按钮已按语言切换。
@@ -64,6 +77,8 @@
 - `GlobalImageHistoryPage` / `GlobalImageDetailModal`（`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`）已接入双语文案：历史页标题、搜索/筛选、加载与空态、删除撤销提示，以及详情弹窗元数据标签按语言切换。
 - `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
 - 工作区顶部项目名右侧新增快捷 `+` 新建按钮（`FloatingHeader`），点击可直接创建并切换到新项目；项目下拉中的“新建项目”复用同一创建逻辑并带防连点保护。
+- 工作区右上角 Nano Banana/Gemini/GPT-Image-2 路线快捷切换会读取今日普通/尊享路线成功率并在下拉内显示信号条；数据来自 `/api/ai/banana-route-success-rates`。
+- 生文/生图线路的尊享路线视觉对齐 `lt-dev9`：菜单与设置页均使用 amber 王冠样式，不使用绿色星标。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）已下架“双倍/首充翻倍”角标展示；`送X%` 等赠送百分比角标同样保持前端屏蔽。
 - `LayerPanel` + `layerStore`（`frontend/src/components/panels/LayerPanel.tsx`, `frontend/src/stores/layerStore.ts`）已补充图层名双语兼容：新建图层默认名按当前语言生成，历史 `图层 N`/`Layer N` 显示按当前语言映射。
 

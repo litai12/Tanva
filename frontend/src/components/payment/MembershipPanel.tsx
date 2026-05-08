@@ -52,7 +52,7 @@ const FREE_FEATURES: string[] = [
   "支持：有限技术支持",
 ];
 
-function getPlanMetadataObject(metadata?: Record<string, any> | null): Record<string, any> {
+function getPlanMetadataObject(metadata?: Record<string, unknown> | null): Record<string, unknown> {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
 }
 
@@ -137,13 +137,8 @@ function isRecommendedPlan(plan: PaymentMembershipPlan): boolean {
   return plan.sortOrder === 20 || code.includes("199") || name.includes("专业");
 }
 
-function isDailyCreationPlan(plan: PaymentMembershipPlan): boolean {
-  const name = (plan.name || "").trim().toLowerCase();
-  return name.includes("日常");
-}
-
-/** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致，与视觉稿对齐） */
-const PLAN_CARD_MIN_H = "min-h-[520px] sm:min-h-[550px] lg:min-h-[580px] xl:min-h-[600px]";
+/** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致） */
+const PLAN_CARD_MIN_H = "min-h-[440px] sm:min-h-[470px] lg:min-h-[500px] xl:min-h-[520px]";
 
 const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSuccess, hideBackButton = false }) => {
   const [plans, setPlans] = useState<PaymentMembershipPlan[]>([]);
@@ -348,6 +343,21 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
 
   const isFreeUser = current?.entitlement?.membershipStatus !== "active";
   const canTopUpCredits = true;
+  const currentPlanName = isFreeUser
+    ? TIER_SERIF_LABEL.free
+    : current?.plan?.name || "会员";
+  const currentMonthlyQuota =
+    typeof current?.plan?.monthlyQuotaCredits === "number"
+      ? current.plan.monthlyQuotaCredits
+      : isFreeUser
+        ? 500
+        : 0;
+  const currentDailyGiftCredits =
+    typeof current?.plan?.dailyGiftCredits === "number"
+      ? current.plan.dailyGiftCredits
+      : isFreeUser
+        ? 50
+        : 0;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
@@ -476,77 +486,128 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
           )}
         </div>
       ) : (
-        <div className="mt-6 space-y-8 pb-8">
-          <div className="flex justify-center px-2">
-            <div
-              role="tablist"
-              aria-label="会员计费周期"
-              className={cn(
-                "inline-flex items-stretch rounded-full border p-1",
-                isWhite
-                  ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.05)]"
-                  : "border-zinc-700/80 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={billingPeriod === "monthly"}
-                onClick={() => setBillingPeriod("monthly")}
-                className={cn(
-                  "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
-                  billingPeriod === "monthly"
-                    ? isWhite
-                      ? "bg-white text-zinc-950 shadow-sm"
-                      : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
-                    : isWhite
-                      ? "text-slate-500 hover:text-slate-700"
-                      : "text-zinc-400 hover:text-zinc-200",
-                )}
-              >
-                月付
-              </button>
-              <div
-                className={cn("mx-0.5 w-px shrink-0 self-stretch", isWhite ? "bg-slate-200" : "bg-zinc-700")}
-                aria-hidden
-              />
-              <button
-                type="button"
-                role="tab"
-                aria-selected={billingPeriod === "yearly"}
-                onClick={() => {
-                  if (hasYearlyPlans) setBillingPeriod("yearly");
-                }}
-                className={cn(
-                  "min-w-[5.5rem] rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
-                  billingPeriod === "yearly"
-                    ? isWhite
-                      ? "bg-white text-zinc-950 shadow-sm"
-                      : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
-                    : hasYearlyPlans
-                      ? isWhite
-                        ? "text-slate-500 hover:text-slate-700"
-                        : "text-zinc-400 hover:text-zinc-200"
-                      : isWhite
-                        ? "cursor-not-allowed text-slate-300"
-                        : "cursor-not-allowed text-zinc-600",
-                )}
-              >
-                年付
-              </button>
-            </div>
-          </div>
-
-          <p
+        <div className="mt-5 space-y-5 pb-8">
+          <section
             className={cn(
-              "mx-auto max-w-6xl text-center text-sm leading-relaxed",
-              isWhite ? "text-slate-500" : "text-zinc-500",
+              "rounded-2xl border p-4 sm:p-5",
+              isWhite
+                ? "border-slate-200 bg-slate-50/70 shadow-[0_12px_28px_rgba(15,23,42,0.05)]"
+                : "border-zinc-800/80 bg-[#111118] shadow-[0_8px_28px_rgba(0,0,0,0.35)]",
             )}
           >
-            {hasYearlyPlans
-              ? "月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。年付档位同样按月刷新额度，但按年结算。"
-              : "月卡积分按 30 天周期刷新。会员在续费状态下，到期日刷新为当前档位的满额月卡积分；未续费则月卡积分刷新为 0。"}
-          </p>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
+                    isFreeUser
+                      ? isWhite
+                        ? "border-[#8E86F5]/35 bg-white text-[#8E86F5]"
+                        : "border-[#8E86F5]/35 bg-[#151421] text-[#B8B3FF]"
+                      : isWhite
+                        ? "border-[#8E86F5]/35 bg-white text-[#8E86F5]"
+                        : "border-[#8E86F5]/35 bg-[#151421] text-[#B8B3FF]",
+                  )}
+                >
+                  <span className="text-[11px] font-bold tracking-[0.08em]">VIP</span>
+                </div>
+                <div className="min-w-0">
+                  <div className={cn("text-xs font-medium", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                    当前会员
+                  </div>
+                  <div className={cn("mt-0.5 truncate text-xl font-semibold", isWhite ? "text-slate-950" : "text-zinc-50")}>
+                    {currentPlanName}
+                  </div>
+                  <div className={cn("mt-1 text-xs", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                    {isFreeUser ? "未开通付费会员" : "会员权益已生效"}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                role="tablist"
+                aria-label="会员计费周期"
+                className={cn(
+                  "inline-flex w-full items-stretch rounded-full border p-1 sm:w-auto",
+                  isWhite
+                    ? "border-slate-200 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.05)]"
+                    : "border-zinc-700/80 bg-[#12121a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+                )}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={billingPeriod === "monthly"}
+                  onClick={() => setBillingPeriod("monthly")}
+                  className={cn(
+                    "min-w-0 flex-1 rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
+                    billingPeriod === "monthly"
+                      ? isWhite
+                        ? "bg-slate-950 text-white shadow-sm"
+                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
+                      : isWhite
+                        ? "text-slate-500 hover:text-slate-700"
+                        : "text-zinc-400 hover:text-zinc-200",
+                  )}
+                >
+                  月付
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={billingPeriod === "yearly"}
+                  onClick={() => {
+                    if (hasYearlyPlans) setBillingPeriod("yearly");
+                  }}
+                  className={cn(
+                    "min-w-0 flex-1 rounded-full px-5 py-2 text-sm font-medium transition-colors sm:min-w-[6.5rem]",
+                    billingPeriod === "yearly"
+                      ? isWhite
+                        ? "bg-slate-950 text-white shadow-sm"
+                        : "bg-gradient-to-r from-[#8E86F5] to-[#9aa8ef] text-white shadow-[0_0_20px_rgba(142,134,245,0.35)]"
+                      : hasYearlyPlans
+                        ? isWhite
+                          ? "text-slate-500 hover:text-slate-700"
+                          : "text-zinc-400 hover:text-zinc-200"
+                        : isWhite
+                          ? "cursor-not-allowed text-slate-300"
+                          : "cursor-not-allowed text-zinc-600",
+                  )}
+                >
+                  年付
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {[
+                { label: "当前月卡额度", value: `${currentMonthlyQuota} 积分` },
+                { label: "每日赠送", value: `${currentDailyGiftCredits} 积分` },
+                { label: "积分充值", value: hasWhitelistTopUpAccess ? "白名单已开放" : "所有用户开放" },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className={cn(
+                    "rounded-xl border px-3 py-2.5",
+                    isWhite ? "border-slate-200 bg-white" : "border-zinc-800 bg-[#0c0c12]",
+                  )}
+                >
+                  <div className={cn("text-[11px]", isWhite ? "text-slate-500" : "text-zinc-500")}>
+                    {item.label}
+                  </div>
+                  <div className={cn("mt-1 text-sm font-semibold", isWhite ? "text-slate-900" : "text-zinc-100")}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className={cn("mt-3 text-xs leading-relaxed", isWhite ? "text-slate-500" : "text-zinc-500")}>
+              {hasYearlyPlans
+                ? "月卡积分按 30 天周期刷新；续费状态下到期日刷新为当前档位满额，未续费则刷新为 0。年付档位同样按月刷新额度，但按年结算。"
+                : "月卡积分按 30 天周期刷新；续费状态下到期日刷新为当前档位满额，未续费则刷新为 0。"}
+            </p>
+          </section>
 
           {!filteredPlans.length ? (
             <div
@@ -560,33 +621,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               暂无{billingPeriod === "monthly" ? "月付" : "年付"}套餐，请稍后再试或联系管理员
             </div>
           ) : (
-            <div className="min-w-0 space-y-8">
-              <div className="min-w-0 space-y-6">
-                {/* <div className="rounded-[20px] border border-[#C9A227]/85 bg-black p-5 sm:p-6">
-                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-xs font-medium text-[#E8C547]">
-                        <Crown className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-                        当前会员
-                      </div>
-                      <div className="mt-3 text-2xl font-bold tracking-tight text-white">
-                        {isFreeUser ? "标准版" : TIER_SERIF_LABEL[currentTierKey ?? ""] ?? current?.plan?.name ?? "会员"}
-                      </div>
-                      <div className="mt-1.5 text-sm text-[#8E8E93]">
-                        状态：{isFreeUser ? "未开通付费会员" : "已开通"}
-                      </div>
-                    </div>
-                    {!isFreeUser ? (
-                      <div className="shrink-0 rounded-xl border border-[#C9A227]/35 bg-[#0a0a0a] px-4 py-3 text-right">
-                        <div className="text-[10px] font-medium uppercase tracking-wider text-[#8E8E93]">月卡积分额度</div>
-                        <div className="mt-0.5 text-xl font-bold tabular-nums text-white">
-                          {current?.plan?.monthlyQuotaCredits ?? "—"}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div> */}
-
+            <div className="min-w-0 space-y-5">
+              <div className="min-w-0 space-y-5">
                 <div
                   className={cn(
                     "flex flex-col gap-6 xl:flex-row xl:items-stretch xl:gap-5 2xl:gap-6",
@@ -600,82 +636,81 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         : "grid-cols-1 md:grid-cols-2 lg:grid-cols-4",
                     )}
                   >
-                  {/* 标准档（与顶部「当前会员」条：图1 金冠标题 + 图2 卡面色值） */}
-                  <div
-                    className={cn(
-                      "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
-                      PLAN_CARD_MIN_H,
-                      isWhite
-                        ? "border-[#E8C547]/60 bg-white shadow-[0_0_24px_-14px_rgba(232,197,71,0.4),0_12px_24px_rgba(15,23,42,0.08)]"
-                        : "border-[#E8C547]/55 bg-[#0f0f18] shadow-[0_0_28px_-14px_rgba(232,197,71,0.35),0_8px_32px_rgba(0,0,0,0.5)]",
-                      isFreeUser && "ring-1 ring-[#C9A227]/25",
-                      !isFreeUser &&
-                        (isWhite ? "hover:border-[#E8C547]/80" : "hover:border-[#E8C547]/75"),
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Crown className="h-5 w-5 shrink-0 text-[#E8C547]" strokeWidth={1.75} aria-hidden />
+                    {/* 标准档与付费档保持统一卡片尺寸、边框和字号。 */}
+                    <div
+                      className={cn(
+                        "relative flex min-h-0 min-w-0 flex-col rounded-2xl border p-4 sm:p-5 xl:p-4",
+                        PLAN_CARD_MIN_H,
+                        isWhite
+                          ? "border-[#8E86F5]/60 bg-white shadow-[0_0_24px_-14px_rgba(142,134,245,0.38),0_12px_24px_rgba(15,23,42,0.08)]"
+                          : "border-[#8E86F5]/65 bg-[#0f0f18] shadow-[0_0_28px_-14px_rgba(142,134,245,0.38),0_8px_32px_rgba(0,0,0,0.5)]",
+                        !isFreeUser &&
+                          (isWhite ? "hover:border-[#8E86F5]/80" : "hover:border-[#8E86F5]/80"),
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Crown className="h-5 w-5 shrink-0 text-[#E8C547]" strokeWidth={1.75} aria-hidden />
+                        <div
+                          className={cn(
+                            "text-xl font-semibold tracking-tight xl:text-lg 2xl:text-xl",
+                            isWhite ? "text-slate-900" : "text-zinc-100",
+                          )}
+                        >
+                          {TIER_SERIF_LABEL.free}
+                        </div>
+                      </div>
                       <div
                         className={cn(
-                          "text-2xl font-bold tracking-tight",
+                          "mt-6 text-3xl font-semibold tabular-nums tracking-tight xl:text-2xl 2xl:text-3xl",
                           isWhite ? "text-slate-900" : "text-zinc-100",
                         )}
                       >
-                        {TIER_SERIF_LABEL.free}
+                        ¥0
                       </div>
+                      <div
+                        className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}
+                      >
+                        / 月 · 无需订阅
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isFreeUser}
+                        onClick={() => {
+                          if (!isFreeUser) showToast("请选择付费档位完成升级", "info");
+                        }}
+                        className={cn(
+                          "mt-8 w-full rounded-xl py-3 text-xs font-semibold transition-all sm:py-3.5 sm:text-sm xl:mt-10",
+                          isFreeUser
+                            ? isWhite
+                              ? "cursor-default border border-slate-200 bg-slate-100 text-slate-500 shadow-sm"
+                              : "cursor-default border border-zinc-700 bg-[#1a1a22] text-zinc-500 shadow-[0_8px_20px_rgba(0,0,0,0.22)]"
+                            : isWhite
+                              ? "border border-slate-300 bg-transparent text-slate-700 shadow-sm hover:border-[#8E86F5]/50 hover:bg-slate-50"
+                              : "border border-zinc-700 bg-transparent text-zinc-300 shadow-[0_8px_20px_rgba(0,0,0,0.22)] hover:border-[#8E86F5]/55 hover:bg-[#1c1c1f]",
+                        )}
+                      >
+                        {isFreeUser ? "当前计划" : "了解标准版"}
+                      </button>
+                      <ul
+                        className={cn(
+                          "mt-4 flex flex-1 flex-col gap-1.5 text-[11px] leading-relaxed sm:gap-2 sm:text-xs",
+                          isWhite ? "text-slate-600" : "text-zinc-400",
+                        )}
+                      >
+                        {FREE_FEATURES.map((line) => (
+                          <li key={line} className="flex gap-2">
+                            <Check
+                              className={cn(
+                                "mt-0.5 h-3.5 w-3.5 shrink-0",
+                                isWhite ? "text-slate-500" : "text-zinc-400",
+                              )}
+                              strokeWidth={2.5}
+                            />
+                            <span>{line}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <div
-                      className={cn(
-                        "mt-6 text-4xl font-bold tabular-nums tracking-tight",
-                        isWhite ? "text-slate-900" : "text-zinc-100",
-                      )}
-                    >
-                      ¥0
-                    </div>
-                    <div
-                      className={cn("mt-1 text-sm", isWhite ? "text-slate-500" : "text-zinc-500")}
-                    >
-                      / 月 · 无需订阅
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isFreeUser}
-                      onClick={() => {
-                        if (!isFreeUser) showToast("请选择付费档位完成升级", "info");
-                      }}
-                      className={cn(
-                        "mt-16 w-full rounded-xl py-3 text-xs font-semibold transition-all sm:py-3.5 sm:text-sm",
-                        isFreeUser
-                          ? isWhite
-                            ? "cursor-default border border-slate-200 bg-slate-100 text-slate-500 shadow-sm"
-                            : "cursor-default border border-zinc-700 bg-[#1a1a22] text-zinc-500 shadow-[0_8px_20px_rgba(0,0,0,0.22)]"
-                          : isWhite
-                            ? "border border-slate-300 bg-transparent text-slate-700 shadow-sm hover:border-[#C9A227]/40 hover:bg-slate-50"
-                            : "border border-zinc-700 bg-transparent text-zinc-300 shadow-[0_8px_20px_rgba(0,0,0,0.22)] hover:border-[#C9A227]/40 hover:bg-[#1c1c1f]",
-                      )}
-                    >
-                      {isFreeUser ? "当前计划" : "了解标准版"}
-                    </button>
-                    <ul
-                      className={cn(
-                        "mt-4 flex flex-1 flex-col gap-1.5 text-[11px] leading-relaxed sm:gap-2 sm:text-xs",
-                        isWhite ? "text-slate-600" : "text-zinc-400",
-                      )}
-                    >
-                      {FREE_FEATURES.map((line) => (
-                        <li key={line} className="flex gap-2">
-                          <Check
-                            className={cn(
-                              "mt-0.5 h-3.5 w-3.5 shrink-0",
-                              isWhite ? "text-slate-500" : "text-zinc-400",
-                            )}
-                            strokeWidth={2.5}
-                          />
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
 
                   {filteredPlans.map((plan) => {
                     const active = plan.code === selectedPlanCode;
@@ -683,7 +718,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const tierTitle = plan.name;
                     const { main, accent } = vipFeatureLines(plan);
                     const isRecommended = isRecommendedPlan(plan);
-                    const isDailyCreation = !isRecommended && isDailyCreationPlan(plan);
                     const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
@@ -696,34 +730,13 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                         key={plan.code}
                         className={cn(
                           "relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border p-4 transition-all sm:p-5 xl:p-4",
-                          PLAN_CARD_MIN_H,
-                          isWhite
-                            ? "bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
-                            : "bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
-                          active
-                            ? isDailyCreation
-                              ? isWhite
-                                ? "border-emerald-300/75 shadow-[0_0_22px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.16)]"
-                                : "border-emerald-300/70 shadow-[0_0_28px_-14px_rgba(16,185,129,0.35),inset_0_0_0_1px_rgba(16,185,129,0.2)]"
-                              : isWhite
-                                ? "border-[#8E86F5]/45 shadow-[0_0_30px_-12px_rgba(142,134,245,0.5),inset_0_0_0_1px_rgba(182,195,249,0.24)]"
-                                : "border-[#8E86F5]/70 shadow-[0_0_40px_-12px_rgba(142,134,245,0.6),inset_0_0_0_1.5px_rgba(142,134,245,0.3)]"
-                            : isRecommended
-                              ? isWhite
-                                ? "border-[#8E86F5]/60 shadow-[0_0_24px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
-                                : "border-[#8E86F5]/65 shadow-[0_0_28px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
-                              : isDailyCreation
-                                ? isWhite
-                                  ? "border-emerald-200/85 shadow-[0_0_18px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/85"
-                                  : "border-emerald-300/45 shadow-[0_0_22px_-16px_rgba(16,185,129,0.22)] hover:border-emerald-300/65"
-                                : isWhite
-                                  ? "border-slate-200 hover:border-slate-300"
-                                  : "border-zinc-800/60 hover:border-zinc-700",
-                          current?.plan?.code &&
-                            plan.code === current.plan.code &&
-                            current?.entitlement?.membershipStatus === "active"
-                            ? "ring-1 ring-emerald-500/40"
-                            : null,
+                        PLAN_CARD_MIN_H,
+                        isWhite
+                          ? "bg-white shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
+                          : "bg-[#0f0f18] shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+                        isWhite
+                          ? "border-[#8E86F5]/60 shadow-[0_0_24px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80"
+                          : "border-[#8E86F5]/65 shadow-[0_0_28px_-14px_rgba(142,134,245,0.38)] hover:border-[#8E86F5]/80",
                         )}
                       >
                         {isRecommended ? (
@@ -773,8 +786,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           className={cn(
                             "mt-3 rounded-xl border px-2.5 py-2 sm:px-3 sm:py-2.5",
                             isWhite
-                              ? "border-slate-200 bg-gradient-to-br from-indigo-50 to-slate-50"
-                              : "border-violet-500/25 bg-gradient-to-br from-violet-950/50 to-[#12121a]",
+                              ? "border-[#8E86F5]/25 bg-gradient-to-br from-indigo-50 to-slate-50"
+                              : "border-[#8E86F5]/25 bg-gradient-to-br from-violet-950/50 to-[#12121a]",
                           )}
                         >
                           <div
@@ -783,7 +796,15 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                               isWhite ? "text-indigo-700" : "text-violet-100",
                             )}
                           >
-                            <span className={isWhite ? "text-indigo-500" : "text-violet-300"}>✦</span>{" "}
+                            <span
+                              className={
+                                isWhite
+                                  ? "text-indigo-500"
+                                  : "text-violet-300"
+                              }
+                            >
+                              ✦
+                            </span>{" "}
                             {planTotalCredits} 合计积分
                           </div>
                         </div>

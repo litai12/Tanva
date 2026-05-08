@@ -95,11 +95,38 @@ const shouldBypassCanvasZoom = (
  */
 const GlobalZoomCapture = () => {
   const gestureStartZoomRef = useRef<number | null>(null);
+  const pendingViewportRef = useRef<{ panX: number; panY: number; zoom: number } | null>(null);
+  const viewportRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
       return;
     }
+
+    const flushViewport = () => {
+      viewportRafRef.current = null;
+      const next = pendingViewportRef.current;
+      pendingViewportRef.current = null;
+      if (!next) return;
+      useCanvasStore.getState().setViewport(next);
+    };
+
+    const scheduleViewport = (viewport: { panX: number; panY: number; zoom: number }) => {
+      pendingViewportRef.current = viewport;
+      if (viewportRafRef.current !== null) return;
+      viewportRafRef.current = window.requestAnimationFrame(flushViewport);
+    };
+
+    const getViewportState = () => {
+      const pending = pendingViewportRef.current;
+      if (pending) return pending;
+      const store = useCanvasStore.getState();
+      return {
+        panX: store.panX,
+        panY: store.panY,
+        zoom: store.zoom || 1,
+      };
+    };
 
     const getCanvasMetrics = () => {
       const canvas = paper?.view?.element as HTMLCanvasElement | undefined;
@@ -122,13 +149,14 @@ const GlobalZoomCapture = () => {
     };
 
     const applyZoom = (focusX: number, focusY: number, deltaZoom: number) => {
+      const viewport = getViewportState();
       const store = useCanvasStore.getState();
-      const currentZoom = store.zoom || 1;
+      const currentZoom = viewport.zoom || 1;
       const nextZoom = computeSmoothZoom(currentZoom, deltaZoom, { sensitivity: store.zoomSensitivity });
       if (currentZoom === nextZoom) return;
-      const nextPanX = store.panX + focusX * (1 / nextZoom - 1 / currentZoom);
-      const nextPanY = store.panY + focusY * (1 / nextZoom - 1 / currentZoom);
-      useCanvasStore.setState({
+      const nextPanX = viewport.panX + focusX * (1 / nextZoom - 1 / currentZoom);
+      const nextPanY = viewport.panY + focusY * (1 / nextZoom - 1 / currentZoom);
+      scheduleViewport({
         panX: nextPanX,
         panY: nextPanY,
         zoom: nextZoom,
@@ -162,8 +190,7 @@ const GlobalZoomCapture = () => {
       if (!focus) return;
       event.preventDefault();
       event.stopPropagation();
-      const store = useCanvasStore.getState();
-      gestureStartZoomRef.current = store.zoom || 1;
+      gestureStartZoomRef.current = getViewportState().zoom || 1;
     };
 
     const handleGestureChange = (event: GestureLikeEvent) => {
@@ -173,15 +200,15 @@ const GlobalZoomCapture = () => {
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
       const baseZoom = gestureStartZoomRef.current;
-      const store = useCanvasStore.getState();
       const targetZoom = clamp(baseZoom * event.scale, 0.1, 4);
-      const currentZoom = store.zoom || 1;
-      if (Math.abs(targetZoom - currentZoom) < 1e-4) return;
+      const viewport = getViewportState();
+      const currentZoom = viewport.zoom || 1;
       event.preventDefault();
       event.stopPropagation();
-      const nextPanX = store.panX + focus.sx * (1 / targetZoom - 1 / currentZoom);
-      const nextPanY = store.panY + focus.sy * (1 / targetZoom - 1 / currentZoom);
-      useCanvasStore.setState({
+      if (Math.abs(targetZoom - currentZoom) < 1e-4) return;
+      const nextPanX = viewport.panX + focus.sx * (1 / targetZoom - 1 / currentZoom);
+      const nextPanY = viewport.panY + focus.sy * (1 / targetZoom - 1 / currentZoom);
+      scheduleViewport({
         panX: nextPanX,
         panY: nextPanY,
         zoom: targetZoom,
@@ -204,6 +231,11 @@ const GlobalZoomCapture = () => {
     window.addEventListener('gestureend', gestureEndListener, { passive: false });
 
     return () => {
+      if (viewportRafRef.current !== null) {
+        window.cancelAnimationFrame(viewportRafRef.current);
+        viewportRafRef.current = null;
+      }
+      pendingViewportRef.current = null;
       window.removeEventListener('wheel', handleWheel, true);
       window.removeEventListener('gesturestart', gestureStartListener);
       window.removeEventListener('gesturechange', gestureChangeListener);

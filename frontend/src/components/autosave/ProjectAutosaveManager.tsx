@@ -15,9 +15,24 @@ import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
 import { consumeBeforeUnloadPromptSkip } from '@/utils/beforeUnloadGuard';
 import { createEmptyProjectContent } from '@/types/project';
 
+const CANVAS_VIEW_SYNC_DELAY_MS = 160;
+
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
 };
+
+const sameCanvasSnapshot = (
+  prev: { zoom: number; panX: number; panY: number } | null | undefined,
+  next: { zoom: number; panX: number; panY: number } | null | undefined
+) =>
+  prev === next ||
+  (
+    !!prev &&
+    !!next &&
+    prev.zoom === next.zoom &&
+    prev.panX === next.panX &&
+    prev.panY === next.panY
+  );
 
 export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveManagerProps) {
   const setProject = useProjectContentStore((state) => state.setProject);
@@ -308,6 +323,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
     type LayerSnapshot = { layers: ReturnType<typeof useLayerStore.getState>['layers']; activeLayerId: string | null };
     type CanvasSnapshot = { zoom: number; panX: number; panY: number };
+    let pendingCanvasSnapshot: CanvasSnapshot | null = null;
+    let canvasSyncTimer: number | null = null;
+    let lastSyncedCanvasSnapshot: CanvasSnapshot | null = null;
 
     const syncLayers = (snapshot?: LayerSnapshot) => {
       const layerState: LayerSnapshot = snapshot ?? {
@@ -329,6 +347,13 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         panY: useCanvasStore.getState().panY,
       };
       const store = useProjectContentStore.getState();
+      if (
+        sameCanvasSnapshot(store.content?.canvas, canvasState) ||
+        sameCanvasSnapshot(lastSyncedCanvasSnapshot, canvasState)
+      ) {
+        lastSyncedCanvasSnapshot = canvasState;
+        return;
+      }
       // 画布视角变化不标记 dirty，避免频繁触发自动保存
       store.updatePartial({
         canvas: {
@@ -337,6 +362,21 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           panY: canvasState.panY,
         },
       }, { markDirty: false });
+      lastSyncedCanvasSnapshot = canvasState;
+    };
+
+    const scheduleCanvasSync = (snapshot: CanvasSnapshot) => {
+      pendingCanvasSnapshot = snapshot;
+      if (canvasSyncTimer !== null) {
+        window.clearTimeout(canvasSyncTimer);
+      }
+      canvasSyncTimer = window.setTimeout(() => {
+        canvasSyncTimer = null;
+        const nextSnapshot = pendingCanvasSnapshot;
+        pendingCanvasSnapshot = null;
+        if (!nextSnapshot) return;
+        syncCanvas(nextSnapshot);
+      }, CANVAS_VIEW_SYNC_DELAY_MS);
     };
 
     syncLayers();
@@ -350,11 +390,14 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
     const unsubCanvas = useCanvasStore.subscribe(
       (state) => ({ zoom: state.zoom, panX: state.panX, panY: state.panY }),
-      (next) => syncCanvas(next),
+      (next) => scheduleCanvasSync(next),
       { equalityFn: shallow },
     );
 
     return () => {
+      if (canvasSyncTimer !== null) {
+        window.clearTimeout(canvasSyncTimer);
+      }
       unsubLayers();
       unsubCanvas();
     };

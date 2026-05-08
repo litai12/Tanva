@@ -342,6 +342,22 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
     ultra: 10,
   },
 };
+
+const VIDEO_ANALYZE_ROUTE_PRICING: Record<
+  'normal' | 'stable',
+  Record<BananaTextPricingTier, number>
+> = {
+  normal: {
+    fast: 60,
+    pro: 90,
+    ultra: 120,
+  },
+  stable: {
+    fast: 80,
+    pro: 120,
+    ultra: 160,
+  },
+};
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -629,6 +645,13 @@ export class CreditsService {
     );
 
     creditsToDeduct = this.resolveBananaTextRouteCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
+    creditsToDeduct = this.resolveVideoAnalyzeRouteCredits(
       params.serviceType,
       creditsToDeduct,
       effectiveRequestParams,
@@ -1314,6 +1337,31 @@ export class CreditsService {
     return null;
   }
 
+  private resolveBananaRouteFromRequestParams(
+    requestParams: any,
+  ): 'normal' | 'stable' | null {
+    const explicitRoute =
+      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
+      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
+    if (explicitRoute) return explicitRoute;
+
+    const channelCandidates = [
+      requestParams?.channel,
+      requestParams?.providerChannel,
+      requestParams?.executionChannel,
+      requestParams?.channelHint,
+    ];
+    for (const candidate of channelCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalized = this.normalizeChannel(candidate);
+      if (normalized === 'tencent') return 'stable';
+      if (normalized === 'apimart' || normalized === '147') return 'normal';
+    }
+
+    return null;
+  }
+
   private resolveBananaTextPricingTierFromProvider(
     rawProvider: unknown,
   ): BananaTextPricingTier | null {
@@ -1342,6 +1390,40 @@ export class CreditsService {
     return null;
   }
 
+  private resolveBananaTextPricingTier(
+    requestParams: any,
+    model?: string,
+    allowModelFallback = false,
+  ): BananaTextPricingTier | null {
+    const providerTier =
+      this.resolveBananaTextPricingTierFromProvider(requestParams?.aiProvider) ||
+      this.resolveBananaTextPricingTierFromProvider(requestParams?.requestedProvider) ||
+      this.resolveBananaTextPricingTierFromProvider(requestParams?.routedProvider);
+    if (providerTier) return providerTier;
+    return allowModelFallback
+      ? this.resolveBananaTextPricingTierFromModel(model || requestParams?.model)
+      : null;
+  }
+
+  private resolveVideoAnalyzeRouteCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+    model?: string,
+  ): number {
+    if (serviceType !== 'gemini-video-analyze') {
+      return defaultCredits;
+    }
+
+    const routeKey = this.resolveBananaRouteFromRequestParams(requestParams) || 'normal';
+    const tier =
+      this.resolveBananaTextPricingTier(requestParams, model, true) || 'fast';
+    const configuredCredits = Number(VIDEO_ANALYZE_ROUTE_PRICING[routeKey][tier]);
+    return Number.isFinite(configuredCredits) && configuredCredits > 0
+      ? configuredCredits
+      : defaultCredits;
+  }
+
   private resolveBananaTextRouteCredits(
     serviceType: ServiceType,
     defaultCredits: number,
@@ -1357,45 +1439,9 @@ export class CreditsService {
       `[Credits] resolveBananaTextRouteCredits: serviceType=${serviceType}, defaultCredits=${defaultCredits}, model=${model}, requestParams=${JSON.stringify(requestParams)}`
     );
 
-    const explicitRoute =
-      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-
-    const channelCandidates = [
-      requestParams?.channel,
-      requestParams?.providerChannel,
-      requestParams?.executionChannel,
-      requestParams?.channelHint,
-    ];
-    let channel: string | null = null;
-    for (const candidate of channelCandidates) {
-      if (typeof candidate !== 'string') continue;
-      const normalized = this.normalizeChannel(candidate);
-      if (normalized) {
-        channel = normalized;
-        break;
-      }
-    }
-
-    let route: 'normal' | 'stable' | null = explicitRoute;
-    if (!route) {
-      if (channel === 'tencent') {
-        route = 'stable';
-      } else if (channel === 'apimart' || channel === '147') {
-        route = 'normal';
-      }
-    }
-
-    const providerTier =
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.aiProvider) ||
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.requestedProvider) ||
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.routedProvider);
+    const route = this.resolveBananaRouteFromRequestParams(requestParams);
     const tier =
-      providerTier ||
-      (route
-        ? this.resolveBananaTextPricingTierFromModel(model || requestParams?.model)
-        : null);
+      this.resolveBananaTextPricingTier(requestParams, model, Boolean(route));
     if (!tier) {
       this.logger.debug(`[Credits] resolveBananaTextRouteCredits: no tier found, returning defaultCredits=${defaultCredits}`);
       return defaultCredits;

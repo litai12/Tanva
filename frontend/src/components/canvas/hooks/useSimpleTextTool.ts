@@ -45,10 +45,6 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   const textIdCounter = useRef(0);
   const setDrawMode = useToolStore(state => state.setDrawMode);
 
-  // 双击检测
-  const lastClickTimeRef = useRef(0);
-  const lastClickTargetRef = useRef<string | null>(null);
-
   // 拖拽状态管理
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number; textPosition: paper.Point } | null>(null);
@@ -543,8 +539,6 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
   // 处理画布点击 (需要从外部传入当前工具模式)
   const handleCanvasClick = useCallback((point: paper.Point, event?: any, currentDrawMode?: string) => {
-    const currentTime = Date.now();
-    
     // 检查是否点击了现有文本
     // Paper.js的PointText需要特殊的hitTest选项
     const hitResult = paper.project.hitTest(point, {
@@ -587,49 +581,21 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     if (clickedTextId) {
       // 点击了现有文本
       const textId = clickedTextId;
-      
-      // 自定义双击检测：500ms内点击同一个文本
-      const timeDiff = currentTime - lastClickTimeRef.current;
-      const isDoubleClick = 
-        timeDiff < 500 && 
-        lastClickTargetRef.current === textId;
-      
-      logger.debug('点击检测:', {
-        textId,
-        timeDiff,
-        lastTarget: lastClickTargetRef.current,
-        isDoubleClick
-      });
-      
-      // 更新点击记录
-      lastClickTimeRef.current = currentTime;
-      lastClickTargetRef.current = textId;
-      
-      if (isDoubleClick) {
-        // 双击进入编辑模式
-        selectText(textId);
-        startEditText(textId);
-        logger.debug('🎯 双击编辑文本:', textId);
-      } else {
-        // 单击选择文本
-        selectText(textId);
-        // 只有当点击的不是当前正在编辑的文本时，才停止编辑
-        if (editingTextId && editingTextId !== textId) {
-          stopEditText();
-        }
-        logger.debug('👆 单击选择文本:', textId);
+
+      // 单击选择文本
+      selectText(textId);
+      // 只有当点击的不是当前正在编辑的文本时，才停止编辑
+      if (editingTextId && editingTextId !== textId) {
+        stopEditText();
       }
+      logger.debug('👆 单击选择文本:', textId);
     } else {
       // 点击空白区域的行为取决于当前工具模式
       if (currentDrawMode === 'text') {
         // 文本工具模式：创建新文本
         deselectText();
         stopEditText();
-        
-        // 重置点击记录
-        lastClickTimeRef.current = currentTime;
-        lastClickTargetRef.current = null;
-        
+
         // 创建新文本并立即进入编辑模式
         createText(point, '文本');
         logger.debug('✨ 文本工具模式：创建新文本');
@@ -637,15 +603,11 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         // 其他工具模式：只取消选择
         deselectText();
         stopEditText();
-        
-        // 重置点击记录
-        lastClickTimeRef.current = currentTime;
-        lastClickTargetRef.current = null;
-        
+
         logger.debug('📍 点击空白区域，取消文本选择');
       }
     }
-  }, [selectText, startEditText, deselectText, stopEditText, createText]);
+  }, [selectText, deselectText, stopEditText, createText, editingTextId]);
 
   // 处理键盘事件
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
@@ -705,57 +667,10 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     logger.debug('✨ 主动创建文本');
   }, [deselectText, stopEditText, createText]);
 
-  // 处理双击事件（备选方案）
-  const handleDoubleClick = useCallback((point: paper.Point) => {
-    // 检查是否双击了现有文本
-    const hitResult = paper.project.hitTest(point, {
-      fill: true,
-      stroke: true,
-      segments: true,
-      curves: true,
-      tolerance: 10,
-      match: (item: any) => {
-        return item.data?.type === 'text' || item instanceof paper.PointText;
-      }
-    });
-
-    let clickedTextId = null;
-    
-    if (hitResult?.item?.data?.type === 'text') {
-      clickedTextId = hitResult.item.data.textId;
-    } else {
-      // 如果hitTest没找到，手动检查所有文本的边界框
-      for (const textItem of textItems) {
-        const bounds = textItem.paperText.bounds;
-        if (bounds && bounds.contains(point)) {
-          logger.debug('📍 通过边界框检测到文本:', textItem.id);
-          clickedTextId = textItem.id;
-          break;
-        }
-      }
-    }
-
-    if (clickedTextId) {
-      logger.debug('🎯 原生双击编辑文本:', clickedTextId);
-      
-      // 如果文本已经在编辑状态，重新聚焦输入框
-      if (editingTextId === clickedTextId) {
-        logger.debug('🔄 文本已在编辑状态，触发重新聚焦');
-        // 触发输入框重新聚焦和选择全部文本的事件
-        setTimeout(() => {
-          const inputElement = document.querySelector(`input[type="text"]`) as HTMLInputElement;
-          if (inputElement) {
-            inputElement.focus();
-            inputElement.select();
-          }
-        }, 50);
-      } else {
-        // 文本不在编辑状态，开始编辑
-        selectText(clickedTextId);
-        startEditText(clickedTextId);
-      }
-    }
-  }, [selectText, startEditText, editingTextId, textItems]);
+  // 双击行为已禁用（避免触发文本输入编辑）。
+  const handleDoubleClick = useCallback((_point: paper.Point) => {
+    return;
+  }, []);
 
   const hydrateFromPaperItems = useCallback((items: Array<Partial<TextItem> & { paperText: paper.PointText; id?: string }> | null | undefined) => {
     if (!items || items.length === 0) {

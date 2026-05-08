@@ -22,6 +22,7 @@ import {
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
 import { fetchWithAuth } from '@/services/authFetch';
+import { isActivePaperEraserTrail } from '@/utils/paperEraserTrail';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -1270,6 +1271,9 @@ class PaperSaveService {
           if (!child) continue;
           const data = (child as any).data as any;
           if (data?.isHelper) {
+            if (isActivePaperEraserTrail(child)) {
+              continue;
+            }
             detachedHelpers.push({ item: child, parent, index: i });
             try { child.remove(); } catch {}
             continue;
@@ -1400,6 +1404,12 @@ class PaperSaveService {
             previousActiveLayer.activate();
           }
         } catch {}
+
+        if (detachedHelpers.length > 0) {
+          try {
+            paper.view?.update();
+          } catch {}
+        }
       }
     } catch (error) {
       console.error('❌ Paper.js项目序列化失败:', error);

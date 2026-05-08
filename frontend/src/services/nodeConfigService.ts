@@ -24,6 +24,7 @@ export interface NodeConfig {
 let cachedConfigs: NodeConfig[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
+const IMAGE_CHAT_DESCRIPTION = "图像对话与提示词提取";
 
 /** 跨标签页通知画布刷新节点配置（与 localStorage 事件 key 一致） */
 export const NODE_CONFIG_SYNC_STORAGE_KEY = "tanva:nodeConfigRev";
@@ -67,7 +68,7 @@ export async function fetchNodeConfigs(options?: {
       return getDefaultConfigs();
     }
 
-    const configs = await response.json();
+    const configs = (await response.json()).map(normalizeNodeConfig);
 
     // 更新缓存
     cachedConfigs = configs;
@@ -129,8 +130,8 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "nano2", nameZh: "Nano2生成", nameEn: "Nano2", category: "image", status: "normal", sortOrder: 17, creditsPerCall: 30 },
     {
       nodeKey: "gptImage2",
-      nameZh: "Gpt-Imgae-2",
-      nameEn: "Gpt-Imgae-2",
+      nameZh: "GPT-Image-2",
+      nameEn: "GPT-Image-2",
       category: "image",
       status: "normal",
       sortOrder: 18,
@@ -158,16 +159,16 @@ function getDefaultConfigs(): NodeConfig[] {
           googleImageSearch: false,
         },
       },
-      description: "Gpt-Imgae-2 生图，支持文生图/图生图，最多 16 张参考图",
+      description: "GPT-Image-2 生图，支持文生图/图生图，最多 16 张参考图",
     },
 
     // 视频节点
     { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan27-video", priceYuan: 6 },
 
     // 其他节点
-    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 30 },
+    { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 60 },
     { nodeKey: "videoFrameExtract", nameZh: "视频帧提取", nameEn: "Frame Extract", category: "other", status: "normal", sortOrder: 32, creditsPerCall: 0 },
-    { nodeKey: "analysis", nameZh: "图像分析节点", nameEn: "Analysis", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 10 },
+    { nodeKey: "analysis", nameZh: "Image Chat", nameEn: "Image Chat", category: "other", status: "normal", sortOrder: 33, creditsPerCall: 10, description: IMAGE_CHAT_DESCRIPTION },
     { nodeKey: "promptOptimize", nameZh: "提示词优化", nameEn: "Optimize", category: "other", status: "normal", sortOrder: 34, creditsPerCall: 10 },
     { nodeKey: "textChat", nameZh: "文字对话", nameEn: "Chat", category: "other", status: "normal", sortOrder: 35, creditsPerCall: 10 },
     { nodeKey: "storyboardSplit", nameZh: "分镜拆解", nameEn: "Storyboard", category: "other", status: "normal", sortOrder: 36, creditsPerCall: 10 },
@@ -181,4 +182,16 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "tencentSpeech", nameZh: "语音合成", nameEn: "Speech Synthesis", category: "audio", status: "normal", sortOrder: 44, creditsPerCall: 10, serviceType: "tencent-speech" },
     { nodeKey: "minimaxMusic", nameZh: "MiniMax音乐生成", nameEn: "MiniMax Music", category: "audio", status: "normal", sortOrder: 45, creditsPerCall: 30, serviceType: "minimax-music" },
   ];
+}
+
+function normalizeNodeConfig(config: NodeConfig): NodeConfig {
+  if (config.nodeKey !== "analysis") {
+    return config;
+  }
+  return {
+    ...config,
+    nameZh: "Image Chat",
+    nameEn: "Image Chat",
+    description: IMAGE_CHAT_DESCRIPTION,
+  };
 }

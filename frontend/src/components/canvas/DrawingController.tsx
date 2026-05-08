@@ -13,6 +13,8 @@ import {
   FolderPlus,
   FileJson,
   FileInput,
+  Group,
+  Link2,
   Play,
   Square,
 } from 'lucide-react';
@@ -31,7 +33,13 @@ import { logger } from '@/utils/logger';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
-import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
+import {
+  collectImageGroupBlockSnapshots,
+  createImageGroupBlock,
+  createImageGroupBlockFromSnapshot,
+  formatImageGroupTitle,
+  removeGroupBlockTitle,
+} from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
@@ -53,7 +61,7 @@ import { useSnapAlignment } from "./hooks/useSnapAlignment";
 import SimpleTextEditor from "./SimpleTextEditor";
 import TextSelectionOverlay from "./TextSelectionOverlay";
 import { SnapGuideRenderer } from "./SnapGuideRenderer";
-import type { DrawingContext, ImageInstance } from "@/types/canvas";
+import type { DrawingContext, ImageInstance, StoredVideoAsset } from "@/types/canvas";
 import { paperSaveService } from "@/services/paperSaveService";
 import { historyService } from "@/services/historyService";
 import type { Model3DData } from "@/services/model3DUploadService";
@@ -118,6 +126,146 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
     return normalized;
   }
   return null;
+};
+
+type RectLike = { x: number; y: number; width: number; height: number };
+
+const PRECISE_EDIT_ASPECT_RATIO_LABELS = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+] as const;
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min;
+  if (min > max) return min;
+  return Math.min(Math.max(value, min), max);
+};
+
+const parseRatioLabel = (value?: string | null): number | null => {
+  if (!value) return null;
+  const [rawWidth, rawHeight] = value.split(":");
+  const width = Number(rawWidth);
+  const height = Number(rawHeight);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return width / height;
+};
+
+const getClosestPreciseEditAspectRatio = (
+  ratio?: number | null
+): { label: (typeof PRECISE_EDIT_ASPECT_RATIO_LABELS)[number]; ratio: number } | null => {
+  if (!Number.isFinite(ratio) || !ratio || ratio <= 0) return null;
+
+  let bestLabel: (typeof PRECISE_EDIT_ASPECT_RATIO_LABELS)[number] | null = null;
+  let bestRatio = 1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  PRECISE_EDIT_ASPECT_RATIO_LABELS.forEach((label) => {
+    const candidateRatio = parseRatioLabel(label);
+    if (!candidateRatio) return;
+    const distance = Math.abs(Math.log(ratio / candidateRatio));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestLabel = label;
+      bestRatio = candidateRatio;
+    }
+  });
+
+  return bestLabel ? { label: bestLabel, ratio: bestRatio } : null;
+};
+
+const fitRectToAspectRatioWithinBounds = (
+  rect: RectLike,
+  bounds: RectLike,
+  targetRatio: number
+): RectLike => {
+  if (
+    !Number.isFinite(targetRatio) ||
+    targetRatio <= 0 ||
+    rect.width <= 0 ||
+    rect.height <= 0 ||
+    bounds.width <= 0 ||
+    bounds.height <= 0
+  ) {
+    return rect;
+  }
+
+  const boundsRight = bounds.x + bounds.width;
+  const boundsBottom = bounds.y + bounds.height;
+  const rectRight = rect.x + rect.width;
+  const rectBottom = rect.y + rect.height;
+  const rectCenterX = rect.x + rect.width / 2;
+  const rectCenterY = rect.y + rect.height / 2;
+  const rectRatio = rect.width / rect.height;
+
+  let width = rect.width;
+  let height = rect.height;
+  if (targetRatio >= rectRatio) {
+    width = rect.height * targetRatio;
+  } else {
+    height = rect.width / targetRatio;
+  }
+
+  if (width > bounds.width || height > bounds.height) {
+    const maxWidthFromBoundsHeight = bounds.height * targetRatio;
+    if (maxWidthFromBoundsHeight <= bounds.width) {
+      width = maxWidthFromBoundsHeight;
+      height = bounds.height;
+    } else {
+      width = bounds.width;
+      height = bounds.width / targetRatio;
+    }
+  }
+
+  width = Math.min(width, bounds.width);
+  height = Math.min(height, bounds.height);
+
+  const idealLeft = rectCenterX - width / 2;
+  const idealTop = rectCenterY - height / 2;
+  const minLeft = bounds.x;
+  const maxLeft = boundsRight - width;
+  const minTop = bounds.y;
+  const maxTop = boundsBottom - height;
+
+  let left = clampNumber(idealLeft, minLeft, maxLeft);
+  let top = clampNumber(idealTop, minTop, maxTop);
+
+  const containLeftMin = Math.max(minLeft, rectRight - width);
+  const containLeftMax = Math.min(maxLeft, rect.x);
+  if (containLeftMin <= containLeftMax) {
+    left = clampNumber(idealLeft, containLeftMin, containLeftMax);
+  }
+
+  const containTopMin = Math.max(minTop, rectBottom - height);
+  const containTopMax = Math.min(maxTop, rect.y);
+  if (containTopMin <= containTopMax) {
+    top = clampNumber(idealTop, containTopMin, containTopMax);
+  }
+
+  return {
+    x: left,
+    y: top,
+    width,
+    height,
+  };
 };
 
 const dispatchImageInstancesUpdated = (instances: ImageInstance[]) => {
@@ -307,10 +455,16 @@ const loadImageFromBlob = async (blob: Blob): Promise<HTMLImageElement> => {
   }
 };
 
+type CroppedImageResult = {
+  blob: Blob;
+  width: number;
+  height: number;
+};
+
 const cropImageByNormalizedRect = async (params: {
   source: string;
   rect: { x: number; y: number; width: number; height: number };
-}): Promise<Blob | null> => {
+}): Promise<CroppedImageResult | null> => {
   const sourceBlob = await resolveImageToBlob(params.source);
   if (!sourceBlob) return null;
   const sourceImage = await loadImageFromBlob(sourceBlob);
@@ -351,7 +505,8 @@ const cropImageByNormalizedRect = async (params: {
   ctx.drawImage(sourceImage, sx, sy, sw, sh, 0, 0, sw, sh);
 
   try {
-    return await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+    const blob = await canvasToBlob(canvas, { type: "image/png", quality: 0.92 });
+    return { blob, width: sw, height: sh };
   } catch {
     return null;
   }
@@ -799,18 +954,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageId: string;
       imageSource: string;
       cropRectNormalized: { x: number; y: number; width: number; height: number };
+      cropCanvasBounds?: { x: number; y: number; width: number; height: number };
+      targetCanvasBounds?: { x: number; y: number; width: number; height: number };
+      targetPixelWidth?: number;
+      targetPixelHeight?: number;
     }) => {
       let stableTargetSource = params.imageSource;
       try {
+        const renderedBlob = await resolveRenderedImageBlobFromRaster(params.imageId);
+        if (renderedBlob) {
+          const ids = await putFlowImageBlobs([
+            { blob: renderedBlob, projectId: projectId ?? null, nodeId: params.imageId },
+          ]);
+          const id = ids?.[0];
+          if (id) {
+            stableTargetSource = toFlowImageAssetRef(id);
+          }
+        }
+      } catch {}
+      try {
         stableTargetSource =
-          (await ensureChatStableImageRef(params.imageSource, params.imageId)) ||
+          (await ensureChatStableImageRef(stableTargetSource, params.imageId)) ||
+          stableTargetSource ||
           params.imageSource;
       } catch {}
-      const cropBlob = await cropImageByNormalizedRect({
+      const cropResult = await cropImageByNormalizedRect({
         source: stableTargetSource,
         rect: params.cropRectNormalized,
       });
-      if (!cropBlob) {
+      if (!cropResult) {
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: { message: "局部裁剪失败，请重试", type: "error" },
@@ -819,11 +991,65 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      const cropObjectUrl = URL.createObjectURL(cropBlob);
+      const expectedCropPixelWidth =
+        Number.isFinite(Number(params.targetPixelWidth)) &&
+        Number(params.targetPixelWidth) > 0
+          ? Math.round(Number(params.targetPixelWidth) * params.cropRectNormalized.width)
+          : undefined;
+      const expectedCropPixelHeight =
+        Number.isFinite(Number(params.targetPixelHeight)) &&
+        Number(params.targetPixelHeight) > 0
+          ? Math.round(Number(params.targetPixelHeight) * params.cropRectNormalized.height)
+          : undefined;
+
+      console.groupCollapsed("🧩 [Precise Edit] 选区已准备");
+      console.log("canvas 尺寸", {
+        imageId: params.imageId,
+        cropCanvasBounds: params.cropCanvasBounds,
+        targetCanvasBounds: params.targetCanvasBounds,
+      });
+      console.log("像素尺寸", {
+        targetPixelSize:
+          params.targetPixelWidth && params.targetPixelHeight
+            ? {
+                width: params.targetPixelWidth,
+                height: params.targetPixelHeight,
+              }
+            : null,
+        expectedCropFromTargetPixels:
+          expectedCropPixelWidth && expectedCropPixelHeight
+            ? {
+                width: expectedCropPixelWidth,
+                height: expectedCropPixelHeight,
+              }
+            : null,
+        actualCropPixels: {
+          width: cropResult.width,
+          height: cropResult.height,
+        },
+        cropAspectRatio: Number((cropResult.width / cropResult.height).toFixed(4)),
+      });
+      console.log("选区归一化参数", params.cropRectNormalized);
+      console.log("源图引用", {
+        originalSourcePrefix: params.imageSource.slice(0, 80),
+        stableSourcePrefix: stableTargetSource.slice(0, 80),
+      });
+      console.groupEnd();
+
+      const cropObjectUrl = URL.createObjectURL(cropResult.blob);
       const preciseContext: PreciseEditContext = {
         targetImageId: params.imageId,
         targetImageSource: stableTargetSource,
         cropRectNormalized: params.cropRectNormalized,
+        cropCanvasBounds: params.cropCanvasBounds,
+        targetCanvasBounds: params.targetCanvasBounds
+          ? { ...params.targetCanvasBounds }
+          : undefined,
+        targetPixelWidth: params.targetPixelWidth,
+        targetPixelHeight: params.targetPixelHeight,
+        cropPixelWidth: cropResult.width,
+        cropPixelHeight: cropResult.height,
+        cropAspectRatio: cropResult.width / cropResult.height,
         createdAt: Date.now(),
       };
 
@@ -842,6 +1068,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     },
     [
       ensureChatStableImageRef,
+      projectId,
       setPreciseEditContext,
       setSourceImageForEditing,
       showAIDialog,
@@ -1372,6 +1599,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               );
               return;
             }
+            if (parsed?.type === "video" && parsed?.url) {
+              event.preventDefault();
+              event.stopPropagation();
+              window.dispatchEvent(
+                new CustomEvent("canvas:insert-video", {
+                  detail: {
+                    asset: parsed,
+                    position: { x: projectPoint.x, y: projectPoint.y },
+                  },
+                })
+              );
+              return;
+            }
           } catch (error) {
             console.warn("解析拖拽资源数据失败:", error);
           }
@@ -1528,6 +1768,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         videoInfo,
         placeholderId,
         forceAnchorPosition,
+        lockToBounds,
         preferHorizontal, // 🔥 新增：是否优先横向排列
         // 🔥 并行生成分组信息，用于 X4/X8 自动打组
         parallelGroupId,
@@ -1543,6 +1784,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         operationType,
         sourceImageId,
         sourceImages: sourceImages?.length,
+        lockToBounds,
         preferHorizontal,
         parallelGroupId,
         parallelGroupIndex,
@@ -1584,6 +1826,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 videoInfo,
                 placeholderId,
                 forceAnchorPosition,
+                lockToBounds,
                 preferHorizontal,
                 parallelGroupId,
                 parallelGroupIndex,
@@ -2596,6 +2839,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         typeof detail.historyLabel === "string" && detail.historyLabel.trim()
           ? detail.historyLabel.trim()
           : "replace-image-source";
+      const isPreciseReplace = historyLabel === "precise-edit";
       const sourceWidthRaw =
         typeof detail.width === "number" ? detail.width : Number(detail.width);
       const sourceHeightRaw =
@@ -2629,6 +2873,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         return { x, y, width, height };
       })();
+
+      if (isPreciseReplace) {
+        console.log("🧩 [Precise Edit] canvas:replace-image-source 参数", {
+          imageId,
+          fileName,
+          sourceWidth,
+          sourceHeight,
+          explicitBounds,
+          sourceKind: renderableSource.startsWith("data:image/")
+            ? "data"
+            : isPersistableSource
+            ? "persistable"
+            : "other",
+          pendingUpload,
+          clearRemoteUrl,
+          clearKey,
+        });
+      }
       const buildImageDataUpdates = (currentData: any) => {
         const updates: any = {
           src: stateSource,
@@ -2799,6 +3061,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 }
 
                 raster.data = nextRasterData;
+                if (isPreciseReplace) {
+                  console.log("🧩 [Precise Edit] canvas:replace-image-source 已回写", {
+                    imageId,
+                    rasterBounds: {
+                      x: raster.bounds.x,
+                      y: raster.bounds.y,
+                      width: raster.bounds.width,
+                      height: raster.bounds.height,
+                    },
+                    rasterSize: {
+                      width: raster.width,
+                      height: raster.height,
+                    },
+                    storedOriginalSize: {
+                      width: nextRasterData.originalWidth,
+                      height: nextRasterData.originalHeight,
+                    },
+                    storedAspectRatio: nextRasterData.aspectRatio,
+                    sourceWidth,
+                    sourceHeight,
+                  });
+                }
               } catch {}
             }
             didUpdate = true;
@@ -2834,7 +3118,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const detail = event.detail || {};
       const action = detail.action || "add";
       const placeholderId = detail.placeholderId as string | undefined;
-      const preferSmartLayout = Boolean(detail.preferSmartLayout);
+      const preferSmartLayout = detail.preferSmartLayout !== false;
+      const lockToBounds = Boolean(detail.lockToBounds);
       const smartPosition = detail.smartPosition as
         | { x: number; y: number }
         | undefined;
@@ -2872,6 +3157,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         width,
         height,
         operationType,
+        lockToBounds,
         groupId,
         groupIndex,
         groupTotal,
@@ -2927,6 +3213,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         height,
         operationType,
         preferSmartLayout,
+        lockToBounds,
         smartPosition,
         sourceImageId,
         sourceImages,
@@ -3518,6 +3805,71 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       },
     },
   });
+
+  useEffect(() => {
+    const handleInsertVideo = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{
+          asset?: Partial<StoredVideoAsset>;
+          url?: string;
+          position?: { x?: number; y?: number };
+        }>).detail || {};
+      const assetInput = detail.asset || {};
+      const url =
+        (typeof assetInput.url === "string" && assetInput.url.trim()) ||
+        (typeof detail.url === "string" && detail.url.trim()) ||
+        "";
+      if (!url || !paper?.project || !paper.view) return;
+
+      const rawWidth = Number(assetInput.width);
+      const rawHeight = Number(assetInput.height);
+      const aspect =
+        Number.isFinite(rawWidth) &&
+        rawWidth > 0 &&
+        Number.isFinite(rawHeight) &&
+        rawHeight > 0
+          ? rawWidth / rawHeight
+          : 16 / 9;
+      const width = Math.min(
+        420,
+        Math.max(240, Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : 320)
+      );
+      const height = Math.min(320, Math.max(140, width / aspect));
+      const center =
+        typeof detail.position?.x === "number" &&
+        typeof detail.position?.y === "number"
+          ? new paper.Point(detail.position.x, detail.position.y)
+          : paper.view.center;
+
+      const placeholder = videoTool.createVideoPlaceholder(
+        center.subtract([width / 2, height / 2]),
+        center.add([width / 2, height / 2])
+      );
+      videoTool.currentPlaceholderRef.current = placeholder;
+
+      const asset: StoredVideoAsset = {
+        ...assetInput,
+        id:
+          assetInput.id ||
+          `video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        url,
+        fileName: assetInput.fileName || "history-video.mp4",
+        contentType: assetInput.contentType || "video/mp4",
+        sourceUrl: assetInput.sourceUrl || url,
+        metadata: assetInput.metadata,
+      };
+      videoTool.handleVideoUploaded(asset, { autoSaveReason: "video-inserted" });
+    };
+
+    window.addEventListener("canvas:insert-video", handleInsertVideo);
+    return () => {
+      window.removeEventListener("canvas:insert-video", handleInsertVideo);
+    };
+  }, [
+    videoTool.createVideoPlaceholder,
+    videoTool.currentPlaceholderRef,
+    videoTool.handleVideoUploaded,
+  ]);
 
   // 内存优化：视频实例也使用 ref
   const videoInstancesRef = useRef(videoTool.videoInstances);
@@ -5128,6 +5480,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageId: string;
       imageSource: string;
       imageBounds: { x: number; y: number; width: number; height: number };
+      targetPixelWidth?: number;
+      targetPixelHeight?: number;
       startPoint: paper.Point;
       currentPoint: paper.Point;
       overlayRect: paper.Path.Rectangle;
@@ -5283,6 +5637,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         imageId: selectedImage.id,
         imageSource,
         imageBounds: bounds,
+        targetPixelWidth:
+          Number.isFinite(Number(selectedImage.imageData?.width)) &&
+          Number(selectedImage.imageData?.width) > 0
+            ? Math.round(Number(selectedImage.imageData?.width))
+            : undefined,
+        targetPixelHeight:
+          Number.isFinite(Number(selectedImage.imageData?.height)) &&
+          Number(selectedImage.imageData?.height) > 0
+            ? Math.round(Number(selectedImage.imageData?.height))
+            : undefined,
         startPoint: clampedStart,
         currentPoint: clampedStart,
         overlayRect,
@@ -5344,16 +5708,40 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
+      const drawnRatio = rect.width / rect.height;
+      const closestRatio = getClosestPreciseEditAspectRatio(drawnRatio);
+      const adjustedRect = closestRatio
+        ? fitRectToAspectRatioWithinBounds(
+            rect,
+            active.imageBounds,
+            closestRatio.ratio
+          )
+        : rect;
+
+      if (closestRatio) {
+        console.log("🧩 [Precise Edit] 选区比例已校准", {
+          drawnRatio: Number(drawnRatio.toFixed(4)),
+          targetAspectRatio: closestRatio.label,
+          targetRatio: Number(closestRatio.ratio.toFixed(4)),
+          originalCanvasBounds: rect,
+          adjustedCanvasBounds: adjustedRect,
+        });
+      }
+
       const normalizedRect = {
-        x: clamp01((rect.x - active.imageBounds.x) / active.imageBounds.width),
-        y: clamp01((rect.y - active.imageBounds.y) / active.imageBounds.height),
-        width: clamp01(rect.width / active.imageBounds.width),
-        height: clamp01(rect.height / active.imageBounds.height),
+        x: clamp01((adjustedRect.x - active.imageBounds.x) / active.imageBounds.width),
+        y: clamp01((adjustedRect.y - active.imageBounds.y) / active.imageBounds.height),
+        width: clamp01(adjustedRect.width / active.imageBounds.width),
+        height: clamp01(adjustedRect.height / active.imageBounds.height),
       };
       void startPreciseLocalRefine({
         imageId: active.imageId,
         imageSource: active.imageSource,
         cropRectNormalized: normalizedRect,
+        cropCanvasBounds: adjustedRect,
+        targetCanvasBounds: { ...active.imageBounds },
+        targetPixelWidth: active.targetPixelWidth,
+        targetPixelHeight: active.targetPixelHeight,
       });
       event.preventDefault();
       event.stopPropagation();
@@ -5409,6 +5797,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const collectCanvasClipboardData =
     useCallback((): CanvasClipboardData | null => {
+      const imageGroupSnapshots =
+        collectImageGroupBlockSnapshots(selectedGroupBlocks);
       const selectedImageIdsSet = new Set<string>(
         (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0
           ? imageTool.selectedImageIds
@@ -5416,6 +5806,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               .filter((img) => img.isSelected)
               .map((img) => img.id)) ?? []
       );
+      imageGroupSnapshots.forEach((group) => {
+        group.imageIds.forEach((id) => selectedImageIdsSet.add(id));
+      });
       const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
         .filter((img) => selectedImageIdsSet.has(img.id))
         .map((img) => {
@@ -5492,7 +5885,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
         .filter(
           (path) =>
-            !!path && path.isInserted() && !(path.data && path.data.isHelper)
+            !!path &&
+            path.isInserted() &&
+            !(path.data && path.data.isHelper) &&
+            path.data?.type !== "image-group"
         )
         .map((path) => ({
           json: path.exportJSON({ asString: true }),
@@ -5558,6 +5954,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       const hasAny =
         imageSnapshots.length > 0 ||
+        imageGroupSnapshots.length > 0 ||
         modelSnapshots.length > 0 ||
         pathSnapshots.length > 0 ||
         textSnapshots.length > 0 ||
@@ -5571,6 +5968,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         texts: textSnapshots,
         videos: videoSnapshots,
         paths: pathSnapshots,
+        imageGroups: imageGroupSnapshots,
       };
     }, [
       imageTool.imageInstances,
@@ -5581,6 +5979,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       videoTool.selectedVideoIds,
       selectionTool.selectedPath,
       selectionTool.selectedPaths,
+      selectedGroupBlocks,
       simpleTextTool.textItems,
     ]);
 
@@ -5593,6 +5992,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     clipboardService.setCanvasData(payload);
     logger.debug("画布内容已复制到剪贴板:", {
       images: payload.images.length,
+      imageGroups: payload.imageGroups?.length ?? 0,
       models: payload.models.length,
       texts: payload.texts.length,
       paths: payload.paths.length,
@@ -5605,6 +6005,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (!payload) return false;
     logger.debug("尝试从剪贴板粘贴画布内容:", {
       images: payload.images.length,
+      imageGroups: payload.imageGroups?.length ?? 0,
       models: payload.models.length,
       texts: payload.texts.length,
       paths: payload.paths.length,
@@ -5616,9 +6017,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     deselectSimpleText();
 
     const newImageIds: string[] = [];
+    const imageIdMap = new Map<string, string>();
     payload.images.forEach((snapshot) => {
       const id = createImageFromSnapshot?.(snapshot, { offset });
-      if (id) newImageIds.push(id);
+      if (id) {
+        newImageIds.push(id);
+        imageIdMap.set(snapshot.id, id);
+      }
+    });
+
+    const newGroupBlocks: paper.Path[] = [];
+    (payload.imageGroups ?? []).forEach((snapshot) => {
+      try {
+        const block = createImageGroupBlockFromSnapshot(snapshot, imageIdMap);
+        if (block) newGroupBlocks.push(block);
+      } catch (error) {
+        console.warn("粘贴图片组失败:", error);
+      }
     });
 
     const newModelIds: string[] = [];
@@ -5735,6 +6150,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const hasNew =
       newImageIds.length > 0 ||
+      newGroupBlocks.length > 0 ||
       newModelIds.length > 0 ||
       newPaths.length > 0 ||
       newTextIds.length > 0;
@@ -5746,16 +6162,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     logger.debug("粘贴创建的对象数量:", {
       images: newImageIds.length,
+      imageGroups: newGroupBlocks.length,
       models: newModelIds.length,
       paths: newPaths.length,
       texts: newTextIds.length,
     });
 
+    const groupedNewImageIds = new Set<string>();
+    (payload.imageGroups ?? []).forEach((group) => {
+      group.imageIds.forEach((sourceId) => {
+        const mapped = imageIdMap.get(sourceId);
+        if (mapped) groupedNewImageIds.add(mapped);
+      });
+    });
+    const imageIdsToSelect =
+      newGroupBlocks.length > 0
+        ? newImageIds.filter((id) => !groupedNewImageIds.has(id))
+        : newImageIds;
+
     if (
-      newImageIds.length > 0 &&
+      imageIdsToSelect.length > 0 &&
       typeof handleImageMultiSelect === "function"
     ) {
-      handleImageMultiSelect(newImageIds);
+      handleImageMultiSelect(imageIdsToSelect);
     } else {
       setSelectedImageIds([]);
     }
@@ -5769,8 +6198,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       setSelectedModel3DIds([]);
     }
 
-    if (newPaths.length > 0) {
-      newPaths.forEach((path) => {
+    const newSelectedPaths = [...newPaths, ...newGroupBlocks];
+    if (newSelectedPaths.length > 0) {
+      newSelectedPaths.forEach((path) => {
         try {
           path.selected = true;
           path.fullySelected = true;
@@ -5779,8 +6209,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           selectToolHandlePathSelect?.(path);
         } catch {}
       });
-      setSelectedPaths?.(newPaths);
-      setSelectedPath?.(newPaths[newPaths.length - 1]);
+      setSelectedPaths?.(newSelectedPaths);
+      setSelectedPath?.(newSelectedPaths[newSelectedPaths.length - 1]);
     } else {
       setSelectedPaths?.([]);
       setSelectedPath?.(null);
@@ -6943,6 +7373,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
+  const handleCreateFlowNodeGroup = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("flow:create-group-from-selection"));
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const handleStartFlowBatchOutputConnect = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("flow:start-batch-output-connect", {
+        detail: {
+          x: contextMenuState?.x,
+          y: contextMenuState?.y,
+        },
+      })
+    );
+    closeContextMenu();
+  }, [closeContextMenu, contextMenuState?.x, contextMenuState?.y]);
+
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
 
@@ -6992,6 +7439,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     ];
 
     if (isCanvasContext) {
+      items.push({
+        label: "节点打组 (G)",
+        icon: <Group className='w-4 h-4' />,
+        onClick: handleCreateFlowNodeGroup,
+      });
+      items.push({
+        label: "批量连接输出",
+        icon: <Link2 className='w-4 h-4' />,
+        onClick: handleStartFlowBatchOutputConnect,
+      });
+
       items.push({
         label: isGlobalFlowRunning ? "终止全局运行" : "全局运行",
         icon: isGlobalFlowRunning ? (
@@ -7084,6 +7542,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleCanvasPaste,
     handleExportCanvasJson,
     handleImportCanvasJson,
+    handleCreateFlowNodeGroup,
+    handleStartFlowBatchOutputConnect,
     handleAddImageToLibrary,
     handleDeleteSelection,
     handleDownloadImage,
@@ -8651,7 +9111,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onTextResizeStart={simpleTextTool.startTextResize}
         onTextResize={simpleTextTool.resizeTextDrag}
         onTextResizeEnd={simpleTextTool.endTextResize}
-        onTextDoubleClick={simpleTextTool.startEditText}
       />
 
       {/* 简单文本编辑器 */}

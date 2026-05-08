@@ -463,6 +463,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             ? params.expectedHeight + GENERATE_COLLISION_PADDING
             : params.expectedHeight;
 
+        if (params.operationType === 'precise-edit' && groupTotal <= 1) {
+            return lockPoint(desiredAnchor.clone());
+        }
+
         // 单图生成：只向下排版（取当前 generate 中“最下面，若同层取最左”再向下偏移）
         if (params.operationType === 'generate' && groupTotal <= 1) {
             const images = getAllCanvasImages().filter((img) => img.operationType === 'generate');
@@ -705,6 +709,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 return editPosition;
             }
 
+            case 'precise-edit': {
+                const anchor = layoutContext?.anchorCenter
+                    && Number.isFinite(layoutContext.anchorCenter.x)
+                    && Number.isFinite(layoutContext.anchorCenter.y)
+                    ? layoutContext.anchorCenter
+                    : (paper.view?.center ? { x: paper.view.center.x, y: paper.view.center.y } : { x: 0, y: 0 });
+                return { x: anchor.x, y: anchor.y };
+            }
+
             case 'blend': {
                 // 融合图：基于第一张源图向右偏移
                 const spacingH = getSpacingHorizontal();
@@ -743,6 +756,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         groupTotal?: number;
         preferHorizontal?: boolean;
         groupAnchor?: { x: number; y: number } | null;
+        lockToBounds?: boolean;
     }) => {
         if (!params?.placeholderId) return;
 
@@ -757,8 +771,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         ensureDrawingLayer();
 
         const minSize = 48;
-        const width = Math.max(params.width || 0, minSize);
-        const height = Math.max(params.height || 0, minSize);
+        const lockToBounds =
+            Boolean(params.lockToBounds) || params.operationType === 'precise-edit';
+        const width = lockToBounds
+            ? Math.max(params.width || 0, 1)
+            : Math.max(params.width || 0, minSize);
+        const height = lockToBounds
+            ? Math.max(params.height || 0, 1)
+            : Math.max(params.height || 0, minSize);
         const preferHorizontal = params.preferHorizontal || (params.groupTotal ?? 1) > 1;
         const layoutContext = {
             groupId: params.groupId,
@@ -808,24 +828,29 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const desiredPoint = new paper.Point(baseCenter.x, baseCenter.y);
         let centerPoint = desiredPoint;
 
-        try {
-            centerPoint = resolveMatrixPosition({
-                operationType: params.operationType || 'generate',
-                anchor: desiredPoint,
-                expectedWidth: width,
-                expectedHeight: height,
-                currentImageId: params.placeholderId,
-                layoutContext,
-            });
-        } catch (e) {
-            logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+        if (!lockToBounds && params.preferSmartLayout !== false) {
+            try {
+                centerPoint = resolveMatrixPosition({
+                    operationType: params.operationType || 'generate',
+                    anchor: desiredPoint,
+                    expectedWidth: width,
+                    expectedHeight: height,
+                    currentImageId: params.placeholderId,
+                    layoutContext,
+                });
+            } catch (e) {
+                logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
+            }
         }
 
         // ========== Agent 风格占位符 - 内部动效设计 ==========
         const halfW = width / 2;
         const halfH = height / 2;
         const cornerRadius = Math.min(width, height) * 0.02;
-        const mainColor = new paper.Color('#4b5563'); // 黑灰色
+        const isPreciseEditPlaceholder = params.operationType === 'precise-edit';
+        const mainColor = isPreciseEditPlaceholder
+            ? new paper.Color('#2563eb')
+            : new paper.Color('#4b5563'); // 黑灰色
 
         // 背景矩形
         // 背景 - 更深的灰色调
@@ -837,6 +862,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             radius: cornerRadius,
             fillColor: new paper.Color(0.58, 0.64, 0.72, 0.25) // slate-400 色调
         });
+        if (isPreciseEditPlaceholder) {
+            bg.visible = false;
+        }
 
         // 静态边框 - 虚线样式
         const border = new paper.Path.Rectangle({
@@ -845,8 +873,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(width, height)
             ),
             radius: cornerRadius,
-            strokeColor: new paper.Color(0.39, 0.45, 0.55, 0.4), // slate-500 色调
-            strokeWidth: 1,
+            strokeColor: isPreciseEditPlaceholder
+                ? new paper.Color(0.15, 0.39, 0.92, 0.85)
+                : new paper.Color(0.39, 0.45, 0.55, 0.4), // slate-500 色调
+            strokeWidth: isPreciseEditPlaceholder ? 1.25 : 1,
             dashArray: [6, 4], // 虚线
             fillColor: null as any
         });
@@ -886,6 +916,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         // 将光晕和裁剪蒙版放入一个组
         const shimmerGroup = new paper.Group([clipMask, shimmer]);
+        shimmerGroup.visible = !isPreciseEditPlaceholder;
 
         // 内部扫描线（保留但调整颜色）
         const scanLineY = -halfH + 10;
@@ -918,7 +949,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 new paper.Size(barWidth, barHeight)
             ),
             radius: barHeight / 2,
-            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6)
+            fillColor: isPreciseEditPlaceholder
+                ? new paper.Color(1, 1, 1, 0.72)
+                : new paper.Color(0.9, 0.9, 0.92, 0.6)
         });
 
         const barFg = new paper.Path.Rectangle({
@@ -929,13 +962,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             radius: barHeight / 2,
             fillColor: mainColor
         });
+        if (isPreciseEditPlaceholder) {
+            barBg.visible = false;
+            barFg.visible = false;
+        }
 
         // 进度文字
         const progressLabel = new paper.PointText({
             point: centerPoint.add([0, barY + 18]),
             content: '0%',
             justification: 'center',
-            fillColor: new paper.Color('#6b7280'),
+            fillColor: isPreciseEditPlaceholder
+                ? new paper.Color('#2563eb')
+                : new paper.Color('#6b7280'),
             fontSize: Math.max(14, Math.min(18, width * 0.028)),
             fontWeight: '600',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
@@ -1007,7 +1046,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             paper.view.update();
             animationFrameId = requestAnimationFrame(animate);
         };
-        animationFrameId = requestAnimationFrame(animate);
+        if (!isPreciseEditPlaceholder) {
+            animationFrameId = requestAnimationFrame(animate);
+        }
 
         (group as any)._spinnerAnimationId = animationFrameId;
 
@@ -1110,6 +1151,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
             forceAnchorPosition?: boolean;
+            lockToBounds?: boolean;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
             // 🔥 并行生成分组信息，用于 X4/X8 自动打组
             parallelGroupId?: string;
@@ -1320,6 +1362,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
+            const lockToBounds =
+                Boolean(extraOptions?.lockToBounds) || pendingOperationType === 'precise-edit';
             const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
             // 🔥 获取并行生成分组信息
             const parallelGroupId = extraOptions?.parallelGroupId;
@@ -1406,7 +1450,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 const shouldForceAnchorPosition =
-                    Boolean(extraOptions?.forceAnchorPosition) && (parallelGroupTotal ?? 1) <= 1;
+                    !lockToBounds &&
+                    Boolean(extraOptions?.forceAnchorPosition) &&
+                    (parallelGroupTotal ?? 1) <= 1;
                 let anchorCenterForPlacement = desiredPoint;
                 if (shouldForceAnchorPosition) {
                     // forceAnchorPosition 语义：smartPosition 表示“顶部锚点”，不是图片中心点。
@@ -1416,7 +1462,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     );
                 }
                 pendingEntry = registerPending(anchorCenterForPlacement);
-                const adjustedPoint = shouldForceAnchorPosition
+                const adjustedPoint = lockToBounds || shouldForceAnchorPosition
                     ? anchorCenterForPlacement
                     : resolveTargetPosition(desiredPoint, pendingOperationType);
                 targetPosition = adjustedPoint;
@@ -1433,7 +1479,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             } else if (placeholderCenter) {
                 pendingEntry = registerPending(placeholderCenter);
-                targetPosition = resolveTargetPosition(placeholderCenter, pendingOperationType);
+                targetPosition = lockToBounds
+                    ? placeholderCenter
+                    : resolveTargetPosition(placeholderCenter, pendingOperationType);
                 if (pendingEntry) {
                     pendingEntry.x = targetPosition.x;
                     pendingEntry.y = targetPosition.y;
@@ -2001,6 +2049,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImages: sourceImages,
                     videoInfo: extraOptions?.videoInfo
                 };
+
+                if (operationType === 'precise-edit' || lockToBounds) {
+                    console.log("🧩 [Precise Edit] quick upload 最终落点", {
+                        imageId,
+                        operationType,
+                        sourceSize: { width: originalWidth, height: originalHeight },
+                        displaySize: { width: displayWidth, height: displayHeight },
+                        finalPosition: { x: finalPosition.x, y: finalPosition.y },
+                        boundsSource,
+                        placeholderId,
+                        lockToBounds,
+                    });
+                }
 
                 // 创建选择区域（透明点击热区，避免 Raster hitTest/异步加载导致“点不到图片”）
                 const selectionArea = new paper.Path.Rectangle({

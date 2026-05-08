@@ -12,10 +12,8 @@ import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from 
 import { useLocaleText } from '@/utils/localeText';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import RunCreditBadge from './RunCreditBadge';
-import { useCanvasStore } from '@/stores';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import {
-  flowNodeControlField,
   flowNodeMutedWellBackground,
   flowNodeShellChrome,
   flowNodeWellOutlineBorder,
@@ -23,6 +21,8 @@ import {
 } from './flowNodeDarkTheme';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
+import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
+import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
 
 type Props = {
   id: string;
@@ -37,12 +37,31 @@ type Props = {
     managedModelKey?: string;
     vendorKey?: string;
     platformKey?: string;
+    analysisSkillId?: string;
+    analysisCustomPrompt?: string;
     analysisProvider?: ProviderToggleValue;
   };
   selected?: boolean;
 };
 
 type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
+type AnalysisSkillId = 'custom' | 'prompt' | 'json' | 'promptOnly';
+
+type AnalysisSkillOption = {
+  id: AnalysisSkillId;
+  label: string;
+  description: string;
+  prompt: string;
+};
+
+const DEFAULT_ANALYSIS_SKILL_ID: AnalysisSkillId = 'prompt';
+
+const normalizeAnalysisSkillId = (value?: string): AnalysisSkillId => {
+  if (value === 'custom') return 'custom';
+  if (value === 'json') return 'json';
+  if (value === 'promptOnly') return 'promptOnly';
+  return DEFAULT_ANALYSIS_SKILL_ID;
+};
 
 const normalizeAnalysisProvider = (value?: string): ProviderToggleValue => {
   if (value === 'banana-2.5') return 'banana-2.5';
@@ -69,12 +88,6 @@ type CropInfo = {
 type ConnectedInput = { kind: 'crop'; crop: CropInfo } | { kind: 'base'; baseRef: string };
 type ConnectedInputPreview = { id: string; baseRef: string; crop?: CropInfo };
 const MAX_INPUT_PREVIEWS = 6;
-
-const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) => {
-  const store = useCanvasStore.getState();
-  const isModifierWheel = event.ctrlKey || event.metaKey;
-  return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
-};
 
 function InputImageCropThumb({
   src,
@@ -316,8 +329,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           if (!baseRef) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-          const match = h ? /^image(\d+)$/.exec(h) : null;
-          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+          const handleIndex = getImageSplitHandleIndex(h);
+          const idx = handleIndex ?? 0;
           const rect = splitRects?.[idx];
           const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
           const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
@@ -599,7 +612,6 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const providerFallbackCredits = React.useMemo(() => 10, []);
   const resolvedRunCredits = backendCredits ?? providerFallbackCredits;
   const shell = flowNodeShellChrome(isFlowDark, !!selected);
-  const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -609,23 +621,141 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
-  const defaultAnalysisPrompt = lt(
-    '分析这张图片内容，尽可能描述场景中的物体和特征，并输出一段提示词。',
-    'Analyze this image. Describe the scene objects and characteristics in one prompt-style paragraph.'
+  const analysisSkillOptions = React.useMemo<AnalysisSkillOption[]>(
+    () => [
+      {
+        id: 'custom',
+        label: lt('自定义', 'Custom'),
+        description: lt('手动输入图片分析提示词', 'Manually enter an image analysis prompt'),
+        prompt: '',
+      },
+      {
+        id: 'prompt',
+        label: 'Analysis',
+        description: lt('描述图片并输出一段可复用提示词', 'Describe the image as a reusable prompt'),
+        prompt: lt(
+          '分析这张图片内容，尽可能描述场景中的物体和特征，并输出一段提示词。',
+          'Analyze this image. Describe the scene objects and characteristics in one prompt-style paragraph.'
+        ),
+      },
+      {
+        id: 'promptOnly',
+        label: lt('提示词', 'Prompt'),
+        description: lt('只输出可直接用于生图的一段提示词', 'Return only a ready-to-use image prompt'),
+        prompt: lt(
+          `请根据这张图片生成一段可直接用于生图的提示词。
+只输出最终提示词本身，不要写分析过程，不要写标题，不要使用 Markdown，不要输出 JSON。
+提示词应完整描述主体、场景、构图、光线、色彩、风格、材质和关键细节，语言自然紧凑。`,
+          `Generate a ready-to-use image generation prompt from this image.
+Return only the final prompt text. Do not include analysis, headings, Markdown, or JSON.
+The prompt should concisely describe the subject, scene, composition, lighting, colors, style, materials, and key details.`
+        ),
+      },
+      {
+        id: 'json',
+        label: 'JSON',
+        description: lt('结构化拆解主体、场景、风格和提示词', 'Extract subject, scene, style, and prompt as JSON'),
+        prompt: lt(
+          `请分析这张图片，并只输出合法 JSON，不要使用 Markdown，不要添加解释。
+JSON 结构必须符合：
+{
+  "summary": "图片整体摘要",
+  "subjects": [
+    {
+      "name": "主体名称",
+      "attributes": ["可见特征、材质、颜色、状态"],
+      "position": "主体在画面中的位置"
+    }
+  ],
+  "scene": {
+    "environment": "场景环境",
+    "background": "背景内容",
+    "time": "时间或氛围"
+  },
+  "style": {
+    "visualStyle": "视觉风格",
+    "composition": "构图",
+    "lighting": "光线",
+    "colorPalette": ["主要颜色"],
+    "camera": "镜头或视角"
+  },
+  "details": ["重要细节"],
+  "prompt": "一段可直接用于生图的完整提示词"
+}
+如果某项无法判断，使用空字符串或空数组。`,
+          `Analyze this image and return only valid JSON. Do not use Markdown and do not add explanations.
+The JSON must match this structure:
+{
+  "summary": "overall image summary",
+  "subjects": [
+    {
+      "name": "subject name",
+      "attributes": ["visible traits, materials, colors, state"],
+      "position": "subject position in the frame"
+    }
+  ],
+  "scene": {
+    "environment": "scene environment",
+    "background": "background content",
+    "time": "time or mood"
+  },
+  "style": {
+    "visualStyle": "visual style",
+    "composition": "composition",
+    "lighting": "lighting",
+    "colorPalette": ["main colors"],
+    "camera": "camera or viewpoint"
+  },
+  "details": ["important details"],
+  "prompt": "a complete prompt that can be reused for image generation"
+}
+Use an empty string or empty array when a field cannot be determined.`
+        ),
+      },
+    ],
+    [lt]
   );
-  const promptInput = data.analysisPrompt ?? defaultAnalysisPrompt;
+  const currentAnalysisSkillId = normalizeAnalysisSkillId(data.analysisSkillId);
+  const currentAnalysisSkill =
+    analysisSkillOptions.find((option) => option.id === currentAnalysisSkillId) ??
+    analysisSkillOptions[0];
+  const isCustomAnalysisSkill = currentAnalysisSkillId === 'custom';
+  const defaultAnalysisPrompt = currentAnalysisSkill.prompt;
+  const customAnalysisPrompt =
+    typeof data.analysisCustomPrompt === 'string' ? data.analysisCustomPrompt : '';
+
+  const commitCustomAnalysisPrompt = React.useCallback(
+    (value: string) => {
+      window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { analysisCustomPrompt: value } }
+      }));
+    },
+    [id]
+  );
+  const customAnalysisPromptInput = useImeSafeTextValue(
+    customAnalysisPrompt,
+    commitCustomAnalysisPrompt
+  );
+  const customAnalysisPromptDraft = customAnalysisPromptInput.value;
 
   // 鐢ㄤ簬杩借釜鍒嗘瀽杩涜涓殑鐘舵€?
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
 
   // 鍒濆鍖栬妭鐐规彁绀鸿瘝
   React.useEffect(() => {
-    if (typeof data.analysisPrompt === 'undefined') {
+    const patch: Record<string, unknown> = {};
+    if (data.analysisSkillId !== currentAnalysisSkillId) {
+      patch.analysisSkillId = currentAnalysisSkillId;
+    }
+    if (!isCustomAnalysisSkill && data.analysisPrompt !== defaultAnalysisPrompt) {
+      patch.analysisPrompt = defaultAnalysisPrompt;
+    }
+    if (Object.keys(patch).length > 0) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { analysisPrompt: defaultAnalysisPrompt } }
+        detail: { id, patch }
       }));
     }
-  }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
+  }, [currentAnalysisSkillId, data.analysisPrompt, data.analysisSkillId, defaultAnalysisPrompt, id, isCustomAnalysisSkill]);
 
   React.useEffect(() => {
     if (typeof data.analysisProvider === 'undefined') {
@@ -662,12 +792,20 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const onAnalyze = React.useCallback(async () => {
     if (!hasAnyInput || status === 'running' || isAnalyzing) return;
 
-    const basePrompt = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
+    const basePrompt = (isCustomAnalysisSkill ? customAnalysisPromptDraft : defaultAnalysisPrompt).trim();
     const extraPrompt = readConnectedExtraPrompt();
-    const promptToUse = extraPrompt ? `${basePrompt}\n\n${extraPrompt}` : basePrompt;
+    const promptToUse = [basePrompt, extraPrompt]
+      .filter((part) => part.trim().length > 0)
+      .join('\n\n');
     if (!promptToUse.length) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { status: 'failed', error: 'Prompt cannot be empty' } }
+        detail: {
+          id,
+          patch: {
+            status: 'failed',
+            error: lt('请输入自定义提示词或连接提示文本', 'Enter a custom prompt or connect prompt text'),
+          },
+        },
       }));
       return;
     }
@@ -815,8 +953,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             (typeof d.inputImage === 'string' && d.inputImage.trim()) ||
             '';
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
-          const match = handle ? /^image(\d+)$/.exec(handle) : null;
-          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+          const handleIndex = getImageSplitHandleIndex(handle);
+          const idx = handleIndex ?? 0;
           const rect = splitRects?.[idx];
           const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
           const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
@@ -987,7 +1125,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [analysisModel, analyzeBananaImageRoute, data.analysisPrompt, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, incomingEdges, isAnalyzing, lt, readConnectedExtraPrompt, rf, status]);
+  }, [analysisModel, analyzeBananaImageRoute, customAnalysisPromptDraft, data.imageData, data.imageUrl, defaultAnalysisPrompt, effectiveProvider, hasAnyInput, id, incomingEdges, isAnalyzing, isCustomAnalysisSkill, lt, readConnectedExtraPrompt, rf, status]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -1016,12 +1154,22 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
 
-  const onPromptChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.target.value;
-    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-      detail: { id, patch: { analysisPrompt: value } }
-    }));
-  }, [id]);
+  const onSelectAnalysisSkill = React.useCallback(
+    (skill: AnalysisSkillOption) => {
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: {
+            id,
+            patch: {
+              analysisSkillId: skill.id,
+              ...(skill.id === 'custom' ? {} : { analysisPrompt: skill.prompt }),
+            },
+          },
+        })
+      );
+    },
+    [id]
+  );
 
   return (
     <div
@@ -1042,7 +1190,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontWeight: 600, color: shell.color }}>Analysis</div>
+          <div style={{ fontWeight: 600, color: shell.color }}>Image Chat</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -1145,8 +1293,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             status === 'running' || isAnalyzing
               ? 'Running...'
               : resolvedRunCredits
-              ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
-              : lt('Run analysis', 'Run analysis')
+              ? `${lt('消耗', 'Cost')}: ${resolvedRunCredits} ${lt('积分', 'credits')}`
+              : lt('运行分析', 'Run analysis')
           }
         >
           {status === 'running' || isAnalyzing ? (
@@ -1206,7 +1354,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             background: flowNodeMutedWellBackground(isFlowDark),
           }}
         >
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>Waiting for image input</span>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>{lt('等待图片输入', 'Waiting for image input')}</span>
         </div>
       )}
       {incomingImageCount > 1 && (
@@ -1216,41 +1364,115 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       )}
 
       <div>
-        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: shell.color }}>Analysis Prompt</div>
-        <textarea
-          className="nodrag nopan nowheel"
-          value={promptInput}
-          onChange={onPromptChange}
-          onWheelCapture={(event) => {
-            if (shouldPassWheelToCanvas(event)) return;
-            event.stopPropagation();
-            if (event.nativeEvent?.stopImmediatePropagation) {
-              event.nativeEvent.stopImmediatePropagation();
-            }
-          }}
-          onPointerDownCapture={(event) => {
-            event.stopPropagation();
-            if (event.nativeEvent?.stopImmediatePropagation) {
-              event.nativeEvent.stopImmediatePropagation();
-            }
-          }}
-          onMouseDownCapture={(event) => {
-            event.stopPropagation();
-          }}
-          placeholder="Enter prompt for analysis"
+        <div
           style={{
-            width: '100%',
-            minHeight: 70,
-            resize: 'none',
-            fontSize: 12,
-            lineHeight: 1.4,
-            padding: '6px 8px',
-            borderRadius: 6,
-            fontFamily: 'inherit',
-            ...controlField,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 4,
           }}
-          disabled={status === 'running' || isAnalyzing}
-        />
+        >
+          <div style={{ fontSize: 11, fontWeight: 600, color: shell.color }}>
+            Skill
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={status === 'running' || isAnalyzing}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                className="nodrag nopan"
+                title={lt('切换分析 Skill', 'Switch analysis skill')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  minWidth: 96,
+                  height: 24,
+                  padding: '0 8px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: status === 'running' || isAnalyzing ? 'not-allowed' : 'pointer',
+                  color: isFlowDark ? '#f9fafb' : '#111827',
+                  background: isFlowDark ? '#262626' : '#f8fafc',
+                  border: `1px solid ${isFlowDark ? '#404040' : '#d1d5db'}`,
+                }}
+              >
+                {currentAnalysisSkill.label}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align='end'
+              side='bottom'
+              sideOffset={6}
+              className='min-w-[210px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md'
+            >
+              <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                Skill
+              </DropdownMenuLabel>
+              {analysisSkillOptions.map((skill) => {
+                const isActive = currentAnalysisSkill.id === skill.id;
+                return (
+                  <DropdownMenuItem
+                    key={skill.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!isActive) {
+                        onSelectAnalysisSkill(skill);
+                      }
+                    }}
+                    onPointerDownCapture={stopNodeDrag}
+                    className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                      isActive ? 'bg-gray-100 text-gray-800' : 'text-slate-600'
+                    }`}
+                  >
+                    <div className='flex-1 space-y-0.5'>
+                      <div className='font-medium leading-none'>{skill.label}</div>
+                      <div className='text-[11px] leading-snug text-slate-400'>{skill.description}</div>
+                    </div>
+                    {isActive && <Check className='h-3.5 w-3.5 text-slate-700' />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {isCustomAnalysisSkill && (
+          <textarea
+            className="nodrag nopan nowheel"
+            value={customAnalysisPromptInput.value}
+            onChange={customAnalysisPromptInput.onChange}
+            onCompositionStart={customAnalysisPromptInput.onCompositionStart}
+            onCompositionEnd={customAnalysisPromptInput.onCompositionEnd}
+            placeholder={lt('输入自定义图片分析提示词', 'Enter a custom image analysis prompt')}
+            disabled={status === 'running' || isAnalyzing}
+            style={{
+              width: '100%',
+              minHeight: 80,
+              resize: 'vertical',
+              fontSize: 12,
+              lineHeight: 1.4,
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${flowNodeWellOutlineBorder(isFlowDark)}`,
+              background: isFlowDark ? '#171717' : '#ffffff',
+              color: isFlowDark ? '#f3f4f6' : '#111827',
+              fontFamily: 'inherit',
+              boxShadow: isFlowDark
+                ? '0 1px 2px rgba(15, 23, 42, 0.2)'
+                : '0 1px 2px rgba(15, 23, 42, 0.04)',
+            }}
+            onWheelCapture={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+          />
+        )}
       </div>
 
       <div
@@ -1266,7 +1488,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           whiteSpace: 'pre-wrap',
         }}
       >
-        {data.prompt ? data.prompt : <span style={{ color: '#9ca3af' }}>Analysis result will appear here</span>}
+        {data.prompt ? data.prompt : <span style={{ color: '#9ca3af' }}>{lt('分析结果将在此处显示', 'Analysis result will appear here')}</span>}
       </div>
 
       {status === 'failed' && error && (
@@ -1328,4 +1550,3 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 }
 
 export default React.memo(AnalysisNodeInner);
-

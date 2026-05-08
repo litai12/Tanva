@@ -18,11 +18,13 @@ import RunCreditBadge from "./RunCreditBadge";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "../../ui/dropdown-menu";
 import {
+  getFlowImageReferenceLimit,
   getFlowModelProviderMode,
   resolveFlowModelProvider,
   type FlowModelProvider,
 } from "@/utils/flowModelProvider";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 
 type Props = {
   id: string;
@@ -48,6 +50,9 @@ type Props = {
   selected?: boolean;
 };
 
+const EMPTY_IMAGE_VALUES: string[] = [];
+const EMPTY_SLOT_ERRORS: (string | undefined)[] = [];
+
 // 构建图片 src - 优先使用 OSS URL，避免 proxy 降级
 const buildImageSrc = (value?: string): string => {
   if (!value) return "";
@@ -69,8 +74,6 @@ type ConnectedInputImage = {
     sourceHeight?: number;
   };
 };
-
-const MAX_INPUT_PREVIEWS = 6;
 
 const normalizeImageValue = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -139,15 +142,10 @@ const readConnectedImagesFromNode = (
   };
 
   if (typeof sourceHandle === "string") {
-    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
-    if (singleMatch) {
-      const idx = Math.max(0, Number(singleMatch[1]) - 1);
-      return pickAt(idx);
-    }
-
-    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
-    if (splitMatch) {
-      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+    const splitIdx =
+      node.type === "imageSplit" ? getImageSplitHandleIndex(sourceHandle) : null;
+    if (splitIdx !== null) {
+      const idx = splitIdx;
       const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
       const rect = splitRects[idx];
       const rectRecord =
@@ -203,6 +201,12 @@ const readConnectedImagesFromNode = (
       return value
         ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
         : [];
+    }
+
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
     }
   }
 
@@ -473,10 +477,10 @@ function InputImageThumb({
 function Generate4NodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const { status, error } = data;
-  const images = data.images || [];
-  const imageUrls = data.imageUrls || [];
-  const thumbnails = data.thumbnails || [];
-  const slotErrors = data.generate4SlotErrors || [];
+  const images = data.images || EMPTY_IMAGE_VALUES;
+  const imageUrls = data.imageUrls || EMPTY_IMAGE_VALUES;
+  const thumbnails = data.thumbnails || EMPTY_IMAGE_VALUES;
+  const slotErrors = data.generate4SlotErrors || EMPTY_SLOT_ERRORS;
   const passIndex =
     typeof data.generate4PassIndex === "number" && Number.isFinite(data.generate4PassIndex)
       ? Math.max(0, data.generate4PassIndex)
@@ -490,6 +494,17 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
   const isFlowDark = useFlowNodeDarkTheme();
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
+  const chatTheme = useAIChatStore((state) => state.chatTheme);
+  const effectiveProvider = React.useMemo(
+    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
+    [aiProvider, data.modelProvider]
+  );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
 
   const previewOverrideAssetId = React.useMemo(
     () => parseFlowImageAssetRef(previewOverrideValue),
@@ -501,7 +516,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     if (previewOverrideAssetId) return previewOverrideAssetUrl || "";
     return buildImageSrc(previewOverrideValue);
   }, [previewOverrideAssetId, previewOverrideAssetUrl, previewOverrideValue]);
-
   const connectedInputImages = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
@@ -543,9 +557,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           });
         });
 
-        return out.slice(0, MAX_INPUT_PREVIEWS);
+        return out.slice(0, maxInputPreviews);
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 
@@ -577,8 +591,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>)
-      .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    const nativeEvent = event.nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
@@ -676,7 +689,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   );
 
   const boxW = data.boxW || 300;
-  const boxH = data.boxH || 240;
   const aspectRatioValue = data.aspectRatio ?? "";
   const imageSizeValue = data.imageSize ?? "";
   const aspectOptions = React.useMemo(
@@ -694,13 +706,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
       { label: "21:9", value: "21:9" },
     ],
     [lt]
-  );
-  const aiProvider = useAIChatStore((state) => state.aiProvider);
-  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const chatTheme = useAIChatStore((state) => state.chatTheme);
-  const effectiveProvider = React.useMemo(
-    () => resolveFlowModelProvider(data.modelProvider, aiProvider),
-    [aiProvider, data.modelProvider]
   );
   const providerMode = React.useMemo(
     () => getFlowModelProviderMode(effectiveProvider),
@@ -986,16 +991,10 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 : lt("运行生成", "Run generation")
             }
           >
-            {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                {resolvedRunCredits ? (
-                  <RunCreditBadge credits={resolvedRunCredits} runButton />
-                ) : null}
-              </>
-            )}
+            <span className='run-text-trigger'>Run</span>
+            {resolvedRunCredits ? (
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            ) : null}
           </button>
           <button
             onClick={onSend}

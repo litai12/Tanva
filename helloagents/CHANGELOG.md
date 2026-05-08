@@ -9,18 +9,86 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
+### Added
+- Admin/Auth: added configurable login notice popup support. Full admins can edit `login_notice` in `/admin` system settings, users fetch `GET /api/settings/login-notice` after login, and the popup requires manual dismissal once per login.
+- Workspace Header: added a top-right quick route switch for Nano Banana/Gemini/GPT-Image-2 text/image route selection. It reuses the existing global `bananaImageRoute` store and now shows today's normal/stable route success rates from `GET /api/ai/banana-route-success-rates`.
+- Flow/Image Node: added a fullscreen annotation editor from the image-node paintbrush action. It supports brush, arrow, rectangle, circle, and text markup, saves the flattened PNG back to the image node via OSS, and keeps node-local history versions for restore.
+- Flow/Edges: holding `Shift` and clicking an edge now deletes that edge through the same controlled Flow deletion path used by the delete button and keyboard shortcuts, including label-editor cleanup and history commit.
+- Flow/Edges: increased the invisible edge interaction width to 32px, explicitly enabled stroke hit-testing for the interaction path, and show a red minus cursor while Shift is held over an edge.
+- Canvas Tools: added an `arrow` drawing mode in the tool store, toolbar, drawing hooks, interaction controller, and layer panel type/icon mapping. Arrows are stored as Paper paths with `data.tool = "arrow"` and do not change design JSON persistence rules.
+- Workspace Settings: FPS frame monitoring is now controlled from Settings -> Advanced and reports a `Canvas` mode during canvas pan/move interactions in addition to node drag, image drag, and zoom.
+- Project Manager: project cards now lazy-load current-page content previews and render a multi-image grid, with 12 projects per page and icon-only rename/delete actions.
+- My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
+
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
+- Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
 
 ### Updated
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Image Node: local image upload now detaches the node's existing image input edge and clears stale crop metadata after a successful OSS write, so a newly uploaded image is displayed instead of the upstream/old connected image.
+- Flow/Batch Connect: pending batch-output preview lines now fall back per source node handle order when a DOM handle is temporarily unavailable, keeping single-output nodes anchored to their actual output handle instead of using the whole batch index.
+- Canvas/Flow Performance: Flow-overlay wheel zoom/pan now batches canvas viewport writes through `requestAnimationFrame`, and `GridRenderer`'s initialization fallback no longer reruns on every zoom tick.
+- Canvas/Double Click: disabled double-click text edit entry on canvas text items/overlays, and changed selection-mode double-click on line paths to delete the line directly (with history + autosave commit).
+- Flow/Viewport: Canvas-to-Flow viewport translation is now snapped to physical pixels using the selected node as the anchor when available, reducing whole-node softness from fractional transform offsets at the same zoom level.
+- Flow/Viewport: removed the persistent `will-change: transform` hint from the ReactFlow viewport so static Flow text and image previews are not kept in a softened composited layer after zoom/pan interactions.
+- Flow/Edges: pressing Enter in the edge label editor now commits the current editor state directly, stops Flow/global key handling, and renders the saved label at the edge midpoint.
+- Flow/Edges: edge label editing now has a manual double-click fallback on edge clicks, and the label editor is positioned from the actual double-click point instead of the SVG path bounding box center so edge text editing remains reachable after edge selection rerenders.
+- Flow/Edges: the selected-edge red delete button now deletes through `FlowOverlay`'s controlled edge state instead of calling the ReactFlow instance setter directly, and it handles pointer-down before ReactFlow/canvas click suppression can swallow the interaction.
+- Flow/Image Nodes: `Generate`, `Multi Generate`, and `Generate Refer` run buttons now keep the `Run` label while disabled instead of switching to `Running...`.
+- Canvas/Eraser: active Paper eraser trails are now exempt from layer-thumbnail/helper serialization cleanup, Paper view refreshes after helper restoration, mouseup resets transient eraser refs, drawing start points use refs to avoid native mousemove reading stale React state, and Flow connection erasing now mirrors a Paper eraser trail when the pointer starts on ReactFlow SVG/pane elements instead of the Paper canvas.
+- Flow/Text Nodes: Prompt Optimizer preview editing now defers Flow node-data writes during IME composition, preventing Chinese input from committing raw pinyin fragments while candidates are still being selected.
+- Flow/Text Inputs: Flow textarea editors now share IME-safe draft handling across Prompt, Prompt Pro, Agent prompts, Generate Refer, Video Analysis, MiniMax Music, and Kling O3 storyboard prompts, so Chinese composition is not interrupted by React Flow node-data writes.
+- Membership UI: VIP subscription page now uses a compact current-membership summary bar, tighter plan cards, and clearer tier-specific card/CTA styling without changing membership order or payment logic.
+- Library/History: Library panel global/project history now reuses shared media helpers for image/video labels, thumbnails, detail playback, and download names; video records can be sent or dragged to the canvas as video assets without going through image upload paths.
+- AI Chat Context: plain text chat requests now send the current input directly by default; conversation history is only included for iterative/continue-style prompts, and Flow Text Chat remains unaffected.
+- AI Chat Tool Routing: cached-image edit prompts such as `改文字` / `改成` now fall back to `editImage` instead of `chatResponse` when tool selection is unavailable, and Banana stable-route tool selection passes context into the Tencent text router.
+- Flow/Text Chat UI: run-button credit tooltip now uses the same localized `消耗/积分` wording as other Flow run buttons.
+- Flow/Node Palette: `generateRef` and `sora2Video` are hidden from the node palette and Quick Connect, matching the `lt-dev9` selective-migration visibility rules.
+- Flow/Node Groups: Delete/Backspace and node context-menu delete now expand selected `nodeGroup` removals to child nodes and related edges, preventing group shells from being deleted alone.
+- Flow/Node Groups: normal group drag now snapshots child start positions at drag start and applies child deltas from that snapshot, avoiding per-frame node-map rebuilds while keeping group children moving with the group.
+- Flow Clipboard: Ctrl/Cmd+C and node context-menu copy now expand copied `nodeGroup` selections to child nodes/internal edges and preserve remapped `childNodeIds` on paste.
+- Canvas/Image Groups: canvas copy/paste payloads now include image-group block snapshots and rebuild the group block/title/style around pasted images via source-to-new image id mapping.
+- Canvas/Image Groups: Alt-drag copying grouped images now rebuilds the image-group block/title/style around cloned images using source-to-clone id mapping, while keeping the extra work to drag start and drop completion only.
+- Flow/Send To Canvas: node header send now anchors to the owning node group when the source node is grouped, so images land below the group instead of below the child node; multi-image sends also force the resolved anchor position.
+- Flow/Node Groups: Alt-drag copying a selected group now expands the copy set to its child nodes, remaps cloned `childNodeIds`, and normalizes internal edge handles by source node type so the cloned group keeps its children and links intact.
+- AI Chat Session Scope: project-scoped chat sessions now align with `lt-dev9`; `ContextManager` no longer restores global local sessions in its constructor, and project mode only hydrates from `Project.content.aiChatSessions` to avoid old local conversation history leaking into the current project.
+- Flow/Video Analysis: `videoAnalyze` pricing is realigned with `lt-dev9`: static default is `60` credits (`0.60` yuan), and preview/backend deduction use route+tier pricing (`normal=60/90/120`, `stable=80/120/160` for Fast/Pro/Ultra).
+- Canvas/Viewport: high-frequency zoom/pan writes now go through a guarded atomic `setViewport` path, and global pinch/wheel capture batches viewport commits per animation frame to prevent nested React external-store update-depth loops during trackpad gestures.
+- Canvas/Performance: `ImageContainer` now skips high-frequency viewport subscriptions for inactive image overlays, `GridRenderer` reduces low-zoom grid work and coalesces zoom redraws, and Flow node-internals updates are deferred while dragging.
+- Canvas/Flow Performance: global pinch/wheel viewport commits are now batched strictly through `requestAnimationFrame`; project canvas-view sync is debounced and skips unchanged snapshots; Flow low-detail mode subscribes to canvas zoom outside React render, and `Image`/`ViewAngle` node resize observers are RAF-coalesced.
+- Flow/Runtime: `GenerationProgressBar` now keeps simulated progress stable per node `runKey` across rerenders, and Flow node groups can stop pending group runs after the current child node finishes.
+- Flow/Runtime: running flow nodes now receive a transient `progressStartedAt` timestamp that is removed when runs finish and stripped from copy/template export paths, keeping progress stable without persisting runtime UI state.
+- Workspace Route Switch: stable route UI is aligned with `lt-dev9` using the amber Crown treatment instead of the green Star treatment.
+- Canvas/AI Edit: Shift precise-local-edit now snaps the drawn crop region to the nearest supported AI Chat aspect ratio before sending it to edit, then carries crop canvas bounds/pixel aspect into AI Chat and uses `precise-edit`/`lockToBounds` to keep the predictive placeholder on the selected region without matrix reflow; merged precise-edit replacement now also passes the original image bounds back to canvas so the outer image ratio is not changed by `_merged.png` dimensions. The precise-edit placeholder now renders as a lightweight outline with percentage text only instead of a translucent full-area overlay or progress bar.
+- Canvas/Text Edit: selected-image `改文字` OCR, internal text detection, and apply-edit requests now force Banana `normal` route so global stable-route selection does not break text recognition/replacement.
+- Canvas/Crop: image crop output now bakes the current canvas display ratio into the cropped asset, keeping the cropped image's natural pixel ratio aligned with its new canvas bounds for later edit/replace operations.
+- Canvas/Background Removal: selected-image background removal and fast background removal now pass the current canvas bounds into quick upload, so the cutout result keeps the source image's displayed scale instead of being resized from the output PNG's natural pixels.
+- Canvas/HD Upscale: HD upscale now creates a predictive placeholder and sends the 4K result to canvas instead of downloading it directly.
+- Canvas/Image Expand: image expand UI now uses the dedicated Expand icon, red-mask prompt/fill semantics, releases the expand selector operation lock, and skips inactive image overlay rendering.
+- Canvas/Image Toolbar: selected-image floating toolbar fixed entries and More-menu rotation now match `lt-dev9`: `生成节点 / 裁切 / 极速抠图` stay fixed, while the remaining image actions rotate by local usage.
+- Flow/Image Split: downstream consumers now use the shared Image Split handle helper for `imageN/imgN` inputs; `VideoToGif` shows run credits and `VideoNode` isolates native video controls from canvas drag/pan gestures.
+- Global History: image history UI now supports video media records with shared media helpers, video thumbnails/playback in list/detail views, and AI Chat Seedance video success writes to global history.
 - AI Chat Video: 对话框视频生成默认模型改回 `seedance-1.5-pro`，并将聊天视频时长选项收敛到 Seedance 1.5 支持的 `3/4/5/6/8/10s`。
 - Flow/HappyHorse: 快乐马视频生成改为前端 `taskId` 轮询恢复模式；后端创建 DashScope 任务后立即返回 `taskId/apiUsageId` 并保持积分 `pending`，前端成功回写、失败/超时退款，刷新页面后可从节点 `taskId` 继续轮询。
 - Auth Fetch: 403 responses are now treated as business authorization failures instead of expired login sessions, so paid-feature denials such as HappyHorse entitlement checks no longer force logout or open the login page (`frontend/src/services/authFetch.ts`).
 - Credits/Text Route Pricing: `gemini-text` and `gemini-prompt-optimize` now both use flat route pricing by channel for Fast/Pro/Ultra (`normal=5`, `stable=10`) in preview and deduction.
+- Flow/Text Nodes: Text Chat node chrome no longer shows the bottom web-search checkbox/status row, runs with web search disabled, and no longer uses dynamic node resizing/internals syncing; Image Chat keeps the English title, Run, and Skill chrome while localizing helper/placeholder copy in zh mode.
+- Flow/Text Nodes: The outer label for the `analysis` node is now `Image Chat` across the add panel, default node config, compatibility API output, admin import template, and NodeConfig backfill; its palette description now reads `图像对话与提示词提取`.
+- Flow/Text Nodes: Image Chat now has a `Custom` Skill that reveals an editable prompt textarea while still appending connected text-handle prompts at runtime.
 - Flow/Text Nodes: `PromptOptimize` now has a working Fast/Pro/Ultra node-level model switch (synced to backend request params), and `PromptOptimize` + `TextChat` Run-button credit badge interaction is aligned with image-node behavior.
+- Flow/Text Nodes: `TextChat` now supports built-in Skill presets (Custom, Shot Split, Prompt Optimize, CN/EN Convert) and `PromptOptimize`/`TextChat` consume optimistic upstream text patches so Run uses the latest connected text.
+- Flow/Storyboard Split: `StoryboardSplitNode` now supports a custom split-format sample (`分镜1`, `#1`, `|**1**|` etc.), auto-sizes output handles from parsed segments, and prunes stale prompt outputs/edges after re-splitting.
+- Flow/Image References: `Generate`, `Agent(generatePro)`, and `Generate4` now cap connected reference-image previews by model tier (`Fast=3`, `Pro=11`, `Ultra=14`) using shared `flowModelProvider` limits.
+- Flow/Image References: Flow connection admission and runtime request assembly now use the same model-tier reference-image limits (`Fast=3`, `Pro=11`, `Ultra=14`), so Pro/Ultra runs are no longer truncated to six references.
+- Flow/Global History: successful Flow video outputs now write remote video records to Global History for Wan, HappyHorse, Sora2, Seedance/Kling/Vidu-family provider nodes, and Tencent Speech video output without changing design JSON persistence.
+- Flow/Video Analysis: default analysis prompts localize between Chinese/English and requests now carry Banana route/channel hints for route-aware backend handling.
+- Flow/Runtime: `Generate4` now resolves Image Split references through the shared `imageN/imgN` handle helper; `Seedream` uses available thumbnails for node preview, and `Video Analysis` run UI/localized copy is aligned with other run-credit buttons.
+- Flow/GeneratePro4: the four-image pro node now has node-local Fast/Pro/Ultra selection, persists `modelProvider`, and previews run credits using the connected reference-image count capped by shared model-tier limits.
+- AI Chat: `/api/ai/text-chat` response `metadata` is preserved on chat messages/context, and context prompts now instruct the model to answer the current user input directly without exposing internal intent analysis.
+- Backend AI: non-Gemini `/api/ai/text-chat` responses now pass through `webSearchResult` and `metadata`; credit request params preserve explicit `channelHint`; provider video OSS transfer cache now has TTL and max-entry cleanup.
 - Credits/Tool Selection: `/api/ai/tool-selection` now skips credit deduction entirely; Gemini tool-routing no longer consumes user credits.
 - Credits Config: `gemini-tool-selection` default `creditsPerCall` is now `0` to prevent accidental charge paths.
 - My Credits UI: transaction row metadata now prioritizes showing quantity (`数量：xN`) before route/model and removes aggressive truncation, so grouped multi-image deductions are auditable at a glance.
@@ -200,6 +268,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - �?�?AI�?Seedance�?doubao�?�?�?任�?��?��??�?�?��?��?传�??OSS�?�?�?�??�?��?? OSS �?��?�?��?��?避�?��?�?TOS �?��?��??CORS/�?�??�?��?�??
 
 ### Fixed
+- Flow: Image nodes now resolve `ImageSplit` outputs as connected image inputs, including `imageN`/legacy `imgN` source handles and legacy `targetHandle=image` inputs, so `ImageSplit -> Image -> Image` keeps the cropped resource available (`frontend/src/components/flow/nodes/ImageNode.tsx`).
 - Flow Image 节点：修复“上传失败后刷新出现幽灵图”。上传失败时会回滚预分配但未落地�?`imageUrl(key)`，避免把不存在的 OSS key 持久化；同时�?`uploading=true` 且携带图片数据的节点视为不可持久化，阻止自动保存在上传未完成时写入不稳定引用（`frontend/src/components/flow/nodes/ImageNode.tsx`, `frontend/src/utils/projectContentValidation.ts`）�?
 - Flow：`Image Split` 读取 `seedream5` 上游时补�?`imageUrls/images` 兜底，并将分割加载源改为“强制代理优先、直连回退”候选策略，修复 Seedream 外链图在分割节点报“图片加载失败”（`frontend/src/components/flow/nodes/ImageSplitNode.tsx`）�?
 - Flow：`Analysis` 节点输入解析改为多候选回退（`imageData/imageUrl/outputImage/thumbnail`）并在裁切链路支持多 baseRef 尝试；同�?`resolveImageToDataUrl/resolveImageToBlob` 对白名单远程 URL 增加“强�?`/api/assets/proxy`”候选兜底，修复线上偶发 `图片加载失败/缺少图片输入`（`frontend/src/components/flow/nodes/AnalyzeNode.tsx`, `frontend/src/utils/imageSource.ts`）�?
@@ -592,3 +661,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Removed legacy `expand-image` in-place replacement branch in `DrawingController` quick-upload event handling.
 - Expand results now follow placeholder/new-image insertion path and no longer overwrite the source image node.
+
+## [Main-Based Canvas Performance Migration - 2026-05-04]
+### Changed
+- Canvas viewport writes on the `lt-dev10` worktree now use guarded atomic `setViewport` updates, with RAF-batched global gesture zoom and reduced inactive overlay subscriptions.
+- Flow `ImageSplit` previews now reuse shared image loading and support both `imageN` and legacy `imgN` output handles.
+- Flow `TextPrompt` resize now batches ReactFlow node state updates until resize end, using local preview during the drag.
+- Flow node palette now supports search by name/type/description, Quick Connect is filtered to palette-visible enabled node types, and redundant Flow snapshot hydration/write-back is skipped when signatures match.
+- Flow `TextChat` now sends only its connected/manual node prompt to text generation, without global chat context injection.
+- Flow `AnalyzeNode` now exposes Analysis/Prompt/JSON skill presets, stores `analysisSkillId`, and keeps connected text prompts as appended instructions.

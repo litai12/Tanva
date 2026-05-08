@@ -337,6 +337,7 @@ export interface AITextChatResult {
   model: string;
   tokenUsage?: number;
   webSearchResult?: WebSearchResult; // 鑱旂綉鎼滅储缁撴灉
+  metadata?: Record<string, unknown>;
 }
 
 // Paper.js 浠ｇ爜鐢熸垚璇锋眰
@@ -430,4 +431,3 @@ export interface AIServiceResponse<T = unknown> {
   data?: T;
   error?: AIError;
 }
-

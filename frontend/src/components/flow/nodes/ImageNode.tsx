@@ -3,8 +3,12 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
-import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound } from "lucide-react";
+import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import ImageAnnotationModal, {
+  type ImageAnnotationHistoryItem,
+  type ImageAnnotationSavePayload,
+} from "../../ui/ImageAnnotationModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
@@ -19,6 +23,7 @@ import {
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import {
   isPersistableImageRef,
+  normalizePersistableImageRef,
   pickPersistedImageRefFromUploadAsset,
   resolveImageToBlob,
   toRenderableImageSrc,
@@ -27,8 +32,10 @@ import { blobToDataUrl, canvasToBlob, createImageBitmapLimited } from "@/utils/i
 import { shallow } from "zustand/shallow";
 import { useLocaleText } from "@/utils/localeText";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
+import { getImageSplitHandleIndex, getImageSplitPrimaryHandleId } from "../utils/imageSplitHandles";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
+import { loadSharedImage } from "../utils/sharedImageLoad";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
@@ -145,6 +152,12 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
+const normalizeImageRef = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
@@ -166,6 +179,46 @@ const EMPTY_INPUT_CONNECTION_SNAPSHOT: InputConnectionSnapshot = {
   connectedFrameImage: undefined,
 };
 
+const isPrimaryImageInputHandle = (handle?: string | null): boolean =>
+  handle === "img" || handle === "image" || !handle;
+
+const readImageSplitOutputRef = (
+  nodeData: Record<string, unknown>,
+  sourceHandle?: string | null
+): string | undefined => {
+  const idx = getImageSplitHandleIndex(sourceHandle);
+  if (idx === null) return undefined;
+
+  const primaryKey = getImageSplitPrimaryHandleId(idx);
+  const direct =
+    normalizeImageRef(nodeData[primaryKey]) ||
+    normalizeImageRef(nodeData[`img${idx + 1}`]);
+  if (direct) return direct;
+
+  const splitImages = Array.isArray(nodeData.splitImages)
+    ? (nodeData.splitImages as Array<Record<string, unknown> | undefined>)
+    : [];
+  const legacy = splitImages[idx];
+  const legacyRef = legacy ? normalizeImageRef(legacy.imageData) : undefined;
+  if (legacyRef) return legacyRef;
+
+  const splitRects = Array.isArray(nodeData.splitRects)
+    ? (nodeData.splitRects as Array<Record<string, unknown> | undefined>)
+    : [];
+  const rect = splitRects[idx];
+  const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+  const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+  const width =
+    typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+  const height =
+    typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return normalizeImageRef(nodeData.inputImageUrl) || normalizeImageRef(nodeData.inputImage);
+};
+
 const buildNodeByIdMap = (state: ReactFlowState): Map<string, FlowNodeLike> => {
   const nodeLookup = (
     state as ReactFlowState & { nodeLookup?: Map<string, FlowNodeLike> }
@@ -185,7 +238,7 @@ const buildPrimaryImgInputEdgeByTargetMap = (
   const map = new Map<string, FlowEdgeLike>();
   for (let i = 0; i < edges.length; i += 1) {
     const edge = edges[i];
-    if (edge.targetHandle !== "img") continue;
+    if (!isPrimaryImageInputHandle(edge.targetHandle)) continue;
     if (map.has(edge.target)) continue;
     map.set(edge.target, edge);
   }
@@ -210,6 +263,7 @@ const CanvasCropPreview = React.memo(({
   const letterboxBg = flowLetterboxBackground(isFlowDark);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const resizeRafRef = React.useRef<number | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   React.useLayoutEffect(() => {
@@ -230,18 +284,32 @@ const CanvasCropPreview = React.memo(({
       setSize((prev) => (prev.w === nextW && prev.h === nextH ? prev : { w: nextW, h: nextH }));
     };
 
-    update();
+    const scheduleUpdate = () => {
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+      }
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        update();
+      });
+    };
+
+    scheduleUpdate();
 
     let ro: ResizeObserver | null = null;
     try {
-      ro = new ResizeObserver(update);
+      ro = new ResizeObserver(scheduleUpdate);
       ro.observe(container);
     } catch {}
 
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", scheduleUpdate);
     return () => {
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", scheduleUpdate);
       try { ro?.disconnect(); } catch {}
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
     };
   }, []);
 
@@ -273,10 +341,8 @@ const CanvasCropPreview = React.memo(({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.decoding = "async";
 
-    const onLoad = () => {
+    loadSharedImage(src).then((img) => {
       if (cancelled) return;
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
@@ -310,29 +376,21 @@ const CanvasCropPreview = React.memo(({
 
       canvas.style.width = `${dw}px`;
       canvas.style.height = `${dh}px`;
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      canvas.width = Math.max(1, Math.round(dw * dpr));
+      canvas.height = Math.max(1, Math.round(dh * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      ctx.clearRect(0, 0, sw, sh);
+      ctx.clearRect(0, 0, dw, dh);
       ctx.fillStyle = letterboxBg;
-      ctx.fillRect(0, 0, sw, sh);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-    };
-
-    const onError = () => {
+      ctx.fillRect(0, 0, dw, dh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    }).catch(() => {
       if (cancelled) return;
       drawPlaceholder();
-    };
-
-    img.onload = onLoad;
-    img.onerror = onError;
-    img.src = src;
+    });
 
     return () => {
       cancelled = true;
-      img.onload = null;
-      img.onerror = null;
     };
   }, [
     rect?.height,
@@ -506,7 +564,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const [nodeLabelDraft, setNodeLabelDraft] = React.useState<string>(normalizedNodeLabel);
   const [isEditingNodeLabel, setIsEditingNodeLabel] = React.useState(false);
   const nodeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
-  // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
+  // 从连接的节点读取图片（支持 imageSplit / imageGrid / videoFrameExtract / image 的链式传递）
   const inputConnectionSnapshot = useStore(
     React.useCallback(
       (state: ReactFlowState): InputConnectionSnapshot => {
@@ -528,6 +586,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
           if (!node) return undefined;
 
           const nodeData = node.data || {};
+
+          // imageSplit 节点 - 按输出端口读取对应切片的基底引用；实际裁切由 cropInfo 链路处理
+          if (node.type === "imageSplit") {
+            return readImageSplitOutputRef(nodeData, incomingEdge?.sourceHandle);
+          }
 
           // imageGrid 节点 - 读取拼合后的图片
           if (node.type === "imageGrid") {
@@ -704,10 +767,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
             "";
           if (!baseRef) return null;
 
-          const handle = typeof sourceHandle === "string" ? sourceHandle : "";
-          const match = handle ? /^image(\\d+)$/.exec(handle) : null;
-          if (!match) return null;
-          const idx = Math.max(0, Number(match[1]) - 1);
+          const idx = getImageSplitHandleIndex(sourceHandle);
+          if (idx === null) return null;
 
           const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
           const rect = splitRects?.[idx];
@@ -881,6 +942,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [annotationOpen, setAnnotationOpen] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
   const [isResizing, setIsResizing] = React.useState(false);
   const updateNodeSize = React.useCallback(
@@ -991,6 +1053,38 @@ function ImageNodeInner({ id, data, selected }: Props) {
     () => projectHistory.find((item) => item.nodeId === id),
     [projectHistory, id]
   );
+  const annotationHistoryItems = React.useMemo<ImageAnnotationHistoryItem[]>(
+    () =>
+      projectHistory
+        .filter((item) => item.nodeId === id)
+        .slice()
+        .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
+        .map((item) => ({
+          id: item.id,
+          src: item.remoteUrl || item.src,
+          remoteUrl: item.remoteUrl,
+          title: item.title,
+          timestamp: item.timestamp,
+        })),
+    [projectHistory, id]
+  );
+  const currentAnnotationImageId = React.useMemo(() => {
+    const rawCurrent =
+      (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+      (typeof data.imageData === "string" && data.imageData.trim()) ||
+      fullSrc ||
+      "";
+    const normalizedCurrent = normalizePersistableImageRef(rawCurrent);
+    if (normalizedCurrent) {
+      const hit = annotationHistoryItems.find((item) => {
+        const itemRef = normalizePersistableImageRef(item.remoteUrl || item.src);
+        return itemRef && itemRef === normalizedCurrent;
+      });
+      if (hit) return hit.id;
+    }
+    return currentImageId;
+  }, [annotationHistoryItems, currentImageId, data.imageData, data.imageUrl, fullSrc, rawFullValue]);
   const resolvedImageName = React.useMemo(() => {
     const direct =
       typeof data.imageName === "string" ? data.imageName.trim() : "";
@@ -1011,6 +1105,32 @@ function ImageNodeInner({ id, data, selected }: Props) {
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
+  const canAnnotate = Boolean(cropInfo?.baseRef || canvasCrop?.src || displaySrc || fullSrc);
+  const annotationImageSrc =
+    (canvasCrop?.src && canvasCrop.src.trim()) ||
+    (displaySrc && displaySrc.trim()) ||
+    (fullSrc && fullSrc.trim()) ||
+    "";
+  const annotationCrop = React.useMemo(
+    () =>
+      cropInfo?.baseRef
+        ? {
+            baseRef: cropInfo.baseRef,
+            rect: cropInfo.rect,
+            sourceWidth: cropInfo.sourceWidth,
+            sourceHeight: cropInfo.sourceHeight,
+          }
+        : null,
+    [
+      cropInfo?.baseRef,
+      cropInfo?.rect?.height,
+      cropInfo?.rect?.width,
+      cropInfo?.rect?.x,
+      cropInfo?.rect?.y,
+      cropInfo?.sourceHeight,
+      cropInfo?.sourceWidth,
+    ]
+  );
 
   // ── Volc Asset Library audit state ──────────────────────────────────────────
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
@@ -1508,6 +1628,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
         (typeof uploadResult.asset.url === "string" &&
           uploadResult.asset.url.trim()) ||
         persistedRef;
+      try {
+        const edges = rf.getEdges();
+        const remain = edges.filter(
+          (edge) =>
+            !(
+              edge.target === id &&
+              isPrimaryImageInputHandle(edge.targetHandle)
+            )
+        );
+        if (remain.length !== edges.length) {
+          rf.setEdges(remain);
+        }
+      } catch {}
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
@@ -1516,6 +1649,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
               imageUrl: persistedDisplayRef,
               imageData: undefined,
               thumbnail: undefined,
+              crop: undefined,
               uploading: false,
               uploadError: undefined,
               uploadToken: undefined,
@@ -1556,6 +1690,320 @@ function ImageNodeInner({ id, data, selected }: Props) {
       );
     }
   }, [id, projectId, rf]);
+
+  const detachImageInput = React.useCallback(() => {
+    try {
+      const edges = rf.getEdges();
+      const remain = edges.filter(
+        (edge) =>
+          !(
+            edge.target === id &&
+            isPrimaryImageInputHandle(edge.targetHandle)
+          )
+      );
+      if (remain.length !== edges.length) {
+        rf.setEdges(remain);
+      }
+    } catch {}
+  }, [id, rf]);
+
+  const notify = React.useCallback(
+    (message: string, type: "success" | "warning" | "error") => {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type },
+        })
+      );
+    },
+    []
+  );
+  const errorMessage = React.useCallback((error: unknown, fallback: string) => {
+    if (
+      error &&
+      typeof error === "object" &&
+      "message" in error &&
+      typeof (error as { message?: unknown }).message === "string"
+    ) {
+      return (error as { message: string }).message;
+    }
+    return fallback;
+  }, []);
+
+  const makeAnnotationFileName = React.useCallback(
+    (suffix: string) => {
+      const rawBase = (resolvedImageName || nodeLabel || `image_${id}`).trim();
+      const withoutExt = rawBase.replace(/\.(png|jpe?g|webp|gif)$/i, "");
+      const safeBase =
+        withoutExt
+          .replace(/[^a-zA-Z0-9_.-]+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 72) || `image_${id}`;
+      return `${safeBase}_${suffix}_${Date.now()}.png`;
+    },
+    [id, nodeLabel, resolvedImageName]
+  );
+
+  const uploadAnnotationBlob = React.useCallback(
+    async (blob: Blob, fileName: string) => {
+      const uploadDir = projectId
+        ? `projects/${projectId}/images/`
+        : "uploads/images/";
+      const { key } = generateOssKey({
+        projectId,
+        dir: uploadDir,
+        fileName,
+        contentType: "image/png",
+      });
+      const uploadResult = await imageUploadService.uploadImageSource(blob, {
+        projectId: projectId ?? undefined,
+        dir: uploadDir,
+        fileName,
+        contentType: "image/png",
+        key,
+      });
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        throw new Error(
+          uploadResult.error || lt("标注图片上传失败", "Annotation upload failed")
+        );
+      }
+      return { uploadResult, key };
+    },
+    [lt, projectId]
+  );
+
+  const recordAnnotationBaseVersion = React.useCallback(
+    async (payload: ImageAnnotationSavePayload) => {
+      const sourceRef =
+        (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+        (typeof data.imageUrl === "string" && data.imageUrl.trim()) ||
+        (typeof data.imageData === "string" && data.imageData.trim()) ||
+        fullSrc ||
+        "";
+      const normalizedSource = normalizePersistableImageRef(sourceRef);
+      const sourceAlreadyInHistory =
+        !annotationCrop &&
+        normalizedSource &&
+        annotationHistoryItems.some((item) => {
+          const historyRef = normalizePersistableImageRef(item.remoteUrl || item.src);
+          return historyRef && historyRef === normalizedSource;
+        });
+
+      if (sourceAlreadyInHistory) return;
+
+      const title = resolvedImageName || nodeLabel || lt("原图", "Original image");
+      const baseHistoryId = `${id}-annotation-base-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      try {
+        if (!annotationCrop && normalizedSource && isPersistableImageRef(normalizedSource)) {
+          await recordImageHistoryEntry({
+            id: baseHistoryId,
+            remoteUrl: normalizedSource,
+            title,
+            nodeId: id,
+            nodeType: "image",
+            projectId,
+            keepThumbnail: false,
+            skipGlobalHistory: true,
+            metadata: {
+              operation: "annotation-base",
+            },
+          });
+          return;
+        }
+
+        const fileName = makeAnnotationFileName("original");
+        const { uploadResult } = await uploadAnnotationBlob(payload.baseBlob, fileName);
+        await recordImageHistoryEntry({
+          id: baseHistoryId,
+          remoteUrl: uploadResult.asset.url,
+          title,
+          nodeId: id,
+          nodeType: "image",
+          projectId,
+          fileName: uploadResult.asset.fileName || fileName,
+          keepThumbnail: false,
+          skipGlobalHistory: true,
+          metadata: {
+            operation: "annotation-base",
+            flattenedCrop: Boolean(annotationCrop),
+            width: payload.width,
+            height: payload.height,
+          },
+        });
+      } catch (error) {
+        console.warn("[ImageNode] 保存标注前历史版本失败:", error);
+      }
+    },
+    [
+      annotationCrop,
+      annotationHistoryItems,
+      data.imageData,
+      data.imageUrl,
+      fullSrc,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      projectId,
+      rawFullValue,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
+
+  const handleAnnotationSave = React.useCallback(
+    async (payload: ImageAnnotationSavePayload) => {
+      try {
+        await recordAnnotationBaseVersion(payload);
+
+        const fileName = makeAnnotationFileName("annotated");
+        const { uploadResult, key } = await uploadAnnotationBlob(payload.blob, fileName);
+        const persistedRef = pickPersistedImageRefFromUploadAsset(
+          uploadResult.asset,
+          key
+        ).trim();
+        const persistedDisplayRef =
+          (typeof uploadResult.asset.url === "string" &&
+            uploadResult.asset.url.trim()) ||
+          persistedRef;
+        if (!persistedDisplayRef) {
+          throw new Error(lt("标注图片地址为空", "Annotation image URL is empty"));
+        }
+
+        detachImageInput();
+        patchNode({
+          imageUrl: persistedDisplayRef,
+          imageData: undefined,
+          thumbnail: undefined,
+          crop: undefined,
+          uploading: false,
+          uploadError: undefined,
+          uploadToken: undefined,
+          volcAssetId: undefined,
+          volcAssetStatus: undefined,
+          volcAssetError: undefined,
+          volcReviewDate: undefined,
+          bioAuthId: undefined,
+          bioAuthStatus: undefined,
+          bioAuthError: undefined,
+          bioAuthDate: undefined,
+        });
+
+        const historyId = `${id}-annotation-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        await recordImageHistoryEntry({
+          id: historyId,
+          remoteUrl: uploadResult.asset.url || persistedDisplayRef,
+          title: resolvedImageName || nodeLabel || lt("标注图片", "Annotated image"),
+          nodeId: id,
+          nodeType: "image",
+          projectId,
+          fileName: uploadResult.asset.fileName || fileName,
+          keepThumbnail: false,
+          metadata: {
+            operation: "annotation-save",
+            annotationCount: payload.annotationCount,
+            width: payload.width,
+            height: payload.height,
+          },
+        });
+        setCurrentImageId(historyId);
+        notify(lt("标注已保存到图片", "Annotation saved to image"), "success");
+      } catch (error: unknown) {
+        notify(errorMessage(error, lt("标注保存失败", "Annotation save failed")), "error");
+        throw error;
+      }
+    },
+    [
+      detachImageInput,
+      errorMessage,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      notify,
+      patchNode,
+      projectId,
+      recordAnnotationBaseVersion,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
+
+  const handleAnnotationRestore = React.useCallback(
+    async (item: ImageAnnotationHistoryItem) => {
+      const rawSource = (item.remoteUrl || item.src || "").trim();
+      if (!rawSource) {
+        throw new Error(lt("历史图片地址为空", "History image URL is empty"));
+      }
+
+      try {
+        let persistedSource = normalizePersistableImageRef(rawSource);
+        if (!persistedSource || !isPersistableImageRef(persistedSource)) {
+          const blob = await resolveImageToBlob(rawSource, { preferProxy: true });
+          if (!blob) {
+            throw new Error(lt("无法读取历史图片", "Unable to read history image"));
+          }
+          const fileName = makeAnnotationFileName("restore");
+          const { uploadResult } = await uploadAnnotationBlob(blob, fileName);
+          persistedSource = uploadResult.asset.url;
+          await recordImageHistoryEntry({
+            id: item.id,
+            remoteUrl: uploadResult.asset.url,
+            title: item.title || resolvedImageName || nodeLabel || lt("恢复图片", "Restored image"),
+            nodeId: id,
+            nodeType: "image",
+            projectId,
+            fileName: uploadResult.asset.fileName || fileName,
+            keepThumbnail: false,
+            skipGlobalHistory: true,
+            metadata: {
+              operation: "annotation-restore-upload",
+            },
+          });
+        }
+
+        detachImageInput();
+        patchNode({
+          imageUrl: persistedSource,
+          imageData: undefined,
+          thumbnail: undefined,
+          crop: undefined,
+          uploading: false,
+          uploadError: undefined,
+          uploadToken: undefined,
+          volcAssetId: undefined,
+          volcAssetStatus: undefined,
+          volcAssetError: undefined,
+          volcReviewDate: undefined,
+          bioAuthId: undefined,
+          bioAuthStatus: undefined,
+          bioAuthError: undefined,
+          bioAuthDate: undefined,
+        });
+        setCurrentImageId(item.id);
+        notify(lt("已恢复历史版本", "History version restored"), "success");
+      } catch (error: unknown) {
+        notify(errorMessage(error, lt("恢复失败", "Restore failed")), "error");
+        throw error;
+      }
+    },
+    [
+      detachImageInput,
+      errorMessage,
+      id,
+      lt,
+      makeAnnotationFileName,
+      nodeLabel,
+      notify,
+      patchNode,
+      projectId,
+      resolvedImageName,
+      uploadAnnotationBlob,
+    ]
+  );
 
   const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1765,6 +2213,33 @@ function ImageNodeInner({ id, data, selected }: Props) {
             );
           })()}
           <button
+            type="button"
+            onClick={() => {
+              if (!canAnnotate) {
+                notify(lt("没有可标注的图片", "No image available to annotate"), "warning");
+                return;
+              }
+              setAnnotationOpen(true);
+            }}
+            disabled={!canAnnotate}
+            title={
+              !canAnnotate
+                ? lt("没有可标注的图片", "No image available to annotate")
+                : lt("全屏标注图片", "Annotate image fullscreen")
+            }
+            aria-label={lt("全屏标注图片", "Annotate image fullscreen")}
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: !canAnnotate ? "#e5e7eb" : "#fff",
+              cursor: !canAnnotate ? "not-allowed" : "pointer",
+            }}
+          >
+            <Paintbrush size={14} strokeWidth={2} />
+          </button>
+          <button
             onClick={handleSendToCanvas}
             disabled={!canSend}
             title={
@@ -1790,7 +2265,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 try {
                   const edges = rf.getEdges();
                   const remain = edges.filter(
-                    (e) => !(e.target === id && e.targetHandle === "img")
+                    (e) => !(e.target === id && isPrimaryImageInputHandle(e.targetHandle))
                   );
                   rf.setEdges(remain);
                 } catch {}
@@ -1831,7 +2306,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
                 try {
                   const edges = rf.getEdges();
                   const remain = edges.filter(
-                    (e) => !(e.target === id && e.targetHandle === "img")
+                    (e) => !(e.target === id && isPrimaryImageInputHandle(e.targetHandle))
                   );
                   rf.setEdges(remain);
                 } catch {}
@@ -1953,6 +2428,17 @@ function ImageNodeInner({ id, data, selected }: Props) {
             setCurrentImageId(imageId);
           }
         }}
+      />
+      <ImageAnnotationModal
+        isOpen={annotationOpen}
+        imageSrc={annotationImageSrc}
+        imageTitle={resolvedImageName || nodeLabel}
+        crop={annotationCrop}
+        historyItems={annotationHistoryItems}
+        currentImageId={currentAnnotationImageId}
+        onClose={() => setAnnotationOpen(false)}
+        onSave={handleAnnotationSave}
+        onRestore={handleAnnotationRestore}
       />
       {/* Bio Auth Modal */}
       <BioAuthModal

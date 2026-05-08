@@ -164,6 +164,17 @@ const enUS = {
       globalAutoRun: "Global Auto Run",
       globalAutoRunning: "Global Run in Progress...",
       globalAutoStop: "Terminate",
+      routeSwitch: {
+        buttonTitle: "Current: {{route}}. Click to switch.",
+        menuTitle: "Text/Image Route",
+        normalShort: "Normal",
+        stableShort: "Premium",
+        toast: "Switched to {{route}}",
+        todayRate: "Today {{rate}}",
+        todayRateUnknown: "Today --",
+        rateTitle: "Today's success rate: {{rate}} ({{successful}} / {{completed}} completed)",
+        rateNoData: "No completed API records today",
+      },
     },
     appearance: {
       languageTitle: "Interface Language",
@@ -324,7 +335,7 @@ const enUS = {
           normal: "Normal Route",
           normalDesc: "Image/text use normal third-party channels (admin controlled)",
           stable: "Premium Route",
-          stableDesc: "Image/text use direct channel (stability first)",
+          stableDesc: "Image/text use official channel",
           hint: "Only applies when Nano Banana providers are selected",
         },
         googleKey: {
@@ -335,6 +346,10 @@ const enUS = {
       advancedTab: {
         openPanel: "Open Panel",
         closePanel: "Close Panel",
+        frameMonitor: {
+          title: "Frame Monitor",
+          desc: "Show FPS and long-frame stats for node drag, image drag, canvas pan, and zoom",
+        },
         memory: {
           title: "Memory Monitor",
           desc: "Debug tool available only in development mode",
@@ -401,7 +416,7 @@ const enUS = {
       columns: {
         item: "Item",
         status: "Status",
-        amount: "Credits",
+        amount: "Amount/Credits",
         remaining: "Remaining",
         generatedAt: "Generated At",
         duration: "Duration",
@@ -410,6 +425,18 @@ const enUS = {
       notAvailable: "--",
       channel: "Channel: {{channel}}",
       model: "Model: {{model}}",
+      membershipOrder: "Membership subscription",
+      paymentStatus: {
+        paid: "Paid",
+        pending: "Pending",
+        failed: "Failed",
+        expired: "Expired",
+        cancelled: "Cancelled",
+      },
+      paymentMethods: {
+        alipay: "Alipay",
+        wechat: "WeChat Pay",
+      },
     },
     usage: {
       title: "API Usage Records",

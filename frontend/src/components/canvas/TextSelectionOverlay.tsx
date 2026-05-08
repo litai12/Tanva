@@ -246,8 +246,9 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     };
   }, [onTextDrag, onTextDragEnd, onTextResize, onTextResizeEnd, screenToPaperPoint]);
 
-  // Enter edit mode on double click.
+  // Enter edit mode on double click (optional, enabled only when callback exists).
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!onTextDoubleClick) return;
     e.preventDefault();
     e.stopPropagation();
     const activeTextId = activeText?.id || selectedTextId;
@@ -297,7 +298,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
             boxSizing: 'border-box'
           }}
         >
-	          {/* Entire bounds are draggable; double-click to edit. */}
+	          {/* Entire bounds are draggable. */}
           <div
             style={{
               position: 'absolute',

@@ -36,6 +36,11 @@ type Props = {
   selected?: boolean;
 };
 
+const stopMediaInteraction = (event: React.SyntheticEvent) => {
+  event.stopPropagation();
+  event.nativeEvent.stopImmediatePropagation();
+};
+
 const VideoContent = React.memo(({
   videoUrl,
   onDrop,
@@ -83,6 +88,7 @@ const VideoContent = React.memo(({
       </div>
     ) : videoUrl ? (
       <video
+        className="nodrag nopan nowheel"
         src={videoUrl}
         style={{
           width: "100%",
@@ -92,6 +98,10 @@ const VideoContent = React.memo(({
         }}
         controls
         preload="metadata"
+        onPointerDownCapture={stopMediaInteraction}
+        onMouseDownCapture={stopMediaInteraction}
+        onTouchStartCapture={stopMediaInteraction}
+        onDoubleClickCapture={stopMediaInteraction}
       />
     ) : (
       <div style={{ textAlign: "center", color: "#9ca3af" }}>

@@ -3,6 +3,7 @@
 ## 作用
 - 提供绘图画布能力（Paper.js），包含交互控制、缩放/对齐/网格、文本编辑、选择与导出等。
 - 绘图工具支持线条样式选择：`实线 / 虚线 / 点画线 / 手绘风（两头粗中间细）/ 手绘风（中间粗两头细）`（手绘风对 `free/line` 生效，完成绘制时会转为闭合轮廓路径）。
+- 性能约束：缩放期间 Paper 网格重绘需要保持防抖；`GridRenderer` 的初始化兜底只用于初始化/网格尺寸变化，不应依赖随 `zoom` 重建的回调，避免每个缩放 tick 触发额外网格重绘。
 
 ## 关键目录（节选）
 - `frontend/src/components/canvas/`：画布主组件与控制器
@@ -57,6 +58,17 @@
 - 右侧缩略图栏展示当前项目的“全局图片历史”列表，支持点击切换预览。
 - `frontend/src/components/ui/ImagePreviewModal.tsx` 已接入双语文案：默认标题/历史标题、关闭提示、加载文案、生成时间 tooltip 与兜底 alt 文案按语言切换。
 
+## Flow Image 全屏标注
+- `frontend/src/components/flow/nodes/ImageNode.tsx` 在 image 节点头部新增画笔入口，打开 `frontend/src/components/ui/ImageAnnotationModal.tsx` 全屏标注界面。
+- 标注工具包含画笔、箭头、矩形、圆形、文字、撤销/重做、清空与保存；编辑期间标注对象仅为运行时状态，保存时会把当前渲染图片（含裁剪结果）与标注合成为 PNG Blob。
+- 保存链路：合成 PNG 通过 `imageUploadService.uploadImageSource` 上传到 OSS，再把节点 `imageUrl` 替换为远程 URL，并清理 `imageData/thumbnail/crop`；若节点来自上游输入，会断开 `img/image` 输入边，避免上游继续覆盖标注结果。
+- 历史链路：保存前会在必要时记录当前渲染版本，保存后把标注后的远程 URL 写入 `imageHistoryStore`/全局历史；全屏右侧历史栏可把当前 image 节点恢复到任一历史版本。
+
+## 图片组 Alt 拖拽复制
+- `useInteractionController` 在图片拖拽启动时只采集当前拖拽集合覆盖到的图片组快照；首次确认 Alt 拖拽时再裁到实际被复制的图片 id。
+- 松手落到画布时，`createImageFromSnapshot` 返回旧图到新图的 id 映射，随后通过 `paperImageGroupBlock` 重建组块、标题和样式；移动过程仍只更新占位框，不增加每帧组块扫描。
+- 画布复制/粘贴同样会把选中的图片组写入 `imageGroups` 快照；粘贴时先重建图片并生成旧图到新图的 id 映射，再恢复组块、标题和样式，避免只粘贴组内图片而丢失组框。
+
 ## 双语适配补充
 - `ExpandImageSelector`（`frontend/src/components/canvas/ExpandImageSelector.tsx`）已接入双语文案：扩图操作提示、常用尺寸选择、发送/取消按钮 tooltip 按语言切换。
 - `BackgroundRemovalTool` / `BackgroundRemovedImageExport`（`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`）已接入双语文案：上传提示、成功反馈、导出操作和空态文案按语言切换。
@@ -67,15 +79,32 @@
 - 点击后会基于当前图片数据做降采样与主色聚类，提取 6 个主色，并生成一张独立的竖向调色板图片放在原图右侧（复用 `triggerQuickImageUpload` 链路）。
 - 调色板图片按普通图片资产处理：先本地显示，后续上传并持久化为远程 URL/OSS key，不会把内联 base64 落库。
 
+## AI 图片局部编辑 / 高清放大
+- Shift 精确局部修改对齐 `lt-dev9`：框选完成后会先按 AI Chat 支持的画幅列表把选区校准到最近的标准比例，再记录选区画布 bounds、裁剪像素尺寸与比例。AI Chat 编辑占位框使用 `precise-edit`/`lockToBounds` 锁定原选区位置，跳过普通编辑右侧偏移与矩阵避让，结果继续原位覆盖；合成回贴时会把原图外层 bounds 一并传回画布，避免 `_merged.png` 自然尺寸改变画布显示比例。生成中占位层只显示轻量虚线框与百分比数字，避免半透明整块遮罩造成“两层图”的视觉误解。
+- 图片裁切会把当前画布显示比例烘进裁切后的 PNG，保证新图片自然像素比例与裁切后的画布 bounds 一致，后续 AI 原位编辑/替换可继续按同一比例链路工作。
+- 图片工具栏“改文字”链路固定走 Banana 普通路线：OCR 识别、内部文字检测和确认改图请求都会显式携带 `imageRoute: "normal"`，不继承全局尊享路线。
+- 智能抠图与极速抠图结果通过 `triggerQuickImageUpload` 上画布时携带当前图片 bounds，快速上传会按源图画布显示尺寸适配结果图，避免抠图 PNG 的天然像素尺寸让结果看起来被放大。
+- 高清放大对齐 `lt-dev9`：运行时在原图右侧创建 `hd-upscale` 占位框，完成后通过 `triggerQuickImageUpload` 发送到画布，不直接下载文件。
+- 图片扩图 UI 对齐 `lt-dev9`：工具栏使用独立 `Expand` 图标，扩图 prompt/合成图使用红色蒙版语义；扩图选择完成或取消后会释放画布操作锁，非激活图片 overlay 直接跳过渲染。
+- 图片选中浮动工具栏入口排序对齐 `lt-dev9`：`生成节点 / 裁切 / 极速抠图` 为固定入口，`高清放大 / 智能抠图 / 一键分层 / 2D转3D / 图片拓展 / 改文字 / 提取调色板` 继续按本地使用频次轮换进入主工具栏或“更多”菜单。
+
+## 视口性能
+- `GlobalZoomCapture` 的触控板/手势缩放只通过 RAF 批量提交 `setViewport`，避免同一帧内同步写入多次 canvas store。
+- `ProjectAutosaveManager` 同步 canvas `zoom/pan` 到项目内容时使用 160ms 防抖，并跳过与内容快照或上次同步值相同的视角，避免缩放/平移期间把高频视角变化转成项目内容更新。
+
+## 历史视频上画布
+- 库面板全局历史/项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。
+
 ## 图层面板反向选中
 - 当用户在画板中选中图片/3D/路径时，`DrawingController` 会派发 `tanva-canvas-selection-updated`，`LayerPanel` 会据此自动高亮对应图元项。
 - 同步时会自动展开并激活对应图层，避免“画板已选中但图层面板无反馈”；图片场景仍兼容 `tanva-image-instances-updated`。
 - 主要实现位于 `frontend/src/components/panels/LayerPanel.tsx`。
 
 ## 库面板（右侧）
-- 顶部提供双标签：`全局历史` 与 `手动素材`。
+- 顶部提供三标签：`全局历史`、`项目库` 与 `手动素材`。
 - `手动素材` 维持原逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传/删除/详情/发送到画板。
-- `全局历史` 在库面板内独立拉取，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽到画板。
+- `全局历史` / `项目库` 在库面板内独立拉取，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽图片到画板。
+- 历史视频记录在库面板内复用 `global-history/historyMedia.ts` 解析视频 URL 和封面；发送/拖拽到画板时走 `canvas:insert-video` 创建视频资产，避免视频误进入图片上传链路。
 - 库面板主内容区使用固定滚动容器（`flex + min-h-0 + overflow-y-auto`），避免历史列表在部分视口下无法下滑的问题。
 
 ## 3D 拍照白图防护

@@ -3,6 +3,7 @@ import { Handle, Position, useReactFlow } from 'reactflow';
 import { Link } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
+import { useImeSafeTextList } from '../hooks/useImeSafeTextInput';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 
@@ -24,19 +25,10 @@ const MIN_BOX_HEIGHT = 60;
 const MAX_BOX_HEIGHT = 400;
 const DEFAULT_BOX_HEIGHT = 80;
 
-const stopNodeDrag = (event: React.SyntheticEvent) => {
-  event.stopPropagation();
-  const nativeEvent = (event as React.SyntheticEvent<unknown, Event>)
-    .nativeEvent as Event & { stopImmediatePropagation?: () => void };
-  nativeEvent.stopImmediatePropagation?.();
-};
-
 function TextPromptProNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
-  const [isTextFocused, setIsTextFocused] = React.useState(false);
-  const [isResizing, setIsResizing] = React.useState(false);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
     const store = useCanvasStore.getState();
@@ -61,6 +53,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
     next[index] = value;
     updateNodeData({ prompts: next, text: next.join('\n\n').trim() });
   }, [prompts, updateNodeData]);
+  const promptInputs = useImeSafeTextList(prompts, updatePrompt);
 
   const [externalPrompts, setExternalPrompts] = React.useState<string[]>([]);
   const [externalSourceIds, setExternalSourceIds] = React.useState<string[]>([]);
@@ -148,7 +141,6 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
   const handleResizeStart = React.useCallback((direction: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setIsResizing(true);
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -201,7 +193,6 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -330,10 +321,15 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
           )}
 
           {/* 本地输入框 */}
+          {(() => {
+            const promptInput = promptInputs.bind(0);
+            return (
           <textarea
             className="nodrag nopan nowheel"
-            value={prompts[0] || ''}
-            onChange={(event) => updatePrompt(0, event.target.value)}
+            value={promptInput.value}
+            onChange={promptInput.onChange}
+            onCompositionStart={promptInput.onCompositionStart}
+            onCompositionEnd={promptInput.onCompositionEnd}
             placeholder={externalPrompts.length > 0 ? lt('输入额外提示词...', 'Enter additional prompt...') : lt('输入提示词...', 'Enter prompt...')}
             style={{
               width: '100%',
@@ -360,9 +356,9 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
               event.stopPropagation();
               (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
             }}
-            onFocus={() => setIsTextFocused(true)}
-            onBlur={() => setIsTextFocused(false)}
           />
+            );
+          })()}
         </div>
 
         {/* Handle - 与 GenerateProNode 样式一致 */}

@@ -99,6 +99,7 @@ type Props = {
   type?: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    progressStartedAt?: number | string | null;
     imageData?: string;
     thumbnail?: string;
     imageUrls?: string[]; // V7/Niji7 多图支持
@@ -1008,7 +1009,12 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           </div>
         )}
 
-        <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+        <GenerationProgressBar
+          status={status}
+          simulateDurationMs={60 * 1000}
+          startedAt={data.progressStartedAt}
+          runKey={id}
+        />
 
         {status === 'failed' && error && (
           <div
@@ -1208,7 +1214,12 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {/* 错误信息 */}
       {status === 'failed' && error && (

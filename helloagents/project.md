@@ -39,6 +39,16 @@
 - `Project.contentJson` / `PublicTemplate.templateData` 只允许保存远程 URL/路径引用；禁止 `data:`/`blob:`/base64 图片等内联内容进入 DB/OSS。
 - UI 渲染（画板/图层/缩略图等）：避免直接用 `data:image/*`/裸 base64 做渲染；优先转为 `blob:`（objectURL）或走 `canvas`（参考 `frontend/src/components/ui/SmartImage.tsx`、`frontend/src/hooks/useNonBase64ImageSrc.ts`）。
 
+### Flow / AI 运行约定
+- AI Chat 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免切换/新建项目时把旧本地历史串入当前项目。
+- AI Chat 普通文本请求默认只发送当前输入；只有“继续/调整/再试”等迭代意图才拼接会话历史上下文。Flow Text Chat 节点是独立路径，不继承这个上下文注入策略。
+- Flow 生图节点参考图数量统一走 `frontend/src/utils/flowModelProvider.ts`：Fast=3、Pro=11、Ultra=14；节点预览、连接接纳与运行请求必须使用同一上限。
+- Flow 视频节点成功后可写入 Global History，但只记录已有远程视频 URL/缩略图引用，不把视频或缩略图内联进设计 JSON。
+- Library 历史视频记录支持封面/播放/下载展示；发送或拖拽到画板时必须走 `canvas:insert-video` 视频资产链路，不走图片上传链路。历史图片仍可按远程 URL/可持久化资产引用发送到画板。
+- Canvas/Flow 视口同步以性能为优先：触控板/手势缩放通过 RAF 批量提交 `setViewport`；Flow 覆盖层内的滚轮缩放/平移同样要合并到 RAF；项目内容中的 canvas `zoom/pan` 同步需要防抖和同值跳过，避免缩放/平移产生高频 React 内容状态更新。`GridRenderer` 的初始化兜底不能依赖随 `zoom` 重建的回调，避免绕过缩放重绘防抖。
+- 后端 AI 积分请求参数应保留显式 `channelHint`，除非 Banana route/provider 已解析出更明确的供应商通道。
+- 画布 AI 图片操作应以当前渲染资源为准；Shift 精确局部修改需要把选区 bounds/比例传入 Chat，并通过 `precise-edit`/`lockToBounds` 在原位显示占位框，高清放大结果应走 `triggerQuickImageUpload` 上画布而不是直接下载。
+
 ### 环境变量与敏感信息
 - 后端使用 `.env`（见 `backend/src/app.module.ts` 的 `envFilePath` 配置：优先 `backend/.env`，其次 `../.env`）
 - 不要提交密钥/凭据（`.gitignore` 已包含 `backend/.env` 等）

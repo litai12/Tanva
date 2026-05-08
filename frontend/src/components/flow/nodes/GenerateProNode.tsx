@@ -17,10 +17,12 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { toRenderableImageSrc } from '@/utils/imageSource';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
-import NodeSelect from './NodeSelect';
 import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
+import { useImeSafeTextList } from '../hooks/useImeSafeTextInput';
 import { useFlowRenderMode } from '../FlowRenderModeContext';
+import { getImageSplitHandleIndex } from '../utils/imageSplitHandles';
 import {
+  getFlowImageReferenceLimit,
   resolveFlowModelProvider,
   type FlowModelProvider,
 } from '@/utils/flowModelProvider';
@@ -41,10 +43,12 @@ type Props = {
   id: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
     responseText?: string;
+    textResponse?: string;
     title?: string;
     enableWebSearch?: boolean;
     error?: string;
@@ -79,7 +83,6 @@ const MIN_PROMPT_HEIGHT = 60;
 const MAX_PROMPT_HEIGHT = 400;
 const DEFAULT_PROMPT_HEIGHT = 80;
 const DEFAULT_NODE_TITLE = 'Agent';
-const MAX_INPUT_PREVIEWS = 6;
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
 type OrderedInputEdge = {
@@ -202,15 +205,9 @@ const readConnectedImagesFromNode = (
   };
 
   if (typeof sourceHandle === 'string') {
-    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
-    if (singleMatch) {
-      const idx = Math.max(0, Number(singleMatch[1]) - 1);
-      return pickAt(idx);
-    }
-
-    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
-    if (splitMatch) {
-      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+    const splitIdx = node.type === 'imageSplit' ? getImageSplitHandleIndex(sourceHandle) : null;
+    if (splitIdx !== null) {
+      const idx = splitIdx;
       const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
       const rect = splitRects[idx];
       const rectRecord =
@@ -266,6 +263,12 @@ const readConnectedImagesFromNode = (
       return value
         ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
         : [];
+    }
+
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
     }
   }
 
@@ -538,7 +541,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const responseText = (
     (typeof data.responseText === 'string' ? data.responseText : '') ||
-    (typeof (data as any)?.textResponse === 'string' ? (data as any).textResponse : '')
+    (typeof data.textResponse === 'string' ? data.textResponse : '')
   ).trim();
 
   // 原图用于预览和下载
@@ -614,6 +617,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const effectiveProvider = React.useMemo<FlowModelProvider>(
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
+  );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
   );
 
   type ProviderToggleValue = 'banana-2.5' | 'banana' | 'banana-3.1';
@@ -738,7 +745,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-            if (out.length >= MAX_INPUT_PREVIEWS) {
+            if (out.length >= maxInputPreviews) {
               return out;
             }
           }
@@ -746,7 +753,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
         return out;
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 
@@ -852,6 +859,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id, prompts]);
+  const promptInputs = useImeSafeTextList(prompts, updatePrompt);
 
   // 添加新提示词
   const addPrompt = React.useCallback(() => {
@@ -1621,13 +1629,20 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             right: 16,
             zIndex: 10,
           }}>
-            <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+            <GenerationProgressBar
+              status={status}
+              simulateDurationMs={60 * 1000}
+              startedAt={data.progressStartedAt}
+              runKey={id}
+            />
           </div>
         )}
       </div>
 
       {/* 多个提示词输入框 - 带白色背景和圆角 */}
-      {prompts.map((prompt, index) => (
+      {prompts.map((_prompt, index) => {
+        const promptInput = promptInputs.bind(index);
+        return (
         <div key={index} style={{ marginTop: index === 0 ? 0 : 8, position: 'relative' }}>
           <div
             className="group"
@@ -1680,8 +1695,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             )}
             <textarea
               className="nodrag nopan nowheel"
-              value={prompt}
-              onChange={(event) => updatePrompt(index, event.target.value)}
+              value={promptInput.value}
+              onChange={promptInput.onChange}
+              onCompositionStart={promptInput.onCompositionStart}
+              onCompositionEnd={promptInput.onCompositionEnd}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -1821,7 +1838,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             </>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {responseText && (
         <div style={{ marginTop: 8, position: 'relative' }}>

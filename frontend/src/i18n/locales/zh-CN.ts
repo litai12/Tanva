@@ -164,6 +164,17 @@ const zhCN = {
       globalAutoRun: "全局运行",
       globalAutoRunning: "全局运行中...",
       globalAutoStop: "终止",
+      routeSwitch: {
+        buttonTitle: "当前：{{route}}，点击切换",
+        menuTitle: "生文/生图线路",
+        normalShort: "普通",
+        stableShort: "尊享",
+        toast: "已切换到{{route}}",
+        todayRate: "今日 {{rate}}",
+        todayRateUnknown: "今日 --",
+        rateTitle: "今日成功率：{{rate}}（成功 {{successful}} / 完成 {{completed}}）",
+        rateNoData: "今日暂无完成的 API 记录",
+      },
     },
     appearance: {
       languageTitle: "界面语言",
@@ -324,7 +335,7 @@ const zhCN = {
           normal: "普通路线",
           normalDesc: "生图/生文走普通三方渠道",
           stable: "尊享路线",
-          stableDesc: "生图/生文走直连链路（稳定优先）",
+          stableDesc: "生图/生文走官方线路",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {
@@ -334,6 +345,10 @@ const zhCN = {
       advancedTab: {
         openPanel: "打开面板",
         closePanel: "关闭面板",
+        frameMonitor: {
+          title: "帧检测",
+          desc: "显示节点拖拽、图片拖拽、画布移动/缩放的 FPS 与长帧数据",
+        },
         memory: {
           title: "内存监控",
           desc: "仅开发模式可用的调试工具",
@@ -400,7 +415,7 @@ const zhCN = {
       columns: {
         item: "项目",
         status: "状态",
-        amount: "积分",
+        amount: "金额/积分",
         remaining: "剩余积分",
         generatedAt: "生成时间",
         duration: "花费时间",
@@ -409,6 +424,18 @@ const zhCN = {
       notAvailable: "--",
       channel: "渠道：{{channel}}",
       model: "模型：{{model}}",
+      membershipOrder: "会员订阅",
+      paymentStatus: {
+        paid: "已支付",
+        pending: "待支付",
+        failed: "支付失败",
+        expired: "已过期",
+        cancelled: "已取消",
+      },
+      paymentMethods: {
+        alipay: "支付宝",
+        wechat: "微信支付",
+      },
     },
     usage: {
       title: "API 调用记录",

@@ -33,7 +33,7 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import { recordImageHistoryEntry, recordVideoHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { isInsufficientCreditsErrorMessage } from "@/utils/creditsError";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
@@ -442,6 +442,12 @@ type MessageOverride = {
   aiMessageId: string;
 };
 
+type TextResponseOptions = {
+  override?: MessageOverride;
+  metrics?: ProcessMetrics;
+  includeConversationContext?: boolean;
+};
+
 type ExecuteProcessFlowOptions = {
   override?: MessageOverride;
   selectedTool?: AvailableTool | null;
@@ -457,6 +463,23 @@ export type PreciseEditContext = {
     width: number;
     height: number;
   };
+  cropCanvasBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  targetCanvasBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  targetPixelWidth?: number;
+  targetPixelHeight?: number;
+  cropPixelWidth?: number;
+  cropPixelHeight?: number;
+  cropAspectRatio?: number;
   createdAt: number;
 };
 
@@ -596,6 +619,10 @@ type PlaceholderSpec = {
    */
   preferSmartLayout?: boolean;
   /**
+   * 固定使用传入的占位 bounds，不进入矩阵避让排版。
+   */
+  lockToBounds?: boolean;
+  /**
    * 智能排版参考的源图（编辑）
    */
   sourceImageId?: string;
@@ -636,6 +663,89 @@ const parseAspectRatioValue = (ratio?: string | null): number | null => {
     return null;
   }
   return parts[0] / parts[1];
+};
+
+type SupportedImageAspectRatio = NonNullable<AIImageEditRequest["aspectRatio"]>;
+
+const SUPPORTED_IMAGE_ASPECT_RATIOS: SupportedImageAspectRatio[] = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "9:21",
+  "2:1",
+  "1:2",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+];
+
+const getNearestSupportedAspectRatio = (
+  ratio?: number | null
+): SupportedImageAspectRatio | undefined => {
+  if (!Number.isFinite(ratio) || !ratio || ratio <= 0) return undefined;
+  let best: SupportedImageAspectRatio | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  SUPPORTED_IMAGE_ASPECT_RATIOS.forEach((candidate) => {
+    const candidateRatio = parseAspectRatioValue(candidate);
+    if (!candidateRatio) return;
+    const distance = Math.abs(Math.log(ratio / candidateRatio));
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  });
+
+  return best;
+};
+
+const getPreciseEditAspectRatio = (
+  context?: PreciseEditContext | null
+): SupportedImageAspectRatio | undefined => {
+  if (!context) return undefined;
+  const pixelWidth = Number(context.cropPixelWidth);
+  const pixelHeight = Number(context.cropPixelHeight);
+  if (
+    Number.isFinite(pixelWidth) &&
+    Number.isFinite(pixelHeight) &&
+    pixelWidth > 0 &&
+    pixelHeight > 0
+  ) {
+    return getNearestSupportedAspectRatio(pixelWidth / pixelHeight);
+  }
+
+  const storedRatio = Number(context.cropAspectRatio);
+  return getNearestSupportedAspectRatio(storedRatio);
+};
+
+const getPreciseCropCanvasBounds = (
+  context?: PreciseEditContext | null
+): { x: number; y: number; width: number; height: number } | null => {
+  const bounds = context?.cropCanvasBounds;
+  if (!bounds || typeof bounds !== "object") return null;
+  const x = Number(bounds.x);
+  const y = Number(bounds.y);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
 };
 
 const estimatePlaceholderSize = (params: {
@@ -709,6 +819,52 @@ const loadImageElementFromBlob = async (blob: Blob): Promise<HTMLImageElement> =
   }
 };
 
+const describeImageSourceForDebug = (value?: string | null): string => {
+  if (!value || typeof value !== "string") return "empty";
+  const trimmed = value.trim();
+  if (!trimmed) return "empty";
+  if (trimmed.startsWith("data:")) return "data";
+  if (trimmed.startsWith("blob:")) return "blob";
+  if (trimmed.startsWith("flow-asset:")) return "flow-asset";
+  if (/^https?:\/\//i.test(trimmed)) return "remote";
+  if (trimmed.startsWith("/api/assets/proxy")) return "asset-proxy";
+  if (/^(projects|templates|uploads|videos)\//i.test(trimmed.replace(/^\/+/, ""))) {
+    return "asset-key";
+  }
+  return "other";
+};
+
+const readImageDimensionsForDebug = async (
+  value?: string | null
+): Promise<{
+  width: number;
+  height: number;
+  bytes: number;
+  kind: string;
+  preview: string;
+} | null> => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+  if (!blob || blob.size <= 0) return null;
+  const image = await loadImageElementFromBlob(blob);
+  const width = Math.max(
+    1,
+    Math.round(image.naturalWidth || image.width || 1)
+  );
+  const height = Math.max(
+    1,
+    Math.round(image.naturalHeight || image.height || 1)
+  );
+  return {
+    width,
+    height,
+    bytes: blob.size,
+    kind: describeImageSourceForDebug(trimmed),
+    preview: trimmed.slice(0, 120),
+  };
+};
+
 const mergePrecisePatchIntoImage = async (params: {
   baseImageSource: string;
   patchImageSource: string;
@@ -760,6 +916,29 @@ const mergePrecisePatchIntoImage = async (params: {
     1,
     Math.min(baseHeight - cropY, Math.round(nh * baseHeight))
   );
+  const patchWidth = Math.max(
+    1,
+    Math.round(patchImage.naturalWidth || patchImage.width || 1)
+  );
+  const patchHeight = Math.max(
+    1,
+    Math.round(patchImage.naturalHeight || patchImage.height || 1)
+  );
+
+  console.log("🧩 [Precise Edit] 合成尺寸检查", {
+    basePixels: { width: baseWidth, height: baseHeight },
+    patchPixels: { width: patchWidth, height: patchHeight },
+    patchAspectRatio: Number((patchWidth / patchHeight).toFixed(4)),
+    cropPixelsOnBase: {
+      x: cropX,
+      y: cropY,
+      width: cropWidth,
+      height: cropHeight,
+    },
+    cropAspectRatio: Number((cropWidth / cropHeight).toFixed(4)),
+    baseSourceKind: describeImageSourceForDebug(params.baseImageSource),
+    patchSourceKind: describeImageSourceForDebug(params.patchImageSource),
+  });
 
   ctx.drawImage(patchImage, cropX, cropY, cropWidth, cropHeight);
 
@@ -2545,7 +2724,7 @@ interface AIChatState {
   // 文本对话功能
   generateTextResponse: (
     prompt: string,
-    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+    options?: TextResponseOptions
   ) => Promise<void>;
 
   // 视频生成功能
@@ -2905,6 +3084,68 @@ export const useAIChatStore = create<AIChatState>()(
             ? lower.includes(keyword)
             : text.includes(keyword)
         );
+      };
+
+      const prefersEditImage = (prompt: string): boolean => {
+        const text = (prompt || "").trim();
+        if (!text) return false;
+        const lower = text.toLowerCase();
+        const keywords = [
+          "edit",
+          "modify",
+          "adjust",
+          "remove",
+          "replace",
+          "change text",
+          "replace text",
+          "text to",
+          "编辑",
+          "修改",
+          "调整",
+          "改成",
+          "改为",
+          "改文字",
+          "文字改",
+          "字改",
+          "换成",
+          "替换",
+          "替换文字",
+          "去掉",
+          "去除",
+          "删除",
+        ];
+        return keywords.some((keyword) =>
+          keyword === keyword.toLowerCase()
+            ? lower.includes(keyword)
+            : text.includes(keyword)
+        );
+      };
+
+      const fallbackToolSelection = (params: {
+        prompt: string;
+        isSingleExplicitImage: boolean;
+        hasCachedImage: boolean;
+        hasMultiExplicitImages: boolean;
+        allowAnalyzeImageTool: boolean;
+      }): AvailableTool => {
+        if (
+          params.isSingleExplicitImage ||
+          (params.hasCachedImage && prefersEditImage(params.prompt))
+        ) {
+          return "editImage";
+        }
+
+        if (params.hasMultiExplicitImages) {
+          if (
+            prefersAnalyzeForMultiImage(params.prompt) &&
+            params.allowAnalyzeImageTool
+          ) {
+            return "analyzeImage";
+          }
+          return "blendImages";
+        }
+
+        return "chatResponse";
       };
 
       return {
@@ -4110,8 +4351,48 @@ export const useAIChatStore = create<AIChatState>()(
         ) => {
           const state = get();
           const preciseEditContext = state.preciseEditContext;
+          const preciseCropBounds = getPreciseCropCanvasBounds(preciseEditContext);
+          const preciseEditAspectRatio =
+            getPreciseEditAspectRatio(preciseEditContext);
+          const isPreciseLocalEdit = Boolean(
+            preciseCropBounds && preciseEditContext?.targetImageId
+          );
           const metrics = options?.metrics;
           logProcessStep(metrics, "editImage entered");
+
+          if (isPreciseLocalEdit) {
+            console.groupCollapsed("🧩 [Precise Edit] editImage 上下文");
+            console.log("选区/目标尺寸", {
+              targetImageId: preciseEditContext?.targetImageId,
+              cropCanvasBounds: preciseEditContext?.cropCanvasBounds,
+              targetCanvasBounds: preciseEditContext?.targetCanvasBounds,
+              cropPixels:
+                preciseEditContext?.cropPixelWidth &&
+                preciseEditContext?.cropPixelHeight
+                  ? {
+                      width: preciseEditContext.cropPixelWidth,
+                      height: preciseEditContext.cropPixelHeight,
+                    }
+                  : null,
+              targetPixels:
+                preciseEditContext?.targetPixelWidth &&
+                preciseEditContext?.targetPixelHeight
+                  ? {
+                      width: preciseEditContext.targetPixelWidth,
+                      height: preciseEditContext.targetPixelHeight,
+                    }
+                  : null,
+              cropAspectRatio: preciseEditContext?.cropAspectRatio,
+              requestAspectRatio: preciseEditAspectRatio,
+            });
+            console.log("源引用类型", {
+              editSourceKind: describeImageSourceForDebug(sourceImage),
+              targetSourceKind: describeImageSourceForDebug(
+                preciseEditContext?.targetImageSource
+              ),
+            });
+            console.groupEnd();
+          }
 
           // 🔥 并行模式：不检查全局状态
           const displaySourceImage = showImagePlaceholder
@@ -4217,7 +4498,10 @@ export const useAIChatStore = create<AIChatState>()(
             } | null = null;
             let selectedImageId: string | null = null;
             try {
-              if ((window as any).tanvaImageInstances) {
+              if (preciseCropBounds && preciseEditContext?.targetImageId) {
+                selectedImageBounds = preciseCropBounds;
+                selectedImageId = preciseEditContext.targetImageId;
+              } else if ((window as any).tanvaImageInstances) {
                 const selectedImage = (window as any).tanvaImageInstances.find(
                   (img: any) => img.isSelected
                 );
@@ -4236,7 +4520,12 @@ export const useAIChatStore = create<AIChatState>()(
             let center: { x: number; y: number } | null = null;
 
             // 编辑锚点优先使用“当前选中图”，避免误用缓存图导致向右下偏移
-            if (selectedImageBounds) {
+            if (preciseCropBounds) {
+              center = {
+                x: preciseCropBounds.x + preciseCropBounds.width / 2,
+                y: preciseCropBounds.y + preciseCropBounds.height / 2,
+              };
+            } else if (selectedImageBounds) {
               center = {
                 x:
                   selectedImageBounds.x +
@@ -4255,9 +4544,10 @@ export const useAIChatStore = create<AIChatState>()(
 
             if (center) {
               const size = estimatePlaceholderSize({
-                aspectRatio: state.aspectRatio,
+                aspectRatio: preciseEditAspectRatio ?? state.aspectRatio,
                 imageSize: state.imageSize,
-                fallbackBounds: selectedImageBounds ?? cached?.bounds ?? null,
+                fallbackBounds:
+                  preciseCropBounds ?? selectedImageBounds ?? cached?.bounds ?? null,
               });
 
               dispatchPlaceholderEvent({
@@ -4265,14 +4555,16 @@ export const useAIChatStore = create<AIChatState>()(
                 center,
                 width: size.width,
                 height: size.height,
-                operationType: "edit",
-                preferSmartLayout: true,
+                operationType: isPreciseLocalEdit ? "precise-edit" : "edit",
+                preferSmartLayout: !preciseCropBounds,
+                lockToBounds: isPreciseLocalEdit,
                 sourceImageId: selectedImageId || cached?.imageId,
-                smartPosition: center ? { ...center } : undefined,
+                smartPosition:
+                  center && !isPreciseLocalEdit ? { ...center } : undefined,
                 groupId,
                 groupIndex,
                 groupTotal,
-                preferHorizontal: isParallelEdit,
+                preferHorizontal: isPreciseLocalEdit ? false : isParallelEdit,
                 groupAnchor: center ? { ...center } : undefined,
               });
             }
@@ -4393,7 +4685,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               providerOptions,
               outputFormat: "png",
-              aspectRatio: state.aspectRatio || undefined,
+              aspectRatio: preciseEditAspectRatio ?? state.aspectRatio ?? undefined,
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
               thinkingLevel: state.thinkingLevel || undefined,
               imageOnly: state.imageOnly,
@@ -4407,7 +4699,25 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
               model: modelToUse,
               imageSize: state.imageSize ?? "1K",
-              aspectRatio: state.aspectRatio || "auto",
+              aspectRatio:
+                preciseEditAspectRatio ?? state.aspectRatio ?? "auto",
+              isPreciseLocalEdit,
+              preciseCropPixels:
+                preciseEditContext?.cropPixelWidth &&
+                preciseEditContext?.cropPixelHeight
+                  ? {
+                      width: preciseEditContext.cropPixelWidth,
+                      height: preciseEditContext.cropPixelHeight,
+                    }
+                  : null,
+              preciseTargetPixels:
+                preciseEditContext?.targetPixelWidth &&
+                preciseEditContext?.targetPixelHeight
+                  ? {
+                      width: preciseEditContext.targetPixelWidth,
+                      height: preciseEditContext.targetPixelHeight,
+                    }
+                  : null,
               thinkingLevel: state.thinkingLevel || "auto",
               imageOnly: state.imageOnly,
               prompt: prompt.substring(0, 50) + "...",
@@ -4544,6 +4854,45 @@ export const useAIChatStore = create<AIChatState>()(
                 return;
               }
 
+              if (isPreciseLocalEdit) {
+                try {
+                  const [sourceDimensions, outputDimensions] =
+                    await Promise.all([
+                      readImageDimensionsForDebug(sourceImage),
+                      readImageDimensionsForDebug(placementImageData),
+                    ]);
+                  console.log("🧩 [Precise Edit] 生成前后自然尺寸", {
+                    requestAspectRatio:
+                      preciseEditAspectRatio ?? state.aspectRatio ?? "auto",
+                    imageSize: state.imageSize ?? "1K",
+                    sourceCropImage: sourceDimensions,
+                    generatedOutput: outputDimensions,
+                    preciseContext: {
+                      cropCanvasBounds: preciseEditContext?.cropCanvasBounds,
+                      targetCanvasBounds: preciseEditContext?.targetCanvasBounds,
+                      cropPixels:
+                        preciseEditContext?.cropPixelWidth &&
+                        preciseEditContext?.cropPixelHeight
+                          ? {
+                              width: preciseEditContext.cropPixelWidth,
+                              height: preciseEditContext.cropPixelHeight,
+                            }
+                          : null,
+                      targetPixels:
+                        preciseEditContext?.targetPixelWidth &&
+                        preciseEditContext?.targetPixelHeight
+                          ? {
+                              width: preciseEditContext.targetPixelWidth,
+                              height: preciseEditContext.targetPixelHeight,
+                            }
+                          : null,
+                    },
+                  });
+                } catch (error) {
+                  console.warn("🧩 [Precise Edit] 读取生成前后尺寸失败", error);
+                }
+              }
+
               console.log(
                 "✅ [editImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
               );
@@ -4574,7 +4923,10 @@ export const useAIChatStore = create<AIChatState>()(
                 let selectedImageBounds = null;
                 let sourceImageId = null;
                 try {
-                  if ((window as any).tanvaImageInstances) {
+                  if (preciseCropBounds && preciseEditContext?.targetImageId) {
+                    selectedImageBounds = preciseCropBounds;
+                    sourceImageId = preciseEditContext.targetImageId;
+                  } else if ((window as any).tanvaImageInstances) {
                     const selectedImage = (
                       window as any
                     ).tanvaImageInstances.find((img: any) => img.isSelected);
@@ -4597,12 +4949,13 @@ export const useAIChatStore = create<AIChatState>()(
                       imageData: imagePayload,
                       fileName: fileName,
                       selectedImageBounds: selectedImageBounds, // 保持兼容性
-                      operationType: "edit",
+                      operationType: isPreciseLocalEdit ? "precise-edit" : "edit",
                       smartPosition,
                       sourceImageId: sourceImageId,
                       sourceImages: undefined,
                       placeholderId,
-                      preferHorizontal: isParallelEdit,
+                      preferHorizontal: isPreciseLocalEdit ? false : isParallelEdit,
+                      lockToBounds: isPreciseLocalEdit,
                       // 🔥 传递并行生成分组信息，用于自动打组
                       parallelGroupId: parallelGroupInfo?.groupId,
                       parallelGroupIndex: parallelGroupInfo?.groupIndex,
@@ -4650,12 +5003,41 @@ export const useAIChatStore = create<AIChatState>()(
 		                    patchImageSources,
 		                    getResultImageRemoteUrl(result.data)
 		                  );
+		                  console.log("🧩 [Precise Edit] 准备整图合成", {
+		                    baseCandidateCount: baseImageSources.length,
+		                    patchCandidateCount: patchImageSources.length,
+		                    cropRectNormalized:
+		                      preciseEditContext.cropRectNormalized,
+		                    targetCanvasBounds:
+		                      preciseEditContext.targetCanvasBounds,
+		                    targetPixels:
+		                      preciseEditContext.targetPixelWidth &&
+		                      preciseEditContext.targetPixelHeight
+		                        ? {
+		                            width: preciseEditContext.targetPixelWidth,
+		                            height: preciseEditContext.targetPixelHeight,
+		                          }
+		                        : null,
+		                  });
 		                  const mergedBlob = await mergePrecisePatchWithFallback({
 		                    baseImageSources,
 		                    patchImageSources,
 		                    cropRectNormalized: preciseEditContext.cropRectNormalized,
 		                  });
 		                  if (mergedBlob) {
+		                    console.log("🧩 [Precise Edit] 整图合成成功，准备回写画布", {
+		                      mergedBytes: mergedBlob.size,
+		                      targetPixels:
+		                        preciseEditContext.targetPixelWidth &&
+		                        preciseEditContext.targetPixelHeight
+		                          ? {
+		                              width: preciseEditContext.targetPixelWidth,
+		                              height: preciseEditContext.targetPixelHeight,
+		                            }
+		                          : null,
+		                      targetCanvasBounds:
+		                        preciseEditContext.targetCanvasBounds,
+		                    });
 		                    const mergedDataUrl = await blobToDataUrlLimited(mergedBlob);
 		                    try {
 	                      window.dispatchEvent(
@@ -4663,6 +5045,9 @@ export const useAIChatStore = create<AIChatState>()(
 	                          detail: {
 	                            imageId: preciseEditContext.targetImageId,
 	                            source: mergedDataUrl,
+	                            bounds: preciseEditContext.targetCanvasBounds,
+	                            width: preciseEditContext.targetPixelWidth,
+	                            height: preciseEditContext.targetPixelHeight,
 	                            contentType: "image/png",
 	                            fileName: `${prompt.substring(0, 20) || "precise"}_merged.png`,
 	                            historyLabel: "precise-edit",
@@ -4674,10 +5059,13 @@ export const useAIChatStore = create<AIChatState>()(
 	                      // ignore
 	                    }
 		                  } else {
-		                    console.warn("⚠️ 精准微调回贴失败：未能合成局部覆盖图");
+		                    console.warn("🧩 [Precise Edit] 整图合成失败，将回退 quick upload", {
+		                      baseCandidateCount: baseImageSources.length,
+		                      patchCandidateCount: patchImageSources.length,
+		                    });
 		                  }
 		                } catch (error) {
-		                  console.warn("⚠️ 精准微调回贴失败，回退普通上画布:", error);
+		                  console.warn("🧩 [Precise Edit] 整图合成异常，将回退 quick upload:", error);
 		                }
 		              }
 
@@ -4689,6 +5077,14 @@ export const useAIChatStore = create<AIChatState>()(
 	              if (usedPreciseOverlay) {
 	                removePredictivePlaceholder();
 	              } else {
+	                if (isPreciseLocalEdit) {
+	                  console.warn("🧩 [Precise Edit] 未走整图回写，准备上传/插入 raw output", {
+	                    placementKind: describeImageSourceForDebug(placementImageData),
+	                    preciseCropBounds,
+	                    preciseTargetBounds:
+	                      preciseEditContext?.targetCanvasBounds,
+	                  });
+	                }
 	                setTimeout(() => {
 	                  if (result.data) {
 	                    console.log(
@@ -6145,7 +6541,7 @@ export const useAIChatStore = create<AIChatState>()(
         // 文本对话功能（支持并行）
         generateTextResponse: async (
           prompt: string,
-          options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+          options?: TextResponseOptions
         ) => {
           // 🔥 并行模式：不检查全局状态
 
@@ -6213,7 +6609,12 @@ export const useAIChatStore = create<AIChatState>()(
             // 调用后端API生成文本
             const state = get();
             const modelToUse = getTextModelForProvider(state.aiProvider);
-            const contextPrompt = contextManager.buildContextPrompt(prompt);
+            const includeConversationContext =
+              options?.includeConversationContext ??
+              contextManager.detectIterativeIntent(prompt);
+            const requestPrompt = includeConversationContext
+              ? contextManager.buildContextPrompt(prompt)
+              : prompt;
             const providerOptions = withBananaRouteProviderOptions(
               state.aiProvider,
               undefined,
@@ -6225,7 +6626,7 @@ export const useAIChatStore = create<AIChatState>()(
               `generateTextResponse calling API (${modelToUse})`
             );
             const result = await generateTextResponseViaAPI({
-              prompt: contextPrompt,
+              prompt: requestPrompt,
               model: modelToUse,
               aiProvider: state.aiProvider,
               enableWebSearch: state.enableWebSearch,
@@ -6247,6 +6648,10 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: result.data!.text,
                           webSearchResult: result.data!.webSearchResult,
+                          metadata: {
+                            ...(msg.metadata || {}),
+                            ...(result.data!.metadata || {}),
+                          },
                           generationStatus: {
                             isGenerating: false,
                             progress: 100,
@@ -6267,6 +6672,10 @@ export const useAIChatStore = create<AIChatState>()(
                 if (message) {
                   message.content = result.data!.text;
                   message.webSearchResult = result.data!.webSearchResult;
+                  message.metadata = {
+                    ...(message.metadata || {}),
+                    ...(result.data!.metadata || {}),
+                  };
                   message.generationStatus = {
                     isGenerating: false,
                     progress: 100,
@@ -6439,6 +6848,29 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               const remoteVideoUrl = videoUrl;
+              void recordVideoHistoryEntry({
+                videoUrl: remoteVideoUrl,
+                thumbnail: thumbnailUrl,
+                title: prompt,
+                nodeId: aiMessageId,
+                nodeType: String(AI_CHAT_SEEDANCE_MODEL || "").includes("2.0")
+                  ? "seedance20Video"
+                  : "doubaoVideo",
+                projectId: useProjectContentStore.getState().projectId,
+                metadata: {
+                  source: "aiChat",
+                  provider,
+                  seedanceModel: AI_CHAT_SEEDANCE_MODEL,
+                  videoMode,
+                  aspectRatio,
+                  durationSeconds,
+                  taskId: createResult.taskId,
+                  apiUsageId: createResult.apiUsageId,
+                  status: status ?? "succeeded",
+                },
+              }).catch((error) => {
+                console.warn("⚠️ 视频全局历史写入失败:", error);
+              });
               get().updateMessage(aiMessageId, (msg) => ({
                 ...msg,
                 type: "ai",
@@ -7150,7 +7582,11 @@ export const useAIChatStore = create<AIChatState>()(
           // 总图像数量 = 显式图片 + 缓存图片（如果存在）
           const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
 
-          const toolSelectionContext = contextManager.buildContextPrompt(input);
+          const shouldIncludeToolSelectionContext =
+            isIterative || totalImageCount > 0 || Boolean(state.sourcePdfForAnalysis);
+          const toolSelectionContext = shouldIncludeToolSelectionContext
+            ? contextManager.buildContextPrompt(input)
+            : input;
           const isSingleExplicitImage =
             explicitImageCount === 1 &&
             state.sourceImagesForBlending.length === 0;
@@ -7249,14 +7685,24 @@ export const useAIChatStore = create<AIChatState>()(
                   const errorMsg =
                     toolSelectionResult.error?.message || "工具选择失败";
                   console.error("❌ 工具选择失败:", errorMsg);
-                  throw new Error(errorMsg);
+                  selectedTool = fallbackToolSelection({
+                    prompt: input,
+                    isSingleExplicitImage,
+                    hasCachedImage: !!cachedImage,
+                    hasMultiExplicitImages,
+                    allowAnalyzeImageTool,
+                  });
+                  logProcessStep(
+                    metrics,
+                    `tool selection failed, fallback decided: ${selectedTool}`
+                  );
+                } else {
+                  selectedTool = toolSelectionResult.data
+                    .selectedTool as AvailableTool | null;
+                  parameters = {
+                    prompt: toolSelectionResult.data.parameters?.prompt || input,
+                  };
                 }
-
-                selectedTool = toolSelectionResult.data
-                  .selectedTool as AvailableTool | null;
-                parameters = {
-                  prompt: toolSelectionResult.data.parameters?.prompt || input,
-                };
                 if (
                   hasMultiExplicitImages &&
                   preferAnalyzeForMultiImage &&
@@ -7465,7 +7911,11 @@ export const useAIChatStore = create<AIChatState>()(
                   await store.generateTextResponse(parameters.prompt, {
                     override: messageOverride,
                     metrics,
+                    includeConversationContext: isIterative,
                   });
+                  if (!isIterative) {
+                    contextManager.resetIteration();
+                  }
                   logProcessStep(metrics, "generateTextResponse finished");
                 } catch (error) {
                   console.error("❌ generateTextResponse 执行失败:", error);
@@ -7735,30 +8185,26 @@ export const useAIChatStore = create<AIChatState>()(
                     `🎯 [工具选择] AI 选择了: ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 } else {
-                  selectedTool = isSingleExplicitImage
-                    ? "editImage"
-                    : hasMultiExplicitImages
-                      ? prefersAnalyzeForMultiImage(input)
-                        ? allowAnalyzeImageTool
-                          ? "analyzeImage"
-                          : "blendImages"
-                        : "blendImages"
-                      : "chatResponse";
+                  selectedTool = fallbackToolSelection({
+                    prompt: input,
+                    isSingleExplicitImage,
+                    hasCachedImage: !!cachedImage,
+                    hasMultiExplicitImages,
+                    allowAnalyzeImageTool,
+                  });
                   console.warn(
                     `⚠️ 工具选择失败，默认使用 ${selectedTool} (singleImage=${isSingleExplicitImage}, multiImage=${hasMultiExplicitImages})`
                   );
                 }
               } catch (error) {
                 console.error("❌ 工具选择异常:", error);
-                selectedTool = isSingleExplicitImage
-                  ? "editImage"
-                  : hasMultiExplicitImages
-                    ? prefersAnalyzeForMultiImage(input)
-                      ? allowAnalyzeImageTool
-                        ? "analyzeImage"
-                        : "blendImages"
-                      : "blendImages"
-                    : "chatResponse";
+                selectedTool = fallbackToolSelection({
+                  prompt: input,
+                  isSingleExplicitImage,
+                  hasCachedImage: !!cachedImage,
+                  hasMultiExplicitImages,
+                  allowAnalyzeImageTool,
+                });
               }
 
               if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
@@ -8250,9 +8696,22 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 🧠 上下文管理方法实现
         initializeContext: () => {
+          const projectStore = useProjectContentStore.getState();
+          const hasProjectScope = !!projectStore.projectId;
+
+          // 项目内会话只从 Project.content.aiChatSessions 恢复；全局本地会话
+          // 仅用于无项目场景，防止切换/新建项目时串入旧对话。
+          if (!hasHydratedSessions && hasProjectScope) {
+            revokeAllVideoObjectUrls();
+            contextManager.resetSessions();
+          }
+
           // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
-          if (!hasHydratedSessions) {
+          if (!hasHydratedSessions && !hasProjectScope) {
             loadLocalSessions().then((stored) => {
+              if (useProjectContentStore.getState().projectId) {
+                return;
+              }
               if (stored && stored.sessions.length > 0) {
                 get().hydratePersistedSessions(
                   stored.sessions,

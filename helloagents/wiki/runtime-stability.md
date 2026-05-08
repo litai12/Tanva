@@ -26,6 +26,9 @@
   - when a backend exception happens after an upstream `fetch`, `backend_error` also includes `upstream_url`, `upstream_host`, `upstream_status_code`, `upstream_payload`, `upstream_response`, and `upstream` using the latest sanitized upstream request captured in the current request context
   - process-level `unhandledRejection` / `uncaughtException` are ingested into the same stream for crash triage
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
+- Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
+- Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.
+- Flow node-local expensive updates should prefer frame-batched previews over continuous ReactFlow state writes. `ImageSplit` crop previews share image decode promises and throttle resize observations, while `TextPrompt` resize commits dimensions/position only at drag end.
 
 ## Deployment changes
 - Frontend Docker builder now installs full dependencies (`npm ci`) and accepts build args:

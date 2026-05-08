@@ -13,6 +13,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { getImageSplitHandleIndex, getImageSplitPrimaryHandleId } from '../utils/imageSplitHandles';
 
 type CompressionLevel = 'light' | 'balanced' | 'strong';
 
@@ -93,16 +94,15 @@ const readImageFromNode = (node: Node<Record<string, unknown>>, sourceHandle?: s
   const d = (node.data ?? {}) as Record<string, unknown>;
 
   if (node.type === 'imageSplit' && typeof sourceHandle === 'string') {
-    const match = /^image(\d+)$/.exec(sourceHandle);
-    if (match) {
-      const key = `image${match[1]}`;
+    const idx = getImageSplitHandleIndex(sourceHandle);
+    if (idx !== null) {
+      const key = getImageSplitPrimaryHandleId(idx);
       const direct = normalizeString(d[key]);
       if (direct) return direct;
 
       const splitImages = Array.isArray(d.splitImages)
         ? (d.splitImages as Array<Record<string, unknown>>)
         : [];
-      const idx = Math.max(0, Number(match[1]) - 1);
       return normalizeString(splitImages[idx]?.imageData);
     }
   }
@@ -358,8 +358,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
           if (node.type === 'imageSplit') {
             const baseRef = normalizeString(d.inputImageUrl) || normalizeString(d.inputImage);
             if (baseRef && handle) {
-              const match = /^image(\d+)$/.exec(handle);
-              const idx = match ? Math.max(0, Number(match[1]) - 1) : -1;
+              const idx = getImageSplitHandleIndex(handle) ?? -1;
               if (idx >= 0) {
                 const splitRects = Array.isArray(d.splitRects)
                   ? (d.splitRects as Array<Record<string, unknown>>)

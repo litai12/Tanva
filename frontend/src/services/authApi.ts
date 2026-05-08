@@ -348,6 +348,7 @@ export const authApi = {
 
         // 更新本地token过期时间（假设24小时有效期）
         if (user) {
+          saveSession(user);
           setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
           setStoredLastAuthAt(Date.now());
         }
@@ -383,6 +384,7 @@ export const authApi = {
 
               // 更新本地token过期时间
               if (user) {
+                saveSession(user);
                 setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
                 setStoredLastAuthAt(Date.now());
               }
@@ -483,6 +485,8 @@ export const authApi = {
         throw new Error("用户不存在，请先注册");
       }
       saveSession(user);
+      setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+      setStoredLastAuthAt(Date.now());
       return { user };
     }
     const res = await fetchWithAuth(`${base}/api/auth/login`, {
@@ -517,7 +521,8 @@ export const authApi = {
       );
       if (!user) throw new Error("用户不存在，请先注册");
       saveSession(user);
-        setStoredLastAuthAt(Date.now());
+      setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+      setStoredLastAuthAt(Date.now());
       return { user };
     }
     const res = await fetchWithAuth(`${base}/api/auth/login-sms`, {

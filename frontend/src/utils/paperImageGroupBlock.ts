@@ -12,6 +12,12 @@ export interface CreateImageGroupBlockOptions {
   title?: string;
 }
 
+export interface ImageGroupBlockSnapshot extends CreateImageGroupBlockOptions {
+  groupId?: string;
+  imageIds: string[];
+  layerName?: string;
+}
+
 const DEFAULT_PADDING = 20;
 const DEFAULT_RADIUS = 16;
 const DEFAULT_FILL = '#e5e7eb';
@@ -415,6 +421,108 @@ export const getImageGroupBlocks = (): paper.Path[] => {
   } catch {
     return [];
   }
+};
+
+const readColorCss = (color: unknown): string | undefined => {
+  try {
+    const colorLike = color as { toCSS?: (includeAlpha?: boolean) => string } | null | undefined;
+    if (typeof colorLike?.toCSS !== 'function') return undefined;
+    const css = colorLike.toCSS(true);
+    return typeof css === 'string' && css.trim() ? css : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const createImageGroupBlockSnapshot = (
+  block: paper.Item | null | undefined
+): ImageGroupBlockSnapshot | null => {
+  if (!block || !isPath(block)) return null;
+  const data = (block.data || {}) as Record<string, unknown>;
+  if (data.type !== IMAGE_GROUP_BLOCK_TYPE) return null;
+
+  const imageIds = normalizeImageIdList(data.imageIds);
+  if (imageIds.length < 2) return null;
+
+  const groupId = typeof data.groupId === 'string' ? data.groupId : undefined;
+  const title =
+    (typeof data.title === 'string' && data.title.trim()) ||
+    (groupId ? findGroupBlockTitle(groupId)?.content : '') ||
+    undefined;
+
+  const paddingRaw = data.padding;
+  const radiusRaw = data.radius;
+  const strokeWidthRaw = data.strokeWidth ?? block.strokeWidth;
+  const fillColorRaw = data.fillColor;
+  const strokeColorRaw = data.strokeColor;
+
+  return {
+    groupId,
+    imageIds,
+    title,
+    padding: typeof paddingRaw === 'number' && Number.isFinite(paddingRaw) ? paddingRaw : getGroupBlockPadding(block),
+    radius: typeof radiusRaw === 'number' && Number.isFinite(radiusRaw) ? radiusRaw : getGroupBlockRadius(block),
+    fillColor:
+      typeof fillColorRaw === 'string' && fillColorRaw.trim()
+        ? fillColorRaw.trim()
+        : readColorCss(block.fillColor) ?? DEFAULT_FILL,
+    strokeColor:
+      typeof strokeColorRaw === 'string' && strokeColorRaw.trim()
+        ? strokeColorRaw.trim()
+        : readColorCss(block.strokeColor) ?? DEFAULT_STROKE,
+    strokeWidth:
+      typeof strokeWidthRaw === 'number' && Number.isFinite(strokeWidthRaw)
+        ? Math.max(0, strokeWidthRaw)
+        : DEFAULT_STROKE_WIDTH,
+    layerName: block.layer?.name ? String(block.layer.name) : undefined,
+  };
+};
+
+export const collectImageGroupBlockSnapshots = (
+  blocks: Array<paper.Item | null | undefined>
+): ImageGroupBlockSnapshot[] => {
+  const snapshots: ImageGroupBlockSnapshot[] = [];
+  const seen = new Set<string>();
+  blocks.forEach((block) => {
+    const snapshot = createImageGroupBlockSnapshot(block);
+    if (!snapshot) return;
+    const key = snapshot.groupId || snapshot.imageIds.join('\u0000');
+    if (seen.has(key)) return;
+    seen.add(key);
+    snapshots.push(snapshot);
+  });
+  return snapshots;
+};
+
+const getMappedImageId = (
+  imageIdMap: Map<string, string> | Record<string, string | undefined>,
+  sourceId: string
+): string | undefined => {
+  if (imageIdMap instanceof Map) return imageIdMap.get(sourceId);
+  return imageIdMap[sourceId];
+};
+
+export const createImageGroupBlockFromSnapshot = (
+  snapshot: ImageGroupBlockSnapshot | null | undefined,
+  imageIdMap: Map<string, string> | Record<string, string | undefined>
+): paper.Path.Rectangle | null => {
+  if (!snapshot || !Array.isArray(snapshot.imageIds)) return null;
+  const mappedImageIds = uniqStrings(
+    snapshot.imageIds
+      .map((sourceId) => getMappedImageId(imageIdMap, sourceId))
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+  );
+  if (mappedImageIds.length < 2) return null;
+
+  const { block } = createImageGroupBlock(mappedImageIds, {
+    padding: snapshot.padding,
+    radius: snapshot.radius,
+    fillColor: snapshot.fillColor,
+    strokeColor: snapshot.strokeColor,
+    strokeWidth: snapshot.strokeWidth,
+    title: snapshot.title,
+  });
+  return block;
 };
 
 export const updateImageGroupBlockBounds = (block: paper.Path): boolean => {

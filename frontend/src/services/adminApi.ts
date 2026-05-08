@@ -923,6 +923,11 @@ export interface PaymentOrderRecord {
   amount: number;
   credits: number;
   paymentMethod: string;
+  orderType?: "recharge" | "membership";
+  businessCode?: string | null;
+  planName?: string | null;
+  membershipPlanId?: string | null;
+  subscriptionId?: string | null;
   status: PaymentStatus;
   paidAt: string | null;
   createdAt: string;
@@ -1136,6 +1141,7 @@ export interface MembershipOrderRecord {
   orderType: "membership" | "recharge";
   membershipPlanId: string | null;
   subscriptionId: string | null;
+  planName?: string | null;
   status: PaymentStatus;
   paidAt: string | null;
   createdAt: string;

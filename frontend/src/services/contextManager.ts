@@ -172,12 +172,8 @@ class ContextManager implements IContextManager {
 
     // 启动定期清理任务
     this.startCleanupInterval();
-    // 尝试从本地存储恢复会话数据（关闭对话框/刷新后恢复）
-    try {
-      this.loadContextsFromStorage();
-    } catch (e) {
-      console.warn("[ContextManager] 从本地恢复会话失败:", e);
-    }
+    // 会话恢复由 aiChatStore 按当前项目内容统一调度，避免构造期把旧的
+    // 全局本地会话注入到新项目。
   }
 
   /**
@@ -956,7 +952,7 @@ class ContextManager implements IContextManager {
         contextPrompt.substring(0, maxContextLength) + "\n...(上下文已截断)";
     }
 
-    contextPrompt += `\n请根据上下文理解用户意图。`;
+    contextPrompt += `\n请根据上下文直接回答“用户当前输入”。不要输出内部意图分析、关键要素拆解或回复策略。`;
 
     return contextPrompt;
   }
@@ -1374,6 +1370,13 @@ class ContextManager implements IContextManager {
       "改进",
       "让它",
       "改成",
+      "改为",
+      "改文字",
+      "文字改",
+      "字改",
+      "换成",
+      "替换",
+      "替换文字",
       "变成",
       "给",
       "加上",

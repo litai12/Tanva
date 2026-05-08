@@ -13,6 +13,8 @@ import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
 import {
+  collectImageGroupBlockSnapshots,
+  createImageGroupBlockFromSnapshot,
   deleteImageGroupBlock,
   findGroupBlockTitle,
   getImagePaperBounds,
@@ -20,6 +22,7 @@ import {
   updateGroupBlockTitle,
 } from '@/utils/paperImageGroupBlock';
 import type { ImageAssetSnapshot } from '@/types/project';
+import type { ImageGroupBlockSnapshot } from '@/utils/paperImageGroupBlock';
 import type { SnapAlignmentAPI } from './useSnapAlignment';
 
 
@@ -86,6 +89,10 @@ interface DrawingTools {
   updateLineDraw: (point: paper.Point) => void;
   finishLineDraw: (point: paper.Point) => void;
   createLinePath: (point: paper.Point) => void;
+  startArrowDraw: (point: paper.Point) => void;
+  updateArrowDraw: (point: paper.Point) => void;
+  finishArrowDraw: (point: paper.Point) => void;
+  createArrowPath: (point: paper.Point) => void;
   startRectDraw: (point: paper.Point) => void;
   updateRectDraw: (point: paper.Point) => void;
   startCircleDraw: (point: paper.Point) => void;
@@ -95,6 +102,8 @@ interface DrawingTools {
   start3DModelDraw: (point: paper.Point) => void;
   update3DModelDraw: (point: paper.Point) => void;
   finishDraw: (drawMode: DrawMode, ...args: any[]) => void;
+  clearTemporaryEraserPaths?: () => number;
+  resetEraserToolState?: () => void;
   pathRef: React.RefObject<any>;
   isDrawingRef: React.RefObject<boolean>;
   initialClickPoint: paper.Point | null;
@@ -220,6 +229,7 @@ export const useInteractionController = ({
   const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
   const altDragPlaceholderRef = useRef<paper.Group | null>(null); // Alt+拖拽时的占位框
   const altDragSnapshotsRef = useRef<ImageAssetSnapshot[]>([]); // Alt+拖拽时保存的图片快照
+  const altDragGroupSnapshotsRef = useRef<ImageGroupBlockSnapshot[]>([]); // Alt+拖拽时保存的图片组快照
   
   // 路径 Alt+拖拽复制相关状态
   const pathAltDragClonedRef = useRef(false); // 标记路径是否已创建克隆占位框
@@ -356,6 +366,17 @@ export const useInteractionController = ({
       pathAltDragPlaceholderRef.current = null;
     }
     pathAltDragSnapshotsRef.current = [];
+  }, []);
+
+  const collectDragImageGroupSnapshots = useCallback((
+    paths: Iterable<paper.Path | null | undefined>,
+    includedImageIds?: Set<string>
+  ): ImageGroupBlockSnapshot[] => {
+    const snapshots = collectImageGroupBlockSnapshots(Array.from(paths));
+    if (!includedImageIds || includedImageIds.size === 0) return snapshots;
+    return snapshots.filter((snapshot) =>
+      snapshot.imageIds.every((imageId) => includedImageIds.has(imageId))
+    );
   }, []);
 
   const beginGroupPathDrag = useCallback((startPoint: paper.Point | null, mode: GroupPathDragMode) => {
@@ -916,6 +937,10 @@ export const useInteractionController = ({
 
         imageDragMovedRef.current = false;
         altDragCloneIdsRef.current = [];
+        altDragGroupSnapshotsRef.current = collectDragImageGroupSnapshots(
+          previouslySelectedPaths,
+          new Set(selectedIds)
+        );
         libraryHoveringRef.current = false;
         latestImageTool.setImageDragState({
           isImageDragging: true,
@@ -995,6 +1020,14 @@ export const useInteractionController = ({
             if (first && firstId && actualFirstBounds) {
               imageDragMovedRef.current = false;
               altDragCloneIdsRef.current = [];
+              const sourceGroupPaths = new Set<paper.Path>(previouslySelectedPaths);
+              if (pathSelectedByThisClick) {
+                sourceGroupPaths.add(pathSelectedByThisClick);
+              }
+              altDragGroupSnapshotsRef.current = collectDragImageGroupSnapshots(
+                sourceGroupPaths,
+                new Set(groupIds)
+              );
               libraryHoveringRef.current = false;
               latestImageTool.setImageDragState({
                 isImageDragging: true,
@@ -1062,6 +1095,13 @@ export const useInteractionController = ({
       } else {
         latestDrawingTools.finishLineDraw(point);
       }
+    } else if (currentDrawMode === 'arrow') {
+      // 箭头绘制模式：第一次点击开始，第二次点击完成
+      if (!latestDrawingTools.pathRef.current || !(latestDrawingTools.pathRef.current as any).startPoint) {
+        latestDrawingTools.startArrowDraw(point);
+      } else {
+        latestDrawingTools.finishArrowDraw(point);
+      }
     } else if (currentDrawMode === 'rect') {
       latestDrawingTools.startRectDraw(point);
     } else if (currentDrawMode === 'circle') {
@@ -1080,7 +1120,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag, isLockedImage, isSelectionLikeMode, isPendingUploadImage, startViewportPanDrag]);
+  }, [canvasRef, beginGroupPathDrag, collectDragImageGroupSnapshots, isLockedImage, isSelectionLikeMode, isPendingUploadImage, startViewportPanDrag]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(
@@ -1415,6 +1455,10 @@ export const useInteractionController = ({
             });
 
             altDragSnapshotsRef.current = snapshots;
+            const snapshotImageIds = new Set(snapshots.map((snapshot) => snapshot.id));
+            altDragGroupSnapshotsRef.current = altDragGroupSnapshotsRef.current.filter((snapshot) =>
+              snapshot.imageIds.every((imageId) => snapshotImageIds.has(imageId))
+            );
 
             // 创建占位框
             if (totalBounds && paper.project) {
@@ -1487,6 +1531,7 @@ export const useInteractionController = ({
             groupStartBounds: undefined,
           });
           document.body.classList.remove('tanva-canvas-dragging');
+          altDragGroupSnapshotsRef.current = [];
           return;
         }
         const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
@@ -1704,17 +1749,25 @@ export const useInteractionController = ({
 
     // ========== 绘图模式处理 ==========
 
-    // 直线模式：检查拖拽阈值或跟随鼠标
-    if (currentDrawMode === 'line') {
+    // 直线/箭头模式：检查拖拽阈值或跟随鼠标
+    if (currentDrawMode === 'line' || currentDrawMode === 'arrow') {
       if (latestDrawingTools.initialClickPoint && !latestDrawingTools.hasMoved && !latestDrawingTools.pathRef.current) {
         const distance = latestDrawingTools.initialClickPoint.getDistance(point);
         if (distance >= DRAG_THRESHOLD) {
-          latestDrawingTools.createLinePath(latestDrawingTools.initialClickPoint);
+          if (currentDrawMode === 'arrow') {
+            latestDrawingTools.createArrowPath(latestDrawingTools.initialClickPoint);
+          } else {
+            latestDrawingTools.createLinePath(latestDrawingTools.initialClickPoint);
+          }
         }
       }
 
       if (latestDrawingTools.pathRef.current && (latestDrawingTools.pathRef.current as any).startPoint) {
-        latestDrawingTools.updateLineDraw(point);
+        if (currentDrawMode === 'arrow') {
+          latestDrawingTools.updateArrowDraw(point);
+        } else {
+          latestDrawingTools.updateLineDraw(point);
+        }
       }
       return;
     }
@@ -1982,6 +2035,7 @@ export const useInteractionController = ({
           // 如果没有拖到库，则在目标位置创建副本
           const createImageFromSnapshot = latestImageTool.createImageFromSnapshot;
           if (!droppedToLibrary && typeof createImageFromSnapshot === 'function') {
+            const imageIdMap = new Map<string, string>();
             snapshots.forEach((snapshot) => {
               const newSnapshot = {
                 ...snapshot,
@@ -1992,15 +2046,33 @@ export const useInteractionController = ({
                   height: snapshot.bounds.height,
                 },
               };
-              createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+              const newId = createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+              if (newId) {
+                imageIdMap.set(snapshot.id, newId);
+              }
             });
-            logger.debug('🔄 Alt+拖拽：已在目标位置创建副本');
+
+            let clonedGroupCount = 0;
+            altDragGroupSnapshotsRef.current.forEach((groupSnapshot) => {
+              try {
+                const block = createImageGroupBlockFromSnapshot(groupSnapshot, imageIdMap);
+                if (block) clonedGroupCount += 1;
+              } catch (error) {
+                logger.warn('Alt+拖拽重建图片组失败', error);
+              }
+            });
+
+            logger.debug('🔄 Alt+拖拽：已在目标位置创建副本', {
+              images: imageIdMap.size,
+              imageGroups: clonedGroupCount,
+            });
           }
 
           // 清理占位框
           try { placeholder.remove(); } catch {}
           altDragPlaceholderRef.current = null;
           altDragSnapshotsRef.current = [];
+          altDragGroupSnapshotsRef.current = [];
 
           // 清理状态并提交历史
           latestImageTool.setImageDragState({
@@ -2027,6 +2099,7 @@ export const useInteractionController = ({
           try { altDragPlaceholderRef.current.remove(); } catch {}
           altDragPlaceholderRef.current = null;
           altDragSnapshotsRef.current = [];
+          altDragGroupSnapshotsRef.current = [];
         }
 
         // Alt+拖拽到库：检测鼠标是否在库面板区域
@@ -2083,6 +2156,7 @@ export const useInteractionController = ({
           latestImageTool.setImagesVisibility(altCloneIds, true);
         }
         altDragCloneIdsRef.current = [];
+        altDragGroupSnapshotsRef.current = [];
 
         latestImageTool.setImageDragState({
           isImageDragging: false,
@@ -2137,10 +2211,10 @@ export const useInteractionController = ({
     }
 
     // ========== 绘图模式处理 ==========
-    const validDrawingModes: DrawMode[] = ['line', 'free', 'rect', 'circle', 'image', '3d-model'];
+    const validDrawingModes: DrawMode[] = ['line', 'arrow', 'free', 'rect', 'circle', 'image', '3d-model'];
 
-    // 直线模式特殊处理：首击抬起时不应结束绘制，否则无法等待第二次点击
-    if (currentDrawMode === 'line') {
+    // 直线/箭头模式特殊处理：首击抬起时不应结束绘制，否则无法等待第二次点击
+    if (currentDrawMode === 'line' || currentDrawMode === 'arrow') {
       const hasLinePath = !!latestDrawingTools.pathRef.current;
       const waitingForSecondClick =
         !!latestDrawingTools.initialClickPoint &&
@@ -2148,7 +2222,7 @@ export const useInteractionController = ({
         !latestDrawingTools.hasMoved;
 
       if (waitingForSecondClick) {
-        logger.debug('🟦 直线模式：首击抬起，保持起点等待第二次点击');
+        logger.debug(`🟦 ${currentDrawMode}模式：首击抬起，保持起点等待第二次点击`);
         return;
       }
     }
@@ -2180,6 +2254,10 @@ export const useInteractionController = ({
         latestSetDrawMode
       );
       historyService.commit(`finish-${String(currentDrawMode)}`).catch(() => {});
+    }
+
+    if (isEraserRef.current) {
+      latestDrawingTools.resetEraserToolState?.();
     }
 
     latestDrawingTools.isDrawingRef.current = false;
@@ -2430,9 +2508,6 @@ export const useInteractionController = ({
 
       const point = clientToProject(canvas, event.clientX, event.clientY);
 
-      const currentDrawMode = drawModeRef.current;
-      const latestSimpleTextTool = simpleTextToolRef.current;
-
       // 检查是否双击了组块标题（用于编辑标题）
       const tryEditGroupBlockTitle = () => {
         try {
@@ -2579,7 +2654,7 @@ export const useInteractionController = ({
       // 先检查是否双击了组块标题
       if (tryEditGroupBlockTitle()) return;
 
-      const tryEnterPathEditMode = () => {
+      const tryDeleteLineOnDoubleClick = () => {
         if (!isSelectionLikeMode()) return false;
         const latestSelectionTool = selectionToolRef.current as any;
         if (!latestSelectionTool) return false;
@@ -2631,20 +2706,56 @@ export const useInteractionController = ({
                 return false;
               }
 
+              const path = current as paper.Path;
+              const data = (path.data || {}) as Record<string, any>;
+              const isLinePath =
+                data.tool === 'line' ||
+                (path.closed === false && Array.isArray(path.segments) && path.segments.length === 2);
+
+              if (isLinePath) {
+                try {
+                  path.remove();
+                } catch {
+                  return false;
+                }
+
+                try {
+                  if (latestSelectionTool?.selectedPath === path) {
+                    latestSelectionTool?.setSelectedPath?.(null);
+                  }
+                } catch {}
+                try {
+                  const selectedPaths = latestSelectionTool?.selectedPaths;
+                  if (Array.isArray(selectedPaths)) {
+                    latestSelectionTool?.setSelectedPaths?.(
+                      selectedPaths.filter((p: paper.Path) => p && p !== path)
+                    );
+                  }
+                } catch {}
+
+                try { paper.view.update(); } catch {}
+                event.preventDefault();
+                event.stopPropagation();
+                historyService.commit('delete-line-double-click').catch(() => {});
+                try { paperSaveService.triggerAutoSave('delete-line-double-click'); } catch {}
+                logger.debug('🗑️ 双击删除线条');
+                return true;
+              }
+
               if (typeof latestSelectionTool.handlePathSelect === 'function') {
-                latestSelectionTool.handlePathSelect(current, false, {
+                latestSelectionTool.handlePathSelect(path, false, {
                   enterEditMode: true,
                 });
-                latestSelectionTool?.setSelectedPath?.(current);
-                latestSelectionTool?.setSelectedPaths?.([current]);
+                latestSelectionTool?.setSelectedPath?.(path);
+                latestSelectionTool?.setSelectedPaths?.([path]);
               } else {
                 try {
-                  current.selected = true;
-                  current.fullySelected = true;
-                  current.data = { ...(current.data || {}), isPathEditing: true };
+                  path.selected = true;
+                  path.fullySelected = true;
+                  path.data = { ...(path.data || {}), isPathEditing: true };
                 } catch {}
-                latestSelectionTool?.setSelectedPath?.(current);
-                latestSelectionTool?.setSelectedPaths?.([current]);
+                latestSelectionTool?.setSelectedPath?.(path);
+                latestSelectionTool?.setSelectedPaths?.([path]);
               }
 
               try { paper.view.update(); } catch {}
@@ -2657,12 +2768,12 @@ export const useInteractionController = ({
             current = current.parent;
           }
         } catch (err) {
-          console.warn('hitTest path on dblclick failed', err);
+          console.warn('hitTest line on dblclick failed', err);
         }
         return false;
       };
 
-      if (tryEnterPathEditMode()) return;
+      if (tryDeleteLineOnDoubleClick()) return;
 
       const tryOpenImagePreview = () => {
         try {
@@ -2702,11 +2813,7 @@ export const useInteractionController = ({
 
       if (tryOpenImagePreview()) return;
 
-      logger.debug('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
-      
-      // 允许在任何模式下双击文本进行编辑
-      // 这样即使在选择模式下也能双击编辑文本
-      latestSimpleTextTool?.handleDoubleClick(point);
+      logger.debug('🎯 检测到原生双击事件');
     };
 
     // 绑定事件监听器
@@ -2725,6 +2832,9 @@ export const useInteractionController = ({
       isAltPressedRef.current = false;
       isSpacePressedRef.current = false;
       stopSpacePan();
+      if (isEraserRef.current) {
+        drawingToolsRef.current?.clearTemporaryEraserPaths?.();
+      }
     };
     const handleWindowBlur = () => resetModifierKeys();
     const handleVisibilityChange = () => {

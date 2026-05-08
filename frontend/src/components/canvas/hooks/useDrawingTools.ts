@@ -3,9 +3,13 @@
  * 处理自由绘制、矩形、圆形、直线等绘图工具的功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import {
+  clearPaperEraserTrails,
+  markPaperEraserTrail,
+} from '@/utils/paperEraserTrail';
 import type { 
   DrawingToolState,
   DrawingToolEventHandlers,
@@ -49,6 +53,55 @@ const getSketchProfileFactor = (t: number, style: LineStyle): number => {
     return 0.7 + edgeBias * 0.95;
   }
   return 0.7 + (1 - edgeBias) * 0.95;
+};
+
+const getArrowPathPoints = (
+  startPoint: paper.Point,
+  endPoint: paper.Point,
+  strokeWidth: number
+): paper.Point[] => {
+  const bodyWidth = Math.max(2, strokeWidth);
+  let vector = endPoint.subtract(startPoint);
+  let length = vector.length;
+
+  if (!Number.isFinite(length) || length < 0.5) {
+    vector = new paper.Point(Math.max(1, bodyWidth * 2), 0);
+    length = vector.length;
+  }
+
+  const direction = vector.normalize();
+  const normal = new paper.Point(-direction.y, direction.x);
+  const headLength = Math.min(Math.max(14, bodyWidth * 5.8), Math.max(1, length * 0.58));
+  const headHalfWidth = Math.min(
+    Math.max(6, bodyWidth * 1.8),
+    Math.max(bodyWidth, length * 0.4)
+  );
+  const bodyEndDistance = length > headLength + bodyWidth ? length - headLength : length * 0.45;
+  const bodyEnd = startPoint.add(direction.multiply(Math.max(0, bodyEndDistance)));
+  const tip = startPoint.add(direction.multiply(length));
+  const halfBody = bodyWidth / 2;
+
+  return [
+    startPoint.add(normal.multiply(halfBody)),
+    bodyEnd.add(normal.multiply(halfBody)),
+    bodyEnd.add(normal.multiply(headHalfWidth)),
+    tip,
+    bodyEnd.subtract(normal.multiply(headHalfWidth)),
+    bodyEnd.subtract(normal.multiply(halfBody)),
+    startPoint.subtract(normal.multiply(halfBody)),
+  ];
+};
+
+const updateArrowPathGeometry = (
+  path: paper.Path,
+  startPoint: paper.Point,
+  endPoint: paper.Point,
+  strokeWidth: number
+) => {
+  const points = getArrowPathPoints(startPoint, endPoint, strokeWidth);
+  path.removeSegments();
+  points.forEach((point) => path.add(point));
+  path.closed = true;
 };
 
 export const useDrawingTools = ({ 
@@ -155,6 +208,25 @@ export const useDrawingTools = ({
     return sketchPath;
   }, [currentColor, lineStyle, strokeWidth]);
 
+  const applyArrowStyleToPath = useCallback((path: paper.Path, startPoint: paper.Point, endPoint: paper.Point) => {
+    path.fillColor = new paper.Color(currentColor);
+    path.strokeColor = null;
+    path.strokeWidth = 0.01;
+    path.strokeCap = 'round';
+    path.strokeJoin = 'round';
+    path.dashArray = [];
+    path.dashOffset = 0;
+    path.data = {
+      ...(path.data || {}),
+      type: 'drawing',
+      tool: 'arrow',
+      lineStyle,
+      sourceStrokeWidth: strokeWidth,
+      arrowStart: { x: startPoint.x, y: startPoint.y },
+      arrowEnd: { x: endPoint.x, y: endPoint.y },
+    };
+  }, [currentColor, lineStyle, strokeWidth]);
+
   // 判断当前工具是否支持填充
   const supportsFill = (mode: DrawMode): boolean => {
     return ['rect', 'circle'].includes(mode);
@@ -174,6 +246,7 @@ export const useDrawingTools = ({
   const pathRef = useRef<ExtendedPath | null>(null);
   const isDrawingRef = useRef(false);
   const hasMovedRef = useRef(false); // 立即跟踪移动状态，避免异步问题
+  const initialClickPointRef = useRef<paper.Point | null>(null);
   const [drawingState, setDrawingState] = useState<DrawingToolState>({
     currentPath: null,
     isDrawing: false,
@@ -182,12 +255,17 @@ export const useDrawingTools = ({
     dragThreshold: 3
   });
 
+  useEffect(() => {
+    clearPaperEraserTrails();
+  }, []);
+
   // ========== 自由绘制功能 ==========
   
   // 开始自由绘制
   const startFreeDraw = useCallback((point: paper.Point) => {
     // 不立即创建图元，而是等待用户开始移动
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -207,6 +285,7 @@ export const useDrawingTools = ({
       pathRef.current.strokeWidth = strokeWidth * 1.5; // 稍微粗一点
       pathRef.current.dashArray = [5, 5]; // 虚线效果
       pathRef.current.opacity = 0.7;
+      markPaperEraserTrail(pathRef.current as unknown as paper.Path);
     } else {
       // 普通绘制模式
       pathRef.current.strokeColor = new paper.Color(currentColor);
@@ -230,15 +309,16 @@ export const useDrawingTools = ({
 
   // 继续自由绘制
   const continueFreeDraw = useCallback((point: paper.Point) => {
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
     // 如果还没有创建路径，检查是否超过拖拽阈值
-    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      const distance = drawingState.initialClickPoint.getDistance(point);
+    if (!pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      const distance = initialClickPoint.getDistance(point);
       
       if (distance >= drawingState.dragThreshold) {
         // 超过阈值，创建图元并开始绘制
         hasMovedRef.current = true; // 立即设置移动状态
         setDrawingState(prev => ({ ...prev, hasMoved: true }));
-        createFreeDrawPath(drawingState.initialClickPoint);
+        createFreeDrawPath(initialClickPoint);
       } else {
         // 还没超过阈值，继续等待
         return;
@@ -264,7 +344,7 @@ export const useDrawingTools = ({
         (paper.project as any).emit('change');
       }
     }
-  }, [strokeWidth, createFreeDrawPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
+  }, [strokeWidth, createFreeDrawPath, drawingState.initialClickPoint, drawingState.dragThreshold]);
 
   // ========== 矩形绘制功能 ==========
 
@@ -272,6 +352,7 @@ export const useDrawingTools = ({
   const startRectDraw = useCallback((point: paper.Point) => {
     // 不立即创建图元，等待用户开始移动
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -306,15 +387,16 @@ export const useDrawingTools = ({
 
   // 更新矩形绘制
   const updateRectDraw = useCallback((point: paper.Point) => {
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
     // 如果还没有创建路径，检查是否超过拖拽阈值
-    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      const distance = drawingState.initialClickPoint.getDistance(point);
+    if (!pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      const distance = initialClickPoint.getDistance(point);
       
       if (distance >= drawingState.dragThreshold) {
         // 超过阈值，创建图元并开始绘制
         hasMovedRef.current = true; // 立即设置移动状态
         setDrawingState(prev => ({ ...prev, hasMoved: true }));
-        createRectPath(drawingState.initialClickPoint);
+        createRectPath(initialClickPoint);
       } else {
         // 还没超过阈值，继续等待
         return;
@@ -342,7 +424,7 @@ export const useDrawingTools = ({
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth, applyLineStyleToPath, createRectPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
+  }, [currentColor, strokeWidth, applyLineStyleToPath, createRectPath, drawingState.initialClickPoint, drawingState.dragThreshold]);
 
   // ========== 圆形绘制功能 ==========
 
@@ -350,6 +432,7 @@ export const useDrawingTools = ({
   const startCircleDraw = useCallback((point: paper.Point) => {
     // 不立即创建图元，等待用户开始移动
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -393,15 +476,16 @@ export const useDrawingTools = ({
 
   // 更新圆形绘制
   const updateCircleDraw = useCallback((point: paper.Point) => {
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
     // 如果还没有创建路径，检查是否超过拖拽阈值
-    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      const distance = drawingState.initialClickPoint.getDistance(point);
+    if (!pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      const distance = initialClickPoint.getDistance(point);
       
       if (distance >= drawingState.dragThreshold) {
         // 超过阈值，创建图元并开始绘制
         hasMovedRef.current = true; // 立即设置移动状态
         setDrawingState(prev => ({ ...prev, hasMoved: true }));
-        createCirclePath(drawingState.initialClickPoint);
+        createCirclePath(initialClickPoint);
       } else {
         // 还没超过阈值，继续等待
         return;
@@ -433,13 +517,14 @@ export const useDrawingTools = ({
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth, applyLineStyleToPath, createCirclePath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
+  }, [currentColor, strokeWidth, applyLineStyleToPath, createCirclePath, drawingState.initialClickPoint, drawingState.dragThreshold]);
 
   // ========== 图片占位框绘制功能 ==========
 
   // 开始绘制图片占位框
   const startImageDraw = useCallback((point: paper.Point) => {
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -473,15 +558,16 @@ export const useDrawingTools = ({
 
   // 更新图片占位框绘制
   const updateImageDraw = useCallback((point: paper.Point) => {
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
     // 如果还没有创建路径，检查是否超过拖拽阈值
-    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      const distance = drawingState.initialClickPoint.getDistance(point);
+    if (!pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      const distance = initialClickPoint.getDistance(point);
       
       if (distance >= drawingState.dragThreshold) {
         // 超过阈值，创建图元并开始绘制
         hasMovedRef.current = true; // 立即设置移动状态
         setDrawingState(prev => ({ ...prev, hasMoved: true }));
-        createImagePath(drawingState.initialClickPoint);
+        createImagePath(initialClickPoint);
       } else {
         // 还没超过阈值，继续等待
         return;
@@ -510,6 +596,7 @@ export const useDrawingTools = ({
   // 开始绘制3D模型占位框
   const start3DModelDraw = useCallback((point: paper.Point) => {
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -543,15 +630,16 @@ export const useDrawingTools = ({
 
   // 更新3D模型占位框绘制
   const update3DModelDraw = useCallback((point: paper.Point) => {
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
     // 如果还没有创建路径，检查是否超过拖拽阈值
-    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      const distance = drawingState.initialClickPoint.getDistance(point);
+    if (!pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      const distance = initialClickPoint.getDistance(point);
       
       if (distance >= drawingState.dragThreshold) {
         // 超过阈值，创建图元并开始绘制
         hasMovedRef.current = true; // 立即设置移动状态
         setDrawingState(prev => ({ ...prev, hasMoved: true }));
-        create3DModelPath(drawingState.initialClickPoint);
+        create3DModelPath(initialClickPoint);
       } else {
         // 还没超过阈值，继续等待
         return;
@@ -587,6 +675,11 @@ export const useDrawingTools = ({
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
     applyLineStyleToPath(pathRef.current as unknown as paper.Path, 'line');
+    pathRef.current.data = {
+      ...(pathRef.current.data || {}),
+      type: 'drawing',
+      tool: 'line',
+    };
 
     // 保存起始点用于后续更新
     if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
@@ -609,6 +702,7 @@ export const useDrawingTools = ({
   const startLineDraw = useCallback((point: paper.Point) => {
     // 记录起始位置，等待拖拽阈值触发或第二次点击
     hasMovedRef.current = false; // 重置移动状态
+    initialClickPointRef.current = point;
     setDrawingState(prev => ({
       ...prev,
       initialClickPoint: point,
@@ -643,6 +737,7 @@ export const useDrawingTools = ({
       logger.drawing('完成直线绘制');
       const completedPath = convertToSketchPath(pathRef.current as paper.Path, 'line');
       pathRef.current = null;
+      initialClickPointRef.current = null;
       isDrawingRef.current = false;
       
       setDrawingState(prev => ({
@@ -663,16 +758,98 @@ export const useDrawingTools = ({
     }
   }, [convertToSketchPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
 
+  // ========== 箭头绘制功能 ==========
+
+  const startArrowDraw = useCallback((point: paper.Point) => {
+    hasMovedRef.current = false;
+    initialClickPointRef.current = point;
+    setDrawingState(prev => ({
+      ...prev,
+      initialClickPoint: point,
+      hasMoved: false
+    }));
+    logger.debug('箭头工具激活，等待拖拽');
+    eventHandlers.onDrawStart?.('arrow');
+  }, [eventHandlers.onDrawStart]);
+
+  const createArrowPath = useCallback((startPoint: paper.Point) => {
+    ensureDrawingLayer();
+    const initialEndPoint = startPoint.add(new paper.Point(1, 0));
+    pathRef.current = new paper.Path();
+    updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, initialEndPoint, strokeWidth);
+    applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, initialEndPoint);
+
+    if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
+
+    hasMovedRef.current = true;
+    setDrawingState(prev => ({
+      ...prev,
+      currentPath: pathRef.current,
+      isDrawing: true,
+      hasMoved: true
+    }));
+    isDrawingRef.current = true;
+
+    logger.debug('创建箭头路径');
+    eventHandlers.onPathCreate?.(pathRef.current);
+  }, [ensureDrawingLayer, strokeWidth, applyArrowStyleToPath, eventHandlers.onPathCreate]);
+
+  const updateArrowDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
+      updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, point, strokeWidth);
+      applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, point);
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
+    }
+  }, [strokeWidth, applyArrowStyleToPath]);
+
+  const finishArrowDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
+      updateArrowPathGeometry(pathRef.current as unknown as paper.Path, startPoint, point, strokeWidth);
+      applyArrowStyleToPath(pathRef.current as unknown as paper.Path, startPoint, point);
+
+      if (pathRef.current) delete (pathRef.current as any).startPoint;
+
+      logger.drawing('完成箭头绘制');
+      const completedPath = pathRef.current;
+      pathRef.current = null;
+      initialClickPointRef.current = null;
+      isDrawingRef.current = false;
+
+      setDrawingState(prev => ({
+        ...prev,
+        currentPath: null,
+        isDrawing: false,
+        initialClickPoint: null,
+        hasMoved: false
+      }));
+
+      if (paper.project && (paper.project as any).emit) {
+        (paper.project as any).emit('change');
+      }
+
+      eventHandlers.onPathComplete?.(completedPath);
+      eventHandlers.onDrawEnd?.('arrow');
+    }
+  }, [strokeWidth, applyArrowStyleToPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
+
   // ========== 通用绘制结束 ==========
   
   const finishDraw = useCallback((drawMode: DrawMode, performErase?: (path: paper.Path) => void, createImagePlaceholder?: (start: paper.Point, end: paper.Point) => void, create3DModelPlaceholder?: (start: paper.Point, end: paper.Point) => void, setDrawMode?: (mode: DrawMode) => void) => {
-    logger.debug(`finishDraw被调用: drawMode=${drawMode}, pathRef=${!!pathRef.current}, initialClickPoint=${!!drawingState.initialClickPoint}, hasMoved=${hasMovedRef.current}`);
+    const initialClickPoint = initialClickPointRef.current || drawingState.initialClickPoint;
+    logger.debug(`finishDraw被调用: drawMode=${drawMode}, pathRef=${!!pathRef.current}, initialClickPoint=${!!initialClickPoint}, hasMoved=${hasMovedRef.current}`);
     
     // 处理画线类工具的特殊情况：如果用户只是点击而没有拖拽，切换到选择模式
-    if ((drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') && !pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
-      logger.debug('finishDraw: 检测到只点击未拖拽，切换到选择模式');
+    if ((drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') && !pathRef.current && initialClickPoint && !hasMovedRef.current) {
+      logger.debug(
+        isEraser
+          ? 'finishDraw: 橡皮擦点击未拖拽，仅清理点击状态'
+          : 'finishDraw: 检测到只点击未拖拽，切换到选择模式'
+      );
       // 用户只是点击了但没有拖拽，清理状态并切换模式
       hasMovedRef.current = false;
+      initialClickPointRef.current = null;
       setDrawingState(prev => ({
         ...prev,
         initialClickPoint: null,
@@ -680,8 +857,11 @@ export const useDrawingTools = ({
         isDrawing: false
       }));
       isDrawingRef.current = false;
+      if (isEraser) {
+        clearPaperEraserTrails();
+      }
       
-      // 切换到选择模式（只有在真正没有拖拽时才切换）
+      // 单击不拖拽时不生成橡皮轨迹；橡皮工具回到选择模式。
       if (setDrawMode) {
         setDrawMode('select');
       }
@@ -692,9 +872,24 @@ export const useDrawingTools = ({
 
     if (pathRef.current) {
       // 如果是橡皮擦模式，执行擦除操作然后删除橡皮擦路径
-      if (isEraser && performErase) {
-        performErase(pathRef.current as any);
-        pathRef.current.remove(); // 删除橡皮擦路径本身
+      if (isEraser) {
+        const eraserPath = pathRef.current as unknown as paper.Path;
+        try {
+          performErase?.(eraserPath);
+        } finally {
+          eraserPath.data = {
+            ...(eraserPath.data || {}),
+            isActiveEraserTrail: false,
+          };
+          try {
+            eraserPath.remove(); // 删除橡皮擦路径本身
+          } catch {
+            // Ignore Paper cleanup errors for a transient eraser path.
+          }
+          pathRef.current = null;
+          initialClickPointRef.current = null;
+          clearPaperEraserTrails();
+        }
       } else if (drawMode === 'image' && createImagePlaceholder && setDrawMode) {
         // 图片模式：创建占位框
         const startPoint = pathRef.current?.startPoint;
@@ -741,6 +936,7 @@ export const useDrawingTools = ({
           completedPath = convertToSketchPath(completedPath, drawMode);
         }
         pathRef.current = null;
+        initialClickPointRef.current = null;
         
         if (!isEraser && drawMode !== 'image' && drawMode !== '3d-model') {
           eventHandlers.onPathComplete?.(completedPath as any);
@@ -753,6 +949,10 @@ export const useDrawingTools = ({
       }
     }
 
+    if (isEraser) {
+      clearPaperEraserTrails();
+    }
+
     // 重置绘图状态
     setDrawingState(prev => ({
       ...prev,
@@ -761,11 +961,45 @@ export const useDrawingTools = ({
       initialClickPoint: null,
       hasMoved: false
     }));
+    initialClickPointRef.current = null;
     isDrawingRef.current = false;
     
     eventHandlers.onDrawEnd?.(drawMode);
     logger.debug(`结束${drawMode}绘制`);
   }, [isEraser, drawingState.initialClickPoint, convertToSketchPath, eventHandlers.onPathComplete, eventHandlers.onDrawEnd]);
+
+  const resetEraserToolState = useCallback(() => {
+    const currentPath = pathRef.current as unknown as paper.Path | null;
+    if (currentPath) {
+      try {
+        currentPath.data = {
+          ...(currentPath.data || {}),
+          isActiveEraserTrail: false,
+        };
+        currentPath.remove();
+      } catch {
+        // Ignore cleanup errors for transient eraser paths.
+      }
+    }
+
+    pathRef.current = null;
+    hasMovedRef.current = false;
+    initialClickPointRef.current = null;
+    isDrawingRef.current = false;
+    setDrawingState(prev => ({
+      ...prev,
+      currentPath: null,
+      isDrawing: false,
+      initialClickPoint: null,
+      hasMoved: false
+    }));
+    clearPaperEraserTrails();
+    try {
+      paper.view?.update();
+    } catch {
+      // Ignore view update failures during teardown.
+    }
+  }, []);
 
   return {
     // 状态
@@ -774,7 +1008,7 @@ export const useDrawingTools = ({
     isDrawingRef,
     
     // 快捷访问常用状态
-    initialClickPoint: drawingState.initialClickPoint,
+    initialClickPoint: initialClickPointRef.current || drawingState.initialClickPoint,
     hasMoved: hasMovedRef.current, // 使用ref值保证同步
     currentPath: drawingState.currentPath,
     isDrawing: drawingState.isDrawing,
@@ -799,6 +1033,14 @@ export const useDrawingTools = ({
     updateLineDraw,
     finishLineDraw,
     createLinePath,
+
+    // 箭头绘制
+    startArrowDraw,
+    updateArrowDraw,
+    finishArrowDraw,
+    createArrowPath,
+    clearTemporaryEraserPaths: clearPaperEraserTrails,
+    resetEraserToolState,
 
     // 图片占位框绘制
     startImageDraw,

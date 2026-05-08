@@ -25,6 +25,7 @@
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
 - `POST minimax-speech` / `POST minimax-music`
+- `GET banana-route-success-rates`：按客户端时区统计当天 Banana `normal/stable` 路线成功率，返回成功/失败/处理中调用数，供工作区顶部路线切换展示
 
 ## 注意事项
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
@@ -44,11 +45,18 @@
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
+- Banana `tool-selection` 在 stable/尊享路线走腾讯文本通道时会带上前端上下文；本地兜底识别 `改文字` / `改成` / `替换文字` 等缓存图编辑意图，避免工具选择失败时落到纯文本聊天。
 - Banana 文本�?Apimart 时使�?`https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`�?
 - Banana 文本链路按档位映射：`Fast (banana-2.5) -> gemini-2.5-flash`、`Pro (banana) -> gemini-3-pro-preview`、`Ultra (banana-3.1/nano2) -> gemini-3.1-pro-preview`；其�?Ultra �?147 �?Apimart 通道均统一使用 `gemini-3.1-pro-preview`�?
 - `POST /api/ai/analyze-image` 默认优先使用 `gemini-3.1-pro`（语言模型）做多模态分析；`banana-2.5` 仍保�?`gemini-2.5-flash-image-preview`�?
 - 图像分析链路遇到上游配额/限流�?29 / quota / resource exhausted）时，后端会在退款后透传 HTTP `429`，不再统一返回 `500`�?
 - `minimax-music` 默认强制 `output_format=url`、`stream=false`，并在上游返�?`status=1`（合成中）或请求超时时返回友好错误提示�?
+
+## 2026-05-05 lt-dev9 选择性迁移补充
+- `POST /api/ai/text-chat` 在非 Gemini provider 路径会把 provider 返回的 `webSearchResult` 与 `metadata` 一并透传给前端，保持 AI Chat/Flow 文本节点元数据链路一致。
+- `buildCreditRequestParams` 会保留调用方显式传入的 `channelHint`；仅当 Banana route 或 Banana/Nano provider 有更明确路线时才覆盖。
+- `POST /api/ai/analyze-video` 计费对齐 `lt-dev9`：节点默认 `60` 积分，且按 Banana route/channel 与 Fast/Pro/Ultra 档位动态扣费（normal `60/90/120`，stable `80/120/160`）。
+- `VideoProviderService` 的远程视频转存缓存改为 `{ url, touchedAt }`，缓存命中会刷新访问时间，并按 1 小时 TTL / 500 条上限清理，避免长时间运行的后端进程无限增长。
 
 ## 配置项（以代码与环境为准�?
 - Gemini/第三方：`GOOGLE_GEMINI_API_KEY`、`RUNNINGHUB_API_KEY` �?

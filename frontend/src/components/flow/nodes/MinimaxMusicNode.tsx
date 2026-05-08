@@ -15,6 +15,7 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import { useImeSafeTextValue } from "../hooks/useImeSafeTextInput";
 
 const PROMPT_MAX_LENGTH = 2000;
 const LYRICS_MAX_LENGTH = 3500;
@@ -33,6 +34,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     audioUrl?: string;
     error?: string;
     prompt?: string;
@@ -73,25 +75,19 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & {
+    const nativeEvent = (event as React.SyntheticEvent<unknown, Event>).nativeEvent as Event & {
       stopImmediatePropagation?: () => void;
     };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
-  const handlePromptChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const next = event.target.value.slice(0, PROMPT_MAX_LENGTH);
-      updateNodeData({ prompt: next });
-    },
+  const commitPrompt = React.useCallback(
+    (next: string) => updateNodeData({ prompt: next }),
     [updateNodeData]
   );
 
-  const handleLyricsChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const next = event.target.value.slice(0, LYRICS_MAX_LENGTH);
-      updateNodeData({ lyrics: next });
-    },
+  const commitLyrics = React.useCallback(
+    (next: string) => updateNodeData({ lyrics: next }),
     [updateNodeData]
   );
 
@@ -113,12 +109,19 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
     [updateNodeData]
   );
 
+  const onRunCallback = data.onRun;
   const handleRun = React.useCallback(() => {
-    data.onRun?.(id);
-  }, [data.onRun, id]);
+    onRunCallback?.(id);
+  }, [id, onRunCallback]);
 
   const prompt = typeof data.prompt === "string" ? data.prompt : "";
   const lyrics = typeof data.lyrics === "string" ? data.lyrics : "";
+  const promptInput = useImeSafeTextValue(prompt, commitPrompt, {
+    maxLength: PROMPT_MAX_LENGTH,
+  });
+  const lyricsInput = useImeSafeTextValue(lyrics, commitLyrics, {
+    maxLength: LYRICS_MAX_LENGTH,
+  });
   const isInstrumental = data.isInstrumental === true;
   const lyricsOptimizer = data.lyricsOptimizer === true;
 
@@ -315,12 +318,14 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
 
       <div style={{ display: "grid", gap: 6 }}>
         <label style={{ fontSize: 11, color: isFlowDark ? "#9ca3af" : "#6b7280" }}>
-          {lt("曲风提示词", "Prompt")} ({prompt.length}/{PROMPT_MAX_LENGTH})
+          {lt("曲风提示词", "Prompt")} ({promptInput.value.length}/{PROMPT_MAX_LENGTH})
         </label>
         <textarea
           className="nodrag"
-          value={prompt}
-          onChange={handlePromptChange}
+          value={promptInput.value}
+          onChange={promptInput.onChange}
+          onCompositionStart={promptInput.onCompositionStart}
+          onCompositionEnd={promptInput.onCompositionEnd}
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
           maxLength={PROMPT_MAX_LENGTH}
@@ -365,12 +370,14 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
         {!isInstrumental ? (
           <>
             <label style={{ fontSize: 11, color: isFlowDark ? "#9ca3af" : "#6b7280" }}>
-              {lt("歌词", "Lyrics")} ({lyrics.length}/{LYRICS_MAX_LENGTH})
+              {lt("歌词", "Lyrics")} ({lyricsInput.value.length}/{LYRICS_MAX_LENGTH})
             </label>
             <textarea
               className="nodrag"
-              value={lyrics}
-              onChange={handleLyricsChange}
+              value={lyricsInput.value}
+              onChange={lyricsInput.onChange}
+              onCompositionStart={lyricsInput.onCompositionStart}
+              onCompositionEnd={lyricsInput.onCompositionEnd}
               onPointerDownCapture={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
               maxLength={LYRICS_MAX_LENGTH}
@@ -407,7 +414,11 @@ function MinimaxMusicNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      <GenerationProgressBar status={data.status} />
+      <GenerationProgressBar
+        status={data.status}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
 
       {runDisabled && (
         <div style={{ fontSize: 11, color: "#b45309" }}>

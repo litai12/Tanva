@@ -18,4 +18,10 @@ export class SettingsPublicController {
       wechatGroup: wechatGroupSetting?.value || null,
     };
   }
+
+  @Get('login-notice')
+  @ApiOperation({ summary: '获取登录后用户提醒配置（公开接口）' })
+  async getLoginNotice() {
+    return this.adminService.getLoginNotice();
+  }
 }

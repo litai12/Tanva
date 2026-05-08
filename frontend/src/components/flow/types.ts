@@ -61,6 +61,7 @@ export type TextChatData = {
   status?: TextChatStatus;
   responseText?: string;
   manualInput?: string;
+  textChatSkillId?: string;
   enableWebSearch?: boolean;
   error?: string;
   modelProvider?: 'banana-2.5' | 'banana' | 'banana-3.1';
@@ -72,7 +73,8 @@ export type StoryboardSplitData = {
   status?: StoryboardSplitStatus;
   inputText?: string;
   segments?: string[];
-  outputCount?: number; // default 9, max 20
+  outputCount?: number; // auto from segments, max 50
+  splitFormat?: string;
   error?: string;
   boxW?: number;
   boxH?: number;

@@ -23,11 +23,13 @@ import {
   useFlowNodeDarkTheme,
 } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 
 type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string;
@@ -407,8 +409,9 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           );
         }
 
-        if (sourceNode.type === "imageSplit" && /^image\d+$/i.test(sourceHandle)) {
-          const idx = Math.max(0, Number(sourceHandle.replace(/[^0-9]/g, "")) - 1);
+        if (sourceNode.type === "imageSplit") {
+          const idx = getImageSplitHandleIndex(sourceHandle);
+          if (idx === null) return undefined;
           const item = Array.isArray(sourceData.splitImages)
             ? sourceData.splitImages[idx]
             : undefined;
@@ -591,6 +594,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
   const textureRef = React.useRef<THREE.Texture | null>(null);
   const renderPendingRef = React.useRef<number | null>(null);
   const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
+  const resizeRafRef = React.useRef<number | null>(null);
 
   const renderNow = React.useCallback(() => {
     const renderer = rendererRef.current;
@@ -727,10 +731,18 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
     subjectMeshRef.current = subject;
 
     try {
-      resizeObserverRef.current = new ResizeObserver(() => {
-        syncRendererSize();
-      });
+      const scheduleResize = () => {
+        if (resizeRafRef.current !== null) {
+          cancelAnimationFrame(resizeRafRef.current);
+        }
+        resizeRafRef.current = requestAnimationFrame(() => {
+          resizeRafRef.current = null;
+          syncRendererSize();
+        });
+      };
+      resizeObserverRef.current = new ResizeObserver(scheduleResize);
       resizeObserverRef.current.observe(container);
+      scheduleResize();
     } catch {
       resizeObserverRef.current = null;
     }
@@ -748,6 +760,10 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           resizeObserverRef.current.disconnect();
         } catch {}
         resizeObserverRef.current = null;
+      }
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
       }
 
       if (textureRef.current) {
@@ -1628,7 +1644,12 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
         }}
       />
 
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
       {status === "failed" && data.error ? (
         <div style={{ fontSize: 12, color: "#f87171", whiteSpace: "pre-wrap" }}>
           {data.error}

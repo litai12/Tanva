@@ -34,6 +34,7 @@ import {
   Sparkles,
   Trash2,
   Cloud,
+  Crown,
   Zap,
   Key,
   Eye,
@@ -70,6 +71,10 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import {
+  getBananaRouteSuccessRates,
+  type BananaRouteSuccessRatesResponse,
+} from "@/services/bananaRouteStatsApi";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
@@ -82,6 +87,7 @@ import {
   type DailyRewardStatus,
   type UserCreditsInfo,
 } from "@/services/adminApi";
+import type { BananaImageRoute } from "@/types/ai";
 
 // Nano Banana 通道定价常量
 type BananaPricingTier = "fast" | "pro" | "ultra";
@@ -162,6 +168,14 @@ const getTodayDateKey = () => {
   return `${year}-${month}-${day}`;
 };
 
+const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
+  if (typeof rate !== "number") return 0;
+  if (rate >= 98) return 4;
+  if (rate >= 95) return 3;
+  if (rate >= 90) return 2;
+  return 1;
+};
+
 const FloatingHeader: React.FC = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -215,6 +229,8 @@ const FloatingHeader: React.FC = () => {
   } = useCanvasStore();
   const edgeColorMode = useFlowStore((s) => s.edgeColorMode);
   const setEdgeColorMode = useFlowStore((s) => s.setEdgeColorMode);
+  const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
+  const setShowFpsOverlay = useFlowStore((s) => s.setShowFpsOverlay);
 
   // AI 配置
   const {
@@ -320,6 +336,8 @@ const FloatingHeader: React.FC = () => {
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
+  const [bananaRouteSuccessRates, setBananaRouteSuccessRates] =
+    useState<BananaRouteSuccessRatesResponse | null>(null);
   const [dailyRewardStatus, setDailyRewardStatus] =
     useState<DailyRewardStatus | null>(null);
   const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
@@ -648,11 +666,31 @@ const FloatingHeader: React.FC = () => {
   );
   const authUser = useAuthStore((s) => s.user);
 
+  const refreshBananaRouteSuccessRates = useCallback(async () => {
+    try {
+      const result = await getBananaRouteSuccessRates();
+      setBananaRouteSuccessRates(result);
+    } catch (error) {
+      setBananaRouteSuccessRates(null);
+      console.warn("[FloatingHeader] 加载 Banana 线路成功率失败:", error);
+    }
+  }, []);
+
   // 获取全局历史数量（仅在已登录时调用，避免未登录时触发受保护接口）
   useEffect(() => {
     if (!authUser) return;
     fetchGlobalHistoryCount();
   }, [fetchGlobalHistoryCount, authUser]);
+
+  useEffect(() => {
+    if (!authUser) {
+      setBananaRouteSuccessRates(null);
+      return;
+    }
+    void refreshBananaRouteSuccessRates();
+    const timer = window.setInterval(refreshBananaRouteSuccessRates, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [authUser, refreshBananaRouteSuccessRates]);
 
   const handleClearImageHistory = React.useCallback(() => {
     if (historyCount === 0) {
@@ -873,6 +911,64 @@ const FloatingHeader: React.FC = () => {
       : isEnglish
         ? "Switch to night theme"
         : "切换到夜晚主题";
+  const bananaRouteOptions = useMemo(
+    () => [
+      {
+        value: "normal" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.normal"),
+        shortLabel: t("workspace.header.routeSwitch.normalShort"),
+        description: t("workspace.settings.aiTab.bananaRoute.normalDesc"),
+        Icon: Zap,
+        activeClass:
+          "border-sky-500 bg-sky-50 text-sky-700 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-sky-500 dark:hover:bg-sky-900/20",
+        iconClass: "text-sky-600 dark:text-sky-400",
+      },
+      {
+        value: "stable" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.stable"),
+        shortLabel: t("workspace.header.routeSwitch.stableShort"),
+        description: t("workspace.settings.aiTab.bananaRoute.stableDesc"),
+        Icon: Crown,
+        activeClass:
+          "border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-400 dark:bg-amber-900/30 dark:text-amber-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/20",
+        iconClass: "text-amber-600 dark:text-amber-400",
+      },
+    ],
+    [t]
+  );
+  const currentBananaRouteOption =
+    bananaRouteOptions.find((option) => option.value === bananaImageRoute) ||
+    bananaRouteOptions[0];
+  const CurrentBananaRouteIcon = currentBananaRouteOption.Icon;
+  const bananaRouteButtonTitle = t("workspace.header.routeSwitch.buttonTitle", {
+    route: currentBananaRouteOption.label,
+  });
+  const handleBananaRouteSelect = useCallback(
+    (route: BananaImageRoute) => {
+      if (route === bananaImageRoute) return;
+      setBananaImageRoute(route);
+      const selected =
+        bananaRouteOptions.find((option) => option.value === route) ||
+        bananaRouteOptions[0];
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: t("workspace.header.routeSwitch.toast", {
+                route: selected.label,
+              }),
+              type: "success",
+            },
+          })
+        );
+      }
+    },
+    [bananaImageRoute, bananaRouteOptions, setBananaImageRoute, t]
+  );
 
   const displayName =
     user?.name ||
@@ -1652,14 +1748,14 @@ const FloatingHeader: React.FC = () => {
                   className={cn(
                     "relative rounded-xl border-2 p-4 text-left transition-all",
                     bananaImageRoute === "stable"
-                      ? "border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-900/30"
-                      : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20"
+                      ? "border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-900/30"
+                      : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-amber-500 dark:hover:bg-amber-900/20"
                   )}
                 >
                   <div className='flex items-start justify-between'>
                     <div className='flex-1'>
                       <div className='flex items-center gap-2 mb-1'>
-                        <Star className='w-4 h-4 text-emerald-600 dark:text-emerald-400' />
+                        <Crown className='w-4 h-4 text-amber-600 dark:text-amber-400' />
                         <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
                           {t("workspace.settings.aiTab.bananaRoute.stable")}
                         </span>
@@ -1669,7 +1765,7 @@ const FloatingHeader: React.FC = () => {
                       </div>
                     </div>
                     {bananaImageRoute === "stable" && (
-                      <Check className='flex-shrink-0 w-5 h-5 text-emerald-600 dark:text-emerald-400' />
+                      <Check className='flex-shrink-0 w-5 h-5 text-amber-600 dark:text-amber-400' />
                     )}
                   </div>
                 </button>
@@ -1798,6 +1894,22 @@ const FloatingHeader: React.FC = () => {
       case "advanced":
         return (
           <div className='pb-6 space-y-6'>
+            <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
+              <div>
+                <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
+                  {t("workspace.settings.advancedTab.frameMonitor.title")}
+                </div>
+                <div className='text-xs text-slate-500 dark:text-slate-400'>
+                  {t("workspace.settings.advancedTab.frameMonitor.desc")}
+                </div>
+              </div>
+              <Switch
+                checked={showFpsOverlay}
+                onCheckedChange={setShowFpsOverlay}
+                className='h-5 w-9'
+                aria-label={t("workspace.settings.advancedTab.frameMonitor.title")}
+              />
+            </div>
             {import.meta.env.DEV && (
               <div className='flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
@@ -2184,6 +2296,140 @@ const FloatingHeader: React.FC = () => {
               </span>
               <span className='tabular-nums font-medium'>{topCreditsText}</span>
             </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                type='button'
+                className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 flex items-center justify-center'
+                title={bananaRouteButtonTitle}
+                aria-label={bananaRouteButtonTitle}
+              >
+                <CurrentBananaRouteIcon
+                  className={cn("w-4 h-4", currentBananaRouteOption.iconClass)}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align='center'
+                sideOffset={10}
+                className={cn(
+                  "w-[300px] rounded-2xl border p-2 shadow-[0_18px_40px_rgba(15,23,42,0.14)]",
+                  isDarkTheme
+                    ? "border-slate-700 bg-slate-900/95"
+                    : "border-slate-200 bg-white/95"
+                )}
+              >
+                <DropdownMenuLabel
+                  className={cn(
+                    "px-2 pb-2 pt-1 text-[11px] font-semibold",
+                    isDarkTheme ? "text-slate-400" : "text-slate-500"
+                  )}
+                >
+                  {t("workspace.header.routeSwitch.menuTitle")}
+                </DropdownMenuLabel>
+                <div className='space-y-1'>
+                  {bananaRouteOptions.map((option) => {
+                    const active = option.value === bananaImageRoute;
+                    const Icon = option.Icon;
+                    const routeStats =
+                      bananaRouteSuccessRates?.routes?.[option.value] ?? null;
+                    const successRate = routeStats?.successRate ?? null;
+                    const signalLevel = resolveRouteSignalLevel(successRate);
+                    const rateLabel =
+                      typeof successRate === "number"
+                        ? t("workspace.header.routeSwitch.todayRate", {
+                            rate: `${successRate}%`,
+                          })
+                        : t("workspace.header.routeSwitch.todayRateUnknown");
+                    const rateTitle =
+                      typeof successRate === "number" && routeStats
+                        ? t("workspace.header.routeSwitch.rateTitle", {
+                            rate: `${successRate}%`,
+                            successful: routeStats.successfulCalls,
+                            completed: routeStats.completedCalls,
+                          })
+                        : t("workspace.header.routeSwitch.rateNoData");
+                    const filledBarClass =
+                      option.value === "stable" ? "bg-amber-500" : "bg-sky-500";
+                    const emptyBarClass = isDarkTheme ? "bg-slate-600" : "bg-slate-200";
+                    return (
+                      <DropdownMenuItem
+                        key={option.value}
+                        type='button'
+                        onClick={() => handleBananaRouteSelect(option.value)}
+                        className={cn(
+                          "group flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all hover:bg-transparent dark:hover:bg-transparent",
+                          active ? option.activeClass : option.inactiveClass
+                        )}
+                      >
+                        <Icon
+                          className={cn(
+                            "mt-0.5 h-4 w-4 shrink-0",
+                            option.iconClass
+                          )}
+                        />
+                        <span className='min-w-0 flex-1'>
+                          <span className='block text-sm font-semibold leading-5'>
+                            {option.label}
+                          </span>
+                          <span
+                            className={cn(
+                              "mt-0.5 block text-xs leading-4",
+                              active
+                                ? "text-current opacity-75"
+                                : isDarkTheme
+                                  ? "text-slate-400"
+                                  : "text-slate-500"
+                            )}
+                          >
+                            {option.description}
+                          </span>
+                        </span>
+                        <span
+                          className='ml-auto flex shrink-0 flex-col items-end justify-center gap-1 pl-2'
+                          title={rateTitle}
+                        >
+                          <span className='flex h-4 items-end gap-[2px]' aria-hidden='true'>
+                            {Array.from({ length: 4 }, (_, index) => {
+                              const filled = index < signalLevel;
+                              return (
+                                <span
+                                  key={index}
+                                  className={cn(
+                                    "w-[3px] rounded-full transition-colors",
+                                    filled ? filledBarClass : emptyBarClass
+                                  )}
+                                  style={{ height: 5 + index * 3 }}
+                                />
+                              );
+                            })}
+                          </span>
+                          <span
+                            className={cn(
+                              "text-[11px] font-semibold leading-none tabular-nums",
+                              option.value === "stable"
+                                ? "text-amber-700 dark:text-amber-300"
+                                : "text-sky-700 dark:text-sky-300"
+                            )}
+                          >
+                            {rateLabel}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </div>
+                {!bananaProviderSelected && (
+                  <div
+                    className={cn(
+                      "px-2 pt-2 text-[11px] leading-4",
+                      isDarkTheme ? "text-amber-300" : "text-amber-600"
+                    )}
+                  >
+                    {t("workspace.settings.aiTab.bananaRoute.hint")}
+                  </div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 

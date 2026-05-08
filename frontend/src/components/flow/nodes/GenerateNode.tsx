@@ -17,7 +17,9 @@ import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
 import { useFlowRenderMode } from "../FlowRenderModeContext";
+import { getImageSplitHandleIndex } from "../utils/imageSplitHandles";
 import {
+  getFlowImageReferenceLimit,
   getFlowModelProviderMode,
   resolveFlowModelProvider,
   type FlowModelProvider,
@@ -27,6 +29,7 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
+    progressStartedAt?: number | string | null;
     imageData?: string;
     imageUrl?: string;
     thumbnail?: string;
@@ -81,7 +84,6 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-const MAX_INPUT_PREVIEWS = 6;
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
 type OrderedInputEdge = {
@@ -198,15 +200,9 @@ const readConnectedImagesFromNode = (
   };
 
   if (typeof sourceHandle === "string") {
-    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
-    if (singleMatch) {
-      const idx = Math.max(0, Number(singleMatch[1]) - 1);
-      return pickAt(idx);
-    }
-
-    const splitMatch = /^image(\d+)$/.exec(sourceHandle);
-    if (splitMatch) {
-      const idx = Math.max(0, Number(splitMatch[1]) - 1);
+    const splitIdx = node.type === "imageSplit" ? getImageSplitHandleIndex(sourceHandle) : null;
+    if (splitIdx !== null) {
+      const idx = splitIdx;
       const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
       const rect = splitRects[idx];
       const rectRecord =
@@ -262,6 +258,12 @@ const readConnectedImagesFromNode = (
       return value
         ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
         : [];
+    }
+
+    const singleMatch = /^img(\d+)$/.exec(sourceHandle);
+    if (singleMatch) {
+      const idx = Math.max(0, Number(singleMatch[1]) - 1);
+      return pickAt(idx);
     }
   }
 
@@ -521,6 +523,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     () => resolveFlowModelProvider(data.modelProvider, aiProvider),
     [aiProvider, data.modelProvider]
   );
+  const maxInputPreviews = React.useMemo(
+    () => getFlowImageReferenceLimit(effectiveProvider),
+    [effectiveProvider]
+  );
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
   const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
@@ -598,7 +604,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
               ...item,
               id: `${edge.id || edge.source}-${edgeIdx}-${item.id}-${itemIdx}`,
             });
-            if (out.length >= MAX_INPUT_PREVIEWS) {
+            if (out.length >= maxInputPreviews) {
               return out;
             }
           }
@@ -606,7 +612,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
 
         return out;
       },
-      [id]
+      [id, maxInputPreviews]
     )
   );
 
@@ -965,16 +971,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 : lt("运行生成", "Run generation")
             }
           >
-            {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                {resolvedRunCredits ? (
-                  <RunCreditBadge credits={resolvedRunCredits} runButton />
-                ) : null}
-              </>
-            )}
+            <span className='run-text-trigger'>Run</span>
+            {resolvedRunCredits ? (
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            ) : null}
           </button>
           <button
             onClick={onSend}
@@ -1171,7 +1171,12 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{lt("等待生成", "Waiting for generation")}</span>
         )}
       </div>
-      <GenerationProgressBar status={status} simulateDurationMs={60 * 1000} />
+      <GenerationProgressBar
+        status={status}
+        simulateDurationMs={60 * 1000}
+        startedAt={data.progressStartedAt}
+        runKey={id}
+      />
       {status === "failed" && error && (
         <div
           style={{
@@ -1195,7 +1200,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
       {/* 兼容历史多图输入句柄，避免旧连线 targetHandle=img2/img3... 报错 */}
-      {["img2", "img3", "img4", "img5", "img6"].map((legacyHandleId) => (
+      {Array.from({ length: 13 }, (_, index) => `img${index + 2}`).map((legacyHandleId) => (
         <Handle
           key={legacyHandleId}
           type='target'

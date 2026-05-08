@@ -71,6 +71,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
   const lastZoomRef = useRef(zoom); // 缓存上次的缩放值
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
+  const zoomRedrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Paper.js对象池 - 优化：增加池大小和清理机制
   const pathPoolRef = useRef<paper.Path[]>([]);
@@ -231,6 +232,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     };
 
     const renderMultiplier = calculateRenderMultiplier(zoom);
+    const showGridLines = zoom >= 0.3;
+    const showMinorGrid = zoom >= 0.4;
+    const forceFullVisibleGridRange = zoom < 0.4;
 
     // 优化：虚拟化限制，根据缩放动态调整，并设置绝对像素上限
     const maxRenderWidth = viewWidth * renderMultiplier;
@@ -242,8 +246,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const cappedRenderHeight = Math.min(maxRenderHeight, MAX_RENDER_PIXELS);
 
     // 根据渲染区域限制网格密度，防止低缩放下生成过多网格线
-    const estimatedLinesX = cappedRenderWidth / effectiveGridSize;
-    const estimatedLinesY = cappedRenderHeight / effectiveGridSize;
+    const densityWidth = forceFullVisibleGridRange ? viewWidth : cappedRenderWidth;
+    const densityHeight = forceFullVisibleGridRange ? viewHeight : cappedRenderHeight;
+    const estimatedLinesX = densityWidth / effectiveGridSize;
+    const estimatedLinesY = densityHeight / effectiveGridSize;
     const densityFactor = Math.max(
       1,
       Math.ceil(Math.max(estimatedLinesX, estimatedLinesY) / MAX_LINES_PER_AXIS)
@@ -283,8 +289,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       return { min: snappedMin, max: snappedMax };
     };
 
-    const { min: finalMinX, max: finalMaxX } = calcRange(minX, maxX, cappedRenderWidth, centerX);
-    const { min: finalMinY, max: finalMaxY } = calcRange(minY, maxY, cappedRenderHeight, centerY);
+    const { min: clippedMinX, max: clippedMaxX } = calcRange(minX, maxX, cappedRenderWidth, centerX);
+    const { min: clippedMinY, max: clippedMaxY } = calcRange(minY, maxY, cappedRenderHeight, centerY);
+    const finalMinX = forceFullVisibleGridRange ? minX : clippedMinX;
+    const finalMaxX = forceFullVisibleGridRange ? maxX : clippedMaxX;
+    const finalMinY = forceFullVisibleGridRange ? minY : clippedMinY;
+    const finalMaxY = forceFullVisibleGridRange ? maxY : clippedMaxY;
 
     // 创建或更新坐标轴（如果启用）- 固定在Paper.js (0,0)点
     if (showAxis) {
@@ -346,8 +356,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
 
       // 线条网格
-      if (gridStyle === GridStyle.LINES) {
-        const showMinorGrid = zoom >= 0.3 && densityFactor === 1;
+      if (gridStyle === GridStyle.LINES && showGridLines) {
         const counts = createLineGrid(effectiveGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer, { showMinorGrid });
         poolStats = { main: counts.mainCount, minor: counts.minorCount, lines: counts.lineCount };
 
@@ -588,12 +597,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     backgroundRectRef.current = backgroundRect as any;
   };
 
+  const createGridRef = useRef(createGrid);
+  createGridRef.current = createGrid;
+
   // 统一网格渲染控制 - 合并所有触发条件到单一useEffect
   useEffect(() => {
     if (!isPaperInitialized || !canvasRef.current) return;
 
     // 如果网格和坐标轴都关闭，清理并返回
     if (!showGrid && !showAxis) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       const gridLayer = gridLayerRef.current;
       if (gridLayer && !isLayerRemoved(gridLayer)) {
         gridLayer.removeChildren();
@@ -626,6 +642,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const shouldRedraw = shouldRedrawFromPan || zoomChanged;
 
     if (isFirstRender) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       createGrid(gridSize);
       lastPanRef.current = { x: panX, y: panY };
       lastZoomRef.current = zoom;
@@ -633,26 +653,50 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       return;
     }
 
+    if (zoomChanged) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+      }
+      zoomRedrawTimerRef.current = setTimeout(() => {
+        const state = useCanvasStore.getState();
+        createGrid(gridSizeRef.current);
+        lastPanRef.current = { x: state.panX, y: state.panY };
+        lastZoomRef.current = state.zoom;
+        zoomRedrawTimerRef.current = null;
+      }, 140);
+      return;
+    }
+
     if (shouldRedraw) {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
       createGrid(gridSize);
       lastPanRef.current = { x: panX, y: panY };
       lastZoomRef.current = zoom;
     }
   }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, gridColor, gridBgColor, gridBgEnabled, createGrid]);
 
+  useEffect(() => {
+    return () => {
+      if (zoomRedrawTimerRef.current) {
+        clearTimeout(zoomRedrawTimerRef.current);
+        zoomRedrawTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // 额外的初始化兜底：在 Paper 初始化后的下一帧与100ms后各触发一次渲染
   useEffect(() => {
     if (!isPaperInitialized || !showGrid) return;
-    const raf = requestAnimationFrame(() => createGrid(gridSize));
-    const timer = setTimeout(() => createGrid(gridSize), 120);
+    const raf = requestAnimationFrame(() => createGridRef.current(gridSizeRef.current));
+    const timer = setTimeout(() => createGridRef.current(gridSizeRef.current), 120);
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
-  }, [isPaperInitialized, showGrid, gridSize, createGrid]);
+  }, [isPaperInitialized, showGrid, gridSize]);
 
   // 监听项目变更（如 importJSON 后）强制重绘网格
   // 使用 ref 来获取最新的 createGrid 和 gridSize，避免依赖变化导致事件监听器频繁重建
-  const createGridRef = useRef(createGrid);
-  createGridRef.current = createGrid;
-
   useEffect(() => {
     const handler = () => {
       isInitializedRef.current = false;
