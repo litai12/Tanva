@@ -78,10 +78,25 @@ const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> =
   '2K': 30,
   '4K': 40,
 };
-const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
-  '1K': 40,
-  '2K': 80,
-  '4K': 110,
+const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<
+  'low' | 'medium' | 'high',
+  Record<'1K' | '2K' | '4K', number>
+> = {
+  low: {
+    '1K': 30,
+    '2K': 35,
+    '4K': 40,
+  },
+  medium: {
+    '1K': 65,
+    '2K': 110,
+    '4K': 160,
+  },
+  high: {
+    '1K': 190,
+    '2K': 350,
+    '4K': 560,
+  },
 };
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
@@ -1326,6 +1341,17 @@ export class CreditsService {
     return '1K';
   }
 
+  private normalizeGptImage2QualityForTencentPricing(
+    rawQuality: unknown,
+  ): 'low' | 'medium' | 'high' {
+    const normalized = typeof rawQuality === 'string' ? rawQuality.trim().toLowerCase() : '';
+    if (normalized === 'high') return 'high';
+    if (normalized === 'medium') return 'medium';
+    if (normalized === 'low') return 'low';
+    // auto / empty / invalid 默认按 low 计费
+    return 'low';
+  }
+
   private normalizeBananaImageRoute(
     rawRoute: unknown,
   ): 'normal' | 'stable' | null {
@@ -1495,11 +1521,14 @@ export class CreditsService {
         requestParams?.imageSize,
       );
       // 普通路线使用 GPT_IMAGE2_NORMAL_RESOLUTION_PRICING，尊享路线使用 GPT_IMAGE2_TENCENT_RESOLUTION_PRICING
-      const configuredCredits = Number(
+      const configuredCredits =
         route === 'stable'
-          ? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[normalizedSize]
-          : GPT_IMAGE2_NORMAL_RESOLUTION_PRICING[normalizedSize],
-      );
+          ? Number(
+              GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[
+                this.normalizeGptImage2QualityForTencentPricing(requestParams?.quality)
+              ][normalizedSize],
+            )
+          : Number(GPT_IMAGE2_NORMAL_RESOLUTION_PRICING[normalizedSize]);
       if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
         return null;
       }

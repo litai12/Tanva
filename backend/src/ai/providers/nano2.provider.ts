@@ -2,15 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './ai-provider.interface';
 import { Nano2Service } from '../services/nano2.service';
+import { TencentVodAigcService } from '../services/tencent-vod-aigc.service';
 
 type BananaImageRoute = 'normal' | 'stable';
 type GptImage2Quality = 'auto' | 'low' | 'medium' | 'high';
 type GptImage2Background = 'auto' | 'opaque' | 'transparent';
 type GptImage2Moderation = 'auto' | 'low';
 type GptImage2OutputFormat = 'png' | 'jpeg' | 'webp';
-
-const GPT_IMAGE_2_OFFICIAL_MODEL = 'gpt-image-2-official';
-const GPT_IMAGE_2_4K_SIZE_SET = new Set(['16:9', '9:16', '2:1', '1:2', '21:9', '9:21']);
+const GPT_IMAGE_2_ROUTE_LOG_TAG = '[GPT-IMAGE-2-ROUTE]';
 
 @Injectable()
 export class Nano2Provider implements IAIProvider {
@@ -20,12 +19,17 @@ export class Nano2Provider implements IAIProvider {
   constructor(
     private readonly config: ConfigService,
     private readonly nano2Service: Nano2Service,
+    private readonly tencentVodAigcService: TencentVodAigcService,
   ) {}
 
   async initialize(): Promise<void> {
     const apiKey = this.config.get<string>('NANO2_API_KEY');
-    this.available = !!apiKey;
-    this.logger.log(`Nano2 provider initialized: ${this.available ? 'available' : 'unavailable'}`);
+    const apimartReady = !!apiKey;
+    const tencentReady = this.tencentVodAigcService.isAvailable();
+    this.available = apimartReady || tencentReady;
+    this.logger.log(
+      `Nano2 provider initialized: ${this.available ? 'available' : 'unavailable'} (apimart=${apimartReady}, tencent=${tencentReady})`,
+    );
   }
 
   isAvailable(): boolean {
@@ -62,6 +66,58 @@ export class Nano2Provider implements IAIProvider {
     if (normalized === '2K') return isGptImage2Model ? '2k' : '2K';
     if (normalized === '4K') return isGptImage2Model ? '4k' : '4K';
     return isGptImage2Model ? '1k' : '1K';
+  }
+
+  private normalizeImageSizeToken(rawImageSize: unknown): '1K' | '2K' | '4K' {
+    const normalized = String(rawImageSize || '1K').trim().toUpperCase();
+    if (normalized === '2K') return '2K';
+    if (normalized === '4K') return '4K';
+    return '1K';
+  }
+
+  private toTencentFileInfos(
+    imageUrls?: unknown,
+  ): Array<{ type: 'File' | 'Url'; fileId?: string; url?: string }> {
+    if (!Array.isArray(imageUrls) || imageUrls.length === 0) return [];
+
+    const results: Array<{ type: 'File' | 'Url'; fileId?: string; url?: string }> = [];
+    for (const raw of imageUrls) {
+      const value = typeof raw === 'string' ? raw.trim() : '';
+      if (!value) continue;
+
+      const prefixed = value.match(/^(?:tencent-fileid:|fileid:)(.+)$/i);
+      if (prefixed?.[1]) {
+        const fileId = prefixed[1].trim();
+        if (fileId) {
+          results.push({ type: 'File', fileId });
+          continue;
+        }
+      }
+
+      if (/^\d{6,}$/.test(value)) {
+        results.push({ type: 'File', fileId: value });
+        continue;
+      }
+
+      if (/^https?:\/\//i.test(value)) {
+        results.push({ type: 'Url', url: value });
+      }
+    }
+
+    return results;
+  }
+
+  private resolveTencentGptImage2Version(
+    quality: GptImage2Quality | undefined,
+    imageSize: '1K' | '2K' | '4K',
+  ): 'image2_low' | 'image2_medium' | 'image2_high' {
+    if (quality === 'high') return 'image2_high';
+    if (quality === 'medium') return 'image2_medium';
+    if (quality === 'low') return 'image2_low';
+
+    if (imageSize === '4K') return 'image2_high';
+    if (imageSize === '2K') return 'image2_medium';
+    return 'image2_low';
   }
 
   private normalizeOutputFormat(raw: unknown): GptImage2OutputFormat | undefined {
@@ -105,19 +161,125 @@ export class Nano2Provider implements IAIProvider {
     return Math.max(0, Math.min(100, Math.trunc(raw)));
   }
 
-  private validateGptImage24kResolution(size: string, resolution: string): void {
-    if (resolution !== '4k') return;
-    if (GPT_IMAGE_2_4K_SIZE_SET.has(size)) return;
-    throw new Error(
-      `gpt-image-2-official does not support 4k with size=${size}. Supported 4k ratios: ${Array.from(
-        GPT_IMAGE_2_4K_SIZE_SET,
-      ).join(', ')}`,
-    );
-  }
-
   private isUpstream5xxError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error || '');
     return /HTTP\s5\d\d/.test(message);
+  }
+
+  private async generateGptImage2ViaTencent(request: {
+    prompt: string;
+    imageUrls: unknown;
+    requestedModel: string;
+    requestedSize: string;
+    resolution: string;
+    quality?: GptImage2Quality;
+    userRoute: BananaImageRoute;
+    negativePrompt?: unknown;
+    enhancePrompt?: unknown;
+    sessionContext?: unknown;
+    sessionId?: unknown;
+  }): Promise<any> {
+    this.logger.log(
+      `${GPT_IMAGE_2_ROUTE_LOG_TAG} matched stable route -> tencent_vod_aigc (model=${request.requestedModel})`,
+    );
+
+    if (!this.tencentVodAigcService.isAvailable()) {
+      throw new Error(
+        'Tencent VOD AIGC credentials are not configured. Please set TENCENT_VOD_SECRET_ID/TENCENT_VOD_SECRET_KEY/TENCENT_VOD_SUB_APP_ID.',
+      );
+    }
+
+    const fileInfos = this.toTencentFileInfos(request.imageUrls);
+    if (Array.isArray(request.imageUrls) && request.imageUrls.length > 0 && fileInfos.length === 0) {
+      return {
+        success: false,
+        error: {
+          message: 'Tencent reference images require Tencent FileId or public URL.',
+        },
+      };
+    }
+
+    const imageSize = this.normalizeImageSizeToken(request.resolution);
+    const modelVersion = this.resolveTencentGptImage2Version(request.quality, imageSize);
+    const negativePrompt =
+      typeof request.negativePrompt === 'string' && request.negativePrompt.trim()
+        ? request.negativePrompt.trim()
+        : undefined;
+    const enhancePrompt =
+      request.enhancePrompt === 'Disabled' || request.enhancePrompt === 'Enabled'
+        ? request.enhancePrompt
+        : 'Enabled';
+    const sessionContext =
+      typeof request.sessionContext === 'string' && request.sessionContext.trim()
+        ? request.sessionContext.trim()
+        : undefined;
+    const sessionId =
+      typeof request.sessionId === 'string' && request.sessionId.trim()
+        ? request.sessionId.trim()
+        : undefined;
+
+    this.logger.log(
+      `[Nano2/Image/Tencent] route=${request.userRoute}, requestedModel=${request.requestedModel}, mapped=OG/${modelVersion}, size=${request.requestedSize}, resolution=${imageSize}, refs=${fileInfos.length}`,
+    );
+
+    let taskId = '';
+    let requestId: string | undefined;
+    let taskResult: Awaited<ReturnType<TencentVodAigcService['waitForImageResult']>>;
+    try {
+      const created = await this.tencentVodAigcService.createImageTask({
+        prompt: request.prompt,
+        modelName: 'OG',
+        modelVersion,
+        fileInfos,
+        aspectRatio: request.requestedSize,
+        imageSize,
+        negativePrompt,
+        enhancePrompt,
+        sessionContext,
+        sessionId,
+      });
+      taskId = created.taskId;
+      requestId = created.requestId;
+      this.logger.log(
+        `${GPT_IMAGE_2_ROUTE_LOG_TAG} Tencent task submitted taskId=${taskId}, requestId=${requestId || 'n/a'}`,
+      );
+
+      taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
+      if (!taskResult.imageUrl) {
+        throw new Error(`Tencent task ${taskId} completed but image URL is missing.`);
+      }
+      this.logger.log(
+        `${GPT_IMAGE_2_ROUTE_LOG_TAG} Tencent task completed taskId=${taskId}, imageUrl=${taskResult.imageUrl}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `${GPT_IMAGE_2_ROUTE_LOG_TAG} Tencent route failed taskId=${taskId || 'n/a'} error=${message}`,
+      );
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: {
+        imageData: null,
+        imageUrl: taskResult.imageUrl,
+        textResponse: 'Image generated successfully',
+        metadata: {
+          taskId,
+          requestId: taskResult.requestId || requestId,
+          imageUrl: taskResult.imageUrl,
+          provider: 'tencent',
+          aiProvider: 'nano2',
+          channel: 'tencent_vod_aigc',
+          model: request.requestedModel,
+          upstreamModelName: 'OG',
+          upstreamModelVersion: modelVersion,
+          route: request.userRoute,
+          resolution: imageSize,
+        },
+      },
+    };
   }
 
   async generateImage(request: any): Promise<any> {
@@ -127,8 +289,10 @@ export class Nano2Provider implements IAIProvider {
         : 'gemini-3.1-flash-image-preview';
     const isGptImage2Model = this.isGptImage2Model(requestedModel);
     const userRoute = this.resolveUserRoute(request.providerOptions);
-    const useOfficialProfile = isGptImage2Model && userRoute === 'stable';
-    const upstreamModel = useOfficialProfile ? GPT_IMAGE_2_OFFICIAL_MODEL : requestedModel;
+    const useTencentStableRoute = isGptImage2Model && userRoute === 'stable';
+    // Stable route is now handled by Tencent; keep legacy official-profile flag disabled.
+    const useOfficialProfile = false;
+    const upstreamModel = requestedModel;
     const requestedSize = (() => {
       const raw = request.aspectRatio ?? (isGptImage2Model ? '1:1' : '16:9');
       return typeof raw === 'string' && raw.trim() ? raw.trim() : (isGptImage2Model ? '1:1' : '16:9');
@@ -139,13 +303,34 @@ export class Nano2Provider implements IAIProvider {
       isGptImage2Model,
     );
 
-    if (useOfficialProfile) {
-      this.validateGptImage24kResolution(requestedSize, normalizedResolution);
+    if (isGptImage2Model) {
+      this.logger.log(
+        `${GPT_IMAGE_2_ROUTE_LOG_TAG} decision route=${userRoute}, useTencentStableRoute=${useTencentStableRoute}, model=${requestedModel}, resolution=${normalizedResolution}`,
+      );
+    }
+
+    if (useTencentStableRoute) {
+      return this.generateGptImage2ViaTencent({
+        prompt: request.prompt,
+        imageUrls: request.imageUrls || request.image_urls,
+        requestedModel,
+        requestedSize,
+        resolution: normalizedResolution,
+        quality: this.normalizeQuality(request.quality),
+        userRoute,
+        negativePrompt: request.negativePrompt ?? request.negative_prompt,
+        enhancePrompt: request.enhancePrompt,
+        sessionContext: request.sessionContext,
+        sessionId: request.sessionId,
+      });
     }
 
     this.logger.log(
       `[Nano2/Image] route=${userRoute}, requestedModel=${requestedModel}, upstreamModel=${upstreamModel}, size=${requestedSize}, resolution=${normalizedResolution}`,
     );
+    if (isGptImage2Model) {
+      this.logger.log(`${GPT_IMAGE_2_ROUTE_LOG_TAG} using apimart path (route=${userRoute})`);
+    }
 
     const outputFormat = this.normalizeOutputFormat(request.outputFormat ?? request.output_format);
     const outputCompression = this.normalizeOutputCompression(

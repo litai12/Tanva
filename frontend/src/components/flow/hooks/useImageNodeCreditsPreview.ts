@@ -18,6 +18,7 @@ type Params = {
   aiProvider?: string | null;
   bananaImageRoute?: string | null;
   imageSize?: string | null;
+  gptImage2Quality?: "auto" | "low" | "medium" | "high" | string | null;
   aspectRatio?: string | null;
   outputImageCount?: number;
   referenceImageCount?: number;
@@ -130,6 +131,7 @@ export const useImageNodeCreditsPreview = ({
   aiProvider,
   bananaImageRoute,
   imageSize,
+  gptImage2Quality,
   aspectRatio,
   outputImageCount,
   referenceImageCount,
@@ -148,6 +150,41 @@ export const useImageNodeCreditsPreview = ({
       typeof aspectRatio === "string" && aspectRatio.trim().length > 0
         ? aspectRatio.trim()
         : undefined;
+    const normalizedImageSize = normalizeBananaImageSize(imageSize);
+    const normalizedGptImage2Quality = (() => {
+      const normalized = String(gptImage2Quality || "")
+        .trim()
+        .toLowerCase();
+      if (
+        normalized === "auto" ||
+        normalized === "low" ||
+        normalized === "medium" ||
+        normalized === "high"
+      ) {
+        return normalized;
+      }
+      return undefined;
+    })();
+
+    if (nodeType === "gptImage2") {
+      return {
+        serviceType: "gpt-image-2",
+        model: "gpt-image-2",
+        requestParams: {
+          aiProvider: provider,
+          imageSize: normalizedImageSize,
+          bananaImageRoute: bananaImageRoute || undefined,
+          providerOptions: {
+            banana: {
+              imageRoute: bananaImageRoute || undefined,
+            },
+          },
+          ...(normalizedGptImage2Quality
+            ? { quality: normalizedGptImage2Quality }
+            : {}),
+        },
+      };
+    }
 
     if (nodeType === "seedream5") {
       const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
@@ -195,7 +232,6 @@ export const useImageNodeCreditsPreview = ({
         : "generate";
     const serviceType = resolveBananaServiceType(provider, mode, nodeType);
     const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
-    const normalizedImageSize = normalizeBananaImageSize(imageSize);
 
     return {
       serviceType,
@@ -234,6 +270,7 @@ export const useImageNodeCreditsPreview = ({
     aiProvider,
     aspectRatio,
     bananaImageRoute,
+    gptImage2Quality,
     imageSize,
     managedModelKey,
     nodeType,

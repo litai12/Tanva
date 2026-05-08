@@ -3127,6 +3127,7 @@ export class AiController {
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, requestedOutputImageCount, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
+        quality: dto.quality,
         aspectRatio: dto.aspectRatio,
         outputImageCount: requestedOutputImageCount,
         parallelGroupId: dto.parallelGroupId,

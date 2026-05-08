@@ -204,3 +204,36 @@ InvalidParameterValue.SessionId	去重识别码重复，请求被去重。
 InvalidParameterValue.SessionIdTooLong	SessionId 过长。
 InvalidParameterValue.SubAppId	参数值错误：应用 ID。
 UnauthorizedOperation	未授权操作。
+---
+
+## Tanva 接入说明补充：GPT-image-2 尊享路线改为腾讯（2026-05）
+
+### 变更结论
+- Tanva 后端已将 `gpt-image-2` 的 `stable`（尊享）路线供应商从 Apimart 切换为腾讯 VOD AIGC。
+- `normal`（普通）路线保持 Apimart，不受本次变更影响。
+
+### 触发条件
+- `model` 包含 `gpt-image-2`
+- 且 `providerOptions.banana.imageRoute=stable`（兼容旧字段 `providerOptions.bananaImageRoute=stable`）
+
+### 实际调用映射
+- 腾讯请求固定：
+  - `ModelName=OG`
+  - `ModelVersion=image2_low|image2_medium|image2_high`
+- 版本映射策略：
+  - `quality` 优先（`low/medium/high`）
+  - 未给 `quality` 时按分辨率映射：`1K->low`、`2K->medium`、`4K->high`
+
+### 参考图输入规则
+- `fileid:123456` / `tencent-fileid:123456` / 纯数字 -> 作为腾讯 `FileId`
+- `https://...` -> 作为腾讯 `Url`
+
+### 必填配置
+- `TENCENT_VOD_SECRET_ID`
+- `TENCENT_VOD_SECRET_KEY`
+- `TENCENT_VOD_SUB_APP_ID`
+- 复用策略：与 Nano Banana 尊享腾讯路线使用同一套 key（同一组 `TENCENT_VOD_*` 配置），无需新增专用凭证。
+
+### 返回标识（用于排查）
+- 成功返回中 `metadata.provider=tencent`
+- 且 `metadata.channel=tencent_vod_aigc`

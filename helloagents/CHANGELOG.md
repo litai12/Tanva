@@ -28,6 +28,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- GPT-Image-2 Credits: stable/tencent route now deducts by `quality × resolution` platform pricing (`low: 30/35/40`, `medium: 65/110/160`, `high: 190/350/560` for `1K/2K/4K`), and Nano2/GPT-image-2 node run-credit preview now reads the same backend quote instead of static node credits.
 - Flow/Image Node: local image upload now detaches the node's existing image input edge and clears stale crop metadata after a successful OSS write, so a newly uploaded image is displayed instead of the upstream/old connected image.
 - Flow/Batch Connect: pending batch-output preview lines now fall back per source node handle order when a DOM handle is temporarily unavailable, keeping single-output nodes anchored to their actual output handle instead of using the whole batch index.
 - Canvas/Flow Performance: Flow-overlay wheel zoom/pan now batches canvas viewport writes through `requestAnimationFrame`, and `GridRenderer`'s initialization fallback no longer reruns on every zoom tick.
@@ -670,3 +671,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow node palette now supports search by name/type/description, Quick Connect is filtered to palette-visible enabled node types, and redundant Flow snapshot hydration/write-back is skipped when signatures match.
 - Flow `TextChat` now sends only its connected/manual node prompt to text generation, without global chat context injection.
 - Flow `AnalyzeNode` now exposes Analysis/Prompt/JSON skill presets, stores `analysisSkillId`, and keeps connected text prompts as appended instructions.
+- GPT-Image-2 stable route supplier switched from Apimart to Tencent VOD AIGC in `Nano2Provider`: when `providerOptions.banana.imageRoute=stable`, backend now submits `CreateAigcImageTask` with `OG/image2_*` mapping and returns Tencent channel metadata.
