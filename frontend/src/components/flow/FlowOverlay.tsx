@@ -179,6 +179,7 @@ import {
 } from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
+import { uploadVolcAsset, getVolcAssetStatus } from "@/services/volcAssetAPI";
 import {
   fetchNodeConfigs,
   getStatusBadge,
@@ -12007,6 +12008,106 @@ function FlowInner() {
           }
         }
       } catch {}
+
+      // Auto-review: when an image handle is connected to a Seedance 2.0 node,
+      // immediately upload the source image to the Volc asset library in the background
+      // so that volcAssetId is ready by the time the user submits the task.
+      setTimeout(() => {
+        try {
+          const tgtNode = rf.getNode(params.target!);
+          const srcNode = params.source ? rf.getNode(params.source) : undefined;
+          if (!tgtNode || !srcNode) return;
+
+          const isSeedance20Target =
+            isSeedanceVideoNode(tgtNode) &&
+            (tgtNode.type === "seedance20Video" ||
+              (tgtNode.data as any)?.seedanceModel === "seedance-2.0" ||
+              (tgtNode.data as any)?.seedanceModel === "seedance-2.0-fast");
+          const isImageHandle =
+            params.targetHandle === "image" || params.targetHandle === "image-2";
+          if (!isSeedance20Target || !isImageHandle) return;
+
+          // Extract URL from source node
+          const srcData = (srcNode.data as any) || {};
+          let imgUrl: string | undefined;
+          const handle = (params as any).sourceHandle as string | undefined;
+          if (
+            (srcNode.type === "generate4" ||
+              srcNode.type === "generatePro4" ||
+              srcNode.type === "midjourneyV7" ||
+              srcNode.type === "niji7") &&
+            handle
+          ) {
+            const idx = handle.startsWith("img")
+              ? Math.max(0, Number(handle.substring(3)) - 1)
+              : 0;
+            const urls = srcData.imageUrls as string[] | undefined;
+            imgUrl = urls?.[idx] || srcData.imageUrl;
+          } else {
+            imgUrl = srcData.imageUrl;
+          }
+
+          if (!imgUrl || typeof imgUrl !== "string") return;
+          const trimmedUrl = imgUrl.trim();
+          if (!trimmedUrl || !trimmedUrl.startsWith("http")) return;
+
+          // Skip if already reviewed and active (within 3-day window)
+          const REVIEW_VALID_DAYS = 3;
+          const existingAssetId: string | undefined =
+            typeof srcData.volcAssetId === "string" && srcData.volcAssetId.length > 0
+              ? srcData.volcAssetId
+              : undefined;
+          const existingStatus: string | undefined = srcData.volcAssetStatus;
+          const existingReviewDate: string | undefined = srcData.volcReviewDate;
+          const isExpired =
+            existingStatus === "active" && existingReviewDate
+              ? Date.now() > new Date(existingReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000
+              : false;
+          if (existingAssetId && existingStatus === "active" && !isExpired) return;
+
+          const srcNodeId = srcNode.id;
+          const REVIEW_POLL_INTERVAL_MS = 2000;
+          const REVIEW_POLL_TIMEOUT_MS = 90000;
+
+          const patchSrcNode = (patch: Record<string, unknown>) => {
+            setNodes((ns) =>
+              ns.map((n) => (n.id === srcNodeId ? { ...n, data: { ...n.data, ...patch } } : n))
+            );
+          };
+
+          patchSrcNode({ volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined });
+
+          (async () => {
+            try {
+              const uploadResult = await uploadVolcAsset(trimmedUrl);
+              const uploadedAssetId = uploadResult.assetId;
+              let currentStatus = uploadResult.status;
+
+              const pollStart = Date.now();
+              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
+                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
+                const polled = await getVolcAssetStatus(uploadedAssetId);
+                currentStatus = polled.status;
+              }
+
+              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              patchSrcNode({
+                volcAssetId: uploadedAssetId,
+                volcAssetStatus: finalStatus,
+                volcAssetError: finalStatus === "failed" ? "审核未通过" : undefined,
+                ...(finalStatus === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
+              });
+            } catch (err: any) {
+              patchSrcNode({
+                volcAssetId: undefined,
+                volcAssetStatus: "failed",
+                volcAssetError: err?.message || "审核失败",
+              });
+            }
+          })();
+        } catch {}
+      }, 100);
+
       setIsConnecting(false);
     },
     [
@@ -17634,6 +17735,123 @@ function FlowInner() {
           )
         );
 
+        // Seedance 2.0: auto-review all connected reference images before submitting.
+        // For each image URL that doesn't have a valid active volcAssetId, upload it to
+        // the Volc asset library and poll until active (or fail). Results are stored in
+        // resolvedVolcAssets so seedance20ReferenceImages can use them directly without
+        // re-reading stale node state.
+        type VolcAssetEntry = { url: string; volcAssetId?: string; volcAssetStatus?: "processing" | "active" | "failed" };
+        let resolvedVolcAssets: VolcAssetEntry[] | undefined;
+
+        if (isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0) {
+          const REVIEW_VALID_DAYS = 3;
+          const REVIEW_POLL_INTERVAL_MS = 2000;
+          const REVIEW_POLL_TIMEOUT_MS = 90000;
+
+          const assetEntries: VolcAssetEntry[] = [];
+          let reviewFailed = false;
+
+          for (let imgIdx = 0; imgIdx < referenceImageUrls.length; imgIdx++) {
+            const imgUrl = referenceImageUrls[imgIdx];
+            const srcEdge = referenceImageSourceEdges[imgIdx];
+            const srcNode = srcEdge ? rf.getNode(srcEdge.source) : undefined;
+            const srcData = (srcNode?.data as any) || {};
+
+            const existingAssetId: string | undefined =
+              typeof srcData.volcAssetId === "string" && srcData.volcAssetId.length > 0
+                ? srcData.volcAssetId
+                : undefined;
+            const existingStatus: string | undefined = srcData.volcAssetStatus;
+            const existingReviewDate: string | undefined = srcData.volcReviewDate;
+
+            const isExpired =
+              existingStatus === "active" && existingReviewDate
+                ? Date.now() > new Date(existingReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000
+                : false;
+
+            if (existingAssetId && existingStatus === "active" && !isExpired) {
+              assetEntries.push({ url: imgUrl, volcAssetId: existingAssetId, volcAssetStatus: "active" });
+              continue;
+            }
+
+            // Mark source node as processing so its badge updates
+            if (srcNode) {
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === srcNode.id
+                    ? { ...n, data: { ...n.data, volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined } }
+                    : n
+                )
+              );
+            }
+
+            try {
+              const uploadResult = await uploadVolcAsset(imgUrl);
+              const uploadedAssetId = uploadResult.assetId;
+              let currentStatus = uploadResult.status;
+
+              const pollStart = Date.now();
+              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
+                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
+                const polled = await getVolcAssetStatus(uploadedAssetId);
+                currentStatus = polled.status;
+              }
+
+              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              if (srcNode) {
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === srcNode.id
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            volcAssetId: uploadedAssetId,
+                            volcAssetStatus: finalStatus,
+                            volcAssetError: finalStatus === "failed" ? "审核未通过" : undefined,
+                            ...(finalStatus === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
+                          },
+                        }
+                      : n
+                  )
+                );
+              }
+
+              if (finalStatus !== "active") {
+                reviewFailed = true;
+                failCurrentVideoNode("参考图审核未通过，请更换图片后重试");
+                break;
+              }
+
+              assetEntries.push({ url: imgUrl, volcAssetId: uploadedAssetId, volcAssetStatus: "active" });
+            } catch (err: any) {
+              if (srcNode) {
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === srcNode.id
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            volcAssetId: undefined,
+                            volcAssetStatus: "failed",
+                            volcAssetError: err?.message || "审核失败",
+                          },
+                        }
+                      : n
+                  )
+                );
+              }
+              reviewFailed = true;
+              failCurrentVideoNode(`参考图审核失败: ${err?.message || "未知错误"}`);
+              break;
+            }
+          }
+
+          if (reviewFailed) return;
+          resolvedVolcAssets = assetEntries;
+        }
+
         // 根据供应商调整参数
         const aspectRatioForAPI =
           isSeedanceNode
@@ -17907,9 +18125,9 @@ function FlowInner() {
             return;
           }
 
-          // Seedance 2.0 / 2.0-fast: enrich referenceImages with volcAssetId/Status
-          // pulled from the source image node's data, so the backend can replace
-          // `image_url.url` with `asset://<volcAssetId>` when volcAssetStatus === 'active'.
+          // Seedance 2.0 / 2.0-fast: enrich referenceImages with volcAssetId/Status.
+          // Prefer resolvedVolcAssets built by the auto-review pass above (guaranteed active);
+          // fall back to reading source node data for non-Seedance2 paths or legacy callers.
           const seedance20ReferenceImages:
             | Array<{
                 url: string;
@@ -17918,25 +18136,26 @@ function FlowInner() {
               }>
             | undefined =
             isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0
-              ? referenceImageUrls.map((url, idx) => {
-                  const sourceEdge = referenceImageSourceEdges[idx];
-                  const sourceNode = sourceEdge
-                    ? rf.getNode(sourceEdge.source)
-                    : undefined;
-                  const sourceData = (sourceNode?.data as any) || {};
-                  const volcAssetId =
-                    typeof sourceData.volcAssetId === "string" && sourceData.volcAssetId.length > 0
-                      ? sourceData.volcAssetId
+              ? (resolvedVolcAssets ??
+                  referenceImageUrls.map((url, idx) => {
+                    const sourceEdge = referenceImageSourceEdges[idx];
+                    const sourceNode = sourceEdge
+                      ? rf.getNode(sourceEdge.source)
                       : undefined;
-                  const rawVolcStatus = sourceData.volcAssetStatus;
-                  const volcAssetStatus =
-                    rawVolcStatus === "processing" ||
-                    rawVolcStatus === "active" ||
-                    rawVolcStatus === "failed"
-                      ? (rawVolcStatus as "processing" | "active" | "failed")
-                      : undefined;
-                  return { url, volcAssetId, volcAssetStatus };
-                })
+                    const sourceData = (sourceNode?.data as any) || {};
+                    const volcAssetId =
+                      typeof sourceData.volcAssetId === "string" && sourceData.volcAssetId.length > 0
+                        ? sourceData.volcAssetId
+                        : undefined;
+                    const rawVolcStatus = sourceData.volcAssetStatus;
+                    const volcAssetStatus =
+                      rawVolcStatus === "processing" ||
+                      rawVolcStatus === "active" ||
+                      rawVolcStatus === "failed"
+                        ? (rawVolcStatus as "processing" | "active" | "failed")
+                        : undefined;
+                    return { url, volcAssetId, volcAssetStatus };
+                  }))
               : undefined;
 
           const requestPayload =
