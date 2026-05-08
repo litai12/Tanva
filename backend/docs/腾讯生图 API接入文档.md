@@ -1,5 +1,5 @@
 创建 AIGC 生图任务
-最近更新时间：2026-03-26 03:38:19
+最近更新时间：2026-05-01 03:45:45
 
 我的收藏
 本页目录：
@@ -38,6 +38,8 @@ SubAppId	是	Integer
 示例值：251007502
 ModelName	是	String	
 模型名称。取值：
+
+OG
 GG
 SI
 Qwen
@@ -49,30 +51,32 @@ Kling
 ModelVersion	是	String	
 模型版本。取值：
 
+当 ModelName 是 OG，可选值为 image2_low、image2_medium、image2_high；
 当 ModelName 是 GG，可选值为 2.5、3.0、3.1；
 当 ModelName 是 Jimeng，可选值为 4.0；
 当 ModelName 是 SI，可选值为 4.0、4.5、5.0-lite；
-当 ModelName 是 Qwen，可选值为 0925、2.0；
+当 ModelName 是 Qwen，可选值为 0925；
 当 ModelName 是 Hunyuan，可选值为 3.0；
 当 ModelName 是 Vidu，可选值为 q2；
-当 ModelName 是 Kling，可选值为 2.1、3.0、3.0-Omni；
+当 ModelName 是 Kling，可选值为 2.1、3.0、3.0-Omni、O1；
 
 示例值：3.0
 FileInfos.N	否	Array of AigcImageTaskInputFileInfo	
 AIGC 生图任务的输入图片的文件信息。各模型支持最大参考图数量：
+
 GG 2.5： 3张；
 GG 3.0：14张；
 GG 3.1：14张；
 Kling 2.1：4张；
 Kling 3.0：1张；
-Kling 3.0-Omni：1张；
+Kling 3.0-Omni：10张；
+Kling O1：10张；
 SI 4.0：14张；
 SI 4.5：14张；
 SI 5.0-lite：14张；
 Vidu q2：7张；
 Hunyuan 3.0：3张；
 Qwen 0925：1张；
-Qwen 2.0：3张；
 MJ v7：3张。
 Prompt	否	String	
 生成图片的提示词。当 FileInfos 为空时，此参数必填。
@@ -102,6 +106,18 @@ Oversea：海外；
 OverseaUSWest：海外-美西；
 
 示例值：Mainland
+SceneType	否	String	
+场景类型。取值如下：
+
+当 ModelName 为 Hunyuan 时： 3d_panorama 表示全景图；
+其他 ModelName 暂不支持。
+
+示例值：3d_panorama
+Seed	否	Integer	
+模型随机种子。
+
+
+示例值：123
 SessionId	否	String	
 用于去重的识别码，如果三天内曾有过相同的识别码的请求，则本次的请求会返回错误。最长 50 个字符，不带或者带空字符串表示不做去重。
 
@@ -120,6 +136,19 @@ TasksPriority	否	Integer
 ExtInfo	否	String	
 保留字段，特殊用途时使用。
 
+Hunyuan 3.0
+
+支持自由设置分辨率宽高，宽、高均在 [512, 2048] 像素范围内，宽高乘积 ≤ 1024x1024 像素。示例：{"AdditionalParameters": "{"size":"728x1024"}"}
+SI 系列
+
+支持自由设置分辨率宽高：
+SI 4.0：合法总像素范围 [1280x720=921600, 4096x4096=16777216]，示例：{"AdditionalParameters": "{"size":"728x1356"}"}
+SI 4.5：合法总像素范围 [2560x1440=3686400, 4096x4096=16777216]，示例：{"AdditionalParameters": "{"size":"2560x1440"}"}
+SI 5.0-lite：合法总像素范围 [2560x1440=3686400, 3072x3072x1.1025=10404496]，示例：{"AdditionalParameters": "{"size":"2560x1440"}"}
+可用于开启输出多张图像，示例：{"AdditionalParameters": "{"sequential_image_generation":"auto"}"}。除此之外，还需要在Prompt中说明需要输出图片张数，如：输出3张图片。
+Qwen 0925
+
+支持自由设置分辨率宽高，合法总像素范围 [512x512=261632, 2048x2048=4194304]。示例：{"AdditionalParameters": "{"size":"728*1024"}"}
 
 示例值：{"AdditionalParameters": ""}
 3. 输出参数
@@ -204,36 +233,3 @@ InvalidParameterValue.SessionId	去重识别码重复，请求被去重。
 InvalidParameterValue.SessionIdTooLong	SessionId 过长。
 InvalidParameterValue.SubAppId	参数值错误：应用 ID。
 UnauthorizedOperation	未授权操作。
----
-
-## Tanva 接入说明补充：GPT-image-2 尊享路线改为腾讯（2026-05）
-
-### 变更结论
-- Tanva 后端已将 `gpt-image-2` 的 `stable`（尊享）路线供应商从 Apimart 切换为腾讯 VOD AIGC。
-- `normal`（普通）路线保持 Apimart，不受本次变更影响。
-
-### 触发条件
-- `model` 包含 `gpt-image-2`
-- 且 `providerOptions.banana.imageRoute=stable`（兼容旧字段 `providerOptions.bananaImageRoute=stable`）
-
-### 实际调用映射
-- 腾讯请求固定：
-  - `ModelName=OG`
-  - `ModelVersion=image2_low|image2_medium|image2_high`
-- 版本映射策略：
-  - `quality` 优先（`low/medium/high`）
-  - 未给 `quality` 时按分辨率映射：`1K->low`、`2K->medium`、`4K->high`
-
-### 参考图输入规则
-- `fileid:123456` / `tencent-fileid:123456` / 纯数字 -> 作为腾讯 `FileId`
-- `https://...` -> 作为腾讯 `Url`
-
-### 必填配置
-- `TENCENT_VOD_SECRET_ID`
-- `TENCENT_VOD_SECRET_KEY`
-- `TENCENT_VOD_SUB_APP_ID`
-- 复用策略：与 Nano Banana 尊享腾讯路线使用同一套 key（同一组 `TENCENT_VOD_*` 配置），无需新增专用凭证。
-
-### 返回标识（用于排查）
-- 成功返回中 `metadata.provider=tencent`
-- 且 `metadata.channel=tencent_vod_aigc`
