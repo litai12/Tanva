@@ -28,6 +28,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- GPT-Image-2/Nano2: task query now treats upstream business `code=464` as immediate failure (instead of continuing poll-until-timeout), so request failure and credit-refund paths can execute promptly; stable/tencent polling also supports an explicit 15-minute wait budget override.
 - Tencent AIGC Image Polling: when `DescribeTaskDetail` reaches success without direct `imageUrl`, backend now retries polling, attempts `FileId -> DescribeMediaInfos` URL fallback, and only fails after bounded retries, reducing false `completed but image URL is missing` errors for GPT-Image-2 stable text-only runs.
 - GPT-Image-2 Credits: stable/tencent route now deducts by `quality × resolution` platform pricing (`low: 30/35/40`, `medium: 65/110/160`, `high: 190/350/560` for `1K/2K/4K`), and Nano2/GPT-image-2 node run-credit preview now reads the same backend quote instead of static node credits.
 - Flow/Image Node: local image upload now detaches the node's existing image input edge and clears stale crop metadata after a successful OSS write, so a newly uploaded image is displayed instead of the upstream/old connected image.

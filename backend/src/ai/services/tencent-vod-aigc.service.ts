@@ -428,14 +428,43 @@ export class TencentVodAigcService {
     };
   }
 
-  async waitForImageResult(taskId: string): Promise<TencentVodAigcTaskStatus> {
-    await this.sleep(this.initialDelayMs);
+  async waitForImageResult(
+    taskId: string,
+    options?: {
+      maxWaitMs?: number;
+      initialDelayMs?: number;
+      pollIntervalMs?: number;
+      maxPollAttempts?: number;
+    },
+  ): Promise<TencentVodAigcTaskStatus> {
+    const initialDelayMs =
+      typeof options?.initialDelayMs === 'number' && Number.isFinite(options.initialDelayMs)
+        ? Math.max(0, Math.floor(options.initialDelayMs))
+        : this.initialDelayMs;
+    const pollIntervalMs =
+      typeof options?.pollIntervalMs === 'number' && Number.isFinite(options.pollIntervalMs)
+        ? Math.max(200, Math.floor(options.pollIntervalMs))
+        : this.pollIntervalMs;
+    const maxPollAttempts =
+      typeof options?.maxPollAttempts === 'number' && Number.isFinite(options.maxPollAttempts)
+        ? Math.max(1, Math.floor(options.maxPollAttempts))
+        : this.maxPollAttempts;
+    const maxWaitMs =
+      typeof options?.maxWaitMs === 'number' && Number.isFinite(options.maxWaitMs)
+        ? Math.max(1_000, Math.floor(options.maxWaitMs))
+        : null;
+
+    const startedAt = Date.now();
+    const withinBudget = (): boolean =>
+      maxWaitMs === null || Date.now() - startedAt < maxWaitMs;
+
+    await this.sleep(initialDelayMs);
 
     let lastResult: TencentVodAigcTaskStatus | null = null;
     let successWithoutUrlAttempts = 0;
     const successWithoutUrlRetryLimit = 8;
 
-    for (let attempt = 1; attempt <= this.maxPollAttempts; attempt++) {
+    for (let attempt = 1; attempt <= maxPollAttempts && withinBudget(); attempt++) {
       const result = await this.queryTask(taskId);
       lastResult = result;
       const status = this.normalizeStatus(result.status);
@@ -457,7 +486,7 @@ export class TencentVodAigcService {
           );
         }
         this.logger.warn(
-          `Tencent AIGC task ${taskId} reached success without image URL (attempt ${attempt}/${this.maxPollAttempts}), continue polling`,
+          `Tencent AIGC task ${taskId} reached success without image URL (attempt ${attempt}/${maxPollAttempts}), continue polling`,
         );
       }
 
@@ -467,17 +496,24 @@ export class TencentVodAigcService {
         );
       }
 
-      await this.sleep(this.pollIntervalMs);
+      if (!withinBudget()) break;
+      await this.sleep(pollIntervalMs);
     }
 
     if (this.normalizeStatus(lastResult?.status) === 'success') {
       throw new BadGatewayException(
-        `Tencent AIGC task ${taskId} completed but image URL is missing after ${this.maxPollAttempts} polling attempts`,
+        `Tencent AIGC task ${taskId} completed but image URL is missing after ${maxPollAttempts} polling attempts`,
+      );
+    }
+
+    if (maxWaitMs !== null && !withinBudget()) {
+      throw new ServiceUnavailableException(
+        `Tencent AIGC task ${taskId} polling timeout after ${maxWaitMs}ms. Last status: ${lastResult?.status || 'UNKNOWN'}`,
       );
     }
 
     throw new ServiceUnavailableException(
-      `Tencent AIGC task ${taskId} polling timeout after ${this.maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
+      `Tencent AIGC task ${taskId} polling timeout after ${maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
     );
   }
 

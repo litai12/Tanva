@@ -244,7 +244,10 @@ export class Nano2Provider implements IAIProvider {
         `${GPT_IMAGE_2_ROUTE_LOG_TAG} Tencent task submitted taskId=${taskId}, requestId=${requestId || 'n/a'}`,
       );
 
-      taskResult = await this.tencentVodAigcService.waitForImageResult(taskId);
+      taskResult = await this.tencentVodAigcService.waitForImageResult(taskId, {
+        maxWaitMs: 15 * 60 * 1000,
+        maxPollAttempts: 320,
+      });
       if (!taskResult.imageUrl) {
         throw new Error(`Tencent task ${taskId} completed but image URL is missing.`);
       }
