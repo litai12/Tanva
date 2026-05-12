@@ -6,6 +6,7 @@ import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '..
 import { OssService } from '../../oss/oss.service';
 import { CreditsService } from '../../credits/credits.service';
 import { ApiResponseStatus } from '../../credits/dto/credits.dto';
+import { AIProviderFactory } from '../ai-provider.factory';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 
@@ -43,6 +44,7 @@ export class ImageTaskService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageGenService: ImageGenerationService,
+    private readonly providerFactory: AIProviderFactory,
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
@@ -179,6 +181,85 @@ export class ImageTaskService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private resolveAsyncTaskProviderName(
+    taskProvider: unknown,
+    requestProvider: unknown,
+  ): string | null {
+    const raw =
+      typeof requestProvider === 'string' && requestProvider.trim().length > 0
+        ? requestProvider.trim()
+        : typeof taskProvider === 'string' && taskProvider.trim().length > 0
+          ? taskProvider.trim()
+          : '';
+    if (!raw) return null;
+    return raw.toLowerCase();
+  }
+
+  private isGeminiProvider(providerName: string | null): boolean {
+    return !providerName || providerName === 'gemini' || providerName === 'gemini-pro';
+  }
+
+  private async runGenerateTask(
+    task: { prompt: string; aiProvider?: string | null },
+    taskRequestData: Record<string, any>,
+    model?: string,
+  ): Promise<any> {
+    const providerName = this.resolveAsyncTaskProviderName(
+      task.aiProvider,
+      taskRequestData?.aiProvider,
+    );
+
+    if (this.isGeminiProvider(providerName)) {
+      return this.imageGenService.generateImage(taskRequestData as any);
+    }
+
+    const provider = this.providerFactory.getProvider(model, providerName ?? undefined);
+    const result = await provider.generateImage({
+      prompt: task.prompt,
+      model,
+      imageOnly: taskRequestData.imageOnly,
+      aspectRatio: taskRequestData.aspectRatio,
+      imageSize: taskRequestData.imageSize,
+      thinkingLevel: taskRequestData.thinkingLevel,
+      outputFormat: taskRequestData.outputFormat,
+      providerOptions: taskRequestData.providerOptions,
+      enableWebSearch: taskRequestData.enableWebSearch,
+      imageUrls: Array.isArray(taskRequestData.imageUrls)
+        ? taskRequestData.imageUrls.filter(
+            (item: unknown): item is string =>
+              typeof item === 'string' && item.trim().length > 0,
+          )
+        : undefined,
+      googleSearch: taskRequestData.googleSearch,
+      googleImageSearch: taskRequestData.googleImageSearch,
+      batchMode: taskRequestData.batchMode,
+      batchCount: taskRequestData.batchCount,
+      officialFallback: taskRequestData.officialFallback,
+      quality: taskRequestData.quality,
+      background: taskRequestData.background,
+      moderation: taskRequestData.moderation,
+      outputCompression: taskRequestData.outputCompression,
+      maskUrl: taskRequestData.maskUrl,
+    } as any);
+
+    if (!result?.success || !result?.data) {
+      throw new Error(result?.error?.message || 'Failed to generate image');
+    }
+
+    return {
+      imageData: result.data.imageData,
+      imageUrl:
+        typeof result.data.imageUrl === 'string' && result.data.imageUrl.trim().length > 0
+          ? result.data.imageUrl.trim()
+          : typeof result.data.metadata?.imageUrl === 'string' &&
+            result.data.metadata.imageUrl.trim().length > 0
+            ? String(result.data.metadata.imageUrl).trim()
+            : undefined,
+      textResponse: result.data.textResponse || '',
+      metadata: result.data.metadata || {},
+    };
   }
 
   /**
@@ -365,7 +446,7 @@ export class ImageTaskService {
 
           switch (taskType) {
             case 'generate':
-              result = await this.imageGenService.generateImage(task.requestData as any);
+              result = await this.runGenerateTask(task, taskRequestData || {}, model);
               break;
             case 'edit':
               result = await this.imageGenService.editImage(task.requestData as any);

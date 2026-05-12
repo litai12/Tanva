@@ -2125,7 +2125,7 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
   },
 } as const;
 
-const SEEDANCE20_SUPPORTED_MODELS = ["seedance-1.5-pro", "seedance-2.0", "seedance-2.0-fast"];
+const SEEDANCE20_SUPPORTED_MODELS = ["seedance-1.5-pro", "seedance-2.0", "seed-2.0-lite"];
 const SEEDANCE20_VOD_METADATA = {
   outputConfig: {
     aspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
@@ -2146,8 +2146,9 @@ const SEEDANCE20_VOD_METADATA = {
     "image_video_audio",
   ],
   notes: [
-    "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128",
-    "多图参考支持 1-9 张图片，首尾帧固定 2 张，智能多帧支持 2-10 张图片",
+    "当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seed-2-0-lite-260428",
+    "多图参考支持 1-9 张图片，首尾帧固定 1-2 张，智能多帧支持 2-10 张图片",
+    "在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10",
   ],
 } as const;
 

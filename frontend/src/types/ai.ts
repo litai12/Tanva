@@ -106,6 +106,7 @@ export type SupportedAIProvider =
 export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
+  modelVersion?: '4.5' | '5.0';
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';

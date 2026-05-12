@@ -34,6 +34,7 @@ export class VolcAssetService implements OnModuleInit {
   private env!: VolcEnv;
   // date string (YYYY-MM-DD) → groupId
   private readonly groupCache = new Map<string, string>();
+  private hasLoggedMissingReviewGroupTable = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -122,15 +123,37 @@ export class VolcAssetService implements OnModuleInit {
     return unwrapped as T;
   }
 
+  private isVolcReviewGroupTableMissing(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const maybe = error as { code?: string; meta?: { table?: string }; message?: string };
+    const tableName = `${maybe.meta?.table || ''}`.toLowerCase();
+    const message = `${maybe.message || ''}`.toLowerCase();
+    if (maybe.code === 'P2021' && tableName.includes('volcreviewgroup')) return true;
+    return message.includes('volcreviewgroup') && message.includes('does not exist');
+  }
+
+  private logMissingReviewGroupTableOnce() {
+    if (this.hasLoggedMissingReviewGroupTable) return;
+    this.hasLoggedMissingReviewGroupTable = true;
+    this.logger.warn(
+      'VolcReviewGroup table is missing. Seedance will run with in-memory fallback; run Prisma migration to restore persistence.',
+    );
+  }
+
   async ensureTodayGroup(): Promise<string> {
     const date = this.todayDate();
     const cached = this.groupCache.get(date);
     if (cached) return cached;
 
-    const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
-    if (existing) {
-      this.groupCache.set(date, existing.groupId);
-      return existing.groupId;
+    try {
+      const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+      if (existing) {
+        this.groupCache.set(date, existing.groupId);
+        return existing.groupId;
+      }
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
     }
 
     const resp = await this.call<CreateAssetGroupResp>('CreateAssetGroup', {
@@ -141,7 +164,12 @@ export class VolcAssetService implements OnModuleInit {
     });
     const groupId = resp?.Id;
     if (!groupId) throw new Error('Volc CreateAssetGroup: empty Id');
-    await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    try {
+      await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+    }
     this.groupCache.set(date, groupId);
     return groupId;
   }
@@ -191,9 +219,15 @@ export class VolcAssetService implements OnModuleInit {
   }
 
   async listReviewGroups() {
-    return this.prisma.volcReviewGroup.findMany({
-      orderBy: { date: 'desc' },
-    });
+    try {
+      return await this.prisma.volcReviewGroup.findMany({
+        orderBy: { date: 'desc' },
+      });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+      return [];
+    }
   }
 
   // date: YYYY-MM-DD（北京时间）。不传则取 3 天前。
@@ -204,11 +238,26 @@ export class VolcAssetService implements OnModuleInit {
       return d.toISOString().slice(0, 10);
     })();
 
-    const record = await this.prisma.volcReviewGroup.findUnique({ where: { date: targetDate } });
+    let record: { groupId: string } | null = null;
+    try {
+      record = await this.prisma.volcReviewGroup.findUnique({
+        where: { date: targetDate },
+        select: { groupId: true },
+      });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+      return { date: targetDate, deleted: false };
+    }
     if (!record) return { date: targetDate, deleted: false };
 
     await this.deleteAssetGroup(record.groupId);
-    await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+    try {
+      await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+    }
     this.groupCache.delete(targetDate);
     return { date: targetDate, deleted: true };
   }

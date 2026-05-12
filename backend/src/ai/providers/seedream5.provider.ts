@@ -35,13 +35,18 @@ export class Seedream5Provider implements IAIProvider {
   }
 
   async generateImage(request: any): Promise<any> {
-    const providerInfo = await this.seedream5Service.getProviderExecutionInfo();
+    const providerInfo = await this.seedream5Service.getProviderExecutionInfoWithOptions({
+      requestedModel: request.model,
+      requestedModelVersion: request.modelVersion,
+    });
     const result = await this.seedream5Service.generateImage({
       prompt: request.prompt,
       size: request.imageSize || '2K',
       image_urls: request.imageUrls,
       batchMode: request.batchMode,
       batchCount: request.batchCount,
+      model: request.model,
+      modelVersion: request.modelVersion,
     });
 
     this.logger.log(`Seedream5 generation completed`);

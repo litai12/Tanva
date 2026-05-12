@@ -171,6 +171,7 @@ export class AiController {
       408: '请求超时，请重试',
       413: '请求数据过大，请压缩图片或减小文件大小',
       429: '请求过于频繁，请稍后重试',
+      464: '上游任务失败，请稍后重试',
       500: '服务器内部错误，请稍后重试',
       502: '网关错误，服务暂时不可用',
       503: '服务暂时不可用，请稍后重试',
@@ -402,6 +403,10 @@ export class AiController {
       normalizedProvider === 'doubao' &&
       (normalizedSeedanceModel === 'seedance-2.0' ||
         normalizedSeedanceModel === '2.0' ||
+        normalizedSeedanceModel === 'seed-2.0-lite' ||
+        normalizedSeedanceModel === 'seedance-2.0-lite' ||
+        normalizedSeedanceModel === 'seed-2-0-lite' ||
+        normalizedSeedanceModel === '2.0-lite' ||
         normalizedSeedanceModel === 'seedance-2.0-fast' ||
         normalizedSeedanceModel === '2.0-fast');
 
@@ -412,7 +417,7 @@ export class AiController {
     const access = await this.resolveSeedance2CombinedAccess(userId, req);
     if (!access.allowed) {
       throw new BadRequestException(
-        'Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access',
+        'Seedance 2.0 / Seed 2.0 Lite requires VIP access or watermark whitelist access',
       );
     }
   }
@@ -495,6 +500,10 @@ export class AiController {
     return (
       normalized === 'seedance-2.0' ||
       normalized === '2.0' ||
+      normalized === 'seed-2.0-lite' ||
+      normalized === 'seedance-2.0-lite' ||
+      normalized === 'seed-2-0-lite' ||
+      normalized === '2.0-lite' ||
       normalized === 'seedance-2.0-fast' ||
       normalized === '2.0-fast'
     );
@@ -1692,6 +1701,11 @@ export class AiController {
         throw new HttpException('上游模型额度不足或请求过于频繁，请稍后重试', 429);
       }
 
+      const mappedUpstreamError = this.mapUpstreamErrorToHttpException(error);
+      if (mappedUpstreamError) {
+        throw mappedUpstreamError;
+      }
+
       throw error;
     }
   }
@@ -1748,6 +1762,69 @@ export class AiController {
     const causeMessage = cause?.message ? String(cause.message) : String(cause);
     const causeCode = cause?.code ? ` code=${String(cause.code)}` : '';
     return `${name}: ${message}${code} (cause: ${causeName}: ${causeMessage}${causeCode})`;
+  }
+
+  private extractHttpStatusFromError(error: any): number | null {
+    if (error instanceof HttpException) {
+      const status = error.getStatus();
+      return Number.isFinite(status) ? status : null;
+    }
+
+    const candidates = [
+      error?.message,
+      error?.cause?.message,
+      error?.response?.message,
+      typeof error?.response === 'string' ? error.response : '',
+    ]
+      .filter(Boolean)
+      .map((value) => String(value));
+
+    for (const message of candidates) {
+      const match =
+        message.match(/\bHTTP[_\s:]?(\d{3})\b/i) ||
+        message.match(/\bstatus[_\s:]?(\d{3})\b/i);
+      if (!match) continue;
+      const status = Number(match[1]);
+      if (Number.isFinite(status)) return status;
+    }
+
+    return null;
+  }
+
+  private isTimeoutLikeError(error: any): boolean {
+    const messages = [
+      error?.message,
+      error?.cause?.message,
+      error?.response?.message,
+      typeof error?.response === 'string' ? error.response : '',
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return messages.some((message) => {
+      return (
+        message.includes('524') ||
+        message.includes('timeout') ||
+        message.includes('timed out') ||
+        message.includes('gateway timeout') ||
+        message.includes('aborterror') ||
+        message.includes('aborted')
+      );
+    });
+  }
+
+  private mapUpstreamErrorToHttpException(error: any): HttpException | null {
+    const status = this.extractHttpStatusFromError(error);
+
+    if (status === 464) {
+      return new BadGatewayException('上游任务失败，请稍后重试');
+    }
+
+    if (status === 524 || this.isTimeoutLikeError(error)) {
+      return new HttpException('服务器处理超时，请稍后重试', 524);
+    }
+
+    return null;
   }
 
   private isRateLimitOrQuotaError(error: any): boolean {

@@ -33,6 +33,19 @@ const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
 const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
+const SEEDREAM_PROVIDER_CACHE_TTL_MS = 30_000;
+
+export type SeedreamProviderType = "doubao" | "watcha";
+export type Seedream5ProviderInfo = {
+  provider: SeedreamProviderType;
+  model?: string;
+  endpoint?: string;
+};
+
+let seedreamProviderCache:
+  | { value: Seedream5ProviderInfo; expiresAt: number }
+  | null = null;
+let seedreamProviderInFlight: Promise<Seedream5ProviderInfo> | null = null;
 
 const getTimestamp = () =>
   typeof performance !== "undefined" && typeof performance.now === "function"
@@ -76,7 +89,7 @@ const logAIImageResponse = (
       : "";
   const logger = hasImageData || hasImageUrl ? console.log : console.warn;
 
-  logger(`${hasImageData || hasImageUrl ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
+  logger(`[AI API] ${meta.endpoint} response summary`, {
     provider: meta.provider || "unknown",
     model: meta.model || "unspecified",
     promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : "N/A",
@@ -87,7 +100,7 @@ const logAIImageResponse = (
     textResponsePreview: textResponse ? truncateText(textResponse, 80) : "N/A",
   });
 
-  console.log(`🧾 [AI API] ${meta.endpoint} 返回详情`, {
+  console.log(`[AI API] ${meta.endpoint} response details`, {
     textResponse: textResponse || "(无文本返回)",
     hasImage: hasImageData || hasImageUrl,
   });
@@ -134,6 +147,54 @@ const generateUUID = () => {
 
 const buildIdempotencyKey = (scope: string) =>
   `${scope}-${Date.now()}-${generateUUID()}`;
+
+export async function getSeedream5ProviderInfo(
+  options?: { forceRefresh?: boolean }
+): Promise<Seedream5ProviderInfo> {
+  const forceRefresh = options?.forceRefresh === true;
+  const now = Date.now();
+  if (!forceRefresh && seedreamProviderCache && now < seedreamProviderCache.expiresAt) {
+    return seedreamProviderCache.value;
+  }
+  if (!forceRefresh && seedreamProviderInFlight) {
+    return seedreamProviderInFlight;
+  }
+
+  seedreamProviderInFlight = (async () => {
+    try {
+      const response = await fetchWithAuth(`${API_BASE_URL}/settings/seedream-provider`, {
+        method: "GET",
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as Partial<Seedream5ProviderInfo>;
+      const provider = payload?.provider === "watcha" ? "watcha" : "doubao";
+      const value: Seedream5ProviderInfo = {
+        provider,
+        model: typeof payload?.model === "string" ? payload.model : undefined,
+        endpoint:
+          typeof payload?.endpoint === "string" ? payload.endpoint : undefined,
+      };
+      seedreamProviderCache = {
+        value,
+        expiresAt: Date.now() + SEEDREAM_PROVIDER_CACHE_TTL_MS,
+      };
+      return value;
+    } catch {
+      const fallback: Seedream5ProviderInfo = { provider: "watcha" };
+      seedreamProviderCache = {
+        value: fallback,
+        expiresAt: Date.now() + 5_000,
+      };
+      return fallback;
+    } finally {
+      seedreamProviderInFlight = null;
+    }
+  })();
+
+  return seedreamProviderInFlight;
+}
 
 type BananaImageRoute = "normal" | "stable";
 
@@ -293,6 +354,56 @@ const isRetryableImageGenerationError = (error?: {
   );
 };
 
+const normalizeImageGenerationErrorMessage = (
+  rawMessage?: string,
+  status?: number
+): string => {
+  const normalized = typeof rawMessage === "string" ? rawMessage.trim() : "";
+  const lower = normalized.toLowerCase();
+
+  if (status === 464) {
+    return "上游任务失败，已标记失败并返还积分，请稍后重试。";
+  }
+
+  if (
+    status === 524 ||
+    lower.includes("524") ||
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("gateway timeout") ||
+    lower.includes("服务器处理超时")
+  ) {
+    return "图像生成处理超时（已等待 15 分钟），请简化参数后重试。";
+  }
+
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    const isGenericServerMessage =
+      lower === "internal server error" ||
+      lower === "service unavailable" ||
+      lower === "bad gateway" ||
+      lower === "gateway timeout" ||
+      /^http\s*\d+$/.test(lower);
+    if (normalized && !isGenericServerMessage) {
+      return normalized;
+    }
+    return "图像供应商服务暂时不可用，请稍后重试。";
+  }
+
+  if (status === 429 || lower.includes("rate limit") || lower.includes("too many requests")) {
+    return normalized || "请求过于频繁，请稍后重试。";
+  }
+
+  if (normalized) {
+    return normalized;
+  }
+
+  if (status) {
+    return `HTTP ${status}`;
+  }
+
+  return "网络异常，请稍后重试";
+};
+
 const resolveDefaultModel = (
   requestModel: string | undefined,
   provider: SupportedAIProvider | undefined
@@ -409,11 +520,12 @@ async function performGenerateImageRequest(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
       return {
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeImageGenerationErrorMessage(rawMessage, response.status),
           timestamp: new Date(),
         },
       };
@@ -468,14 +580,12 @@ async function performGenerateImageRequest(
       data: mapped,
     };
   } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? "");
     return {
       success: false,
       error: {
         code: "NETWORK_ERROR",
-        message:
-          error instanceof Error && error.message
-            ? `网络异常：${error.message}`
-            : "网络异常，请检查后端服务是否可用",
+        message: normalizeImageGenerationErrorMessage(rawMessage),
         timestamp: new Date(),
       },
     };
@@ -571,6 +681,164 @@ export async function generateImageViaAPI(
       },
     }
   );
+}
+
+export interface AsyncImageTaskCreateResult {
+  taskId: string;
+  status: string;
+}
+
+export interface AsyncImageTaskStatusResult {
+  status: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  textResponse?: string;
+  error?: string;
+  progress?: number;
+}
+
+export async function createImageGenerationTaskViaAPI(
+  request: AIImageGenerateRequest
+): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
+  const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("generate-image-async");
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-image-async`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute
+          ? { "X-Banana-Image-Route": bananaImageRoute }
+          : {}),
+      },
+      body: JSON.stringify(requestWithRoute),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      logApiTiming("generate-image-async", startedAt, {
+        success: false,
+        status: response.status,
+        provider: requestWithRoute.aiProvider,
+        model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-image-async", startedAt, {
+      success: true,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+    });
+    return {
+      success: true,
+      data: {
+        taskId: data.taskId,
+        status: data.status,
+      },
+    };
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+    logApiTiming("generate-image-async", startedAt, {
+      success: false,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      error: rawMessage,
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: normalizeImageGenerationErrorMessage(rawMessage),
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+export async function queryImageTaskStatusViaAPI(
+  taskId: string
+): Promise<AIServiceResponse<AsyncImageTaskStatusResult>> {
+  const startedAt = getTimestamp();
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}`,
+      { method: "GET" }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      logApiTiming("query-image-task", startedAt, {
+        success: false,
+        status: response.status,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("query-image-task", startedAt, {
+      success: true,
+      status: data?.status,
+    });
+    return {
+      success: true,
+      data: {
+        status: data.status,
+        imageUrl:
+          typeof data.imageUrl === "string" && data.imageUrl.trim().length > 0
+            ? data.imageUrl.trim()
+            : undefined,
+        thumbnailUrl:
+          typeof data.thumbnailUrl === "string" && data.thumbnailUrl.trim().length > 0
+            ? data.thumbnailUrl.trim()
+            : undefined,
+        textResponse:
+          typeof data.textResponse === "string" && data.textResponse.trim().length > 0
+            ? data.textResponse
+            : undefined,
+        error:
+          typeof data.error === "string" && data.error.trim().length > 0
+            ? data.error.trim()
+            : undefined,
+        progress: typeof data.progress === "number" ? data.progress : undefined,
+      },
+    };
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+    logApiTiming("query-image-task", startedAt, {
+      success: false,
+      error: rawMessage,
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: normalizeImageGenerationErrorMessage(rawMessage),
+        timestamp: new Date(),
+      },
+    };
+  }
 }
 
 /**

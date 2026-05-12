@@ -71,7 +71,7 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
 
 type ViduManagedModelVersion = "q2" | "q3";
 
-type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-fast";
+type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-lite";
 
 type ManagedV2ExecutionBranch = "legacy" | "v2_request_profile";
 
@@ -100,10 +100,10 @@ type ManagedV2ParsedTask = {
 
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
+    case "2.0-lite":
+      return "doubao-seed-2-0-lite-260428";
     case "2.0":
       return "doubao-seedance-2-0-260128";
-    case "2.0-fast":
-      return "doubao-seedance-2-0-fast-260128";
     default:
       return "doubao-seedance-1-5-pro-251215";
   }
@@ -1158,7 +1158,7 @@ export class VideoProviderService {
     }
 
     // Object items: apply asset:// substitution for sd2 active assets, fallback to HTTPS URL
-    const isSeedance20 = modelKey === "seedance-2.0" || modelKey === "seedance-2.0-fast";
+    const isSeedance20 = modelKey === "seedance-2.0";
     for (const item of objectItems) {
       let url: string;
       if (isSeedance20 && item.volcAssetStatus === "active" && item.volcAssetId) {
@@ -1776,11 +1776,23 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
+    if (
+      normalized === "seed-2.0-lite" ||
+      normalized === "seedance-2.0-lite" ||
+      normalized === "seed-2-0-lite" ||
+      normalized === "2.0-lite"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-lite",
+        label: "Seed 2.0 Lite",
+      };
+    }
     if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
       return {
         modelKey: "seedance-2.0",
-        modelVersion: "2.0-fast",
-        label: "Seedance 2.0 Fast",
+        modelVersion: "2.0",
+        label: "Seedance 2.0",
       };
     }
     if (normalized === "seedance-2.0" || normalized === "2.0") {
@@ -2199,7 +2211,7 @@ export class VideoProviderService {
       typeof options.prompt === "string" ? options.prompt.trim() : "";
     let promptText = normalizedPrompt;
     const params: string[] = [];
-    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-fast";
+    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-lite";
 
     if (options.aspectRatio) {
       params.push(`--ratio ${options.aspectRatio}`);

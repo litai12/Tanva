@@ -1008,7 +1008,16 @@ export class CreditsService {
       typeof requestParams?.seedanceModel === 'string'
         ? requestParams.seedanceModel.trim().toLowerCase()
         : '';
-    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+    if (
+      seedanceModel === 'seedance-2.0' ||
+      seedanceModel === 'seed-2.0-lite' ||
+      seedanceModel === 'seedance-2.0-lite' ||
+      seedanceModel === 'seed-2-0-lite' ||
+      seedanceModel === '2.0' ||
+      seedanceModel === '2.0-lite' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === '2.0-fast'
+    ) {
       return 'seedance-2.0';
     }
     if (
@@ -1143,16 +1152,20 @@ export class CreditsService {
         : '';
 
     if (
-      seedanceModel === 'seedance-2.0-fast' ||
-      seedanceModel === '2.0-fast'
+      seedanceModel === 'seed-2.0-lite' ||
+      seedanceModel === 'seedance-2.0-lite' ||
+      seedanceModel === 'seed-2-0-lite' ||
+      seedanceModel === '2.0-lite'
     ) {
-      return 'Seedance 2.0 Fast视频生成';
+      return 'Seed 2.0 Lite视频生成';
     }
 
     if (
       modelKey === 'seedance-2.0' ||
       seedanceModel === 'seedance-2.0' ||
-      seedanceModel === '2.0'
+      seedanceModel === '2.0' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === '2.0-fast'
     ) {
       return 'Seedance 2.0视频生成';
     }

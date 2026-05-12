@@ -150,6 +150,7 @@ import {
 } from "@/utils/imageConcurrency";
 import { aiImageService } from "@/services/aiImageService";
 import {
+  createImageGenerationTaskViaAPI,
   generateImageViaAPI,
   editImageViaAPI,
   blendImagesViaAPI,
@@ -159,6 +160,7 @@ import {
   generateHappyhorseVideoViaAPI,
   generateWan27I2VViaAPI,
   midjourneyActionViaAPI,
+  queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
 } from "@/services/aiBackendAPI";
@@ -1210,11 +1212,16 @@ const SEEDANCE15_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
-type Seedance20Mode = "reference_images" | "start_end";
+type Seedance20Mode = "reference_images" | "start_end" | "first_frame" | "smart_frames";
 type Seedance15Mode = "text" | "image" | "start_end";
 type SeedanceMode = Seedance20Mode | Seedance15Mode;
 
-const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
+  "reference_images",
+  "start_end",
+  "first_frame",
+  "smart_frames",
+];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
 const VIDEO_SOURCE_NODE_TYPES = [
@@ -1236,14 +1243,24 @@ const VIDEO_SOURCE_NODE_TYPES = [
 
 const normalizeSeedanceModelValue = (
   value?: unknown
-): "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast" => {
+): "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite" => {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
-    return "seedance-2.0-fast";
+  if (
+    normalized === "seed-2.0-lite" ||
+    normalized === "seedance-2.0-lite" ||
+    normalized === "seed-2-0-lite" ||
+    normalized === "2.0-lite"
+  ) {
+    return "seed-2.0-lite";
   }
-  if (normalized === "seedance-2.0" || normalized === "2.0") {
+  if (
+    normalized === "seedance-2.0" ||
+    normalized === "2.0" ||
+    normalized === "seedance-2.0-fast" ||
+    normalized === "2.0-fast"
+  ) {
     return "seedance-2.0";
   }
   return "seedance-1.5-pro";
@@ -1251,7 +1268,7 @@ const normalizeSeedanceModelValue = (
 
 const isSeedance20ModelValue = (value?: unknown): boolean => {
   const normalized = normalizeSeedanceModelValue(value);
-  return normalized === "seedance-2.0" || normalized === "seedance-2.0-fast";
+  return normalized === "seedance-2.0" || normalized === "seed-2.0-lite";
 };
 
 const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number =>
@@ -9636,6 +9653,7 @@ function FlowInner() {
           ? {
               status: "idle" as const,
               images: [],
+              modelVersion: "5.0" as const,
               size: "2K",
               batchMode: false,
               batchCount: 4,
@@ -10338,7 +10356,7 @@ function FlowInner() {
       node?: Node | null
     ): {
       isSeedance20: boolean;
-      model: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
+      model: "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite";
     } | null => {
       if (!isSeedanceVideoNode(node)) return null;
       const nodeData = (node?.data || {}) as Record<string, any>;
@@ -10362,9 +10380,11 @@ function FlowInner() {
         if (isSeedance20ModeValue(nodeData.seedanceMode)) {
           return nodeData.seedanceMode;
         }
-        if (legacyMode === "start_end" || legacyMode === "first_frame") {
+        if (legacyMode === "start_end") {
           return "start_end";
         }
+        if (legacyMode === "first_frame") return "first_frame";
+        if (legacyMode === "smart_frames") return "smart_frames";
         return "reference_images";
       }
 
@@ -10408,9 +10428,25 @@ function FlowInner() {
       }
       const mode = inferSeedanceMode(node);
       if (profile.isSeedance20) {
+        if (mode === "first_frame") {
+          return {
+            imageHandleMax: 1,
+            image2HandleMax: 0,
+            videoHandleMax: 0,
+            audioHandleMax: 0,
+          };
+        }
         if (mode === "start_end") {
           return {
             imageHandleMax: 2,
+            image2HandleMax: 0,
+            videoHandleMax: 0,
+            audioHandleMax: 0,
+          };
+        }
+        if (mode === "smart_frames") {
+          return {
+            imageHandleMax: 10,
             image2HandleMax: 0,
             videoHandleMax: 0,
             audioHandleMax: 0,
@@ -12021,8 +12057,7 @@ function FlowInner() {
           const isSeedance20Target =
             isSeedanceVideoNode(tgtNode) &&
             (tgtNode.type === "seedance20Video" ||
-              (tgtNode.data as any)?.seedanceModel === "seedance-2.0" ||
-              (tgtNode.data as any)?.seedanceModel === "seedance-2.0-fast");
+              isSeedance20ModelValue((tgtNode.data as any)?.seedanceModel));
           const isImageHandle =
             params.targetHandle === "image" || params.targetHandle === "image-2";
           if (!isSeedance20Target || !isImageHandle) return;
@@ -17066,9 +17101,31 @@ function FlowInner() {
           const seedanceTotalImageCount = seedanceImageCount + seedanceImage2Count;
 
           if (isSeedance20Request) {
-            if (seedanceMode === "start_end") {
+            if (seedanceMode === "first_frame") {
+              if (seedanceTotalImageCount !== 1) {
+                failCurrentVideoNode("Seedance 2.0 首帧模式需要且仅支持 1 张图片");
+                return;
+              }
+              if (seedanceVideoCount > 0 || seedanceAudioCount > 0) {
+                failCurrentVideoNode("Seedance 2.0 首帧模式不支持视频/音频参考");
+                return;
+              }
+            } else if (seedanceMode === "start_end") {
               if (seedanceTotalImageCount < 1 || seedanceTotalImageCount > 2) {
                 failCurrentVideoNode("Seedance 2.0 帧模式需要 1-2 张图片");
+                return;
+              }
+              if (seedanceVideoCount > 0 || seedanceAudioCount > 0) {
+                failCurrentVideoNode("Seedance 2.0 首尾帧模式不支持视频/音频参考");
+                return;
+              }
+            } else if (seedanceMode === "smart_frames") {
+              if (seedanceTotalImageCount < 2 || seedanceTotalImageCount > 10) {
+                failCurrentVideoNode("Seedance 2.0 智能多帧模式需要 2-10 张图片");
+                return;
+              }
+              if (seedanceVideoCount > 0 || seedanceAudioCount > 0) {
+                failCurrentVideoNode("Seedance 2.0 智能多帧模式不支持视频/音频参考");
                 return;
               }
             } else if (
@@ -17270,6 +17327,7 @@ function FlowInner() {
         })();
         const metadataSupportsSeedance20 =
           nodeSupportedSeedanceModels.has("seedance-2.0") ||
+          nodeSupportedSeedanceModels.has("seed-2.0-lite") ||
           nodeSupportedSeedanceModels.has("seedance-2.0-fast");
         const effectiveConfiguredDurationOptions = (() => {
           if (provider === "kling-o3" && isTencentKlingO3RouteForDuration) {
@@ -17940,7 +17998,11 @@ function FlowInner() {
           !isSeedanceNode || !seedanceMode
             ? undefined
             : isSeedance20Request
-            ? seedanceMode === "start_end"
+            ? seedanceMode === "first_frame"
+              ? "first_frame"
+              : seedanceMode === "smart_frames"
+              ? "smart_frames"
+              : seedanceMode === "start_end"
               ? imageCount >= 2
                 ? "start_end"
                 : "first_frame"
@@ -18125,7 +18187,7 @@ function FlowInner() {
             return;
           }
 
-          // Seedance 2.0 / 2.0-fast: enrich referenceImages with volcAssetId/Status.
+          // Seedance 2.0 family: enrich referenceImages with volcAssetId/Status.
           // Prefer resolvedVolcAssets built by the auto-review pass above (guaranteed active);
           // fall back to reading source node data for non-Seedance2 paths or legacy callers.
           const seedance20ReferenceImages:
@@ -19867,7 +19929,7 @@ function FlowInner() {
           const gptImage2MaskUrl = pickStringValue(
             nodeData?.maskUrl ?? defaultData?.maskUrl
           );
-          const result = await generateImageViaAPI({
+          const requestPayload: AIImageGenerateRequest = {
             prompt: promptText,
             aiProvider: "nano2",
             model: requestedModel,
@@ -19910,7 +19972,98 @@ function FlowInner() {
                       : defaultData?.googleImageSearch,
                 }
               : {}),
-          });
+          };
+
+          const result =
+            node.type === "gptImage2"
+              ? await (async () => {
+                  const createTaskResult = await createImageGenerationTaskViaAPI(
+                    requestPayload
+                  );
+                  if (!createTaskResult.success || !createTaskResult.data?.taskId) {
+                    return {
+                      success: false as const,
+                      error: {
+                        code: createTaskResult.error?.code || "TASK_CREATE_FAILED",
+                        message:
+                          createTaskResult.error?.message ||
+                          "GPT-Image-2 任务创建失败",
+                        timestamp: new Date(),
+                      },
+                    };
+                  }
+
+                  const pollDeadlineAt = Date.now() + 15 * 60 * 1000;
+                  const pollIntervalMs = 3000;
+                  let resolvedImageUrl = "";
+                  let resolvedTextResponse = "";
+                  let failureMessage = "";
+                  let consecutiveQueryFailures = 0;
+
+                  while (Date.now() < pollDeadlineAt) {
+                    const statusResult = await queryImageTaskStatusViaAPI(
+                      createTaskResult.data.taskId
+                    );
+                    if (!statusResult.success || !statusResult.data) {
+                      consecutiveQueryFailures += 1;
+                      failureMessage =
+                        statusResult.error?.message || "GPT-Image-2 任务查询失败";
+                      if (consecutiveQueryFailures >= 3) {
+                        break;
+                      }
+                      await new Promise((r) => setTimeout(r, pollIntervalMs));
+                      continue;
+                    }
+                    consecutiveQueryFailures = 0;
+
+                    const taskStatus = String(statusResult.data.status || "").toLowerCase();
+                    if (taskStatus === "succeeded") {
+                      resolvedImageUrl = statusResult.data.imageUrl || "";
+                      resolvedTextResponse = statusResult.data.textResponse || "";
+                      break;
+                    }
+                    if (taskStatus === "failed") {
+                      failureMessage =
+                        statusResult.data.error ||
+                        "GPT-Image-2 任务失败，积分将自动返还。";
+                      break;
+                    }
+
+                    await new Promise((r) => setTimeout(r, pollIntervalMs));
+                  }
+
+                  if (!resolvedImageUrl) {
+                    return {
+                      success: false as const,
+                      error: {
+                        code: "TASK_TIMEOUT_OR_FAILED",
+                        message:
+                          failureMessage ||
+                          "GPT-Image-2 生成超时（15分钟），积分将自动返还。",
+                        timestamp: new Date(),
+                      },
+                    };
+                  }
+
+                  return {
+                    success: true as const,
+                    data: {
+                      id: `${nodeId}-${Date.now()}`,
+                      imageUrl: resolvedImageUrl,
+                      imageData: undefined,
+                      textResponse: resolvedTextResponse,
+                      prompt: promptText,
+                      model: requestedModel,
+                      createdAt: new Date(),
+                      hasImage: true,
+                      metadata: {
+                        imageUrl: resolvedImageUrl,
+                        provider: "nano2",
+                      },
+                    },
+                  };
+                })()
+              : await generateImageViaAPI(requestPayload);
 
           if (!result.success || !result.data) {
             const msg =
@@ -20082,7 +20235,7 @@ function FlowInner() {
             if (!value) return "2K";
             const compact = value.replace(/\s+/g, "");
             const upper = compact.toUpperCase();
-            if (upper === "2K" || upper === "3K") return upper;
+            if (upper === "2K" || upper === "3K" || upper === "4K") return upper;
             const dimMatch = compact.match(/^(\d{3,5})[xX](\d{3,5})$/);
             if (dimMatch) return `${dimMatch[1]}x${dimMatch[2]}`;
             console.warn(`Seedream5: invalid size "${value}", fallback to 2K`);
@@ -20091,10 +20244,18 @@ function FlowInner() {
           const seedreamSizeForAPI = normalizeSeedreamSizeForAPI(
             (node.data as any)?.size
           );
+          const seedreamModelVersion =
+            (node.data as any)?.modelVersion === "4.5" ? "4.5" : "5.0";
+          const seedreamModelId =
+            seedreamModelVersion === "4.5"
+              ? "doubao-seedream-4-5-251128"
+              : "doubao-seedream-5-0-260128";
 
           const result = await generateImageViaAPI({
             prompt: promptText || "",
             aiProvider: "seedream5",
+            modelVersion: seedreamModelVersion,
+            model: seedreamModelId,
             imageSize: seedreamSizeForAPI,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             batchMode: false,
@@ -20102,7 +20263,7 @@ function FlowInner() {
           });
 
           if (!result.success || !result.data) {
-            const msg = result.error?.message || "Seedream 5.0 生成失败";
+            const msg = result.error?.message || "Seedream 生成失败";
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -20175,7 +20336,7 @@ function FlowInner() {
                 id: historyId,
                 base64: historyRemote ? undefined : historySource,
                 remoteUrl: historyRemote ? historySource : undefined,
-                title: `Seedream 5.0 ${new Date().toLocaleTimeString()}`,
+                title: `Seedream ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_seedream5_${historyId}.png`,

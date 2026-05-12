@@ -24,4 +24,12 @@ export class SettingsPublicController {
   async getLoginNotice() {
     return this.adminService.getLoginNotice();
   }
+
+  @Get('seedream-provider')
+  @ApiOperation({ summary: 'Get active seedream provider (public)' })
+  async getSeedreamProvider() {
+    const setting = await this.adminService.getSetting('seedream5_provider');
+    const provider = setting?.value === 'watcha' ? 'watcha' : 'doubao';
+    return { provider };
+  }
 }

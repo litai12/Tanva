@@ -121,7 +121,7 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
-const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
+const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seed-2.0-lite'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P'];
@@ -130,6 +130,7 @@ const SEEDANCE20_INPUT_MODES = [
   'first_frame',
   'start_end',
   'reference_images',
+  'smart_frames',
   'reference_video',
   'image_audio',
   'image_video',
@@ -137,8 +138,9 @@ const SEEDANCE20_INPUT_MODES = [
   'image_video_audio',
 ];
 const SEEDANCE20_NOTES = [
-  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128',
-  '节点采用自动模式推导：最多支持 9 张参考图，尾帧/视频/音频各 1 路，运行时按已连接输入自动确定上游 video_mode',
+  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seed-2-0-lite-260428',
+  '节点采用自动模式推导：最多支持 9 张参考图，视频/音频各最多 3 路，运行时按已连接输入自动确定上游 video_mode',
+  '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
 ];
 
 @Injectable()

@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
+- Flow/Seedream: `Seedream` 节点新增豆包通道专属 `4.5/5.0` 模型切换；观猹通道固定 5.0 且隐藏模型下拉。后端 `seedream5` 链路支持读取 `modelVersion`/`model` 并在豆包通道映射到 `doubao-seedream-4-5-251128` 或 `doubao-seedream-5-0-260128`。
 - Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
 
 ### Updated
@@ -29,6 +30,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - GPT-Image-2/Nano2: task query now treats upstream business `code=464` as immediate failure (instead of continuing poll-until-timeout), so request failure and credit-refund paths can execute promptly; stable/tencent polling also supports an explicit 15-minute wait budget override.
+- AI Error Mapping: image-generation failure mapping now unifies upstream timeout and task-failure signals (`524`, timeout-like errors, `464`) to avoid mixed `Internal Server Error` user feedback.
+- Flow/GPT-Image-2: node execution now uses async task creation + polling (`/api/ai/generate-image-async` + `/api/ai/image-task/:taskId`) with 15-minute timeout budget, while failed/timeout tasks rely on backend refund-safe status handling.
+- Gateway Timeout Alignment: docs now explicitly require external proxy/gateway timeout >= 900 seconds for any remaining synchronous image path to reduce premature `HTTP 524`.
 - Tencent AIGC Image Polling: when `DescribeTaskDetail` reaches success without direct `imageUrl`, backend now retries polling, attempts `FileId -> DescribeMediaInfos` URL fallback, and only fails after bounded retries, reducing false `completed but image URL is missing` errors for GPT-Image-2 stable text-only runs.
 - GPT-Image-2 Credits: stable/tencent route now deducts by `quality × resolution` platform pricing (`low: 30/35/40`, `medium: 65/110/160`, `high: 190/350/560` for `1K/2K/4K`), and Nano2/GPT-image-2 node run-credit preview now reads the same backend quote instead of static node credits.
 - Flow/Image Node: local image upload now detaches the node's existing image input edge and clears stale crop metadata after a successful OSS write, so a newly uploaded image is displayed instead of the upstream/old connected image.
@@ -674,3 +678,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow `TextChat` now sends only its connected/manual node prompt to text generation, without global chat context injection.
 - Flow `AnalyzeNode` now exposes Analysis/Prompt/JSON skill presets, stores `analysisSkillId`, and keeps connected text prompts as appended instructions.
 - GPT-Image-2 stable route supplier switched from Apimart to Tencent VOD AIGC in `Nano2Provider`: when `providerOptions.banana.imageRoute=stable`, backend now submits `CreateAigcImageTask` with `OG/image2_*` mapping and returns Tencent channel metadata.
+
+## 2026-05-12 Seedance Update
+- Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
+- Flow/Seedance Video: added mode inputs eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
+- Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).

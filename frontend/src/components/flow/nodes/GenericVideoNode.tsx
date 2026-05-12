@@ -26,8 +26,8 @@ import {
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
 type ViduModel = ViduModelValue;
-type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
-type Seedance20Mode = "reference_images" | "start_end";
+type SeedanceModel = "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite";
+type Seedance20Mode = "reference_images" | "start_end" | "first_frame" | "smart_frames";
 type Seedance15Mode = "text" | "image" | "start_end";
 type SeedanceMode = Seedance20Mode | Seedance15Mode;
 type VodCapabilityMetadata = {
@@ -215,14 +215,40 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
-const SEEDANCE20_FAST_DOC_RESOLUTIONS = ["480P", "720P"] as const;
+const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
-const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = ["reference_images", "start_end"];
+const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
+  "reference_images",
+  "start_end",
+  "first_frame",
+  "smart_frames",
+];
 const SEEDANCE15_MODE_VALUES: Seedance15Mode[] = ["text", "image", "start_end"];
 
-const isSeedance20ModelValue = (value: unknown): boolean => {
+const normalizeSeedanceModelValue = (value: unknown): SeedanceModel => {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-  return normalized === "seedance-2.0" || normalized === "seedance-2.0-fast";
+  if (
+    normalized === "seed-2.0-lite" ||
+    normalized === "seedance-2.0-lite" ||
+    normalized === "seed-2-0-lite" ||
+    normalized === "2.0-lite"
+  ) {
+    return "seed-2.0-lite";
+  }
+  if (
+    normalized === "seedance-2.0" ||
+    normalized === "2.0" ||
+    normalized === "seedance-2.0-fast" ||
+    normalized === "2.0-fast"
+  ) {
+    return "seedance-2.0";
+  }
+  return "seedance-1.5-pro";
+};
+
+const isSeedance20ModelValue = (value: unknown): boolean => {
+  const normalized = normalizeSeedanceModelValue(value);
+  return normalized === "seedance-2.0" || normalized === "seed-2.0-lite";
 };
 
 const isSeedance20ModeValue = (value: unknown): value is Seedance20Mode =>
@@ -240,10 +266,26 @@ type SeedanceModeSpec = {
 
 const getSeedance20ModeSpec = (mode: Seedance20Mode): SeedanceModeSpec => {
   switch (mode) {
+    case "first_frame":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 1,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
     case "start_end":
       return {
         visibleHandles: ["text", "image"],
         imageHandleMax: 2,
+        image2HandleMax: 0,
+        videoHandleMax: 0,
+        audioHandleMax: 0,
+      };
+    case "smart_frames":
+      return {
+        visibleHandles: ["text", "image"],
+        imageHandleMax: 10,
         image2HandleMax: 0,
         videoHandleMax: 0,
         audioHandleMax: 0,
@@ -420,12 +462,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const viduModel: ViduModel = normalizeViduModelValue(
     data.viduModel || (provider === "viduq3-pro" ? "q3" : "q2")
   );
-  const seedanceModel: SeedanceModel =
-    data.seedanceModel === "seedance-2.0-fast"
-      ? "seedance-2.0-fast"
-      : data.seedanceModel === "seedance-2.0"
-      ? "seedance-2.0"
-      : "seedance-1.5-pro";
+  const seedanceModel: SeedanceModel = normalizeSeedanceModelValue(data.seedanceModel);
   const isSeedanceModel = provider === "doubao";
   const seedance2AccessEnabled = data.seedance2AccessEnabled === true;
   const seedance2AccessResolved = data.seedance2AccessResolved === true;
@@ -438,9 +475,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       seedance20RestrictedForCurrentUser && isSeedance20ModelValue(value),
     [seedance20RestrictedForCurrentUser]
   );
-  const isSeedance20Model =
-    isSeedanceModel &&
-    (seedanceModel === "seedance-2.0" || seedanceModel === "seedance-2.0-fast");
+  const isSeedance20Model = isSeedanceModel && isSeedance20ModelValue(seedanceModel);
   const seedanceGenerateAudio =
     isSeedance20Model && typeof data.generateAudio === "boolean"
       ? data.generateAudio
@@ -450,7 +485,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (isSeedance20Model) {
       if (isSeedance20ModeValue(data.seedanceMode)) return data.seedanceMode;
       const legacyMode = String(data.seedanceMode || "").trim().toLowerCase();
-      if (legacyMode === "start_end" || legacyMode === "first_frame") return "start_end";
+      if (legacyMode === "start_end") return "start_end";
+      if (legacyMode === "first_frame") return "first_frame";
+      if (legacyMode === "smart_frames") return "smart_frames";
       return "reference_images";
     }
     const explicitMode = isSeedance15ModeValue(data.seedanceMode)
@@ -1064,7 +1101,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
-      { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
+      { label: "Seed 2.0 Lite", value: "seed-2.0-lite" as const },
     ],
     []
   );
@@ -1093,10 +1130,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const normalized = new Set(
         supportedModels.map((item) => String(item).trim().toLowerCase())
       );
-      // 2.0 与 2.0 Fast 属于同一模型族，任一可用时都展示，方便切换。
-      if (normalized.has("seedance-2.0") || normalized.has("seedance-2.0-fast")) {
+      // 2.0 与 Seed 2.0 Lite 属于同一模型族，任一可用时都展示，方便切换。
+      if (
+        normalized.has("seedance-2.0") ||
+        normalized.has("seed-2.0-lite") ||
+        normalized.has("seedance-2.0-fast")
+      ) {
         normalized.add("seedance-2.0");
-        normalized.add("seedance-2.0-fast");
+        normalized.add("seed-2.0-lite");
       }
       const filtered = seedanceModelOptions.filter((opt) => normalized.has(opt.value));
       return filtered.length > 0 ? filtered : seedanceModelOptions;
@@ -1148,8 +1189,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       : !hasImageInput;
   const seedance20ResolutionList = React.useMemo<string[]>(
     () =>
-      seedanceModel === "seedance-2.0-fast"
-        ? [...SEEDANCE20_FAST_DOC_RESOLUTIONS]
+      seedanceModel === "seed-2.0-lite"
+        ? [...SEED20_LITE_DOC_RESOLUTIONS]
         : [...SEEDANCE20_DOC_RESOLUTIONS],
     [seedanceModel]
   );
@@ -1198,7 +1239,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (!isSeedanceModel) return [] as string[];
     if (isSeedance20Model) {
       const resolutionTip =
-        seedanceModel === "seedance-2.0-fast"
+        seedanceModel === "seed-2.0-lite"
           ? lt(
               "分辨率/尺寸：480P、720P；21:9、16:9、4:3、1:1、3:4、9:16",
               "Resolution/ratio: 480P, 720P; 21:9, 16:9, 4:3, 1:1, 3:4, 9:16"
@@ -1212,6 +1253,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         lt("生成时长：4-15 秒", "Output duration: 4-15s"),
         resolutionTip,
         lt("参考视频最多 3 条；音频最多 3 条且每条≤5秒", "Video refs <=3; audio refs <=3 and <=5s each"),
+        lt("在线限流：企业 600 RPM / 个人 80 RPM", "Online RPM: enterprise 600 / individual 80"),
+        lt("在线最大并发：企业 10", "Online max concurrency: enterprise 10"),
       ];
     }
     return [
@@ -1233,12 +1276,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               ),
             },
             {
+              value: "first_frame",
+              label: lt("首帧（1图）", "First frame (1 image)"),
+              description: lt("仅首帧图 + 提示词", "Single first-frame image with prompt"),
+            },
+            {
               value: "start_end",
               label: lt("首/尾帧（1-2图）", "Frame mode (1-2 images)"),
               description: lt(
                 "支持首帧、尾帧、首尾帧（总共1-2张图）",
                 "Supports first/last/start-end frames (1-2 images total)"
               ),
+            },
+            {
+              value: "smart_frames",
+              label: lt("智能多帧（2-10图）", "Smart frames (2-10)"),
+              description: lt("2-10 张图片序列智能衔接", "2-10 image sequence transition"),
             },
           ]
         : [
@@ -1480,20 +1533,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             detail: {
               type: "info",
               message: lt(
-                "Seedance 2.0 / 2.0 Fast 需开通 VIP 权益或进入水印白名单后才可选择",
-                "Seedance 2.0 / 2.0 Fast requires VIP access or watermark whitelist access",
+                "Seedance 2.0 / Seed 2.0 Lite 需开通 VIP 权益或进入水印白名单后才可选择",
+                "Seedance 2.0 / Seed 2.0 Lite requires VIP access or watermark whitelist access",
               ),
             },
           })
         );
         return;
       }
-      const nextMode: SeedanceMode =
-        value === "seedance-2.0" || value === "seedance-2.0-fast"
-          ? "reference_images"
-          : "text";
+      const nextMode: SeedanceMode = isSeedance20ModelValue(value) ? "reference_images" : "text";
       const nextDuration =
-        value === "seedance-2.0" || value === "seedance-2.0-fast"
+        isSeedance20ModelValue(value)
           ? clipDuration === 3
             ? 4
             : clipDuration && clipDuration >= 4 && clipDuration <= 15
@@ -1505,7 +1555,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       const currentResolution =
         typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
       const nextResolution =
-        value === "seedance-2.0-fast" && currentResolution === "1080P"
+        value === "seed-2.0-lite" && currentResolution === "1080P"
           ? "720P"
           : undefined;
       window.dispatchEvent(
@@ -1517,7 +1567,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               seedanceMode: nextMode,
               clipDuration: nextDuration,
               generateAudio:
-                value === "seedance-2.0" || value === "seedance-2.0-fast"
+                isSeedance20ModelValue(value)
                   ? typeof data.generateAudio === "boolean"
                     ? data.generateAudio
                     : true
@@ -2177,6 +2227,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             ? isSeedance20Model
               ? seedanceMode === "reference_images"
                 ? "image (1-9)"
+                : seedanceMode === "first_frame"
+                ? "image (1)"
+                : seedanceMode === "smart_frames"
+                ? "image (2-10)"
                 : "image (1-2)"
               : seedanceMode === "start_end"
               ? "image (1-2)"
@@ -2601,8 +2655,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                   }}
                 >
                   {lt(
-                    "提示：Seedance 2.0 / 2.0 Fast 需开通 VIP 权益",
-                    "Tip: Seedance 2.0 / 2.0 Fast requires VIP access",
+                    "提示：Seedance 2.0 / Seed 2.0 Lite 需开通 VIP 权益",
+                    "Tip: Seedance 2.0 / Seed 2.0 Lite requires VIP access",
                   )}
                 </div>
               ) : null}

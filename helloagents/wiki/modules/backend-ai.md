@@ -31,6 +31,8 @@
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
+- `GET /api/ai/seedream5/provider` returns current Seedream channel provider/model for frontend node UI capability gating.
+- Seedream5 image generation now accepts optional `modelVersion` (`4.5` / `5.0`): when provider is doubao it maps to `doubao-seedream-4-5-251128` or `doubao-seedream-5-0-260128`; when provider is watcha it stays pinned to watcha model (default `seedream-5.0-lite`).
 - Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
 - Tencent route for `kling-2.6` uses official start-end mapping: first frame goes to `FileInfos` (`Usage=FirstFrame`) and tail frame goes to `LastFrameUrl`; non-start-end reference images use `Usage=Reference`.
 - Tencent `kling-2.6` output constraints are normalized server-side: duration `5/10`, resolution `720P/1080P`, and start-end mode always sends `OutputConfig.AudioGeneration=Disabled`.
@@ -66,3 +68,11 @@
 ## 2026-04-24 Update
 - Nano2/GPT-Image-2 request passthrough supports `official_fallback` boolean; backend default fallback for `gpt-image-2` is now `false` when frontend does not specify it.
 - Backend node default metadata for `gptImage2` now exposes `resolutions: [1K,2K,4K]` and enables `showResolutionSelector`.
+
+## 2026-05-12 GPT-Image-2 Timeout & Async Notes
+- Prefer async image task APIs for GPT-Image-2 high-quality/large-size runs: `POST /api/ai/generate-image-async` then poll `GET /api/ai/image-task/:taskId`.
+- Backend polling budget is 15 minutes; task `failed` status enters refund-safe flow.
+- For any remaining synchronous image path, external gateway/proxy should keep timeout >= 900s to reduce premature `HTTP 524`.
+
+## 2026-05-12 Seedance Update
+- Video provider now recognizes seed-2.0-lite and routes to doubao-seed-2-0-lite-260428; legacy seedance-2.0-fast inputs are kept as compatibility aliases. Entitlement and credits model inference also include the new lite aliases.

@@ -4,6 +4,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export type Seedream5ProviderType = 'doubao' | 'watcha';
 export const SEEDREAM5_PROVIDER_SETTING_KEY = 'seedream5_provider';
+export type Seedream5ModelVersion = '4.5' | '5.0';
+
+const DOUBAO_SEEDREAM_50_MODEL = 'doubao-seedream-5-0-260128';
+const DOUBAO_SEEDREAM_45_MODEL = 'doubao-seedream-4-5-251128';
 
 interface Seedream5ProviderConfig {
   provider: Seedream5ProviderType;
@@ -138,7 +142,38 @@ export class Seedream5Service {
     return 'doubao';
   }
 
-  private async resolveProviderConfig(): Promise<Seedream5ProviderConfig> {
+  private normalizeDoubaoModelVersion(value?: string): Seedream5ModelVersion | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === '4.5' || normalized === '4-5') return '4.5';
+    if (normalized === '5.0' || normalized === '5-0' || normalized === '5') return '5.0';
+    return null;
+  }
+
+  private resolveDoubaoModel(options?: {
+    requestedModel?: string;
+    requestedModelVersion?: string;
+  }): string {
+    const requestedModel = options?.requestedModel?.trim().toLowerCase() || '';
+    if (requestedModel.includes('seedream-4-5') || requestedModel.includes('seedream-4.5')) {
+      return DOUBAO_SEEDREAM_45_MODEL;
+    }
+    if (requestedModel.includes('seedream-5-0') || requestedModel.includes('seedream-5.0')) {
+      return DOUBAO_SEEDREAM_50_MODEL;
+    }
+
+    const requestedModelVersion = this.normalizeDoubaoModelVersion(options?.requestedModelVersion);
+    if (requestedModelVersion === '4.5') {
+      return DOUBAO_SEEDREAM_45_MODEL;
+    }
+    return DOUBAO_SEEDREAM_50_MODEL;
+  }
+
+  private async resolveProviderConfig(options?: {
+    requestedModel?: string;
+    requestedModelVersion?: string;
+  }): Promise<Seedream5ProviderConfig> {
     const provider = await this.getConfiguredProvider();
 
     if (provider === 'watcha') {
@@ -163,7 +198,10 @@ export class Seedream5Service {
       provider: 'doubao',
       endpoint: this.doubaoEndpoint,
       apiKey: this.doubaoApiKey,
-      model: 'doubao-seedream-5-0-260128',
+      model: this.resolveDoubaoModel({
+        requestedModel: options?.requestedModel,
+        requestedModelVersion: options?.requestedModelVersion,
+      }),
       generationPath: '/api/v3/images/generations',
     };
   }
@@ -173,7 +211,18 @@ export class Seedream5Service {
     model: string;
     endpoint: string;
   }> {
-    const config = await this.resolveProviderConfig();
+    return this.getProviderExecutionInfoWithOptions();
+  }
+
+  async getProviderExecutionInfoWithOptions(options?: {
+    requestedModel?: string;
+    requestedModelVersion?: string;
+  }): Promise<{
+    provider: Seedream5ProviderType;
+    model: string;
+    endpoint: string;
+  }> {
+    const config = await this.resolveProviderConfig(options);
     return {
       provider: config.provider,
       model: config.model,
@@ -187,8 +236,13 @@ export class Seedream5Service {
     image_urls?: string[];
     batchMode?: boolean;
     batchCount?: number;
+    model?: string;
+    modelVersion?: string;
   }): Promise<{ imageUrl?: string; imageUrls?: string[] }> {
-    const providerConfig = await this.resolveProviderConfig();
+    const providerConfig = await this.resolveProviderConfig({
+      requestedModel: params.model,
+      requestedModelVersion: params.modelVersion,
+    });
     const normalizedSize = this.normalizeSizeForProvider(
       providerConfig.provider,
       this.normalizeSize(params.size),

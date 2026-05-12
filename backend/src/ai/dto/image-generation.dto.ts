@@ -31,6 +31,11 @@ enum ThinkingLevel {
   LOW = 'low',
 }
 
+enum SeedreamModelVersion {
+  V4_5 = '4.5',
+  V5_0 = '5.0',
+}
+
 enum GptImage2Quality {
   AUTO = 'auto',
   LOW = 'low',
@@ -57,6 +62,10 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsEnum(SeedreamModelVersion)
+  modelVersion?: '4.5' | '5.0';
 
   @IsOptional()
   @IsString()
