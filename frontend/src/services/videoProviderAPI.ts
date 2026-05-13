@@ -45,7 +45,13 @@ export interface VideoGenerationRequest {
   klingStoryboardScript?: string;
   viduModel?: "q2" | "q3";
   viduModelVariant?: "q2" | "q2-pro" | "q2-turbo" | "q3" | "q3-pro" | "q3-turbo";
-  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite" | "seedance-2.0-fast";
+  seedanceModel?:
+    | "seedance-1.5-pro"
+    | "seedance-2.0"
+    | "seed-2.0-pro"
+    | "seed-2.0-lite"
+    | "seed-2.0-mini"
+    | "seedance-2.0-fast";
   // Kling O1 视频编辑专用参数
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";

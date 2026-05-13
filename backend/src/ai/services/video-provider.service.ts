@@ -71,7 +71,12 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
 
 type ViduManagedModelVersion = "q2" | "q3";
 
-type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-lite";
+type SeedanceManagedModelVersion =
+  | "1.5-pro"
+  | "2.0"
+  | "2.0-pro"
+  | "2.0-lite"
+  | "2.0-mini";
 
 type ManagedV2ExecutionBranch = "legacy" | "v2_request_profile";
 
@@ -100,8 +105,12 @@ type ManagedV2ParsedTask = {
 
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
+    case "2.0-pro":
+      return "doubao-seed-2-0-pro-260215";
     case "2.0-lite":
       return "doubao-seed-2-0-lite-260428";
+    case "2.0-mini":
+      return "doubao-seed-2-0-mini-260428";
     case "2.0":
       return "doubao-seedance-2-0-260128";
     default:
@@ -1396,12 +1405,19 @@ export class VideoProviderService {
         : "720P";
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase();
-    const resolution =
-      resolvedModelVersion === "1.5-pro"
-        ? "720P"
-        : requestedResolution === "480P" || requestedResolution === "720P"
-        ? requestedResolution
-        : "720P";
+    const resolution = (() => {
+      if (resolvedModelVersion === "1.5-pro") return "720P";
+      const allow1080 =
+        resolvedModelVersion === "2.0" || resolvedModelVersion === "2.0-pro";
+      if (
+        requestedResolution === "480P" ||
+        requestedResolution === "720P" ||
+        (allow1080 && requestedResolution === "1080P")
+      ) {
+        return requestedResolution;
+      }
+      return "720P";
+    })();
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
         ? resolvedModelVersion === "1.5-pro"
@@ -1777,6 +1793,18 @@ export class VideoProviderService {
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
     if (
+      normalized === "seed-2.0-pro" ||
+      normalized === "seed-2-0-pro" ||
+      normalized === "seedance-2.0-pro" ||
+      normalized === "2.0-pro"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-pro",
+        label: "Seed 2.0 Pro",
+      };
+    }
+    if (
       normalized === "seed-2.0-lite" ||
       normalized === "seedance-2.0-lite" ||
       normalized === "seed-2-0-lite" ||
@@ -1786,6 +1814,18 @@ export class VideoProviderService {
         modelKey: "seedance-2.0",
         modelVersion: "2.0-lite",
         label: "Seed 2.0 Lite",
+      };
+    }
+    if (
+      normalized === "seed-2.0-mini" ||
+      normalized === "seed-2-0-mini" ||
+      normalized === "seedance-2.0-mini" ||
+      normalized === "2.0-mini"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-mini",
+        label: "Seed 2.0 Mini",
       };
     }
     if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
@@ -2211,7 +2251,11 @@ export class VideoProviderService {
       typeof options.prompt === "string" ? options.prompt.trim() : "";
     let promptText = normalizedPrompt;
     const params: string[] = [];
-    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-lite";
+    const isSeedance2Model =
+      modelVersion === "2.0" ||
+      modelVersion === "2.0-pro" ||
+      modelVersion === "2.0-lite" ||
+      modelVersion === "2.0-mini";
 
     if (options.aspectRatio) {
       params.push(`--ratio ${options.aspectRatio}`);

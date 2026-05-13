@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+﻿import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
 import { OssService } from '../../oss/oss.service';
@@ -31,21 +31,40 @@ export class Convert2Dto3DService {
     this.maxWaitMs = Number(this.config.get<string>('HUNYUAN_3D_MAX_WAIT_MS') || 10 * 60 * 1000);
   }
 
-  async convert2Dto3D(
-    imageUrl: string,
-    options?: { projectId?: string; userId?: string },
-  ): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
+  async convert2Dto3D(options: {
+    imageUrl?: string;
+    prompt?: string;
+    model?: '3.0' | '3.1';
+    lowPoly?: boolean;
+    sketch?: boolean;
+    projectId?: string;
+    userId?: string;
+  }): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
     if (!this.apiKey) {
       throw new ServiceUnavailableException('HUNYUAN_3D_API_KEY is not configured');
     }
 
-    if (!imageUrl || typeof imageUrl !== 'string' || !/^https?:\/\//i.test(imageUrl)) {
+    const imageUrl = typeof options.imageUrl === 'string' ? options.imageUrl.trim() : '';
+    const prompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+    if (!imageUrl && !prompt) {
+      throw new ServiceUnavailableException('Either prompt or image URL is required');
+    }
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
       throw new ServiceUnavailableException('Invalid image URL provided');
     }
 
-    const jobId = await this.submitJob(imageUrl);
+    const jobId = await this.submitJob({
+      imageUrl: imageUrl || undefined,
+      prompt: prompt || undefined,
+      model: options.model,
+      lowPoly: options.lowPoly,
+      sketch: options.sketch,
+    });
     const upstreamModelUrl = await this.waitForModelUrl(jobId, imageUrl);
-    const persisted = await this.persistModelToOss(upstreamModelUrl, options);
+    const persisted = await this.persistModelToOss(upstreamModelUrl, {
+      projectId: options.projectId,
+      userId: options.userId,
+    });
 
     return {
       modelUrl: persisted?.url || upstreamModelUrl,
@@ -148,32 +167,80 @@ export class Convert2Dto3DService {
     }
   }
 
-  private async submitJob(imageUrl: string): Promise<string> {
-    const payloadCandidates: Array<Record<string, any>> = [
-      // 官方云 API 文档参数：ImageUrl 为字符串
-      {
-        Model: this.modelVersion,
+  private resolveModelVersion(model?: string): '3.0' | '3.1' {
+    const candidate = (model || this.modelVersion || '3.1').trim();
+    return candidate === '3.0' ? '3.0' : '3.1';
+  }
+
+  private async submitJob(params: {
+    imageUrl?: string;
+    prompt?: string;
+    model?: '3.0' | '3.1';
+    lowPoly?: boolean;
+    sketch?: boolean;
+  }): Promise<string> {
+    const imageUrl = typeof params.imageUrl === 'string' ? params.imageUrl.trim() : '';
+    const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+    const model = this.resolveModelVersion(params.model);
+    const lowPoly = model === '3.0' && typeof params.lowPoly === 'boolean' ? params.lowPoly : undefined;
+    const sketch = model === '3.0' && typeof params.sketch === 'boolean' ? params.sketch : undefined;
+
+    const basePayload: Record<string, any> = {
+      Model: model,
+    };
+    if (prompt) basePayload.Prompt = prompt;
+    if (lowPoly !== undefined) basePayload.LowPoly = lowPoly;
+    if (sketch !== undefined) basePayload.Sketch = sketch;
+
+    const payloadCandidates: Array<Record<string, any>> = [];
+    const seen = new Set<string>();
+    const pushPayload = (payload: Record<string, any>) => {
+      const key = JSON.stringify(payload);
+      if (seen.has(key)) return;
+      seen.add(key);
+      payloadCandidates.push(payload);
+    };
+
+    if (imageUrl) {
+      pushPayload({
+        ...basePayload,
         ImageUrl: imageUrl,
-      },
-      // 兼容你提供的接入文档格式：ImageUrl.Url
-      {
-        Model: this.modelVersion,
+      });
+      pushPayload({
+        ...basePayload,
         ImageUrl: {
           Url: imageUrl,
         },
-      },
-      // 兜底：部分网关大小写差异
-      {
-        Model: this.modelVersion,
+      });
+      pushPayload({
+        ...basePayload,
         ImageUrl: {
           url: imageUrl,
         },
-      },
-      // 兜底：不传 Model，让服务端走默认模型
-      {
-        ImageUrl: imageUrl,
-      },
-    ];
+      });
+    }
+
+    if (prompt) {
+      pushPayload({
+        ...basePayload,
+      });
+    }
+
+    const fallbackNoModelPayload = { ...basePayload };
+    delete fallbackNoModelPayload.Model;
+    if (Object.keys(fallbackNoModelPayload).length > 0) {
+      if (imageUrl) {
+        pushPayload({
+          ...fallbackNoModelPayload,
+          ImageUrl: imageUrl,
+        });
+      }
+      if (prompt) {
+        pushPayload({
+          ...fallbackNoModelPayload,
+        });
+      }
+    }
 
     let lastError: unknown;
     for (let i = 0; i < payloadCandidates.length; i++) {
@@ -184,10 +251,9 @@ export class Convert2Dto3DService {
         if (upstreamError?.code) {
           if (upstreamError.code === 'ResourceInsufficient') {
             throw new ServiceUnavailableException(
-              `Hunyuan resource insufficient: ${upstreamError.message || '资源不足，请检查 API Key 归属账号的混元3D可用额度/配额'}`,
+              `Hunyuan resource insufficient: ${upstreamError.message || '资源不足，请检查 API Key 归属账号的混元 3D 可用额度/配额'}`,
             );
           }
-          // 存在上游显式错误时，避免误判为“missing JobId”
           throw new ServiceUnavailableException(
             `Hunyuan submit failed: ${upstreamError.code}${upstreamError.message ? ` - ${upstreamError.message}` : ''}`,
           );
@@ -216,7 +282,6 @@ export class Convert2Dto3DService {
     }
     throw new ServiceUnavailableException('Hunyuan submit failed: missing JobId');
   }
-
   private async waitForModelUrl(jobId: string, sourceImageUrl: string): Promise<string> {
     const deadline = Date.now() + this.maxWaitMs;
 
@@ -449,3 +514,4 @@ export class Convert2Dto3DService {
     return { code, message };
   }
 }
+

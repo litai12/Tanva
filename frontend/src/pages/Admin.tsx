@@ -1967,6 +1967,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "viduVideo", label: "Vidu 视频节点", category: "video" },
     { value: "doubaoVideo", label: "Seedance 1.5 视频节点", category: "video" },
     { value: "seedance20Video", label: "Seedance 2.0 视频节点", category: "video" },
+    { value: "seedVideo", label: "Seed 2.0 视频节点", category: "video" },
     { value: "sora2Video", label: "Sora 2 视频节点", category: "video" },
     { value: "wan26", label: "Wan 2.6 视频节点", category: "video" },
     { value: "wan2R2V", label: "Wan 参考视频节点", category: "video" },
@@ -1998,6 +1999,7 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "vidu-q3") return "viduVideo";
   if (modelKey === "seedance-1.5") return "doubaoVideo";
   if (modelKey === "seedance-2.0") return "seedance20Video";
+  if (modelKey === "seed-2.0") return "seedVideo";
   if (modelKey === "sora-2") return "sora2Video";
   if (modelKey === "seedream5") return "seedream5";
   if (modelKey === "wan-2.6") return "wan26";

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 节点配置服务
  * 从后端获取节点配置，用于动态控制节点面板显示
  */
@@ -164,6 +164,8 @@ function getDefaultConfigs(): NodeConfig[] {
 
     // 视频节点
     { nodeKey: "wan27Video", nameZh: "Wan2.7视频生成", nameEn: "Wan2.7 I2V", category: "video", status: "normal", sortOrder: 35, creditsPerCall: 0, serviceType: "wan27-video", priceYuan: 6 },
+    { nodeKey: "seedVideo", nameZh: "Seed 2.0视频生成", nameEn: "Seed 2.0", category: "video", status: "normal", sortOrder: 36, creditsPerCall: 600, serviceType: "doubao-video" },
+    { nodeKey: "volcEnhanceVideo", nameZh: "视频画质增强", nameEn: "Video Enhance", category: "video", status: "normal", sortOrder: 37, creditsPerCall: 0, serviceType: "volc-enhance-video" },
 
     // 其他节点
     { nodeKey: "videoAnalyze", nameZh: "视频分析节点", nameEn: "Video Analysis", category: "other", status: "normal", sortOrder: 31, creditsPerCall: 60 },
@@ -176,6 +178,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
     { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 0 },
     { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 200 },
+    { nodeKey: "seed3d", nameZh: "Seed 3D", nameEn: "Seed 3D", category: "other", status: "normal", sortOrder: 41, creditsPerCall: 200, serviceType: "convert-2d-to-3d" },
     { nodeKey: "audioUpload", nameZh: "语音节点", nameEn: "Audio Node", category: "audio", status: "normal", sortOrder: 41, creditsPerCall: 0 },
     { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "audio", status: "normal", sortOrder: 42, creditsPerCall: 10, serviceType: "minimax-speech" },
     { nodeKey: "videoToGif", nameZh: "视频转GIF", nameEn: "Video to GIF", category: "other", status: "normal", sortOrder: 43, creditsPerCall: 30, serviceType: "video-to-gif", priceYuan: 0.3 },
@@ -195,3 +198,4 @@ function normalizeNodeConfig(config: NodeConfig): NodeConfig {
     description: IMAGE_CHAT_DESCRIPTION,
   };
 }
+

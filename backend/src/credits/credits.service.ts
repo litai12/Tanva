@@ -1010,11 +1010,19 @@ export class CreditsService {
         : '';
     if (
       seedanceModel === 'seedance-2.0' ||
+      seedanceModel === 'seed-2.0-pro' ||
+      seedanceModel === 'seedance-2.0-pro' ||
+      seedanceModel === 'seed-2-0-pro' ||
       seedanceModel === 'seed-2.0-lite' ||
       seedanceModel === 'seedance-2.0-lite' ||
       seedanceModel === 'seed-2-0-lite' ||
+      seedanceModel === 'seed-2.0-mini' ||
+      seedanceModel === 'seedance-2.0-mini' ||
+      seedanceModel === 'seed-2-0-mini' ||
       seedanceModel === '2.0' ||
+      seedanceModel === '2.0-pro' ||
       seedanceModel === '2.0-lite' ||
+      seedanceModel === '2.0-mini' ||
       seedanceModel === 'seedance-2.0-fast' ||
       seedanceModel === '2.0-fast'
     ) {
@@ -1152,12 +1160,30 @@ export class CreditsService {
         : '';
 
     if (
+      seedanceModel === 'seed-2.0-pro' ||
+      seedanceModel === 'seedance-2.0-pro' ||
+      seedanceModel === 'seed-2-0-pro' ||
+      seedanceModel === '2.0-pro'
+    ) {
+      return 'Seed 2.0 Pro视频生成';
+    }
+
+    if (
       seedanceModel === 'seed-2.0-lite' ||
       seedanceModel === 'seedance-2.0-lite' ||
       seedanceModel === 'seed-2-0-lite' ||
       seedanceModel === '2.0-lite'
     ) {
       return 'Seed 2.0 Lite视频生成';
+    }
+
+    if (
+      seedanceModel === 'seed-2.0-mini' ||
+      seedanceModel === 'seedance-2.0-mini' ||
+      seedanceModel === 'seed-2-0-mini' ||
+      seedanceModel === '2.0-mini'
+    ) {
+      return 'Seed 2.0 Mini视频生成';
     }
 
     if (

@@ -4,10 +4,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export type Seedream5ProviderType = 'doubao' | 'watcha';
 export const SEEDREAM5_PROVIDER_SETTING_KEY = 'seedream5_provider';
-export type Seedream5ModelVersion = '4.5' | '5.0';
+export type Seedream5ModelVersion = '4.0' | '4.5' | '5.0';
 
 const DOUBAO_SEEDREAM_50_MODEL = 'doubao-seedream-5-0-260128';
 const DOUBAO_SEEDREAM_45_MODEL = 'doubao-seedream-4-5-251128';
+const DOUBAO_SEEDREAM_40_MODEL = 'doubao-seedream-4-0-250828';
 
 interface Seedream5ProviderConfig {
   provider: Seedream5ProviderType;
@@ -146,6 +147,7 @@ export class Seedream5Service {
     if (typeof value !== 'string') return null;
     const normalized = value.trim().toLowerCase();
     if (!normalized) return null;
+    if (normalized === '4.0' || normalized === '4-0' || normalized === '4') return '4.0';
     if (normalized === '4.5' || normalized === '4-5') return '4.5';
     if (normalized === '5.0' || normalized === '5-0' || normalized === '5') return '5.0';
     return null;
@@ -156,6 +158,9 @@ export class Seedream5Service {
     requestedModelVersion?: string;
   }): string {
     const requestedModel = options?.requestedModel?.trim().toLowerCase() || '';
+    if (requestedModel.includes('seedream-4-0') || requestedModel.includes('seedream-4.0')) {
+      return DOUBAO_SEEDREAM_40_MODEL;
+    }
     if (requestedModel.includes('seedream-4-5') || requestedModel.includes('seedream-4.5')) {
       return DOUBAO_SEEDREAM_45_MODEL;
     }
@@ -164,6 +169,9 @@ export class Seedream5Service {
     }
 
     const requestedModelVersion = this.normalizeDoubaoModelVersion(options?.requestedModelVersion);
+    if (requestedModelVersion === '4.0') {
+      return DOUBAO_SEEDREAM_40_MODEL;
+    }
     if (requestedModelVersion === '4.5') {
       return DOUBAO_SEEDREAM_45_MODEL;
     }

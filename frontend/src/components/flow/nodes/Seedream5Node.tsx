@@ -24,7 +24,7 @@ type Props = {
     error?: string;
     batchMode?: boolean;
     batchCount?: number;
-    modelVersion?: "4.5" | "5.0";
+    modelVersion?: "4.0" | "4.5" | "5.0";
     size?: string;
     watermark?: boolean;
     creditsPerCall?: number;
@@ -44,12 +44,16 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-type SeedreamResolution = "2K" | "3K" | "4K";
+type SeedreamResolution = "1K" | "2K" | "3K" | "4K";
 
 const resolveSeedreamResolutionOptions = (
-  modelVersion: "4.5" | "5.0"
+  modelVersion: "4.0" | "4.5" | "5.0"
 ): SeedreamResolution[] =>
-  modelVersion === "4.5" ? ["2K", "4K"] : ["2K", "3K", "4K"];
+  modelVersion === "4.0"
+    ? ["1K", "2K", "4K"]
+    : modelVersion === "4.5"
+      ? ["2K", "4K"]
+      : ["2K", "3K", "4K"];
 
 const normalizeSeedreamResolution = (
   value: string,
@@ -59,6 +63,7 @@ const normalizeSeedreamResolution = (
   if (allowed.includes(normalized as SeedreamResolution)) {
     return normalized as SeedreamResolution;
   }
+  if (allowed.includes("2K")) return "2K";
   return allowed[0];
 };
 
@@ -86,7 +91,7 @@ function Seedream5Node({ id, data, selected }: Props) {
       ? data.size.trim()
       : "2K";
   const modelVersionValue =
-    data.modelVersion === "4.5" || data.modelVersion === "5.0"
+    data.modelVersion === "4.0" || data.modelVersion === "4.5" || data.modelVersion === "5.0"
       ? data.modelVersion
       : "5.0";
   const availableResolutionOptions = React.useMemo(
@@ -366,11 +371,13 @@ function Seedream5Node({ id, data, selected }: Props) {
         >
           {availableResolutionOptions.map((option) => (
             <option key={option} value={option}>
-              {option === "2K"
-                ? lt("2K 超清", "2K HD")
-                : option === "3K"
-                  ? lt("3K 高清", "3K Ultra HD")
-                  : lt("4K 超清", "4K Ultra HD")}
+              {option === "1K"
+                ? lt("1K 高清", "1K HD")
+                : option === "2K"
+                  ? lt("2K 超清", "2K HD")
+                  : option === "3K"
+                    ? lt("3K 高清", "3K Ultra HD")
+                    : lt("4K 超清", "4K Ultra HD")}
             </option>
           ))}
         </select>
@@ -385,7 +392,11 @@ function Seedream5Node({ id, data, selected }: Props) {
             onChange={(e) =>
               updateData({
                 modelVersion:
-                  e.target.value === "4.5" ? "4.5" : "5.0",
+                  e.target.value === "4.0"
+                    ? "4.0"
+                    : e.target.value === "4.5"
+                      ? "4.5"
+                      : "5.0",
               })
             }
             style={{
@@ -400,6 +411,7 @@ function Seedream5Node({ id, data, selected }: Props) {
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
           >
+            <option value="4.0">Seedream 4.0</option>
             <option value="5.0">Seedream 5.0</option>
             <option value="4.5">Seedream 4.5</option>
           </select>
