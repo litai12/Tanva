@@ -698,7 +698,7 @@ function Seed3DNode({ id, data, selected }: Props) {
 
       <div style={{ marginBottom: 6 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          {lt("缁嗚妭妗ｄ綅", "Detail Preset")}
+          {lt("细节档位", "Detail Preset")}
         </label>
         <select
           value={currentDetailPreset}
@@ -722,8 +722,8 @@ function Seed3DNode({ id, data, selected }: Props) {
             background: "#fff",
           }}
         >
-          <option value="3.1">{lt("Medium Detail", "Medium Detail")}</option>
-          <option value="3.0">{lt("Low Detail", "Low Detail")}</option>
+          <option value="3.1">{lt("中细节", "Medium Detail")}</option>
+          <option value="3.0">{lt("低细节", "Low Detail")}</option>
         </select>
       </div>
 
@@ -842,7 +842,7 @@ function Seed3DNode({ id, data, selected }: Props) {
               pointerEvents: "none",
             }}
           >
-            绛夊緟 3D 妯″瀷缁撴灉
+            {lt("等待 3D 模型结果", "Waiting for 3D model result")}
           </div>
         ) : null}
       </div>
@@ -911,5 +911,3 @@ function Seed3DNode({ id, data, selected }: Props) {
 }
 
 export default React.memo(Seed3DNode);
-
-
