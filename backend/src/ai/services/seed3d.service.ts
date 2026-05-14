@@ -37,7 +37,7 @@ export class Seed3DService {
       this.config.get<string>('SEED3D_POLL_INTERVAL_MS') || 5000,
     );
     this.maxWaitMs = Number(
-      this.config.get<string>('SEED3D_MAX_WAIT_MS') || 10 * 60 * 1000,
+      this.config.get<string>('SEED3D_MAX_WAIT_MS') || 15 * 60 * 1000,
     );
   }
 
@@ -502,4 +502,3 @@ export class Seed3DService {
     return topMessage || null;
   }
 }
-
