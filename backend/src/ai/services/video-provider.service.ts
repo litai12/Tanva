@@ -776,7 +776,7 @@ export class VideoProviderService {
   async queryTask(
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
-  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; inputTokens?: number; outputTokens?: number }> {
     if (taskId.startsWith(this.managedV2TaskPrefix)) {
       return this.queryManagedV2Task(taskId);
     }
@@ -2387,6 +2387,33 @@ export class VideoProviderService {
   }
 
   private async queryDoubao(taskId: string, apiKey: string) {
+    const extractTokenUsage = (payload: any): { inputTokens?: number; outputTokens?: number } => {
+      const usage = payload?.usage || payload?.token_usage || payload?.billing || payload?.meta?.usage || {};
+      const inputCandidates = [
+        usage?.input_tokens,
+        usage?.prompt_tokens,
+        usage?.in_tokens,
+        payload?.input_tokens,
+        payload?.prompt_tokens,
+      ];
+      const outputCandidates = [
+        usage?.output_tokens,
+        usage?.completion_tokens,
+        usage?.out_tokens,
+        payload?.output_tokens,
+        payload?.completion_tokens,
+      ];
+      const input = inputCandidates
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0);
+      const output = outputCandidates
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0);
+      return {
+        ...(typeof input === "number" ? { inputTokens: Math.floor(input) } : {}),
+        ...(typeof output === "number" ? { outputTokens: Math.floor(output) } : {}),
+      };
+    };
     try {
       const response = await fetchWithTimeout(
         `https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${taskId}`,
@@ -2406,11 +2433,12 @@ export class VideoProviderService {
         if (!upstreamUrl) {
           throw new ServiceUnavailableException("Seedance 返回空视频链接");
         }
+        const tokenUsage = extractTokenUsage(data);
         if (this.isOssPublicUrl(upstreamUrl)) {
-          return { status: "succeeded", videoUrl: upstreamUrl };
+          return { status: "succeeded", videoUrl: upstreamUrl, ...tokenUsage };
         }
         const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, taskId);
-        return { status: "succeeded", videoUrl: ossUrl };
+        return { status: "succeeded", videoUrl: ossUrl, ...tokenUsage };
       }
 
       if (data.status === "failed") {

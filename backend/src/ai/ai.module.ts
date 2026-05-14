@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+﻿import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiService } from './ai.service';
 import { ImageGenerationService } from './image-generation.service';
@@ -13,6 +13,7 @@ import { Seedream5Provider } from './providers/seedream5.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
+import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
@@ -53,11 +54,12 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     Nano2Provider,
     Seedream5Provider,
     AIProviderFactory,
-    CostCalculatorService, // 添加成本计算器
-    Convert2Dto3DService, // 添加2D转3D服务
-    ExpandImageService, // 添加扩图服务
+    CostCalculatorService,
+    Convert2Dto3DService,
+    Seed3DService,
+    ExpandImageService,
     Sora2VideoService,
-    VeoVideoService, // 添加 VEO 视频服务
+    VeoVideoService,
     VideoProviderService,
     VideoWatermarkService,
     Nano2Service,
@@ -67,10 +69,10 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     TencentSpeechService,
     TencentVodAigcService,
     ModelRoutingService,
-    ImageTaskService, // 添加图像任务服务
+    ImageTaskService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService], // 导出工厂和成本计算器供其他模块使用
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService],
 })
 export class AiModule {}

@@ -178,7 +178,7 @@ function getDefaultConfigs(): NodeConfig[] {
     { nodeKey: "imageSplit", nameZh: "图片拆分", nameEn: "Split", category: "other", status: "normal", sortOrder: 38, creditsPerCall: 0 },
     { nodeKey: "imageCompress", nameZh: "图片压缩", nameEn: "Image Compress", category: "other", status: "normal", sortOrder: 39, creditsPerCall: 0 },
     { nodeKey: "three", nameZh: "2D转3D", nameEn: "2D to 3D", category: "other", status: "normal", sortOrder: 40, creditsPerCall: 200 },
-    { nodeKey: "seed3d", nameZh: "Seed 3D", nameEn: "Seed 3D", category: "other", status: "normal", sortOrder: 41, creditsPerCall: 200, serviceType: "convert-2d-to-3d" },
+    { nodeKey: "seed3d", nameZh: "Seed 3D", nameEn: "Seed 3D", category: "other", status: "normal", sortOrder: 41, creditsPerCall: 300, serviceType: "convert-2d-to-3d" },
     { nodeKey: "audioUpload", nameZh: "语音节点", nameEn: "Audio Node", category: "audio", status: "normal", sortOrder: 41, creditsPerCall: 0 },
     { nodeKey: "minimaxSpeech", nameZh: "MiniMax语音合成", nameEn: "MiniMax Speech", category: "audio", status: "normal", sortOrder: 42, creditsPerCall: 10, serviceType: "minimax-speech" },
     { nodeKey: "videoToGif", nameZh: "视频转GIF", nameEn: "Video to GIF", category: "other", status: "normal", sortOrder: 43, creditsPerCall: 30, serviceType: "video-to-gif", priceYuan: 0.3 },

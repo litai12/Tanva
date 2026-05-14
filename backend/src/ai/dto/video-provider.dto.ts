@@ -104,6 +104,14 @@ export class VideoProviderRequestDto {
   @IsString()
   seedanceModel?: string;
 
+  @ApiProperty({
+    description: 'Seed2 token pricing tier for input context window (le32k/gt32k_le128k/gt128k_le256k)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  seed2InputTier?: string;
+
   @ApiProperty({ description: 'Off-peak generation (Vidu)', required: false })
   @IsOptional()
   @IsBoolean()

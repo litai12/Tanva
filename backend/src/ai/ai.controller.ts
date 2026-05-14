@@ -42,6 +42,7 @@ import { TencentSpeechDto } from './dto/tencent-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
+import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { UsersService } from '../users/users.service';
@@ -429,6 +430,7 @@ export class AiController {
     private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly factory: AIProviderFactory,
     private readonly convert2Dto3DService: Convert2Dto3DService,
+    private readonly seed3DService: Seed3DService,
     private readonly expandImageService: ExpandImageService,
     private readonly usersService: UsersService,
     private readonly creditsService: CreditsService,
@@ -501,10 +503,18 @@ export class AiController {
     return (
       normalized === 'seedance-2.0' ||
       normalized === '2.0' ||
+      normalized === 'seed-2.0-pro' ||
+      normalized === 'seedance-2.0-pro' ||
+      normalized === 'seed-2-0-pro' ||
+      normalized === '2.0-pro' ||
       normalized === 'seed-2.0-lite' ||
       normalized === 'seedance-2.0-lite' ||
       normalized === 'seed-2-0-lite' ||
       normalized === '2.0-lite' ||
+      normalized === 'seed-2.0-mini' ||
+      normalized === 'seedance-2.0-mini' ||
+      normalized === 'seed-2-0-mini' ||
+      normalized === '2.0-mini' ||
       normalized === 'seedance-2.0-fast' ||
       normalized === '2.0-fast'
     );
@@ -1097,6 +1107,9 @@ export class AiController {
 
     if (dto.seedanceModel) {
       params.seedanceModel = dto.seedanceModel;
+    }
+    if (typeof dto.seed2InputTier === 'string' && dto.seed2InputTier.trim().length > 0) {
+      params.seed2InputTier = dto.seed2InputTier.trim().toLowerCase();
     }
 
     if (typeof dto.mode === 'string' && dto.mode.trim().length > 0) {
@@ -4057,6 +4070,38 @@ export class AiController {
     }, 1, 1);
   }
 
+  @Post('convert-seed3d')
+  async convertSeed3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
+    this.logger.log('🎨 Seed3D conversion request received');
+
+    return this.withCredits(req, 'convert-2d-to-3d', 'doubao-seed3d-2-0-260328', async () => {
+      const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+      const normalizedImageUrl = dto.imageUrl
+        ? this.normalizeImageUrlForUpstream(dto.imageUrl)
+        : undefined;
+      const result = await this.seed3DService.convert2Dto3D({
+        imageUrl: normalizedImageUrl,
+        prompt: dto.prompt,
+        model: dto.model as '3.0' | '3.1' | undefined,
+        lowPoly: dto.lowPoly,
+        sketch: dto.sketch,
+        projectId: dto.projectId,
+        userId: typeof userId === 'string' ? userId : undefined,
+      });
+
+      return {
+        success: true,
+        modelUrl: result.modelUrl,
+        promptId: result.promptId,
+        modelKey: result.modelKey,
+      };
+    }, 1, 1, undefined, this.buildCreditRequestParams('seed3d', {
+      nodeType: 'seed3d',
+      provider: 'seed3d',
+      model: 'doubao-seed3d-2-0-260328',
+    }));
+  }
+
   @Post('expand-image')
   async expandImage(@Body() dto: ExpandImageDto, @Req() req: any) {
     this.logger.log('🖼️ Expand image request received');
@@ -4876,9 +4921,71 @@ export class AiController {
   /**
    * 视频任务成功时确认积分状态（将 pending 标记为 success）
    */
+  private async resolveSeed2TokenUsageForSuccess(params: {
+    userId: string;
+    apiUsageId: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  }): Promise<{ inputTokens?: number; outputTokens?: number }> {
+    let inputTokens = params.inputTokens;
+    let outputTokens = params.outputTokens;
+    if (inputTokens !== undefined && outputTokens !== undefined) {
+      return { inputTokens, outputTokens };
+    }
+
+    try {
+      const usage = await this.prisma.apiUsageRecord.findUnique({
+        where: { id: params.apiUsageId },
+        select: {
+          userId: true,
+          serviceType: true,
+          requestParams: true,
+        },
+      });
+      if (!usage || usage.userId !== params.userId || usage.serviceType !== 'doubao-video') {
+        return { inputTokens, outputTokens };
+      }
+
+      const requestParams =
+        usage.requestParams && typeof usage.requestParams === 'object' && !Array.isArray(usage.requestParams)
+          ? (usage.requestParams as Record<string, any>)
+          : null;
+      const taskId =
+        typeof requestParams?.taskId === 'string' ? requestParams.taskId.trim() : '';
+      const seedanceModel =
+        typeof requestParams?.seedanceModel === 'string'
+          ? requestParams.seedanceModel.trim().toLowerCase()
+          : '';
+      const isSeed2 =
+        !!seedanceModel &&
+        (this.isSeedance20Model(seedanceModel) ||
+          seedanceModel.includes('seed-2.0') ||
+          seedanceModel.includes('seedance-2.0'));
+      if (!taskId || !isSeed2) {
+        return { inputTokens, outputTokens };
+      }
+
+      const latest = await this.videoProviderService.queryTask('doubao', taskId);
+      if (inputTokens === undefined && Number.isFinite(Number((latest as any)?.inputTokens))) {
+        inputTokens = Math.max(0, Math.floor(Number((latest as any).inputTokens)));
+      }
+      if (outputTokens === undefined && Number.isFinite(Number((latest as any)?.outputTokens))) {
+        outputTokens = Math.max(0, Math.floor(Number((latest as any).outputTokens)));
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to resolve Seed2 token usage for settlement: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return { inputTokens, outputTokens };
+  }
+
   @Post('video-task-success')
   async markVideoTaskSuccess(
-    @Body() body: { apiUsageId: string; processingTime?: number },
+    @Body() body: { apiUsageId: string; processingTime?: number; inputTokens?: number; outputTokens?: number },
     @Req() req: any,
   ) {
     const userId = this.getUserId(req);
@@ -4895,6 +5002,27 @@ export class AiController {
     const processingTime = Number.isFinite(rawProcessingTime)
       ? Math.max(0, Math.round(rawProcessingTime))
       : 0;
+
+    const normalizedInputTokens = Number.isFinite(Number(body?.inputTokens))
+      ? Math.max(0, Math.floor(Number(body?.inputTokens)))
+      : undefined;
+    const normalizedOutputTokens = Number.isFinite(Number(body?.outputTokens))
+      ? Math.max(0, Math.floor(Number(body?.outputTokens)))
+      : undefined;
+
+    const resolvedTokenUsage = await this.resolveSeed2TokenUsageForSuccess({
+      userId,
+      apiUsageId,
+      inputTokens: normalizedInputTokens,
+      outputTokens: normalizedOutputTokens,
+    });
+
+    await this.creditsService.settleSeed2TokenCreditsForUser(
+      userId,
+      apiUsageId,
+      resolvedTokenUsage.inputTokens,
+      resolvedTokenUsage.outputTokens,
+    );
 
     await this.creditsService.markApiUsageSuccessForUser(
       userId,
@@ -4918,7 +5046,7 @@ export class AiController {
   }
 
   @Post('volc-enhance-video')
-  async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto) {
+  async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto, @Req() req: any) {
     const apiKey = (
       process.env.VOLC_MEDIAKIT_API_KEY ||
       process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
@@ -4948,15 +5076,44 @@ export class AiController {
       process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
     ).replace(/\/+$/, '');
     const submitUrl = `${apiBaseUrl}/api/v1/tools/enhance-video`;
+    const userId = this.getUserId(req);
+    const serviceType: ServiceType = 'volc-enhance-video';
+    const billingModel = dto.toolVersion || 'standard';
 
     const payload: Record<string, any> = {
       video_url: videoUrl,
-      tool_version: dto.toolVersion || 'standard',
+      tool_version: billingModel,
     };
     if (dto.scene) payload.scene = dto.scene;
     if (dto.resolution) payload.resolution = dto.resolution;
     if (typeof dto.resolutionLimit === 'number') payload.resolution_limit = dto.resolutionLimit;
     if (typeof dto.fps === 'number') payload.fps = dto.fps;
+
+    const creditRequestParams: Record<string, any> = {
+      toolVersion: billingModel,
+      ...(dto.scene ? { scene: dto.scene } : {}),
+      ...(dto.resolution ? { resolution: dto.resolution } : {}),
+      ...(typeof dto.resolutionLimit === 'number'
+        ? { resolutionLimit: Math.round(dto.resolutionLimit) }
+        : {}),
+      ...(typeof dto.fps === 'number' ? { fps: Math.round(dto.fps) } : {}),
+    };
+    const startTime = Date.now();
+    let apiUsageId: string | null = null;
+
+    if (userId) {
+      await this.creditsService.getOrCreateAccount(userId);
+      const deductResult = await this.creditsService.preDeductCredits({
+        userId,
+        serviceType,
+        model: billingModel,
+        requestParams: creditRequestParams,
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+        idempotencyKey: this.extractIdempotencyKey(req, creditRequestParams),
+      });
+      apiUsageId = deductResult.apiUsageId;
+    }
 
     try {
       const response = await fetch(submitUrl, {
@@ -4991,9 +5148,27 @@ export class AiController {
         throw new BadGatewayException('提交视频画质增强任务失败：上游未返回 task_id');
       }
 
+      if (apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
+            ...creditRequestParams,
+            taskId: String(taskId),
+            upstreamRequestId:
+              data?.request_id || data?.requestId || data?.data?.request_id || null,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Failed to update volc-enhance apiUsage request params: ${this.summarizeError(
+              error,
+            )}`,
+          );
+        }
+      }
+
       return {
         success: true,
         taskId: String(taskId),
+        apiUsageId,
         status: 'queued' as const,
         upstream: {
           taskId: data?.task_id || data?.taskId || data?.id || null,
@@ -5001,6 +5176,20 @@ export class AiController {
         },
       };
     } catch (error: any) {
+      if (apiUsageId && userId) {
+        const refunded = await this.markFailedAndRefundWithRetry({
+          userId,
+          apiUsageId,
+          serviceType,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          processingTime: Math.max(0, Date.now() - startTime),
+        });
+        if (!refunded) {
+          this.logger.error(
+            `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
+          );
+        }
+      }
       if (error instanceof HttpException) {
         throw error;
       }

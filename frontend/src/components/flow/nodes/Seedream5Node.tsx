@@ -121,6 +121,7 @@ function Seedream5Node({ id, data, selected }: Props) {
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: "seedream5",
     aiProvider: "seedream5",
+    modelVersion: modelVersionValue,
     imageSize: rawSizeValue,
     referenceImageCount: imageInputCount,
     managedModelKey: data.managedModelKey,

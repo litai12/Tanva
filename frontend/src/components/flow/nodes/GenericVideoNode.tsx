@@ -231,6 +231,15 @@ const SEED20_MINI_SUPPORTED_MODES: Seedance20Mode[] = [
   "first_frame",
 ];
 
+const SEED2_INPUT_TIER_OPTIONS: Array<{
+  value: "le32k" | "gt32k_le128k" | "gt128k_le256k";
+  label: string;
+}> = [
+  { value: "le32k", label: "输入小于<=32K" },
+  { value: "gt32k_le128k", label: "32K<输入<=128K" },
+  { value: "gt128k_le256k", label: "128K<输入<=256K" },
+];
+
 const SEEDANCE20_MODE_VALUES: Seedance20Mode[] = [
   "reference_images",
   "start_end",
@@ -706,6 +715,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (typeof data.seedanceModel === "string" && data.seedanceModel.trim()) {
       context.seedanceModel = data.seedanceModel.trim().toLowerCase();
     }
+    const seed2InputTierRaw =
+      typeof (data as any).seed2InputTier === "string"
+        ? String((data as any).seed2InputTier).trim().toLowerCase()
+        : "";
+    if (
+      seed2InputTierRaw === "le32k" ||
+      seed2InputTierRaw === "gt32k_le128k" ||
+      seed2InputTierRaw === "gt128k_le256k"
+    ) {
+      context.seed2InputTier = seed2InputTierRaw;
+    }
     if (viduModelForPreview) {
       context.viduModel = viduModelForPreview;
     }
@@ -795,6 +815,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModel: viduModelForPreview,
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
+      seed2InputTier: (data as any).seed2InputTier,
       // duration/durationSec 由 pricingContext 提供（clipDuration 未设置时默认 5s），
       // 不再用 undefined 覆盖，确保 Kling 等节点能正确进行按秒动态定价
       ...(typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
@@ -829,7 +850,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       data.platformKey,
       data.provider,
       data.resolution,
-      data.seedanceModel,
+    data.seedanceModel,
+    (data as any).seed2InputTier,
       data.vendorKey,
       data.watermark,
       hasVideoInput,
@@ -858,7 +880,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
-  const showRunCredits = hasRunCredits;
+  const showRunCredits = hasRunCredits && !isSeed2FamilyNode;
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [

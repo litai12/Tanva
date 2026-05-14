@@ -241,6 +241,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 200,
     description: '将2D图像转换为3D模型',
   },
+  'volc-enhance-video': {
+    serviceName: '视频画质增强',
+    provider: 'volc',
+    creditsPerCall: 90,
+    description: '视频增强（按版本/分辨率/FPS 阶梯计费）',
+  },
 
   // 更多视频服务
   'kling-video': {
@@ -349,3 +355,4 @@ export const DAILY_LOGIN_REWARD_CREDITS = 50;
 
 // 连续签到7天额外奖励积分
 export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 150;
+

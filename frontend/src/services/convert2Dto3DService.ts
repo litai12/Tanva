@@ -66,14 +66,34 @@ const isInsufficientCreditsMessage = (message: string): boolean => {
   );
 };
 
+const buildInsufficientCreditsMessage = (endpoint: string): string => {
+  if (endpoint.includes("convert-seed3d")) {
+    return "积分不足，Seed 3D 需要 300 积分，请先充值后重试";
+  }
+  return "积分不足，2D转3D 需要 200 积分，请先充值后重试";
+};
+
 /**
  * 灏?D鍥剧墖杞崲涓?D妯″瀷
  */
 export async function convert2Dto3D(
   request: Convert2Dto3DRequest
 ): Promise<Convert2Dto3DResponse> {
+  return await convertWithEndpoint("/api/ai/convert-2d-to-3d", request);
+}
+
+export async function convertSeed3D(
+  request: Convert2Dto3DRequest
+): Promise<Convert2Dto3DResponse> {
+  return await convertWithEndpoint("/api/ai/convert-seed3d", request);
+}
+
+async function convertWithEndpoint(
+  endpoint: string,
+  request: Convert2Dto3DRequest
+): Promise<Convert2Dto3DResponse> {
   try {
-    const response = await fetchWithAuth(buildUrl("/api/ai/convert-2d-to-3d"), {
+    const response = await fetchWithAuth(buildUrl(endpoint), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -86,10 +106,11 @@ export async function convert2Dto3D(
       const rawErrorMessage =
         extractApiErrorMessage(errorData) || `HTTP ${response.status}`;
       const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
-        ? "绉垎涓嶈冻锛?D杞?D 闇€瑕?200 绉垎锛岃鍏堝厖鍊煎悗閲嶈瘯"
+        ? buildInsufficientCreditsMessage(endpoint)
         : rawErrorMessage;
       logger.error("2D to 3D conversion failed", {
         status: response.status,
+        endpoint,
         error: errorMessage,
       });
 

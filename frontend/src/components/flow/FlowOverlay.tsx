@@ -199,7 +199,7 @@ import {
 } from "@/stores/personalLibraryStore";
 import { normalizeWheelDelta, computeSmoothZoom } from "@/lib/zoomUtils";
 import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
-import { convert2Dto3D } from "@/services/convert2Dto3DService";
+import { convert2Dto3D, convertSeed3D } from "@/services/convert2Dto3DService";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import {
@@ -1255,10 +1255,18 @@ const VIDEO_SOURCE_NODE_TYPES = [
 
 const normalizeSeedanceModelValue = (
   value?: unknown
-): "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-lite" => {
+): "seedance-1.5-pro" | "seedance-2.0" | "seed-2.0-pro" | "seed-2.0-lite" | "seed-2.0-mini" => {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
+  if (
+    normalized === "seed-2.0-pro" ||
+    normalized === "seedance-2.0-pro" ||
+    normalized === "seed-2-0-pro" ||
+    normalized === "2.0-pro"
+  ) {
+    return "seed-2.0-pro";
+  }
   if (
     normalized === "seed-2.0-lite" ||
     normalized === "seedance-2.0-lite" ||
@@ -1266,6 +1274,14 @@ const normalizeSeedanceModelValue = (
     normalized === "2.0-lite"
   ) {
     return "seed-2.0-lite";
+  }
+  if (
+    normalized === "seed-2.0-mini" ||
+    normalized === "seedance-2.0-mini" ||
+    normalized === "seed-2-0-mini" ||
+    normalized === "2.0-mini"
+  ) {
+    return "seed-2.0-mini";
   }
   if (
     normalized === "seedance-2.0" ||
@@ -1280,7 +1296,7 @@ const normalizeSeedanceModelValue = (
 
 const isSeedance20ModelValue = (value?: unknown): boolean => {
   const normalized = normalizeSeedanceModelValue(value);
-  return normalized === "seedance-2.0" || normalized === "seed-2.0-lite";
+  return normalized !== "seedance-1.5-pro";
 };
 
 const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): number =>
@@ -1559,10 +1575,10 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
   gptImage2: 40, // GPT-Image-2 生图
-  seedream5: 30, // Seedream 5.0 生图
+  seedream5: "30-50", // Seedream 生图（按模型动态计费）
   videoAnalyze: 60, // 视频分析节点 - 按模型档位与渠道动态计费
   three: 200, // 三维节点 - convert-2d-to-3d
-  seed3d: 200, // Seed 3D - convert-2d-to-3d
+  seed3d: 300, // Seed 3D - convert-2d-to-3d
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   sora2Character: 0, // 角色生成节点 - 当前不单独计费
   wan26: 600, // Wan2.6生成视频 - wan26-video
@@ -17199,7 +17215,7 @@ function FlowInner() {
                   sketch,
                   projectId,
                 };
-          const result = await convert2Dto3D({
+          const result = await convertSeed3D({
             ...requestPayload,
           });
 
@@ -17300,6 +17316,16 @@ function FlowInner() {
               ? "seedance-2.0"
               : "seedance-1.5-pro")
         );
+        const seed2InputTierRaw =
+          typeof rawNodeData.seed2InputTier === "string"
+            ? rawNodeData.seed2InputTier.trim().toLowerCase()
+            : "";
+        const seed2InputTier =
+          seed2InputTierRaw === "le32k" ||
+          seed2InputTierRaw === "gt32k_le128k" ||
+          seed2InputTierRaw === "gt128k_le256k"
+            ? seed2InputTierRaw
+            : "gt32k_le128k";
         const isSeedance20Request = isSeedance20ModelValue(seedanceModelForRequest);
         const seedanceMode = isSeedanceNode ? inferSeedanceMode(node) : undefined;
         const seedanceModeSpec = isSeedanceNode ? getSeedanceModeSpec(node) : undefined;
@@ -18541,6 +18567,7 @@ function FlowInner() {
                         : true
                       : undefined,
                   seedanceModel: seedanceModelForRequest,
+                  seed2InputTier,
                 }
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
@@ -18683,7 +18710,10 @@ function FlowInner() {
                 stopPolling();
                 if (createResult.apiUsageId) {
                   const processingTime = Math.max(0, Date.now() - generationStartMs);
-                  void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
+                  void markVideoTaskSuccess(createResult.apiUsageId, processingTime, {
+                    inputTokens: queryResult.inputTokens,
+                    outputTokens: queryResult.outputTokens,
+                  }).catch(
                     (markError) => {
                       console.warn("❌ [Flow] Failed to mark video task success", {
                         nodeId,
@@ -20535,9 +20565,15 @@ function FlowInner() {
             (node.data as any)?.size
           );
           const seedreamModelVersion =
-            (node.data as any)?.modelVersion === "4.5" ? "4.5" : "5.0";
+            (node.data as any)?.modelVersion === "4.0"
+              ? "4.0"
+              : (node.data as any)?.modelVersion === "4.5"
+              ? "4.5"
+              : "5.0";
           const seedreamModelId =
-            seedreamModelVersion === "4.5"
+            seedreamModelVersion === "4.0"
+              ? "doubao-seedream-4-0-250828"
+              : seedreamModelVersion === "4.5"
               ? "doubao-seedream-4-5-251128"
               : "doubao-seedream-5-0-260128";
 

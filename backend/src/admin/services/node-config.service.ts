@@ -574,6 +574,12 @@ export class NodeConfigService {
             provider: 'doubao',
             modelKeys: ['seedance-2.0'],
             supportedModels: SEED20_SUPPORTED_MODELS,
+            billingType: 'by_model',
+            modelPricing: {
+              'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+              'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+              'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+            },
             defaultData: {
               provider: 'doubao',
               seedFamily: 'seed2',
@@ -1261,6 +1267,12 @@ export class NodeConfigService {
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
               supportedModels: SEED20_SUPPORTED_MODELS,
+              billingType: 'by_model',
+              modelPricing: {
+                'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+                'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+                'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+              },
               defaultData: {
                 provider: 'doubao',
                 seedFamily: 'seed2',
@@ -1500,7 +1512,7 @@ export class NodeConfigService {
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
+      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
       { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
       { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
@@ -1854,6 +1866,12 @@ export class NodeConfigService {
               provider: 'doubao',
               modelKeys: ['seedance-2.0'],
               supportedModels: SEED20_SUPPORTED_MODELS,
+              billingType: 'by_model',
+              modelPricing: {
+                'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+                'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+                'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+              },
               defaultData: {
                 provider: 'doubao',
                 seedFamily: 'seed2',
@@ -2093,7 +2111,7 @@ export class NodeConfigService {
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
+      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
       { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
       { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
       { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },

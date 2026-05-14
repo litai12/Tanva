@@ -5,11 +5,13 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { Download, Send } from "lucide-react";
+import { strFromU8, unzipSync } from "fflate";
 import RunCreditBadge from "./RunCreditBadge";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { resolveFlowNodeSendAnchorClient } from "../utils/flowNodeSendAnchor";
+import { useLocaleText } from "@/utils/localeText";
 
-type Seed3DModelVersion = "3.0" | "3.1";
+type Seed3DDetailPreset = "3.0" | "3.1";
 
 type Props = {
   id: string;
@@ -19,7 +21,7 @@ type Props = {
     error?: string;
     modelUrl?: string;
     promptId?: string;
-    model?: Seed3DModelVersion;
+    model?: Seed3DDetailPreset;
     lowPoly?: boolean;
     sketch?: boolean;
     creditsPerCall?: number;
@@ -29,8 +31,76 @@ type Props = {
 };
 
 const VIEWPORT_HEIGHT = 200;
+const PREVIEWABLE_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
+const ZIP_PREVIEWABLE_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
+
+type ZipModelEntry = {
+  path: string;
+  normalizedPath: string;
+  extension: string;
+  bytes: Uint8Array;
+};
+
+function normalizeArchivePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.?\//, "").toLowerCase();
+}
+
+function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function guessMimeTypeByExtension(extension: string): string {
+  switch (extension) {
+    case "gltf":
+      return "model/gltf+json";
+    case "glb":
+      return "model/gltf-binary";
+    case "bin":
+      return "application/octet-stream";
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    case "ktx2":
+      return "image/ktx2";
+    case "basis":
+      return "image/basis";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function pickZipPreviewEntry(entries: ZipModelEntry[]): ZipModelEntry | null {
+  const previewable = entries.filter((entry) =>
+    ZIP_PREVIEWABLE_MODEL_EXTENSIONS.has(entry.extension)
+  );
+  if (previewable.length === 0) return null;
+
+  const glb = previewable.filter((entry) => entry.extension === "glb");
+  if (glb.length > 0) {
+    return glb.sort((a, b) => a.normalizedPath.length - b.normalizedPath.length)[0];
+  }
+  return previewable.sort((a, b) => a.normalizedPath.length - b.normalizedPath.length)[0];
+}
+
+function getUrlFileExtension(url: string): string | null {
+  if (!url) return null;
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    const matched = path.match(/\.([a-z0-9]+)$/i);
+    return matched?.[1] || null;
+  } catch {
+    const trimmed = url.split("?")[0]?.toLowerCase() || "";
+    const matched = trimmed.match(/\.([a-z0-9]+)$/i);
+    return matched?.[1] || null;
+  }
+}
 
 function Seed3DNode({ id, data, selected }: Props) {
+  const { lt } = useLocaleText();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const rendererRef = React.useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = React.useRef<THREE.Scene | null>(null);
@@ -40,18 +110,24 @@ function Seed3DNode({ id, data, selected }: Props) {
   const modelRef = React.useRef<THREE.Object3D | null>(null);
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const lastModelUrlRef = React.useRef<string>("");
+  const zipResourceUrlsRef = React.useRef<string[]>([]);
   const [hover, setHover] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [previewReady, setPreviewReady] = React.useState(false);
   const [downloading, setDownloading] = React.useState(false);
+  const modelUrl = typeof data.modelUrl === "string" ? data.modelUrl.trim() : "";
+  const modelExtension = getUrlFileExtension(modelUrl);
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
 
-  const currentModel: Seed3DModelVersion = data.model === "3.0" ? "3.0" : "3.1";
-  const lowPolyEnabled = currentModel === "3.0" ? Boolean(data.lowPoly) : false;
-  const sketchEnabled = currentModel === "3.0" ? Boolean(data.sketch) : false;
+  const currentDetailPreset: Seed3DDetailPreset =
+    data.model === "3.0" ? "3.0" : "3.1";
+  const lowPolyEnabled = currentDetailPreset === "3.0" ? Boolean(data.lowPoly) : false;
+  const sketchEnabled = currentDetailPreset === "3.0" ? Boolean(data.sketch) : false;
+  const resolvedRunCredits = 300;
 
   const updateData = React.useCallback(
     (patch: Record<string, any>) => {
@@ -77,6 +153,16 @@ function Seed3DNode({ id, data, selected }: Props) {
     const camera = cameraRef.current;
     if (!renderer || !scene || !camera) return;
     renderer.render(scene, camera);
+  }, []);
+
+  const revokeZipResources = React.useCallback(() => {
+    if (zipResourceUrlsRef.current.length === 0) return;
+    zipResourceUrlsRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+    });
+    zipResourceUrlsRef.current = [];
   }, []);
 
   const disposeModel = React.useCallback((scene: THREE.Scene) => {
@@ -228,6 +314,7 @@ function Seed3DNode({ id, data, selected }: Props) {
       controlsRef.current = null;
 
       disposeModel(scene);
+      revokeZipResources();
       if (gridRef.current) {
         scene.remove(gridRef.current);
         gridRef.current.geometry?.dispose?.();
@@ -246,74 +333,263 @@ function Seed3DNode({ id, data, selected }: Props) {
       cameraRef.current = null;
       sceneRef.current = null;
     };
-  }, [disposeModel, requestRender]);
+  }, [disposeModel, requestRender, revokeZipResources]);
 
   React.useEffect(() => {
-    const modelUrl = typeof data.modelUrl === "string" ? data.modelUrl.trim() : "";
-    if (!modelUrl || modelUrl === lastModelUrlRef.current) return;
+    if (!modelUrl) {
+      lastModelUrlRef.current = "";
+      setLoadError(null);
+      setPreviewReady(false);
+      revokeZipResources();
+      const scene = sceneRef.current;
+      if (scene) {
+        disposeModel(scene);
+        requestRender();
+      }
+      return;
+    }
+    if (modelUrl === lastModelUrlRef.current) return;
     lastModelUrlRef.current = modelUrl;
 
     const scene = sceneRef.current;
     if (!scene) return;
     setLoadError(null);
+    setPreviewReady(false);
+    revokeZipResources();
 
-    const loader = new GLTFLoader();
+    const loadingManager = new THREE.LoadingManager();
+    const loader = new GLTFLoader(loadingManager);
     loader.setCrossOrigin("anonymous");
     const draco = new DRACOLoader();
     draco.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/");
     loader.setDRACOLoader(draco);
 
+    const commitLoadedScene = (root: THREE.Object3D) => {
+      const currentScene = sceneRef.current;
+      if (!currentScene) return;
+
+      disposeModel(currentScene);
+      const rawBox = computeModelBounds(root);
+      const center = rawBox.getCenter(new THREE.Vector3());
+      root.position.sub(center);
+      root.updateMatrixWorld(true);
+      modelRef.current = root;
+      currentScene.add(root);
+
+      const centeredBox = computeModelBounds(root);
+      const centeredSphere = centeredBox.getBoundingSphere(new THREE.Sphere());
+      const radius = Math.max(centeredSphere.radius, 0.5);
+      if (gridRef.current) {
+        gridRef.current.scale.setScalar(Math.max(1, Math.min(6, radius / 1.5)));
+        gridRef.current.position.set(0, -radius * 0.55, 0);
+        gridRef.current.visible = true;
+      }
+
+      fitToObject(root);
+      requestRender();
+      setPreviewReady(true);
+    };
+
+    if (modelExtension === "zip") {
+      void (async () => {
+        try {
+          const response = await fetch(modelUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const zipBuffer = await response.arrayBuffer();
+          const archive = unzipSync(new Uint8Array(zipBuffer));
+          const entries: ZipModelEntry[] = [];
+
+          Object.entries(archive).forEach(([rawPath, bytes]) => {
+            if (!bytes || bytes.length === 0) return;
+            const normalizedPath = normalizeArchivePath(rawPath);
+            const extension = normalizedPath.split(".").pop() || "";
+            entries.push({
+              path: rawPath,
+              normalizedPath,
+              extension,
+              bytes,
+            });
+          });
+
+          const mainEntry = pickZipPreviewEntry(entries);
+          if (!mainEntry) {
+            disposeModel(scene);
+            requestRender();
+            setLoadError(
+              lt(
+                "No previewable GLB/GLTF file was found in this ZIP package. Please download it.",
+                "No previewable GLB/GLTF file was found in this ZIP package. Please download it."
+              )
+            );
+            return;
+          }
+
+          const bytesByNormalizedPath = new Map<string, Uint8Array>();
+          entries.forEach((entry) => {
+            bytesByNormalizedPath.set(entry.normalizedPath, entry.bytes);
+          });
+
+          const resourceUrlByNormalizedPath = new Map<string, string>();
+          const getResourceUrl = (requestedPath: string): string | null => {
+            const normalizedRequested = normalizeArchivePath(requestedPath);
+            if (resourceUrlByNormalizedPath.has(normalizedRequested)) {
+              return resourceUrlByNormalizedPath.get(normalizedRequested) || null;
+            }
+            const source = bytesByNormalizedPath.get(normalizedRequested);
+            if (!source) return null;
+            const extension = normalizedRequested.split(".").pop() || "";
+            const blob = new Blob([toExactArrayBuffer(source)], {
+              type: guessMimeTypeByExtension(extension),
+            });
+            const objectUrl = URL.createObjectURL(blob);
+            zipResourceUrlsRef.current.push(objectUrl);
+            resourceUrlByNormalizedPath.set(normalizedRequested, objectUrl);
+            return objectUrl;
+          };
+
+          if (mainEntry.extension === "glb") {
+            loader.parse(
+              toExactArrayBuffer(mainEntry.bytes),
+              "",
+              (gltf) => {
+                commitLoadedScene(gltf.scene);
+              },
+              (error) => {
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : typeof error === "string"
+                    ? error
+                    : "ZIP GLB parse failed";
+                disposeModel(scene);
+                requestRender();
+                setLoadError(
+                  lt(`ZIP model preview failed: ${message}`, `ZIP model preview failed: ${message}`)
+                );
+              }
+            );
+            return;
+          }
+
+          loadingManager.setURLModifier((url) => {
+            if (/^(?:https?:|blob:|data:)/i.test(url)) {
+              return url;
+            }
+            const normalizedPath = normalizeArchivePath(
+              new URL(url, `https://zip.local/${mainEntry.path}`).pathname
+            );
+            const resolved = getResourceUrl(normalizedPath);
+            return resolved || url;
+          });
+
+          try {
+            loader.parse(
+              strFromU8(mainEntry.bytes),
+              "",
+              (gltf) => {
+                loadingManager.setURLModifier((nextUrl) => nextUrl);
+                commitLoadedScene(gltf.scene);
+              },
+              (error) => {
+                loadingManager.setURLModifier((nextUrl) => nextUrl);
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : typeof error === "string"
+                    ? error
+                    : "ZIP GLTF parse failed";
+                disposeModel(scene);
+                requestRender();
+                setLoadError(
+                  lt(`ZIP model preview failed: ${message}`, `ZIP model preview failed: ${message}`)
+                );
+              }
+            );
+          } catch (error) {
+            loadingManager.setURLModifier((nextUrl) => nextUrl);
+            throw error;
+          }
+        } catch (error) {
+          disposeModel(scene);
+          requestRender();
+          const message =
+            error instanceof Error
+              ? error.message
+              : typeof error === "string"
+              ? error
+              : "ZIP model preview failed";
+          setLoadError(
+            lt(`ZIP model preview failed: ${message}`, `ZIP model preview failed: ${message}`)
+          );
+        }
+      })();
+
+      return () => {
+        draco.dispose();
+      };
+    }
+
+    if (modelExtension && !PREVIEWABLE_MODEL_EXTENSIONS.has(modelExtension)) {
+      disposeModel(scene);
+      requestRender();
+      setLoadError(
+        lt(
+          `Current model format .${modelExtension} cannot be previewed inline. Please download it.`,
+          `Current model format .${modelExtension} cannot be previewed inline. Please download it.`
+        )
+      );
+      return () => {
+        draco.dispose();
+      };
+    }
+
     loader.load(
       modelUrl,
       (gltf) => {
-        const currentScene = sceneRef.current;
-        if (!currentScene) return;
-
-        disposeModel(currentScene);
-        const root = gltf.scene;
-        const rawBox = computeModelBounds(root);
-        const center = rawBox.getCenter(new THREE.Vector3());
-        root.position.sub(center);
-        root.updateMatrixWorld(true);
-        modelRef.current = root;
-        currentScene.add(root);
-
-        const centeredBox = computeModelBounds(root);
-        const centeredSphere = centeredBox.getBoundingSphere(new THREE.Sphere());
-        const radius = Math.max(centeredSphere.radius, 0.5);
-        if (gridRef.current) {
-          gridRef.current.scale.setScalar(Math.max(1, Math.min(6, radius / 1.5)));
-          gridRef.current.position.set(0, -radius * 0.55, 0);
-          gridRef.current.visible = true;
-        }
-
-        fitToObject(root);
-        requestRender();
+        commitLoadedScene(gltf.scene);
       },
       undefined,
       (error) => {
         console.error("Seed3D model load failed", error);
-        setLoadError("3D 模型加载失败");
+        const message =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : "3D model load failed";
+        disposeModel(scene);
+        requestRender();
+        setLoadError(lt(`3D model load failed: ${message}`, `3D model load failed: ${message}`));
       }
     );
 
     return () => {
       draco.dispose();
     };
-  }, [computeModelBounds, data.modelUrl, disposeModel, fitToObject, requestRender]);
-
+  }, [
+    computeModelBounds,
+    revokeZipResources,
+    disposeModel,
+    fitToObject,
+    lt,
+    modelExtension,
+    modelUrl,
+    requestRender,
+  ]);
   React.useEffect(() => {
-    if (currentModel === "3.1" && (data.lowPoly || data.sketch)) {
+    if (currentDetailPreset === "3.1" && (data.lowPoly || data.sketch)) {
       updateData({ lowPoly: false, sketch: false });
     }
-  }, [currentModel, data.lowPoly, data.sketch, updateData]);
+  }, [currentDetailPreset, data.lowPoly, data.sketch, updateData]);
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
   }, [data, id]);
 
   const onDownload = React.useCallback(async () => {
-    const modelUrl = (data.modelUrl || "").trim();
     if (!modelUrl || downloading) return;
     setDownloading(true);
     try {
@@ -321,7 +597,15 @@ function Seed3DNode({ id, data, selected }: Props) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
-      const fileName = `seed3d_${Date.now()}.glb`;
+      const extFromType = blob.type.toLowerCase().includes("zip")
+        ? "zip"
+        : blob.type.toLowerCase().includes("gltf")
+        ? "gltf"
+        : blob.type.toLowerCase().includes("glb")
+        ? "glb"
+        : null;
+      const fileExtension = extFromType || modelExtension || "glb";
+      const fileName = `seed3d_${Date.now()}.${fileExtension}`;
       const link = document.createElement("a");
       link.href = objectUrl;
       link.download = fileName;
@@ -335,7 +619,7 @@ function Seed3DNode({ id, data, selected }: Props) {
     } finally {
       setDownloading(false);
     }
-  }, [data.modelUrl, downloading]);
+  }, [downloading, modelExtension, modelUrl]);
 
   const onSendToCanvas = React.useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -406,7 +690,7 @@ function Seed3DNode({ id, data, selected }: Props) {
           ) : (
             <>
               <span className="run-text-trigger">Run</span>
-              <RunCreditBadge credits={data.creditsPerCall} runButton />
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
             </>
           )}
         </button>
@@ -414,15 +698,15 @@ function Seed3DNode({ id, data, selected }: Props) {
 
       <div style={{ marginBottom: 6 }}>
         <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
-          Model
+          {lt("缁嗚妭妗ｄ綅", "Detail Preset")}
         </label>
         <select
-          value={currentModel}
+          value={currentDetailPreset}
           onChange={(event) => {
-            const nextModel = event.target.value === "3.0" ? "3.0" : "3.1";
+            const nextPreset = event.target.value === "3.0" ? "3.0" : "3.1";
             updateData({
-              model: nextModel,
-              ...(nextModel === "3.1" ? { lowPoly: false, sketch: false } : {}),
+              model: nextPreset,
+              ...(nextPreset === "3.1" ? { lowPoly: false, sketch: false } : {}),
             });
           }}
           className="nodrag nopan nowheel"
@@ -438,8 +722,8 @@ function Seed3DNode({ id, data, selected }: Props) {
             background: "#fff",
           }}
         >
-          <option value="3.1">3.1</option>
-          <option value="3.0">3.0</option>
+          <option value="3.1">{lt("Medium Detail", "Medium Detail")}</option>
+          <option value="3.0">{lt("Low Detail", "Low Detail")}</option>
         </select>
       </div>
 
@@ -450,13 +734,13 @@ function Seed3DNode({ id, data, selected }: Props) {
             alignItems: "center",
             gap: 4,
             fontSize: 12,
-            color: currentModel === "3.0" ? "#374151" : "#9ca3af",
+            color: currentDetailPreset === "3.0" ? "#374151" : "#9ca3af",
           }}
         >
           <input
             type="checkbox"
             checked={lowPolyEnabled}
-            disabled={currentModel !== "3.0"}
+            disabled={currentDetailPreset !== "3.0"}
             onChange={(event) => updateData({ lowPoly: event.target.checked })}
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
@@ -469,13 +753,13 @@ function Seed3DNode({ id, data, selected }: Props) {
             alignItems: "center",
             gap: 4,
             fontSize: 12,
-            color: currentModel === "3.0" ? "#374151" : "#9ca3af",
+            color: currentDetailPreset === "3.0" ? "#374151" : "#9ca3af",
           }}
         >
           <input
             type="checkbox"
             checked={sketchEnabled}
-            disabled={currentModel !== "3.0"}
+            disabled={currentDetailPreset !== "3.0"}
             onChange={(event) => updateData({ sketch: event.target.checked })}
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
@@ -510,7 +794,7 @@ function Seed3DNode({ id, data, selected }: Props) {
         <button
           type="button"
           onClick={onSendToCanvas}
-          disabled={!data.modelUrl}
+          disabled={!modelUrl || !previewReady}
           onPointerDownCapture={stopNodeDrag}
           onMouseDownCapture={stopNodeDrag}
           style={{
@@ -521,9 +805,9 @@ function Seed3DNode({ id, data, selected }: Props) {
             padding: "3px 7px",
             borderRadius: 6,
             border: "1px solid #111827",
-            background: !data.modelUrl ? "#e5e7eb" : "#111827",
+            background: !modelUrl || !previewReady ? "#e5e7eb" : "#111827",
             color: "#fff",
-            cursor: !data.modelUrl ? "not-allowed" : "pointer",
+            cursor: !modelUrl || !previewReady ? "not-allowed" : "pointer",
           }}
         >
           <Send size={12} />
@@ -545,7 +829,7 @@ function Seed3DNode({ id, data, selected }: Props) {
         }}
       >
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-        {!data.modelUrl ? (
+        {!modelUrl ? (
           <div
             style={{
               position: "absolute",
@@ -558,7 +842,7 @@ function Seed3DNode({ id, data, selected }: Props) {
               pointerEvents: "none",
             }}
           >
-            等待 3D 模型结果
+            绛夊緟 3D 妯″瀷缁撴灉
           </div>
         ) : null}
       </div>
@@ -627,3 +911,5 @@ function Seed3DNode({ id, data, selected }: Props) {
 }
 
 export default React.memo(Seed3DNode);
+
+

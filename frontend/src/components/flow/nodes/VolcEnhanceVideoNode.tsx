@@ -5,6 +5,9 @@ import { getApiBaseUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import GenerationProgressBar from "./GenerationProgressBar";
+import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
+import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
+import { markVideoTaskSuccess, refundVideoTask } from "@/services/videoProviderAPI";
 
 type VolcEnhanceStatus = "idle" | "running" | "succeeded" | "failed";
 type VolcEnhanceMode = "preset" | "limit";
@@ -22,6 +25,7 @@ type Props = {
     error?: string;
     videoUrl?: string;
     taskId?: string;
+    apiUsageId?: string;
     upstreamStatus?: string;
     toolVersion?: "standard" | "professional";
     scene?: "aigc" | "short_series" | "ugc" | "old_film" | "";
@@ -122,9 +126,45 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
     () => (Array.isArray(data.history) ? data.history : []),
     [data.history],
   );
-  const runCredits =
-    typeof data.creditsPerCall === "number" && data.creditsPerCall > 0 ? data.creditsPerCall : 0;
-  const hasRunCredits = runCredits > 0;
+
+  const previewRequestParams = React.useMemo(() => {
+    const params: Record<string, any> = {
+      toolVersion: data.toolVersion || "standard",
+      scene: data.scene || "aigc",
+    };
+    const mode = data.resolutionMode || "preset";
+    if (mode === "limit") {
+      const limit = Number(data.resolutionLimit);
+      if (Number.isFinite(limit)) {
+        params.resolutionLimit = Math.max(64, Math.min(2160, Math.round(limit)));
+      }
+    } else {
+      params.resolution = data.resolution || "1080p";
+    }
+    if (typeof data.fps === "number" && Number.isFinite(data.fps)) {
+      params.fps = Math.max(1, Math.min(120, Math.round(data.fps)));
+    }
+    return params;
+  }, [
+    data.fps,
+    data.resolution,
+    data.resolutionLimit,
+    data.resolutionMode,
+    data.scene,
+    data.toolVersion,
+  ]);
+
+  const { credits: backendCredits } = useBackendCreditsPreview({
+    serviceType: "volc-enhance-video",
+    model: data.toolVersion || "standard",
+    requestParams: previewRequestParams,
+    enabled: true,
+  });
+  const resolvedRunCredits =
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
+  const { credits: runCredits, hasCredits: hasRunCredits } =
+    useNodeRunCredits(resolvedRunCredits);
+
   const isRunning = status === "running";
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
@@ -171,7 +211,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
       updateNodeData({
         status: "failed",
         progress: undefined,
-        error: lt("没有可增强的视频输入，请先连接视频节点", "No video input found. Connect a video node first."),
+        error: lt("未找到可增强的视频输入，请先连接视频节点。", "No video input found. Connect a video node first."),
       });
       return false;
     }
@@ -186,12 +226,25 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
       status: "running",
       error: undefined,
       taskId: undefined,
+      apiUsageId: undefined,
       upstreamStatus: "queued",
       progressStartedAt: runStartedAt,
       progress: 5,
       videoUrl: undefined,
       currentHistoryId: undefined,
     });
+
+    let apiUsageId: string | undefined;
+    const tryRefundIfNeeded = async () => {
+      if (!apiUsageId) return;
+      const usageId = apiUsageId;
+      apiUsageId = undefined;
+      try {
+        await refundVideoTask(usageId);
+      } catch (refundError) {
+        console.warn("Failed to refund volc enhance video credits", refundError);
+      }
+    };
 
     try {
       const payload: Record<string, any> = {
@@ -207,7 +260,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
           updateNodeData({
             status: "failed",
             progress: undefined,
-            error: lt("短边像素限制需在 64-2160 之间", "Short-side limit must be between 64 and 2160."),
+            error: lt("短边像素限制必须在 64 到 2160 之间。", "Short-side limit must be between 64 and 2160."),
           });
           return false;
         }
@@ -233,16 +286,32 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
 
       const submitResult = await submitResp.json().catch(() => ({}));
       const taskId = String(submitResult?.taskId || "").trim();
+      const submitApiUsageId = String(submitResult?.apiUsageId || "").trim();
+      if (submitApiUsageId) {
+        apiUsageId = submitApiUsageId;
+      }
       if (!taskId) {
+        await tryRefundIfNeeded();
         throw new Error(lt("未返回任务 ID", "Task ID not returned"));
       }
 
-      updateNodeData({ taskId, upstreamStatus: "queued", progress: 8 });
+      updateNodeData({
+        taskId,
+        apiUsageId: apiUsageId || undefined,
+        upstreamStatus: "queued",
+        progress: 8,
+      });
 
       for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
-        if (seq !== runSeqRef.current) return false;
+        if (seq !== runSeqRef.current) {
+          await tryRefundIfNeeded();
+          return false;
+        }
         await sleep(POLL_INTERVAL_MS);
-        if (seq !== runSeqRef.current) return false;
+        if (seq !== runSeqRef.current) {
+          await tryRefundIfNeeded();
+          return false;
+        }
 
         const queryResp = await fetchWithAuth(
           `${apiBase}/api/ai/volc-enhance-video/${encodeURIComponent(taskId)}`,
@@ -260,7 +329,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
 
         if (taskStatus === "succeeded") {
           if (!enhancedVideoUrl) {
-            throw new Error(lt("任务成功但未返回视频地址", "Task succeeded but no output video URL was returned."));
+            throw new Error(lt("任务成功但未返回输出视频地址。", "Task succeeded but no output video URL was returned."));
           }
           const historyId = `${taskId}-${Date.now()}`;
           const nextHistory: VolcEnhanceHistoryItem[] = [
@@ -273,10 +342,19 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
             ...historyItems.filter((item) => item.videoUrl !== enhancedVideoUrl),
           ].slice(0, MAX_HISTORY_ITEMS);
 
+          if (apiUsageId) {
+            try {
+              await markVideoTaskSuccess(apiUsageId, Math.max(0, Date.now() - runStartedAt));
+            } catch (markError) {
+              console.warn("Failed to mark volc enhance video task success", markError);
+            }
+          }
+
           updateNodeData({
             status: "succeeded",
             error: undefined,
             taskId,
+            apiUsageId: apiUsageId || undefined,
             upstreamStatus,
             videoUrl: enhancedVideoUrl,
             videoVersion: Number(data.videoVersion || 0) + 1,
@@ -289,14 +367,16 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
         }
 
         if (taskStatus === "failed") {
+          await tryRefundIfNeeded();
           updateNodeData({
             status: "failed",
             taskId,
             upstreamStatus,
             progressStartedAt: runStartedAt,
+            apiUsageId: undefined,
             error:
               errorMessage ||
-              lt("视频画质增强任务失败，请稍后重试", "Video enhancement failed. Please try again later."),
+              lt("视频画质增强失败，请稍后重试。", "Video enhancement failed. Please try again later."),
           });
           return false;
         }
@@ -311,17 +391,21 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
         });
       }
 
+      await tryRefundIfNeeded();
       updateNodeData({
         status: "failed",
         taskId,
         progressStartedAt: runStartedAt,
-        error: lt("任务等待超时，请稍后重试", "Task polling timed out. Please try again later."),
+        apiUsageId: undefined,
+        error: lt("任务轮询超时，请稍后重试。", "Task polling timed out. Please try again later."),
       });
       return false;
     } catch (err: any) {
+      await tryRefundIfNeeded();
       updateNodeData({
         status: "failed",
         progress: undefined,
+        apiUsageId: undefined,
         error: err?.message || lt("视频画质增强失败", "Video enhancement failed"),
       });
       return false;
@@ -566,7 +650,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
               border: "1px solid #d1d5db",
             }}
           >
-            <option value="preset">{lt("预设分辨率", "Preset")}</option>
+            <option value="preset">{lt("预设", "Preset")}</option>
             <option value="limit">{lt("短边像素", "Short Side")}</option>
           </select>
         </label>
@@ -630,7 +714,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
           type="number"
           className="nodrag nopan"
           value={fpsInput}
-          placeholder={lt("保持原帧率", "Keep source FPS")}
+          placeholder={lt("保持原始帧率", "Keep source FPS")}
           min={1}
           max={120}
           step={1}
@@ -688,7 +772,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
             />
           ) : (
             <span style={{ fontSize: 12, color: "#9ca3af" }}>
-              {lt("运行成功后在这里显示结果视频", "Enhanced result will appear here after success")}
+              {lt("运行成功后将在此显示增强视频", "Enhanced result will appear here after success")}
             </span>
           )}
         </div>

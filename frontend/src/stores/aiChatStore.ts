@@ -6836,11 +6836,16 @@ export const useAIChatStore = create<AIChatState>()(
             const finalizeSuccess = async (
               videoUrl: string,
               thumbnailUrl?: string,
-              status?: string
+              status?: string,
+              tokenUsage?: { inputTokens?: number; outputTokens?: number }
             ) => {
               if (createResult.apiUsageId) {
                 const processingTime = Math.max(0, Date.now() - videoRequestStartedAt);
-                void markVideoTaskSuccess(createResult.apiUsageId, processingTime).catch(
+                void markVideoTaskSuccess(
+                  createResult.apiUsageId,
+                  processingTime,
+                  tokenUsage
+                ).catch(
                   (markError) => {
                     console.warn("❌ Seedance 成功状态回写失败", markError);
                   }
@@ -6993,6 +6998,8 @@ export const useAIChatStore = create<AIChatState>()(
                     videoUrl?: string;
                     thumbnailUrl?: string;
                     error?: string;
+                    inputTokens?: number;
+                    outputTokens?: number;
                   }
                 | undefined;
               try {
@@ -7022,7 +7029,11 @@ export const useAIChatStore = create<AIChatState>()(
                 await finalizeSuccess(
                   queryResult.videoUrl,
                   queryResult.thumbnailUrl,
-                  rawStatus
+                  rawStatus,
+                  {
+                    inputTokens: queryResult.inputTokens,
+                    outputTokens: queryResult.outputTokens,
+                  }
                 );
                 logProcessStep(metrics, "generateVideo finished (polled)");
                 return;
