@@ -474,6 +474,23 @@ async function validateAndAdjustImageForWan26(
   return urlToUpload;
 }
 
+async function getImageSizeFromUrl(
+  imageUrl: string
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    const bitmap = await createImageBitmapLimited(blob);
+    return {
+      width: bitmap.width,
+      height: bitmap.height,
+    };
+  } catch {
+    return null;
+  }
+}
+
 type RFNode = Node<any>;
 
 const isGroupNode = (node?: RFNode | null): boolean =>
@@ -11655,15 +11672,11 @@ function FlowInner() {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "img")
           );
-          // Seed3D 仅允许 text / img 二选一：连接图片时移除文本输入
-          next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "text")
-          );
         }
         if (tgt?.type === "seed3d" && params.targetHandle === "text") {
-          // Seed3D 仅允许 text / img 二选一：连接文本时移除图片输入
+          // Seed3D: 文字为可选输入，保持图片输入不受影响；同句柄仅保留一条输入线
           next = next.filter(
-            (e) => !(e.target === params.target && e.targetHandle === "img")
+            (e) => !(e.target === params.target && e.targetHandle === "text")
           );
         }
 
@@ -17144,7 +17157,7 @@ function FlowInner() {
         }
 
         const trimmedPrompt = promptText.trim();
-        if (imageUrl && trimmedPrompt) {
+        if (!imageUrl) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -17153,7 +17166,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "failed",
-                      error: "Seed 3D 仅支持输入图片或提示词其中一种，请删除一个输入后重试",
+                      error: "Seed 3D 仅支持图片输入，请连接图片后重试",
                     },
                   }
                 : n
@@ -17161,7 +17174,12 @@ function FlowInner() {
           );
           return;
         }
-        if (!imageUrl && !trimmedPrompt) {
+
+        const imageSize = await getImageSizeFromUrl(imageUrl);
+        if (
+          imageSize &&
+          (imageSize.width < 300 || imageSize.height < 300)
+        ) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -17170,7 +17188,7 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "failed",
-                      error: "请连接图片输入，或提供提示词",
+                      error: `Seed 3D 输入图片尺寸过小：${imageSize.width}x${imageSize.height}，请使用至少 300x300 的图片`,
                     },
                   }
                 : n
@@ -17201,7 +17219,7 @@ function FlowInner() {
             imageUrl != null
               ? {
                   imageUrl,
-                  prompt: undefined as string | undefined,
+                  prompt: trimmedPrompt || undefined,
                   model,
                   lowPoly,
                   sketch,
