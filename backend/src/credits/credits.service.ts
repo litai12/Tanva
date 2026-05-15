@@ -373,6 +373,23 @@ const VIDEO_ANALYZE_ROUTE_PRICING: Record<
     ultra: 160,
   },
 };
+const VOLC_ENHANCE_VIDEO_PRICING: Record<
+  'standard' | 'professional',
+  Record<'720P' | '1080P' | '2K' | '4K', { lte30: number; gt30: number }>
+> = {
+  standard: {
+    '720P': { lte30: 90, gt30: 180 },
+    '1080P': { lte30: 180, gt30: 360 },
+    '2K': { lte30: 360, gt30: 720 },
+    '4K': { lte30: 720, gt30: 1440 },
+  },
+  professional: {
+    '720P': { lte30: 750, gt30: 1500 },
+    '1080P': { lte30: 1500, gt30: 3000 },
+    '2K': { lte30: 3000, gt30: 6000 },
+    '4K': { lte30: 6000, gt30: 12000 },
+  },
+};
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -686,6 +703,12 @@ export class CreditsService {
     );
 
     creditsToDeduct = this.resolveSeed2ModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    creditsToDeduct = this.resolveVolcEnhanceVideoCredits(
       params.serviceType,
       creditsToDeduct,
       effectiveRequestParams,
@@ -1147,6 +1170,75 @@ export class CreditsService {
     if (seed2Model === 'mini') return 500;
     if (seed2Model === 'lite') return 700;
 
+    return defaultCredits;
+  }
+
+  private normalizeVolcEnhanceToolVersion(raw: unknown): 'standard' | 'professional' {
+    const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    return value === 'professional' ? 'professional' : 'standard';
+  }
+
+  private normalizeVolcEnhanceResolutionTier(
+    requestParams: any,
+  ): '720P' | '1080P' | '2K' | '4K' {
+    const rawResolution =
+      typeof requestParams?.resolution === 'string' ? requestParams.resolution.trim().toUpperCase() : '';
+    if (rawResolution === '720P') return '720P';
+    if (rawResolution === '1080P') return '1080P';
+    if (rawResolution === '2K') return '2K';
+    if (rawResolution === '4K') return '4K';
+
+    const limitRaw = Number(requestParams?.resolutionLimit);
+    if (Number.isFinite(limitRaw) && limitRaw > 0) {
+      const limit = Math.max(64, Math.min(2160, Math.round(limitRaw)));
+      if (limit <= 720) return '720P';
+      if (limit <= 1080) return '1080P';
+      if (limit <= 1440) return '2K';
+      return '4K';
+    }
+
+    return '1080P';
+  }
+
+  private resolveVolcEnhanceResolutionFactor(
+    requestParams: any,
+  ): 1 | 2 | 4 | 8 {
+    const tier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+    if (tier === '720P') return 1;
+    if (tier === '1080P') return 2;
+    if (tier === '2K') return 4;
+    return 8;
+  }
+
+  private normalizeVolcEnhanceFpsBand(requestParams: any): 'lte30' | 'gt30' {
+    const fpsRaw = Number(requestParams?.fps);
+    if (!Number.isFinite(fpsRaw) || fpsRaw <= 0) {
+      return 'lte30';
+    }
+    return fpsRaw > 30 ? 'gt30' : 'lte30';
+  }
+
+  private resolveVolcEnhanceVersionFactor(
+    requestParams: any,
+  ): 1 | 10 {
+    return this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion) === 'professional'
+      ? 10
+      : 1;
+  }
+
+  private resolveVolcEnhanceVideoCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    if (serviceType !== 'volc-enhance-video') return defaultCredits;
+    const version = this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion);
+    const resolutionTier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+    const fpsBand = this.normalizeVolcEnhanceFpsBand(requestParams);
+    const resolved = VOLC_ENHANCE_VIDEO_PRICING[version]?.[resolutionTier]?.[fpsBand];
+    if (typeof resolved === 'number' && Number.isFinite(resolved) && resolved > 0) {
+      return resolved;
+    }
     return defaultCredits;
   }
 
@@ -2388,19 +2480,15 @@ export class CreditsService {
   }): string | null {
     const requestParams = this.asJsonObject(params.requestParams);
     const remarkParts: string[] = [];
-
     const modelLabel = this.resolveBillingModelLabel(
       params.serviceType,
       params.model,
       requestParams,
     );
-    if (modelLabel) {
-      remarkParts.push(`模型: ${modelLabel}`);
-    }
+    if (modelLabel) remarkParts.push(`model: ${modelLabel}`);
 
     const imageSize = this.asNonEmptyString(requestParams?.imageSize)?.toUpperCase() ?? null;
-    const resolution =
-      this.asNonEmptyString(requestParams?.resolution)?.toUpperCase() ?? null;
+    const resolution = this.asNonEmptyString(requestParams?.resolution)?.toUpperCase() ?? null;
     const aspectRatio = this.asNonEmptyString(requestParams?.aspectRatio);
     const mode = this.asNonEmptyString(requestParams?.mode)?.toLowerCase() ?? null;
     const videoMode = this.asNonEmptyString(requestParams?.videoMode)?.toLowerCase() ?? null;
@@ -2421,56 +2509,58 @@ export class CreditsService {
       params.serviceType === 'sora-hd' ||
       params.serviceType === 'wan26-r2v';
 
-    if (imageSize) {
-      remarkParts.push(`尺寸档位: ${imageSize}`);
+    if (imageSize) remarkParts.push(`imageSize: ${imageSize}`);
+    if (isVideoService && duration !== null) remarkParts.push(`duration: ${duration}s`);
+    if (resolution) remarkParts.push(`resolution: ${resolution}`);
+    if (aspectRatio) remarkParts.push(`aspectRatio: ${aspectRatio}`);
+    if (mode) remarkParts.push(`mode: ${mode}`);
+    if (videoMode) remarkParts.push(`videoMode: ${videoMode}`);
+    if (hasSound !== null) remarkParts.push(`sound: ${hasSound ? 'on' : 'off'}`);
+    if (generateAudio !== null) remarkParts.push(`generateAudio: ${generateAudio ? 'yes' : 'no'}`);
+    if (params.serviceType === 'volc-enhance-video') {
+      const volcVersion = this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion);
+      const volcResolutionTier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+      const volcFpsBand = this.normalizeVolcEnhanceFpsBand(requestParams);
+      const volcVersionFactor = this.resolveVolcEnhanceVersionFactor(requestParams);
+      const volcResolutionFactor = this.resolveVolcEnhanceResolutionFactor(requestParams);
+      const volcFpsFactor = volcFpsBand === 'gt30' ? 2 : 1;
+      const volcFactor = volcVersionFactor * volcResolutionFactor * volcFpsFactor;
+      const pricing = VOLC_ENHANCE_VIDEO_PRICING[volcVersion]?.[volcResolutionTier]?.[volcFpsBand];
+      const pricingLabel = typeof pricing === 'number' ? String(pricing) : 'n/a';
+      const basePriceYuan = volcFactor * 0.75;
+      remarkParts.push(`volcVersion: ${volcVersion}`);
+      remarkParts.push(`volcResolutionTier: ${volcResolutionTier}`);
+      remarkParts.push(`volcFpsBand: ${volcFpsBand === 'gt30' ? '>30' : '<=30'}`);
+      remarkParts.push(`volcFactor: ${volcFactor}x`);
+      remarkParts.push(`volcUnitPriceYuan: ${basePriceYuan}`);
+      remarkParts.push(`volcPlatformPrice: ${pricingLabel}`);
     }
-    if (isVideoService && duration !== null) {
-      remarkParts.push(`时长: ${duration}s`);
-    }
-    if (resolution) {
-      remarkParts.push(`分辨率: ${resolution}`);
-    }
-    if (aspectRatio) {
-      remarkParts.push(`画幅: ${aspectRatio}`);
-    }
-    if (mode) {
-      remarkParts.push(`模式: ${mode}`);
-    }
-    if (videoMode) {
-      remarkParts.push(`视频模式: ${videoMode}`);
-    }
-    if (hasSound !== null) {
-      remarkParts.push(`音效: ${hasSound ? '开' : '关'}`);
-    }
-    if (generateAudio !== null) {
-      remarkParts.push(`生成音频: ${generateAudio ? '是' : '否'}`);
-    }
-    if (channelLabel) {
-      remarkParts.push(`渠道: ${channelLabel}`);
-    }
+    if (channelLabel) remarkParts.push(`channel: ${channelLabel}`);
 
     const isBananaImageService =
       Boolean(BANANA_TENCENT_IMAGE_SERVICE_TIERS[params.serviceType]) ||
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
-        remarkParts.push('计价: 按尊享路线积分价');
+        remarkParts.push('pricing: stable-route image matrix');
       } else if (channel === 'apimart') {
-        remarkParts.push('计价: 按普通路线积分价');
+        remarkParts.push('pricing: normal-route image matrix');
       } else if (channel === '147') {
-        remarkParts.push('计价: 按官方路线积分价');
+        remarkParts.push('pricing: official-route image matrix');
       }
     }
+
     const isBananaTextService =
       params.serviceType === 'gemini-text' ||
       params.serviceType === 'gemini-prompt-optimize';
     if (isBananaTextService) {
       if (channel === 'tencent') {
-        remarkParts.push('Pricing: text stable route 10 credits/call');
+        remarkParts.push('pricing: text stable route 10 credits/call');
       } else if (channel === 'apimart') {
-        remarkParts.push('Pricing: text normal route 5 credits/call');
+        remarkParts.push('pricing: text normal route 5 credits/call');
       }
     }
+
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
   }
 

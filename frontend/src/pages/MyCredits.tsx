@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle, Crow
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { formatCreditBillingRemark } from '@/utils/creditBillingRemark';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -770,14 +771,12 @@ const MyCredits: React.FC = () => {
                         : tx.channel === '147'
                         ? '官方路线'
                         : null;
-                      const billingRemark = typeof tx.billingRemark === 'string'
-                        ? tx.billingRemark.trim()
-                        : '';
+                      const billingRemark = formatCreditBillingRemark(tx.billingRemark);
                       const outputCount =
                         typeof tx.outputImageCount === 'number' && Number.isFinite(tx.outputImageCount)
                           ? Math.max(1, Math.floor(tx.outputImageCount))
                           : null;
-                      const countPrefix = tx.parallelGroupId ? '并行批次' : '数量';
+                      const countPrefix = tx.parallelGroupId ? '批次' : '触发数量';
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">

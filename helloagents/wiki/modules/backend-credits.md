@@ -163,6 +163,13 @@
 - Membership plan `dailyGiftCredits` is treated as the paid-tier daily check-in base credits, not an automatically issued daily gift quota.
 - `vip_69` is aligned with the same rule path as other paid tiers for check-in reward resolution.
 
+## 2026-05-16 Volc Video Enhance Billing Alignment
+- `volc-enhance-video` now bills by explicit parameter matrix (single source: backend quote + pre-deduct), and the platform price table is used directly as the deducted credits:
+  - `toolVersion=standard`: `720P/1080P/2K/4K => 90/180/360/720` for `<=30fps`, `180/360/720/1440` for `>30fps`
+  - `toolVersion=professional`: `720P/1080P/2K/4K => 750/1500/3000/6000` for `<=30fps`, `1500/3000/6000/12000` for `>30fps`
+- Credits detail no longer relies on time-window merge; multi-item merge only happens when an explicit `parallelGroupId` exists.
+- Billing remarks include resolved `volcVersion / volcResolutionTier / volcFpsBand / volcFactor / volcUnitPriceYuan / volcPlatformPrice` so frontend/admin credits pages can explain the chosen档位 and platform price.
+
 ## 2026-04-13 Pre-Deduct Idempotency
 - `CreditsService.preDeductCredits` now accepts `idempotencyKey` and optional `idempotencyWindowMs`.
 - Duplicate requests in a short time window are deduplicated by `idempotencyKey` (primary) and request fingerprint (fallback), and reuse existing `apiUsageId`/spend transaction instead of creating a new charge.

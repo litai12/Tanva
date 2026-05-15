@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchWithAuth } from "@/services/authFetch";
+import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
 import {
   getDashboardStats,
   getUsers,
@@ -5554,6 +5555,15 @@ function UsersTab({
                                 ? Math.max(0, Math.round(tx.processingTime / 1000))
                                 : null;
                             const isPositive = tx.amount > 0;
+                            const billingRemark = formatCreditBillingRemark(tx.billingRemark);
+                            const quantityLabel =
+                              typeof tx.parallelGroupId === "string" && tx.parallelGroupId.trim()
+                                ? tx.parallelGroupIndex !== null && tx.parallelGroupTotal !== null
+                                  ? `批次：${Math.max(1, Math.floor(tx.parallelGroupIndex || 0))}/${Math.max(1, Math.floor(tx.parallelGroupTotal || 0))}`
+                                  : "批次"
+                                : typeof tx.outputImageCount === "number" && tx.outputImageCount > 1
+                                  ? `触发数量：x${Math.floor(tx.outputImageCount)}`
+                                  : null;
 
                             return (
                               <tr key={tx.id} className='border-b hover:bg-gray-50'>
@@ -5561,6 +5571,11 @@ function UsersTab({
                                   <div className='font-medium text-gray-800'>
                                     {tx.description}
                                   </div>
+                                  {quantityLabel && (
+                                    <div className='text-xs text-gray-500 mt-0.5'>
+                                      {quantityLabel}
+                                    </div>
+                                  )}
                                   {tx.channel && (
                                     <div className='text-xs text-gray-500 mt-0.5'>
                                       渠道: {formatChannelLabel(tx.channel)}
@@ -5569,6 +5584,11 @@ function UsersTab({
                                   <div className='text-xs text-gray-500 mt-0.5'>
                                     模型: {typeof tx.model === "string" && tx.model.trim().length > 0 ? tx.model : "--"}
                                   </div>
+                                  {billingRemark && (
+                                    <div className='text-xs text-gray-400 mt-0.5 break-words'>
+                                      {billingRemark}
+                                    </div>
+                                  )}
                                 </td>
                                 <td
                                   className={`px-4 py-3 text-right font-semibold ${
@@ -10091,7 +10111,13 @@ function NodeConfigsTab() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
-                      {config.creditsPerCall > 0 ? config.creditsPerCall : <span className="text-green-600">免费</span>}
+                      {config.serviceType === "volc-enhance-video" ? (
+                        <span className="text-amber-600">动态计费</span>
+                      ) : config.creditsPerCall > 0 ? (
+                        config.creditsPerCall
+                      ) : (
+                        <span className="text-green-600">免费</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {config.priceYuan ? `¥${config.priceYuan}` : "-"}

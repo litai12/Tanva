@@ -244,8 +244,8 @@ export const CREDIT_PRICING_CONFIG = {
   'volc-enhance-video': {
     serviceName: '视频画质增强',
     provider: 'volc',
-    creditsPerCall: 90,
-    description: '视频增强（按版本/分辨率/FPS 阶梯计费）',
+    creditsPerCall: 0,
+    description: '视频增强（后端按平台价动态计费）',
   },
 
   // 更多视频服务
