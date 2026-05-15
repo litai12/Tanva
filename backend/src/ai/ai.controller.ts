@@ -4102,6 +4102,128 @@ export class AiController {
     }));
   }
 
+  @Post('convert-seed3d-async')
+  async convertSeed3DAsync(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
+    this.logger.log('🎨 Seed3D async conversion request received');
+
+    const taskId = `async-seed3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    createAsyncTask(taskId);
+    this.executeSeed3DTaskAsync(taskId, dto, req);
+
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      message: 'Seed3D task submitted, poll with taskId',
+    };
+  }
+
+  @Get('seed3d/task/:taskId')
+  async querySeed3DAsyncTask(@Param('taskId') taskId: string) {
+    if (!taskId || !taskId.trim()) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+
+    const asyncTask = getAsyncTaskResult(taskId.trim());
+    if (!asyncTask) {
+      return {
+        success: false,
+        taskId: taskId.trim(),
+        status: 'failed',
+        error: '任务不存在或已过期，请重新提交',
+      };
+    }
+
+    if (asyncTask.status === 'completed' && asyncTask.result) {
+      return {
+        success: true,
+        taskId: taskId.trim(),
+        status: 'succeeded',
+        modelUrl: asyncTask.result.modelUrl,
+        promptId: asyncTask.result.promptId,
+        modelKey: asyncTask.result.modelKey,
+      };
+    }
+
+    if (asyncTask.status === 'failed') {
+      return {
+        success: false,
+        taskId: taskId.trim(),
+        status: 'failed',
+        error: asyncTask.error || 'Seed3D 生成失败',
+      };
+    }
+
+    return {
+      success: true,
+      taskId: taskId.trim(),
+      status: asyncTask.status === 'processing' ? 'processing' : 'pending',
+      progress: asyncTask.status === 'processing' ? 50 : 10,
+    };
+  }
+
+  private executeSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): void {
+    void this.processSeed3DTaskAsync(taskId, dto, req).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      updateAsyncTask(taskId, {
+        status: 'failed',
+        error: message,
+      });
+      this.logger.error(`[Async] Seed3D task failed: taskId=${taskId}, error=${message}`);
+    });
+  }
+
+  private async processSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): Promise<void> {
+    updateAsyncTask(taskId, { status: 'processing' });
+
+    const result = await this.withCredits(
+      req,
+      'convert-2d-to-3d',
+      'doubao-seed3d-2-0-260328',
+      async () => {
+        const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+        const normalizedImageUrl = dto.imageUrl
+          ? this.normalizeImageUrlForUpstream(dto.imageUrl)
+          : undefined;
+        const converted = await this.seed3DService.convert2Dto3D({
+          imageUrl: normalizedImageUrl,
+          prompt: dto.prompt,
+          model: dto.model as '3.0' | '3.1' | undefined,
+          lowPoly: dto.lowPoly,
+          sketch: dto.sketch,
+          projectId: dto.projectId,
+          userId: typeof userId === 'string' ? userId : undefined,
+        });
+
+        return {
+          success: true,
+          modelUrl: converted.modelUrl,
+          promptId: converted.promptId,
+          modelKey: converted.modelKey,
+        };
+      },
+      1,
+      1,
+      undefined,
+      this.buildCreditRequestParams('seed3d', {
+        nodeType: 'seed3d',
+        provider: 'seed3d',
+        model: 'doubao-seed3d-2-0-260328',
+      }),
+    );
+
+    updateAsyncTask(taskId, {
+      status: 'completed',
+      result: {
+        status: 'succeeded',
+        taskId,
+        modelUrl: (result as any)?.modelUrl,
+        promptId: (result as any)?.promptId,
+        modelKey: (result as any)?.modelKey,
+      },
+    });
+  }
+
   @Post('expand-image')
   async expandImage(@Body() dto: ExpandImageDto, @Req() req: any) {
     this.logger.log('🖼️ Expand image request received');

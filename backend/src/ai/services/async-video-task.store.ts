@@ -8,6 +8,9 @@ export interface AsyncTaskResult {
   result?: {
     videoUrl?: string;
     thumbnailUrl?: string;
+    modelUrl?: string;
+    promptId?: string;
+    modelKey?: string;
     content?: string;
     referencedUrls?: string[];
     status?: string;
