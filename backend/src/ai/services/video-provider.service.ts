@@ -106,11 +106,11 @@ type ManagedV2ParsedTask = {
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
     case "2.0-pro":
-      return "doubao-seed-2-0-pro-260215";
+      return "doubao-seedance-2-0-260128";
     case "2.0-lite":
-      return "doubao-seed-2-0-lite-260428";
+      return "doubao-seedance-2-0-fast-260128";
     case "2.0-mini":
-      return "doubao-seed-2-0-mini-260428";
+      return "doubao-seedance-2-0-fast-260128";
     case "2.0":
       return "doubao-seedance-2-0-260128";
     default:
@@ -125,13 +125,22 @@ const normalizeSeedanceUpstreamModelIdAlias = (
   if (!normalized) return rawModelId;
 
   if (normalized === "doubao-seed-2-0-pro") {
-    return "doubao-seed-2-0-pro-260215";
+    return "doubao-seedance-2-0-260128";
   }
   if (normalized === "doubao-seed-2-0-lite") {
-    return "doubao-seed-2-0-lite-260428";
+    return "doubao-seedance-2-0-fast-260128";
   }
   if (normalized === "doubao-seed-2-0-mini") {
-    return "doubao-seed-2-0-mini-260428";
+    return "doubao-seedance-2-0-fast-260128";
+  }
+  if (normalized === "doubao-seed-2-0-pro-260215") {
+    return "doubao-seedance-2-0-260128";
+  }
+  if (
+    normalized === "doubao-seed-2-0-lite-260428" ||
+    normalized === "doubao-seed-2-0-mini-260428"
+  ) {
+    return "doubao-seedance-2-0-fast-260128";
   }
   if (normalized === "doubao-seedance-2-0") {
     return "doubao-seedance-2-0-260128";
@@ -1570,29 +1579,68 @@ export class VideoProviderService {
       finalUrl.searchParams.set(key, String(value));
     });
 
-    const response = await fetchWithTimeout(finalUrl.toString(), {
-      method,
-      headers: Object.fromEntries(
-        Object.entries(headers).map(([key, value]) => [key, String(value)])
-      ),
-      body:
-        body === undefined || body === null || method === "GET"
-          ? undefined
-          : JSON.stringify(body),
-      timeout: method === "GET" ? QUERY_FETCH_TIMEOUT : DEFAULT_FETCH_TIMEOUT,
-    });
+    const requestHeaders = Object.fromEntries(
+      Object.entries(headers).map(([key, value]) => [key, String(value)])
+    );
+    const timeout = method === "GET" ? QUERY_FETCH_TIMEOUT : DEFAULT_FETCH_TIMEOUT;
+    const runStageRequest = async (bodyOverride: any) => {
+      const response = await fetchWithTimeout(finalUrl.toString(), {
+        method,
+        headers: requestHeaders,
+        body:
+          bodyOverride === undefined || bodyOverride === null || method === "GET"
+            ? undefined
+            : JSON.stringify(bodyOverride),
+        timeout,
+      });
+      const raw = await response.json().catch(async () => ({
+        message: await response.text().catch(() => ""),
+      }));
+      return { response, raw };
+    };
 
-    const raw = await response.json().catch(async () => ({
-      message: await response.text().catch(() => ""),
-    }));
+    let { response, raw } = await runStageRequest(body);
 
     if (!response.ok) {
-      throw new Error(
+      const errorMessage =
         this.readMappedValue(raw, stage.responseMapping?.error) ||
-          raw?.error?.message ||
-          raw?.message ||
-          `HTTP ${response.status}`
-      );
+        raw?.error?.message ||
+        raw?.message ||
+        `HTTP ${response.status}`;
+      const modelKey = String(context?.vendor?.modelKey || "").trim().toLowerCase();
+      const vendorKey = String(context?.vendor?.vendorKey || "").trim().toLowerCase();
+      const currentModel =
+        body && typeof body === "object" ? String((body as Record<string, any>).model || "").trim() : "";
+      const currentModelNormalized = currentModel.toLowerCase();
+      const shouldRetryWithSeedance20Base =
+        method !== "GET" &&
+        modelKey === "seedance-2.0" &&
+        vendorKey === "seedance_api" &&
+        currentModelNormalized === "doubao-seedance-2-0-fast-260128" &&
+        /model|not valid|invalid|not support|does not support/i.test(String(errorMessage || ""));
+
+      if (shouldRetryWithSeedance20Base) {
+        const retryBody =
+          body && typeof body === "object"
+            ? { ...(body as Record<string, any>), model: "doubao-seedance-2-0-260128" }
+            : body;
+        this.logger.warn(
+          `[Seedance2] retry create with fallback model: ${currentModel} -> doubao-seedance-2-0-260128`,
+        );
+        const retried = await runStageRequest(retryBody);
+        response = retried.response;
+        raw = retried.raw;
+        if (!response.ok) {
+          throw new Error(
+            this.readMappedValue(raw, stage.responseMapping?.error) ||
+              raw?.error?.message ||
+              raw?.message ||
+              `HTTP ${response.status}`
+          );
+        }
+      } else {
+        throw new Error(errorMessage);
+      }
     }
 
     const mapped = Object.fromEntries(

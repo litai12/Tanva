@@ -512,6 +512,23 @@ export class AiController {
     );
   }
 
+  private normalizeSeed2LegacyLiteAlias(dto: VideoProviderRequestDto): void {
+    const raw = typeof dto.seedanceModel === 'string' ? dto.seedanceModel.trim().toLowerCase() : '';
+    if (!raw) return;
+
+    const isLiteAlias =
+      raw === 'seed-2.0-lite' ||
+      raw === 'seedance-2.0-lite' ||
+      raw === 'seed-2-0-lite' ||
+      raw === '2.0-lite';
+    if (!isLiteAlias) return;
+
+    dto.seedanceModel = 'seed-2.0-mini';
+    this.logger.warn(
+      `[Seedance2] normalize deprecated lite alias to mini: input=${raw}, normalized=${dto.seedanceModel}`,
+    );
+  }
+
   private async resolveSeedance2CombinedAccess(
     userId: string,
     req: any,
@@ -4848,6 +4865,7 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
+    this.normalizeSeed2LegacyLiteAlias(effectiveDto);
     await this.assertSeedance2Entitlement(userId, effectiveDto, req);
 
     // Whitelist/admin users can skip watermark for doubao provider.

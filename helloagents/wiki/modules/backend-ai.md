@@ -76,12 +76,17 @@
 - For any remaining synchronous image path, external gateway/proxy should keep timeout >= 900s to reduce premature `HTTP 524`.
 
 ## 2026-05-12 Seedance Update
-- Video provider now recognizes seed-2.0-lite and routes to doubao-seed-2-0-lite-260428; legacy seedance-2.0-fast inputs are kept as compatibility aliases. Entitlement and credits model inference also include the new lite aliases.
+- Video provider keeps `seed-2.0-lite` as compatibility input alias, but runtime model routing no longer sends `doubao-seed-2-0-*` to the content-generation endpoint.
+- Seed2 compatibility aliases now normalize to content-generation-capable Seedance model IDs:
+  - `doubao-seed-2-0-pro(-260215)` -> `doubao-seedance-2-0-260128`
+  - `doubao-seed-2-0-lite(-260428)` -> `doubao-seedance-2-0-fast-260128`
+  - `doubao-seed-2-0-mini(-260428)` -> `doubao-seedance-2-0-fast-260128`
+- For Seedance 2.0 create failures on the `-fast` model with model-invalid/not-support errors, backend retries once with `doubao-seedance-2-0-260128`.
 
 ## 2026-05-16 Seed2 Alias Hardening
 - Managed Seedance 2.0 V2 create-task path now normalizes known legacy model aliases before upstream calls:
-  - `doubao-seed-2-0-pro` -> `doubao-seed-2-0-pro-260215`
-  - `doubao-seed-2-0-lite` -> `doubao-seed-2-0-lite-260428`
-  - `doubao-seed-2-0-mini` -> `doubao-seed-2-0-mini-260428`
+  - `doubao-seed-2-0-pro` -> `doubao-seedance-2-0-260128`
+  - `doubao-seed-2-0-lite` -> `doubao-seedance-2-0-fast-260128`
+  - `doubao-seed-2-0-mini` -> `doubao-seedance-2-0-fast-260128`
   - `doubao-seedance-2-0` -> `doubao-seedance-2-0-260128`
 - This prevents `model ... does not support content generation` errors caused by outdated or custom requestProfile model values.
