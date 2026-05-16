@@ -42,7 +42,6 @@ import { TencentSpeechDto } from './dto/tencent-speech.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
-import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { UsersService } from '../users/users.service';
@@ -166,21 +165,21 @@ export class AiController {
 
   private getHttpErrorMessage(status: number): string {
     const messages: Record<number, string> = {
-      400: '请求参数错误，请检查输入内容',
-      401: 'API密钥无效或已过期，请检查配置',
-      403: '权限不足，无法访问该服务',
-      404: '请求的资源不存在',
-      408: '请求超时，请重试',
-      413: '请求数据过大，请压缩图片或减小文件大小',
-      429: '请求过于频繁，请稍后重试',
-      464: '上游任务失败，请稍后重试',
-      500: '服务器内部错误，请稍后重试',
-      502: '网关错误，服务暂时不可用',
-      503: '服务暂时不可用，请稍后重试',
-      504: '网关超时，请稍后重试',
-      524: '服务器处理超时，请稍后重试或简化请求内容',
+      400: '璇锋眰鍙傛暟閿欒锛岃妫€鏌ヨ緭鍏ュ唴瀹?',
+      401: 'API瀵嗛挜鏃犳晥鎴栧凡杩囨湡锛岃妫€鏌ラ厤缃?',
+      403: '鏉冮檺涓嶈冻锛屾棤娉曡闂鏈嶅姟',
+      404: '璇锋眰鐨勮祫婧愪笉瀛樺湪',
+      408: '璇锋眰瓒呮椂锛岃閲嶈瘯',
+      413: '璇锋眰鏁版嵁杩囧ぇ锛岃鍘嬬缉鍥剧墖鎴栧噺灏忔枃浠跺ぇ灏?',
+      429: '璇锋眰杩囦簬棰戠箒锛岃绋嶅悗閲嶈瘯',
+      464: '涓婃父浠诲姟澶辫触锛岃绋嶅悗閲嶈瘯',
+      500: '鏈嶅姟鍣ㄥ唴閮ㄩ敊璇紝璇风◢鍚庨噸璇?',
+      502: '缃戝叧閿欒锛屾湇鍔℃殏鏃朵笉鍙敤',
+      503: '鏈嶅姟鏆傛椂涓嶅彲鐢紝璇风◢鍚庨噸璇?',
+      504: '缃戝叧瓒呮椂锛岃绋嶅悗閲嶈瘯',
+      524: '鏈嶅姟鍣ㄥ鐞嗚秴鏃讹紝璇风◢鍚庨噸璇曟垨绠€鍖栬姹傚唴瀹?',
     };
-    return messages[status] || `服务器返回错误 ${status}`;
+    return messages[status] || `鏈嶅姟鍣ㄨ繑鍥為敊璇?${status}`;
   }
 
   private normalizeSeedance2Access(value: unknown): 'enabled' | 'disabled' {
@@ -198,8 +197,8 @@ export class AiController {
       normalized === 'vip' ||
       normalized === 'supported' ||
       normalized === 'support' ||
-      normalized === '支持' ||
-      normalized === '可用' ||
+      normalized === '鏀寔' ||
+      normalized === '鍙敤' ||
       normalized === '1'
     ) {
       return 'enabled';
@@ -224,8 +223,8 @@ export class AiController {
       normalized === 'vip' ||
       normalized === 'supported' ||
       normalized === 'support' ||
-      normalized === '支持' ||
-      normalized === '可用' ||
+      normalized === '鏀寔' ||
+      normalized === '鍙敤' ||
       normalized === '1'
     ) {
       return 'enabled';
@@ -385,12 +384,12 @@ export class AiController {
 
   private async assertHappyhorseEntitlement(userId: string | null): Promise<void> {
     if (!userId) {
-      throw new ForbiddenException('快乐马仅支持已充值或已开通对应套餐权益的付费用户使用');
+      throw new ForbiddenException('蹇箰椹粎鏀寔宸插厖鍊兼垨宸插紑閫氬搴斿椁愭潈鐩婄殑浠樿垂鐢ㄦ埛浣跨敤');
     }
 
     const access = await this.resolveUserHappyhorseAccess(userId);
     if (access !== 'enabled') {
-      throw new ForbiddenException('快乐马仅支持已充值或已开通对应套餐权益的付费用户使用');
+      throw new ForbiddenException('蹇箰椹粎鏀寔宸插厖鍊兼垨宸插紑閫氬搴斿椁愭潈鐩婄殑浠樿垂鐢ㄦ埛浣跨敤');
     }
   }
 
@@ -402,7 +401,23 @@ export class AiController {
     const normalizedProvider = String(dto.provider || '').trim().toLowerCase();
     const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
     const isSeedance2Request =
-      normalizedProvider === 'doubao' && this.isSeedance20Model(normalizedSeedanceModel);
+      normalizedProvider === 'doubao' &&
+      (normalizedSeedanceModel === 'seedance-2.0' ||
+        normalizedSeedanceModel === '2.0' ||
+        normalizedSeedanceModel === 'seed-2.0-pro' ||
+        normalizedSeedanceModel === 'seedance-2.0-pro' ||
+        normalizedSeedanceModel === 'seed-2-0-pro' ||
+        normalizedSeedanceModel === '2.0-pro' ||
+        normalizedSeedanceModel === 'seed-2.0-lite' ||
+        normalizedSeedanceModel === 'seedance-2.0-lite' ||
+        normalizedSeedanceModel === 'seed-2-0-lite' ||
+        normalizedSeedanceModel === '2.0-lite' ||
+        normalizedSeedanceModel === 'seed-2.0-mini' ||
+        normalizedSeedanceModel === 'seedance-2.0-mini' ||
+        normalizedSeedanceModel === 'seed-2-0-mini' ||
+        normalizedSeedanceModel === '2.0-mini' ||
+        normalizedSeedanceModel === 'seedance-2.0-fast' ||
+        normalizedSeedanceModel === '2.0-fast');
 
     if (!isSeedance2Request || !userId) {
       return;
@@ -411,7 +426,7 @@ export class AiController {
     const access = await this.resolveSeedance2CombinedAccess(userId, req);
     if (!access.allowed) {
       throw new BadRequestException(
-        'Seed2.0 仅支持 VIP 或水印白名单用户使用',
+        'Seedance 2.0 / Seed 2.0 series requires VIP access or watermark whitelist access',
       );
     }
   }
@@ -422,7 +437,6 @@ export class AiController {
     private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly factory: AIProviderFactory,
     private readonly convert2Dto3DService: Convert2Dto3DService,
-    private readonly seed3DService: Seed3DService,
     private readonly expandImageService: ExpandImageService,
     private readonly usersService: UsersService,
     private readonly creditsService: CreditsService,
@@ -458,8 +472,7 @@ export class AiController {
   }
 
   /**
-   * 兼容无守卫场景：优先读取 req.user，其次尝试校验 access token 提取 userId。
-   */
+   * 鍏煎鏃犲畧鍗満鏅細浼樺厛璇诲彇 req.user锛屽叾娆″皾璇曟牎楠?access token 鎻愬彇 userId銆?   */
   private resolveRequestUserId(req: any): string | null {
     const fromUser = req?.user?.id || req?.user?.sub;
     if (typeof fromUser === 'string' && fromUser.length > 0) {
@@ -512,23 +525,6 @@ export class AiController {
     );
   }
 
-  private normalizeSeed2LegacyLiteAlias(dto: VideoProviderRequestDto): void {
-    const raw = typeof dto.seedanceModel === 'string' ? dto.seedanceModel.trim().toLowerCase() : '';
-    if (!raw) return;
-
-    const isLiteAlias =
-      raw === 'seed-2.0-lite' ||
-      raw === 'seedance-2.0-lite' ||
-      raw === 'seed-2-0-lite' ||
-      raw === '2.0-lite';
-    if (!isLiteAlias) return;
-
-    dto.seedanceModel = 'seed-2.0-mini';
-    this.logger.warn(
-      `[Seedance2] normalize deprecated lite alias to mini: input=${raw}, normalized=${dto.seedanceModel}`,
-    );
-  }
-
   private async resolveSeedance2CombinedAccess(
     userId: string,
     req: any,
@@ -572,21 +568,20 @@ export class AiController {
       }
       return (await this.resolveUserNoWatermarkAccess(userId)) === 'enabled';
     } catch (e) {
-      this.logger.warn('检查水印白名单失败', e);
+      this.logger.warn('妫€鏌ユ按鍗扮櫧鍚嶅崟澶辫触', e);
       return false;
     }
   }
 
   /**
-   * 对返回的 base64 图片统一加水印；管理员/白名单用户或失败时返回原图
-   */
+   * 瀵硅繑鍥炵殑 base64 鍥剧墖缁熶竴鍔犳按鍗帮紱绠＄悊鍛?鐧藉悕鍗曠敤鎴锋垨澶辫触鏃惰繑鍥炲師鍥?   */
   private async watermarkIfNeeded(
     imageData?: string | null,
     req?: any
   ): Promise<string | undefined> {
     if (!imageData) return imageData ?? undefined;
 
-    // 检查是否可以跳过水印（管理员或白名单用户）
+    // 妫€鏌ユ槸鍚﹀彲浠ヨ烦杩囨按鍗帮紙绠＄悊鍛樻垨鐧藉悕鍗曠敤鎴凤級
     const skipWatermark = await this.canSkipWatermark(req);
     if (skipWatermark) {
       return imageData;
@@ -641,7 +636,7 @@ export class AiController {
       return { mimeType: 'image/webp', extension: 'webp' };
     }
 
-    throw new BadGatewayException('生成图像数据不是受支持的图片格式，无法上传。');
+    throw new BadGatewayException('鐢熸垚鍥惧儚鏁版嵁涓嶆槸鍙楁敮鎸佺殑鍥剧墖鏍煎紡锛屾棤娉曚笂浼犮€?');
   }
 
   private async uploadGeneratedImageToOss(
@@ -650,13 +645,13 @@ export class AiController {
   ): Promise<{ url: string; key: string; mimeType: string; size: number }> {
     if (!this.oss.isEnabled()) {
       throw new ServiceUnavailableException(
-        'OSS 未配置或已禁用，无法上传生成图片并返回远程 URL（请配置 OSS_* 环境变量，或设置 OSS_ENABLED=true）。'
+        'OSS 鏈厤缃垨宸茬鐢紝鏃犳硶涓婁紶鐢熸垚鍥剧墖骞惰繑鍥炶繙绋?URL锛堣閰嶇疆 OSS_* 鐜鍙橀噺锛屾垨璁剧疆 OSS_ENABLED=true锛夈€?'
       );
     }
 
     const payload = this.extractBase64Payload(imageBase64).replace(/\s+/g, '');
     if (!payload) {
-      throw new BadGatewayException('生成图像数据为空，无法上传。');
+      throw new BadGatewayException('鐢熸垚鍥惧儚鏁版嵁涓虹┖锛屾棤娉曚笂浼犮€?');
     }
 
     const decodeCandidate = (encoding: BufferEncoding): Buffer => {
@@ -673,7 +668,7 @@ export class AiController {
     }
 
     if (!buffer.length) {
-      throw new BadGatewayException('生成图像数据解码失败（空内容），无法上传。');
+      throw new BadGatewayException('鐢熸垚鍥惧儚鏁版嵁瑙ｇ爜澶辫触锛堢┖鍐呭锛夛紝鏃犳硶涓婁紶銆?');
     }
 
     let mimeType: string;
@@ -681,7 +676,7 @@ export class AiController {
     try {
       ({ mimeType, extension } = this.inferImageMimeFromBuffer(buffer));
     } catch (error) {
-      // base64/base64url 解码结果可能不同（尤其是 URL-safe 字符）
+      // base64/base64url 瑙ｇ爜缁撴灉鍙兘涓嶅悓锛堝挨鍏舵槸 URL-safe 瀛楃锛?
       const bufferAlt = decodeCandidate('base64url');
       if (!bufferAlt.length) {
         throw error;
@@ -708,18 +703,17 @@ export class AiController {
   }
 
   /**
-   * 从请求中获取用户的自定义 Google API Key
-   * 如果用户设置了自定义 Key 且 mode 为 'custom'，则返回该 Key
-   * 否则返回 null（使用系统默认 Key）
-   */
+   * 浠庤姹備腑鑾峰彇鐢ㄦ埛鐨勮嚜瀹氫箟 Google API Key
+   * 濡傛灉鐢ㄦ埛璁剧疆浜嗚嚜瀹氫箟 Key 涓?mode 涓?'custom'锛屽垯杩斿洖璇?Key
+   * 鍚﹀垯杩斿洖 null锛堜娇鐢ㄧ郴缁熼粯璁?Key锛?   */
   private async getUserCustomApiKey(req: any): Promise<string | null> {
     try {
-      // 如果是 API Key 认证（外部调用），不使用用户自定义 Key
+      // 濡傛灉鏄?API Key 璁よ瘉锛堝閮ㄨ皟鐢級锛屼笉浣跨敤鐢ㄦ埛鑷畾涔?Key
       if (req.apiClient) {
         return null;
       }
 
-      // 获取 JWT 中的用户 ID
+      // 鑾峰彇 JWT 涓殑鐢ㄦ埛 ID
       const userId = req.user?.sub;
       if (!userId) {
         return null;
@@ -727,7 +721,7 @@ export class AiController {
 
       const { apiKey, mode } = await this.usersService.getGoogleApiKey(userId);
 
-      // 只有当 mode 为 'custom' 且有 apiKey 时才使用
+      // 鍙湁褰?mode 涓?'custom' 涓旀湁 apiKey 鏃舵墠浣跨敤
       if (mode === 'custom' && apiKey) {
         this.logger.debug(`Using custom Google API Key for user ${userId.slice(0, 8)}...`);
         return apiKey;
@@ -741,19 +735,18 @@ export class AiController {
   }
 
   /**
-   * 判断是否是支持自定义 API Key 的 provider
-   * gemini 和 gemini-pro 都支持使用用户自定义的 Google API Key
+   * 鍒ゆ柇鏄惁鏄敮鎸佽嚜瀹氫箟 API Key 鐨?provider
+   * gemini 鍜?gemini-pro 閮芥敮鎸佷娇鐢ㄧ敤鎴疯嚜瀹氫箟鐨?Google API Key
    */
   private isGeminiProvider(providerName: string | null): boolean {
     return !providerName || providerName === 'gemini' || providerName === 'gemini-pro';
   }
 
   /**
-   * 获取用户ID（从JWT或API Key认证）
-   * API Key 认证不扣积分
+   * 鑾峰彇鐢ㄦ埛ID锛堜粠JWT鎴朅PI Key璁よ瘉锛?   * API Key 璁よ瘉涓嶆墸绉垎
    */
   private getUserId(req: any): string | null {
-    // API Key 认证不扣积分
+    // API Key 璁よ瘉涓嶆墸绉垎
     if (req.apiClient) {
       return null;
     }
@@ -791,7 +784,7 @@ export class AiController {
   }
 
   /**
-   * 确定图像生成服务类型
+   * 纭畾鍥惧儚鐢熸垚鏈嶅姟绫诲瀷
    */
   private getImageGenerationServiceType(model?: string, provider?: string): ServiceType {
     const normalizedModel = model?.trim().toLowerCase();
@@ -800,7 +793,7 @@ export class AiController {
       return 'gpt-image-2';
     }
 
-    // 根据 provider 和 model 确定服务类型
+    // 鏍规嵁 provider 鍜?model 纭畾鏈嶅姟绫诲瀷
     if (provider === 'midjourney') {
       return 'midjourney-imagine';
     }
@@ -813,7 +806,7 @@ export class AiController {
       return 'gemini-3.1-image';
     }
 
-    // Gemini 模型
+    // Gemini 妯″瀷
     if (normalizedModel?.includes('gemini-3') || normalizedModel?.includes('imagen-3')) {
       return 'gemini-3-pro-image';
     }
@@ -1116,9 +1109,6 @@ export class AiController {
 
     if (dto.seedanceModel) {
       params.seedanceModel = dto.seedanceModel;
-    }
-    if (typeof dto.seed2InputTier === 'string' && dto.seed2InputTier.trim().length > 0) {
-      params.seed2InputTier = dto.seed2InputTier.trim().toLowerCase();
     }
 
     if (typeof dto.mode === 'string' && dto.mode.trim().length > 0) {
@@ -1439,8 +1429,7 @@ export class AiController {
   }
 
   /**
-   * DashScope async video endpoints：仅创建异步任务、尚未产出视频时，积分记录保持 pending，并把 apiUsageId 返回给前端用于失败退款。
-   */
+   * DashScope async video endpoints锛氫粎鍒涘缓寮傛浠诲姟銆佸皻鏈骇鍑鸿棰戞椂锛岀Н鍒嗚褰曚繚鎸?pending锛屽苟鎶?apiUsageId 杩斿洖缁欏墠绔敤浜庡け璐ラ€€娆俱€?   */
   private isDashscopeVideoAsyncPending(result: any): boolean {
     if (!result || result.success !== true || !result.data) return false;
     const d = result.data;
@@ -1534,8 +1523,7 @@ export class AiController {
   }
 
   /**
-   * 预扣积分并执行操作
-   * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
+   * 棰勬墸绉垎骞舵墽琛屾搷浣?   * @param skipCredits 濡傛灉涓?true锛屽垯璺宠繃绉垎鎵ｉ櫎锛堜緥濡備娇鐢ㄨ嚜瀹氫箟 API Key 鏃讹級
    */
   private async withCredits<T>(
     req: any,
@@ -1547,19 +1535,19 @@ export class AiController {
     skipCredits?: boolean,
     requestParams?: Record<string, any>,
     creditOptions?: {
-      /** 若返回体为 { success: false }（HTTP 仍 200），视为失败并退款 */
+      /** 鑻ヨ繑鍥炰綋涓?{ success: false }锛圚TTP 浠?200锛夛紝瑙嗕负澶辫触骞堕€€娆?*/
       treatReturnedFailureAsError?: boolean;
-      /** 为 true 时不将本次调用标为成功（保持 pending），用于异步任务后续由前端确认失败并退款 */
+      /** 涓?true 鏃朵笉灏嗘湰娆¤皟鐢ㄦ爣涓烘垚鍔燂紙淇濇寔 pending锛夛紝鐢ㄤ簬寮傛浠诲姟鍚庣画鐢卞墠绔‘璁ゅけ璐ュ苟閫€娆?*/
       skipFinalizeSuccessIf?: (result: T) => boolean;
-      /** 对 success=true 的返回体做额外校验，校验失败时按失败处理并退款 */
+      /** 瀵?success=true 鐨勮繑鍥炰綋鍋氶澶栨牎楠岋紝鏍￠獙澶辫触鏃舵寜澶辫触澶勭悊骞堕€€娆?*/
       validateSuccessResult?: (result: T) => boolean | { ok: boolean; message?: string };
-      /** 在创建积分流水后透出 apiUsageId，便于异步链路追加 telemetry 关联字段 */
+      /** 鍦ㄥ垱寤虹Н鍒嗘祦姘村悗閫忓嚭 apiUsageId锛屼究浜庡紓姝ラ摼璺拷鍔?telemetry 鍏宠仈瀛楁 */
       onApiUsageId?: (apiUsageId: string) => void;
     },
   ): Promise<T> {
     const userId = this.getUserId(req);
 
-    // 如果没有用户ID（API Key认证）或明确跳过积分，直接执行操作
+    // 濡傛灉娌℃湁鐢ㄦ埛ID锛圓PI Key璁よ瘉锛夋垨鏄庣‘璺宠繃绉垎锛岀洿鎺ユ墽琛屾搷浣?
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
       return operation();
@@ -1577,7 +1565,7 @@ export class AiController {
       return result;
     }
 
-    // 确保用户有积分账户
+    // 纭繚鐢ㄦ埛鏈夌Н鍒嗚处鎴?
     await this.creditsService.getOrCreateAccount(userId);
 
     const startTime = Date.now();
@@ -1590,7 +1578,7 @@ export class AiController {
     const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
     try {
-      // 预扣积分
+      // 棰勬墸绉垎
       const deductResult = await this.creditsService.preDeductCredits({
         userId,
         serviceType,
@@ -1607,7 +1595,7 @@ export class AiController {
       this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
 
-      // 执行实际操作
+      // 鎵ц瀹為檯鎿嶄綔
       const result = await operation();
 
       if (
@@ -1623,7 +1611,7 @@ export class AiController {
             ? errPayload.message.trim()
             : typeof errPayload?.code === 'string'
               ? errPayload.code
-              : '操作失败';
+              : '鎿嶄綔澶辫触';
         throw new BadRequestException(msg);
       }
 
@@ -1665,7 +1653,7 @@ export class AiController {
         return { ...(result as object), apiUsageId } as T;
       }
 
-      // 更新状态为成功
+      // 鏇存柊鐘舵€佷负鎴愬姛
       const processingTime = Date.now() - startTime;
       await this.creditsService.updateApiUsageStatus(
         apiUsageId,
@@ -1676,7 +1664,7 @@ export class AiController {
 
       return result;
     } catch (error) {
-      // 更新状态为失败并退还积分
+      // 鏇存柊鐘舵€佷负澶辫触骞堕€€杩樼Н鍒?
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -1716,12 +1704,12 @@ export class AiController {
         this.logger.warn(
           `Prisma connection pool timeout during ${serviceType}: ${this.summarizeError(error)}`,
         );
-        throw new ServiceUnavailableException('数据库繁忙，请稍后重试');
+        throw new ServiceUnavailableException('鏁版嵁搴撶箒蹇欙紝璇风◢鍚庨噸璇?');
       }
 
-      // 仅在已经完成预扣费并进入上游调用阶段时，才将 quota/rate-limit 归类为上游 429
+      // 浠呭湪宸茬粡瀹屾垚棰勬墸璐瑰苟杩涘叆涓婃父璋冪敤闃舵鏃讹紝鎵嶅皢 quota/rate-limit 褰掔被涓轰笂娓?429
       if (apiUsageId && this.isRateLimitOrQuotaError(error)) {
-        throw new HttpException('上游模型额度不足或请求过于频繁，请稍后重试', 429);
+        throw new HttpException('涓婃父妯″瀷棰濆害涓嶈冻鎴栬姹傝繃浜庨绻侊紝璇风◢鍚庨噸璇?, 429');
       }
 
       const mappedUpstreamError = this.mapUpstreamErrorToHttpException(error);
@@ -1749,24 +1737,6 @@ export class AiController {
       return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
     }
     return this.providerDefaultImageModels.gemini;
-  }
-
-  private isLikelyGptImage2Request(dto: GenerateImageDto): boolean {
-    const model = typeof dto.model === 'string' ? dto.model.trim().toLowerCase() : '';
-    if (model.includes('gpt-image-2')) return true;
-    if (typeof dto.officialFallback === 'boolean') return true;
-    if (dto.quality === 'auto' || dto.quality === 'low' || dto.quality === 'medium' || dto.quality === 'high') {
-      return true;
-    }
-    if (dto.background === 'auto' || dto.background === 'opaque' || dto.background === 'transparent') {
-      return true;
-    }
-    if (dto.moderation === 'auto' || dto.moderation === 'low') {
-      return true;
-    }
-    if (typeof dto.maskUrl === 'string' && dto.maskUrl.trim().length > 0) return true;
-    if (typeof dto.outputCompression === 'number') return true;
-    return false;
   }
 
   private resolveAnalyzeModel(providerName: string | null, requestedModel?: string): string {
@@ -1858,11 +1828,11 @@ export class AiController {
     const status = this.extractHttpStatusFromError(error);
 
     if (status === 464) {
-      return new BadGatewayException('上游任务失败，请稍后重试');
+      return new BadGatewayException('涓婃父浠诲姟澶辫触锛岃绋嶅悗閲嶈瘯');
     }
 
     if (status === 524 || this.isTimeoutLikeError(error)) {
-      return new HttpException('服务器处理超时，请稍后重试', 524);
+      return new HttpException('鏈嶅姟鍣ㄥ鐞嗚秴鏃讹紝璇风◢鍚庨噸璇?, 524');
     }
 
     return null;
@@ -2012,7 +1982,7 @@ export class AiController {
       } catch (err: any) {
         const code = err?.code ? String(err.code) : '';
         if (code === 'ENOENT' || String(err?.message || '').includes('spawn ffmpeg')) {
-          throw new ServiceUnavailableException('服务器未安装 ffmpeg，请联系运维处理');
+          throw new ServiceUnavailableException('鏈嶅姟鍣ㄦ湭瀹夎 ffmpeg锛岃鑱旂郴杩愮淮澶勭悊');
         }
         throw err;
       }
@@ -2046,7 +2016,7 @@ export class AiController {
       process.env.SORA2_API_KEY ||
       null;
     if (!apiKey) {
-      throw new ServiceUnavailableException('147 API Key 未配置（BANANA_API_KEY），请检查后端环境变量');
+      throw new ServiceUnavailableException('147 API Key 鏈厤缃紙BANANA_API_KEY锛夛紝璇锋鏌ュ悗绔幆澧冨彉閲?');
     }
 
     const apiBaseUrl = (
@@ -2056,7 +2026,7 @@ export class AiController {
       'https://api1.147ai.com'
     ).replace(/\/+$/, '');
 
-    // 视频分析需要较长时间，设置 5 分钟超时
+    // 瑙嗛鍒嗘瀽闇€瑕佽緝闀挎椂闂达紝璁剧疆 5 鍒嗛挓瓒呮椂
     const VIDEO_ANALYSIS_TIMEOUT = 5 * 60 * 1000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), VIDEO_ANALYSIS_TIMEOUT);
@@ -2103,7 +2073,7 @@ export class AiController {
         if (joined.length) return joined;
       }
 
-      throw new ServiceUnavailableException('147 AI 返回了空内容，请稍后重试');
+      throw new ServiceUnavailableException('147 AI 杩斿洖浜嗙┖鍐呭锛岃绋嶅悗閲嶈瘯');
     } catch (error: any) {
       if (error.name === 'AbortError') {
         throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
@@ -2119,11 +2089,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('视频 URL 格式无效');
+      throw new BadRequestException('瑙嗛 URL 鏍煎紡鏃犳晥');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('视频 URL 只支持 http/https 协议');
+      throw new BadRequestException('瑙嗛 URL 鍙敮鎸?http/https 鍗忚');
     }
 
     const hostname = parsed.hostname;
@@ -2135,7 +2105,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`URL host not allowed: ${hostname}, allowedHosts: ${allowedHosts.join(', ')}`);
-      throw new BadRequestException('视频 URL 域名不在允许列表中，请使用白名单内的域名');
+      throw new BadRequestException('瑙嗛 URL 鍩熷悕涓嶅湪鍏佽鍒楄〃涓紝璇蜂娇鐢ㄧ櫧鍚嶅崟鍐呯殑鍩熷悕');
     }
 
     return parsed;
@@ -2378,11 +2348,11 @@ export class AiController {
     try {
       parsed = new URL(urlValue);
     } catch {
-      throw new BadRequestException('图片 URL 格式无效');
+      throw new BadRequestException('鍥剧墖 URL 鏍煎紡鏃犳晥');
     }
 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new BadRequestException('图片 URL 只支持 http/https 协议');
+      throw new BadRequestException('鍥剧墖 URL 鍙敮鎸?http/https 鍗忚');
     }
 
     const hostname = parsed.hostname;
@@ -2393,7 +2363,7 @@ export class AiController {
 
     if (!isAllowed) {
       this.logger.warn(`Image URL host not allowed: ${hostname}`);
-      throw new BadRequestException('图片 URL 域名不在允许列表中，请使用白名单内的域名');
+      throw new BadRequestException('鍥剧墖 URL 鍩熷悕涓嶅湪鍏佽鍒楄〃涓紝璇蜂娇鐢ㄧ櫧鍚嶅崟鍐呯殑鍩熷悕');
     }
 
     return parsed;
@@ -2402,7 +2372,7 @@ export class AiController {
   private validateImageDataUrl(dataUrl: string): void {
     const match = dataUrl.match(/^data:([^;,]+)/i);
     if (!match) {
-      return; // 不是 data URL，可能是纯 base64，让后续处理
+      return; // 涓嶆槸 data URL锛屽彲鑳芥槸绾?base64锛岃鍚庣画澶勭悊
     }
     const mimeType = match[1].toLowerCase();
     if (!mimeType.startsWith('image/') && mimeType !== 'application/pdf') {
@@ -2550,9 +2520,7 @@ export class AiController {
   }
 
   /**
-   * 共用：轮询 DashScope 异步视频任务，返回最终视频 URL 或失败/超时错误。
-   * 仅供新接入的 endpoint 使用；现有 wan26-* / wan27-* 各自的 inline 轮询保持不变（避免连带回归）。
-   */
+   * 鍏辩敤锛氳疆璇?DashScope 寮傛瑙嗛浠诲姟锛岃繑鍥炴渶缁堣棰?URL 鎴栧け璐?瓒呮椂閿欒銆?   * 浠呬緵鏂版帴鍏ョ殑 endpoint 浣跨敤锛涚幇鏈?wan26-* / wan27-* 鍚勮嚜鐨?inline 杞淇濇寔涓嶅彉锛堥伩鍏嶈繛甯﹀洖褰掞級銆?   */
   private async pollDashScopeVideoTask(
     dashKey: string,
     taskId: string,
@@ -2573,7 +2541,7 @@ export class AiController {
       undefined;
 
     this.logger.log(
-      `🔁 Start polling DashScope ${label} task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`,
+      `馃攣 Start polling DashScope ${label} task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`,
     );
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -2596,7 +2564,7 @@ export class AiController {
         }
         const statusData = await statusResp.json().catch(() => ({}));
         this.logger.debug(
-          `🔎 DashScope ${label} status (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`,
+          `馃攷 DashScope ${label} status (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`,
         );
         const statusValue = (
           statusData?.output?.task_status ||
@@ -2622,13 +2590,13 @@ export class AiController {
             return {
               success: false,
               error: {
-                message: 'DashScope 任务已完成但未返回视频地址',
+                message: 'DashScope 浠诲姟宸插畬鎴愪絾鏈繑鍥炶棰戝湴鍧€',
                 details: statusData,
               },
             };
           }
           this.logger.log(
-            `✅ DashScope ${label} task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`,
+            `鉁?DashScope ${label} task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`,
           );
           return {
             success: true,
@@ -2661,7 +2629,7 @@ export class AiController {
                 ? `${String(failureCode)}: ${failureMessage}`
                 : failureMessage
               : `DashScope ${label} task failed`;
-          this.logger.error(`❌ DashScope ${label} task ${taskId} failed`, {
+          this.logger.error(`鉂?DashScope ${label} task ${taskId} failed`, {
             message,
             raw: statusData,
           });
@@ -2675,7 +2643,7 @@ export class AiController {
       }
     }
     this.logger.warn(
-      `⏳ DashScope ${label} task ${taskId} polling timed out after ${maxAttempts} attempts`,
+      `鈴?DashScope ${label} task ${taskId} polling timed out after ${maxAttempts} attempts`,
     );
     return {
       success: false,
@@ -2701,10 +2669,9 @@ export class AiController {
   }
 
   /**
-   * 通用 happyhorse body 归一化，覆盖 t2v / i2v / r2v / video-edit 4 个模型。
-   * - input.media[] 中的 url 走 normalizeImageUrlForUpstream（图片 / 视频 URL 通用，仅做白名单/数据 URL 转远程）
-   * - 不存在 type 字段的元素默认补 reference_image（保留 first_frame / video / reference_image 等已有值）
-   * - parameters.watermark 强制 false
+   * 閫氱敤 happyhorse body 褰掍竴鍖栵紝瑕嗙洊 t2v / i2v / r2v / video-edit 4 涓ā鍨嬨€?   * - input.media[] 涓殑 url 璧?normalizeImageUrlForUpstream锛堝浘鐗?/ 瑙嗛 URL 閫氱敤锛屼粎鍋氱櫧鍚嶅崟/鏁版嵁 URL 杞繙绋嬶級
+   * - 涓嶅瓨鍦?type 瀛楁鐨勫厓绱犻粯璁よˉ reference_image锛堜繚鐣?first_frame / video / reference_image 绛夊凡鏈夊€硷級
+   * - parameters.watermark 寮哄埗 false
    */
   private normalizeHappyhorseBodyForUpstream(body: any): any {
     if (!body || typeof body !== 'object') return body;
@@ -2731,7 +2698,7 @@ export class AiController {
         );
     }
 
-    // 强制不打水印
+    // 寮哄埗涓嶆墦姘村嵃
     next.parameters = { ...(next.parameters || {}), watermark: false };
 
     return next;
@@ -2748,14 +2715,14 @@ export class AiController {
     const resolution =
       typeof parameters.resolution === 'string' && parameters.resolution.trim().length > 0
         ? parameters.resolution.trim().toUpperCase()
-        : '720P'; // 节点默认；与节点 UI 默认一致
-    const durationRaw = Number(parameters.duration);
+        : '720P'; // 鑺傜偣榛樿锛涗笌鑺傜偣 UI 榛樿涓€鑷?
+        const durationRaw = Number(parameters.duration);
     const duration =
       Number.isFinite(durationRaw) && durationRaw > 0
         ? Math.min(15, Math.max(3, Math.round(durationRaw)))
         : 5;
 
-    // 由 model 后缀派生 generationMode
+    // 鐢?model 鍚庣紑娲剧敓 generationMode
     const generationMode =
       model === 'happyhorse-1.0-t2v'
         ? 't2v'
@@ -2829,12 +2796,12 @@ export class AiController {
 
         const contentLength = Number(response.headers.get('content-length') || 0);
         if (contentLength && contentLength > maxBytes) {
-          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+          throw new BadRequestException('鍥剧墖鏂囦欢杩囧ぇ锛岃浣跨敤鏇村皬鐨勫浘鐗囷紙鏈€澶?30MB锛?');
         }
 
         const buffer = Buffer.from(await response.arrayBuffer());
         if (buffer.length > maxBytes) {
-          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+          throw new BadRequestException('鍥剧墖鏂囦欢杩囧ぇ锛岃浣跨敤鏇村皬鐨勫浘鐗囷紙鏈€澶?30MB锛?');
         }
 
         const base64 = buffer.toString('base64');
@@ -2855,7 +2822,7 @@ export class AiController {
     this.logger.error(
       `[fetchImageAsDataUrl] all candidates failed for ${imageUrl}: ${errors.join(' | ')}`,
     );
-    throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
+    throw new BadGatewayException('鍥剧墖璧勬簮涓嶅彲璁块棶锛岃纭鍥剧墖閾炬帴鏈夋晥涓旀湇鍔＄鍙闂?');
   }
 
   private resolveTextModel(providerName: string | null, requestedModel?: string): string {
@@ -2874,9 +2841,9 @@ export class AiController {
     if (!prompt) return false;
     const lower = prompt.toLowerCase();
     const keywords = [
-      '矢量',
-      '矢量图',
-      '矢量化',
+      '鐭㈤噺',
+      '鐭㈤噺鍥?',
+      '鐭㈤噺鍖?',
       'vector',
       'vectorize',
       'vectorization',
@@ -2884,7 +2851,7 @@ export class AiController {
       'paperjs',
       'paper.js',
       'svg path',
-      '路径代码',
+      '璺緞浠ｇ爜',
       'path code',
       'vector graphic',
       'vectorgraphics',
@@ -2929,8 +2896,8 @@ export class AiController {
     const allowVector = this.hasVectorIntent(dto.prompt);
     const availableTools = this.sanitizeAvailableTools(dto.availableTools, allowVector);
 
-    // 🔥 添加详细日志
-    this.logger.log('🎯 Tool selection request:', {
+    // 馃敟 娣诲姞璇︾粏鏃ュ織
+    this.logger.log('馃幆 Tool selection request:', {
       aiProvider: dto.aiProvider,
       model: dto.model,
       prompt: dto.prompt.substring(0, 50) + '...',
@@ -2946,7 +2913,7 @@ export class AiController {
     return this.withCredits(req, 'gemini-tool-selection', dto.model, async () => {
       if (providerName) {
         try {
-          // 工具选择属于文本推理，优先使用文本模型链路
+          // 宸ュ叿閫夋嫨灞炰簬鏂囨湰鎺ㄧ悊锛屼紭鍏堜娇鐢ㄦ枃鏈ā鍨嬮摼璺?
           const normalizedModel = this.resolveTextModel(providerName, dto.model);
 
           this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
@@ -2968,7 +2935,7 @@ export class AiController {
 
           if (result.success && result.data) {
             const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
-            this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
+            this.logger.log(`鉁?[${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
             return {
               selectedTool,
               parameters: { prompt: dto.prompt },
@@ -2978,25 +2945,25 @@ export class AiController {
           }
 
           const message = result.error?.message ?? 'provider returned an error response';
-          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider responded with error: ${message}`);
+          this.logger.warn(`鈿狅笍 [${providerName.toUpperCase()}] provider responded with error: ${message}`);
           throw new ServiceUnavailableException(
             `[${providerName}] tool selection failed: ${message}`
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
+          this.logger.warn(`鈿狅笍 [${providerName.toUpperCase()}] provider threw exception: ${message}`);
           throw new ServiceUnavailableException(
             `[${providerName}] tool selection failed: ${message}`
           );
         }
       }
 
-      // 🔥 降级到Google Gemini进行工具选择
-      this.logger.log('📊 Falling back to Gemini tool selection');
+      // 馃敟 闄嶇骇鍒癎oogle Gemini杩涜宸ュ叿閫夋嫨
+      this.logger.log('馃搳 Falling back to Gemini tool selection');
       const result = await this.ai.runToolSelectionPrompt(dto.prompt, availableTools);
       const selectedTool = this.enforceSelectedTool(result.selectedTool, availableTools);
 
-      this.logger.log('✅ [GEMINI] Tool selected:', selectedTool);
+      this.logger.log('鉁?[GEMINI] Tool selected:', selectedTool);
       return {
         selectedTool,
         parameters: { prompt: dto.prompt },
@@ -3016,7 +2983,7 @@ export class AiController {
 
     const requestedProviderName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    // 联网开关开启时，Ultra(147) 自动切换到 Nano2(Apimart) 生图链路。
+    // 鑱旂綉寮€鍏冲紑鍚椂锛孶ltra(147) 鑷姩鍒囨崲鍒?Nano2(Apimart) 鐢熷浘閾捐矾銆?
     const providerName =
       requestedProviderName === 'banana-3.1' && dto.enableWebSearch
         ? 'nano2'
@@ -3026,11 +2993,7 @@ export class AiController {
         `[generate-image] provider rerouted by web search: ${requestedProviderName} -> ${providerName}`
       );
     }
-    const inferredRequestedModel =
-      providerName === 'nano2' && !dto.model && this.isLikelyGptImage2Request(dto)
-        ? 'gpt-image-2'
-        : dto.model;
-    const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
     const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
       (dto.imageUrls || []).filter(
@@ -3039,7 +3002,7 @@ export class AiController {
       ),
     );
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
     const requestedOutputImageCount =
@@ -3101,12 +3064,12 @@ export class AiController {
           if (!message) return false;
 
           const retryablePatterns = [
-            '生成图像数据为空',
-            '无图像数据',
+            '鐢熸垚鍥惧儚鏁版嵁涓虹┖',
+            '鏃犲浘鍍忔暟鎹?',
             'no image data',
             'stream api returned no image data',
             'not supported',
-            '不是受支持的图片格式',
+            '涓嶆槸鍙楁敮鎸佺殑鍥剧墖鏍煎紡',
             'base64',
           ];
           return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
@@ -3115,7 +3078,7 @@ export class AiController {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
             if (attempt > 1) {
-              this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
+              this.logger.warn(`[generate-image] 閲嶈瘯鐢熸垚绗?${attempt}/${maxAttempts} 娆);
             }
 
             if (providerName && providerName !== 'gemini-pro') {
@@ -3145,7 +3108,7 @@ export class AiController {
                   ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
                 };
 
-                // 如果有 imageData，上传到 OSS
+                // 濡傛灉鏈?imageData锛屼笂浼犲埌 OSS
                 if (result.data.imageData) {
                   const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
                   const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
@@ -3200,10 +3163,10 @@ export class AiController {
                     };
                   } catch (error) {
                     this.logger.error(
-                      `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
+                      `[generate-image] 澶栭摼鍥剧墖澶勭悊澶辫触: ${this.summarizeError(error)}`
                     );
                     throw new BadGatewayException(
-                      '外链图片处理失败，请稍后重试（必要时请配置 ALLOWED_PROXY_HOSTS，或检查上游 URL 是否可访问）'
+                      '澶栭摼鍥剧墖澶勭悊澶辫触锛岃绋嶅悗閲嶈瘯锛堝繀瑕佹椂璇烽厤缃?ALLOWED_PROXY_HOSTS锛屾垨妫€鏌ヤ笂娓?URL 鏄惁鍙闂級'
                     );
                   }
                 }
@@ -3211,7 +3174,7 @@ export class AiController {
               throw new Error(result.error?.message || 'Failed to generate image');
             }
 
-            // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+            // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
             const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
 
             const watermarked = await this.watermarkIfNeeded(data.imageData, req);
@@ -3235,7 +3198,7 @@ export class AiController {
                 retryDelaysMs[retryDelaysMs.length - 1] ??
                 0;
               this.logger.warn(
-                `[generate-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+                `[generate-image] 绗?${attempt}/${maxAttempts} 娆″け璐ワ紙${this.summarizeError(error)}锛夛紝${delay}ms 鍚庨噸璇昤
               );
               if (delay > 0) {
                 await new Promise((resolve) => setTimeout(resolve, delay));
@@ -3246,7 +3209,7 @@ export class AiController {
           }
         }
 
-        throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
+        throw new InternalServerErrorException('鍥剧墖鐢熸垚閲嶈瘯娆℃暟鑰楀敖锛岃绋嶅悗閲嶈瘯銆?');
       }, 0, requestedOutputImageCount, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         quality: dto.quality,
@@ -3289,7 +3252,7 @@ export class AiController {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[generate-image] 失败: ${errorMessage}`);
+      this.logger.error(`[generate-image] 澶辫触: ${errorMessage}`);
       void this.telemetryService.ingestGenerationTask({
         traceId,
         parentRequestId,
@@ -3322,11 +3285,11 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    // 鏍规嵁妯″瀷閫夋嫨鏈嶅姟绫诲瀷锛欶ast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
       ? 'gemini-2.5-image-edit'
       : model?.includes('3.1')
@@ -3391,13 +3354,13 @@ export class AiController {
         if (!message) return false;
 
         const retryablePatterns = [
-          '编辑成功但未返回图片数据',
-          '生成图像数据为空',
-          '无图像数据',
+          '缂栬緫鎴愬姛浣嗘湭杩斿洖鍥剧墖鏁版嵁',
+          '鐢熸垚鍥惧儚鏁版嵁涓虹┖',
+          '鏃犲浘鍍忔暟鎹?',
           'no image data',
           'stream api returned no image data',
           'not supported',
-          '不是受支持的图片格式',
+          '涓嶆槸鍙楁敮鎸佺殑鍥剧墖鏍煎紡',
           'base64',
         ];
         return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
@@ -3406,7 +3369,7 @@ export class AiController {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           if (attempt > 1) {
-            this.logger.warn(`[edit-image] 重试编辑第 ${attempt}/${maxAttempts} 次`);
+            this.logger.warn(`[edit-image] 閲嶈瘯缂栬緫绗?${attempt}/${maxAttempts} 娆);
           }
 
           const fallbackUrl =
@@ -3414,7 +3377,7 @@ export class AiController {
               ? dto.sourceImage
               : dto.sourceImageUrl;
 
-          // MJ 支持直接使用 URL，不需要转换为 base64
+          // MJ 鏀寔鐩存帴浣跨敤 URL锛屼笉闇€瑕佽浆鎹负 base64
           const isMidjourney = providerName === 'midjourney';
 
           let sourceImage: string | undefined;
@@ -3425,7 +3388,7 @@ export class AiController {
               sourceImage = fallbackUrl;
             }
           } else if (isMidjourney && fallbackUrl) {
-            // MJ: 直接使用 URL
+            // MJ: 鐩存帴浣跨敤 URL
             sourceImage = fallbackUrl;
           } else if (dto.sourceImage && !fallbackUrl) {
             sourceImage = dto.sourceImage;
@@ -3434,7 +3397,7 @@ export class AiController {
           }
 
           if (!sourceImage) {
-            throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
+            throw new BadRequestException('缂栬緫鍥剧墖鎺ュ彛闇€瑕佹彁渚?sourceImage 鎴?sourceImageUrl');
           }
 
           if (tencentForcedBanana) {
@@ -3444,7 +3407,7 @@ export class AiController {
               'edit-image',
             );
           } else if (!isMidjourney || !sourceImage.startsWith('http')) {
-            // 非 MJ 时验证 sourceImage 是有效的图片格式
+            // 闈?MJ 鏃堕獙璇?sourceImage 鏄湁鏁堢殑鍥剧墖鏍煎紡
             this.validateImageDataUrl(sourceImage);
           }
 
@@ -3474,7 +3437,7 @@ export class AiController {
               const providerImageUrls = this.collectProviderImageUrls(result.data);
               const providerImageUrl = providerImageUrls[0];
               if (!providerImageUrl) {
-                throw new BadGatewayException('编辑成功但未返回图片数据');
+                throw new BadGatewayException('缂栬緫鎴愬姛浣嗘湭杩斿洖鍥剧墖鏁版嵁');
               }
 
               const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
@@ -3492,7 +3455,7 @@ export class AiController {
             throw new Error(result.error?.message || 'Failed to edit image');
           }
 
-          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+          // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
           const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
           const watermarked = await this.watermarkIfNeeded(data.imageData, req);
           return { ...data, imageData: watermarked };
@@ -3503,7 +3466,7 @@ export class AiController {
               retryDelaysMs[retryDelaysMs.length - 1] ??
               0;
             this.logger.warn(
-              `[edit-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+              `[edit-image] 绗?${attempt}/${maxAttempts} 娆″け璐ワ紙${this.summarizeError(error)}锛夛紝${delay}ms 鍚庨噸璇昤
             );
             if (delay > 0) {
               await new Promise((resolve) => setTimeout(resolve, delay));
@@ -3514,7 +3477,7 @@ export class AiController {
         }
       }
 
-      throw new InternalServerErrorException('图片编辑重试次数耗尽，请稍后重试。');
+      throw new InternalServerErrorException('鍥剧墖缂栬緫閲嶈瘯娆℃暟鑰楀敖锛岃绋嶅悗閲嶈瘯銆?');
       }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
@@ -3581,11 +3544,11 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
+    // 鏍规嵁妯″瀷閫夋嫨鏈嶅姟绫诲瀷锛欶ast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
       ? 'gemini-2.5-image-blend'
       : model?.includes('3.1')
@@ -3645,13 +3608,13 @@ export class AiController {
         if (!message) return false;
 
         const retryablePatterns = [
-          '融合成功但未返回图片数据',
-          '生成图像数据为空',
-          '无图像数据',
+          '铻嶅悎鎴愬姛浣嗘湭杩斿洖鍥剧墖鏁版嵁',
+          '鐢熸垚鍥惧儚鏁版嵁涓虹┖',
+          '鏃犲浘鍍忔暟鎹?',
           'no image data',
           'stream api returned no image data',
           'not supported',
-          '不是受支持的图片格式',
+          '涓嶆槸鍙楁敮鎸佺殑鍥剧墖鏍煎紡',
           'base64',
         ];
         return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
@@ -3660,7 +3623,7 @@ export class AiController {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           if (attempt > 1) {
-            this.logger.warn(`[blend-images] 重试融合第 ${attempt}/${maxAttempts} 次`);
+            this.logger.warn(`[blend-images] 閲嶈瘯铻嶅悎绗?${attempt}/${maxAttempts} 娆);
           }
 
           const sourceImages = tencentForcedBanana
@@ -3680,7 +3643,7 @@ export class AiController {
             : [];
 
           if (!sourceImages.length) {
-            throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
+            throw new BadRequestException('铻嶅悎鍥剧墖鎺ュ彛闇€瑕佹彁渚?sourceImages 鎴?sourceImageUrls锛堣嚦灏戜袱寮狅級');
           }
 
           const normalizedSourceImages = tencentForcedBanana
@@ -3721,7 +3684,7 @@ export class AiController {
               const providerImageUrls = this.collectProviderImageUrls(result.data);
               const providerImageUrl = providerImageUrls[0];
               if (!providerImageUrl) {
-                throw new BadGatewayException('融合成功但未返回图片数据');
+                throw new BadGatewayException('铻嶅悎鎴愬姛浣嗘湭杩斿洖鍥剧墖鏁版嵁');
               }
 
               const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
@@ -3739,7 +3702,7 @@ export class AiController {
             throw new Error(result.error?.message || 'Failed to blend images');
           }
 
-          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+          // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
           const data = await this.imageGeneration.blendImages({
             ...dto,
             sourceImages: normalizedSourceImages,
@@ -3754,7 +3717,7 @@ export class AiController {
               retryDelaysMs[retryDelaysMs.length - 1] ??
               0;
             this.logger.warn(
-              `[blend-images] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+              `[blend-images] 绗?${attempt}/${maxAttempts} 娆″け璐ワ紙${this.summarizeError(error)}锛夛紝${delay}ms 鍚庨噸璇昤
             );
             if (delay > 0) {
               await new Promise((resolve) => setTimeout(resolve, delay));
@@ -3765,7 +3728,7 @@ export class AiController {
         }
       }
 
-      throw new InternalServerErrorException('图片融合重试次数耗尽，请稍后重试。');
+      throw new InternalServerErrorException('鍥剧墖铻嶅悎閲嶈瘯娆℃暟鑰楀敖锛岃绋嶅悗閲嶈瘯銆?');
       }, dto.sourceImages?.length || 0, 1, skipCredits, this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         aspectRatio: dto.aspectRatio,
@@ -3827,7 +3790,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
+        throw new ServiceUnavailableException('MJ 鏈嶅姟鏆備笉鍙敤锛岃妫€鏌ヨ处鍙烽厤缃?');
       }
 
       const result = await provider.triggerAction({
@@ -3859,7 +3822,7 @@ export class AiController {
     return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
       const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
       if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
+        throw new ServiceUnavailableException('MJ 鏈嶅姟鏆備笉鍙敤锛岃妫€鏌ヨ处鍙烽厤缃?');
       }
 
       const result = await provider.executeModal({
@@ -3898,11 +3861,11 @@ export class AiController {
       ),
     );
     if (normalizedImages.length === 0) {
-      throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
+      throw new BadRequestException('鍒嗘瀽鍥剧墖鎺ュ彛闇€瑕佹彁渚?sourceImage 鎴?sourceImages');
     }
     const primarySourceImage = normalizedImages[0];
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
@@ -3939,7 +3902,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to analyze image');
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+      // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
       const result = await this.imageGeneration.analyzeImage({
         ...dto,
         sourceImage: primarySourceImage,
@@ -3966,7 +3929,7 @@ export class AiController {
     const serviceType: ServiceType =
       billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
@@ -3989,7 +3952,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate text');
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+      // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
     }, undefined, undefined, skipCredits, this.buildCreditRequestParams(providerName, {
       billingTag,
@@ -4001,7 +3964,7 @@ export class AiController {
 
   @Post('remove-background')
   async removeBackground(@Body() dto: RemoveBackgroundDto, @Req() req: any) {
-    this.logger.log('🎯 Background removal request received');
+    this.logger.log('馃幆 Background removal request received');
 
     return this.withCredits(req, 'background-removal', undefined, async () => {
       const source = dto.source || 'base64';
@@ -4018,7 +3981,7 @@ export class AiController {
         );
       }
 
-      this.logger.log('✅ Background removal succeeded');
+      this.logger.log('鉁?Background removal succeeded');
 
       return {
         success: true,
@@ -4028,10 +3991,9 @@ export class AiController {
     }, 1, 1);
   }
 
-  // 开发模式：无需认证的抠图接口
-  @Post('remove-background-public')
+  // 寮€鍙戞ā寮忥細鏃犻渶璁よ瘉鐨勬姞鍥炬帴鍙?  @Post('remove-background-public')
   async removeBackgroundPublic(@Body() dto: RemoveBackgroundDto) {
-    this.logger.log('🎯 Background removal (public) request received');
+    this.logger.log('馃幆 Background removal (public) request received');
 
     try {
       const source = dto.source || 'base64';
@@ -4042,14 +4004,14 @@ export class AiController {
       } else if (source === 'file') {
         imageData = await this.backgroundRemoval.removeBackgroundFromFile(dto.imageData);
       } else {
-        // 默认为base64
+        // 榛樿涓篵ase64
         imageData = await this.backgroundRemoval.removeBackgroundFromBase64(
           dto.imageData,
           dto.mimeType
         );
       }
 
-      this.logger.log('✅ Background removal (public) succeeded');
+      this.logger.log('鉁?Background removal (public) succeeded');
 
       return {
         success: true,
@@ -4058,7 +4020,7 @@ export class AiController {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error('❌ Background removal (public) failed:', message);
+      this.logger.error('鉂?Background removal (public) failed:', message);
       throw new ServiceUnavailableException({
         success: false,
         error: message,
@@ -4068,24 +4030,26 @@ export class AiController {
 
   @Get('background-removal-info')
   async getBackgroundRemovalInfo() {
-    this.logger.log('📊 Background removal info requested');
+    this.logger.log('馃搳 Background removal info requested');
     const info = await this.backgroundRemoval.getInfo();
     return info;
   }
 
   @Post('convert-2d-to-3d')
   async convert2Dto3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
-    this.logger.log('🎨 2D to 3D conversion request received');
+    this.logger.log('馃帹 2D to 3D conversion request received');
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
       const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const normalizedImageUrl = dto.imageUrl
-        ? this.normalizeImageUrlForUpstream(dto.imageUrl)
-        : undefined;
+      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl || '');
+      const normalizedPrompt = typeof dto.prompt === 'string' ? dto.prompt.trim() : '';
+      if (!normalizedImageUrl && !normalizedPrompt) {
+        throw new BadRequestException('Either imageUrl or prompt is required');
+      }
       const result = await this.convert2Dto3DService.convert2Dto3D({
-        imageUrl: normalizedImageUrl,
-        prompt: dto.prompt,
-        model: dto.model as '3.0' | '3.1' | undefined,
+        imageUrl: normalizedImageUrl || undefined,
+        prompt: normalizedPrompt || undefined,
+        model: dto.model,
         lowPoly: dto.lowPoly,
         sketch: dto.sketch,
         projectId: dto.projectId,
@@ -4101,163 +4065,9 @@ export class AiController {
     }, 1, 1);
   }
 
-  @Post('convert-seed3d')
-  async convertSeed3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
-    this.logger.log('🎨 Seed3D conversion request received');
-
-    return this.withCredits(req, 'convert-2d-to-3d', 'doubao-seed3d-2-0-260328', async () => {
-      const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const normalizedImageUrl = dto.imageUrl
-        ? this.normalizeImageUrlForUpstream(dto.imageUrl)
-        : undefined;
-      const result = await this.seed3DService.convert2Dto3D({
-        imageUrl: normalizedImageUrl,
-        prompt: dto.prompt,
-        model: dto.model as '3.0' | '3.1' | undefined,
-        lowPoly: dto.lowPoly,
-        sketch: dto.sketch,
-        projectId: dto.projectId,
-        userId: typeof userId === 'string' ? userId : undefined,
-      });
-
-      return {
-        success: true,
-        modelUrl: result.modelUrl,
-        promptId: result.promptId,
-        modelKey: result.modelKey,
-      };
-    }, 1, 1, undefined, this.buildCreditRequestParams('seed3d', {
-      nodeType: 'seed3d',
-      provider: 'seed3d',
-      model: 'doubao-seed3d-2-0-260328',
-    }));
-  }
-
-  @Post('convert-seed3d-async')
-  async convertSeed3DAsync(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
-    this.logger.log('🎨 Seed3D async conversion request received');
-
-    const taskId = `async-seed3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    createAsyncTask(taskId);
-    this.executeSeed3DTaskAsync(taskId, dto, req);
-
-    return {
-      success: true,
-      taskId,
-      status: 'pending',
-      message: 'Seed3D task submitted, poll with taskId',
-    };
-  }
-
-  @Get('seed3d/task/:taskId')
-  async querySeed3DAsyncTask(@Param('taskId') taskId: string) {
-    if (!taskId || !taskId.trim()) {
-      throw new BadRequestException('taskId 不能为空');
-    }
-
-    const asyncTask = getAsyncTaskResult(taskId.trim());
-    if (!asyncTask) {
-      return {
-        success: false,
-        taskId: taskId.trim(),
-        status: 'failed',
-        error: '任务不存在或已过期，请重新提交',
-      };
-    }
-
-    if (asyncTask.status === 'completed' && asyncTask.result) {
-      return {
-        success: true,
-        taskId: taskId.trim(),
-        status: 'succeeded',
-        modelUrl: asyncTask.result.modelUrl,
-        promptId: asyncTask.result.promptId,
-        modelKey: asyncTask.result.modelKey,
-      };
-    }
-
-    if (asyncTask.status === 'failed') {
-      return {
-        success: false,
-        taskId: taskId.trim(),
-        status: 'failed',
-        error: asyncTask.error || 'Seed3D 生成失败',
-      };
-    }
-
-    return {
-      success: true,
-      taskId: taskId.trim(),
-      status: asyncTask.status === 'processing' ? 'processing' : 'pending',
-      progress: asyncTask.status === 'processing' ? 50 : 10,
-    };
-  }
-
-  private executeSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): void {
-    void this.processSeed3DTaskAsync(taskId, dto, req).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      updateAsyncTask(taskId, {
-        status: 'failed',
-        error: message,
-      });
-      this.logger.error(`[Async] Seed3D task failed: taskId=${taskId}, error=${message}`);
-    });
-  }
-
-  private async processSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): Promise<void> {
-    updateAsyncTask(taskId, { status: 'processing' });
-
-    const result = await this.withCredits(
-      req,
-      'convert-2d-to-3d',
-      'doubao-seed3d-2-0-260328',
-      async () => {
-        const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-        const normalizedImageUrl = dto.imageUrl
-          ? this.normalizeImageUrlForUpstream(dto.imageUrl)
-          : undefined;
-        const converted = await this.seed3DService.convert2Dto3D({
-          imageUrl: normalizedImageUrl,
-          prompt: dto.prompt,
-          model: dto.model as '3.0' | '3.1' | undefined,
-          lowPoly: dto.lowPoly,
-          sketch: dto.sketch,
-          projectId: dto.projectId,
-          userId: typeof userId === 'string' ? userId : undefined,
-        });
-
-        return {
-          success: true,
-          modelUrl: converted.modelUrl,
-          promptId: converted.promptId,
-          modelKey: converted.modelKey,
-        };
-      },
-      1,
-      1,
-      undefined,
-      this.buildCreditRequestParams('seed3d', {
-        nodeType: 'seed3d',
-        provider: 'seed3d',
-        model: 'doubao-seed3d-2-0-260328',
-      }),
-    );
-
-    updateAsyncTask(taskId, {
-      status: 'completed',
-      result: {
-        status: 'succeeded',
-        taskId,
-        modelUrl: (result as any)?.modelUrl,
-        promptId: (result as any)?.promptId,
-        modelKey: (result as any)?.modelKey,
-      },
-    });
-  }
-
   @Post('expand-image')
   async expandImage(@Body() dto: ExpandImageDto, @Req() req: any) {
-    this.logger.log('🖼️ Expand image request received');
+    this.logger.log('馃柤锔?Expand image request received');
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-expand-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4272,7 +4082,7 @@ export class AiController {
       stage: 'queued',
       userId,
       provider: 'expand-image',
-      prompt: dto.prompt?.slice(0, 500) || '扩图',
+      prompt: dto.prompt?.slice(0, 500) || '鎵╁浘',
       status: 'queued',
       metadata: {
         expandRatios: Array.isArray(dto.expandRatios) ? dto.expandRatios : null,
@@ -4289,7 +4099,7 @@ export class AiController {
         stage: 'processing',
         userId,
         provider: 'expand-image',
-        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        prompt: dto.prompt?.slice(0, 500) || '鎵╁浘',
         status: 'processing',
         receivedAt: new Date().toISOString(),
       });
@@ -4299,7 +4109,7 @@ export class AiController {
       const expanded = await this.expandImageService.expandImage(
         normalizedImageUrl,
         dto.expandRatios,
-        dto.prompt || '扩图'
+        dto.prompt || '鎵╁浘'
       );
 
       const managed = await this.persistProviderImageUrlToManaged(
@@ -4330,7 +4140,7 @@ export class AiController {
         stage: 'succeeded',
         userId,
         provider: 'expand-image',
-        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        prompt: dto.prompt?.slice(0, 500) || '鎵╁浘',
         status: 'succeeded',
         durationMs: Date.now() - startTime,
         metadata: {
@@ -4351,7 +4161,7 @@ export class AiController {
         stage: 'failed',
         userId,
         provider: 'expand-image',
-        prompt: dto.prompt?.slice(0, 500) || '扩图',
+        prompt: dto.prompt?.slice(0, 500) || '鎵╁浘',
         status: 'failed',
         durationMs: Date.now() - startTime,
         error: errorMessage,
@@ -4426,24 +4236,24 @@ export class AiController {
 
         if (!result?.videoUrl) {
           throw new ServiceUnavailableException(
-            result?.fallbackMessage || result?.content || '视频生成失败：未返回可用视频链接',
+            result?.fallbackMessage || result?.content || '瑙嗛鐢熸垚澶辫触锛氭湭杩斿洖鍙敤瑙嗛閾炬帴',
           );
         }
 
         const skipWatermark = await this.canSkipWatermark(req);
-        this.logger.log(`🎬 Video generated, skipWatermark=${skipWatermark}, videoUrl=${result.videoUrl?.substring(0, 80)}...`);
+        this.logger.log(`馃幀 Video generated, skipWatermark=${skipWatermark}, videoUrl=${result.videoUrl?.substring(0, 80)}...`);
 
         if (skipWatermark) {
-          this.logger.log('🎬 User can skip watermark (admin or whitelist)');
+          this.logger.log('馃幀 User can skip watermark (admin or whitelist)');
           let proxiedUrl = result.videoUrl;
           try {
             const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(result.videoUrl);
             proxiedUrl = uploaded.url;
             this.logger.log(
-              `✅ Video copied to OSS without watermark: ${proxiedUrl?.substring(0, 80)}...`,
+              `鉁?Video copied to OSS without watermark: ${proxiedUrl?.substring(0, 80)}...`,
             );
           } catch (error) {
-            this.logger.warn('⚠️ Video OSS copy failed, fallback to raw URL', error as any);
+            this.logger.warn('鈿狅笍 Video OSS copy failed, fallback to raw URL', error as any);
           }
           return {
             ...result,
@@ -4454,12 +4264,12 @@ export class AiController {
           };
         }
 
-        this.logger.log('🎬 User needs watermark, adding...');
+        this.logger.log('馃幀 User needs watermark, adding...');
         try {
           const wm = await this.videoWatermarkService.addWatermarkAndUpload(result.videoUrl, {
             text: 'Tanvas AI',
           });
-          this.logger.log(`✅ Video watermark success: ${wm.url?.substring(0, 80)}...`);
+          this.logger.log(`鉁?Video watermark success: ${wm.url?.substring(0, 80)}...`);
           return {
             ...result,
             videoUrl: wm.url,
@@ -4468,7 +4278,7 @@ export class AiController {
             watermarkSkipped: false,
           };
         } catch (error) {
-          this.logger.error('❌ Video watermark failed:', error);
+          this.logger.error('鉂?Video watermark failed:', error);
           return {
             ...result,
             videoUrl: result.videoUrl,
@@ -4486,10 +4296,9 @@ export class AiController {
   }
 
   /**
-   * 异步视频生成接口
-   * 立即返回 taskId，前端通过轮询 /ai/sora2/video/:taskId 查询进度
-   * 解决线上反向代理超时问题（504 Gateway Timeout）
-   */
+   * 寮傛瑙嗛鐢熸垚鎺ュ彛
+   * 绔嬪嵆杩斿洖 taskId锛屽墠绔€氳繃杞 /ai/sora2/video/:taskId 鏌ヨ杩涘害
+   * 瑙ｅ喅绾夸笂鍙嶅悜浠ｇ悊瓒呮椂闂锛?04 Gateway Timeout锛?   */
   @Post('generate-video-async')
   async generateVideoAsync(@Body() dto: GenerateVideoDto, @Req() req: any) {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
@@ -4525,7 +4334,7 @@ export class AiController {
       duration: dto.duration,
     });
 
-    // 创建异步任务并写入内存存储
+    // 鍒涘缓寮傛浠诲姟骞跺啓鍏ュ唴瀛樺瓨鍌?
     const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     createAsyncTask(taskId);
     const traceContext = this.getTraceContext(req);
@@ -4548,7 +4357,7 @@ export class AiController {
       receivedAt: new Date().toISOString(),
     });
 
-    // 在后台执行实际任务（不阻塞请求）
+    // 鍦ㄥ悗鍙版墽琛屽疄闄呬换鍔★紙涓嶉樆濉炶姹傦級
     this.executeVideoGenerationAsync(
       taskId,
       traceContext,
@@ -4576,18 +4385,17 @@ export class AiController {
       soraRequestParams,
     );
 
-    // 立即返回 taskId，不等待视频生成完成
+    // 绔嬪嵆杩斿洖 taskId锛屼笉绛夊緟瑙嗛鐢熸垚瀹屾垚
     return {
       success: true,
       taskId,
       status: 'pending',
-      message: '视频生成任务已提交，请通过 taskId 轮询查询进度',
+      message: '瑙嗛鐢熸垚浠诲姟宸叉彁浜わ紝璇烽€氳繃 taskId 杞鏌ヨ杩涘害',
     };
   }
 
   /**
-   * 后台执行视频生成（不阻塞 HTTP 请求）
-   */
+   * 鍚庡彴鎵ц瑙嗛鐢熸垚锛堜笉闃诲 HTTP 璇锋眰锛?   */
   private async executeVideoGenerationAsync(
     taskId: string,
     traceContext: PersistedTraceContext,
@@ -4599,7 +4407,7 @@ export class AiController {
     outputImageCount: number,
     requestParams?: Record<string, any>,
   ): Promise<void> {
-    // 异步执行，不等待结果
+    // 寮傛鎵ц锛屼笉绛夊緟缁撴灉
     this.processVideoGenerationTask(taskId, traceContext, req, serviceType, selectedSoraModel, options, inputImageCount, outputImageCount, requestParams)
       .catch((error) => {
         this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
@@ -4607,8 +4415,7 @@ export class AiController {
   }
 
   /**
-   * 处理视频生成任务（积分扣费 + 实际生成）
-   */
+   * 澶勭悊瑙嗛鐢熸垚浠诲姟锛堢Н鍒嗘墸璐?+ 瀹為檯鐢熸垚锛?   */
   private async processVideoGenerationTask(
     taskId: string,
     traceContext: PersistedTraceContext,
@@ -4632,7 +4439,7 @@ export class AiController {
         'app.ai.provider': selectedSoraModel,
       },
       async () => {
-        // 更新任务状态为处理中
+        // 鏇存柊浠诲姟鐘舵€佷负澶勭悊涓?
         updateAsyncTask(taskId, { status: 'processing' });
         const startedAt = Date.now();
         void this.telemetryService.ingestGenerationTask({
@@ -4664,7 +4471,7 @@ export class AiController {
 
               if (!videoResult?.videoUrl) {
                 throw new ServiceUnavailableException(
-                  videoResult?.fallbackMessage || videoResult?.content || '视频生成失败：未返回可用视频链接',
+                  videoResult?.fallbackMessage || videoResult?.content || '瑙嗛鐢熸垚澶辫触锛氭湭杩斿洖鍙敤瑙嗛閾炬帴',
                 );
               }
 
@@ -4782,9 +4589,9 @@ export class AiController {
   @Post('sora2/character/create')
   async createSora2Character(@Body() dto: CreateSora2CharacterDto) {
     if (!dto.url && !dto.fromTask) {
-      throw new BadRequestException('参数 url 和 fromTask 需二选一');
+      throw new BadRequestException('鍙傛暟 url 鍜?fromTask 闇€浜岄€変竴');
     }
-    // 角色创建链路不支持 prompt/image，这里只保留白名单字段
+    // 瑙掕壊鍒涘缓閾捐矾涓嶆敮鎸?prompt/image锛岃繖閲屽彧淇濈暀鐧藉悕鍗曞瓧娈?
     const safeModel = dto.model;
     const safeTimestamps = typeof dto.timestamps === 'string' ? dto.timestamps.trim() : dto.timestamps;
     const safeUrl = typeof dto.url === 'string' ? dto.url.trim() : dto.url;
@@ -4800,7 +4607,7 @@ export class AiController {
   @Get('sora2/character/:taskId')
   async querySora2Character(@Param('taskId') taskId: string) {
     if (!taskId || !taskId.trim()) {
-      throw new BadRequestException('taskId 不能为空');
+      throw new BadRequestException('taskId 涓嶈兘涓虹┖');
     }
     return this.sora2VideoService.queryCharacterTask(taskId.trim());
   }
@@ -4808,14 +4615,14 @@ export class AiController {
   @Get('sora2/video/:taskId')
   async querySora2VideoTask(@Param('taskId') taskId: string) {
     if (!taskId || !taskId.trim()) {
-      throw new BadRequestException('taskId 不能为空');
+      throw new BadRequestException('taskId 涓嶈兘涓虹┖');
     }
     const trimmedTaskId = taskId.trim();
 
-    // 首先检查是否是异步任务
+    // 棣栧厛妫€鏌ユ槸鍚︽槸寮傛浠诲姟
     const asyncTask = getAsyncTaskResult(trimmedTaskId);
     if (asyncTask) {
-      // 异步任务，直接返回存储的结果
+      // 寮傛浠诲姟锛岀洿鎺ヨ繑鍥炲瓨鍌ㄧ殑缁撴灉
       if (asyncTask.status === 'completed' && asyncTask.result) {
         return this.normalizeVideoTaskResponse({
           id: trimmedTaskId,
@@ -4826,9 +4633,9 @@ export class AiController {
         });
       }
       if (asyncTask.status === 'failed') {
-        throw new ServiceUnavailableException(asyncTask.error || '视频生成失败');
+        throw new ServiceUnavailableException(asyncTask.error || '瑙嗛鐢熸垚澶辫触');
       }
-      // pending 或 processing，返回进行中状态
+      // pending 鎴?processing锛岃繑鍥炶繘琛屼腑鐘舵€?
       return this.normalizeVideoTaskResponse({
         id: trimmedTaskId,
         status: asyncTask.status === 'processing' ? 'processing' : 'pending',
@@ -4836,16 +4643,14 @@ export class AiController {
       });
     }
 
-    // 非异步任务，调用原始的 Sora2 查询接口
+    // 闈炲紓姝ヤ换鍔★紝璋冪敤鍘熷鐨?Sora2 鏌ヨ鎺ュ彛
     return this.normalizeVideoTaskResponse(
       await this.sora2VideoService.queryVideoTask(trimmedTaskId),
     );
   }
 
   /**
-   * 视频生成（通用供应商：可灵、Vidu、Seedance 1.5 Pro）
-   * 返回 taskId 和 apiUsageId，前端在任务失败时可请求退款
-   */
+   * 瑙嗛鐢熸垚锛堥€氱敤渚涘簲鍟嗭細鍙伒銆乂idu銆丼eedance 1.5 Pro锛?   * 杩斿洖 taskId 鍜?apiUsageId锛屽墠绔湪浠诲姟澶辫触鏃跺彲璇锋眰閫€娆?   */
   @Get('seedance2/access')
   async getSeedance2Access(@Req() req: any) {
     const userId = this.getUserId(req) || this.resolveRequestUserId(req);
@@ -4865,8 +4670,6 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
-    this.normalizeSeed2LegacyLiteAlias(effectiveDto);
-    await this.assertSeedance2Entitlement(userId, effectiveDto, req);
 
     // Whitelist/admin users can skip watermark for doubao provider.
     if (effectiveDto.provider === 'doubao') {
@@ -4877,7 +4680,7 @@ export class AiController {
     }
     const serviceType = this.resolveVideoProviderServiceType(effectiveDto);
 
-    // 如果没有用户ID（API Key认证），直接执行操作
+    // 濡傛灉娌℃湁鐢ㄦ埛ID锛圓PI Key璁よ瘉锛夛紝鐩存帴鎵ц鎿嶄綔
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
       const result = await this.videoProviderService.generateVideo(effectiveDto);
@@ -4885,7 +4688,7 @@ export class AiController {
       return { ...publicResult, apiUsageId: null };
     }
 
-    // 确保用户有积分账户
+    // 纭繚鐢ㄦ埛鏈夌Н鍒嗚处鎴?
     await this.creditsService.getOrCreateAccount(userId);
     const startTime = Date.now();
     const requestParams = await this.buildVideoProviderCreditParams(effectiveDto);
@@ -4902,7 +4705,7 @@ export class AiController {
       effectiveDto.seedanceModel ||
       effectiveDto.provider;
 
-    // 预扣积分
+    // 棰勬墸绉垎
     const deductResult = await this.creditsService.preDeductCredits({
       userId,
       serviceType,
@@ -4944,11 +4747,11 @@ export class AiController {
       const normalizedStatus = String(result?.status || '').toLowerCase();
 
       if (normalizedStatus === 'failed' || normalizedStatus === 'failure') {
-        throw new ServiceUnavailableException((result as any)?.error || '视频任务创建失败');
+        throw new ServiceUnavailableException((result as any)?.error || '瑙嗛浠诲姟鍒涘缓澶辫触');
       }
 
       if (!result?.taskId && !result?.videoUrl) {
-        throw new ServiceUnavailableException('视频任务创建失败：未返回 taskId 或 videoUrl');
+        throw new ServiceUnavailableException('瑙嗛浠诲姟鍒涘缓澶辫触锛氭湭杩斿洖 taskId 鎴?videoUrl');
       }
 
       if (result?.taskId) {
@@ -4988,7 +4791,7 @@ export class AiController {
         });
       }
 
-      // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款
+      // 鍏煎鈥滅珛鍗冲嚭鐗団€濅緵搴斿晢锛氱洿鎺ユ爣璁版垚鍔燂紱寮傛浠诲姟缁存寔 pending锛屼氦鐢辫疆璇㈢粨鏋滃喅瀹氭槸鍚﹂€€娆?
       if (result.videoUrl) {
         await this.creditsService.updateApiUsageStatus(
           apiUsageId,
@@ -4998,11 +4801,11 @@ export class AiController {
         );
       }
 
-      // 返回 apiUsageId，前端在任务失败时可请求退款
+      // 杩斿洖 apiUsageId锛屽墠绔湪浠诲姟澶辫触鏃跺彲璇锋眰閫€娆?
       const { execution: _execution, ...publicResult } = result as any;
       return { ...publicResult, apiUsageId };
     } catch (error) {
-      // 创建任务失败，立即退款
+      // 鍒涘缓浠诲姟澶辫触锛岀珛鍗抽€€娆?
       const errorMessage = error instanceof Error ? error.message : String(error);
       const processingTime = Math.max(0, Date.now() - startTime);
       this.emitVideoProviderGenerationTaskLog({
@@ -5036,8 +4839,7 @@ export class AiController {
   }
 
   /**
-   * 视频任务失败时退还积分
-   */
+   * 瑙嗛浠诲姟澶辫触鏃堕€€杩樼Н鍒?   */
   @Post('video-task-refund')
   async refundVideoTask(
     @Body() body: { apiUsageId: string },
@@ -5045,139 +4847,55 @@ export class AiController {
   ) {
     const userId = this.getUserId(req);
     if (!userId) {
-      throw new BadRequestException('需要用户认证');
+      throw new BadRequestException('闇€瑕佺敤鎴疯璇?');
     }
 
     const { apiUsageId } = body;
     if (!apiUsageId) {
-      throw new BadRequestException('缺少 apiUsageId 参数');
+      throw new BadRequestException('缂哄皯 apiUsageId 鍙傛暟');
     }
 
     try {
-      // 先校验归属并标记失败（仅允许当前用户操作自己的记录）
+      // 鍏堟牎楠屽綊灞炲苟鏍囪澶辫触锛堜粎鍏佽褰撳墠鐢ㄦ埛鎿嶄綔鑷繁鐨勮褰曪級
       await this.creditsService.markApiUsageFailedForUser(
         userId,
         apiUsageId,
-        '视频生成任务失败',
+        '瑙嗛鐢熸垚浠诲姟澶辫触',
         0,
       );
 
-      // 退还积分
+      // 閫€杩樼Н鍒?
       const result = await this.creditsService.refundCredits(userId, apiUsageId);
-      this.logger.log(`✅ 视频任务积分已处理退款: apiUsageId=${apiUsageId}, balance=${result.newBalance}`);
+      this.logger.log(`鉁?瑙嗛浠诲姟绉垎宸插鐞嗛€€娆? apiUsageId=${apiUsageId}, balance=${result.newBalance}`);
       return { success: true, newBalance: result.newBalance };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`❌ 视频任务积分退还失败: ${message}`);
+      this.logger.error(`鉂?瑙嗛浠诲姟绉垎閫€杩樺け璐? ${message}`);
       throw error;
     }
   }
 
   /**
-   * 视频任务成功时确认积分状态（将 pending 标记为 success）
-   */
-  private async resolveSeed2TokenUsageForSuccess(params: {
-    userId: string;
-    apiUsageId: string;
-    inputTokens?: number;
-    outputTokens?: number;
-  }): Promise<{ inputTokens?: number; outputTokens?: number }> {
-    let inputTokens = params.inputTokens;
-    let outputTokens = params.outputTokens;
-    if (inputTokens !== undefined && outputTokens !== undefined) {
-      return { inputTokens, outputTokens };
-    }
-
-    try {
-      const usage = await this.prisma.apiUsageRecord.findUnique({
-        where: { id: params.apiUsageId },
-        select: {
-          userId: true,
-          serviceType: true,
-          requestParams: true,
-        },
-      });
-      if (!usage || usage.userId !== params.userId || usage.serviceType !== 'doubao-video') {
-        return { inputTokens, outputTokens };
-      }
-
-      const requestParams =
-        usage.requestParams && typeof usage.requestParams === 'object' && !Array.isArray(usage.requestParams)
-          ? (usage.requestParams as Record<string, any>)
-          : null;
-      const taskId =
-        typeof requestParams?.taskId === 'string' ? requestParams.taskId.trim() : '';
-      const seedanceModel =
-        typeof requestParams?.seedanceModel === 'string'
-          ? requestParams.seedanceModel.trim().toLowerCase()
-          : '';
-      const isSeed2 =
-        !!seedanceModel &&
-        (this.isSeedance20Model(seedanceModel) ||
-          seedanceModel.includes('seed-2.0') ||
-          seedanceModel.includes('seedance-2.0'));
-      if (!taskId || !isSeed2) {
-        return { inputTokens, outputTokens };
-      }
-
-      const latest = await this.videoProviderService.queryTask('doubao', taskId);
-      if (inputTokens === undefined && Number.isFinite(Number((latest as any)?.inputTokens))) {
-        inputTokens = Math.max(0, Math.floor(Number((latest as any).inputTokens)));
-      }
-      if (outputTokens === undefined && Number.isFinite(Number((latest as any)?.outputTokens))) {
-        outputTokens = Math.max(0, Math.floor(Number((latest as any).outputTokens)));
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to resolve Seed2 token usage for settlement: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-
-    return { inputTokens, outputTokens };
-  }
-
+   * 瑙嗛浠诲姟鎴愬姛鏃剁‘璁ょН鍒嗙姸鎬侊紙灏?pending 鏍囪涓?success锛?   */
   @Post('video-task-success')
   async markVideoTaskSuccess(
-    @Body() body: { apiUsageId: string; processingTime?: number; inputTokens?: number; outputTokens?: number },
+    @Body() body: { apiUsageId: string; processingTime?: number },
     @Req() req: any,
   ) {
     const userId = this.getUserId(req);
     if (!userId) {
-      throw new BadRequestException('需要用户认证');
+      throw new BadRequestException('闇€瑕佺敤鎴疯璇?');
     }
 
     const apiUsageId = typeof body?.apiUsageId === 'string' ? body.apiUsageId.trim() : '';
     if (!apiUsageId) {
-      throw new BadRequestException('缺少 apiUsageId 参数');
+      throw new BadRequestException('缂哄皯 apiUsageId 鍙傛暟');
     }
 
     const rawProcessingTime = Number(body?.processingTime);
     const processingTime = Number.isFinite(rawProcessingTime)
       ? Math.max(0, Math.round(rawProcessingTime))
       : 0;
-
-    const normalizedInputTokens = Number.isFinite(Number(body?.inputTokens))
-      ? Math.max(0, Math.floor(Number(body?.inputTokens)))
-      : undefined;
-    const normalizedOutputTokens = Number.isFinite(Number(body?.outputTokens))
-      ? Math.max(0, Math.floor(Number(body?.outputTokens)))
-      : undefined;
-
-    const resolvedTokenUsage = await this.resolveSeed2TokenUsageForSuccess({
-      userId,
-      apiUsageId,
-      inputTokens: normalizedInputTokens,
-      outputTokens: normalizedOutputTokens,
-    });
-
-    await this.creditsService.settleSeed2TokenCreditsForUser(
-      userId,
-      apiUsageId,
-      resolvedTokenUsage.inputTokens,
-      resolvedTokenUsage.outputTokens,
-    );
 
     await this.creditsService.markApiUsageSuccessForUser(
       userId,
@@ -5188,8 +4906,7 @@ export class AiController {
   }
 
   /**
-   * 查询视频生成任务状态
-   */
+   * 鏌ヨ瑙嗛鐢熸垚浠诲姟鐘舵€?   */
   @Get('video-task/:provider/:taskId')
   async queryVideoTask(
     @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
@@ -5201,7 +4918,7 @@ export class AiController {
   }
 
   @Post('volc-enhance-video')
-  async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto, @Req() req: any) {
+  async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto) {
     const apiKey = (
       process.env.VOLC_MEDIAKIT_API_KEY ||
       process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
@@ -5209,7 +4926,9 @@ export class AiController {
       ''
     ).trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException(
+        '瑙嗛鐢昏川澧炲己鏈嶅姟鏈厤缃紙缂哄皯 VOLC_MEDIAKIT_API_KEY锛?',
+      );
     }
 
     const videoUrl = String(dto.videoUrl || '').trim();
@@ -5217,58 +4936,29 @@ export class AiController {
     try {
       parsedUrl = new URL(videoUrl);
     } catch {
-      throw new BadRequestException('视频 URL 格式无效');
+      throw new BadRequestException('瑙嗛 URL 鏍煎紡鏃犳晥');
     }
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-      throw new BadRequestException('视频 URL 仅支持 http/https 协议');
+      throw new BadRequestException('瑙嗛 URL 鍙敮鎸?http/https 鍗忚');
     }
 
     if (dto.resolution && typeof dto.resolutionLimit === 'number') {
-      throw new BadRequestException('resolution 与 resolutionLimit 互斥，不能同时传入');
+      throw new BadRequestException('resolution 涓?resolutionLimit 浜掓枼锛屼笉鑳藉悓鏃朵紶鍏?');
     }
 
     const apiBaseUrl = (
       process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
     ).replace(/\/+$/, '');
     const submitUrl = `${apiBaseUrl}/api/v1/tools/enhance-video`;
-    const userId = this.getUserId(req);
-    const serviceType: ServiceType = 'volc-enhance-video';
-    const billingModel = dto.toolVersion || 'standard';
 
     const payload: Record<string, any> = {
       video_url: videoUrl,
-      tool_version: billingModel,
+      tool_version: dto.toolVersion || 'standard',
     };
     if (dto.scene) payload.scene = dto.scene;
     if (dto.resolution) payload.resolution = dto.resolution;
     if (typeof dto.resolutionLimit === 'number') payload.resolution_limit = dto.resolutionLimit;
     if (typeof dto.fps === 'number') payload.fps = dto.fps;
-
-    const creditRequestParams: Record<string, any> = {
-      toolVersion: billingModel,
-      ...(dto.scene ? { scene: dto.scene } : {}),
-      ...(dto.resolution ? { resolution: dto.resolution } : {}),
-      ...(typeof dto.resolutionLimit === 'number'
-        ? { resolutionLimit: Math.round(dto.resolutionLimit) }
-        : {}),
-      ...(typeof dto.fps === 'number' ? { fps: Math.round(dto.fps) } : {}),
-    };
-    const startTime = Date.now();
-    let apiUsageId: string | null = null;
-
-    if (userId) {
-      await this.creditsService.getOrCreateAccount(userId);
-      const deductResult = await this.creditsService.preDeductCredits({
-        userId,
-        serviceType,
-        model: billingModel,
-        requestParams: creditRequestParams,
-        ipAddress: req.ip,
-        userAgent: req.headers?.['user-agent'],
-        idempotencyKey: this.extractIdempotencyKey(req, creditRequestParams),
-      });
-      apiUsageId = deductResult.apiUsageId;
-    }
 
     try {
       const response = await fetch(submitUrl, {
@@ -5290,7 +4980,7 @@ export class AiController {
 
       if (!response.ok) {
         const detail = data?.message || data?.error || rawText || `HTTP ${response.status}`;
-        throw new BadGatewayException(`提交视频画质增强任务失败: ${detail}`);
+        throw new BadGatewayException(`鎻愪氦瑙嗛鐢昏川澧炲己浠诲姟澶辫触: ${detail}`);
       }
 
       const taskId =
@@ -5300,30 +4990,12 @@ export class AiController {
         data?.data?.task_id ||
         data?.data?.taskId;
       if (!taskId) {
-        throw new BadGatewayException('提交视频画质增强任务失败：上游未返回 task_id');
-      }
-
-      if (apiUsageId) {
-        try {
-          await this.creditsService.updateApiUsageRequestParams(apiUsageId, {
-            ...creditRequestParams,
-            taskId: String(taskId),
-            upstreamRequestId:
-              data?.request_id || data?.requestId || data?.data?.request_id || null,
-          });
-        } catch (error) {
-          this.logger.warn(
-            `Failed to update volc-enhance apiUsage request params: ${this.summarizeError(
-              error,
-            )}`,
-          );
-        }
+        throw new BadGatewayException('鎻愪氦瑙嗛鐢昏川澧炲己浠诲姟澶辫触锛氫笂娓告湭杩斿洖 task_id');
       }
 
       return {
         success: true,
         taskId: String(taskId),
-        apiUsageId,
         status: 'queued' as const,
         upstream: {
           taskId: data?.task_id || data?.taskId || data?.id || null,
@@ -5331,28 +5003,14 @@ export class AiController {
         },
       };
     } catch (error: any) {
-      if (apiUsageId && userId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          processingTime: Math.max(0, Date.now() - startTime),
-        });
-        if (!refunded) {
-          this.logger.error(
-            `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
-          );
-        }
-      }
       if (error instanceof HttpException) {
         throw error;
       }
       const summary = this.summarizeError(error);
       if (this.isLikelyNetworkError(error)) {
-        throw new ServiceUnavailableException(`提交视频画质增强任务失败：${summary}`);
+        throw new ServiceUnavailableException(`鎻愪氦瑙嗛鐢昏川澧炲己浠诲姟澶辫触锛?{summary}`);
       }
-      throw new InternalServerErrorException(`提交视频画质增强任务失败：${summary}`);
+      throw new InternalServerErrorException(`鎻愪氦瑙嗛鐢昏川澧炲己浠诲姟澶辫触锛?{summary}`);
     }
   }
 
@@ -5365,12 +5023,14 @@ export class AiController {
       ''
     ).trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException(
+        '瑙嗛鐢昏川澧炲己鏈嶅姟鏈厤缃紙缂哄皯 VOLC_MEDIAKIT_API_KEY锛?',
+      );
     }
 
     const normalizedTaskId = String(taskId || '').trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId 不能为空');
+      throw new BadRequestException('taskId 涓嶈兘涓虹┖');
     }
 
     const apiBaseUrl = (
@@ -5381,7 +5041,9 @@ export class AiController {
     try {
       const response = await fetch(queryUrl, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
       });
 
       const rawText = await response.text();
@@ -5394,10 +5056,10 @@ export class AiController {
 
       if (!response.ok) {
         const detail = data?.message || data?.error || rawText || `HTTP ${response.status}`;
-        throw new BadGatewayException(`查询视频画质增强任务失败: ${detail}`);
+        throw new BadGatewayException(`鏌ヨ瑙嗛鐢昏川澧炲己浠诲姟澶辫触: ${detail}`);
       }
 
-      const statusCandidates = [
+            const statusCandidates = [
         data?.status,
         data?.task_status,
         data?.state,
@@ -5413,7 +5075,6 @@ export class AiController {
         statusCandidates
           .map((value) => String(value || '').trim())
           .find((value) => value.length > 0) || '';
-
       const videoUrl =
         data?.result?.video_url ||
         data?.result?.url ||
@@ -5424,12 +5085,10 @@ export class AiController {
         data?.data?.result?.url ||
         data?.data?.output?.video_url ||
         undefined;
-
       let status = this.normalizeUnifiedVideoStatus(upstreamStatus);
       if (status !== 'failed' && typeof videoUrl === 'string' && videoUrl.trim().length > 0) {
         status = 'succeeded';
       }
-
       const errorMessage =
         data?.error?.message ||
         data?.data?.error?.message ||
@@ -5462,9 +5121,9 @@ export class AiController {
       }
       const summary = this.summarizeError(error);
       if (this.isLikelyNetworkError(error)) {
-        throw new ServiceUnavailableException(`查询视频画质增强任务失败：${summary}`);
+        throw new ServiceUnavailableException(`鏌ヨ瑙嗛鐢昏川澧炲己浠诲姟澶辫触锛?{summary}`);
       }
-      throw new InternalServerErrorException(`查询视频画质增强任务失败：${summary}`);
+      throw new InternalServerErrorException(`鏌ヨ瑙嗛鐢昏川澧炲己浠诲姟澶辫触锛?{summary}`);
     }
   }
 
@@ -5540,16 +5199,16 @@ export class AiController {
   }
 
   /**
-   * 生成 Paper.js 代码
+   * 鐢熸垚 Paper.js 浠ｇ爜
    */
   @Post('generate-paperjs')
   async generatePaperJS(@Body() dto: PaperJSGenerateRequestDto, @Req() req: any): Promise<PaperJSGenerateResponseDto> {
-    this.logger.log(`📐 Paper.js code generation request: ${dto.prompt.substring(0, 50)}...`);
+    this.logger.log(`馃搻 Paper.js code generation request: ${dto.prompt.substring(0, 50)}...`);
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key锛坓emini 鍜?gemini-pro 閮芥敮鎸侊級
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
@@ -5569,7 +5228,7 @@ export class AiController {
 
         if (result.success && result.data) {
           const processingTime = Date.now() - startTime;
-          this.logger.log(`✅ Paper.js code generated successfully in ${processingTime}ms`);
+          this.logger.log(`鉁?Paper.js code generated successfully in ${processingTime}ms`);
 
           return {
             code: result.data.code,
@@ -5589,7 +5248,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate Paper.js code');
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+      // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
         model: dto.model,
@@ -5600,7 +5259,7 @@ export class AiController {
       });
 
       const processingTime = Date.now() - startTime;
-      this.logger.log(`✅ Paper.js code generated successfully in ${processingTime}ms`);
+      this.logger.log(`鉁?Paper.js code generated successfully in ${processingTime}ms`);
 
       return {
         code: result.code,
@@ -5621,13 +5280,13 @@ export class AiController {
 
   @Post('img2vector')
   async img2Vector(@Body() dto: Img2VectorRequestDto, @Req() req: any): Promise<Img2VectorResponseDto> {
-    this.logger.log(`🖼️ Image to vector conversion request`);
+    this.logger.log(`馃柤锔?Image to vector conversion request`);
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
     const normalizedModel = model?.replace(/^banana-/, '') || model;
 
-    // 检查是否使用自定义 API Key
+    // 妫€鏌ユ槸鍚︿娇鐢ㄨ嚜瀹氫箟 API Key
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
     let fallbackProvider: string | null = null;
@@ -5652,7 +5311,7 @@ export class AiController {
 
             if (result.success && result.data) {
               const processingTime = Date.now() - startTime;
-              this.logger.log(`✅ Image to vector conversion completed in ${processingTime}ms`);
+              this.logger.log(`鉁?Image to vector conversion completed in ${processingTime}ms`);
 
               return {
                 code: result.data.code,
@@ -5672,7 +5331,7 @@ export class AiController {
               };
             }
 
-            const message = result.error?.message || '图片转矢量图失败';
+            const message = result.error?.message || '鍥剧墖杞煝閲忓浘澶辫触';
             this.logger.error(`[${providerName}] img2vector failed: ${message}`);
             throw new InternalServerErrorException(message);
           } catch (error) {
@@ -5682,12 +5341,12 @@ export class AiController {
           }
         }
 
-        // 提供商未实现 img2Vector，回退到默认 Gemini 流程
+        // 鎻愪緵鍟嗘湭瀹炵幇 img2Vector锛屽洖閫€鍒伴粯璁?Gemini 娴佺▼
         this.logger.warn(`[${providerName}] img2Vector not implemented, falling back to Gemini service`);
         fallbackProvider = providerName;
       }
 
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+      // gemini 鍜?gemini-pro 閮戒娇鐢ㄩ粯璁ょ殑 Gemini 鏈嶅姟
       const result = await this.imageGeneration.img2Vector({
         sourceImage: dto.sourceImage,
         prompt: dto.prompt,
@@ -5704,7 +5363,7 @@ export class AiController {
       });
 
       const processingTime = Date.now() - startTime;
-      this.logger.log(`✅ Image to vector conversion completed in ${processingTime}ms`);
+      this.logger.log(`鉁?Image to vector conversion completed in ${processingTime}ms`);
 
       return {
         code: result.code,
@@ -5727,27 +5386,26 @@ export class AiController {
   }
 
   /**
-   * VEO 视频生成 - 获取可用模型列表
+   * VEO 瑙嗛鐢熸垚 - 鑾峰彇鍙敤妯″瀷鍒楄〃
    */
   @Get('veo/models')
   async getVeoModels(): Promise<VeoModelsResponseDto[]> {
-    this.logger.log('📋 VEO models list requested');
+    this.logger.log('馃搵 VEO models list requested');
     return this.veoVideoService.getAvailableModels();
   }
 
   /**
-   * VEO 视频生成
-   * - veo3-fast: 文字快速生成视频
-   * - veo3-pro: 文字生成高质量视频（不支持垫图）
-   * - veo3-pro-frames: 图片+文字生成视频（支持垫图）
+   * VEO 瑙嗛鐢熸垚
+   * - veo3-fast: 鏂囧瓧蹇€熺敓鎴愯棰?   * - veo3-pro: 鏂囧瓧鐢熸垚楂樿川閲忚棰戯紙涓嶆敮鎸佸灚鍥撅級
+   * - veo3-pro-frames: 鍥剧墖+鏂囧瓧鐢熸垚瑙嗛锛堟敮鎸佸灚鍥撅級
    */
   @Post('veo/generate')
   async generateVeoVideo(@Body() dto: VeoGenerateVideoDto, @Req() req: any): Promise<VeoVideoResponseDto> {
-    this.logger.log(`🎬 VEO video generation request: model=${dto.model}, prompt=${dto.prompt.substring(0, 50)}...`);
+    this.logger.log(`馃幀 VEO video generation request: model=${dto.model}, prompt=${dto.prompt.substring(0, 50)}...`);
 
-    // 验证：veo3-pro-frames 需要图片，其他模式不需要
+    // 楠岃瘉锛歷eo3-pro-frames 闇€瑕佸浘鐗囷紝鍏朵粬妯″紡涓嶉渶瑕?
     if (dto.model === 'veo3-pro-frames' && !dto.referenceImageUrl) {
-      throw new BadRequestException('veo3-pro-frames 模式需要提供 referenceImageUrl 参数');
+      throw new BadRequestException('veo3-pro-frames 妯″紡闇€瑕佹彁渚?referenceImageUrl 鍙傛暟');
     }
 
     if (dto.model !== 'veo3-pro-frames' && dto.referenceImageUrl) {
@@ -5812,7 +5470,7 @@ export class AiController {
           return {
             success: false,
             error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
+              message: 'DashScope 鏈繑鍥炰换鍔?ID 鎴栬棰戝湴鍧€',
               details: data,
             },
           };
@@ -5840,7 +5498,7 @@ export class AiController {
                 return {
                   success: false,
                   error: {
-                    message: 'DashScope 任务已完成但未返回视频地址',
+                    message: 'DashScope 浠诲姟宸插畬鎴愪絾鏈繑鍥炶棰戝湴鍧€',
                     details: statusData,
                   },
                 };
@@ -5854,7 +5512,7 @@ export class AiController {
         }
         return { success: false, error: { message: 'DashScope task polling timed out' } };
       } catch (error: any) {
-        this.logger.error('❌ DashScope request exception', error);
+        this.logger.error('鉂?DashScope request exception', error);
         return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
       }
     }, undefined, undefined, undefined, this.buildWanCreditRequestParams(body, {
@@ -5912,7 +5570,7 @@ export class AiController {
           };
         }
 
-        this.logger.log('✅ DashScope i2v task created', {
+        this.logger.log('鉁?DashScope i2v task created', {
           resultPreview: JSON.stringify(data).slice(0, 200),
         });
 
@@ -5942,14 +5600,14 @@ export class AiController {
           return {
             success: false,
             error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
+              message: 'DashScope 鏈繑鍥炰换鍔?ID 鎴栬棰戝湴鍧€',
               details: data,
             },
           };
         }
 
-        // 异步模式：立即返回 taskId，前端轮询查询状态
-        this.logger.log(`✅ DashScope i2v task created: ${taskId}`);
+        // 寮傛妯″紡锛氱珛鍗宠繑鍥?taskId锛屽墠绔疆璇㈡煡璇㈢姸鎬?
+        this.logger.log(`鉁?DashScope i2v task created: ${taskId}`);
         return {
           success: true,
           data: {
@@ -5960,7 +5618,7 @@ export class AiController {
           },
         };
       } catch (error: any) {
-        this.logger.error('❌ DashScope i2v request exception', error);
+        this.logger.error('鉂?DashScope i2v request exception', error);
         return {
           success: false,
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
@@ -6043,7 +5701,7 @@ export class AiController {
           return {
             success: false,
             error: {
-              message: 'DashScope 未返回任务 ID',
+              message: 'DashScope 鏈繑鍥炰换鍔?ID',
               details: data,
             },
           };
@@ -6059,7 +5717,7 @@ export class AiController {
           },
         };
       } catch (error: any) {
-        this.logger.error('❌ DashScope wan2.7-i2v request exception', error);
+        this.logger.error('鉂?DashScope wan2.7-i2v request exception', error);
         return {
           success: false,
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
@@ -6080,7 +5738,7 @@ export class AiController {
   }
 
   /**
-   * DashScope 任务状态查询接口（前端轮询用）
+   * DashScope 浠诲姟鐘舵€佹煡璇㈡帴鍙ｏ紙鍓嶇杞鐢級
    */
   @Get('dashscope/task/:taskId')
   async getDashscopeTaskStatus(@Param('taskId') taskId: string) {
@@ -6168,7 +5826,7 @@ export class AiController {
           };
         }
 
-        this.logger.log('✅ DashScope r2v task created', {
+        this.logger.log('鉁?DashScope r2v task created', {
           resultPreview: JSON.stringify(data).slice(0, 200),
         });
 
@@ -6197,7 +5855,7 @@ export class AiController {
           return {
             success: false,
             error: {
-              message: 'DashScope 未返回任务 ID 或视频地址',
+              message: 'DashScope 鏈繑鍥炰换鍔?ID 鎴栬棰戝湴鍧€',
               details: data,
             },
           };
@@ -6207,7 +5865,7 @@ export class AiController {
         const intervalMs = 15000;
         const maxAttempts = 40;
         this.logger.log(
-          `🔁 Start polling DashScope r2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
+          `馃攣 Start polling DashScope r2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
         );
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           await new Promise((r) => setTimeout(r, intervalMs));
@@ -6229,7 +5887,7 @@ export class AiController {
             }
             const statusData = await statusResp.json().catch(() => ({}));
             this.logger.debug(
-              `🔎 DashScope r2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
+              `馃攷 DashScope r2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
             );
             const statusValue = (
               statusData?.output?.task_status ||
@@ -6254,13 +5912,13 @@ export class AiController {
                 return {
                   success: false,
                   error: {
-                    message: 'DashScope 任务已完成但未返回视频地址',
+                    message: 'DashScope 浠诲姟宸插畬鎴愪絾鏈繑鍥炶棰戝湴鍧€',
                     details: statusData,
                   },
                 };
               }
               this.logger.log(
-                `✅ DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
+                `鉁?DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
               );
               return {
                 success: true,
@@ -6292,7 +5950,7 @@ export class AiController {
                   ? (failureCode ? `${String(failureCode)}: ${failureMessage}` : failureMessage)
                   : 'DashScope r2v task failed';
 
-              this.logger.error(`❌ DashScope r2v task ${taskId} failed`, {
+              this.logger.error(`鉂?DashScope r2v task ${taskId} failed`, {
                 message,
                 raw: statusData,
               });
@@ -6306,14 +5964,14 @@ export class AiController {
           }
         }
         this.logger.warn(
-          `⏳ DashScope r2v task ${taskId} polling timed out after ${maxAttempts} attempts`
+          `鈴?DashScope r2v task ${taskId} polling timed out after ${maxAttempts} attempts`
         );
         return {
           success: false,
           error: { message: 'DashScope r2v task polling timed out' },
         };
       } catch (error: any) {
-        this.logger.error('❌ DashScope r2v request exception', error);
+        this.logger.error('鉂?DashScope r2v request exception', error);
         return {
           success: false,
           error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
@@ -6382,11 +6040,11 @@ export class AiController {
             };
           }
 
-          this.logger.log(`✅ DashScope ${taskLabel} task created`, {
+          this.logger.log(`鉁?DashScope ${taskLabel} task created`, {
             resultPreview: JSON.stringify(data).slice(0, 200),
           });
 
-          // 极少数情况下上游可能直接返回视频地址（兜底）
+          // 鏋佸皯鏁版儏鍐典笅涓婃父鍙兘鐩存帴杩斿洖瑙嗛鍦板潃锛堝厹搴曪級
           const directVideoUrl =
             data?.output?.video_url ||
             data?.video_url ||
@@ -6412,13 +6070,13 @@ export class AiController {
             return {
               success: false,
               error: {
-                message: 'DashScope 未返回任务 ID 或视频地址',
+                message: 'DashScope 鏈繑鍥炰换鍔?ID 鎴栬棰戝湴鍧€',
                 details: data,
               },
             };
           }
 
-          this.logger.log(`✅ DashScope ${taskLabel} task created: ${taskId}`);
+          this.logger.log(`鉁?DashScope ${taskLabel} task created: ${taskId}`);
           return {
             success: true,
             data: {
@@ -6429,7 +6087,7 @@ export class AiController {
             },
           };
         } catch (error: any) {
-          this.logger.error(`❌ DashScope ${taskLabel} request exception`, error);
+          this.logger.error(`鉂?DashScope ${taskLabel} request exception`, error);
           return {
             success: false,
             error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
@@ -6448,11 +6106,11 @@ export class AiController {
   }
 
   /**
-   * 视频分析 - 使用 Gemini File API 分析视频内容
+   * 瑙嗛鍒嗘瀽 - 浣跨敤 Gemini File API 鍒嗘瀽瑙嗛鍐呭
    */
   @Post('analyze-video')
   async analyzeVideo(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
-    this.logger.log(`🎥 Video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
+    this.logger.log(`馃帴 Video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
@@ -6499,12 +6157,12 @@ export class AiController {
             try {
               const analysisText = await this.analyzeVideoVia147ChatCompletions({
                 model,
-                prompt: dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息',
+                prompt: dto.prompt || '鍒嗘瀽杩欎釜瑙嗛鐨勫唴瀹癸紝鎻忚堪瑙嗛涓殑鍦烘櫙銆佸姩浣滃拰鍏抽敭淇℃伅',
                 videoUrl: parsedUrl.toString(),
               });
               const processingTime = Date.now() - startTime;
               this.logger.log(
-                `✅ Video analysis (147 direct) completed in ${processingTime}ms`
+                `鉁?Video analysis (147 direct) completed in ${processingTime}ms`
               );
               return {
                 analysis: analysisText,
@@ -6514,24 +6172,24 @@ export class AiController {
                 processingTime,
               };
             } catch (err: any) {
-              // 147 直接视频理解失败，不再降级到 ffmpeg 抽帧方案
-              // 因为 ffmpeg 需要服务器安装，不适合云部署环境
+              // 147 鐩存帴瑙嗛鐞嗚В澶辫触锛屼笉鍐嶉檷绾у埌 ffmpeg 鎶藉抚鏂规
+              // 鍥犱负 ffmpeg 闇€瑕佹湇鍔″櫒瀹夎锛屼笉閫傚悎浜戦儴缃茬幆澧?
               this.logger.error(
-                `❌ 147 direct video understanding failed: ${this.summarizeError(err)}`
+                `鉂?147 direct video understanding failed: ${this.summarizeError(err)}`
               );
               throw err;
             }
           }
         }
 
-        // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
+        // 浠?OSS URL 涓嬭浇瑙嗛锛堟祦寮忓啓鍏ヤ复鏃舵枃浠讹紝閬垮厤澶ф枃浠跺崰鐢ㄥ唴瀛橈級
         stage = 'download_video';
-        this.logger.log('📥 Downloading video from OSS...');
+        this.logger.log('馃摜 Downloading video from OSS...');
         const videoResponse = await fetch(parsedUrl.toString(), { redirect: 'follow' });
         if (!videoResponse.ok) {
           throw new Error(`Failed to download video: HTTP ${videoResponse.status}`);
         }
-        // 防止跳转到非白名单域名
+        // 闃叉璺宠浆鍒伴潪鐧藉悕鍗曞煙鍚?
         this.parseAndValidateAllowedUrl(videoResponse.url);
         if (!videoResponse.body) {
           throw new Error('Empty video response body');
@@ -6542,7 +6200,7 @@ export class AiController {
         if (contentLengthHeader) {
           const size = Number(contentLengthHeader);
           if (Number.isFinite(size) && size > MAX_VIDEO_BYTES) {
-            throw new BadRequestException('视频文件过大，请使用更小的视频');
+            throw new BadRequestException('瑙嗛鏂囦欢杩囧ぇ锛岃浣跨敤鏇村皬鐨勮棰?');
           }
         }
 
@@ -6584,28 +6242,28 @@ export class AiController {
           fs.createWriteStream(tempFile)
         );
 
-        this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
+        this.logger.log(`馃摝 Video downloaded: ${received} bytes, type: ${contentType}`);
 
-        // 非 Google provider：抽帧 -> 走现有图片分析/文本总结链路（国内可用，如 banana/147）
+        // 闈?Google provider锛氭娊甯?-> 璧扮幇鏈夊浘鐗囧垎鏋?鏂囨湰鎬荤粨閾捐矾锛堝浗鍐呭彲鐢紝濡?banana/147锛?
         if (providerName && providerName !== 'gemini-pro') {
           stage = 'extract_frames';
           const provider = this.factory.getProvider(dto.model, providerName);
           const maxFrames = 8;
           const intervalSeconds = 3;
-          this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
+          this.logger.log(`馃柤锔?Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
           const frames = await this.extractFramesAsDataUrls({
             videoPath: tempFile,
             maxFrames,
             intervalSeconds,
           });
           if (!frames.length) {
-            throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
+            throw new ServiceUnavailableException('鏃犳硶浠庤棰戜腑鎻愬彇甯э紝璇锋鏌ヨ棰戞枃浠舵槸鍚︽崯鍧?');
           }
 
           stage = 'analyze_frames';
           const visionModel = this.resolveImageModel(providerName, dto.model);
           const framePrompt =
-            '请描述这一帧画面（场景、人物、动作、字幕/界面元素），尽量客观，不要编造。';
+            '璇锋弿杩拌繖涓€甯х敾闈紙鍦烘櫙銆佷汉鐗┿€佸姩浣溿€佸瓧骞?鐣岄潰鍏冪礌锛夛紝灏介噺瀹㈣锛屼笉瑕佺紪閫犮€?;'
           const frameAnalyses: string[] = [];
           for (let i = 0; i < frames.length; i++) {
             const result = await provider.analyzeImage({
@@ -6624,13 +6282,13 @@ export class AiController {
 
           stage = 'summarize';
           const userPrompt =
-            dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
+            dto.prompt || '鍒嗘瀽杩欎釜瑙嗛鐨勫唴瀹癸紝鎻忚堪瑙嗛涓殑鍦烘櫙銆佸姩浣滃拰鍏抽敭淇℃伅';
           const summaryPrompt = [
-            '你将获得从同一段视频抽帧得到的多帧描述，请根据这些信息总结整段视频。',
-            `用户分析要求：${userPrompt}`,
-            '抽帧描述：',
+            '浣犲皢鑾峰緱浠庡悓涓€娈佃棰戞娊甯у緱鍒扮殑澶氬抚鎻忚堪锛岃鏍规嵁杩欎簺淇℃伅鎬荤粨鏁存瑙嗛銆?',
+            `鐢ㄦ埛鍒嗘瀽瑕佹眰锛?{userPrompt}`,
+            '鎶藉抚鎻忚堪锛?',
             ...frameAnalyses.map((t, idx) => `${idx + 1}. ${t}`),
-            '请输出：1) 视频整体内容概述 2) 关键场景/动作 3) 可能的时间线(如可推断) 4) 关键信息/字幕(如有)。',
+            '璇疯緭鍑猴細1) 瑙嗛鏁翠綋鍐呭姒傝堪 2) 鍏抽敭鍦烘櫙/鍔ㄤ綔 3) 鍙兘鐨勬椂闂寸嚎(濡傚彲鎺ㄦ柇) 4) 鍏抽敭淇℃伅/瀛楀箷(濡傛湁)銆?',
           ].join('\n');
 
           const textResult = await provider.generateText({
@@ -6646,7 +6304,7 @@ export class AiController {
 
           const analysisText = textResult.data.text || '';
           const processingTime = Date.now() - startTime;
-          this.logger.log(`✅ Video analysis (frame-based) completed in ${processingTime}ms`);
+          this.logger.log(`鉁?Video analysis (frame-based) completed in ${processingTime}ms`);
           return {
             analysis: analysisText,
             text: analysisText,
@@ -6657,16 +6315,16 @@ export class AiController {
           };
         }
 
-        // Google Gemini 路径：上传到 File API 再分析（需要能直连 Google）
+        // Google Gemini 璺緞锛氫笂浼犲埌 File API 鍐嶅垎鏋愶紙闇€瑕佽兘鐩磋繛 Google锛?
         const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('GOOGLE_GEMINI_API_KEY not configured');
         }
         geminiClient = new GoogleGenAI({ apiKey });
 
-        // 使用 Gemini File API 上传视频
+        // 浣跨敤 Gemini File API 涓婁紶瑙嗛
         stage = 'upload_to_gemini';
-        this.logger.log('📤 Uploading video to Gemini File API...');
+        this.logger.log('馃摛 Uploading video to Gemini File API...');
         const uploadResult = await geminiClient.files.upload({
           file: tempFile,
           config: { mimeType: contentType, displayName: `video-analysis-${Date.now()}` },
@@ -6676,17 +6334,17 @@ export class AiController {
         if (!uploadedFileName) {
           throw new Error('Gemini file upload returned empty file name');
         }
-        this.logger.log(`✅ Video uploaded to Gemini: ${uploadedFileName}`);
+        this.logger.log(`鉁?Video uploaded to Gemini: ${uploadedFileName}`);
 
-        // 等待文件处理完成（带超时）
+        // 绛夊緟鏂囦欢澶勭悊瀹屾垚锛堝甫瓒呮椂锛?
         stage = 'wait_processing';
         const deadline = Date.now() + PROCESSING_TIMEOUT_MS;
         let file = uploadResult;
         while (file.state === 'PROCESSING') {
           if (Date.now() > deadline) {
-            throw new ServiceUnavailableException('视频处理超时，请使用更短的视频');
+            throw new ServiceUnavailableException('瑙嗛澶勭悊瓒呮椂锛岃浣跨敤鏇寸煭鐨勮棰?');
           }
-          this.logger.log('⏳ Waiting for video processing...');
+          this.logger.log('鈴?Waiting for video processing...');
           await new Promise((resolve) => setTimeout(resolve, 5000));
           file = await geminiClient.files.get({ name: uploadedFileName });
         }
@@ -6695,11 +6353,11 @@ export class AiController {
           throw new Error('Video processing failed');
         }
 
-        // 使用 Gemini 分析视频
+        // 浣跨敤 Gemini 鍒嗘瀽瑙嗛
         stage = 'generate_content';
-        const prompt = dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
+        const prompt = dto.prompt || '鍒嗘瀽杩欎釜瑙嗛鐨勫唴瀹癸紝鎻忚堪瑙嗛涓殑鍦烘櫙銆佸姩浣滃拰鍏抽敭淇℃伅';
 
-        this.logger.log('🔍 Analyzing video with Gemini...');
+        this.logger.log('馃攳 Analyzing video with Gemini...');
         const result = await geminiClient.models.generateContent({
           model,
           contents: [
@@ -6716,7 +6374,7 @@ export class AiController {
         const analysisText = result.text || '';
         const processingTime = Date.now() - startTime;
 
-        this.logger.log(`✅ Video analysis completed in ${processingTime}ms`);
+        this.logger.log(`鉁?Video analysis completed in ${processingTime}ms`);
 
         return {
           analysis: analysisText,
@@ -6729,16 +6387,16 @@ export class AiController {
         const processingTime = Date.now() - startTime;
         const summary = this.summarizeError(error);
         this.logger.error(
-          `❌ Video analysis failed at ${stage} after ${processingTime}ms: ${summary}`,
+          `鉂?Video analysis failed at ${stage} after ${processingTime}ms: ${summary}`,
           error?.stack || summary
         );
         if (error instanceof HttpException) {
           throw error;
         }
         if (this.isLikelyNetworkError(error)) {
-        throw new ServiceUnavailableException(`视频分析失败（${stage}）：${summary}`);
+        throw new ServiceUnavailableException(`瑙嗛鍒嗘瀽澶辫触锛?{stage}锛夛細${summary}`);
       }
-        throw new InternalServerErrorException(`视频分析失败（${stage}）：${summary}`);
+        throw new InternalServerErrorException(`瑙嗛鍒嗘瀽澶辫触锛?{stage}锛夛細${summary}`);
       } finally {
         try {
           if (tempFile) {
@@ -6758,32 +6416,28 @@ export class AiController {
       ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
       ...(dto.channelHint ? { channelHint: dto.channelHint } : {}),
       nodeConfigKey: 'videoAnalyze',
-      nodeConfigNameZh: '视频分析节点',
+      nodeConfigNameZh: '瑙嗛鍒嗘瀽鑺傜偣',
       nodeConfigNameEn: 'Video Analysis',
       billingTitleSource: 'node',
     }, videoProviderOptions));
   }
 
   /**
-   * 异步图像生成 - 创建任务
+   * 寮傛鍥惧儚鐢熸垚 - 鍒涘缓浠诲姟
    */
   @Post('generate-image-async')
   async generateImageAsync(@Body() dto: GenerateImageDto, @Req() req: any) {
     if (!this.imageTaskService) {
-      throw new ServiceUnavailableException('图像任务服务未启用');
+      throw new ServiceUnavailableException('鍥惧儚浠诲姟鏈嶅姟鏈惎鐢?');
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const traceId = this.getTraceId(req);
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const inferredRequestedModel =
-      providerName === 'nano2' && !dto.model && this.isLikelyGptImage2Request(dto)
-        ? 'gpt-image-2'
-        : dto.model;
-    const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    const model = this.resolveImageModel(providerName, dto.model);
 
-    // 创建任务
+    // 鍒涘缓浠诲姟
     const task = await this.imageTaskService.createTask(
       userId,
       'generate',
@@ -6800,12 +6454,12 @@ export class AiController {
   }
 
   /**
-   * 异步图像编辑 - 创建任务
+   * 寮傛鍥惧儚缂栬緫 - 鍒涘缓浠诲姟
    */
   @Post('edit-image-async')
   async editImageAsync(@Body() dto: EditImageDto, @Req() req: any) {
     if (!this.imageTaskService) {
-      throw new ServiceUnavailableException('图像任务服务未启用');
+      throw new ServiceUnavailableException('鍥惧儚浠诲姟鏈嶅姟鏈惎鐢?');
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
@@ -6814,7 +6468,7 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 如果提供了 URL，先下载图片
+    // 濡傛灉鎻愪緵浜?URL锛屽厛涓嬭浇鍥剧墖
     let sourceImage = dto.sourceImage;
     if (dto.sourceImageUrl && !sourceImage) {
       sourceImage = await this.fetchImageAsDataUrl(dto.sourceImageUrl);
@@ -6836,12 +6490,12 @@ export class AiController {
   }
 
   /**
-   * 异步图像混合 - 创建任务
+   * 寮傛鍥惧儚娣峰悎 - 鍒涘缓浠诲姟
    */
   @Post('blend-images-async')
   async blendImagesAsync(@Body() dto: BlendImagesDto, @Req() req: any) {
     if (!this.imageTaskService) {
-      throw new ServiceUnavailableException('图像任务服务未启用');
+      throw new ServiceUnavailableException('鍥惧儚浠诲姟鏈嶅姟鏈惎鐢?');
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
@@ -6850,7 +6504,7 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 如果提供了 URL，先下载图片
+    // 濡傛灉鎻愪緵浜?URL锛屽厛涓嬭浇鍥剧墖
     let sourceImages = dto.sourceImages || [];
     if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
       sourceImages = await Promise.all(
@@ -6874,12 +6528,11 @@ export class AiController {
   }
 
   /**
-   * 查询图像任务状态
-   */
+   * 鏌ヨ鍥惧儚浠诲姟鐘舵€?   */
   @Get('image-task/:taskId')
   async getImageTaskStatus(@Param('taskId') taskId: string, @Req() req: any) {
     if (!this.imageTaskService) {
-      throw new ServiceUnavailableException('图像任务服务未启用');
+      throw new ServiceUnavailableException('鍥惧儚浠诲姟鏈嶅姟鏈惎鐢?');
     }
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
@@ -6924,7 +6577,7 @@ export class AiController {
   async queryTencentSpeechAsyncTask(@Param('taskId') taskId: string) {
     const normalizedTaskId = taskId?.trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId 参数不能为空');
+      throw new BadRequestException('taskId 鍙傛暟涓嶈兘涓虹┖');
     }
     return this.tencentSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }
@@ -6952,7 +6605,7 @@ export class AiController {
   async querySpeechAsyncTask(@Param('taskId') taskId: string) {
     const normalizedTaskId = taskId?.trim();
     if (!normalizedTaskId) {
-      throw new BadRequestException('taskId 参数不能为空');
+      throw new BadRequestException('taskId 鍙傛暟涓嶈兘涓虹┖');
     }
     return this.minimaxSpeechService.queryAsyncSpeechTask(normalizedTaskId);
   }

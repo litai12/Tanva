@@ -1,14 +1,18 @@
 /**
- * 2D转3D服务
- * 调用后端API将2D图片转换为3D模型
+ * 2D 转 3D 服务
+ * - convert2Dto3D: 旧同步接口（通用 2D->3D）
+ * - convertSeed3D: 异步提交 + 轮询，避免长连接 504/524
  */
 
 import { logger } from "@/utils/logger";
 import { fetchWithAuth } from "./authFetch";
-// 后端基础地址，可通过 .env 的 VITE_API_BASE_URL 覆盖，默认 http://localhost:4000
+
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "http://localhost:4000";
+
+const SEED3D_POLL_INTERVAL_MS = 3000;
+const SEED3D_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 const buildUrl = (path: string) => {
   const base = API_BASE.replace(/\/+$/, "");
@@ -17,17 +21,39 @@ const buildUrl = (path: string) => {
 };
 
 export interface Convert2Dto3DRequest {
-  imageUrl: string; // OSS原生可访问的图片URL
+  imageUrl?: string;
+  prompt?: string;
+  model?: "3.0" | "3.1";
+  lowPoly?: boolean;
+  sketch?: boolean;
   projectId?: string;
 }
 
 export interface Convert2Dto3DResponse {
   success: boolean;
-  modelUrl: string; // 3D模型访问URL (https://img.tgtai.com/view/{filename})
+  modelUrl: string;
   promptId?: string;
   modelKey?: string;
   error?: string;
 }
+
+type Seed3DSubmitResponse = {
+  success?: boolean;
+  taskId?: string;
+  status?: string;
+  message?: string;
+  error?: string;
+};
+
+type Seed3DTaskStatusResponse = {
+  success?: boolean;
+  taskId?: string;
+  status?: "pending" | "processing" | "succeeded" | "failed" | string;
+  modelUrl?: string;
+  promptId?: string;
+  modelKey?: string;
+  error?: string;
+};
 
 const extractApiErrorMessage = (errorData: unknown): string | null => {
   if (!errorData || typeof errorData !== "object") return null;
@@ -57,19 +83,135 @@ const isInsufficientCreditsMessage = (message: string): boolean => {
   if (!message) return false;
   return (
     message.includes("积分不足") ||
+    message.includes("绉垎涓嶈冻") ||
     /insufficient\s+credits?/i.test(message) ||
     /balance.*insufficient/i.test(message)
   );
 };
 
+const buildInsufficientCreditsMessage = (endpoint: string): string => {
+  if (endpoint.includes("convert-seed3d")) {
+    return "积分不足，Seed 3D 需要 300 积分，请先充值后重试";
+  }
+  return "积分不足，2D转3D 需要 200 积分，请先充值后重试";
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * 将2D图片转换为3D模型
+ * 通用 2D -> 3D 同步接口
  */
 export async function convert2Dto3D(
   request: Convert2Dto3DRequest
 ): Promise<Convert2Dto3DResponse> {
+  return await convertWithEndpoint("/api/ai/convert-2d-to-3d", request);
+}
+
+/**
+ * Seed3D：异步提交并轮询结果（防止代理层 504/524）
+ */
+export async function convertSeed3D(
+  request: Convert2Dto3DRequest
+): Promise<Convert2Dto3DResponse> {
   try {
-    const response = await fetchWithAuth(buildUrl("/api/ai/convert-2d-to-3d"), {
+    const submitResp = await fetchWithAuth(buildUrl("/api/ai/convert-seed3d-async"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!submitResp.ok) {
+      const errorData = await submitResp.json().catch(() => ({}));
+      const rawErrorMessage =
+        extractApiErrorMessage(errorData) || `HTTP ${submitResp.status}`;
+      const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
+        ? buildInsufficientCreditsMessage("/api/ai/convert-seed3d-async")
+        : rawErrorMessage;
+      return {
+        success: false,
+        modelUrl: "",
+        error: errorMessage,
+      };
+    }
+
+    const submitData = (await submitResp.json()) as Seed3DSubmitResponse;
+    const taskId = typeof submitData.taskId === "string" ? submitData.taskId.trim() : "";
+    if (!taskId) {
+      return {
+        success: false,
+        modelUrl: "",
+        error: submitData.error || "Seed 3D 任务创建失败：缺少 taskId",
+      };
+    }
+
+    const deadline = Date.now() + SEED3D_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const statusResp = await fetchWithAuth(
+        buildUrl(`/api/ai/seed3d/task/${encodeURIComponent(taskId)}`),
+        {
+          method: "GET",
+        }
+      );
+
+      if (!statusResp.ok) {
+        const errorData = await statusResp.json().catch(() => ({}));
+        const errorMessage =
+          extractApiErrorMessage(errorData) || `HTTP ${statusResp.status}`;
+        return {
+          success: false,
+          modelUrl: "",
+          error: errorMessage,
+        };
+      }
+
+      const statusData = (await statusResp.json()) as Seed3DTaskStatusResponse;
+      const status = String(statusData.status || "").trim().toLowerCase();
+
+      if (status === "succeeded" && statusData.modelUrl) {
+        return {
+          success: true,
+          modelUrl: statusData.modelUrl,
+          promptId: statusData.promptId,
+          modelKey: statusData.modelKey,
+        };
+      }
+
+      if (status === "failed") {
+        return {
+          success: false,
+          modelUrl: "",
+          error: statusData.error || "Seed 3D 生成失败",
+        };
+      }
+
+      await sleep(SEED3D_POLL_INTERVAL_MS);
+    }
+
+    return {
+      success: false,
+      modelUrl: "",
+      error: "Seed 3D 任务超时，请稍后在历史记录中重试",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    logger.error("Seed3D async conversion error", error);
+
+    return {
+      success: false,
+      modelUrl: "",
+      error: message,
+    };
+  }
+}
+
+async function convertWithEndpoint(
+  endpoint: string,
+  request: Convert2Dto3DRequest
+): Promise<Convert2Dto3DResponse> {
+  try {
+    const response = await fetchWithAuth(buildUrl(endpoint), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -82,10 +224,11 @@ export async function convert2Dto3D(
       const rawErrorMessage =
         extractApiErrorMessage(errorData) || `HTTP ${response.status}`;
       const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
-        ? "积分不足，2D转3D 需要 200 积分，请先充值后重试"
+        ? buildInsufficientCreditsMessage(endpoint)
         : rawErrorMessage;
       logger.error("2D to 3D conversion failed", {
         status: response.status,
+        endpoint,
         error: errorMessage,
       });
 

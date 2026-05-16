@@ -121,15 +121,18 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
-const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0', 'seedance-2.0-fast'];
+const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0'];
+const SEED20_SUPPORTED_MODELS = ['seed-2.0-pro', 'seed-2.0-lite', 'seed-2.0-mini'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P'];
+const SEED20_RESOLUTIONS = ['480P', '720P', '1080P'];
 const SEEDANCE20_INPUT_MODES = [
   'text',
   'first_frame',
   'start_end',
   'reference_images',
+  'smart_frames',
   'reference_video',
   'image_audio',
   'image_video',
@@ -137,8 +140,14 @@ const SEEDANCE20_INPUT_MODES = [
   'image_video_audio',
 ];
 const SEEDANCE20_NOTES = [
-  '当前接入模型 ID: doubao-seedance-2-0-260128 / doubao-seedance-2-0-fast-260128',
-  '节点采用自动模式推导：最多支持 9 张参考图，尾帧/视频/音频各 1 路，运行时按已连接输入自动确定上游 video_mode',
+  '当前接入模型 ID: doubao-seedance-2-0-260128',
+  '节点采用自动模式推导：最多支持 9 张参考图，视频/音频各最多 3 路，运行时按已连接输入自动确定上游 video_mode',
+  '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
+];
+const SEED20_NOTES = [
+  '当前接入模型 ID: doubao-seed-2-0-pro-260215 / doubao-seed-2-0-lite-260428 / doubao-seed-2-0-mini-260428',
+  '按 Seed 2.0 系列模型切换：Pro/Lite/Mini，运行时自动沿用 Seedance 2.0 模式推导',
+  '在线推理限流：企业用户 600 RPM，个人用户 80 RPM；最大并发：企业用户 10',
 ];
 
 @Injectable()
@@ -501,6 +510,7 @@ export class NodeConfigService {
     if (
       config.nodeKey !== 'doubaoVideo' &&
       config.nodeKey !== 'seedance20Video' &&
+      config.nodeKey !== 'seedVideo' &&
       config.nodeKey !== 'wan27Video'
     ) {
       return config;
@@ -545,6 +555,66 @@ export class NodeConfigService {
       return {
         ...config,
         description: '阿里百炼 Wan2.7 I2V 视频生成，走 DashScope 异步任务接口',
+        metadata,
+      };
+    }
+
+    if (config.nodeKey === 'seedVideo') {
+      const existingMetadata =
+        config.metadata && typeof config.metadata === 'object' ? config.metadata : {};
+      const metadata = {
+        ...existingMetadata,
+        vipOnly:
+          typeof (existingMetadata as Record<string, any>)?.vipOnly === 'boolean'
+            ? (existingMetadata as Record<string, any>).vipOnly
+            : true,
+        ...buildVodNodeMetadata(
+          {
+            type: 'seedVideo',
+            provider: 'doubao',
+            modelKeys: ['seedance-2.0'],
+            supportedModels: SEED20_SUPPORTED_MODELS,
+            billingType: 'by_model',
+            modelPricing: {
+              'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+              'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+              'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+            },
+            defaultData: {
+              provider: 'doubao',
+              seedFamily: 'seed2',
+              seedanceModel: 'seed-2.0-lite',
+              clipDuration: 5,
+              resolution: '720P',
+              seedanceMode: 'reference_images',
+              generateAudio: true,
+              camerafixed: false,
+              watermark: false,
+            },
+          },
+          {
+            label: 'Ark Seed 2.0',
+            modelName: 'Seed',
+            modelVersion: '2.0',
+            outputConfig: {
+              aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+              durations: SEEDANCE20_DURATIONS,
+              resolutions: SEED20_RESOLUTIONS,
+              audioGeneration: true,
+            },
+            inputModes: SEEDANCE20_INPUT_MODES,
+            notes: SEED20_NOTES,
+          },
+          {
+            nodeKind: 'ark_video_generation',
+            upstreamDomain: 'ark.cn-beijing.volces.com',
+          },
+        ),
+      };
+
+      return {
+        ...config,
+        description: 'Seed 2.0 系列视频生成，走火山方舟模型管理',
         metadata,
       };
     }
@@ -1180,6 +1250,62 @@ export class NodeConfigService {
         },
       },
       {
+        nodeKey: 'seedVideo',
+        nameZh: 'Seed 2.0视频生成',
+        nameEn: 'Seed 2.0',
+        category: 'video',
+        sortOrder: 31,
+        creditsPerCall: 600,
+        serviceType: 'doubao-video',
+        priceYuan: 6,
+        description: 'Seed 2.0 系列视频生成，走火山方舟模型管理',
+        metadata: {
+          vipOnly: true,
+          ...buildVodNodeMetadata(
+            {
+              type: 'seedVideo',
+              provider: 'doubao',
+              modelKeys: ['seedance-2.0'],
+              supportedModels: SEED20_SUPPORTED_MODELS,
+              billingType: 'by_model',
+              modelPricing: {
+                'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+                'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+                'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+              },
+              defaultData: {
+                provider: 'doubao',
+                seedFamily: 'seed2',
+                seedanceModel: 'seed-2.0-lite',
+                clipDuration: 5,
+                resolution: '720P',
+                seedanceMode: 'reference_images',
+                generateAudio: true,
+                camerafixed: false,
+                watermark: false,
+              },
+            },
+            {
+              label: 'Ark Seed 2.0',
+              modelName: 'Seed',
+              modelVersion: '2.0',
+              outputConfig: {
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEED20_RESOLUTIONS,
+                audioGeneration: true,
+              },
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEED20_NOTES,
+            },
+            {
+              nodeKind: 'ark_video_generation',
+              upstreamDomain: 'ark.cn-beijing.volces.com',
+            },
+          ),
+        },
+      },
+      {
         nodeKey: 'sora2Video',
         nameZh: 'Sora2 Pro视频生成',
         nameEn: 'Sora2 Pro',
@@ -1359,12 +1485,13 @@ export class NodeConfigService {
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 60, serviceType: 'gemini-video-analyze', priceYuan: 0.6, description: '按模型档位和渠道分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
+      { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },
       {
         nodeKey: 'analysis',
         nameZh: 'Image Chat',
         nameEn: 'Image Chat',
         category: 'other',
-        sortOrder: 33,
+        sortOrder: 34,
         creditsPerCall: 10,
         serviceType: 'gemini-2.5-image-analyze',
         priceYuan: 0.1,
@@ -1378,16 +1505,17 @@ export class NodeConfigService {
           nodeKind: 'ai_image_analysis',
         }),
       },
-      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
-      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
-      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
-      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 40, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 43, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 36, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 37, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拼接多张图片，免费' },
+      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '拆分图片，免费' },
+      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
+      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
+      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
+      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
     ];
 
     let created = 0;
@@ -1721,6 +1849,62 @@ export class NodeConfigService {
         },
       },
       {
+        nodeKey: 'seedVideo',
+        nameZh: 'Seed 2.0视频生成',
+        nameEn: 'Seed 2.0',
+        category: 'video',
+        sortOrder: 31,
+        creditsPerCall: 600,
+        serviceType: 'doubao-video',
+        priceYuan: 6,
+        description: 'Seed 2.0 系列视频生成，走火山方舟模型管理',
+        metadata: {
+          vipOnly: true,
+          ...buildVodNodeMetadata(
+            {
+              type: 'seedVideo',
+              provider: 'doubao',
+              modelKeys: ['seedance-2.0'],
+              supportedModels: SEED20_SUPPORTED_MODELS,
+              billingType: 'by_model',
+              modelPricing: {
+                'seed-2.0-pro': { credits: 600, priceYuan: 6 },
+                'seed-2.0-lite': { credits: 150, priceYuan: 1.5 },
+                'seed-2.0-mini': { credits: 100, priceYuan: 1 },
+              },
+              defaultData: {
+                provider: 'doubao',
+                seedFamily: 'seed2',
+                seedanceModel: 'seed-2.0-lite',
+                clipDuration: 5,
+                resolution: '720P',
+                seedanceMode: 'reference_images',
+                generateAudio: true,
+                camerafixed: false,
+                watermark: false,
+              },
+            },
+            {
+              label: 'Ark Seed 2.0',
+              modelName: 'Seed',
+              modelVersion: '2.0',
+              outputConfig: {
+                aspectRatios: SEEDANCE20_ASPECT_RATIOS,
+                durations: SEEDANCE20_DURATIONS,
+                resolutions: SEED20_RESOLUTIONS,
+                audioGeneration: true,
+              },
+              inputModes: SEEDANCE20_INPUT_MODES,
+              notes: SEED20_NOTES,
+            },
+            {
+              nodeKind: 'ark_video_generation',
+              upstreamDomain: 'ark.cn-beijing.volces.com',
+            },
+          ),
+        },
+      },
+      {
         nodeKey: 'sora2Video',
         nameZh: 'Sora2 Pro视频生成',
         nameEn: 'Sora2 Pro',
@@ -1900,12 +2084,13 @@ export class NodeConfigService {
       { nodeKey: 'videoAnalyze', nameZh: '视频分析节点', nameEn: 'Video Analysis', category: 'other', sortOrder: 30, creditsPerCall: 60, serviceType: 'gemini-video-analyze', priceYuan: 0.6, description: '按模型档位和渠道分析视频内容' },
       { nodeKey: 'videoFrameExtract', nameZh: '视频帧提取', nameEn: 'Frame Extract', category: 'other', sortOrder: 31, creditsPerCall: 0, description: '从视频提取帧，免费' },
       { nodeKey: 'videoToGif', nameZh: '视频转GIF', nameEn: 'Video to GIF', category: 'other', sortOrder: 32, creditsPerCall: 30, serviceType: 'video-to-gif', priceYuan: 0.3, description: '将视频片段转换为GIF' },
+      { nodeKey: 'volcEnhanceVideo', nameZh: '视频画质增强', nameEn: 'Video Enhance', category: 'video', sortOrder: 33, creditsPerCall: 0, serviceType: 'volc-enhance-video', priceYuan: 0, description: '视频画质增强（超分）' },
       {
         nodeKey: 'analysis',
         nameZh: 'Image Chat',
         nameEn: 'Image Chat',
         category: 'other',
-        sortOrder: 33,
+        sortOrder: 34,
         creditsPerCall: 10,
         serviceType: 'gemini-2.5-image-analyze',
         priceYuan: 0.1,
@@ -1919,16 +2104,17 @@ export class NodeConfigService {
           nodeKind: 'ai_image_analysis',
         }),
       },
-      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
-      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
-      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
-      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },
-      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 40, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 41, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 43, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 36, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 37, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拼接多张图片，免费' },
+      { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '拆分图片，免费' },
+      { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
+      { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
+      { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
+      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
+      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
+      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
     ];
   }
 

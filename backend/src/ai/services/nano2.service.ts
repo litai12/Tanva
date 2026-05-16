@@ -46,6 +46,29 @@ export class Nano2Service {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private parseNumericCode(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.trunc(value);
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) return Math.trunc(parsed);
+    }
+    return null;
+  }
+
+  private pickErrorMessage(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return '';
+    const source = payload as Record<string, any>;
+    const direct = [source.message, source.msg, source.error?.message, source.error_message];
+    for (const value of direct) {
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return '';
+  }
+
   private async extractErrorDetails(response: Response): Promise<{
     message: string;
     rawBody: string;
@@ -170,6 +193,11 @@ export class Nano2Service {
         }
 
         const data: Nano2TaskResponse = await response.json();
+        const submitCode = this.parseNumericCode((data as any)?.code);
+        if (submitCode !== null && submitCode !== 200) {
+          const submitMessage = this.pickErrorMessage(data) || 'upstream submit rejected';
+          throw new Error(`HTTP ${submitCode} - ${submitMessage}`);
+        }
         if (!Array.isArray(data?.data) || data.data.length === 0 || !data.data[0]?.task_id) {
           throw new Error(`Nano2 submit succeeded but task_id missing. payload=${JSON.stringify(data)}`);
         }
@@ -216,6 +244,21 @@ export class Nano2Service {
     const json = await response.json();
     this.logger.log(`Nano2 task query raw response: ${JSON.stringify(json)}`);
 
+    const codeCandidates = [
+      this.parseNumericCode((json as any)?.code),
+      this.parseNumericCode((json as any)?.statusCode),
+      this.parseNumericCode((json as any)?.data?.code),
+      this.parseNumericCode((json as any)?.error?.code),
+    ];
+    const businessCode = codeCandidates.find((value) => typeof value === 'number') ?? null;
+    if (businessCode !== null && businessCode !== 200) {
+      const message =
+        this.pickErrorMessage((json as any)?.data) ||
+        this.pickErrorMessage(json) ||
+        'upstream task query rejected';
+      throw new Error(`Failed to query task: HTTP ${businessCode}${message ? ` - ${message}` : ''}`);
+    }
+
     // 解析响应 - API 返回格式: { code: 200, data: { status, result: { images: [{ url: [...] }] } } }
     const data = json.data || json;
 
@@ -230,8 +273,16 @@ export class Nano2Service {
 
     this.logger.log(`Nano2 parsed - status: ${data.status}, imageUrl: ${imageUrl || 'not found'}`);
 
+    const rawStatus = String(data.status || '').trim().toLowerCase();
+    const normalizedStatus =
+      rawStatus === 'succeeded' || rawStatus === 'completed' || rawStatus === 'success'
+        ? 'succeeded'
+        : ['failed', 'error', 'timeout', 'cancelled', 'cancel', 'exception'].includes(rawStatus)
+          ? 'failed'
+          : 'processing';
+
     return {
-      status: data.status || 'processing',
+      status: normalizedStatus,
       imageUrl,
     };
   }

@@ -61,6 +61,7 @@ export interface TencentVodAigcTaskStatus {
   taskId: string;
   status?: string;
   imageUrl?: string;
+  fileId?: string;
   requestId?: string;
   raw?: Record<string, any>;
 }
@@ -374,12 +375,14 @@ export class TencentVodAigcService {
     const response = await this.callTencentApi('DescribeTaskDetail', body);
     const status = this.extractStatus(response);
     const imageUrl = this.extractBestImageUrl(response);
+    const fileId = this.findFirstStringByKeys(response, ['FileId', 'OutputFileId', 'MediaFileId']);
     const requestId = this.pickFirstString(response?.RequestId, response?.requestId);
 
     return {
       taskId: normalizedTaskId,
       status,
       imageUrl,
+      fileId,
       requestId,
       raw: response,
     };
@@ -425,22 +428,65 @@ export class TencentVodAigcService {
     };
   }
 
-  async waitForImageResult(taskId: string): Promise<TencentVodAigcTaskStatus> {
-    await this.sleep(this.initialDelayMs);
+  async waitForImageResult(
+    taskId: string,
+    options?: {
+      maxWaitMs?: number;
+      initialDelayMs?: number;
+      pollIntervalMs?: number;
+      maxPollAttempts?: number;
+    },
+  ): Promise<TencentVodAigcTaskStatus> {
+    const initialDelayMs =
+      typeof options?.initialDelayMs === 'number' && Number.isFinite(options.initialDelayMs)
+        ? Math.max(0, Math.floor(options.initialDelayMs))
+        : this.initialDelayMs;
+    const pollIntervalMs =
+      typeof options?.pollIntervalMs === 'number' && Number.isFinite(options.pollIntervalMs)
+        ? Math.max(200, Math.floor(options.pollIntervalMs))
+        : this.pollIntervalMs;
+    const maxPollAttempts =
+      typeof options?.maxPollAttempts === 'number' && Number.isFinite(options.maxPollAttempts)
+        ? Math.max(1, Math.floor(options.maxPollAttempts))
+        : this.maxPollAttempts;
+    const maxWaitMs =
+      typeof options?.maxWaitMs === 'number' && Number.isFinite(options.maxWaitMs)
+        ? Math.max(1_000, Math.floor(options.maxWaitMs))
+        : null;
+
+    const startedAt = Date.now();
+    const withinBudget = (): boolean =>
+      maxWaitMs === null || Date.now() - startedAt < maxWaitMs;
+
+    await this.sleep(initialDelayMs);
 
     let lastResult: TencentVodAigcTaskStatus | null = null;
+    let successWithoutUrlAttempts = 0;
+    const successWithoutUrlRetryLimit = 8;
 
-    for (let attempt = 1; attempt <= this.maxPollAttempts; attempt++) {
+    for (let attempt = 1; attempt <= maxPollAttempts && withinBudget(); attempt++) {
       const result = await this.queryTask(taskId);
       lastResult = result;
       const status = this.normalizeStatus(result.status);
 
       if (status === 'success') {
-        if (result.imageUrl) {
-          return result;
+        const resolvedImageUrl =
+          result.imageUrl ||
+          (await this.tryResolveImageUrlFromFileId(
+            result.fileId ||
+              this.findFirstStringByKeys(result.raw, ['FileId', 'OutputFileId', 'MediaFileId']),
+          ));
+        if (resolvedImageUrl) {
+          return { ...result, imageUrl: resolvedImageUrl };
         }
-        throw new BadGatewayException(
-          `Tencent AIGC task ${taskId} completed but image URL is missing`,
+        successWithoutUrlAttempts += 1;
+        if (successWithoutUrlAttempts >= successWithoutUrlRetryLimit) {
+          throw new BadGatewayException(
+            `Tencent AIGC task ${taskId} completed but image URL is missing after ${successWithoutUrlAttempts} success-state retries`,
+          );
+        }
+        this.logger.warn(
+          `Tencent AIGC task ${taskId} reached success without image URL (attempt ${attempt}/${maxPollAttempts}), continue polling`,
         );
       }
 
@@ -450,11 +496,24 @@ export class TencentVodAigcService {
         );
       }
 
-      await this.sleep(this.pollIntervalMs);
+      if (!withinBudget()) break;
+      await this.sleep(pollIntervalMs);
+    }
+
+    if (this.normalizeStatus(lastResult?.status) === 'success') {
+      throw new BadGatewayException(
+        `Tencent AIGC task ${taskId} completed but image URL is missing after ${maxPollAttempts} polling attempts`,
+      );
+    }
+
+    if (maxWaitMs !== null && !withinBudget()) {
+      throw new ServiceUnavailableException(
+        `Tencent AIGC task ${taskId} polling timeout after ${maxWaitMs}ms. Last status: ${lastResult?.status || 'UNKNOWN'}`,
+      );
     }
 
     throw new ServiceUnavailableException(
-      `Tencent AIGC task ${taskId} polling timeout after ${this.maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
+      `Tencent AIGC task ${taskId} polling timeout after ${maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
     );
   }
 
@@ -793,6 +852,42 @@ export class TencentVodAigcService {
       }
       return undefined;
     } catch {
+      return undefined;
+    }
+  }
+
+  private async tryResolveImageUrlFromFileId(fileId?: string): Promise<string | undefined> {
+    const normalizedFileId = typeof fileId === 'string' ? fileId.trim() : '';
+    if (!normalizedFileId) return undefined;
+
+    const body: Record<string, any> = {
+      FileIds: [normalizedFileId],
+      Filters: ['basicInfo'],
+    };
+    if (typeof this.subAppId === 'number') {
+      body.SubAppId = this.subAppId;
+    }
+
+    try {
+      const response = await this.callTencentApi('DescribeMediaInfos', body);
+      const mediaInfoSet = Array.isArray(response?.MediaInfoSet) ? response.MediaInfoSet : [];
+      const first = mediaInfoSet[0];
+      const directUrl = this.pickFirstString(
+        first?.BasicInfo?.MediaUrl,
+        first?.BasicInfo?.PlayUrl,
+        first?.BasicInfo?.FileUrl,
+        first?.MediaUrl,
+        first?.PlayUrl,
+      );
+      const normalizedDirectUrl = directUrl ? this.normalizeHttpUrl(directUrl) : undefined;
+      if (normalizedDirectUrl) return normalizedDirectUrl;
+
+      return this.extractBestImageUrl(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Tencent DescribeMediaInfos fallback failed for fileId=${normalizedFileId}: ${message}`,
+      );
       return undefined;
     }
   }

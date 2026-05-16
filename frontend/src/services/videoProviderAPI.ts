@@ -1,6 +1,6 @@
 /**
- * 视频生成供应商API调用服务
- * 通过后端代理以避免 CORS 错误并保护 API Key
+ * 瑙嗛鐢熸垚渚涘簲鍟咥PI璋冪敤鏈嶅姟
+ * 閫氳繃鍚庣浠ｇ悊浠ラ伩鍏?CORS 閿欒骞朵繚鎶?API Key
  */
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
@@ -20,7 +20,7 @@ const buildIdempotencyKey = (scope: string): string => {
 
 export interface VideoGenerationRequest {
   prompt?: string;
-  referenceImages?: string[]; // Base64 Data URI 数组
+  referenceImages?: string[]; // Base64 Data URI 鏁扮粍
   audioUrls?: string[];
   referenceVideos?: string[];
   videoMode?: string;
@@ -30,14 +30,14 @@ export interface VideoGenerationRequest {
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;
-  // Vidu 专用参数
+  // Vidu 涓撶敤鍙傛暟
   resolution?: string;
   style?: "general" | "anime";
   offPeak?: boolean;
-  // Seedance 1.5 Pro专用参数
+  // Seedance 1.5 Pro涓撶敤鍙傛暟
   camerafixed?: boolean;
   watermark?: boolean;
-  // Kling/Kling-O1 专用参数
+  // Kling/Kling-O1 涓撶敤鍙傛暟
   mode?: "std" | "pro";
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0" | "kling-o3" | "kling-v3-omni";
@@ -45,8 +45,15 @@ export interface VideoGenerationRequest {
   klingStoryboardScript?: string;
   viduModel?: "q2" | "q3";
   viduModelVariant?: "q2" | "q2-pro" | "q2-turbo" | "q3" | "q3-pro" | "q3-turbo";
-  seedanceModel?: "seedance-1.5-pro" | "seedance-2.0" | "seedance-2.0-fast";
-  // Kling O1 视频编辑专用参数
+  seedanceModel?:
+    | "seedance-1.5-pro"
+    | "seedance-2.0"
+    | "seed-2.0-pro"
+    | "seed-2.0-lite"
+    | "seed-2.0-mini"
+    | "seedance-2.0-fast";
+  seed2InputTier?: "le32k" | "gt32k_le128k" | "gt128k_le256k";
+  // Kling O1 瑙嗛缂栬緫涓撶敤鍙傛暟
   referenceVideo?: string;
   referenceVideoType?: "feature" | "motion" | "expression";
   keepOriginalSound?: "yes" | "no";
@@ -63,8 +70,17 @@ export interface VideoGenerationResult {
   apiUsageId?: string; // 用于失败时退款
 }
 
+export interface VideoTaskQueryResult {
+  status: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  error?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 /**
- * 统一的视频生成接口（后端代理版）
+ * 缁熶竴鐨勮棰戠敓鎴愭帴鍙ｏ紙鍚庣浠ｇ悊鐗堬級
  */
 export async function generateVideoByProvider(
   request: VideoGenerationRequest
@@ -96,12 +112,12 @@ export async function generateVideoByProvider(
 }
 
 /**
- * 查询任务状态（后端代理版）
+ * 鏌ヨ浠诲姟鐘舵€侊紙鍚庣浠ｇ悊鐗堬級
  */
 export async function queryVideoTask(
   provider: VideoProvider,
   taskId: string
-): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string }> {
+): Promise<VideoTaskQueryResult> {
   const apiBaseUrl = getApiBaseUrl();
   const response = await fetchWithAuth(
     `${apiBaseUrl}/api/ai/video-task/${provider}/${taskId}`
@@ -116,35 +132,61 @@ export async function queryVideoTask(
 }
 
 /**
- * 视频任务失败时退还积分
+ * 瑙嗛浠诲姟澶辫触鏃堕€€杩樼Н鍒?
  */
 export async function refundVideoTask(apiUsageId: string): Promise<{ success: boolean; newBalance: number }> {
   const apiBaseUrl = getApiBaseUrl();
-  const response = await fetchWithAuth(
-    `${apiBaseUrl}/api/ai/video-task-refund`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ apiUsageId }),
-    }
-  );
+  const retryDelays = [0, 300, 800];
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `HTTP ${response.status}`);
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+    }
+    try {
+      const response = await fetchWithAuth(
+        `${apiBaseUrl}/api/ai/video-task-refund`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ apiUsageId }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const message = error.message || `HTTP ${response.status}`;
+        // 4xx 通常是业务态（如已成功任务不可退款），不做重试
+        if (response.status >= 400 && response.status < 500) {
+          throw new Error(`NON_RETRY:${message}`);
+        }
+        throw new Error(message);
+      }
+
+      return response.json();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (lastError.message.startsWith("NON_RETRY:")) {
+        throw new Error(lastError.message.replace(/^NON_RETRY:/, ""));
+      }
+      if (attempt === retryDelays.length - 1) {
+        break;
+      }
+    }
   }
 
-  return response.json();
+  throw lastError || new Error("Refund failed");
 }
 
 /**
- * 视频任务成功后确认积分状态（将 pending 标记为 success）
+ * 瑙嗛浠诲姟鎴愬姛鍚庣‘璁ょН鍒嗙姸鎬侊紙灏?pending 鏍囪涓?success锛?
  */
 export async function markVideoTaskSuccess(
   apiUsageId: string,
-  processingTime?: number
+  processingTime?: number,
+  tokenUsage?: { inputTokens?: number; outputTokens?: number }
 ): Promise<{ success: boolean }> {
   const apiBaseUrl = getApiBaseUrl();
   const response = await fetchWithAuth(
@@ -154,7 +196,12 @@ export async function markVideoTaskSuccess(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ apiUsageId, processingTime }),
+      body: JSON.stringify({
+        apiUsageId,
+        processingTime,
+        inputTokens: tokenUsage?.inputTokens,
+        outputTokens: tokenUsage?.outputTokens,
+      }),
     }
   );
 
@@ -165,3 +212,4 @@ export async function markVideoTaskSuccess(
 
   return response.json();
 }
+

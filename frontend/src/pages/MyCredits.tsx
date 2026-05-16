@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle, Crown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { formatCreditBillingRemark } from '@/utils/creditBillingRemark';
 import {
   claimDailyReward,
   getDailyRewardStatus,
@@ -369,7 +370,6 @@ const MyCredits: React.FC = () => {
   }, [filteredTransactions, paidMembershipOrderRecords]);
 
   const displayTransactions = useMemo(() => {
-    const GROUP_GAP_MS = 90 * 1000;
     const MAX_AUTO_GROUP_COUNT = 8;
     const NO_AUTO_GROUP_SERVICE_TYPES = new Set(['gemini-text', 'gemini-prompt-optimize']);
     const normalizeOutputCount = (value: unknown): number => {
@@ -411,40 +411,7 @@ const MyCredits: React.FC = () => {
       const canAutoGroup =
         tx.amount < 0 &&
         !shouldSkipAutoGroup &&
-        (explicitParallelGroupId.length > 0 ||
-          (normalizedCount === 1 && (tx.description || '').trim().length > 0));
-
-      const last = grouped[grouped.length - 1];
-      const lastCount = last ? normalizeOutputCount(last.outputImageCount) : 1;
-      const isWithinContinuousGap =
-        Boolean(last) &&
-        last.__groupTailTs > 0 &&
-        createdAtTs > 0 &&
-        last.__groupTailTs >= createdAtTs &&
-        last.__groupTailTs - createdAtTs <= GROUP_GAP_MS;
-      if (
-        canAutoGroup &&
-        explicitParallelGroupId.length === 0 &&
-        last &&
-        last.__groupKey === groupKey &&
-        isWithinContinuousGap &&
-        lastCount < MAX_AUTO_GROUP_COUNT
-      ) {
-        last.amount += tx.amount;
-        last.balanceAfter = Math.min(last.balanceAfter, tx.balanceAfter);
-        last.outputImageCount =
-          normalizeOutputCount(last.outputImageCount) + normalizedCount;
-        last.__groupTailTs = createdAtTs || last.__groupTailTs;
-        last.id = `${last.id}|${tx.id}`;
-        if (typeof tx.processingTime === 'number' && Number.isFinite(tx.processingTime)) {
-          const current = Number(last.processingTime);
-          last.processingTime =
-            Number.isFinite(current) && current >= 0
-              ? Math.max(current, tx.processingTime)
-              : tx.processingTime;
-        }
-        continue;
-      }
+        explicitParallelGroupId.length > 0;
 
       if (canAutoGroup && explicitParallelGroupId.length > 0) {
         const existed = grouped.find((item) => item.__groupKey === groupKey);
@@ -523,7 +490,7 @@ const MyCredits: React.FC = () => {
   };
 
   const usageByService = useMemo(() => {
-    // 按 serviceName 分组（后端已按 Sora 模型区分），以正确展示 Sora 标准版 vs Pro 版
+    // 鎸?serviceName 鍒嗙粍锛堝悗绔凡鎸?Sora 妯″瀷鍖哄垎锛夛紝浠ユ纭睍绀?Sora 鏍囧噯鐗?vs Pro 鐗?
     const serviceMap = new Map<string, { count: number; credits: number }>();
 
     apiUsage.forEach(record => {
@@ -544,7 +511,7 @@ const MyCredits: React.FC = () => {
       .sort((a, b) => b.credits - a.credits);
   }, [apiUsage]);
 
-  // 今日消耗
+  // 浠婃棩娑堣€?
   const todaySpent = useMemo(() => {
     const today = new Date().toDateString();
     const todaySpend = transactions
@@ -608,7 +575,7 @@ const MyCredits: React.FC = () => {
       </div>
 
       <div className="max-w-4xl px-4 py-5 mx-auto space-y-4">
-        {/* 积分概览卡片 */}
+        {/* 绉垎姒傝鍗＄墖 */}
         <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
           <div>
             <div className="mb-1 text-sm text-blue-100 select-none">
@@ -622,7 +589,7 @@ const MyCredits: React.FC = () => {
             ) : null}
             {membershipCurrent?.entitlement?.membershipStatus === 'active' &&
             membershipCurrent?.entitlement?.currentPeriodEndAt ? (
-              <span className="block sm:mt-0 sm:inline sm:before:content-['·_'] sm:before:mx-1">
+              <span className="block sm:mt-0 sm:inline sm:before:content-['路_'] sm:before:mx-1">
                 会员到期：{new Date(membershipCurrent.entitlement.currentPeriodEndAt).toLocaleDateString(currentLocale)}
               </span>
             ) : null}
@@ -642,14 +609,14 @@ const MyCredits: React.FC = () => {
             </div>
           </div>
           <div className="mt-4 text-xs text-blue-100/90">
-            {t('creditsPage.summary.latestGenerationTime')}：
+            {t('creditsPage.summary.latestGenerationTime')}锛?
             {latestGenerationTime
               ? ` ${new Date(latestGenerationTime).toLocaleString(currentLocale)}`
               : ` ${t('creditsPage.summary.noGenerationYet')}`}
           </div>
         </div>
 
-        {/* 过期积分提示 - 仅普通用户显示 */}
+        {/* 杩囨湡绉垎鎻愮ず - 浠呮櫘閫氱敤鎴锋樉绀?*/}
         {expiringCredits && !expiringCredits.isPaidUser && expiringCredits.totalExpiring > 0 && (
           <div className="flex items-start gap-3 p-4 border bg-amber-50 border-amber-200 rounded-2xl">
             <AlertTriangle className="flex-shrink-0 w-5 h-5 mt-0.5 text-amber-500" />
@@ -683,7 +650,7 @@ const MyCredits: React.FC = () => {
           </div>
         )}
 
-        {/* 付费用户标识 */}
+        {/* 浠樿垂鐢ㄦ埛鏍囪瘑 */}
         {expiringCredits?.isPaidUser && (
           <div className="flex items-center gap-2 p-3 border bg-emerald-50 border-emerald-200 rounded-xl">
             <Zap className="w-4 h-4 text-emerald-500" />
@@ -797,20 +764,19 @@ const MyCredits: React.FC = () => {
                       const modelLabel = typeof tx.model === 'string' && tx.model.trim().length > 0
                         ? tx.model.trim()
                         : t('creditsPage.transactions.notAvailable');
-                      const routeLabel = tx.channel === 'tencent'
+                                            const routeLabel = tx.channel === 'tencent'
                         ? '尊享路线'
                         : tx.channel === 'apimart'
                         ? '普通路线'
                         : tx.channel === '147'
                         ? '官方路线'
                         : null;
-                      const billingRemark = typeof tx.billingRemark === 'string'
-                        ? tx.billingRemark.trim()
-                        : '';
+                      const billingRemark = formatCreditBillingRemark(tx.billingRemark);
                       const outputCount =
                         typeof tx.outputImageCount === 'number' && Number.isFinite(tx.outputImageCount)
                           ? Math.max(1, Math.floor(tx.outputImageCount))
                           : null;
+                      const countPrefix = tx.parallelGroupId ? '批次' : '触发数量';
 
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50/60">
@@ -832,12 +798,12 @@ const MyCredits: React.FC = () => {
                                 <div className="font-medium text-slate-700 truncate max-w-[240px]">{tx.description}</div>
                                 {isMembershipOrder ? (
                                   <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
-                                    {t('creditsPage.transactions.membershipOrder')} · {getPaymentMethodLabel(tx.paymentMethod)}
-                                    {tx.orderNo ? ` · ${tx.orderNo}` : ''}
+                                    {t('creditsPage.transactions.membershipOrder')} 路 {getPaymentMethodLabel(tx.paymentMethod)}
+                                    {tx.orderNo ? ` 路 ${tx.orderNo}` : ''}
                                   </div>
                                 ) : (
                                   <div className="mt-0.5 text-xs leading-4 text-slate-500 max-w-[280px] break-words">
-                                    {outputCount && outputCount > 1 ? `数量：x${outputCount} · ` : ''}{routeLabel ? `渠道：${routeLabel} · ` : ''}{t('creditsPage.transactions.model', { model: modelLabel })}
+                                    {outputCount && outputCount > 1 ? `${countPrefix}：x${outputCount} · ` : ''}{routeLabel ? `渠道：${routeLabel} · ` : ''}{t('creditsPage.transactions.model', { model: modelLabel })}
                                   </div>
                                 )}
                                 {!isMembershipOrder && billingRemark && (
@@ -865,7 +831,7 @@ const MyCredits: React.FC = () => {
                             isMembershipOrder ? "text-violet-600" : isPositive ? "text-green-600" : "text-orange-600"
                           )}>
                             {isMembershipOrder
-                              ? `-¥${formatMoney(tx.paymentAmount)}`
+                              ? `-楼${formatMoney(tx.paymentAmount)}`
                               : `${isPositive ? '+' : ''}${tx.amount}`}
                           </td>
                           <td className="px-4 py-3 text-right font-semibold text-blue-600 whitespace-nowrap">
@@ -895,3 +861,5 @@ const MyCredits: React.FC = () => {
 };
 
 export default MyCredits;
+
+

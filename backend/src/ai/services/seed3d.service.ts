@@ -1,15 +1,15 @@
-﻿import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Readable } from 'node:stream';
 import { OssService } from '../../oss/oss.service';
 
 @Injectable()
-export class Convert2Dto3DService {
-  private readonly logger = new Logger(Convert2Dto3DService.name);
+export class Seed3DService {
+  private readonly logger = new Logger(Seed3DService.name);
   private readonly submitUrl: string;
   private readonly queryUrl: string;
   private readonly apiKey: string;
-  private readonly modelVersion: string;
+  private readonly modelId: string;
   private readonly pollIntervalMs: number;
   private readonly maxWaitMs: number;
 
@@ -17,18 +17,28 @@ export class Convert2Dto3DService {
     private readonly config: ConfigService,
     private readonly oss: OssService,
   ) {
-    const baseUrl =
-      (this.config.get<string>('HUNYUAN_3D_BASE_URL') || 'https://api.ai3d.cloud.tencent.com').replace(
-        /\/+$/,
-        '',
-      );
+    const baseUrl = (
+      this.config.get<string>('SEED3D_BASE_URL') ||
+      this.config.get<string>('ARK_BASE_URL') ||
+      'https://ark.cn-beijing.volces.com/api/v3'
+    ).replace(/\/+$/, '');
 
-    this.submitUrl = `${baseUrl}/v1/ai3d/submit`;
-    this.queryUrl = `${baseUrl}/v1/ai3d/query`;
-    this.apiKey = (this.config.get<string>('HUNYUAN_3D_API_KEY') || '').trim();
-    this.modelVersion = (this.config.get<string>('HUNYUAN_3D_MODEL') || '3.1').trim();
-    this.pollIntervalMs = Number(this.config.get<string>('HUNYUAN_3D_POLL_INTERVAL_MS') || 5000);
-    this.maxWaitMs = Number(this.config.get<string>('HUNYUAN_3D_MAX_WAIT_MS') || 10 * 60 * 1000);
+    this.submitUrl = `${baseUrl}/contents/generations/tasks`;
+    this.queryUrl = `${baseUrl}/contents/generations/tasks`;
+    this.apiKey = (
+      this.config.get<string>('SEED3D_API_KEY') ||
+      this.config.get<string>('ARK_API_KEY') ||
+      ''
+    ).trim();
+    this.modelId = (
+      this.config.get<string>('SEED3D_MODEL') || 'doubao-seed3d-2-0-260328'
+    ).trim();
+    this.pollIntervalMs = Number(
+      this.config.get<string>('SEED3D_POLL_INTERVAL_MS') || 5000,
+    );
+    this.maxWaitMs = Number(
+      this.config.get<string>('SEED3D_MAX_WAIT_MS') || 15 * 60 * 1000,
+    );
   }
 
   async convert2Dto3D(options: {
@@ -41,10 +51,13 @@ export class Convert2Dto3DService {
     userId?: string;
   }): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
     if (!this.apiKey) {
-      throw new ServiceUnavailableException('HUNYUAN_3D_API_KEY is not configured');
+      throw new ServiceUnavailableException(
+        'SEED3D_API_KEY/ARK_API_KEY is not configured',
+      );
     }
 
-    const imageUrl = typeof options.imageUrl === 'string' ? options.imageUrl.trim() : '';
+    const imageUrl =
+      typeof options.imageUrl === 'string' ? options.imageUrl.trim() : '';
     const prompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
     if (!imageUrl && !prompt) {
       throw new ServiceUnavailableException('Either prompt or image URL is required');
@@ -60,6 +73,7 @@ export class Convert2Dto3DService {
       lowPoly: options.lowPoly,
       sketch: options.sketch,
     });
+
     const upstreamModelUrl = await this.waitForModelUrl(jobId, imageUrl);
     const persisted = await this.persistModelToOss(upstreamModelUrl, {
       projectId: options.projectId,
@@ -71,6 +85,168 @@ export class Convert2Dto3DService {
       promptId: jobId,
       modelKey: persisted?.key,
     };
+  }
+
+  private buildTaskText(params: {
+    prompt?: string;
+    model?: '3.0' | '3.1';
+    lowPoly?: boolean;
+    sketch?: boolean;
+  }): string {
+    const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
+    if (prompt) return prompt;
+
+    const args: string[] = [];
+    if (params.lowPoly === true || params.model === '3.0') {
+      args.push('--subdivisionlevel low');
+    } else {
+      args.push('--subdivisionlevel medium');
+    }
+    args.push('--fileformat glb');
+    if (params.sketch) {
+      args.push('--request_type 3');
+    }
+    return args.join(' ');
+  }
+
+  private async submitJob(params: {
+    imageUrl?: string;
+    prompt?: string;
+    model?: '3.0' | '3.1';
+    lowPoly?: boolean;
+    sketch?: boolean;
+  }): Promise<string> {
+    const imageUrl =
+      typeof params.imageUrl === 'string' ? params.imageUrl.trim() : '';
+    const text = this.buildTaskText(params);
+
+    const content: Array<Record<string, any>> = [];
+    if (text) {
+      content.push({ type: 'text', text });
+    }
+    if (imageUrl) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: imageUrl },
+      });
+    }
+    if (!content.length) {
+      throw new ServiceUnavailableException('Seed3D request content is empty');
+    }
+
+    const payload = {
+      model: this.modelId,
+      content,
+    };
+
+    const response = await this.requestJson(this.submitUrl, 'POST', payload);
+    const upstreamError = this.extractUpstreamError(response);
+    if (upstreamError) {
+      throw new ServiceUnavailableException(
+        `Seed3D submit failed: ${upstreamError}`,
+      );
+    }
+
+    const jobId = this.extractJobId(response);
+    if (!jobId) {
+      this.logger.error(
+        `Seed3D submit missing task id, response=${JSON.stringify(response)}`,
+      );
+      throw new ServiceUnavailableException('Seed3D submit failed: missing task id');
+    }
+    return jobId;
+  }
+
+  private async waitForModelUrl(
+    jobId: string,
+    sourceImageUrl: string,
+  ): Promise<string> {
+    const deadline = Date.now() + this.maxWaitMs;
+    const taskUrl = `${this.queryUrl}/${encodeURIComponent(jobId)}`;
+
+    while (Date.now() < deadline) {
+      const response = await this.requestJson(taskUrl, 'GET');
+      const status = this.extractStatus(response);
+      const modelUrl = this.extractModelUrl(response, sourceImageUrl);
+      if (modelUrl) return modelUrl;
+
+      if (status) {
+        if (this.isFailureStatus(status)) {
+          const upstreamError = this.extractUpstreamError(response);
+          throw new ServiceUnavailableException(
+            upstreamError
+              ? `Seed3D task failed: ${upstreamError}`
+              : `Seed3D task failed: ${status}`,
+          );
+        }
+        if (this.isSuccessStatus(status)) {
+          this.logger.error(
+            `Seed3D task succeeded but model URL missing, jobId=${jobId}, response=${JSON.stringify(
+              response,
+            )}`,
+          );
+          throw new ServiceUnavailableException(
+            'Seed3D task finished but model URL is missing',
+          );
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
+    }
+
+    throw new ServiceUnavailableException(`Seed3D task timeout after ${this.maxWaitMs}ms`);
+  }
+
+  private async requestJson(
+    url: string,
+    method: 'GET' | 'POST',
+    body?: Record<string, any>,
+  ): Promise<any> {
+    const timeoutMs = Math.max(30_000, Math.min(this.maxWaitMs, 180_000));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.normalizeApiKey(this.apiKey)}`,
+          ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(method === 'POST' ? { body: JSON.stringify(body || {}) } : {}),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        this.logger.error(
+          `Seed3D API error: ${response.status} ${response.statusText} ${errorText}`,
+        );
+        throw new ServiceUnavailableException(
+          `Seed3D API request failed: ${response.status} ${response.statusText}${
+            errorText ? ` - ${errorText}` : ''
+          }`,
+        );
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ServiceUnavailableException('Seed3D API request timeout');
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Seed3D API request failed: ${message}`, error);
+      throw new ServiceUnavailableException(`Seed3D API request failed: ${message}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private normalizeApiKey(value: string): string {
+    return value.replace(/^Bearer\s+/i, '').trim();
   }
 
   private sanitizePathSegment(value?: string): string {
@@ -122,7 +298,9 @@ export class Convert2Dto3DService {
     try {
       const response = await fetch(modelUrl, { signal: controller.signal });
       if (!response.ok) {
-        throw new ServiceUnavailableException(`Failed to fetch 3D model from upstream: HTTP ${response.status}`);
+        throw new ServiceUnavailableException(
+          `Failed to fetch 3D model from upstream: HTTP ${response.status}`,
+        );
       }
 
       const body = response.body;
@@ -139,8 +317,8 @@ export class Convert2Dto3DService {
         ? `projects/${safeProjectId}/models`
         : safeUserId
         ? `projects/${safeUserId}/generated-models`
-        : 'ai/models/hunyuan';
-      const key = `${keyPrefix}/2d-to-3d-${Date.now()}-${random}.${extension}`;
+        : 'ai/models/seed3d';
+      const key = `${keyPrefix}/seed3d-${Date.now()}-${random}.${extension}`;
 
       const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
       const nodeStream =
@@ -156,212 +334,19 @@ export class Convert2Dto3DService {
         throw new ServiceUnavailableException('Upload 3D model to OSS failed: empty URL');
       }
 
-      this.logger.log(`2D->3D model persisted to OSS: ${uploaded.url}`);
+      this.logger.log(`Seed3D model persisted to OSS: ${uploaded.url}`);
       return { url: uploaded.url, key: uploaded.key };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Persist 2D->3D model to OSS failed: ${message}`);
-      throw new ServiceUnavailableException(`Persist 2D->3D model to OSS failed: ${message}`);
+      this.logger.error(`Persist Seed3D model to OSS failed: ${message}`);
+      throw new ServiceUnavailableException(`Persist Seed3D model to OSS failed: ${message}`);
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  private resolveModelVersion(model?: string): '3.0' | '3.1' {
-    const candidate = (model || this.modelVersion || '3.1').trim();
-    return candidate === '3.0' ? '3.0' : '3.1';
-  }
-
-  private async submitJob(params: {
-    imageUrl?: string;
-    prompt?: string;
-    model?: '3.0' | '3.1';
-    lowPoly?: boolean;
-    sketch?: boolean;
-  }): Promise<string> {
-    const imageUrl = typeof params.imageUrl === 'string' ? params.imageUrl.trim() : '';
-    const prompt = typeof params.prompt === 'string' ? params.prompt.trim() : '';
-    const model = this.resolveModelVersion(params.model);
-    const lowPoly = model === '3.0' && typeof params.lowPoly === 'boolean' ? params.lowPoly : undefined;
-    const sketch = model === '3.0' && typeof params.sketch === 'boolean' ? params.sketch : undefined;
-
-    const basePayload: Record<string, any> = {
-      Model: model,
-    };
-    if (prompt) basePayload.Prompt = prompt;
-    if (lowPoly !== undefined) basePayload.LowPoly = lowPoly;
-    if (sketch !== undefined) basePayload.Sketch = sketch;
-
-    const payloadCandidates: Array<Record<string, any>> = [];
-    const seen = new Set<string>();
-    const pushPayload = (payload: Record<string, any>) => {
-      const key = JSON.stringify(payload);
-      if (seen.has(key)) return;
-      seen.add(key);
-      payloadCandidates.push(payload);
-    };
-
-    if (imageUrl) {
-      pushPayload({
-        ...basePayload,
-        ImageUrl: imageUrl,
-      });
-      pushPayload({
-        ...basePayload,
-        ImageUrl: {
-          Url: imageUrl,
-        },
-      });
-      pushPayload({
-        ...basePayload,
-        ImageUrl: {
-          url: imageUrl,
-        },
-      });
-    }
-
-    if (prompt) {
-      pushPayload({
-        ...basePayload,
-      });
-    }
-
-    const fallbackNoModelPayload = { ...basePayload };
-    delete fallbackNoModelPayload.Model;
-    if (Object.keys(fallbackNoModelPayload).length > 0) {
-      if (imageUrl) {
-        pushPayload({
-          ...fallbackNoModelPayload,
-          ImageUrl: imageUrl,
-        });
-      }
-      if (prompt) {
-        pushPayload({
-          ...fallbackNoModelPayload,
-        });
-      }
-    }
-
-    let lastError: unknown;
-    for (let i = 0; i < payloadCandidates.length; i++) {
-      const payload = payloadCandidates[i];
-      try {
-        const response = await this.fetchJson(this.submitUrl, payload);
-        const upstreamError = this.extractTencentError(response);
-        if (upstreamError?.code) {
-          if (upstreamError.code === 'ResourceInsufficient') {
-            throw new ServiceUnavailableException(
-              `Hunyuan resource insufficient: ${upstreamError.message || '资源不足，请检查 API Key 归属账号的混元 3D 可用额度/配额'}`,
-            );
-          }
-          throw new ServiceUnavailableException(
-            `Hunyuan submit failed: ${upstreamError.code}${upstreamError.message ? ` - ${upstreamError.message}` : ''}`,
-          );
-        }
-        const jobId = this.extractJobId(response);
-        if (jobId) {
-          return jobId;
-        }
-        this.logger.warn(
-          `Hunyuan submit attempt ${i + 1}/${payloadCandidates.length} missing JobId, payload=${JSON.stringify(
-            payload,
-          )}, response=${JSON.stringify(response)}`,
-        );
-      } catch (error) {
-        lastError = error;
-        this.logger.warn(
-          `Hunyuan submit attempt ${i + 1}/${payloadCandidates.length} failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    if (lastError instanceof ServiceUnavailableException) {
-      throw lastError;
-    }
-    throw new ServiceUnavailableException('Hunyuan submit failed: missing JobId');
-  }
-  private async waitForModelUrl(jobId: string, sourceImageUrl: string): Promise<string> {
-    const deadline = Date.now() + this.maxWaitMs;
-
-    while (Date.now() < deadline) {
-      const response = await this.fetchJson(this.queryUrl, { JobId: jobId });
-      const modelUrl = this.extractModelUrl(response, sourceImageUrl);
-      if (modelUrl) {
-        return modelUrl;
-      }
-
-      const status = this.extractStatus(response);
-      if (status) {
-        if (this.isFailureStatus(status)) {
-          throw new ServiceUnavailableException(`Hunyuan task failed: ${status}`);
-        }
-        if (this.isSuccessStatus(status)) {
-          this.logger.error(
-            `Hunyuan task marked success but no model url found, jobId=${jobId}, response=${JSON.stringify(
-              response,
-            )}`,
-          );
-          throw new ServiceUnavailableException('Hunyuan task finished but model URL is missing');
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
-    }
-
-    throw new ServiceUnavailableException(`Hunyuan task timeout after ${this.maxWaitMs}ms`);
-  }
-
-  private async fetchJson(url: string, body: Record<string, any>): Promise<any> {
-    const timeoutMs = Math.max(30_000, Math.min(this.maxWaitMs, 180_000));
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: this.normalizeApiKey(this.apiKey),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        this.logger.error(`Hunyuan API error: ${response.status} ${response.statusText} ${errorText}`);
-        throw new ServiceUnavailableException(
-          `Hunyuan API request failed: ${response.status} ${response.statusText}${
-            errorText ? ` - ${errorText}` : ''
-          }`,
-        );
-      }
-
-      return await response.json();
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new ServiceUnavailableException('Hunyuan API request timeout');
-      }
-
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Hunyuan API request failed: ${message}`, error);
-      throw new ServiceUnavailableException(`Hunyuan API request failed: ${message}`);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  private normalizeApiKey(value: string): string {
-    return value.replace(/^Bearer\s+/i, '').trim();
   }
 
   private extractJobId(payload: any): string | null {
-    const candidateKeys = ['JobId', 'jobId', 'job_id', 'TaskId', 'taskId', 'task_id'];
+    const candidateKeys = ['id', 'task_id', 'taskId', 'JobId', 'jobId', 'job_id'];
     for (const key of candidateKeys) {
       const value = this.readValueByKey(payload, key);
       if (typeof value === 'string' && value.trim()) return value.trim();
@@ -371,7 +356,7 @@ export class Convert2Dto3DService {
   }
 
   private extractStatus(payload: any): string | null {
-    const candidateKeys = ['Status', 'status', 'TaskStatus', 'taskStatus', 'State', 'state'];
+    const candidateKeys = ['status', 'Status', 'task_status', 'taskStatus', 'state'];
     for (const key of candidateKeys) {
       const value = this.readValueByKey(payload, key);
       if (typeof value === 'string' && value.trim()) return value.trim();
@@ -393,7 +378,9 @@ export class Convert2Dto3DService {
     const candidates: string[] = [];
     this.collectUrls(payload, candidates);
     const uniqueCandidates = Array.from(new Set(candidates));
-    const modelCandidates = uniqueCandidates.filter((value) => this.isLikelyModelUrl(value, sourceImageUrl));
+    const modelCandidates = uniqueCandidates.filter((value) =>
+      this.isLikelyModelUrl(value, sourceImageUrl),
+    );
     if (!modelCandidates.length) return null;
 
     modelCandidates.sort((a, b) => this.scoreModelUrl(b) - this.scoreModelUrl(a));
@@ -402,18 +389,15 @@ export class Convert2Dto3DService {
 
   private collectUrls(node: any, bucket: string[]): void {
     if (!node) return;
-
     if (typeof node === 'string') {
       const trimmed = node.trim();
       if (/^https?:\/\//i.test(trimmed)) bucket.push(trimmed);
       return;
     }
-
     if (Array.isArray(node)) {
       for (const item of node) this.collectUrls(item, bucket);
       return;
     }
-
     if (typeof node !== 'object') return;
 
     for (const [key, value] of Object.entries(node as Record<string, any>)) {
@@ -439,7 +423,7 @@ export class Convert2Dto3DService {
     const imageExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
     if (imageExt.some((ext) => pathLower.includes(ext) || lower.includes(ext))) return false;
 
-    return /model|mesh|download|file/i.test(lower);
+    return /model|mesh|download|file|artifact|resource/i.test(lower);
   }
 
   private urlPathLower(url: string): string {
@@ -453,7 +437,6 @@ export class Convert2Dto3DService {
   private scoreModelUrl(url: string): number {
     const lower = url.toLowerCase();
     const pathLower = this.urlPathLower(url);
-
     const extScores: Array<[string, number]> = [
       ['.glb', 100],
       ['.gltf', 95],
@@ -465,11 +448,9 @@ export class Convert2Dto3DService {
       ['.ply', 55],
       ['.zip', 10],
     ];
-
     for (const [ext, score] of extScores) {
       if (pathLower.includes(ext) || lower.includes(ext)) return score;
     }
-
     if (/thumbnail|preview|poster|cover/i.test(lower)) return -20;
 
     let score = 30;
@@ -480,7 +461,6 @@ export class Convert2Dto3DService {
 
   private readValueByKey(node: any, key: string): unknown {
     if (!node) return undefined;
-
     if (Array.isArray(node)) {
       for (const item of node) {
         const found = this.readValueByKey(item, key);
@@ -488,30 +468,37 @@ export class Convert2Dto3DService {
       }
       return undefined;
     }
-
     if (typeof node !== 'object') return undefined;
 
     if (Object.prototype.hasOwnProperty.call(node, key)) {
       return (node as Record<string, unknown>)[key];
     }
-
     for (const value of Object.values(node as Record<string, unknown>)) {
       const found = this.readValueByKey(value, key);
       if (found !== undefined) return found;
     }
-
     return undefined;
   }
 
-  private extractTencentError(payload: any): { code?: string; message?: string } | null {
+  private extractUpstreamError(payload: any): string | null {
     if (!payload || typeof payload !== 'object') return null;
-    const response = (payload as any).Response;
-    const error = response?.Error;
-    if (!error || typeof error !== 'object') return null;
-    const code = typeof error.Code === 'string' ? error.Code : undefined;
-    const message = typeof error.Message === 'string' ? error.Message : undefined;
-    if (!code && !message) return null;
-    return { code, message };
+
+    const directError = (payload as any).error;
+    if (directError) {
+      if (typeof directError === 'string' && directError.trim()) return directError.trim();
+      if (typeof directError?.message === 'string' && directError.message.trim()) {
+        const code =
+          typeof directError?.code === 'string' && directError.code.trim()
+            ? directError.code.trim()
+            : '';
+        return code
+          ? `${code} - ${directError.message.trim()}`
+          : directError.message.trim();
+      }
+    }
+
+    const topMessage =
+      typeof (payload as any).message === 'string' ? (payload as any).message.trim() : '';
+    return topMessage || null;
   }
 }
-

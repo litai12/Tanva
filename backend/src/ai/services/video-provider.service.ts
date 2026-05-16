@@ -71,7 +71,12 @@ const MANAGED_TENCENT_VIDEO_MODEL_META: Record<
 
 type ViduManagedModelVersion = "q2" | "q3";
 
-type SeedanceManagedModelVersion = "1.5-pro" | "2.0" | "2.0-fast";
+type SeedanceManagedModelVersion =
+  | "1.5-pro"
+  | "2.0"
+  | "2.0-pro"
+  | "2.0-lite"
+  | "2.0-mini";
 
 type ManagedV2ExecutionBranch = "legacy" | "v2_request_profile";
 
@@ -100,13 +105,48 @@ type ManagedV2ParsedTask = {
 
 const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersion): string => {
   switch (modelVersion) {
+    case "2.0-pro":
+      return "doubao-seedance-2-0-260128";
+    case "2.0-lite":
+      return "doubao-seedance-2-0-fast-260128";
+    case "2.0-mini":
+      return "doubao-seedance-2-0-fast-260128";
     case "2.0":
       return "doubao-seedance-2-0-260128";
-    case "2.0-fast":
-      return "doubao-seedance-2-0-fast-260128";
     default:
       return "doubao-seedance-1-5-pro-251215";
   }
+};
+
+const normalizeSeedanceUpstreamModelIdAlias = (
+  rawModelId: string,
+): string => {
+  const normalized = rawModelId.trim().toLowerCase();
+  if (!normalized) return rawModelId;
+
+  if (normalized === "doubao-seed-2-0-pro") {
+    return "doubao-seedance-2-0-260128";
+  }
+  if (normalized === "doubao-seed-2-0-lite") {
+    return "doubao-seedance-2-0-fast-260128";
+  }
+  if (normalized === "doubao-seed-2-0-mini") {
+    return "doubao-seedance-2-0-fast-260128";
+  }
+  if (normalized === "doubao-seed-2-0-pro-260215") {
+    return "doubao-seedance-2-0-260128";
+  }
+  if (
+    normalized === "doubao-seed-2-0-lite-260428" ||
+    normalized === "doubao-seed-2-0-mini-260428"
+  ) {
+    return "doubao-seedance-2-0-fast-260128";
+  }
+  if (normalized === "doubao-seedance-2-0") {
+    return "doubao-seedance-2-0-260128";
+  }
+
+  return rawModelId;
 };
 
 /**
@@ -767,7 +807,7 @@ export class VideoProviderService {
   async queryTask(
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
-  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; inputTokens?: number; outputTokens?: number }> {
     if (taskId.startsWith(this.managedV2TaskPrefix)) {
       return this.queryManagedV2Task(taskId);
     }
@@ -1158,7 +1198,7 @@ export class VideoProviderService {
     }
 
     // Object items: apply asset:// substitution for sd2 active assets, fallback to HTTPS URL
-    const isSeedance20 = modelKey === "seedance-2.0" || modelKey === "seedance-2.0-fast";
+    const isSeedance20 = modelKey === "seedance-2.0";
     for (const item of objectItems) {
       let url: string;
       if (isSeedance20 && item.volcAssetStatus === "active" && item.volcAssetId) {
@@ -1396,12 +1436,19 @@ export class VideoProviderService {
         : "720P";
     const resolvedModelVersion =
       (vendorConfig.modelVersion || fallbackModelVersion).trim().toLowerCase();
-    const resolution =
-      resolvedModelVersion === "1.5-pro"
-        ? "720P"
-        : requestedResolution === "480P" || requestedResolution === "720P"
-        ? requestedResolution
-        : "720P";
+    const resolution = (() => {
+      if (resolvedModelVersion === "1.5-pro") return "720P";
+      const allow1080 =
+        resolvedModelVersion === "2.0" || resolvedModelVersion === "2.0-pro";
+      if (
+        requestedResolution === "480P" ||
+        requestedResolution === "720P" ||
+        (allow1080 && requestedResolution === "1080P")
+      ) {
+        return requestedResolution;
+      }
+      return "720P";
+    })();
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
         ? resolvedModelVersion === "1.5-pro"
@@ -1502,6 +1549,29 @@ export class VideoProviderService {
     const headers = (this.renderTemplateValue(stage.headers || {}, context) || {}) as Record<string, any>;
     const query = (this.renderTemplateValue(stage.query || {}, context) || {}) as Record<string, any>;
     const body = this.renderTemplateValue(stage.body, context);
+    if (
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, any>).model === "string"
+    ) {
+      const modelKey = String(context?.vendor?.modelKey || "").trim().toLowerCase();
+      const vendorKey = String(context?.vendor?.vendorKey || "").trim().toLowerCase();
+      if (modelKey === "seedance-2.0" && vendorKey === "seedance_api") {
+        const before = String((body as Record<string, any>).model || "").trim();
+        if (before) {
+          const after = normalizeSeedanceUpstreamModelIdAlias(before);
+          if (after !== before) {
+            this.logger.warn(
+              `[Seedance2] normalize v2 request model alias in-stage: ${before} -> ${after}`,
+            );
+            (body as Record<string, any>).model = after;
+          }
+          this.logger.log(
+            `[Seedance2] v2 create/query model=${String((body as Record<string, any>).model || "").trim()}`,
+          );
+        }
+      }
+    }
 
     const finalUrl = new URL(url);
     Object.entries(query).forEach(([key, value]) => {
@@ -1509,29 +1579,68 @@ export class VideoProviderService {
       finalUrl.searchParams.set(key, String(value));
     });
 
-    const response = await fetchWithTimeout(finalUrl.toString(), {
-      method,
-      headers: Object.fromEntries(
-        Object.entries(headers).map(([key, value]) => [key, String(value)])
-      ),
-      body:
-        body === undefined || body === null || method === "GET"
-          ? undefined
-          : JSON.stringify(body),
-      timeout: method === "GET" ? QUERY_FETCH_TIMEOUT : DEFAULT_FETCH_TIMEOUT,
-    });
+    const requestHeaders = Object.fromEntries(
+      Object.entries(headers).map(([key, value]) => [key, String(value)])
+    );
+    const timeout = method === "GET" ? QUERY_FETCH_TIMEOUT : DEFAULT_FETCH_TIMEOUT;
+    const runStageRequest = async (bodyOverride: any) => {
+      const response = await fetchWithTimeout(finalUrl.toString(), {
+        method,
+        headers: requestHeaders,
+        body:
+          bodyOverride === undefined || bodyOverride === null || method === "GET"
+            ? undefined
+            : JSON.stringify(bodyOverride),
+        timeout,
+      });
+      const raw = await response.json().catch(async () => ({
+        message: await response.text().catch(() => ""),
+      }));
+      return { response, raw };
+    };
 
-    const raw = await response.json().catch(async () => ({
-      message: await response.text().catch(() => ""),
-    }));
+    let { response, raw } = await runStageRequest(body);
 
     if (!response.ok) {
-      throw new Error(
+      const errorMessage =
         this.readMappedValue(raw, stage.responseMapping?.error) ||
-          raw?.error?.message ||
-          raw?.message ||
-          `HTTP ${response.status}`
-      );
+        raw?.error?.message ||
+        raw?.message ||
+        `HTTP ${response.status}`;
+      const modelKey = String(context?.vendor?.modelKey || "").trim().toLowerCase();
+      const vendorKey = String(context?.vendor?.vendorKey || "").trim().toLowerCase();
+      const currentModel =
+        body && typeof body === "object" ? String((body as Record<string, any>).model || "").trim() : "";
+      const currentModelNormalized = currentModel.toLowerCase();
+      const shouldRetryWithSeedance20Base =
+        method !== "GET" &&
+        modelKey === "seedance-2.0" &&
+        vendorKey === "seedance_api" &&
+        currentModelNormalized === "doubao-seedance-2-0-fast-260128" &&
+        /model|not valid|invalid|not support|does not support/i.test(String(errorMessage || ""));
+
+      if (shouldRetryWithSeedance20Base) {
+        const retryBody =
+          body && typeof body === "object"
+            ? { ...(body as Record<string, any>), model: "doubao-seedance-2-0-260128" }
+            : body;
+        this.logger.warn(
+          `[Seedance2] retry create with fallback model: ${currentModel} -> doubao-seedance-2-0-260128`,
+        );
+        const retried = await runStageRequest(retryBody);
+        response = retried.response;
+        raw = retried.raw;
+        if (!response.ok) {
+          throw new Error(
+            this.readMappedValue(raw, stage.responseMapping?.error) ||
+              raw?.error?.message ||
+              raw?.message ||
+              `HTTP ${response.status}`
+          );
+        }
+      } else {
+        throw new Error(errorMessage);
+      }
     }
 
     const mapped = Object.fromEntries(
@@ -1563,8 +1672,37 @@ export class VideoProviderService {
       const result = await this.tencentVodAigcService.createVideoTask(payload);
       rawTaskId = String(result.taskId || "").trim();
     } else {
-      const { mapped } = await this.executeManagedV2Stage(profile.create, context);
-      rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      if (
+        modelKey === "seedance-2.0" &&
+        route.vendor.vendorKey === "seedance_api"
+      ) {
+        const renderedBody = this.renderTemplateValue(profile.create.body || {}, context) as Record<string, any>;
+        if (typeof renderedBody?.model === "string" && renderedBody.model.trim().length > 0) {
+          const before = renderedBody.model.trim();
+          const after = normalizeSeedanceUpstreamModelIdAlias(before);
+          if (after !== before) {
+            this.logger.warn(
+              `[Seedance2] normalize upstream model alias: ${before} -> ${after}`,
+            );
+            renderedBody.model = after;
+          }
+        }
+        const normalizedProfile = {
+          ...profile,
+          create: {
+            ...profile.create,
+            body: renderedBody,
+          },
+        } as ManagedV2RequestProfile;
+        const { mapped } = await this.executeManagedV2Stage(
+          normalizedProfile.create!,
+          context,
+        );
+        rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      } else {
+        const { mapped } = await this.executeManagedV2Stage(profile.create, context);
+        rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      }
     }
 
     if (!rawTaskId) {
@@ -1776,11 +1914,47 @@ export class VideoProviderService {
     label: string;
   } {
     const normalized = String(options.seedanceModel || "").trim().toLowerCase();
+    if (
+      normalized === "seed-2.0-pro" ||
+      normalized === "seed-2-0-pro" ||
+      normalized === "seedance-2.0-pro" ||
+      normalized === "2.0-pro"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-pro",
+        label: "Seed 2.0 Pro",
+      };
+    }
+    if (
+      normalized === "seed-2.0-lite" ||
+      normalized === "seedance-2.0-lite" ||
+      normalized === "seed-2-0-lite" ||
+      normalized === "2.0-lite"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-lite",
+        label: "Seed 2.0 Lite",
+      };
+    }
+    if (
+      normalized === "seed-2.0-mini" ||
+      normalized === "seed-2-0-mini" ||
+      normalized === "seedance-2.0-mini" ||
+      normalized === "2.0-mini"
+    ) {
+      return {
+        modelKey: "seedance-2.0",
+        modelVersion: "2.0-mini",
+        label: "Seed 2.0 Mini",
+      };
+    }
     if (normalized === "seedance-2.0-fast" || normalized === "2.0-fast") {
       return {
         modelKey: "seedance-2.0",
-        modelVersion: "2.0-fast",
-        label: "Seedance 2.0 Fast",
+        modelVersion: "2.0",
+        label: "Seedance 2.0",
       };
     }
     if (normalized === "seedance-2.0" || normalized === "2.0") {
@@ -2199,7 +2373,11 @@ export class VideoProviderService {
       typeof options.prompt === "string" ? options.prompt.trim() : "";
     let promptText = normalizedPrompt;
     const params: string[] = [];
-    const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-fast";
+    const isSeedance2Model =
+      modelVersion === "2.0" ||
+      modelVersion === "2.0-pro" ||
+      modelVersion === "2.0-lite" ||
+      modelVersion === "2.0-mini";
 
     if (options.aspectRatio) {
       params.push(`--ratio ${options.aspectRatio}`);
@@ -2331,6 +2509,33 @@ export class VideoProviderService {
   }
 
   private async queryDoubao(taskId: string, apiKey: string) {
+    const extractTokenUsage = (payload: any): { inputTokens?: number; outputTokens?: number } => {
+      const usage = payload?.usage || payload?.token_usage || payload?.billing || payload?.meta?.usage || {};
+      const inputCandidates = [
+        usage?.input_tokens,
+        usage?.prompt_tokens,
+        usage?.in_tokens,
+        payload?.input_tokens,
+        payload?.prompt_tokens,
+      ];
+      const outputCandidates = [
+        usage?.output_tokens,
+        usage?.completion_tokens,
+        usage?.out_tokens,
+        payload?.output_tokens,
+        payload?.completion_tokens,
+      ];
+      const input = inputCandidates
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0);
+      const output = outputCandidates
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value >= 0);
+      return {
+        ...(typeof input === "number" ? { inputTokens: Math.floor(input) } : {}),
+        ...(typeof output === "number" ? { outputTokens: Math.floor(output) } : {}),
+      };
+    };
     try {
       const response = await fetchWithTimeout(
         `https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${taskId}`,
@@ -2350,11 +2555,12 @@ export class VideoProviderService {
         if (!upstreamUrl) {
           throw new ServiceUnavailableException("Seedance 返回空视频链接");
         }
+        const tokenUsage = extractTokenUsage(data);
         if (this.isOssPublicUrl(upstreamUrl)) {
-          return { status: "succeeded", videoUrl: upstreamUrl };
+          return { status: "succeeded", videoUrl: upstreamUrl, ...tokenUsage };
         }
         const ossUrl = await this.uploadRemoteVideoToOss(upstreamUrl, taskId);
-        return { status: "succeeded", videoUrl: ossUrl };
+        return { status: "succeeded", videoUrl: ossUrl, ...tokenUsage };
       }
 
       if (data.status === "failed") {

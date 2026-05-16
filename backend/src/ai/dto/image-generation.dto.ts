@@ -31,6 +31,17 @@ enum ThinkingLevel {
   LOW = 'low',
 }
 
+enum SeedreamModelVersion {
+  V4_0 = '4.0',
+  V4_5 = '4.5',
+  V5_0 = '5.0',
+}
+
+enum Hunyuan3DModelVersion {
+  V3_0 = '3.0',
+  V3_1 = '3.1',
+}
+
 enum GptImage2Quality {
   AUTO = 'auto',
   LOW = 'low',
@@ -57,6 +68,10 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsEnum(SeedreamModelVersion)
+  modelVersion?: '4.0' | '4.5' | '5.0';
 
   @IsOptional()
   @IsString()
@@ -105,28 +120,28 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsBoolean()
-  enableWebSearch?: boolean; // 鐢熷浘闃舵鍚敤鑱旂綉鎼滅储锛堝 147 Ultra锛?
+  enableWebSearch?: boolean; // 閻㈢喎娴橀梼鑸殿唽閸氼垳鏁ら懕鏃傜秹閹兼粎鍌ㄩ敍鍫濐洤 147 Ultra閿?
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  imageUrls?: string[]; // Nano2 鍙傝€冨浘鐗?URL 鍒楄〃
+  imageUrls?: string[]; // Nano2 閸欏倽鈧啫娴橀悧?URL 閸掓銆?
 
   @IsOptional()
   @IsBoolean()
-  googleSearch?: boolean; // Nano2 Google 鏂囨湰鎼滅储澧炲己
+  googleSearch?: boolean; // Nano2 Google 閺傚洦婀伴幖婊呭偍婢х偛宸?
 
   @IsOptional()
   @IsBoolean()
-  googleImageSearch?: boolean; // Nano2 Google 鍥剧墖鎼滅储澧炲己
+  googleImageSearch?: boolean; // Nano2 Google 閸ュ墽澧栭幖婊呭偍婢х偛宸?
 
   @IsOptional()
   @IsBoolean()
-  batchMode?: boolean; // Seedream5 鎵归噺鐢熸垚妯″紡
+  batchMode?: boolean; // Seedream5 閹靛綊鍣洪悽鐔稿灇濡€崇础
 
   @IsOptional()
   @IsNumber()
-  batchCount?: number; // Seedream5 鎵归噺鐢熸垚鏁伴噺 (2-10)
+  batchCount?: number; // Seedream5 閹靛綊鍣洪悽鐔稿灇閺佷即鍣?(2-10)
 
   @IsOptional()
   @IsString()
@@ -142,7 +157,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsBoolean()
-  officialFallback?: boolean; // gpt-image-2 鏄惁浣跨敤瀹樻柟娓犻亾鍏滃簳
+  officialFallback?: boolean; // gpt-image-2 閺勵垰鎯佹担璺ㄦ暏鐎规ɑ鏌熷〒鐘讳壕閸忔粌绨?
 
   @IsOptional()
   @IsEnum(GptImage2Quality)
@@ -483,9 +498,25 @@ export class MidjourneyModalDto {
 }
 
 export class Convert2Dto3DDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  imageUrl!: string; // OSS鍘熺敓鍙闂殑鍥剧墖URL
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  prompt?: string;
+
+  @IsOptional()
+  @IsEnum(Hunyuan3DModelVersion)
+  model?: '3.0' | '3.1';
+
+  @IsOptional()
+  @IsBoolean()
+  lowPoly?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sketch?: boolean;
 
   @IsOptional()
   @IsString()
@@ -495,18 +526,19 @@ export class Convert2Dto3DDto {
 export class ExpandImageDto {
   @IsString()
   @IsNotEmpty()
-  imageUrl!: string; // OSS鍘熺敓鍙闂殑鍥剧墖URL
+  imageUrl!: string; // OSS閸樼喓鏁撻崣顖濐問闂傤喚娈戦崶鍓уURL
 
   @IsNotEmpty()
   @IsObject()
   expandRatios!: {
-    left: number; // 宸︿晶鎵╁浘閮ㄥ垎/鍘熷浘闀垮害
-    top: number; // 涓婁晶鎵╁浘閮ㄥ垎/鍘熷浘楂樺害
-    right: number; // 鍙充晶鎵╁浘閮ㄥ垎/鍘熷浘闀垮害
-    bottom: number; // 涓嬩晶鎵╁浘閮ㄥ垎/鍘熷浘楂樺害
+    left: number; // 瀹革缚鏅堕幍鈺佹禈闁劌鍨?閸樼喎娴橀梹鍨
+    top: number; // 娑撳﹣鏅堕幍鈺佹禈闁劌鍨?閸樼喎娴樻妯哄
+    right: number; // 閸欏厖鏅堕幍鈺佹禈闁劌鍨?閸樼喎娴橀梹鍨
+    bottom: number; // 娑撳鏅堕幍鈺佹禈闁劌鍨?閸樼喎娴樻妯哄
   };
 
   @IsOptional()
   @IsString()
-  prompt?: string; // 鎻愮ず璇嶏紝榛樿涓?鎵╁浘"
+  prompt?: string; // 閹绘劗銇氱拠宥忕礉姒涙顓绘稉?閹碘晛娴?
 }
+

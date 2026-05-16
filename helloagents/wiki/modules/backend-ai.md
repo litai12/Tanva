@@ -31,6 +31,8 @@
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
+- `GET /api/ai/seedream5/provider` returns current Seedream channel provider/model for frontend node UI capability gating.
+- Seedream5 image generation now accepts optional `modelVersion` (`4.5` / `5.0`): when provider is doubao it maps to `doubao-seedream-4-5-251128` or `doubao-seedream-5-0-260128`; when provider is watcha it stays pinned to watcha model (default `seedream-5.0-lite`).
 - Watcha Seedream channel env vars: WATCHA_SEEDREAM_API_KEY, optional WATCHA_SEEDREAM_ENDPOINT, optional WATCHA_SEEDREAM_MODEL.
 - Tencent route for `kling-2.6` uses official start-end mapping: first frame goes to `FileInfos` (`Usage=FirstFrame`) and tail frame goes to `LastFrameUrl`; non-start-end reference images use `Usage=Reference`.
 - Tencent `kling-2.6` output constraints are normalized server-side: duration `5/10`, resolution `720P/1080P`, and start-end mode always sends `OutputConfig.AudioGeneration=Disabled`.
@@ -42,6 +44,7 @@
 - 快乐马 `POST /api/ai/dashscope/generate-happyhorse-video` 默认仅允许已登录付费用户调用：成功支付过任意订单（充值或会员）可用；未支付过的会员用户需当前有效套餐 metadata 显式配置 `happyhorseAccess: "enabled"`；免费档默认不支持。该接口创建 DashScope 任务后立即返回 `taskId/apiUsageId`，前端通过 `/api/ai/dashscope/task/:taskId` 轮询并在成功/失败时回写积分状态。
 - Seedance 2.0 直连方舟链路已支持媒体优先请求：�?prompt 但有图片/视频/音频参考时不再错误拼接 `undefined` 文本；并同步放宽到官�?`4-15s`、`480P/720P`�? 种宽高比以及多模态参考组合�?
 - Seedance 2.0 模式选择会通过 `video_mode` 下发到方舟请求体，确�?`Seedance 2.0` 节点的模式化输入在上游生效�?
+- Seedance 2.0 权益识别补齐 `seed-2.0-pro / seed-2.0-mini`（含别名），避免 2.0 家族模型在后端分支判断中被误判为 1.5。
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
@@ -66,3 +69,24 @@
 ## 2026-04-24 Update
 - Nano2/GPT-Image-2 request passthrough supports `official_fallback` boolean; backend default fallback for `gpt-image-2` is now `false` when frontend does not specify it.
 - Backend node default metadata for `gptImage2` now exposes `resolutions: [1K,2K,4K]` and enables `showResolutionSelector`.
+
+## 2026-05-12 GPT-Image-2 Timeout & Async Notes
+- Prefer async image task APIs for GPT-Image-2 high-quality/large-size runs: `POST /api/ai/generate-image-async` then poll `GET /api/ai/image-task/:taskId`.
+- Backend polling budget is 15 minutes; task `failed` status enters refund-safe flow.
+- For any remaining synchronous image path, external gateway/proxy should keep timeout >= 900s to reduce premature `HTTP 524`.
+
+## 2026-05-12 Seedance Update
+- Video provider keeps `seed-2.0-lite` as compatibility input alias, but runtime model routing no longer sends `doubao-seed-2-0-*` to the content-generation endpoint.
+- Seed2 compatibility aliases now normalize to content-generation-capable Seedance model IDs:
+  - `doubao-seed-2-0-pro(-260215)` -> `doubao-seedance-2-0-260128`
+  - `doubao-seed-2-0-lite(-260428)` -> `doubao-seedance-2-0-fast-260128`
+  - `doubao-seed-2-0-mini(-260428)` -> `doubao-seedance-2-0-fast-260128`
+- For Seedance 2.0 create failures on the `-fast` model with model-invalid/not-support errors, backend retries once with `doubao-seedance-2-0-260128`.
+
+## 2026-05-16 Seed2 Alias Hardening
+- Managed Seedance 2.0 V2 create-task path now normalizes known legacy model aliases before upstream calls:
+  - `doubao-seed-2-0-pro` -> `doubao-seedance-2-0-260128`
+  - `doubao-seed-2-0-lite` -> `doubao-seedance-2-0-fast-260128`
+  - `doubao-seed-2-0-mini` -> `doubao-seedance-2-0-fast-260128`
+  - `doubao-seedance-2-0` -> `doubao-seedance-2-0-260128`
+- This prevents `model ... does not support content generation` errors caused by outdated or custom requestProfile model values.

@@ -1,4 +1,4 @@
-.ai-chat-task-aura {
+﻿.ai-chat-task-aura {
   position: absolute;
   inset: -8px;
   border-radius: 22px;
@@ -61,7 +61,7 @@
   }
 }
 
-/* 图像生成占位框样式 */
+/* 鍥惧儚鐢熸垚鍗犱綅妗嗘牱寮?*/
 .ai-image-placeholder {
   position: relative;
   border-radius: 0.5rem;
@@ -95,7 +95,7 @@
   }
 }
 
-/* AI 对话框全包围光泽边框效果 */
+/* AI 瀵硅瘽妗嗗叏鍖呭洿鍏夋辰杈规鏁堟灉 */
 .ai-chat-glow-border {
   position: relative;
   border: none !important;
@@ -124,7 +124,7 @@
   z-index: 1;
 }
 
-/* 内层柔和光晕 */
+/* 鍐呭眰鏌斿拰鍏夋檿 */
 .ai-chat-glow-border::after {
   content: '';
   position: absolute;
@@ -229,7 +229,7 @@ body.tanva-premium-black-theme .tanva-help-dropdown .tanva-help-dropdown-item:fo
   box-shadow: 0 0 0 2px #404040 !important;
 }
 
-/* 设置弹窗：黑色主题 */
+/* 璁剧疆寮圭獥锛氶粦鑹蹭富棰?*/
 body.tanva-premium-black-theme .tanva-settings-overlay {
   background: rgba(0, 0, 0, 0.45) !important;
 }
@@ -330,7 +330,7 @@ body.tanva-premium-black-theme .tanva-project-selector:hover {
   background: var(--tanva-mono-raised) !important;
 }
 
-/* 左上角项目区：默认背景与栏本体一致 */
+/* 宸︿笂瑙掗」鐩尯锛氶粯璁よ儗鏅笌鏍忔湰浣撲竴鑷?*/
 body.tanva-premium-black-theme .tanva-header-card-left .tanva-project-selector,
 body.tanva-premium-black-theme .tanva-header-card-left .tanva-header-new-project-btn {
   background: var(--tanva-mono-base) !important;
@@ -343,7 +343,7 @@ body.tanva-premium-black-theme .tanva-header-card-left .tanva-header-new-project
   border-color: #3f3f3f !important;
 }
 
-/* 右上角工具栏：默认背景与栏本体一致 */
+/* 鍙充笂瑙掑伐鍏锋爮锛氶粯璁よ儗鏅笌鏍忔湰浣撲竴鑷?*/
 body.tanva-premium-black-theme .tanva-header-card-right > button,
 body.tanva-premium-black-theme .tanva-header-card-right > .relative > button {
   background: var(--tanva-mono-base) !important;
@@ -479,7 +479,7 @@ body.tanva-premium-black-theme .tanva-selection-group-toolbar button:disabled {
   color: #64748b !important;
 }
 
-/* Premium black theme: image toolbar (图片下方工具栏) */
+/* Premium black theme: image toolbar (鍥剧墖涓嬫柟宸ュ叿鏍? */
 body.tanva-premium-black-theme [data-image-toolbar] {
   --tw-text-opacity: 1;
   color: #ffffff !important;
@@ -670,7 +670,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node [st
   color: var(--tanva-mono-text) !important;
 }
 
-/* TextChat 节点在黑色主题下提升可读性：仅轻微提亮二级/弱提示文字 */
+/* TextChat 鑺傜偣鍦ㄩ粦鑹蹭富棰樹笅鎻愬崌鍙鎬э細浠呰交寰彁浜簩绾?寮辨彁绀烘枃瀛?*/
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textChat {
   --tanva-mono-text-secondary: #d4deef;
   --tanva-mono-text-tertiary: #c0c9d8;
@@ -710,6 +710,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-sora2Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
@@ -723,6 +724,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-sora2Video,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
@@ -777,7 +779,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node opt
   color: var(--tanva-mono-text) !important;
 }
 
-/* 节点参数下拉：触发按钮与弹层统一偏亮灰，便于与节点面板区分 */
+/* 鑺傜偣鍙傛暟涓嬫媺锛氳Е鍙戞寜閽笌寮瑰眰缁熶竴鍋忎寒鐏帮紝渚夸簬涓庤妭鐐归潰鏉垮尯鍒?*/
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .video-dropdown > button {
   background: #343434 !important;
   border-color: #4a4a4a !important;
@@ -826,7 +828,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .video-dropdown-menu 
   color: #7dd3fc !important;
 }
 
-/* Wan2.6 节点下拉菜单暗色主题 */
+/* Wan2.6 鑺傜偣涓嬫媺鑿滃崟鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown > button {
   background: #252525 !important;
   border-color: #404040 !important;
@@ -874,7 +876,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .wan26-dropdown .wan2
   color: #7dd3fc !important;
 }
 
-/* Wan2.7 节点暗色主题样式 */
+/* Wan2.7 鑺傜偣鏆楄壊涓婚鏍峰紡 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-label {
   color: #9ca3af !important;
 }
@@ -906,7 +908,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   color: #93c5fd !important;
 }
 
-/* Wan2.7 节点 toggle 按钮选中状态样式覆盖 */
+/* Wan2.7 鑺傜偣 toggle 鎸夐挳閫変腑鐘舵€佹牱寮忚鐩?*/
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: rgb(239, 246, 255)"],
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background: rgb(37, 99, 235)"],
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-toggle-btn[style*="background:#eff6ff"],
@@ -918,7 +920,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   color: #93c5fd !important;
 }
 
-/* Wan2.7 节点音频上传按钮暗色主题 */
+/* Wan2.7 鑺傜偣闊抽涓婁紶鎸夐挳鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-upload-btn {
   background: #252525 !important;
   border-color: #404040 !important;
@@ -940,7 +942,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   background: #333333 !important;
 }
 
-/* Wan2.7 节点视频预览区域暗色主题 */
+/* Wan2.7 鑺傜偣瑙嗛棰勮鍖哄煙鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-video-preview {
   background: #161616 !important;
   border-color: #2f2f2f !important;
@@ -950,7 +952,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   color: #9ca3af !important;
 }
 
-/* Wan2.7 节点历史记录区域暗色主题 */
+/* Wan2.7 鑺傜偣鍘嗗彶璁板綍鍖哄煙鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-history-zone {
   background: #161616 !important;
   border-color: #333333 !important;
@@ -984,7 +986,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   color: #e5e7eb !important;
 }
 
-/* Wan2.7 节点历史记录操作按钮暗色主题 */
+/* Wan2.7 鑺傜偣鍘嗗彶璁板綍鎿嶄綔鎸夐挳鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-action-btn {
   background: #252525 !important;
   border-color: #404040 !important;
@@ -997,7 +999,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wa
   color: #e5e7eb !important;
 }
 
-/* Wan2.7 节点错误提示暗色主题 */
+/* Wan2.7 鑺傜偣閿欒鎻愮ず鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .wan27-error {
   background: rgba(239, 68, 68, 0.15) !important;
   border-color: #dc2626 !important;
@@ -1015,7 +1017,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node but
   background: #454545 !important;
 }
 
-/* 生图节点 Fast / Pro / Ultra 模式标签：不依赖 .react-flow__node 嵌套层级，避免未命中 */
+/* 鐢熷浘鑺傜偣 Fast / Pro / Ultra 妯″紡鏍囩锛氫笉渚濊禆 .react-flow__node 宓屽灞傜骇锛岄伩鍏嶆湭鍛戒腑 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .tanva-flow-provider-mode-badge {
   background: #343434 !important;
   border: 1px solid #4a4a4a !important;
@@ -1023,7 +1025,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .tanva-flow-provider-
   border-radius: 50px !important;
 }
 
-/* GenerateNode 模型切换下拉菜单暗色主题 */
+/* GenerateNode 妯″瀷鍒囨崲涓嬫媺鑿滃崟鏆楄壊涓婚 */
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .min-w-\[200px\] {
   background: #252525 !important;
   border-color: #404040 !important;
@@ -1245,7 +1247,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .ta
   background: var(--tanva-mono-base) !important;
 }
 
-/* 对话框参数按钮：无边框 + 左侧工具栏同款交互 */
+/* 瀵硅瘽妗嗗弬鏁版寜閽細鏃犺竟妗?+ 宸︿晶宸ュ叿鏍忓悓娆句氦浜?*/
 .ai-chat-theme-premium-dark button.bg-liquid-glass.backdrop-blur-liquid {
   background: #1d1d1d !important;
   color: #ffffff !important;
@@ -1868,6 +1870,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button {
@@ -1885,6 +1888,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :is(
@@ -1911,6 +1915,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button:not(.tanva-video-header-btn)[style*="background: transparent"] {
@@ -1930,6 +1935,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) :is(
@@ -1991,6 +1997,7 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark :is(
   .react-flow__node-viduQ3,
   .react-flow__node-doubaoVideo,
   .react-flow__node-seedance20Video,
+  .react-flow__node-seedVideo,
   .react-flow__node-wan26,
   .react-flow__node-wan2R2V
 ) button:not(.tanva-video-header-btn):disabled {

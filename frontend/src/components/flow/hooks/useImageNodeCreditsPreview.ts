@@ -16,8 +16,10 @@ type ImageNodeType =
 type Params = {
   nodeType: ImageNodeType;
   aiProvider?: string | null;
+  modelVersion?: string | null;
   bananaImageRoute?: string | null;
   imageSize?: string | null;
+  gptImage2Quality?: "auto" | "low" | "medium" | "high" | string | null;
   aspectRatio?: string | null;
   outputImageCount?: number;
   referenceImageCount?: number;
@@ -128,8 +130,10 @@ const resolveManagedModelKey = (
 export const useImageNodeCreditsPreview = ({
   nodeType,
   aiProvider,
+  modelVersion,
   bananaImageRoute,
   imageSize,
+  gptImage2Quality,
   aspectRatio,
   outputImageCount,
   referenceImageCount,
@@ -148,14 +152,61 @@ export const useImageNodeCreditsPreview = ({
       typeof aspectRatio === "string" && aspectRatio.trim().length > 0
         ? aspectRatio.trim()
         : undefined;
+    const normalizedImageSize = normalizeBananaImageSize(imageSize);
+    const normalizedGptImage2Quality = (() => {
+      const normalized = String(gptImage2Quality || "")
+        .trim()
+        .toLowerCase();
+      if (
+        normalized === "auto" ||
+        normalized === "low" ||
+        normalized === "medium" ||
+        normalized === "high"
+      ) {
+        return normalized;
+      }
+      return undefined;
+    })();
+
+    if (nodeType === "gptImage2") {
+      return {
+        serviceType: "gpt-image-2",
+        model: "gpt-image-2",
+        requestParams: {
+          aiProvider: provider,
+          imageSize: normalizedImageSize,
+          bananaImageRoute: bananaImageRoute || undefined,
+          providerOptions: {
+            banana: {
+              imageRoute: bananaImageRoute || undefined,
+            },
+          },
+          ...(normalizedGptImage2Quality
+            ? { quality: normalizedGptImage2Quality }
+            : {}),
+        },
+      };
+    }
 
     if (nodeType === "seedream5") {
       const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
+      const normalizedSeedreamModelVersion =
+        modelVersion === "4.0" || modelVersion === "4.5" || modelVersion === "5.0"
+          ? modelVersion
+          : "5.0";
+      const seedreamModelId =
+        normalizedSeedreamModelVersion === "4.0"
+          ? "doubao-seedream-4-0-250828"
+          : normalizedSeedreamModelVersion === "4.5"
+          ? "doubao-seedream-4-5-251128"
+          : "doubao-seedream-5-0-260128";
       return {
         serviceType: "doubao-seedream-5-0-260128",
-        model: "doubao-seedream-5-0-260128",
+        model: seedreamModelId,
         requestParams: {
           aiProvider: "seedream5",
+          modelVersion: normalizedSeedreamModelVersion,
+          model: seedreamModelId,
           imageSize: normalizeSeedreamSize(imageSize),
           referenceImageCount: safeReferenceCount,
           modelKey,
@@ -195,7 +246,6 @@ export const useImageNodeCreditsPreview = ({
         : "generate";
     const serviceType = resolveBananaServiceType(provider, mode, nodeType);
     const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
-    const normalizedImageSize = normalizeBananaImageSize(imageSize);
 
     return {
       serviceType,
@@ -234,6 +284,7 @@ export const useImageNodeCreditsPreview = ({
     aiProvider,
     aspectRatio,
     bananaImageRoute,
+    gptImage2Quality,
     imageSize,
     managedModelKey,
     nodeType,

@@ -6,6 +6,7 @@ import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '..
 import { OssService } from '../../oss/oss.service';
 import { CreditsService } from '../../credits/credits.service';
 import { ApiResponseStatus } from '../../credits/dto/credits.dto';
+import { AIProviderFactory } from '../ai-provider.factory';
 import crypto from 'crypto';
 import { Readable } from 'stream';
 
@@ -36,6 +37,17 @@ function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string
   }
 }
 
+function normalizeBananaRoute(
+  value: unknown,
+): 'normal' | 'stable' | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'normal' || normalized === 'apimart') return 'normal';
+  if (normalized === 'stable' || normalized === 'tencent') return 'stable';
+  return null;
+}
+
 @Injectable()
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
@@ -43,6 +55,7 @@ export class ImageTaskService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageGenService: ImageGenerationService,
+    private readonly providerFactory: AIProviderFactory,
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
@@ -181,6 +194,239 @@ export class ImageTaskService {
     }
   }
 
+  private resolveAsyncTaskProviderName(
+    taskProvider: unknown,
+    requestProvider: unknown,
+  ): string | null {
+    const raw =
+      typeof requestProvider === 'string' && requestProvider.trim().length > 0
+        ? requestProvider.trim()
+        : typeof taskProvider === 'string' && taskProvider.trim().length > 0
+          ? taskProvider.trim()
+          : '';
+    if (!raw) return null;
+    return raw.toLowerCase();
+  }
+
+  private isGeminiProvider(providerName: string | null): boolean {
+    return !providerName || providerName === 'gemini' || providerName === 'gemini-pro';
+  }
+
+  private summarizeRequestPrompt(prompt?: unknown): string | undefined {
+    if (typeof prompt !== 'string') return undefined;
+    const trimmed = prompt.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private extractRenderableRequestImageRefs(values: unknown[]): string[] {
+    const candidates: string[] = [];
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) continue;
+      if (/^[A-Za-z0-9+/=]{80,}$/.test(trimmed)) continue;
+      if (!candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    }
+    return candidates;
+  }
+
+  private asOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private asOptionalBoolean(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+  }
+
+  private resolveBananaImageRouteFromTaskRequestData(
+    requestData: Record<string, any> | null,
+  ): 'normal' | 'stable' | null {
+    if (!requestData) return null;
+    return (
+      normalizeBananaRoute(requestData.bananaImageRoute) ||
+      normalizeBananaRoute(requestData?.providerOptions?.banana?.imageRoute) ||
+      normalizeBananaRoute(requestData?.providerOptions?.bananaImageRoute)
+    );
+  }
+
+  private resolveAsyncTaskOutputImageCount(
+    taskType: ImageTaskType,
+    requestData: Record<string, any> | null,
+  ): number {
+    if (taskType !== 'generate') return 1;
+    if (!requestData) return 1;
+
+    const batchMode = requestData.batchMode === true;
+    const batchCountRaw = Number(requestData.batchCount);
+    if (batchMode && Number.isFinite(batchCountRaw) && batchCountRaw > 1) {
+      return Math.max(1, Math.min(10, Math.floor(batchCountRaw)));
+    }
+
+    return 1;
+  }
+
+  private resolveAsyncTaskInputImageCount(
+    taskType: ImageTaskType,
+    requestData: Record<string, any> | null,
+  ): number {
+    if (!requestData) return 0;
+
+    if (taskType === 'generate') {
+      const refs = this.extractRenderableRequestImageRefs(
+        Array.isArray(requestData.imageUrls) ? requestData.imageUrls : [],
+      );
+      return refs.length;
+    }
+
+    if (taskType === 'edit') {
+      const refs = this.extractRenderableRequestImageRefs([
+        requestData.sourceImageUrl,
+        requestData.sourceImage,
+      ]);
+      return refs.length > 0 ? 1 : 0;
+    }
+
+    if (taskType === 'blend') {
+      const refs = this.extractRenderableRequestImageRefs([
+        ...(Array.isArray(requestData.sourceImageUrls) ? requestData.sourceImageUrls : []),
+        ...(Array.isArray(requestData.sourceImages) ? requestData.sourceImages : []),
+      ]);
+      return refs.length;
+    }
+
+    return 0;
+  }
+
+  private buildAsyncTaskCreditRequestParams(
+    taskId: string,
+    taskType: ImageTaskType,
+    requestData: Record<string, any> | null,
+    providerName: string | null,
+  ): Record<string, any> {
+    const prompt = this.summarizeRequestPrompt(requestData?.prompt);
+    const imageRefs = this.extractRenderableRequestImageRefs([
+      ...(Array.isArray(requestData?.imageUrls) ? requestData.imageUrls : []),
+      ...(Array.isArray(requestData?.sourceImageUrls) ? requestData.sourceImageUrls : []),
+      ...(Array.isArray(requestData?.sourceImages) ? requestData.sourceImages : []),
+      requestData?.sourceImageUrl,
+      requestData?.sourceImage,
+    ]);
+    const resolvedRoute = this.resolveBananaImageRouteFromTaskRequestData(requestData);
+
+    const normalizedProviderOptions = (() => {
+      const providerOptions = requestData?.providerOptions;
+      if (!providerOptions || typeof providerOptions !== 'object') return undefined;
+
+      const legacyRoute = normalizeBananaRoute((providerOptions as any).bananaImageRoute);
+      const nestedRoute = normalizeBananaRoute((providerOptions as any)?.banana?.imageRoute);
+      const finalRoute = resolvedRoute || nestedRoute || legacyRoute;
+      if (!finalRoute) return undefined;
+
+      return {
+        bananaImageRoute: finalRoute,
+        banana: {
+          imageRoute: finalRoute,
+        },
+      };
+    })();
+
+    return {
+      taskId,
+      taskType,
+      ...(this.asOptionalString(providerName) ? { aiProvider: this.asOptionalString(providerName) } : {}),
+      ...(this.asOptionalString(requestData?.model) ? { model: this.asOptionalString(requestData?.model) } : {}),
+      ...(this.asOptionalString(requestData?.imageSize)
+        ? { imageSize: this.asOptionalString(requestData?.imageSize) }
+        : {}),
+      ...(this.asOptionalString(requestData?.aspectRatio)
+        ? { aspectRatio: this.asOptionalString(requestData?.aspectRatio) }
+        : {}),
+      ...(this.asOptionalString(requestData?.quality)
+        ? { quality: this.asOptionalString(requestData?.quality) }
+        : {}),
+      ...(this.asOptionalString(requestData?.background)
+        ? { background: this.asOptionalString(requestData?.background) }
+        : {}),
+      ...(this.asOptionalString(requestData?.moderation)
+        ? { moderation: this.asOptionalString(requestData?.moderation) }
+        : {}),
+      ...(this.asOptionalBoolean(requestData?.officialFallback) !== undefined
+        ? { officialFallback: this.asOptionalBoolean(requestData?.officialFallback) }
+        : {}),
+      ...(resolvedRoute ? { bananaImageRoute: resolvedRoute } : {}),
+      ...(normalizedProviderOptions ? { providerOptions: normalizedProviderOptions } : {}),
+      ...(prompt ? { requestPrompt: prompt } : {}),
+      ...(imageRefs[0] ? { requestThumbnailUrl: imageRefs[0] } : {}),
+      ...(imageRefs.length > 0 ? { requestThumbnailUrls: imageRefs } : {}),
+    };
+  }
+
+  private async runGenerateTask(
+    task: { prompt: string; aiProvider?: string | null },
+    taskRequestData: Record<string, any>,
+    model?: string,
+  ): Promise<any> {
+    const providerName = this.resolveAsyncTaskProviderName(
+      task.aiProvider,
+      taskRequestData?.aiProvider,
+    );
+
+    if (this.isGeminiProvider(providerName)) {
+      return this.imageGenService.generateImage(taskRequestData as any);
+    }
+
+    const provider = this.providerFactory.getProvider(model, providerName ?? undefined);
+    const result = await provider.generateImage({
+      prompt: task.prompt,
+      model,
+      imageOnly: taskRequestData.imageOnly,
+      aspectRatio: taskRequestData.aspectRatio,
+      imageSize: taskRequestData.imageSize,
+      thinkingLevel: taskRequestData.thinkingLevel,
+      outputFormat: taskRequestData.outputFormat,
+      providerOptions: taskRequestData.providerOptions,
+      enableWebSearch: taskRequestData.enableWebSearch,
+      imageUrls: Array.isArray(taskRequestData.imageUrls)
+        ? taskRequestData.imageUrls.filter(
+            (item: unknown): item is string =>
+              typeof item === 'string' && item.trim().length > 0,
+          )
+        : undefined,
+      googleSearch: taskRequestData.googleSearch,
+      googleImageSearch: taskRequestData.googleImageSearch,
+      batchMode: taskRequestData.batchMode,
+      batchCount: taskRequestData.batchCount,
+      officialFallback: taskRequestData.officialFallback,
+      quality: taskRequestData.quality,
+      background: taskRequestData.background,
+      moderation: taskRequestData.moderation,
+      outputCompression: taskRequestData.outputCompression,
+      maskUrl: taskRequestData.maskUrl,
+    } as any);
+
+    if (!result?.success || !result?.data) {
+      throw new Error(result?.error?.message || 'Failed to generate image');
+    }
+
+    return {
+      imageData: result.data.imageData,
+      imageUrl:
+        typeof result.data.imageUrl === 'string' && result.data.imageUrl.trim().length > 0
+          ? result.data.imageUrl.trim()
+          : typeof result.data.metadata?.imageUrl === 'string' &&
+            result.data.metadata.imageUrl.trim().length > 0
+            ? String(result.data.metadata.imageUrl).trim()
+            : undefined,
+      textResponse: result.data.textResponse || '',
+      metadata: result.data.metadata || {},
+    };
+  }
+
   /**
    * 创建图像生成任务
    */
@@ -279,7 +525,18 @@ export class ImageTaskService {
     const model = taskRequestData?.model as string | undefined;
     const taskType = task.type as ImageTaskType;
     const serviceType = resolveTaskServiceType(taskType, model);
-    const outputImageCount = 1; // 默认生成1张图片
+    const outputImageCount = this.resolveAsyncTaskOutputImageCount(
+      taskType,
+      taskRequestData,
+    );
+    const inputImageCount = this.resolveAsyncTaskInputImageCount(
+      taskType,
+      taskRequestData,
+    );
+    const resolvedTaskProviderName = this.resolveAsyncTaskProviderName(
+      task.aiProvider,
+      taskRequestData?.aiProvider,
+    );
     const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
 
     // 如果有 apiUsageId，则说明已在控制器层预扣积分；否则需要自己处理
@@ -308,12 +565,14 @@ export class ImageTaskService {
                 userId: task.userId,
                 serviceType: serviceType as any,
                 model,
-                inputImageCount: 0,
+                inputImageCount,
                 outputImageCount,
-                requestParams: {
+                requestParams: this.buildAsyncTaskCreditRequestParams(
                   taskId,
                   taskType,
-                },
+                  taskRequestData,
+                  resolvedTaskProviderName,
+                ),
               });
               effectiveApiUsageId = deductResult.apiUsageId;
               this.logger.debug(
@@ -365,7 +624,7 @@ export class ImageTaskService {
 
           switch (taskType) {
             case 'generate':
-              result = await this.imageGenService.generateImage(task.requestData as any);
+              result = await this.runGenerateTask(task, taskRequestData || {}, model);
               break;
             case 'edit':
               result = await this.imageGenService.editImage(task.requestData as any);

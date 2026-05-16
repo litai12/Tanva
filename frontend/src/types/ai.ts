@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Google Gemini 3 Pro Image API 鐩稿叧绫诲瀷瀹氫箟
  * 鏀寔 gemini-3-pro-image-preview 妯″瀷
  */
@@ -106,6 +106,7 @@ export type SupportedAIProvider =
 export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
+  modelVersion?: '4.0' | '4.5' | '5.0';
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';

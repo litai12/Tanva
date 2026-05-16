@@ -78,10 +78,25 @@ const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> =
   '2K': 30,
   '4K': 40,
 };
-const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
-  '1K': 40,
-  '2K': 80,
-  '4K': 110,
+const GPT_IMAGE2_TENCENT_RESOLUTION_PRICING: Record<
+  'low' | 'medium' | 'high',
+  Record<'1K' | '2K' | '4K', number>
+> = {
+  low: {
+    '1K': 30,
+    '2K': 35,
+    '4K': 40,
+  },
+  medium: {
+    '1K': 65,
+    '2K': 110,
+    '4K': 160,
+  },
+  high: {
+    '1K': 190,
+    '2K': 350,
+    '4K': 560,
+  },
 };
 const STALE_PENDING_IMAGE_SERVICE_TYPES: ServiceType[] = [
   'gemini-3-pro-image',
@@ -273,7 +288,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
-  // 普通路线 (normal/apimart) 定价
+  // ???? (normal/apimart) ??
   // Fast: 1K=20
   // Pro: 1K=40, 2K=60, 4K=80
   // Ultra: 0.5K=30, 1K=30, 2K=40, 4K=50
@@ -283,14 +298,14 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
     '2K': 20,
     '4K': 20,
   },
-  // Pro 普通路线
+  // Pro ????
   pro: {
     '0.5K': 40,
     '1K': 40,
     '2K': 60,
     '4K': 80,
   },
-  // Ultra 普通路线
+  // Ultra ????
   ultra: {
     '0.5K': 30,
     '1K': 30,
@@ -299,7 +314,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
   },
 };
 
-// 尊享路线 (stable/tencent) 定价
+// ???? (stable/tencent) ??
 // Fast: 1K=40
 // Pro: 1K=90, 2K=100, 4K=170
 // Ultra: 0.5K=30, 1K=40, 2K=50, 4K=110
@@ -356,6 +371,23 @@ const VIDEO_ANALYZE_ROUTE_PRICING: Record<
     fast: 80,
     pro: 120,
     ultra: 160,
+  },
+};
+const VOLC_ENHANCE_VIDEO_PRICING: Record<
+  'standard' | 'professional',
+  Record<'720P' | '1080P' | '2K' | '4K', { lte30: number; gt30: number }>
+> = {
+  standard: {
+    '720P': { lte30: 90, gt30: 180 },
+    '1080P': { lte30: 180, gt30: 360 },
+    '2K': { lte30: 360, gt30: 720 },
+    '4K': { lte30: 720, gt30: 1440 },
+  },
+  professional: {
+    '720P': { lte30: 750, gt30: 1500 },
+    '1080P': { lte30: 1500, gt30: 3000 },
+    '2K': { lte30: 3000, gt30: 6000 },
+    '4K': { lte30: 6000, gt30: 12000 },
   },
 };
 @Injectable()
@@ -536,7 +568,7 @@ export class CreditsService {
         nodeConfig = resolvedByKey;
       }
     } else if (!staticPricing) {
-      // 仅在静态定价不存在时按 serviceType 兜底，避免多个节点共用 serviceType 时误命中错误名称。
+      // ??????????? serviceType ??????????? serviceType ?????????
       nodeConfig = await this.prisma.nodeConfig.findFirst({
         where: { serviceType: params.serviceType },
         select: {
@@ -670,6 +702,18 @@ export class CreditsService {
       effectiveRequestParams,
     );
 
+    creditsToDeduct = this.resolveSeed2ModelCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
+    creditsToDeduct = this.resolveVolcEnhanceVideoCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
 
     if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
@@ -691,14 +735,14 @@ export class CreditsService {
       creditsToDeduct *= outputImageCountMultiplier;
     }
 
-    // 先解析视频服务名称（如 Kling, Sora, Seedance）
+    // ??????????? Kling, Sora, Seedance?
     let serviceName = this.resolveManagedVideoServiceName(
       params.serviceType,
       pricing.serviceName,
       effectiveRequestParams,
     );
 
-    // 再解析图片服务名称（格式：基础名称 + 分辨率 + 生成数量 + 路线）
+    // ????????????????? + ??? + ???? + ???
     serviceName = this.resolveBananaImageServiceName(
       params.serviceType,
       serviceName,
@@ -917,8 +961,8 @@ export class CreditsService {
       return requestParams;
     }
 
-    // 将 sound("on"/"off"/boolean) 和 generateAudio(boolean) 统一归一化为 hasAudio(boolean)，
-    // 使规则引擎中使用 hasAudio 字段的定价规则（Kling O3、Seedance 1.5）能正确匹配。
+    // ? sound("on"/"off"/boolean) ? generateAudio(boolean) ?????? hasAudio(boolean)?
+    // ???????? hasAudio ????????Kling O3?Seedance 1.5???????
     let normalized: any = requestParams;
     if (normalized.hasAudio === undefined || normalized.hasAudio === null) {
       if (normalized.sound !== undefined) {
@@ -935,8 +979,8 @@ export class CreditsService {
       }
     }
 
-    // 将 mode("std"/"pro") 归一化为 resolution("720P"/"1080P")，
-    // 作为兜底：当 tencent_vod 定价规则按 resolution 匹配但请求只有 mode 时仍能命中。
+    // ? mode("std"/"pro") ???? resolution("720P"/"1080P")?
+    // ?????? tencent_vod ????? resolution ??????? mode ??????
     if (
       (normalized.resolution === undefined || normalized.resolution === null || normalized.resolution === '') &&
       typeof normalized.mode === 'string'
@@ -993,7 +1037,24 @@ export class CreditsService {
       typeof requestParams?.seedanceModel === 'string'
         ? requestParams.seedanceModel.trim().toLowerCase()
         : '';
-    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+    if (
+      seedanceModel === 'seedance-2.0' ||
+      seedanceModel === 'seed-2.0-pro' ||
+      seedanceModel === 'seedance-2.0-pro' ||
+      seedanceModel === 'seed-2-0-pro' ||
+      seedanceModel === 'seed-2.0-lite' ||
+      seedanceModel === 'seedance-2.0-lite' ||
+      seedanceModel === 'seed-2-0-lite' ||
+      seedanceModel === 'seed-2.0-mini' ||
+      seedanceModel === 'seedance-2.0-mini' ||
+      seedanceModel === 'seed-2-0-mini' ||
+      seedanceModel === '2.0' ||
+      seedanceModel === '2.0-pro' ||
+      seedanceModel === '2.0-lite' ||
+      seedanceModel === '2.0-mini' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === '2.0-fast'
+    ) {
       return 'seedance-2.0';
     }
     if (
@@ -1049,6 +1110,187 @@ export class CreditsService {
     const value = Number(raw);
     if (value === 5 || value === 10) return value;
     return null;
+  }
+
+  private normalizeSeed2Model(raw: unknown): 'pro' | 'lite' | 'mini' | null {
+    if (typeof raw !== 'string') return null;
+    const value = raw.trim().toLowerCase();
+    if (!value) return null;
+
+    if (
+      value === 'seed-2.0-pro' ||
+      value === 'seedance-2.0-pro' ||
+      value === 'seed-2-0-pro' ||
+      value === '2.0-pro'
+    ) {
+      return 'pro';
+    }
+
+    if (
+      value === 'seed-2.0-mini' ||
+      value === 'seedance-2.0-mini' ||
+      value === 'seed-2-0-mini' ||
+      value === '2.0-mini'
+    ) {
+      return 'mini';
+    }
+
+    if (
+      value === 'seed-2.0-lite' ||
+      value === 'seedance-2.0-lite' ||
+      value === 'seed-2-0-lite' ||
+      value === '2.0-lite' ||
+      value === 'seedance-2.0' ||
+      value === 'seedance-2.0-fast' ||
+      value === '2.0' ||
+      value === '2.0-fast'
+    ) {
+      return 'lite';
+    }
+
+    return null;
+  }
+
+  private resolveSeed2ModelCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    if (serviceType !== 'doubao-video') {
+      return defaultCredits;
+    }
+
+    const seed2Model = this.normalizeSeed2Model(requestParams?.seedanceModel ?? requestParams?.model);
+
+    if (!seed2Model) {
+      return defaultCredits;
+    }
+
+    if (seed2Model === 'pro') return 1100;
+    if (seed2Model === 'mini') return 500;
+    if (seed2Model === 'lite') return 700;
+
+    return defaultCredits;
+  }
+
+  private normalizeVolcEnhanceToolVersion(raw: unknown): 'standard' | 'professional' {
+    const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    return value === 'professional' ? 'professional' : 'standard';
+  }
+
+  private normalizeVolcEnhanceResolutionTier(
+    requestParams: any,
+  ): '720P' | '1080P' | '2K' | '4K' {
+    const rawResolution =
+      typeof requestParams?.resolution === 'string' ? requestParams.resolution.trim().toUpperCase() : '';
+    if (rawResolution === '720P') return '720P';
+    if (rawResolution === '1080P') return '1080P';
+    if (rawResolution === '2K') return '2K';
+    if (rawResolution === '4K') return '4K';
+
+    const limitRaw = Number(requestParams?.resolutionLimit);
+    if (Number.isFinite(limitRaw) && limitRaw > 0) {
+      const limit = Math.max(64, Math.min(2160, Math.round(limitRaw)));
+      if (limit <= 720) return '720P';
+      if (limit <= 1080) return '1080P';
+      if (limit <= 1440) return '2K';
+      return '4K';
+    }
+
+    return '1080P';
+  }
+
+  private resolveVolcEnhanceResolutionFactor(
+    requestParams: any,
+  ): 1 | 2 | 4 | 8 {
+    const tier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+    if (tier === '720P') return 1;
+    if (tier === '1080P') return 2;
+    if (tier === '2K') return 4;
+    return 8;
+  }
+
+  private normalizeVolcEnhanceFpsBand(requestParams: any): 'lte30' | 'gt30' {
+    const fpsRaw = Number(requestParams?.fps);
+    if (!Number.isFinite(fpsRaw) || fpsRaw <= 0) {
+      return 'lte30';
+    }
+    return fpsRaw > 30 ? 'gt30' : 'lte30';
+  }
+
+  private resolveVolcEnhanceVersionFactor(
+    requestParams: any,
+  ): 1 | 10 {
+    return this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion) === 'professional'
+      ? 10
+      : 1;
+  }
+
+  private resolveVolcEnhanceVideoCredits(
+    serviceType: ServiceType,
+    defaultCredits: number,
+    requestParams: any,
+  ): number {
+    if (serviceType !== 'volc-enhance-video') return defaultCredits;
+    const version = this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion);
+    const resolutionTier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+    const fpsBand = this.normalizeVolcEnhanceFpsBand(requestParams);
+    const resolved = VOLC_ENHANCE_VIDEO_PRICING[version]?.[resolutionTier]?.[fpsBand];
+    if (typeof resolved === 'number' && Number.isFinite(resolved) && resolved > 0) {
+      return resolved;
+    }
+    return defaultCredits;
+  }
+
+  private normalizeSeed2Tier(raw: unknown): 'le32k' | 'gt32k_le128k' | 'gt128k_le256k' {
+    if (typeof raw !== 'string') return 'gt32k_le128k';
+    const value = raw.trim().toLowerCase();
+    if (!value) return 'gt32k_le128k';
+
+    if (
+      value === 'le32k' ||
+      value === 'lt32k' ||
+      value === '0-32k' ||
+      value === '<32k'
+    ) {
+      return 'le32k';
+    }
+
+    if (
+      value === 'gt128k_le256k' ||
+      value === '128k-256k' ||
+      value === '128k_256k' ||
+      value === '>128k'
+    ) {
+      return 'gt128k_le256k';
+    }
+
+    return 'gt32k_le128k';
+  }
+
+  private resolveSeed2UnitPriceYuan(
+    model: 'pro' | 'lite' | 'mini',
+    tier: 'le32k' | 'gt32k_le128k' | 'gt128k_le256k',
+  ): { inputRate: number; outputRate: number } {
+    const pricing = {
+      lite: {
+        le32k: { inputRate: 0.6, outputRate: 3.6 },
+        gt32k_le128k: { inputRate: 0.9, outputRate: 5.4 },
+        gt128k_le256k: { inputRate: 1.8, outputRate: 10.8 },
+      },
+      pro: {
+        le32k: { inputRate: 3.2, outputRate: 16 },
+        gt32k_le128k: { inputRate: 4.8, outputRate: 24 },
+        gt128k_le256k: { inputRate: 9.6, outputRate: 48 },
+      },
+      mini: {
+        le32k: { inputRate: 0.2, outputRate: 2 },
+        gt32k_le128k: { inputRate: 0.4, outputRate: 4 },
+        gt128k_le256k: { inputRate: 0.8, outputRate: 8 },
+      },
+    } as const;
+
+    return pricing[model][tier];
   }
 
   private normalizeKlingSound(raw: unknown): boolean {
@@ -1128,16 +1370,38 @@ export class CreditsService {
         : '';
 
     if (
-      seedanceModel === 'seedance-2.0-fast' ||
-      seedanceModel === '2.0-fast'
+      seedanceModel === 'seed-2.0-pro' ||
+      seedanceModel === 'seedance-2.0-pro' ||
+      seedanceModel === 'seed-2-0-pro' ||
+      seedanceModel === '2.0-pro'
     ) {
-      return 'Seedance 2.0 Fast视频生成';
+      return 'Seed 2.0 Pro视频生成';
+    }
+
+    if (
+      seedanceModel === 'seed-2.0-lite' ||
+      seedanceModel === 'seedance-2.0-lite' ||
+      seedanceModel === 'seed-2-0-lite' ||
+      seedanceModel === '2.0-lite'
+    ) {
+      return 'Seed 2.0 Lite视频生成';
+    }
+
+    if (
+      seedanceModel === 'seed-2.0-mini' ||
+      seedanceModel === 'seedance-2.0-mini' ||
+      seedanceModel === 'seed-2-0-mini' ||
+      seedanceModel === '2.0-mini'
+    ) {
+      return 'Seed 2.0 Mini视频生成';
     }
 
     if (
       modelKey === 'seedance-2.0' ||
       seedanceModel === 'seedance-2.0' ||
-      seedanceModel === '2.0'
+      seedanceModel === '2.0' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === '2.0-fast'
     ) {
       return 'Seedance 2.0视频生成';
     }
@@ -1154,9 +1418,9 @@ export class CreditsService {
   }
 
   /**
-   * 根据图片服务类型解析显示名称
-   * 格式：基础名称 + 分辨率 + 生成数量 + 路线
-   * 例如："Nano banana Pro 生图 1K x2 普通"
+   * ??????????????
+   * ??????? + ??? + ???? + ??
+   * ???"Nano banana Pro ?? 1K x2 ??"
    */
   private resolveBananaImageServiceName(
     serviceType: ServiceType,
@@ -1164,7 +1428,7 @@ export class CreditsService {
     requestParams: any,
     outputImageCount?: number,
   ): string {
-    // 判断是否为 Banana 图片服务
+    // ????? Banana ????
     const isBananaImageService =
       serviceType === 'gemini-2.5-image' ||
       serviceType === 'gemini-3-pro-image' ||
@@ -1181,7 +1445,7 @@ export class CreditsService {
       return defaultServiceName;
     }
 
-    // 解析路线
+    // ????
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute);
@@ -1205,7 +1469,7 @@ export class CreditsService {
     }
     const routeLabel = route === 'stable' ? '尊享' : '普通';
 
-    // 解析分辨率
+    // ?????
     const imageSize = requestParams?.imageSize;
     let resolutionLabel = '';
     if (imageSize && typeof imageSize === 'string') {
@@ -1215,7 +1479,7 @@ export class CreditsService {
       }
     }
 
-    // 解析生成数量
+    // ??????
     let countLabel = '';
     const count = typeof outputImageCount === 'number' && outputImageCount > 1
       ? outputImageCount
@@ -1230,9 +1494,9 @@ export class CreditsService {
   }
 
   /**
-   * happyhorse-r2v-video 按分辨率 × 时长动态计费
+   * happyhorse-r2v-video ???? � ??????
    * pricing.dynamicPricing.perSecondByResolution = { '720P': N, '1080P': M }
-   * credits = duration * rate[resolution]，缺失时回落 defaultCredits
+   * credits = duration * rate[resolution]?????? defaultCredits
    */
   private resolveHappyhorseR2VCredits(
     serviceType: ServiceType,
@@ -1255,8 +1519,8 @@ export class CreditsService {
   }
 
   /**
-   * 根据分辨率解析积分定价
-   * 支持按分辨率差异化计费的服务（由 pricing.resolutionPricing 控制）
+   * ???????????
+   * ???????????????? pricing.resolutionPricing ???
    */
   private resolveImageResolutionCredits(
     serviceType: ServiceType,
@@ -1277,22 +1541,22 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    // 获取请求的分辨率
+    // ????????
     const requestedImageSize = requestParams?.imageSize;
     if (!requestedImageSize || typeof requestedImageSize !== 'string') {
       return defaultCredits;
     }
 
-    // 标准化分辨率格式（支持 '4K', '2K', '1K', '0.5K' 等）
+    // ??????????? '4K', '2K', '1K', '0.5K' ??
     const normalizedSize = requestedImageSize.trim().toUpperCase();
     
-    // 查找匹配的分辨率定价
+    // ??????????
     const configuredCredits = Number(resolutionPricing[normalizedSize]);
     if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
       return configuredCredits;
     }
 
-    // 如果没有找到匹配的分辨率，返回默认值
+    // ??????????????????
     return defaultCredits;
   }
 
@@ -1324,6 +1588,17 @@ export class CreditsService {
     if (normalized === '2K') return '2K';
     if (normalized === '4K') return '4K';
     return '1K';
+  }
+
+  private normalizeGptImage2QualityForTencentPricing(
+    rawQuality: unknown,
+  ): 'low' | 'medium' | 'high' {
+    const normalized = typeof rawQuality === 'string' ? rawQuality.trim().toLowerCase() : '';
+    if (normalized === 'high') return 'high';
+    if (normalized === 'medium') return 'medium';
+    if (normalized === 'low') return 'low';
+    // auto / empty / invalid ??? low ??
+    return 'low';
   }
 
   private normalizeBananaImageRoute(
@@ -1464,7 +1739,7 @@ export class CreditsService {
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
-    // 解析路线：normal=普通路线，stable=尊享路线
+    // ?????normal=?????stable=????
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
@@ -1494,12 +1769,15 @@ export class CreditsService {
       const normalizedSize = this.normalizeResolutionForGptImage2TencentPricing(
         requestParams?.imageSize,
       );
-      // 普通路线使用 GPT_IMAGE2_NORMAL_RESOLUTION_PRICING，尊享路线使用 GPT_IMAGE2_TENCENT_RESOLUTION_PRICING
-      const configuredCredits = Number(
+      // ?????? GPT_IMAGE2_NORMAL_RESOLUTION_PRICING??????? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING
+      const configuredCredits =
         route === 'stable'
-          ? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[normalizedSize]
-          : GPT_IMAGE2_NORMAL_RESOLUTION_PRICING[normalizedSize],
-      );
+          ? Number(
+              GPT_IMAGE2_TENCENT_RESOLUTION_PRICING[
+                this.normalizeGptImage2QualityForTencentPricing(requestParams?.quality)
+              ][normalizedSize],
+            )
+          : Number(GPT_IMAGE2_NORMAL_RESOLUTION_PRICING[normalizedSize]);
       if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
         return null;
       }
@@ -1509,7 +1787,7 @@ export class CreditsService {
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
     if (!tier) return null;
 
-    // 选择定价表：尊享路线(stable)使用 BANANA_TENCENT_STABLE_RESOLUTION_PRICING，普通路线使用 BANANA_TENCENT_RESOLUTION_PRICING
+    // ??????????(stable)?? BANANA_TENCENT_STABLE_RESOLUTION_PRICING??????? BANANA_TENCENT_RESOLUTION_PRICING
     const pricingTable = route === 'stable'
       ? BANANA_TENCENT_STABLE_RESOLUTION_PRICING[tier]
       : BANANA_TENCENT_RESOLUTION_PRICING[tier];
@@ -2202,19 +2480,15 @@ export class CreditsService {
   }): string | null {
     const requestParams = this.asJsonObject(params.requestParams);
     const remarkParts: string[] = [];
-
     const modelLabel = this.resolveBillingModelLabel(
       params.serviceType,
       params.model,
       requestParams,
     );
-    if (modelLabel) {
-      remarkParts.push(`模型: ${modelLabel}`);
-    }
+    if (modelLabel) remarkParts.push(`model: ${modelLabel}`);
 
     const imageSize = this.asNonEmptyString(requestParams?.imageSize)?.toUpperCase() ?? null;
-    const resolution =
-      this.asNonEmptyString(requestParams?.resolution)?.toUpperCase() ?? null;
+    const resolution = this.asNonEmptyString(requestParams?.resolution)?.toUpperCase() ?? null;
     const aspectRatio = this.asNonEmptyString(requestParams?.aspectRatio);
     const mode = this.asNonEmptyString(requestParams?.mode)?.toLowerCase() ?? null;
     const videoMode = this.asNonEmptyString(requestParams?.videoMode)?.toLowerCase() ?? null;
@@ -2235,56 +2509,58 @@ export class CreditsService {
       params.serviceType === 'sora-hd' ||
       params.serviceType === 'wan26-r2v';
 
-    if (imageSize) {
-      remarkParts.push(`尺寸档位: ${imageSize}`);
+    if (imageSize) remarkParts.push(`imageSize: ${imageSize}`);
+    if (isVideoService && duration !== null) remarkParts.push(`duration: ${duration}s`);
+    if (resolution) remarkParts.push(`resolution: ${resolution}`);
+    if (aspectRatio) remarkParts.push(`aspectRatio: ${aspectRatio}`);
+    if (mode) remarkParts.push(`mode: ${mode}`);
+    if (videoMode) remarkParts.push(`videoMode: ${videoMode}`);
+    if (hasSound !== null) remarkParts.push(`sound: ${hasSound ? 'on' : 'off'}`);
+    if (generateAudio !== null) remarkParts.push(`generateAudio: ${generateAudio ? 'yes' : 'no'}`);
+    if (params.serviceType === 'volc-enhance-video') {
+      const volcVersion = this.normalizeVolcEnhanceToolVersion(requestParams?.toolVersion);
+      const volcResolutionTier = this.normalizeVolcEnhanceResolutionTier(requestParams);
+      const volcFpsBand = this.normalizeVolcEnhanceFpsBand(requestParams);
+      const volcVersionFactor = this.resolveVolcEnhanceVersionFactor(requestParams);
+      const volcResolutionFactor = this.resolveVolcEnhanceResolutionFactor(requestParams);
+      const volcFpsFactor = volcFpsBand === 'gt30' ? 2 : 1;
+      const volcFactor = volcVersionFactor * volcResolutionFactor * volcFpsFactor;
+      const pricing = VOLC_ENHANCE_VIDEO_PRICING[volcVersion]?.[volcResolutionTier]?.[volcFpsBand];
+      const pricingLabel = typeof pricing === 'number' ? String(pricing) : 'n/a';
+      const basePriceYuan = volcFactor * 0.75;
+      remarkParts.push(`volcVersion: ${volcVersion}`);
+      remarkParts.push(`volcResolutionTier: ${volcResolutionTier}`);
+      remarkParts.push(`volcFpsBand: ${volcFpsBand === 'gt30' ? '>30' : '<=30'}`);
+      remarkParts.push(`volcFactor: ${volcFactor}x`);
+      remarkParts.push(`volcUnitPriceYuan: ${basePriceYuan}`);
+      remarkParts.push(`volcPlatformPrice: ${pricingLabel}`);
     }
-    if (isVideoService && duration !== null) {
-      remarkParts.push(`时长: ${duration}s`);
-    }
-    if (resolution) {
-      remarkParts.push(`分辨率: ${resolution}`);
-    }
-    if (aspectRatio) {
-      remarkParts.push(`画幅: ${aspectRatio}`);
-    }
-    if (mode) {
-      remarkParts.push(`模式: ${mode}`);
-    }
-    if (videoMode) {
-      remarkParts.push(`视频模式: ${videoMode}`);
-    }
-    if (hasSound !== null) {
-      remarkParts.push(`音效: ${hasSound ? '开' : '关'}`);
-    }
-    if (generateAudio !== null) {
-      remarkParts.push(`生成音频: ${generateAudio ? '是' : '否'}`);
-    }
-    if (channelLabel) {
-      remarkParts.push(`渠道: ${channelLabel}`);
-    }
+    if (channelLabel) remarkParts.push(`channel: ${channelLabel}`);
 
     const isBananaImageService =
       Boolean(BANANA_TENCENT_IMAGE_SERVICE_TIERS[params.serviceType]) ||
       params.serviceType === GPT_IMAGE2_SERVICE_TYPE;
     if (isBananaImageService) {
       if (channel === 'tencent') {
-        remarkParts.push('计价: 按尊享路线积分价');
+        remarkParts.push('pricing: stable-route image matrix');
       } else if (channel === 'apimart') {
-        remarkParts.push('计价: 按普通路线积分价');
+        remarkParts.push('pricing: normal-route image matrix');
       } else if (channel === '147') {
-        remarkParts.push('计价: 按官方路线积分价');
+        remarkParts.push('pricing: official-route image matrix');
       }
     }
+
     const isBananaTextService =
       params.serviceType === 'gemini-text' ||
       params.serviceType === 'gemini-prompt-optimize';
     if (isBananaTextService) {
       if (channel === 'tencent') {
-        remarkParts.push('Pricing: text stable route 10 credits/call');
+        remarkParts.push('pricing: text stable route 10 credits/call');
       } else if (channel === 'apimart') {
-        remarkParts.push('Pricing: text normal route 5 credits/call');
+        remarkParts.push('pricing: text normal route 5 credits/call');
       }
     }
+
     return remarkParts.length > 0 ? remarkParts.join(' | ') : null;
   }
 
@@ -2575,10 +2851,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > dailyLimit) {
         this.logger.warn(
-          `免费用户日生图配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+          `免费用户图片日额度超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可使用图片能力 ${dailyLimit} 次（UTC ${label}）。今日已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
+          `免费用户图片每日限额为 ${dailyLimit} 张（UTC ${label}），当前已使用 ${usedCount} 张，本次请求 ${requestedCount} 张`,
         );
       }
     }
@@ -2597,10 +2873,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > monthlyLimit) {
         this.logger.warn(
-          `免费用户月生图配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+          `免费用户图片月额度超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可使用图片能力 ${monthlyLimit} 次（UTC ${label}）。本月已使用 ${usedCount} 次，本次请求 ${requestedCount} 次。`,
+          `免费用户图片每月限额为 ${monthlyLimit} 张（UTC ${label}），当前已使用 ${usedCount} 张，本次请求 ${requestedCount} 张`,
         );
       }
     }
@@ -2642,10 +2918,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > dailyLimit) {
         this.logger.warn(
-          `免费用户日生视频配额超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
+          `免费用户视频日额度超限 userId=${userId} day=${label} used=${usedCount} requested=${requestedCount} limit=${dailyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每天最多可生成视频 ${dailyLimit} 个（UTC ${label}）。今日已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+          `免费用户视频每日限额为 ${dailyLimit} 次（UTC ${label}），当前已使用 ${usedCount} 次，本次请求 ${requestedCount} 次`,
         );
       }
     }
@@ -2662,10 +2938,10 @@ export class CreditsService {
 
       if (usedCount + requestedCount > monthlyLimit) {
         this.logger.warn(
-          `免费用户月生视频配额超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
+          `免费用户视频月额度超限 userId=${userId} month=${label} used=${usedCount} requested=${requestedCount} limit=${monthlyLimit}`,
         );
         throw new BadRequestException(
-          `免费额度已用尽，请前往充值，享有更多权限后可继续生成。免费用户每月最多可生成视频 ${monthlyLimit} 个（UTC ${label}）。本月已使用 ${usedCount} 个，本次请求 ${requestedCount} 个。`,
+          `免费用户视频每月限额为 ${monthlyLimit} 次（UTC ${label}），当前已使用 ${usedCount} 次，本次请求 ${requestedCount} 次`,
         );
       }
     }
@@ -2696,7 +2972,7 @@ export class CreditsService {
   }
 
   /**
-   * 判断用户是否为付费用户（有成功支付的订单）
+   * ?????????????????????
    */
   async isPaidUser(userId: string): Promise<boolean> {
     const paidOrder = await this.prisma.paymentOrder.findFirst({
@@ -2709,13 +2985,13 @@ export class CreditsService {
   }
 
   /**
-   * 获取或创建用户积分账户
-   * 使用双重检查锁定模式（Double-Checked Locking）避免并发创建冲突
+   * ???????????
+   * ???????????Double-Checked Locking?????????
    */
   async getOrCreateAccount(userId: string) {
     let userCreatedAt: Date | undefined;
 
-    // 第一次检查：快速路径，绝大多数场景直接命中
+    // ?????????????????????
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
@@ -2741,11 +3017,11 @@ export class CreditsService {
       });
     }
 
-    // 第二次检查：在事务内部再次检查，避免并发创建冲突
+    // ????????????????????????
     try {
       account = await this.prisma.$transaction(async (tx) => {
-        // 在事务中再次查询，确保在创建前账户不存在
-        // 这样可以避免两个并发请求同时创建的情况
+        // ????????????????????
+        // ???????????????????
         const existingAccount = await tx.creditAccount.findUnique({
           where: { userId },
         });
@@ -2760,7 +3036,7 @@ export class CreditsService {
         });
         userCreatedAt = user?.createdAt;
 
-        // 新用户不再发放注册积分；仅初始化账户，后续按免费用户月度额度规则补发。
+        // ???????????????????????????????????
         const newAccount = await tx.creditAccount.create({
           data: {
             userId,
@@ -2771,8 +3047,8 @@ export class CreditsService {
 
         return newAccount;
       }, {
-        // 设置事务超时和隔离级别
-        timeout: 10000, // 10秒超时
+        // ???????????
+        timeout: 10000, // 10???
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       });
 
@@ -2789,15 +3065,15 @@ export class CreditsService {
         where: { userId },
       });
     } catch (error) {
-      // 如果仍然发生唯一约束冲突（理论上不应该，但作为最后的安全网）
+      // ??????????????????????????????
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        this.logger.warn(`检测到并发创建账户冲突 userId=${userId}，重新查询`);
+        this.logger.warn(`??????????? userId=${userId}?????`);
         const existingAccount = await this.prisma.creditAccount.findUnique({
           where: { userId },
         });
         if (!existingAccount) {
-          // 如果仍然找不到，记录错误并抛出
-          this.logger.error(`P2002错误后未找到账户 userId=${userId}`);
+          // ???????????????
+          this.logger.error(`P2002???????? userId=${userId}`);
           throw error;
         }
         const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
@@ -2875,7 +3151,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户积分余额
+   * ????????
    */
   async getBalance(userId: string): Promise<number> {
     const account = await this.getOrCreateAccount(userId);
@@ -2886,7 +3162,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户积分账户详情
+   * ??????????
    */
   async getAccountDetails(userId: string) {
     const account = await this.getOrCreateAccount(userId);
@@ -2901,7 +3177,7 @@ export class CreditsService {
   }
 
   /**
-   * 检查用户是否有足够积分
+   * ???????????
    */
   async hasEnoughCredits(userId: string, serviceType: ServiceType): Promise<boolean> {
     const pricing = await this.resolveServicePricing({ serviceType });
@@ -2914,7 +3190,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取服务定价
+   * ??????
    */
   async getServicePricing(serviceType: ServiceType) {
     const pricing = await this.resolveServicePricing({ serviceType });
@@ -2951,18 +3227,18 @@ export class CreditsService {
           : typeof evaluator.priceYuan === 'number'
           ? Math.ceil(evaluator.priceYuan * 100)
           : undefined;
-      return credits !== undefined ? `${credits} 积分` : '固定定价';
+      return credits !== undefined ? `${credits} 积分` : '未配置';
     }
 
     if (evaluator.type === 'linear') {
       const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * 100);
-      return `credits = ${evaluator.unitField} × ${creditsPerUnit}`;
+      return `credits = ${evaluator.unitField} � ${creditsPerUnit}`;
     }
 
     if (evaluator.type === 'base_plus_linear') {
       const baseCredits = Math.ceil(evaluator.basePriceYuan * 100);
       const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * 100);
-      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) × ${extraCreditsPerUnit}`;
+      return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) � ${extraCreditsPerUnit}`;
     }
 
     if (evaluator.type === 'lookup_matrix') {
@@ -3181,7 +3457,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取所有服务定价
+   * ????????
    */
   async getAllPricing(): Promise<PricingResponseDto[]> {
     const staticEntries = new Map(
@@ -3234,8 +3510,8 @@ export class CreditsService {
   }
 
   /**
-   * 预扣积分（在API调用前）
-   * 返回 API 使用记录 ID，用于后续更新状态
+   * ??????API????
+   * ?? API ???? ID?????????
    */
   private normalizeIdempotencyKey(raw: unknown): string | null {
     if (typeof raw !== 'string') return null;
@@ -3452,7 +3728,7 @@ export class CreditsService {
     );
 
     return await this.prisma.$transaction(async (tx) => {
-      // 获取账户并锁定
+      // ???????
       const account = await tx.creditAccount.findUnique({
         where: { userId },
       });
@@ -3569,7 +3845,7 @@ export class CreditsService {
 
       const newBalance = account.balance - deductionPlan.totalDeducted;
 
-      // 按服务类型解析显示名称
+      // ???????????
       let effectiveServiceName = this.resolveSoraServiceName(
         serviceType,
         pricing.serviceName,
@@ -3586,7 +3862,7 @@ export class CreditsService {
         effectiveServiceName,
         apiUsageRequestParams,
       );
-      // 图片服务名称格式：基础名称 + 分辨率 + 生成数量 + 路线
+      // ????????????? + ??? + ???? + ??
       effectiveServiceName = this.resolveBananaImageServiceName(
         serviceType,
         effectiveServiceName,
@@ -3600,7 +3876,7 @@ export class CreditsService {
         requestParams: apiUsageRequestParams,
       });
 
-      // 更新账户余额
+      // ??????
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -3609,7 +3885,7 @@ export class CreditsService {
         },
       });
 
-      // 创建 API 使用记录
+      // ?? API ????
       const apiUsage = await tx.apiUsageRecord.create({
         data: {
           userId,
@@ -3629,7 +3905,7 @@ export class CreditsService {
         },
       });
 
-      // 创建交易记录
+      // ??????
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -3709,7 +3985,7 @@ export class CreditsService {
   }
 
   /**
-   * 更新 API 使用记录状态
+   * ?? API ??????
    */
   async verifyAndRewardInviterSafely(
     inviteeUserId: string,
@@ -3721,7 +3997,7 @@ export class CreditsService {
       await this.referralService.verifyAndRewardInviter(inviteeUserId, options);
     } catch (e) {
       this.logger.warn(
-        `[Credits] 邀请奖励核验失败 userId=${inviteeUserId}: ${e instanceof Error ? e.message : String(e)}`,
+        `[Credits] 邀请奖励发放失败 userId=${inviteeUserId}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -3807,7 +4083,7 @@ export class CreditsService {
       return latestUsage;
     }
 
-    // 如果 API 调用首次从 pending 变为 success，检查是否需要核验邀请奖励
+    // ?? API ????? pending ?? success?????????????
     if (
       status === ApiResponseStatus.SUCCESS &&
       existingUsage.responseStatus !== ApiResponseStatus.SUCCESS &&
@@ -3852,8 +4128,412 @@ export class CreditsService {
     });
   }
 
+  async settleSeed2TokenCreditsForUser(
+    userId: string,
+    apiUsageId: string,
+    inputTokens?: number,
+    outputTokens?: number,
+  ): Promise<void> {
+    const hasInputTokens = Number.isFinite(inputTokens);
+    const hasOutputTokens = Number.isFinite(outputTokens);
+    // Seed2 token settlement requires both sides of token usage.
+    // If either side is missing, keep pre-deducted base credits as final fallback.
+    if (!hasInputTokens || !hasOutputTokens) {
+      return;
+    }
+
+    const normalizedInputTokens = hasInputTokens
+      ? Math.max(0, Math.floor(inputTokens as number))
+      : 0;
+    const normalizedOutputTokens = hasOutputTokens
+      ? Math.max(0, Math.floor(outputTokens as number))
+      : 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      const apiUsage = await tx.apiUsageRecord.findUnique({
+        where: { id: apiUsageId },
+      });
+
+      if (!apiUsage) {
+        throw new NotFoundException('API使用记录不存在');
+      }
+
+      if (apiUsage.userId !== userId) {
+        throw new BadRequestException('无权访问该 API 记录');
+      }
+
+      if (apiUsage.responseStatus !== ApiResponseStatus.PENDING) {
+        return;
+      }
+
+      const requestParams = this.asJsonObject(apiUsage.requestParams);
+      const seed2Model = this.normalizeSeed2Model(requestParams?.seedanceModel);
+      const targetModel = seed2Model ?? this.normalizeSeed2Model(apiUsage.model);
+
+      if (!targetModel) {
+        await tx.apiUsageRecord.update({
+          where: { id: apiUsageId },
+          data: {
+            inputTokens: hasInputTokens ? normalizedInputTokens : apiUsage.inputTokens,
+            outputTokens: hasOutputTokens ? normalizedOutputTokens : apiUsage.outputTokens,
+          },
+        });
+        return;
+      }
+
+      const tier = this.normalizeSeed2Tier(requestParams?.seed2InputTier ?? requestParams?.seedanceInputTier);
+      const { inputRate, outputRate } = this.resolveSeed2UnitPriceYuan(targetModel, tier);
+      const rawCostYuan =
+        (normalizedInputTokens / 1_000_000) * inputRate +
+        (normalizedOutputTokens / 1_000_000) * outputRate;
+      const settledCredits = Math.max(0, Math.ceil(rawCostYuan * 1.2 * 100));
+
+      const existingAdjustment = await tx.creditTransaction.findFirst({
+        where: {
+          apiUsageId,
+          type: TransactionType.ADJUSTMENT,
+          metadata: {
+            path: ['reason'],
+            equals: 'seed2_token_settlement',
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (existingAdjustment) {
+        await tx.apiUsageRecord.update({
+          where: { id: apiUsageId },
+          data: {
+            inputTokens: normalizedInputTokens,
+            outputTokens: normalizedOutputTokens,
+            creditsUsed: settledCredits,
+          },
+        });
+        return;
+      }
+
+      const account = await tx.creditAccount.findUnique({
+        where: { userId },
+      });
+
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const preDeductedCredits = Math.max(0, Math.floor(apiUsage.creditsUsed));
+      const deltaCredits = settledCredits - preDeductedCredits;
+      const spendTransaction = await tx.creditTransaction.findFirst({
+        where: {
+          apiUsageId,
+          type: TransactionType.SPEND,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      const lotDeductions = this.extractLotDeductionsFromMetadata(
+        spendTransaction?.metadata,
+      );
+
+      if (deltaCredits < 0) {
+        const refundCredits = Math.abs(deltaCredits);
+        const newBalance = account.balance + refundCredits;
+        const adjustedTotalSpent = Math.max(0, account.totalSpent - refundCredits);
+
+        const restoreDeductions: HybridCreditDeduction[] = [];
+        let remainingToRestore = refundCredits;
+        for (const item of lotDeductions) {
+          if (remainingToRestore <= 0) break;
+          const restoreAmount = Math.min(item.amount, remainingToRestore);
+          if (restoreAmount <= 0) continue;
+          if (item.kind === 'lot') {
+            if (!item.lotId) continue;
+            restoreDeductions.push({
+              kind: 'lot',
+              lotId: item.lotId,
+              amount: restoreAmount,
+            });
+          } else {
+            restoreDeductions.push({
+              kind: 'legacy_balance',
+              amount: restoreAmount,
+            });
+          }
+          remainingToRestore -= restoreAmount;
+        }
+
+        const lotIds = restoreDeductions
+          .filter((item) => item.kind === 'lot' && !!item.lotId)
+          .map((item) => item.lotId as string);
+
+        if (lotIds.length > 0) {
+          const lots = await tx.creditLot.findMany({
+            where: {
+              id: { in: lotIds },
+            },
+            select: {
+              id: true,
+              sourceType: true,
+              validityType: true,
+              scopeType: true,
+              scopeValue: true,
+              totalAmount: true,
+              remainingAmount: true,
+              grantedAt: true,
+              activeAt: true,
+              expiresAt: true,
+              priority: true,
+              status: true,
+            },
+          });
+
+          const restoredLots = applyLotRestorationsToSnapshots({
+            lots: lots.map((lot) => this.toCreditLotCandidate(lot)),
+            deductions: restoreDeductions,
+          });
+
+          for (const restoredLot of restoredLots) {
+            const originalLot = lots.find((lot) => lot.id === restoredLot.id);
+            if (!originalLot) continue;
+            if (
+              originalLot.remainingAmount === restoredLot.remainingAmount &&
+              originalLot.status === restoredLot.status
+            ) {
+              continue;
+            }
+
+            await tx.creditLot.update({
+              where: { id: restoredLot.id },
+              data: {
+                remainingAmount: restoredLot.remainingAmount,
+                status: restoredLot.status,
+              },
+            });
+          }
+        }
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: newBalance,
+            totalSpent: adjustedTotalSpent,
+          },
+        });
+
+        const restorePayload = restoreDeductions.map((item) =>
+          item.kind === 'lot'
+            ? {
+                kind: item.kind,
+                lotId: item.lotId,
+                amount: item.amount,
+              }
+            : {
+                kind: item.kind,
+                amount: item.amount,
+              },
+        ) as unknown as Prisma.JsonArray;
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.ADJUSTMENT,
+            amount: refundCredits,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: 'Seed2.0 Token 结算退款',
+            apiUsageId,
+            consumePolicyCode: spendTransaction?.consumePolicyCode ?? null,
+            consumePolicyVersion: spendTransaction?.consumePolicyVersion ?? null,
+            metadata: {
+              reason: 'seed2_token_settlement',
+              direction: 'refund',
+              model: targetModel,
+              tier,
+              inputTokens: normalizedInputTokens,
+              outputTokens: normalizedOutputTokens,
+              preDeductedCredits,
+              settledCredits,
+              deltaCredits,
+              rawCostYuan,
+              markupRate: 0.2,
+              deductions: restorePayload,
+            },
+          },
+        });
+
+        await tx.apiUsageRecord.update({
+          where: { id: apiUsageId },
+          data: {
+            inputTokens: normalizedInputTokens,
+            outputTokens: normalizedOutputTokens,
+            creditsUsed: settledCredits,
+          },
+        });
+
+        return;
+      }
+
+      if (deltaCredits > 0) {
+        if (account.balance < deltaCredits) {
+          this.logger.warn(
+            '[Credits] Seed2 settlement charge skipped due to insufficient balance user=' + userId +
+              ' apiUsageId=' + apiUsageId +
+              ' delta=' + deltaCredits +
+              ' balance=' + account.balance,
+          );
+
+          await tx.apiUsageRecord.update({
+            where: { id: apiUsageId },
+            data: {
+              inputTokens: normalizedInputTokens,
+              outputTokens: normalizedOutputTokens,
+            },
+          });
+          return;
+        }
+
+        const activeLots = await tx.creditLot.findMany({
+          where: {
+            accountId: account.id,
+            status: 'active',
+          },
+          select: {
+            id: true,
+            sourceType: true,
+            validityType: true,
+            scopeType: true,
+            scopeValue: true,
+            totalAmount: true,
+            remainingAmount: true,
+            grantedAt: true,
+            activeAt: true,
+            expiresAt: true,
+            priority: true,
+            status: true,
+          },
+        });
+
+        const consumePolicy = await this.resolveCreditConsumePolicy(tx, {
+          serviceType: apiUsage.serviceType,
+          provider: apiUsage.provider,
+          model: apiUsage.model ?? null,
+        });
+
+        const deductionPlan = buildHybridCreditDeductionPlan({
+          accountBalance: account.balance,
+          amount: deltaCredits,
+          lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+          now: new Date(),
+          scope: {
+            serviceType: apiUsage.serviceType,
+            provider: apiUsage.provider,
+            model: apiUsage.model ?? null,
+          },
+          policy: consumePolicy,
+        });
+
+        if (!deductionPlan.sufficient) {
+          throw new BadRequestException('积分不足，当前余额: ' + account.balance + '，需补扣: ' + deltaCredits);
+        }
+
+        const updatedLots = applyLotDeductionsToSnapshots({
+          lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+          deductions: deductionPlan.deductions,
+        });
+
+        for (const updatedLot of updatedLots) {
+          const originalLot = activeLots.find((lot) => lot.id === updatedLot.id);
+          if (!originalLot) continue;
+          if (
+            originalLot.remainingAmount === updatedLot.remainingAmount &&
+            originalLot.status === updatedLot.status
+          ) {
+            continue;
+          }
+
+          await tx.creditLot.update({
+            where: { id: updatedLot.id },
+            data: {
+              remainingAmount: updatedLot.remainingAmount,
+              status: updatedLot.status,
+            },
+          });
+        }
+
+        const newBalance = account.balance - deductionPlan.totalDeducted;
+
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: newBalance,
+            totalSpent: account.totalSpent + deductionPlan.totalDeducted,
+          },
+        });
+
+        const deductionPayload = deductionPlan.deductions.map((item) =>
+          item.kind === 'lot'
+            ? {
+                kind: item.kind,
+                lotId: item.lotId,
+                amount: item.amount,
+              }
+            : {
+                kind: item.kind,
+                amount: item.amount,
+              },
+        ) as unknown as Prisma.JsonArray;
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.ADJUSTMENT,
+            amount: -deductionPlan.totalDeducted,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: 'Seed2.0 Token 结算补扣',
+            apiUsageId,
+            consumePolicyCode: consumePolicy.code,
+            consumePolicyVersion: consumePolicy.version,
+            metadata: {
+              reason: 'seed2_token_settlement',
+              direction: 'charge',
+              model: targetModel,
+              tier,
+              inputTokens: normalizedInputTokens,
+              outputTokens: normalizedOutputTokens,
+              preDeductedCredits,
+              settledCredits,
+              deltaCredits,
+              rawCostYuan,
+              markupRate: 0.2,
+              deductions: deductionPayload,
+            },
+          },
+        });
+
+        await tx.apiUsageRecord.update({
+          where: { id: apiUsageId },
+          data: {
+            inputTokens: normalizedInputTokens,
+            outputTokens: normalizedOutputTokens,
+            creditsUsed: settledCredits,
+          },
+        });
+
+        return;
+      }
+
+      await tx.apiUsageRecord.update({
+        where: { id: apiUsageId },
+        data: {
+          inputTokens: normalizedInputTokens,
+          outputTokens: normalizedOutputTokens,
+          creditsUsed: settledCredits,
+        },
+      });
+    });
+  }
+
   /**
-   * 标记用户的 API 使用记录为失败（用于可轮询任务的手动退款前置校验）
+   * ????? API ?????????????????????????
    */
   async markApiUsageFailedForUser(
     userId: string,
@@ -3870,7 +4550,7 @@ export class CreditsService {
     }
 
     if (apiUsage.userId !== userId) {
-      throw new BadRequestException('无权操作该 API 使用记录');
+      throw new BadRequestException('无权访问该 API 记录');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
@@ -3921,7 +4601,7 @@ export class CreditsService {
   }
 
   /**
-   * 标记用户的 API 使用记录为成功（用于可轮询任务在前端确认成功后回写）
+   * ????? API ??????????????????????????
    */
   async markApiUsageSuccessForUser(
     userId: string,
@@ -3937,11 +4617,11 @@ export class CreditsService {
     }
 
     if (apiUsage.userId !== userId) {
-      throw new BadRequestException('无权操作该 API 使用记录');
+      throw new BadRequestException('无权访问该 API 记录');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.FAILED) {
-      throw new BadRequestException('失败的 API 调用不支持标记成功');
+      throw new BadRequestException('失败的 API 调用不能标记为成功');
     }
 
     if (apiUsage.responseStatus === ApiResponseStatus.SUCCESS) {
@@ -3970,7 +4650,7 @@ export class CreditsService {
       }
 
       if (latestUsage.responseStatus === ApiResponseStatus.FAILED) {
-        throw new BadRequestException('失败的 API 调用不支持标记成功');
+        throw new BadRequestException('失败的 API 调用不能标记为成功');
       }
 
       return latestUsage;
@@ -3989,11 +4669,11 @@ export class CreditsService {
   }
 
   /**
-   * API 调用失败时退还积分
+   * API ?????????
    */
   async refundCredits(userId: string, apiUsageId: string): Promise<AddCreditsResult> {
     return await this.prisma.$transaction(async (tx) => {
-      // 获取 API 使用记录
+      // ?? API ????
       const apiUsage = await tx.apiUsageRecord.findUnique({
         where: { id: apiUsageId },
       });
@@ -4003,11 +4683,11 @@ export class CreditsService {
       }
 
       if (apiUsage.userId !== userId) {
-        throw new BadRequestException('无权退还该 API 调用积分');
+        throw new BadRequestException('无权访问该 API 记录');
       }
 
       if (apiUsage.responseStatus !== ApiResponseStatus.FAILED) {
-        throw new BadRequestException('只能退还失败的API调用积分');
+        throw new BadRequestException('只有失败的API调用才能退款');
       }
 
       const account = await tx.creditAccount.findUnique({
@@ -4018,7 +4698,7 @@ export class CreditsService {
         throw new NotFoundException('用户积分账户不存在');
       }
 
-      // 幂等保护：同一个 apiUsage 只允许创建一次退款交易
+      // ???????? apiUsage ???????????
       const existingRefund = await tx.creditTransaction.findFirst({
         where: {
           apiUsageId,
@@ -4103,7 +4783,7 @@ export class CreditsService {
         }
       }
 
-      // 更新账户余额
+      // ??????
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -4112,7 +4792,7 @@ export class CreditsService {
         },
       });
 
-      // 创建退款交易记录
+      // ????????
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -4139,8 +4819,8 @@ export class CreditsService {
   }
 
   /**
-   * 根据实际成功生成的图片数量调整积分（多退少补）
-   * 用于图片生成服务，按实际产出数量计费
+   * ???????????????????????
+   * ??????????????????
    */
   async adjustCreditsByOutputCount(
     apiUsageId: string,
@@ -4371,9 +5051,9 @@ export class CreditsService {
   }
 
   /**
-   * 自动处理长时间 pending 的生图调用：
-   * - 标记为 failed
-   * - 执行积分退款（幂等）
+   * ??????? pending ??????
+   * - ??? failed
+   * - ??????????
    */
   async autoRefundStalePendingImageUsages(options?: {
     timeoutMinutes?: number;
@@ -4396,9 +5076,9 @@ export class CreditsService {
   }
 
   /**
-   * 自动处理长时间 pending 的异步视频调用：
-   * - 标记为 failed
-   * - 执行积分退款（幂等）
+   * ??????? pending ????????
+   * - ??? failed
+   * - ??????????
    */
   async autoRefundStalePendingVideoUsages(options?: {
     timeoutMinutes?: number;
@@ -4520,7 +5200,7 @@ export class CreditsService {
   }
 
   /**
-   * 管理员添加积分
+   * ???????
    */
   async adminAddCredits(
     userId: string,
@@ -4585,7 +5265,7 @@ export class CreditsService {
   }
 
   /**
-   * 管理员扣除积分
+   * ???????
    */
   async adminDeductCredits(
     userId: string,
@@ -4640,7 +5320,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户交易记录
+   * ????????
    */
   async getTransactionHistory(
     userId: string,
@@ -4774,7 +5454,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户 API 使用记录
+   * ???? API ????
    */
   async getApiUsageHistory(
     userId: string,
@@ -4822,7 +5502,7 @@ export class CreditsService {
   }
 
   /**
-   * 检查用户今天是否已领取每日奖励
+   * ???????????????
    */
   async canClaimDailyReward(userId: string): Promise<{
     canClaim: boolean;
@@ -4862,10 +5542,10 @@ export class CreditsService {
   }
 
   /**
-   * 领取每日登录奖励
-   * 签到积分统一进入 gift 池：普通用户会日衰减，活跃 VIP 因 pauseGiftDecay 不衰减
-   * 规则：免费用户使用策略配置的签到积分；付费会员使用套餐 dailyGiftCredits 作为签到基础积分。
-   * 连续签到第 7 天按倍率发放，断签或满 7 天后重置到第 1 天，不走自动每日发放。
+   * ????????
+   * ???????? gift ????????????? VIP ? pauseGiftDecay ???
+   * ??????????????????????????? dailyGiftCredits ?????????
+   * ????? 7 ??????????? 7 ?????? 1 ???????????
    */
   async claimDailyReward(userId: string): Promise<AddCreditsResult & {
     alreadyClaimed?: boolean;
@@ -4905,7 +5585,7 @@ export class CreditsService {
       const rewardRule = await this.resolveDailyRewardRuleForUser(tx, userId);
       const expiresAt = null;
 
-      // 计算连续签到天数
+      // ????????
       let newConsecutiveDays = 1;
       let bonusCredits = 0;
       let rewardMultiplier = 1;
@@ -4915,21 +5595,21 @@ export class CreditsService {
         const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
 
         if (diffDays === 1) {
-          // 连续签到
+          // ????
           if (account.consecutiveDays >= 7) {
-            // 已满7天，重置到第1天
+            // ??7??????1?
             newConsecutiveDays = 1;
           } else {
             newConsecutiveDays = account.consecutiveDays + 1;
           }
         } else if (diffDays === 0) {
-          // 同一天，保持不变（理论上不会走到这里，因为 canClaim 会返回 false）
+          // ????????????????????? canClaim ??? false?
           newConsecutiveDays = account.consecutiveDays;
         }
-        // diffDays > 1 表示断签，重新从1开始（默认值已经是1）
+        // diffDays > 1 ????????1?????????1?
       }
 
-      // 第7天按策略倍数发放
+      // ?7????????
       if (newConsecutiveDays === 7) {
         rewardMultiplier = Math.max(1, rewardRule.rewardMultiplier);
         bonusCredits = rewardMultiplier > 1
@@ -4940,7 +5620,7 @@ export class CreditsService {
       const totalCredits = rewardRule.baseCredits + bonusCredits;
       const newBalance = account.balance + totalCredits;
 
-      // 更新账户余额、最后领取时间和连续签到天数
+      // ????????????????????
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -4952,7 +5632,7 @@ export class CreditsService {
         },
       });
 
-      // 创建签到交易记录
+      // ????????
       const description = bonusCredits > 0
         ? `连续签到第7天，按${rewardMultiplier}倍发放共${totalCredits}积分`
         : `每日签到第${newConsecutiveDays}天`;
@@ -5007,9 +5687,9 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户签到日历状态（7天周期）
-   * 规则：连续签到7天后重置，断签也重置
-   * 日历显示：已签到(checked)、今日待签(isToday)、未来待签(其他)
+   * ???????????7????
+   * ???????7??????????
+   * ????????(checked)?????(isToday)?????(??)
    */
   async getCheckInCalendar(userId: string): Promise<{
     consecutiveDays: number;
@@ -5033,27 +5713,27 @@ export class CreditsService {
       const lastCheckIn = new Date(account.lastCheckInDate);
       todayCheckedIn = this.diffDailyRewardBusinessDays(now, lastCheckIn) === 0;
 
-      // 检查是否断签（超过1天没签到）
+      // ?????????1?????
       const diffDays = this.diffDailyRewardBusinessDays(now, lastCheckIn);
       if (diffDays > 1) {
-        // 断签了，显示为0天（但数据库中的值会在下次签到时重置）
+        // ???????0???????????????????
         consecutiveDays = 0;
       }
     }
 
-    // 构建7天日历
+    // ??7???
     const calendarDays: Array<{ day: number; checked: boolean; missed: boolean; isToday: boolean }> = [];
 
     for (let i = 1; i <= 7; i++) {
-      // 已签到：第1天到第consecutiveDays天
+      // ?????1???consecutiveDays?
       const checked = i <= consecutiveDays;
-      // 今日待签：下一个要签到的天数（如果今天还没签到）
+      // ????????????????????????
       const isToday = !todayCheckedIn && i === consecutiveDays + 1;
 
       calendarDays.push({
         day: i,
         checked,
-        missed: false, // 断签会重置周期，所以当前周期内不存在漏签
+        missed: false, // ????????????????????
         isToday,
       });
     }
@@ -5068,8 +5748,8 @@ export class CreditsService {
   }
 
   /**
-   * 清理过期的签到积分（定时任务调用）
-   * 只清理普通用户的过期签到积分
+   * ?????????????????
+   * ??????????????
    */
   async cleanupExpiredDailyRewards(): Promise<{ processedUsers: number; totalExpiredCredits: number }> {
     const now = new Date();
@@ -5201,14 +5881,14 @@ export class CreditsService {
       totalExpiredCredits += actualDeduct;
     }
 
-    // 查找所有已过期但未处理的签到积分记录
+    // ??????????????????
     const expiredTransactions = await this.prisma.creditTransaction.findMany({
       where: {
         type: TransactionType.DAILY_REWARD,
         expiresAt: { lte: now },
         isExpired: false,
         creditLotId: null,
-        amount: { gt: 0 }, // 只处理正数（获得积分的记录）
+        amount: { gt: 0 }, // ??????????????
       },
       include: {
         account: true,
@@ -5219,7 +5899,7 @@ export class CreditsService {
       return { processedUsers: processedUserIds.size, totalExpiredCredits };
     }
 
-    // 按用户分组处理
+    // ???????
     const userTransactions = new Map<string, typeof expiredTransactions>();
     for (const tx of expiredTransactions) {
       const userId = tx.account.userId;
@@ -5233,10 +5913,10 @@ export class CreditsService {
 
     for (const [userId, transactions] of userTransactions) {
       processedUserIds.add(userId);
-      // 再次确认不是付费用户（双重检查）
+      // ????????????????
       const isPaid = await this.isPaidUser(userId);
       if (isPaid) {
-        // 付费用户：将这些记录标记为永不过期
+        // ?????????????????
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },
@@ -5249,31 +5929,31 @@ export class CreditsService {
         continue;
       }
 
-      // 计算该用户需要清除的过期积分总额
+      // ????????????????
       const expiredAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
 
       if (expiredAmount <= 0) continue;
 
-      // 获取用户当前余额
+      // ????????
       const account = await this.prisma.creditAccount.findUnique({
         where: { userId },
       });
 
       if (!account) continue;
 
-      // 实际扣除的积分不能超过当前余额
+      // ???????????????
       const actualDeduct = Math.min(expiredAmount, account.balance);
 
       if (actualDeduct > 0) {
         await this.prisma.$transaction(async (tx) => {
-          // 扣除过期积分
+          // ??????
           const newBalance = account.balance - actualDeduct;
           await tx.creditAccount.update({
             where: { id: account.id },
             data: { balance: newBalance },
           });
 
-          // 创建过期扣除记录
+          // ????????
           await tx.creditTransaction.create({
             data: {
               accountId: account.id,
@@ -5289,7 +5969,7 @@ export class CreditsService {
             },
           });
 
-          // 标记原始交易记录为已过期
+          // ????????????
           await tx.creditTransaction.updateMany({
             where: {
               id: { in: transactions.map(t => t.id) },
@@ -5303,7 +5983,7 @@ export class CreditsService {
 
         totalExpiredCredits += actualDeduct;
       } else {
-        // 余额为0，只标记为已过期
+        // ???0????????
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },
@@ -5324,7 +6004,7 @@ export class CreditsService {
   }
 
   /**
-   * 获取用户即将过期的签到积分信息
+   * ???????????????
    */
   async getExpiringCredits(userId: string): Promise<{
     totalExpiring: number;

@@ -530,6 +530,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     aiProvider: resolvedProvider,
     bananaImageRoute,
     imageSize: resolutionValue || undefined,
+    gptImage2Quality: isGptImage2Node ? normalizedQualityValue : undefined,
     aspectRatio: aspectRatioValue || undefined,
     referenceImageCount: imageInputCount,
     managedModelKey: data.managedModelKey,
@@ -538,11 +539,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
     enabled: true,
   });
   const resolvedRunCredits =
-    resolvedNodeType === "gptImage2"
-      ? data.creditsPerCall
-      : typeof backendCredits === "number"
-      ? backendCredits
-      : data.creditsPerCall;
+    typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
 
   const handleImageChange = React.useCallback(
     (imageId: string) => {
