@@ -1540,6 +1540,29 @@ export class VideoProviderService {
     const headers = (this.renderTemplateValue(stage.headers || {}, context) || {}) as Record<string, any>;
     const query = (this.renderTemplateValue(stage.query || {}, context) || {}) as Record<string, any>;
     const body = this.renderTemplateValue(stage.body, context);
+    if (
+      body &&
+      typeof body === "object" &&
+      typeof (body as Record<string, any>).model === "string"
+    ) {
+      const modelKey = String(context?.vendor?.modelKey || "").trim().toLowerCase();
+      const vendorKey = String(context?.vendor?.vendorKey || "").trim().toLowerCase();
+      if (modelKey === "seedance-2.0" && vendorKey === "seedance_api") {
+        const before = String((body as Record<string, any>).model || "").trim();
+        if (before) {
+          const after = normalizeSeedanceUpstreamModelIdAlias(before);
+          if (after !== before) {
+            this.logger.warn(
+              `[Seedance2] normalize v2 request model alias in-stage: ${before} -> ${after}`,
+            );
+            (body as Record<string, any>).model = after;
+          }
+          this.logger.log(
+            `[Seedance2] v2 create/query model=${String((body as Record<string, any>).model || "").trim()}`,
+          );
+        }
+      }
+    }
 
     const finalUrl = new URL(url);
     Object.entries(query).forEach(([key, value]) => {
