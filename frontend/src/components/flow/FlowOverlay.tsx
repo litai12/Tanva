@@ -25551,11 +25551,17 @@ function FlowInner() {
                           const isDisabled =
                             config.status === "maintenance" ||
                             config.status === "coming_soon";
-                          const isVipNode =
+                          const isSeedance2Node =
                             config.nodeKey === "seedance20Video" ||
-                            config.nodeKey === "seedVideo" ||
+                            config.nodeKey === "seedVideo";
+                          const isVipMetadataNode =
                             (config.metadata as Record<string, any>)?.vipOnly === true;
-                          const isVipLocked = !membershipActive && isVipNode;
+                          const isVipNode = isVipMetadataNode && !isSeedance2Node;
+                          const isSeedance2Locked =
+                            isSeedance2Node &&
+                            (!seedance2AccessResolved || !seedance2AccessEnabled);
+                          const isVipLocked =
+                            isSeedance2Locked || (!membershipActive && isVipNode);
                           const badge = getStatusBadge(config.status);
                           const rawCaption = buildNodePaletteCaption(config);
                           const caption =

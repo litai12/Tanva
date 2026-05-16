@@ -402,15 +402,7 @@ export class AiController {
     const normalizedProvider = String(dto.provider || '').trim().toLowerCase();
     const normalizedSeedanceModel = String(dto.seedanceModel || '').trim().toLowerCase();
     const isSeedance2Request =
-      normalizedProvider === 'doubao' &&
-      (normalizedSeedanceModel === 'seedance-2.0' ||
-        normalizedSeedanceModel === '2.0' ||
-        normalizedSeedanceModel === 'seed-2.0-lite' ||
-        normalizedSeedanceModel === 'seedance-2.0-lite' ||
-        normalizedSeedanceModel === 'seed-2-0-lite' ||
-        normalizedSeedanceModel === '2.0-lite' ||
-        normalizedSeedanceModel === 'seedance-2.0-fast' ||
-        normalizedSeedanceModel === '2.0-fast');
+      normalizedProvider === 'doubao' && this.isSeedance20Model(normalizedSeedanceModel);
 
     if (!isSeedance2Request || !userId) {
       return;
@@ -419,7 +411,7 @@ export class AiController {
     const access = await this.resolveSeedance2CombinedAccess(userId, req);
     if (!access.allowed) {
       throw new BadRequestException(
-        'Seedance 2.0 / Seed 2.0 Lite requires VIP access or watermark whitelist access',
+        'Seed2.0 仅支持 VIP 或水印白名单用户使用',
       );
     }
   }
@@ -4856,6 +4848,7 @@ export class AiController {
   async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
+    await this.assertSeedance2Entitlement(userId, effectiveDto, req);
 
     // Whitelist/admin users can skip watermark for doubao provider.
     if (effectiveDto.provider === 'doubao') {
