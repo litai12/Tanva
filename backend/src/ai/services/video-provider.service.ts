@@ -118,6 +118,28 @@ const resolveSeedanceUpstreamModelId = (modelVersion: SeedanceManagedModelVersio
   }
 };
 
+const normalizeSeedanceUpstreamModelIdAlias = (
+  rawModelId: string,
+): string => {
+  const normalized = rawModelId.trim().toLowerCase();
+  if (!normalized) return rawModelId;
+
+  if (normalized === "doubao-seed-2-0-pro") {
+    return "doubao-seed-2-0-pro-260215";
+  }
+  if (normalized === "doubao-seed-2-0-lite") {
+    return "doubao-seed-2-0-lite-260428";
+  }
+  if (normalized === "doubao-seed-2-0-mini") {
+    return "doubao-seed-2-0-mini-260428";
+  }
+  if (normalized === "doubao-seedance-2-0") {
+    return "doubao-seedance-2-0-260128";
+  }
+
+  return rawModelId;
+};
+
 /**
  * 带超时的 fetch 请求
  */
@@ -1579,8 +1601,37 @@ export class VideoProviderService {
       const result = await this.tencentVodAigcService.createVideoTask(payload);
       rawTaskId = String(result.taskId || "").trim();
     } else {
-      const { mapped } = await this.executeManagedV2Stage(profile.create, context);
-      rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      if (
+        modelKey === "seedance-2.0" &&
+        route.vendor.vendorKey === "seedance_api"
+      ) {
+        const renderedBody = this.renderTemplateValue(profile.create.body || {}, context) as Record<string, any>;
+        if (typeof renderedBody?.model === "string" && renderedBody.model.trim().length > 0) {
+          const before = renderedBody.model.trim();
+          const after = normalizeSeedanceUpstreamModelIdAlias(before);
+          if (after !== before) {
+            this.logger.warn(
+              `[Seedance2] normalize upstream model alias: ${before} -> ${after}`,
+            );
+            renderedBody.model = after;
+          }
+        }
+        const normalizedProfile = {
+          ...profile,
+          create: {
+            ...profile.create,
+            body: renderedBody,
+          },
+        } as ManagedV2RequestProfile;
+        const { mapped } = await this.executeManagedV2Stage(
+          normalizedProfile.create!,
+          context,
+        );
+        rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      } else {
+        const { mapped } = await this.executeManagedV2Stage(profile.create, context);
+        rawTaskId = String(mapped.taskId || mapped.id || "").trim();
+      }
     }
 
     if (!rawTaskId) {
