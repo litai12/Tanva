@@ -1742,6 +1742,24 @@ export class AiController {
     return this.providerDefaultImageModels.gemini;
   }
 
+  private isLikelyGptImage2Request(dto: GenerateImageDto): boolean {
+    const model = typeof dto.model === 'string' ? dto.model.trim().toLowerCase() : '';
+    if (model.includes('gpt-image-2')) return true;
+    if (typeof dto.officialFallback === 'boolean') return true;
+    if (dto.quality === 'auto' || dto.quality === 'low' || dto.quality === 'medium' || dto.quality === 'high') {
+      return true;
+    }
+    if (dto.background === 'auto' || dto.background === 'opaque' || dto.background === 'transparent') {
+      return true;
+    }
+    if (dto.moderation === 'auto' || dto.moderation === 'low') {
+      return true;
+    }
+    if (typeof dto.maskUrl === 'string' && dto.maskUrl.trim().length > 0) return true;
+    if (typeof dto.outputCompression === 'number') return true;
+    return false;
+  }
+
   private resolveAnalyzeModel(providerName: string | null, requestedModel?: string): string {
     const model = requestedModel?.trim();
     if (model?.length) {
@@ -2999,7 +3017,11 @@ export class AiController {
         `[generate-image] provider rerouted by web search: ${requestedProviderName} -> ${providerName}`
       );
     }
-    const model = this.resolveImageModel(providerName, dto.model);
+    const inferredRequestedModel =
+      providerName === 'nano2' && !dto.model && this.isLikelyGptImage2Request(dto)
+        ? 'gpt-image-2'
+        : dto.model;
+    const model = this.resolveImageModel(providerName, inferredRequestedModel);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
     const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
       (dto.imageUrls || []).filter(
@@ -6744,7 +6766,11 @@ export class AiController {
     const traceId = this.getTraceId(req);
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveImageModel(providerName, dto.model);
+    const inferredRequestedModel =
+      providerName === 'nano2' && !dto.model && this.isLikelyGptImage2Request(dto)
+        ? 'gpt-image-2'
+        : dto.model;
+    const model = this.resolveImageModel(providerName, inferredRequestedModel);
 
     // 创建任务
     const task = await this.imageTaskService.createTask(

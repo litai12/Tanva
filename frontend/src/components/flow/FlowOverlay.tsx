@@ -20173,7 +20173,9 @@ function FlowInner() {
           (typeof nodeData.model === "string" && nodeData.model.trim()) ||
           (typeof metadata?.model === "string" && metadata.model.trim()) ||
           (typeof defaultData?.model === "string" && defaultData.model.trim()) ||
-          "gemini-3.1-flash-image-preview";
+          (node.type === "gptImage2"
+            ? "gpt-image-2"
+            : "gemini-3.1-flash-image-preview");
         const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
         if (!hasText || !promptText) {
           setNodes((ns) =>
