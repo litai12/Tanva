@@ -2,6 +2,7 @@ const LABEL_MAP: Record<string, string> = {
   model: '模型',
   imageSize: '尺寸档位',
   duration: '时长',
+  seedanceModel: 'Seedance型号',
   resolution: '分辨率',
   aspectRatio: '画幅',
   mode: '模式',

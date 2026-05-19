@@ -440,6 +440,10 @@ export class NodeConfigService {
                 typeof selectedVendor.creditsPerCall === 'number'
                   ? selectedVendor.creditsPerCall
                   : (nextMetadata.defaultData as Record<string, any>).creditsPerCall,
+              pricing:
+                selectedVendor.pricing && typeof selectedVendor.pricing === 'object'
+                  ? selectedVendor.pricing
+                  : (nextMetadata.defaultData as Record<string, any>).pricing,
             };
           }
 
