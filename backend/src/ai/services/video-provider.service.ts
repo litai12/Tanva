@@ -200,7 +200,7 @@ export class VideoProviderService {
   private readonly doubaoVideoCacheMaxEntries = 500;
   private readonly managedV2TaskPrefix = "managedv2:";
   private readonly newApiTaskPrefix = "newapi:";
-  private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4455").replace(/\/+$/, "");
+  private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4458").replace(/\/+$/, "");
   private readonly newApiKey = process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "";
 
   constructor(

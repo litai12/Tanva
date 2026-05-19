@@ -165,7 +165,7 @@ export class Sora2VideoService {
   private readonly apiKey = process.env.SORA2_API_KEY;
   // 新API (Sora2 Pro - newapi.megabyai.cc)
   private readonly apiBaseV2 =
-    (process.env.NEW_API_BASE_URL || "http://localhost:4455").replace(/\/+$/, "");
+    (process.env.NEW_API_BASE_URL || "http://localhost:4458").replace(/\/+$/, "");
   private readonly apiKeyV2 = process.env.NEW_API_KEY;
   // APIMart API（支持完整 Sora2 Pro 参数与角色管理）
   private readonly apiBaseApimart =

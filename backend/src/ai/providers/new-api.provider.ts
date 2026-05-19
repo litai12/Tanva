@@ -21,7 +21,7 @@ import {
 export class NewApiProvider implements IAIProvider {
   private readonly logger = new Logger(NewApiProvider.name);
   private available = false;
-  private baseUrl = 'http://localhost:4455';
+  private baseUrl = 'http://localhost:4458';
   private apiKey = '';
 
   constructor(private readonly config: ConfigService) {}
@@ -30,7 +30,7 @@ export class NewApiProvider implements IAIProvider {
     this.baseUrl = this.normalizeBaseUrl(
       this.config.get<string>('NEW_API_BASE_URL') ||
         process.env.NEW_API_BASE_URL ||
-        'http://localhost:4455',
+        'http://localhost:4458',
     );
     this.apiKey =
       this.config.get<string>('NEW_API_KEY') ||
@@ -218,6 +218,76 @@ export class NewApiProvider implements IAIProvider {
     };
   }
 
+  async img2Vector(request: {
+    sourceImage: string;
+    prompt?: string;
+    model?: string;
+    thinkingLevel?: 'high' | 'low';
+    canvasWidth?: number;
+    canvasHeight?: number;
+    style?: 'simple' | 'detailed' | 'artistic';
+  }): Promise<
+    AIProviderResponse<{
+      code: string;
+      imageAnalysis: string;
+      explanation?: string;
+    }>
+  > {
+    const imageUrl = this.toImageReference(request.sourceImage);
+    const prompt = [
+      '请分析这张图片，并生成可在 Paper.js 中运行的矢量绘制代码。',
+      `画布尺寸：${request.canvasWidth || 1920}x${request.canvasHeight || 1080}`,
+      `风格：${request.style || 'detailed'}`,
+      request.prompt ? `用户补充要求：${request.prompt}` : '',
+      '输出必须包含：',
+      '1. imageAnalysis: 对图片内容的简短分析',
+      '2. code: 完整 Paper.js JavaScript 代码',
+      '3. explanation: 简短说明',
+      '请只返回 JSON 对象，不要 Markdown 代码块。',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const result = await this.chat({
+      model: request.model || 'gemini-3.1-pro',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
+    });
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    const raw = result.data?.text || '';
+    const parsed = this.parseJsonObject(raw);
+    const code =
+      typeof parsed?.code === 'string'
+        ? parsed.code
+        : this.extractCodeBlock(raw) || raw;
+
+    return {
+      success: true,
+      data: {
+        code,
+        imageAnalysis:
+          typeof parsed?.imageAnalysis === 'string' ? parsed.imageAnalysis : '',
+        explanation:
+          typeof parsed?.explanation === 'string' ? parsed.explanation : undefined,
+      },
+    };
+  }
+
   private async callImageEndpoint(
     payload: Record<string, unknown>,
     errorCode: string,
@@ -328,6 +398,11 @@ export class NewApiProvider implements IAIProvider {
     if (typeof result?.text === 'string') return result.text;
     if (typeof result?.data?.text === 'string') return result.data.text;
     return '';
+  }
+
+  private extractCodeBlock(text: string): string {
+    const match = text.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
+    return match?.[1]?.trim() || '';
   }
 
   private extractImageUrls(result: any): string[] {

@@ -68,13 +68,21 @@ services:
       args:
         DOCKERHUB_REGISTRY: ${DOCKERHUB_REGISTRY:-docker.1ms.run}
         SKIP_WEB_BUILD: ${NEW_API_SKIP_WEB_BUILD:-1}
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        ALL_PROXY: ""
+        http_proxy: ""
+        https_proxy: ""
+        no_proxy: ""
+        all_proxy: ""
     container_name: tanva-new-api
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
     ports:
-      - "${NEW_API_PORT:-4455}:4455"
+      - "${NEW_API_PORT:-4458}:4455"
     environment:
       PORT: 4455
       SQLITE_PATH: /data/one-api.db

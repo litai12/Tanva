@@ -3040,8 +3040,8 @@ export class AiController {
     );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
     const requestedOutputImageCount =
       dto.batchMode && Number.isFinite(Number(dto.batchCount))
         ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
@@ -3323,8 +3323,8 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
@@ -3448,8 +3448,8 @@ export class AiController {
             this.validateImageDataUrl(sourceImage);
           }
 
-          if (providerName && providerName !== 'gemini-pro') {
-            const provider = this.factory.getProvider(dto.model, providerName);
+          if (!customApiKey) {
+            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.editImage({
               prompt: dto.prompt,
               sourceImage,
@@ -3582,8 +3582,8 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
@@ -3695,8 +3695,8 @@ export class AiController {
               )
             : sourceImages;
 
-          if (providerName && providerName !== 'gemini-pro') {
-            const provider = this.factory.getProvider(dto.model, providerName);
+          if (!customApiKey) {
+            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.blendImages({
               prompt: dto.prompt,
               sourceImages: normalizedSourceImages,
@@ -3903,8 +3903,8 @@ export class AiController {
     const primarySourceImage = normalizedImages[0];
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // Map analyze billing by provider tier: Fast(2.5), Pro(3.0), Ultra(3.1).
     const serviceType: ServiceType =
@@ -3915,8 +3915,8 @@ export class AiController {
         : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
           sourceImage: primarySourceImage,
@@ -3967,12 +3967,12 @@ export class AiController {
       billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     return this.withCredits(req, serviceType, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.generateText({
           prompt: dto.prompt,
           model,
@@ -5550,14 +5550,14 @@ export class AiController {
     const model = this.resolveTextModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     return this.withCredits(req, 'gemini-paperjs', model, async () => {
       const startTime = Date.now();
 
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
 
         const result = await provider.generatePaperJS({
           prompt: dto.prompt,
@@ -5575,7 +5575,7 @@ export class AiController {
             code: result.data.code,
             explanation: result.data.explanation,
             model,
-            provider: providerName,
+            provider: providerName || 'new-api',
             createdAt: new Date().toISOString(),
             metadata: {
               canvasSize: {
@@ -5628,15 +5628,15 @@ export class AiController {
     const normalizedModel = model?.replace(/^banana-/, '') || model;
 
     // 检查是否使用自定义 API Key
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
     let fallbackProvider: string | null = null;
 
     return this.withCredits(req, 'gemini-img2vector', model, async () => {
       const startTime = Date.now();
 
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
 
         if (typeof (provider as any).img2Vector === 'function') {
           try {
@@ -5659,7 +5659,7 @@ export class AiController {
                 imageAnalysis: result.data.imageAnalysis,
                 explanation: result.data.explanation,
                 model,
-                provider: providerName,
+                provider: providerName || 'new-api',
                 createdAt: new Date().toISOString(),
                 metadata: {
                   canvasSize: {
@@ -6456,6 +6456,7 @@ export class AiController {
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
+    const customApiKey = null;
     const videoProviderOptions = {
       ...(dto.providerOptions || {}),
       ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
@@ -6481,48 +6482,8 @@ export class AiController {
         // 147(Banana) direct video understanding is only used on legacy 147 text route.
         // For normal/stable routes, always use the unified frame-based pipeline so routing
         // follows providerOptions + backend supplier settings consistently.
-        const bananaVideoMode =
-          providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
-            ? await this.getBananaImageProviderMode(videoProviderOptions)
-            : null;
-        const allow147DirectVideoUnderstanding =
-          bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
-
-        if (providerName && providerName !== 'gemini-pro') {
-          if (
-            (providerName === 'banana' ||
-              providerName === 'banana-2.5' ||
-              providerName === 'banana-3.1') &&
-            allow147DirectVideoUnderstanding
-          ) {
-            stage = 'direct_video_understanding';
-            try {
-              const analysisText = await this.analyzeVideoVia147ChatCompletions({
-                model,
-                prompt: dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息',
-                videoUrl: parsedUrl.toString(),
-              });
-              const processingTime = Date.now() - startTime;
-              this.logger.log(
-                `✅ Video analysis (147 direct) completed in ${processingTime}ms`
-              );
-              return {
-                analysis: analysisText,
-                text: analysisText,
-                model,
-                provider: providerName,
-                processingTime,
-              };
-            } catch (err: any) {
-              // 147 直接视频理解失败，不再降级到 ffmpeg 抽帧方案
-              // 因为 ffmpeg 需要服务器安装，不适合云部署环境
-              this.logger.error(
-                `❌ 147 direct video understanding failed: ${this.summarizeError(err)}`
-              );
-              throw err;
-            }
-          }
-        }
+        // 单轨模式下不再直连 147/Banana 视频理解；统一抽帧后交给 new-api
+        // provider 做帧分析与总结。
 
         // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
         stage = 'download_video';
@@ -6587,9 +6548,9 @@ export class AiController {
         this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
 
         // 非 Google provider：抽帧 -> 走现有图片分析/文本总结链路（国内可用，如 banana/147）
-        if (providerName && providerName !== 'gemini-pro') {
+        if (!customApiKey) {
           stage = 'extract_frames';
-          const provider = this.factory.getProvider(dto.model, providerName);
+          const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
           const maxFrames = 8;
           const intervalSeconds = 3;
           this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
@@ -6651,7 +6612,7 @@ export class AiController {
             analysis: analysisText,
             text: analysisText,
             model,
-            provider: providerName,
+            provider: providerName || 'new-api',
             processingTime,
             frameCount: frames.length,
           };
