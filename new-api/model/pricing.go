@@ -89,40 +89,37 @@ type fixedImagePricingRule struct {
 	cnyPrice          float64 // when > 0, used directly instead of apimartCurrentUSD conversion
 }
 
-// Rates in CNY per second; credits = ceil(cnyPerSecond * durationSeconds * creditsPerCny).
-// Source: APIMart official prices ($/s) × 7.3 (USD→CNY) × 1.2 (20% markup). creditsPerCny default = 10.
-// 2026-05-17: All video model rates increased by 20%.
+// Rates in CNY per second.
+// Tanva keeps model pricing in RMB, and new-api ModelPrice/ParamPricing also
+// uses RMB 1:1 rather than upstream USD conversion.
 var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 	// legacy model IDs (260128 snapshot) — same rates as 2.0 base
 	"doubao-seedance-2-0-260128": {
-		{resolution: "480p", cnyPerSecond: 0.7945},
-		{resolution: "720p", cnyPerSecond: 1.7100},
+		{resolution: "480p", cnyPerSecond: 1.0000},
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 3.0000},
 	},
 	"doubao-seedance-2-0-fast-260128": {
-		{resolution: "480p", cnyPerSecond: 0.6395},
-		{resolution: "720p", cnyPerSecond: 1.3753},
+		{resolution: "480p", cnyPerSecond: 0.8060},
+		{resolution: "720p", cnyPerSecond: 0.9660},
 	},
-	// doubao-seedance-2.0 base: $0.0907/s, $0.1952/s, $0.44/s × 7.3 × 1.2
 	"doubao-seedance-2.0": {
-		{resolution: "480p", cnyPerSecond: 0.7945},
-		{resolution: "720p", cnyPerSecond: 1.7100},
-		{resolution: "1080p", cnyPerSecond: 3.8544},
+		{resolution: "480p", cnyPerSecond: 1.0000},
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 3.0000},
 	},
 	"doubao-seedance-2.0-apimart": {
-		{resolution: "480p", cnyPerSecond: 0.7945},
-		{resolution: "720p", cnyPerSecond: 1.7100},
-		{resolution: "1080p", cnyPerSecond: 3.8544},
+		{resolution: "480p", cnyPerSecond: 1.0000},
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 3.0000},
 	},
-	// doubao-seedance-2.0-fast: $0.073/s, $0.157/s × 7.3 × 1.2 (no 1080p on APIMart)
 	"doubao-seedance-2.0-fast": {
-		{resolution: "480p", cnyPerSecond: 0.6395},
-		{resolution: "720p", cnyPerSecond: 1.3753},
-		{resolution: "1080p", cnyPerSecond: 1.3753},
+		{resolution: "480p", cnyPerSecond: 0.8060},
+		{resolution: "720p", cnyPerSecond: 0.9660},
 	},
 	"doubao-seedance-2.0-fast-apimart": {
-		{resolution: "480p", cnyPerSecond: 0.6395},
-		{resolution: "720p", cnyPerSecond: 1.3753},
-		{resolution: "1080p", cnyPerSecond: 1.3753},
+		{resolution: "480p", cnyPerSecond: 0.8060},
+		{resolution: "720p", cnyPerSecond: 0.9660},
 	},
 	// doubao-seedance-2.0-face: $0.124/s, $0.267/s, $0.625/s × 7.3 × 1.2
 	"doubao-seedance-2.0-face": {
@@ -144,57 +141,124 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "480p", cnyPerSecond: 0.8760},
 		{resolution: "720p", cnyPerSecond: 1.8834},
 	},
-	// wan2.7-videoedit: APIMart official prices × 7.3 × 1.2 × 1.2 (2nd 20% markup 2026-05-17)
-	//   720P:  $0.083/s × 7.3 × 1.44 = 0.8725 CNY/s
-	//   1080P: $0.137/s × 7.3 × 1.44 = 1.4401 CNY/s
+	// Wan family follows Tanva DashScope pricing.
 	"wan2.7-videoedit": {
-		{resolution: "720p", cnyPerSecond: 0.8725},
-		{resolution: "1080p", cnyPerSecond: 1.4401},
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
 	},
 	"wan2.7-videoedit-apimart": {
-		{resolution: "720p", cnyPerSecond: 0.8725},
-		{resolution: "1080p", cnyPerSecond: 1.4401},
+		{resolution: "720p", cnyPerSecond: 0.8000},
+		{resolution: "1080p", cnyPerSecond: 1.2000},
 	},
-	// kling-v3: APIMart official prices × 7.3 × 1.2
-	// 720p $0.084, 1080p $0.112, 720p+sound $0.126, 1080p+sound $0.168, 4k/4k+sound $0.5357
+	"happyhorse-1.0-r2v": {
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 2.0000},
+	},
+	"happyhorse-1.0-i2v": {
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 2.0000},
+	},
+	"happyhorse-1.0-t2v": {
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 2.0000},
+	},
+	"happyhorse-1.0-video-edit": {
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 2.0000},
+	},
+	// Kling 2.6 via Tencent VOD.
+	"kling-v2-6": {
+		{resolution: "720p", cnyPerSecond: 0.3000},
+		{resolution: "1080p", cnyPerSecond: 0.5000},
+		{resolution: "2k", cnyPerSecond: 0.7500},
+		{resolution: "4k", cnyPerSecond: 1.1200},
+		{resolution: "720p+sound", cnyPerSecond: 0.6000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.0000},
+		{resolution: "2k+sound", cnyPerSecond: 1.5000},
+		{resolution: "4k+sound", cnyPerSecond: 2.2500},
+	},
+	"kling-v2-6-apimart": {
+		{resolution: "720p", cnyPerSecond: 0.3000},
+		{resolution: "1080p", cnyPerSecond: 0.5000},
+		{resolution: "2k", cnyPerSecond: 0.7500},
+		{resolution: "4k", cnyPerSecond: 1.1200},
+		{resolution: "720p+sound", cnyPerSecond: 0.6000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.0000},
+		{resolution: "2k+sound", cnyPerSecond: 1.5000},
+		{resolution: "4k+sound", cnyPerSecond: 2.2500},
+	},
+	// Kling 3.0 via Tencent VOD.
 	"kling-v3": {
-		{resolution: "720p", cnyPerSecond: 0.7358},
-		{resolution: "1080p", cnyPerSecond: 0.9811},
-		{resolution: "720p+sound", cnyPerSecond: 1.1038},
-		{resolution: "1080p+sound", cnyPerSecond: 1.4717},
-		{resolution: "4k", cnyPerSecond: 4.6927},
-		{resolution: "4k+sound", cnyPerSecond: 4.6927},
+		{resolution: "720p", cnyPerSecond: 0.6000},
+		{resolution: "1080p", cnyPerSecond: 0.8000},
+		{resolution: "2k", cnyPerSecond: 1.0000},
+		{resolution: "4k", cnyPerSecond: 1.2000},
+		{resolution: "720p+sound", cnyPerSecond: 0.9000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.2000},
+		{resolution: "2k+sound", cnyPerSecond: 1.5000},
+		{resolution: "4k+sound", cnyPerSecond: 2.0000},
 	},
 	"kling-v3-apimart": {
-		{resolution: "720p", cnyPerSecond: 0.7358},
-		{resolution: "1080p", cnyPerSecond: 0.9811},
-		{resolution: "720p+sound", cnyPerSecond: 1.1038},
-		{resolution: "1080p+sound", cnyPerSecond: 1.4717},
-		{resolution: "4k", cnyPerSecond: 4.6927},
-		{resolution: "4k+sound", cnyPerSecond: 4.6927},
+		{resolution: "720p", cnyPerSecond: 0.6000},
+		{resolution: "1080p", cnyPerSecond: 0.8000},
+		{resolution: "2k", cnyPerSecond: 1.0000},
+		{resolution: "4k", cnyPerSecond: 1.2000},
+		{resolution: "720p+sound", cnyPerSecond: 0.9000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.2000},
+		{resolution: "2k+sound", cnyPerSecond: 1.5000},
+		{resolution: "4k+sound", cnyPerSecond: 2.0000},
 	},
-	// kling-v3-omni: APIMart official prices × 7.3 × 1.5 × 1.2
-	// 720p $0.084, 1080p $0.112, 720p+sound $0.112, 720p+video $0.126
-	// 1080p+sound $0.14, 1080p+video $0.168, 4k/4k+sound $0.5357
+	// Kling O3/Omni Tencent VOD rules retain separate no-reference/reference specs.
 	"kling-v3-omni": {
-		{resolution: "720p", cnyPerSecond: 1.1038},
-		{resolution: "1080p", cnyPerSecond: 1.4717},
-		{resolution: "720p+sound", cnyPerSecond: 1.4717},
-		{resolution: "720p+video", cnyPerSecond: 1.6556},
-		{resolution: "1080p+sound", cnyPerSecond: 1.8396},
-		{resolution: "1080p+video", cnyPerSecond: 2.2075},
-		{resolution: "4k", cnyPerSecond: 7.0391},
-		{resolution: "4k+sound", cnyPerSecond: 7.0391},
+		{resolution: "720p", cnyPerSecond: 0.6000},
+		{resolution: "1080p", cnyPerSecond: 0.8000},
+		{resolution: "2k", cnyPerSecond: 1.0000},
+		{resolution: "4k", cnyPerSecond: 1.2000},
+		{resolution: "720p+sound", cnyPerSecond: 0.8000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.0000},
+		{resolution: "2k+sound", cnyPerSecond: 1.2000},
+		{resolution: "4k+sound", cnyPerSecond: 1.5000},
+		{resolution: "720p+video", cnyPerSecond: 0.9000},
+		{resolution: "1080p+video", cnyPerSecond: 1.2000},
+		{resolution: "2k+video", cnyPerSecond: 1.5000},
+		{resolution: "4k+video", cnyPerSecond: 2.0000},
 	},
 	"kling-v3-omni-apimart": {
-		{resolution: "720p", cnyPerSecond: 1.1038},
-		{resolution: "1080p", cnyPerSecond: 1.4717},
-		{resolution: "720p+sound", cnyPerSecond: 1.4717},
-		{resolution: "720p+video", cnyPerSecond: 1.6556},
-		{resolution: "1080p+sound", cnyPerSecond: 1.8396},
-		{resolution: "1080p+video", cnyPerSecond: 2.2075},
-		{resolution: "4k", cnyPerSecond: 7.0391},
-		{resolution: "4k+sound", cnyPerSecond: 7.0391},
+		{resolution: "720p", cnyPerSecond: 0.6000},
+		{resolution: "1080p", cnyPerSecond: 0.8000},
+		{resolution: "2k", cnyPerSecond: 1.0000},
+		{resolution: "4k", cnyPerSecond: 1.2000},
+		{resolution: "720p+sound", cnyPerSecond: 0.8000},
+		{resolution: "1080p+sound", cnyPerSecond: 1.0000},
+		{resolution: "2k+sound", cnyPerSecond: 1.2000},
+		{resolution: "4k+sound", cnyPerSecond: 1.5000},
+		{resolution: "720p+video", cnyPerSecond: 0.9000},
+		{resolution: "1080p+video", cnyPerSecond: 1.2000},
+		{resolution: "2k+video", cnyPerSecond: 1.5000},
+		{resolution: "4k+video", cnyPerSecond: 2.0000},
+	},
+	"vidu-q3": {
+		{resolution: "turbo-540p", cnyPerSecond: 0.2500},
+		{resolution: "turbo-720p", cnyPerSecond: 0.3750},
+		{resolution: "turbo-1080p", cnyPerSecond: 0.5000},
+		{resolution: "q3-720p", cnyPerSecond: 0.9375},
+		{resolution: "q3-1080p", cnyPerSecond: 1.0000},
+	},
+	"vidu-q3-tencent": {
+		{resolution: "q3-ref-540p", cnyPerSecond: 0.3130},
+		{resolution: "q3-ref-720p", cnyPerSecond: 0.6250},
+		{resolution: "q3-ref-1080p", cnyPerSecond: 0.7820},
+		{resolution: "q3-pro-540p", cnyPerSecond: 0.3130},
+		{resolution: "q3-pro-720p", cnyPerSecond: 0.7820},
+		{resolution: "q3-pro-1080p", cnyPerSecond: 0.9380},
+		{resolution: "q3-mix-720p", cnyPerSecond: 0.7820},
+		{resolution: "q3-mix-1080p", cnyPerSecond: 0.9380},
+		{resolution: "q3-ref-offpeak-540p", cnyPerSecond: 0.1570},
+		{resolution: "q3-ref-offpeak-720p", cnyPerSecond: 0.3130},
+		{resolution: "q3-ref-offpeak-1080p", cnyPerSecond: 0.3910},
+		{resolution: "q3-pro-offpeak-540p", cnyPerSecond: 0.1570},
+		{resolution: "q3-pro-offpeak-720p", cnyPerSecond: 0.3910},
+		{resolution: "q3-pro-offpeak-1080p", cnyPerSecond: 0.4690},
 	},
 	// kling motion-control: APIMart retail price × 7.3 × 1.2 (USD → CNY).
 	// No resolution param upstream — `mode` (std|pro) is what differs in price.
@@ -226,9 +290,9 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "std", cnyPerSecond: 1.1266},
 		{resolution: "pro", cnyPerSecond: 1.5014},
 	},
-	// Magic666 unified Sora2: 4s=¥0.4, 8s=¥0.8, 12s=¥1.2.
 	"sora2": {
-		{resolution: "720p", cnyPerSecond: 0.1},
+		{resolution: "standard", cnyPerSecond: 0.5},
+		{resolution: "pro", cnyPerSecond: 1.875},
 	},
 }
 
@@ -289,39 +353,39 @@ func imageSpecKey(aspectRatio string, resolution string, quality string) string 
 }
 
 func apimartUSDToPremiumCNY(value float64) float64 {
-	return value * 7.3 * 1.6
+	return value
 }
 
 func fixedImagePricingRules(modelName string) []fixedImagePricingRule {
 	switch CanonicalModelKey(modelName) {
 	case "gemini-2.5-flash-image-preview":
 		return []fixedImagePricingRule{
-			{specKey: "image:1k", resolution: "1k", apimartCurrentUSD: 0.0125},
+			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.2},
 		}
 	case "gemini-3-pro-image-preview":
 		return []fixedImagePricingRule{
-			{specKey: "image:1k", resolution: "1k", apimartCurrentUSD: 0.04},
-			{specKey: "image:2k", resolution: "2k", apimartCurrentUSD: 0.04},
-			{specKey: "image:4k", resolution: "4k", apimartCurrentUSD: 0.05},
+			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.4},
+			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.6},
+			{specKey: "image:4k", resolution: "4k", cnyPrice: 0.8},
 		}
 	case "gemini-3.1-flash-image-preview":
 		return []fixedImagePricingRule{
-			{specKey: "image:1k", resolution: "1k", apimartCurrentUSD: 0.03},
-			{specKey: "image:2k", resolution: "2k", apimartCurrentUSD: 0.04},
-			{specKey: "image:4k", resolution: "4k", apimartCurrentUSD: 0.06},
+			{specKey: "image:0.5k", resolution: "0.5k", cnyPrice: 0.3},
+			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.3},
+			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.4},
+			{specKey: "image:4k", resolution: "4k", cnyPrice: 0.5},
 		}
 	case "gpt-image-2", "gpt-image-2-vip":
 		return []fixedImagePricingRule{
-			{specKey: "image:1k", resolution: "1k", apimartCurrentUSD: 0.006},
-			{specKey: "image:2k", resolution: "2k", apimartCurrentUSD: 0.012},
-			{specKey: "image:4k", resolution: "4k", apimartCurrentUSD: 0.018},
+			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.2},
+			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.3},
+			{specKey: "image:4k", resolution: "4k", cnyPrice: 0.4},
 		}
-	// Official-tier models: fixed CNY prices corresponding to official API pricing.
 	case "gpt-image-2-official", "gemini-3-pro-image-preview-official":
 		return []fixedImagePricingRule{
-			{specKey: "image:1k", resolution: "1k", cnyPrice: 1.5},
-			{specKey: "image:2k", resolution: "2k", cnyPrice: 1.8},
-			{specKey: "image:4k", resolution: "4k", cnyPrice: 2.5},
+			{specKey: "image:1k", resolution: "1k", cnyPrice: 0.4},
+			{specKey: "image:2k", resolution: "2k", cnyPrice: 0.6},
+			{specKey: "image:4k", resolution: "4k", cnyPrice: 0.8},
 		}
 	default:
 		return nil
@@ -415,7 +479,7 @@ func buildParamPricing(modelName string, meta *Model) *ParamPricing {
 		return &ParamPricing{
 			Currency:    "CNY",
 			BillingMode: "fixed_by_image_spec",
-			Formula:     "price_cny = apimart_current_price_usd * 7.3 * 1.6",
+			Formula:     "price_cny = Tanva RMB model price",
 			Results:     results,
 		}
 	}

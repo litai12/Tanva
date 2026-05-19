@@ -185,7 +185,7 @@ export interface VideoGenerationResult {
     modelKey?: string;
     vendorKey?: string;
     platformKey?: string;
-    route?: "legacy" | "tencent_vod";
+    route?: "legacy" | "tencent_vod" | "new-api";
     providerChannel?: string;
     routedProvider?: string;
     fallbackUsed?: boolean;
@@ -199,6 +199,9 @@ export class VideoProviderService {
   private readonly doubaoVideoCacheTtlMs = 60 * 60 * 1000;
   private readonly doubaoVideoCacheMaxEntries = 500;
   private readonly managedV2TaskPrefix = "managedv2:";
+  private readonly newApiTaskPrefix = "newapi:";
+  private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4455").replace(/\/+$/, "");
+  private readonly newApiKey = process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "";
 
   constructor(
     private readonly oss: OssService,
@@ -750,6 +753,12 @@ export class VideoProviderService {
   async generateVideo(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
+    return this.createNewApiVideoTask(options);
+  }
+
+  private async generateVideoLegacy(
+    options: VideoProviderRequestDto
+  ): Promise<VideoGenerationResult> {
     const { provider } = options;
 
     if (
@@ -808,6 +817,10 @@ export class VideoProviderService {
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; inputTokens?: number; outputTokens?: number }> {
+    if (taskId.startsWith(this.newApiTaskPrefix)) {
+      return this.queryNewApiVideoTask(taskId);
+    }
+
     if (taskId.startsWith(this.managedV2TaskPrefix)) {
       return this.queryManagedV2Task(taskId);
     }
@@ -866,6 +879,255 @@ export class VideoProviderService {
         return this.queryViduQ3Pro(taskId, apiKey);
       default:
         throw new Error(`不支持的供应商: ${provider}`);
+    }
+  }
+
+  private async createNewApiVideoTask(
+    options: VideoProviderRequestDto,
+  ): Promise<VideoGenerationResult> {
+    if (!this.newApiKey) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    }
+
+    const model = this.resolveNewApiVideoModel(options);
+    const size = this.resolveNewApiVideoSize(options);
+    const duration = this.resolveNewApiDuration(options);
+    const referenceImages = this.extractReferenceImageUrls(options.referenceImages);
+    const referenceVideos = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      ...(options.referenceVideo ? [options.referenceVideo] : []),
+    ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+
+    const payload = this.stripUndefined({
+      model,
+      prompt: options.prompt || "",
+      duration,
+      size,
+      resolution: this.normalizeResolutionToken(options.resolution),
+      image: referenceImages[0],
+      images: referenceImages.length > 0 ? referenceImages : undefined,
+      reference_videos: referenceVideos.length > 0 ? referenceVideos : undefined,
+      audio_urls: options.audioUrls?.length ? options.audioUrls : undefined,
+      mode: options.mode,
+      sound: options.sound,
+      aspect_ratio: options.aspectRatio,
+      watermark: options.watermark,
+      generate_audio: options.generateAudio,
+      provider_options: {
+        sourceProvider: options.provider,
+        videoMode: options.videoMode,
+        klingModel: options.klingModel,
+        viduModel: options.viduModel,
+        viduModelVariant: options.viduModelVariant,
+        seedanceModel: options.seedanceModel,
+        managedModelKey: options.managedModelKey,
+      },
+    });
+
+    this.logger.log(
+      `new-api 视频任务创建: model=${model}, provider=${options.provider}, duration=${duration}, size=${size}`,
+    );
+
+    const result = await this.requestNewApiJson("/v1/videos", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const rawTaskId = this.extractTaskId(result);
+    if (!rawTaskId) {
+      throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
+    }
+
+    const taskId = `${this.newApiTaskPrefix}${rawTaskId}`;
+    const videoUrl = this.extractVideoUrl(result);
+    const thumbnailUrl = this.extractThumbnailUrl(result);
+    return {
+      taskId,
+      status: videoUrl ? "succeeded" : "queued",
+      videoUrl,
+      thumbnailUrl,
+      execution: {
+        modelKey: options.managedModelKey || model,
+        vendorKey: "new-api",
+        platformKey: "new-api",
+        route: "new-api",
+        providerChannel: "new-api",
+        routedProvider: options.provider,
+        fallbackUsed: false,
+      },
+    };
+  }
+
+  private async queryNewApiVideoTask(
+    taskId: string,
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+    if (!this.newApiKey) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    }
+
+    const rawTaskId = taskId.slice(this.newApiTaskPrefix.length);
+    const result = await this.requestNewApiJson(
+      `/v1/videos/${encodeURIComponent(rawTaskId)}?t=${Date.now()}`,
+      { method: "GET" },
+    );
+    const status = this.normalizeNewApiStatus(result);
+    const upstreamVideoUrl = this.extractVideoUrl(result);
+    const thumbnailUrl = this.extractThumbnailUrl(result);
+
+    if (!upstreamVideoUrl || status !== "succeeded") {
+      return { status, thumbnailUrl };
+    }
+
+    const videoUrl = this.isOssPublicUrl(upstreamVideoUrl)
+      ? upstreamVideoUrl
+      : await this.uploadRemoteVideoToOss(upstreamVideoUrl, `new-api-${rawTaskId}`);
+    return { status, videoUrl, thumbnailUrl };
+  }
+
+  private resolveNewApiVideoModel(options: VideoProviderRequestDto): string {
+    const explicit = String(
+      options.managedModelKey || options.seedanceModel || options.klingModel || options.viduModel || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (explicit.includes("seedance-2.0-fast") || explicit.includes("seed-2.0-lite") || explicit.includes("seed-2.0-mini")) {
+      return "doubao-seedance-2.0-fast";
+    }
+    if (explicit.includes("seedance") || options.provider === "doubao") {
+      return "doubao-seedance-2.0";
+    }
+    if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
+      return "wan2.7-videoedit";
+    }
+    if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
+      return "kling-v3-omni";
+    }
+    if (options.provider === "kling" || options.provider === "kling-2.6") {
+      return explicit.includes("2-6") || explicit.includes("2.6") ? "kling-v2-6" : "kling-v3";
+    }
+    if (options.provider === "vidu" || options.provider === "viduq3-pro") {
+      return "vidu-q3";
+    }
+    return explicit || "kling-v3";
+  }
+
+  private resolveNewApiDuration(options: VideoProviderRequestDto): number {
+    const duration = Number(options.duration || 5);
+    if (!Number.isFinite(duration) || duration <= 0) return 5;
+    return Math.max(1, Math.min(30, Math.round(duration)));
+  }
+
+  private resolveNewApiVideoSize(options: VideoProviderRequestDto): string | undefined {
+    const resolution = this.normalizeResolutionToken(options.resolution);
+    const aspectRatio = String(options.aspectRatio || "").trim();
+    if (resolution === "1080p") {
+      return aspectRatio === "9:16" ? "1080x1920" : "1920x1080";
+    }
+    if (resolution === "720p") {
+      return aspectRatio === "9:16" ? "720x1280" : "1280x720";
+    }
+    return undefined;
+  }
+
+  private normalizeResolutionToken(value: unknown): string | undefined {
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    return value.trim().toLowerCase();
+  }
+
+  private extractReferenceImageUrls(items: ReferenceImageItem[] | undefined): string[] {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => (typeof item === "string" ? item : item?.url))
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim());
+  }
+
+  private async requestNewApiJson(path: string, init: RequestInit): Promise<any> {
+    const response = await fetch(`${this.newApiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.newApiKey}`,
+        ...(init.headers || {}),
+      },
+    });
+    const text = await response.text();
+    const data = text ? this.safeJsonParse(text) ?? text : {};
+    if (!response.ok) {
+      const message =
+        typeof data === "object" && data
+          ? (data as any).error?.message || (data as any).message || JSON.stringify(data)
+          : String(data || `HTTP ${response.status}`);
+      throw new ServiceUnavailableException(`new-api 视频接口失败: ${message}`);
+    }
+    return data;
+  }
+
+  private extractTaskId(result: any): string | null {
+    const value =
+      result?.id ||
+      result?.task_id ||
+      result?.taskId ||
+      result?.data?.id ||
+      result?.data?.task_id ||
+      result?.data?.taskId;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  private normalizeNewApiStatus(result: any): string {
+    const raw = String(result?.status || result?.data?.status || result?.task_status || "").toLowerCase();
+    if (["succeeded", "success", "completed", "complete", "finished", "finish"].includes(raw)) {
+      return "succeeded";
+    }
+    if (["failed", "failure", "error", "cancelled", "canceled"].includes(raw)) {
+      return "failed";
+    }
+    return raw || "processing";
+  }
+
+  private extractVideoUrl(result: any): string | undefined {
+    const candidates = [
+      result?.video_url,
+      result?.videoUrl,
+      result?.url,
+      result?.data?.video_url,
+      result?.data?.videoUrl,
+      result?.data?.url,
+      result?.output?.video_url,
+      result?.output?.url,
+    ];
+    for (const value of candidates) {
+      if (typeof value === "string" && /^https?:\/\//i.test(value)) return value;
+    }
+    if (Array.isArray(result?.data)) {
+      const found = result.data.find((item: any) => typeof item?.url === "string" && /^https?:\/\//i.test(item.url));
+      if (found) return found.url;
+    }
+    return undefined;
+  }
+
+  private extractThumbnailUrl(result: any): string | undefined {
+    const candidates = [
+      result?.thumbnail_url,
+      result?.thumbnailUrl,
+      result?.poster,
+      result?.data?.thumbnail_url,
+      result?.data?.thumbnailUrl,
+      result?.data?.poster,
+    ];
+    return candidates.find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
+  }
+
+  private stripUndefined(payload: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined),
+    );
+  }
+
+  private safeJsonParse(text: string): any {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
     }
   }
 

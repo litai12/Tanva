@@ -47,12 +47,12 @@ func TestBuildParamPricingForSeedance(t *testing.T) {
 		t.Fatalf("spec %s not found", specKey)
 	}
 
-	assertSpecPriceCNY("video:480p:4s", 0.7945*4)
-	assertSpecPriceCNY("video:480p:6s", 0.7945*6)
-	assertSpecPriceCNY("video:720p:4s", 1.7100*4)
-	assertSpecPriceCNY("video:720p:6s", 1.7100*6)
-	assertSpecPriceCNY("video:1080p:4s", 3.8544*4)
-	assertSpecPriceCNY("video:1080p:6s", 3.8544*6)
+	assertSpecPriceCNY("video:480p:4s", 1.0*4)
+	assertSpecPriceCNY("video:480p:6s", 1.0*6)
+	assertSpecPriceCNY("video:720p:4s", 1.2*4)
+	assertSpecPriceCNY("video:720p:6s", 1.2*6)
+	assertSpecPriceCNY("video:1080p:4s", 3.0*4)
+	assertSpecPriceCNY("video:1080p:6s", 3.0*6)
 }
 
 func TestBuildParamPricingForSeedanceFaceAddsTenPercent(t *testing.T) {
@@ -163,9 +163,9 @@ func TestBuildParamPricingForGptImage2UsesTwoXSimpleSpecs(t *testing.T) {
 		t.Fatalf("spec %s not found", specKey)
 	}
 
-	assertSpecPriceCNY("image:1k", 0.006*7.3*1.6)
-	assertSpecPriceCNY("image:2k", 0.012*7.3*1.6)
-	assertSpecPriceCNY("image:4k", 0.018*7.3*1.6)
+	assertSpecPriceCNY("image:1k", 0.2)
+	assertSpecPriceCNY("image:2k", 0.3)
+	assertSpecPriceCNY("image:4k", 0.4)
 }
 
 func TestBuildParamPricingForGeminiImageOfficialUsesFourTimesPremiumCNY(t *testing.T) {
@@ -191,9 +191,10 @@ func TestBuildParamPricingForGeminiImageOfficialUsesFourTimesPremiumCNY(t *testi
 		t.Fatalf("spec %s not found", specKey)
 	}
 
-	assertSpecPriceCNY("image:1k", 0.03*7.3*1.6)
-	assertSpecPriceCNY("image:2k", 0.04*7.3*1.6)
-	assertSpecPriceCNY("image:4k", 0.06*7.3*1.6)
+	assertSpecPriceCNY("image:0.5k", 0.3)
+	assertSpecPriceCNY("image:1k", 0.3)
+	assertSpecPriceCNY("image:2k", 0.4)
+	assertSpecPriceCNY("image:4k", 0.5)
 }
 
 func TestFixedImageBasePriceCNYUsesLowestSpec(t *testing.T) {
@@ -201,7 +202,7 @@ func TestFixedImageBasePriceCNYUsesLowestSpec(t *testing.T) {
 	if !ok {
 		t.Fatal("expected gpt-image-2 base price")
 	}
-	if math.Abs(gptImage2Price-0.006*7.3*1.6) > 1e-9 {
+	if math.Abs(gptImage2Price-0.2) > 1e-9 {
 		t.Fatalf("gpt-image-2 base price = %.6f", gptImage2Price)
 	}
 
@@ -209,7 +210,7 @@ func TestFixedImageBasePriceCNYUsesLowestSpec(t *testing.T) {
 	if !ok {
 		t.Fatal("expected gpt-image-2-official base price")
 	}
-	if math.Abs(officialPrice-1.5) > 1e-9 {
+	if math.Abs(officialPrice-0.4) > 1e-9 {
 		t.Fatalf("gpt-image-2-official base price = %.6f", officialPrice)
 	}
 }
@@ -237,9 +238,9 @@ func TestBuildParamPricingForGptImage2OfficialUsesSimpleSpecs(t *testing.T) {
 		t.Fatalf("spec %s not found", specKey)
 	}
 
-	assertSpecPriceCNY("image:1k", 1.5)
-	assertSpecPriceCNY("image:2k", 1.8)
-	assertSpecPriceCNY("image:4k", 2.5)
+	assertSpecPriceCNY("image:1k", 0.4)
+	assertSpecPriceCNY("image:2k", 0.6)
+	assertSpecPriceCNY("image:4k", 0.8)
 }
 
 func TestBuildParamPricingForSora2UsesFixedDurationPrices(t *testing.T) {
@@ -279,7 +280,10 @@ func TestBuildParamPricingForSora2UsesFixedDurationPrices(t *testing.T) {
 		t.Fatalf("spec %s not found", specKey)
 	}
 
-	assertSpecPriceCNY("video:720p:4s", 0.4)
-	assertSpecPriceCNY("video:720p:8s", 0.8)
-	assertSpecPriceCNY("video:720p:12s", 1.2)
+	assertSpecPriceCNY("video:standard:4s", 2.0)
+	assertSpecPriceCNY("video:standard:8s", 4.0)
+	assertSpecPriceCNY("video:standard:12s", 6.0)
+	assertSpecPriceCNY("video:pro:4s", 7.5)
+	assertSpecPriceCNY("video:pro:8s", 15.0)
+	assertSpecPriceCNY("video:pro:12s", 22.5)
 }

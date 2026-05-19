@@ -3118,8 +3118,8 @@ export class AiController {
               this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
             }
 
-            if (providerName && providerName !== 'gemini-pro') {
-              const provider = this.factory.getProvider(dto.model, providerName);
+            if (!customApiKey) {
+              const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
               const result = await provider.generateImage({
                 prompt: dto.prompt,
                 model,
@@ -6967,4 +6967,3 @@ export class AiController {
     );
   }
 }
-

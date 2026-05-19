@@ -7,6 +7,7 @@ import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { Nano2Provider } from './providers/nano2.provider';
 import { Seedream5Provider } from './providers/seedream5.provider';
+import { NewApiProvider } from './providers/new-api.provider';
 
 @Injectable()
 export class AIProviderFactory implements OnModuleInit {
@@ -20,7 +21,8 @@ export class AIProviderFactory implements OnModuleInit {
     private readonly runningHubProvider: RunningHubProvider,
     private readonly midjourneyProvider: MidjourneyProvider,
     private readonly nano2Provider: Nano2Provider,
-    private readonly seedream5Provider: Seedream5Provider
+    private readonly seedream5Provider: Seedream5Provider,
+    private readonly newApiProvider: NewApiProvider,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -29,6 +31,10 @@ export class AIProviderFactory implements OnModuleInit {
 
   private async initializeProviders(): Promise<void> {
     this.logger.log('Initializing AI providers...');
+
+    this.providers.set('new-api', this.newApiProvider);
+    this.providers.set('newapi', this.newApiProvider);
+    await this.newApiProvider.initialize();
 
     // 注册 Gemini Pro 提供商（同时注册为 gemini 和 gemini-pro 以保持兼容性）
     this.providers.set('gemini', this.geminiProProvider);
@@ -68,12 +74,23 @@ export class AIProviderFactory implements OnModuleInit {
   }
 
   getProvider(model?: string, aiProvider?: string): IAIProvider {
+    const newApi = this.providers.get('new-api');
+    const useNewApiSingleTrack =
+      this.config.get<string>('AI_MODEL_SINGLE_TRACK', 'new-api') !== 'legacy';
+
     // 如果显式指定了 aiProvider，直接使用
     if (aiProvider) {
+      if (useNewApiSingleTrack && newApi) {
+        return newApi;
+      }
       const provider = this.providers.get(aiProvider);
       if (provider) {
         return provider;
       }
+    }
+
+    if (useNewApiSingleTrack && newApi) {
+      return newApi;
     }
 
     // 如果指定了模型，根据模型名称推断提供商
@@ -112,7 +129,7 @@ export class AIProviderFactory implements OnModuleInit {
     }
 
     // 使用默认提供商
-    const defaultProvider = this.config.get<string>('DEFAULT_AI_PROVIDER', 'gemini');
+    const defaultProvider = this.config.get<string>('DEFAULT_AI_PROVIDER', 'new-api');
     const provider = this.providers.get(defaultProvider);
 
     if (!provider) {

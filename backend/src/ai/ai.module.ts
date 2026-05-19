@@ -10,6 +10,7 @@ import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { Nano2Provider } from './providers/nano2.provider';
 import { Seedream5Provider } from './providers/seedream5.provider';
+import { NewApiProvider } from './providers/new-api.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
@@ -53,6 +54,7 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     MidjourneyProvider,
     Nano2Provider,
     Seedream5Provider,
+    NewApiProvider,
     AIProviderFactory,
     CostCalculatorService,
     Convert2Dto3DService,

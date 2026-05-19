@@ -164,7 +164,8 @@ export class Sora2VideoService {
     process.env.SORA2_API_ENDPOINT || "https://api1.147ai.com";
   private readonly apiKey = process.env.SORA2_API_KEY;
   // 新API (Sora2 Pro - newapi.megabyai.cc)
-  private readonly apiBaseV2 = "https://newapi.megabyai.cc";
+  private readonly apiBaseV2 =
+    (process.env.NEW_API_BASE_URL || "http://localhost:4455").replace(/\/+$/, "");
   private readonly apiKeyV2 = process.env.NEW_API_KEY;
   // APIMart API（支持完整 Sora2 Pro 参数与角色管理）
   private readonly apiBaseApimart =
@@ -185,62 +186,12 @@ export class Sora2VideoService {
   async generateVideo(
     options: GenerateVideoOptions
   ): Promise<Sora2VideoResult> {
-    const managedRoute = await this.modelRoutingService.resolveVideoModel("sora-2");
-    if (managedRoute?.route === "tencent_vod") {
-      this.logger.log("使用腾讯 VOD Sora2 路由");
-      return this.generateVideoTencentVod(options, managedRoute.vendor);
+    if (!this.apiKeyV2) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
 
-    const managedVendorKey = managedRoute?.vendor?.vendorKey || "default";
-    const managedPlatformKey =
-      managedRoute?.vendor?.platformKey || managedRoute?.vendor?.vendorKey || "default";
-    this.logger.log(
-      `当前 Sora2 路由: ${managedPlatformKey}/${managedVendorKey} -> auto_fallback`
-    );
-    const wantsApimart = this.hasApimartOnlyOptions(options);
-
-    // 默认自动模式：如启用 Pro 参数，优先 APIMart
-    if (this.apiKeyApimart && wantsApimart) {
-      try {
-        this.logger.log("尝试使用 APIMart Sora2 API...");
-        return await this.generateVideoApimart(options);
-      } catch (error) {
-        this.logger.warn(
-          `APIMart Sora2 API失败，准备切换: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
-      }
-    }
-
-    // 默认自动模式：其次 Sora2 Pro，失败后回退到普通 Sora2
-    if (this.apiKeyV2) {
-      try {
-        this.logger.log("尝试使用Sora2 Pro API...");
-        return await this.generateVideoV2(options);
-      } catch (error) {
-        this.logger.warn(
-          `Sora2 Pro API失败，切换到普通Sora2: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
-        // 继续使用备选方案
-      }
-    } else {
-      this.logger.log("Sora2 Pro API Key未配置，使用普通Sora2");
-    }
-
-    // 备选：普通Sora2 (旧API)
-    if (!this.apiKey) {
-      throw new ServiceUnavailableException("Sora2 API Key 未配置");
-    }
-
-    const result = await this.generateVideoLegacy(options);
-    // 如果是从Sora2 Pro回退的，添加提示信息
-    if (this.apiKeyV2) {
-      result.fallbackMessage = "Sora2 Pro过于繁忙，已为您切换到普通Sora2";
-    }
-    return result;
+    this.logger.log(`Sora2 单轨 new-api 路由: ${this.apiBaseV2}`);
+    return this.generateVideoV2(options);
   }
 
   async createCharacterTask(options: CreateCharacterTaskOptions) {
@@ -1078,7 +1029,7 @@ export class Sora2VideoService {
     const orientation = options.aspectRatio === "9:16" ? "portrait" : "landscape";
     const qualityLevel = options.quality === "hd" ? "hd" : "standard";
 
-    const model = getSora2ProModel(qualityLevel, !!isImageToVideo);
+    const model = options.model === "sora-2" ? "sora-2" : "sora-2-pro";
 
     this.logger.log(
       `Sora2 Pro 视频生成开始 (model=${model}, duration=${duration}, orientation=${orientation}, quality=${qualityLevel}, isImageToVideo=${!!isImageToVideo})`
