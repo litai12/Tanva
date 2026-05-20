@@ -86,9 +86,12 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
         const getNode = (id: string): FlowNode | undefined =>
           hasNodeLookup ? nodeLookup!.get(id) : fallbackById?.get(id);
 
-        // 3. Collect sibling image edges: connected to any downstream node, not a text input
-        //    Preserve order by edges array position.
+        // 3. Collect sibling image edges: connected to any downstream node, not a text input.
+        //    Deduplicate by sourceNodeId — the same image node may connect to multiple
+        //    downstream nodes (e.g. when prompt feeds two generate nodes sharing the same
+        //    reference image). Preserve order by edges array position.
         const result: SiblingImage[] = [];
+        const seenSourceIds = new Set<string>();
         let idx = 1;
 
         for (let i = 0; i < edges.length; i++) {
@@ -96,6 +99,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           if (!downstreamIds.has(edge.target)) continue;
           if (edge.source === nodeId) continue; // skip our own edge
           if (edge.targetHandle === 'text') continue; // skip text inputs
+          if (seenSourceIds.has(edge.source)) continue; // deduplicate same source node
 
           const sourceNode = getNode(edge.source);
           if (!sourceNode) continue;
@@ -103,6 +107,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           const resolved = resolveActiveImageUrl(sourceNode, edge.sourceHandle);
           if (!resolved) continue;
 
+          seenSourceIds.add(edge.source);
           result.push({
             index: idx++,
             url: resolved.url,
