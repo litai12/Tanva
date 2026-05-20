@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
+import { NodeManager } from '@/canvas/NodeManager';
 
 interface InteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -8,6 +9,7 @@ interface InteractionControllerProps {
 
 const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef }) => {
   const zoomRef = useRef(1);
+  const zoomEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoom = useCanvasStore((state) => state.zoom);
   const setPan = useCanvasStore((state) => state.setPan);
   const setViewport = useCanvasStore((state) => state.setViewport);
@@ -23,7 +25,6 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     const handleWheel = (event: WheelEvent) => {
       const store = useCanvasStore.getState();
 
-      // 如果有操作正在进行（如扩图），禁用滚轮缩放
       if (store.isOperationInProgress) {
         event.preventDefault();
         event.stopPropagation();
@@ -34,14 +35,13 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       const shouldZoom =
         store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
 
-      // Zoom (centered on pointer position).
       if (shouldZoom) {
         event.preventDefault();
         event.stopPropagation();
 
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const sx = (event.clientX - rect.left) * dpr; // device pixels
+        const sx = (event.clientX - rect.left) * dpr;
         const sy = (event.clientY - rect.top) * dpr;
 
         const z1 = zoomRef.current;
@@ -51,17 +51,20 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const z2 = computeSmoothZoom(z1, delta, { sensitivity: store.zoomSensitivity });
         if (z1 === z2) return;
 
-        // Keep world coordinate under pointer fixed:
-        // W = sx/z1 - pan1;  pan2 = sx/z2 - W
         const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
         const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
+
+        NodeManager.getInstance().setViewportMoving(true);
+        if (zoomEndTimerRef.current) clearTimeout(zoomEndTimerRef.current);
+        zoomEndTimerRef.current = setTimeout(() => {
+          NodeManager.getInstance().setViewportMoving(false);
+        }, 150);
 
         setViewport({ panX: pan2x, panY: pan2y, zoom: z2 });
         return;
       }
 
-      // Pan.
-      event.preventDefault(); // Prevent browser default behavior (zoom/scroll).
+      event.preventDefault();
       event.stopPropagation();
 
       if (Math.abs(event.deltaX) > 0 || Math.abs(event.deltaY) > 0) {
@@ -75,15 +78,15 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       }
     };
 
-    // Register event listeners.
     canvas.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       canvas.removeEventListener('wheel', handleWheel);
+      if (zoomEndTimerRef.current) clearTimeout(zoomEndTimerRef.current);
     };
   }, [setPan, setViewport, canvasRef]);
 
-  return null; // This component renders no DOM.
+  return null;
 };
 
 export default InteractionController;

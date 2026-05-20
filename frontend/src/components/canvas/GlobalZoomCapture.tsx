@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
+import { NodeManager } from '@/canvas/NodeManager';
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -97,6 +98,7 @@ const GlobalZoomCapture = () => {
   const gestureStartZoomRef = useRef<number | null>(null);
   const pendingViewportRef = useRef<{ panX: number; panY: number; zoom: number } | null>(null);
   const viewportRafRef = useRef<number | null>(null);
+  const pinchEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -180,6 +182,11 @@ const GlobalZoomCapture = () => {
       if (Math.abs(delta) < 1e-6) return;
       event.preventDefault();
       event.stopPropagation();
+      NodeManager.getInstance().setViewportMoving(true);
+      if (pinchEndTimerRef.current) clearTimeout(pinchEndTimerRef.current);
+      pinchEndTimerRef.current = setTimeout(() => {
+        NodeManager.getInstance().setViewportMoving(false);
+      }, 150);
       applyZoom(focus.sx, focus.sy, delta);
     };
 
@@ -190,6 +197,7 @@ const GlobalZoomCapture = () => {
       if (!focus) return;
       event.preventDefault();
       event.stopPropagation();
+      NodeManager.getInstance().setViewportMoving(true);
       gestureStartZoomRef.current = getViewportState().zoom || 1;
     };
 
@@ -217,6 +225,7 @@ const GlobalZoomCapture = () => {
 
     const handleGestureEnd = () => {
       gestureStartZoomRef.current = null;
+      NodeManager.getInstance().setViewportMoving(false);
     };
 
     const gestureStartListener: EventListener = (event) =>
@@ -240,6 +249,7 @@ const GlobalZoomCapture = () => {
       window.removeEventListener('gesturestart', gestureStartListener);
       window.removeEventListener('gesturechange', gestureChangeListener);
       window.removeEventListener('gestureend', gestureEndListener);
+      if (pinchEndTimerRef.current) clearTimeout(pinchEndTimerRef.current);
     };
   }, []);
 
