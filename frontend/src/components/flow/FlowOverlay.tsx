@@ -302,9 +302,9 @@ const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
-const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
-const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
-const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.45;
+const FLOW_LOW_DETAIL_NODE_THRESHOLD = 150;
+const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.06;
+const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.10;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -7433,8 +7433,7 @@ function FlowInner() {
   }, []);
 
   const effectiveFlowLowDetailMode =
-    (isFlowLowDetailMode ||
-      (isCanvasZooming && nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD)) &&
+    isFlowLowDetailMode &&
     !hasRunningFlowNode;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
