@@ -22,6 +22,9 @@ import { MembershipModule } from './membership/membership.module';
 import { VolcAssetModule } from './volc-asset/volc-asset.module';
 import { BioAuthModule } from './bio-auth/bio-auth.module';
 import { TeamSubscriptionModule } from './team-subscription/team-subscription.module';
+import { TeamCoreModule } from './team-core/team-core.module';
+import { TeamCreditsModule } from './team-credits/team-credits.module';
+import { TeamCollabModule } from './team-collab/team-collab.module';
 
 @Module({
   imports: [
@@ -52,6 +55,9 @@ import { TeamSubscriptionModule } from './team-subscription/team-subscription.mo
     VolcAssetModule,
     BioAuthModule,
     TeamSubscriptionModule,
+    TeamCoreModule,
+    TeamCreditsModule,
+    TeamCollabModule,
   ],
 })
 export class AppModule {}

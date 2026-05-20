@@ -32,6 +32,7 @@ import { TencentSpeechService } from './services/tencent-speech.service';
 import { TencentVodAigcService } from './services/tencent-vod-aigc.service';
 import { ModelRoutingService } from './services/model-routing.service';
 import { TelemetryModule } from '../telemetry/telemetry.module';
+import { TeamCreditsModule } from '../team-credits/team-credits.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     OssModule,
     PrismaModule,
     TelemetryModule,
+    TeamCreditsModule,
   ],
   providers: [
     AiService,

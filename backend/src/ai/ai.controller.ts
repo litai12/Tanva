@@ -79,6 +79,7 @@ import { Readable } from 'stream';
 import { verify } from 'jsonwebtoken';
 import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
+import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -440,6 +441,7 @@ export class AiController {
     private readonly telemetryService: OpenObserveTelemetryService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
+    @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -6982,5 +6984,26 @@ export class AiController {
       dto.model,
       async () => this.minimaxMusicService.generateMusic(dto),
     );
+  }
+
+  private getTeamId(req: any): string | undefined {
+    return req.headers?.['x-team-id'] as string | undefined;
+  }
+
+  private async reserveTeamCreditsIfNeeded(
+    req: any,
+    amount: number,
+    taskId: string,
+    taskKind: string,
+  ): Promise<{ isTeamMode: boolean; teamId?: string }> {
+    const teamId = this.getTeamId(req);
+    if (!teamId || !this.teamCreditLedger) return { isTeamMode: false };
+
+    const userId: string = req.user?.sub;
+    const result = await this.teamCreditLedger.reserve({ teamId, amount, taskId, taskKind, actorUserId: userId });
+    if (!result.reserved) {
+      throw new BadRequestException(result.reason ?? '团队积分不足');
+    }
+    return { isTeamMode: true, teamId };
   }
 }
