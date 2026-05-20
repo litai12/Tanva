@@ -257,6 +257,16 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge.selected .react
   stroke-width: 1.8px !important;
 }
 
+/* 画布平移期间禁止 Flow 节点截获鼠标事件，防止平移被打断 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__edge,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__handle {
+  pointer-events: none !important;
+}
+body.tanva-canvas-panning {
+  cursor: grabbing !important;
+}
+
 .tanva-flow-snap-guides {
   position: absolute;
   inset: 0;

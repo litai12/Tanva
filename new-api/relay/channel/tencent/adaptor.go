@@ -24,6 +24,12 @@ type Adaptor struct {
 	Action    string
 	Version   string
 	Timestamp int64
+
+	// image generation via Tencent VOD AIGC (populated by ConvertImageRequest)
+	pendingImageReq *vodCreateImageTaskReq
+	imageSecretId   string
+	imageSecretKey  string
+	imageSubAppId   int64
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {

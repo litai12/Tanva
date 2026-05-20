@@ -634,6 +634,7 @@ export const useInteractionController = ({
     if (spacePanDragRef.current) {
       spacePanDragRef.current = null;
       try { useCanvasStore.getState().setDragging(false); } catch {}
+      document.body.classList.remove('tanva-canvas-panning');
     }
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -658,6 +659,7 @@ export const useInteractionController = ({
         startPan: { x: panX, y: panY }
       };
       try { setDragging(true); } catch {}
+      document.body.classList.add('tanva-canvas-panning');
       canvas.style.cursor = 'grabbing';
       event.preventDefault();
       event.stopPropagation();

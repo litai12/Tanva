@@ -8837,6 +8837,7 @@ function FlowInner() {
       middleDragRef.current.dragging = false;
       container.classList.remove("tanva-flow-middle-panning");
       container.style.cursor = "";
+      document.body.classList.remove("tanva-canvas-panning");
       try {
         useCanvasStore.getState().setDragging(false);
       } catch {}
@@ -8862,6 +8863,7 @@ function FlowInner() {
       middleDragRef.current.startPanY = store.panY;
       container.classList.add("tanva-flow-middle-panning");
       container.style.cursor = "grabbing";
+      document.body.classList.add("tanva-canvas-panning");
       try {
         store.setDragging(true);
       } catch {}

@@ -2,6 +2,14 @@
 // A single CSS matrix transform on the container maps world coordinates to CSS
 // pixels for all child <img> elements, so only ONE React re-render is needed
 // per zoom/pan change regardless of image count.
+//
+// Viewport culling strategy: off-screen images use `visibility: hidden` rather
+// than being removed from the DOM. This is the React-idiomatic equivalent of
+// "DocumentFragment parking" — the DOM node stays alive (no React unmount/remount
+// cycle, no re-fetch, no re-decode) but the browser can free the GPU texture.
+// When an image re-enters the viewport, only a fast GPU re-upload is needed,
+// not a full decode. HTMLImageElement instances remain in ImageResourceManager's
+// LRU cache regardless of visibility state.
 import React from 'react'
 import { useCanvasStore } from '@/stores/canvasStore'
 import type { ImageInstance } from '@/types/canvas'
@@ -10,6 +18,10 @@ import { toRenderableImageSrc } from '@/utils/imageSource'
 interface Props {
   imageInstances: ImageInstance[]
 }
+
+// Pre-render images this many world units outside the visible viewport so they
+// are ready before the user pans into view (avoids a 1-frame pop-in).
+const VIEWPORT_MARGIN_WORLD = 300
 
 function resolveImgSrc(img: ImageInstance): string {
   const d = img.imageData
@@ -36,6 +48,18 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   const tx = (panX * zoom) / dpr
   const ty = (panY * zoom) / dpr
 
+  // Compute viewport bounds in world coordinates.
+  // Inverse of css_x = world_x * scale + tx  →  world_x = (css_x - tx) / scale
+  // At css_x = 0:              world_x = -panX
+  // At css_x = window.innerWidth:  world_x = innerWidth * dpr/zoom - panX
+  const dprOverZoom = dpr / zoom
+  const vpW = typeof window !== 'undefined' ? window.innerWidth : 1920
+  const vpH = typeof window !== 'undefined' ? window.innerHeight : 1080
+  const vpLeft   = -panX - VIEWPORT_MARGIN_WORLD
+  const vpTop    = -panY - VIEWPORT_MARGIN_WORLD
+  const vpRight  = vpW * dprOverZoom - panX + VIEWPORT_MARGIN_WORLD
+  const vpBottom = vpH * dprOverZoom - panY + VIEWPORT_MARGIN_WORLD
+
   return (
     <div
       style={{
@@ -61,6 +85,15 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
           const src = resolveImgSrc(img)
           if (!src) return null
           const { x, y, width, height } = img.bounds
+
+          // Viewport culling: keep node in DOM (avoids remount cost) but hide it
+          // with visibility:hidden so the browser can free the GPU texture.
+          const inViewport =
+            x + width  > vpLeft &&
+            x          < vpRight &&
+            y + height > vpTop  &&
+            y          < vpBottom
+
           return (
             <img
               key={img.id}
@@ -76,6 +109,7 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
                 display: 'block',
                 userSelect: 'none',
                 pointerEvents: 'none',
+                visibility: inViewport ? 'visible' : 'hidden',
               }}
             />
           )

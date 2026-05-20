@@ -1,4 +1,14 @@
 // frontend/src/canvas/ImageResourceManager.ts
+//
+// Optimizations vs naive new Image() approach:
+//   1. LRU cache (128 MB cap) — HTMLImageElement instances reused across nodes
+//   2. Request dedup — concurrent acquire() for same URL share one in-flight load
+//   3. AbortController — load cancelled automatically when last owner releases before completion
+//   4. Concurrency limiter (MAX_CONCURRENT=6) — prevents browser from queuing dozens of
+//      parallel requests, keeps bandwidth focused on visible images
+//   5. Viewport-aware deferral — non-critical loads wait until pan/zoom stops
+//   6. img.decode() — pixel decode happens off the main thread (browser ImageDecoder),
+//      no jank when image first paints; better than onload for canvas use
 
 export type LoadPriority = 'critical' | 'visible' | 'prefetch'
 
@@ -10,22 +20,33 @@ interface CachedEntry {
   lastAccessAt: number
 }
 
+interface PendingEntry {
+  promise: Promise<HTMLImageElement>
+  pendingOwners: Set<string>
+  abortController: AbortController
+}
+
 interface DeferredLoad {
   url: string
   ownerId: string
   resolve: (img: HTMLImageElement) => void
-  reject: (err: Error) => void
+  reject: (err: unknown) => void
 }
+
+const MAX_BYTES = 128 * 1024 * 1024 // 128 MB
+const MAX_CONCURRENT = 6
 
 class ImageResourceManager {
   private static _instance: ImageResourceManager | null = null
 
   private cache = new Map<string, CachedEntry>()
-  private pending = new Map<string, Promise<HTMLImageElement>>()
+  private pending = new Map<string, PendingEntry>()
   private deferred: DeferredLoad[] = []
   private isViewportMoving = false
   private totalBytes = 0
-  private readonly MAX_BYTES = 128 * 1024 * 1024 // 128 MB
+
+  private activeCount = 0
+  private waitQueue: Array<() => void> = []
 
   private constructor() {}
 
@@ -36,7 +57,6 @@ class ImageResourceManager {
     return ImageResourceManager._instance
   }
 
-  /** 申请图片资源。已缓存则立即返回；viewport 移动中且非 critical 则延迟。 */
   async acquire(
     url: string,
     priority: LoadPriority,
@@ -58,70 +78,176 @@ class ImageResourceManager {
     return this.load(url, ownerId)
   }
 
-  /** 释放某 owner 对 url 的引用；owners 归零后进入 LRU 候选。 */
+  /** 释放 owner 对 url 的引用。若图片仍在加载且已无 owner，立即取消请求。 */
   release(url: string, ownerId: string): void {
-    const entry = this.cache.get(url)
-    if (entry) entry.owners.delete(ownerId)
+    const cached = this.cache.get(url)
+    if (cached) {
+      cached.owners.delete(ownerId)
+      return
+    }
+
+    const pending = this.pending.get(url)
+    if (pending) {
+      pending.pendingOwners.delete(ownerId)
+      if (pending.pendingOwners.size === 0) {
+        pending.abortController.abort()
+        this.pending.delete(url)
+      }
+      return
+    }
+
+    // 还在延迟队列里（视口移动期间尚未触发加载）
+    this.deferred = this.deferred.filter(
+      (d) => !(d.url === url && d.ownerId === ownerId)
+    )
   }
 
-  /** 缩放/平移开始时调用 true，结束时调用 false。 */
+  /** 缩放/平移开始时传 true，结束时传 false。 */
   setViewportMoving(v: boolean): void {
     this.isViewportMoving = v
     if (!v) this.flushDeferred()
   }
 
   private async load(url: string, ownerId: string): Promise<HTMLImageElement> {
+    // 同 URL 的并发请求合并到同一个 in-flight promise
     const inflight = this.pending.get(url)
     if (inflight) {
-      const img = await inflight
-      const entry = this.cache.get(url)
-      if (entry) entry.owners.add(ownerId)
+      inflight.pendingOwners.add(ownerId)
+      const img = await inflight.promise
+      // 加载完成后补充 owner（以防缓存条目已创建）
+      this.cache.get(url)?.owners.add(ownerId)
       return img
     }
 
-    const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload = () => {
+    const abortController = new AbortController()
+
+    // 用 definite assignment 避免 null 初始化 trick
+    let pendingEntry!: PendingEntry
+
+    const promise = this.withConcurrencyLimit(() =>
+      this.fetchAndDecode(url, abortController.signal)
+    )
+      .then((img) => {
         const sizeBytes = img.naturalWidth * img.naturalHeight * 4
-        const entry: CachedEntry = {
+        this.cache.set(url, {
           htmlImage: img,
           url,
-          owners: new Set([ownerId]),
+          owners: new Set(pendingEntry.pendingOwners),
           sizeBytes,
           lastAccessAt: Date.now(),
-        }
-        this.cache.set(url, entry)
+        })
         this.totalBytes += sizeBytes
         this.pending.delete(url)
         this.evictLRU()
-        resolve(img)
-      }
-      img.onerror = () => {
+        return img
+      })
+      .catch((err: unknown) => {
         this.pending.delete(url)
-        reject(new Error(`ImageResourceManager: failed to load ${url}`))
-      }
-      img.src = url
-    })
+        throw err
+      })
 
-    this.pending.set(url, promise)
+    pendingEntry = { promise, pendingOwners: new Set([ownerId]), abortController }
+    this.pending.set(url, pendingEntry)
     return promise
+  }
+
+  /** 并发限制：同时下载数不超过 MAX_CONCURRENT，多余请求排队等待。 */
+  private async withConcurrencyLimit<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.activeCount >= MAX_CONCURRENT) {
+      await new Promise<void>((resolve) => this.waitQueue.push(resolve))
+    }
+    this.activeCount++
+    try {
+      return await fn()
+    } finally {
+      this.activeCount--
+      this.waitQueue.shift()?.()
+    }
+  }
+
+  /**
+   * 通过 fetch() + img.decode() 加载图片。
+   *
+   * fetch() 提供 AbortController 支持；img.decode() 将像素解码推到浏览器的
+   * ImageDecoder 线程（Chrome/Safari 均在非主线程完成），主线程无阻塞。
+   * 相比 img.onload 方案，首次绘制时不会出现主线程解码卡顿。
+   *
+   * 若 fetch 因 CORS 失败，降级到 img.src 直接加载（<img> 走 no-cors 路径）。
+   */
+  private async fetchAndDecode(url: string, signal: AbortSignal): Promise<HTMLImageElement> {
+    if (url.startsWith('data:') || url.startsWith('blob:')) {
+      return this.decodeViaImg(url, signal)
+    }
+
+    try {
+      const res = await fetch(url, { signal, credentials: 'same-origin' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+
+      const objectUrl = URL.createObjectURL(blob)
+      try {
+        return await this.decodeViaImg(objectUrl, signal)
+      } finally {
+        URL.revokeObjectURL(objectUrl)
+      }
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') throw err
+      // 降级：CORS 受限但 <img> 可以直接加载的场景
+      return this.decodeViaImg(url, signal)
+    }
+  }
+
+  private decodeViaImg(src: string, signal: AbortSignal): Promise<HTMLImageElement> {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'))
+        return
+      }
+      const img = new Image()
+      if (!src.startsWith('data:') && !src.startsWith('blob:')) {
+        img.crossOrigin = 'anonymous'
+      }
+      const onAbort = () => {
+        img.src = ''
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      img.src = src
+      void img.decode().then(
+        () => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(img)
+        },
+        (decodeErr: unknown) => {
+          signal.removeEventListener('abort', onAbort)
+          reject(
+            signal.aborted
+              ? new DOMException('Aborted', 'AbortError')
+              : new Error(`ImageResourceManager: decode failed for ${src}: ${String(decodeErr)}`)
+          )
+        }
+      )
+    })
   }
 
   private flushDeferred(): void {
     const queue = this.deferred.splice(0)
     for (const item of queue) {
-      this.load(item.url, item.ownerId).then(item.resolve).catch(item.reject)
+      // 视口停止后以 critical 优先级触发，绕过 deferred 检查直接进入加载
+      this.acquire(item.url, 'critical', item.ownerId)
+        .then(item.resolve)
+        .catch(item.reject)
     }
   }
 
   private evictLRU(): void {
-    if (this.totalBytes <= this.MAX_BYTES) return
+    if (this.totalBytes <= MAX_BYTES) return
     const candidates = Array.from(this.cache.values())
       .filter((e) => e.owners.size === 0)
       .sort((a, b) => a.lastAccessAt - b.lastAccessAt)
     for (const entry of candidates) {
-      if (this.totalBytes <= this.MAX_BYTES) break
+      if (this.totalBytes <= MAX_BYTES) break
       this.totalBytes -= entry.sizeBytes
       this.cache.delete(entry.url)
     }
