@@ -27,6 +27,7 @@ export interface Convert2Dto3DRequest {
   lowPoly?: boolean;
   sketch?: boolean;
   projectId?: string;
+  nodeId?: string;
 }
 
 export interface Convert2Dto3DResponse {

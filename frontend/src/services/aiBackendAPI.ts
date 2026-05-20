@@ -1587,6 +1587,7 @@ export interface VideoGenerationRequest {
   characterUrl?: string;
   characterTimestamps?: string;
   characterTaskId?: string;
+  nodeId?: string;
 }
 
 export interface VideoGenerationResult {
@@ -2478,5 +2479,33 @@ export async function queryDashscopeTask(taskId: string): Promise<{
       success: false,
       error: { message: error instanceof Error ? error.message : "Network error" },
     };
+  }
+}
+
+export interface GenerationTaskRecord {
+  taskId: string;
+  nodeId: string | null;
+  category: "image" | "video";
+  taskType: string;
+  status: "queued" | "processing" | "succeeded" | "failed";
+  result: Record<string, any> | null;
+  error: string | null;
+  updatedAt: string;
+}
+
+export async function batchQueryTasksByNodesAPI(
+  nodeIds: string[]
+): Promise<Record<string, GenerationTaskRecord | null>> {
+  if (!nodeIds.length) return {};
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/tasks/by-nodes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nodeIds }),
+    });
+    if (!response.ok) return {};
+    return (await response.json()) as Record<string, GenerationTaskRecord | null>;
+  } catch {
+    return {};
   }
 }

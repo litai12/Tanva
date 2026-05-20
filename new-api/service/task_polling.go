@@ -31,6 +31,12 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+// TaskTerminalCleaner is an optional interface for adaptors that need post-completion cleanup.
+// CleanupOnTerminal is called (in a goroutine) when a task reaches success or failure.
+type TaskTerminalCleaner interface {
+	CleanupOnTerminal(task *model.Task)
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -327,7 +333,8 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
+		ChannelBaseUrl:       cacheGetChannel.GetBaseURL(),
+		ChannelOtherSettings: cacheGetChannel.GetOtherSettings(),
 	}
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)
@@ -489,6 +496,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	} else {
 		// No changes, skip update
 		logger.LogDebug(ctx, fmt.Sprintf("No update needed for task %s", task.TaskID))
+	}
+
+	if isDone {
+		if cleaner, ok := adaptor.(TaskTerminalCleaner); ok {
+			go cleaner.CleanupOnTerminal(task)
+		}
 	}
 
 	if shouldSettle {

@@ -660,6 +660,11 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
+		if groupID, ok := c.Get(string(constant.ContextKeyVolcGroupID)); ok {
+			if gid, ok := groupID.(string); ok {
+				task.PrivateData.VolcGroupID = gid
+			}
+		}
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
 			ModelPrice:      relayInfo.PriceData.ModelPrice,
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
@@ -738,6 +743,14 @@ func RelayTask(c *gin.Context) {
 	}
 
 	if taskErr != nil {
+		// Call any cleanup functions registered by adaptors (e.g. delete uploaded Volc assets).
+		if rawFns, ok := c.Get(string(constant.ContextKeyTaskFailureCleanupFns)); ok {
+			if fns, ok := rawFns.([]func()); ok {
+				for _, fn := range fns {
+					fn()
+				}
+			}
+		}
 		respondTaskError(c, taskErr)
 	}
 }

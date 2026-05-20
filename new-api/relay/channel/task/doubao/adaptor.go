@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -102,15 +103,26 @@ type responseTask struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
+	ChannelType   int
+	apiKey        string
+	baseURL       string
+	volcAccessKey string
+	volcSecretKey string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
+	if info.ChannelMeta != nil {
+		a.volcAccessKey = info.ChannelMeta.ChannelOtherSettings.VolcAccessKey
+		a.volcSecretKey = info.ChannelMeta.ChannelOtherSettings.VolcSecretKey
+	}
+}
+
+// isSeedance20Series returns true for doubao-seedance-2-0-* models that require asset review.
+func isSeedance20Series(model string) bool {
+	return strings.HasPrefix(model, "doubao-seedance-2-0")
 }
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
@@ -176,10 +188,29 @@ func hasVideoInMetadata(metadata map[string]interface{}) bool {
 }
 
 // BuildRequestBody converts request into Doubao specific format.
+// For doubao-seedance-2-0 series with images, uploads them to the Volcengine asset
+// library and replaces URLs with asset:// references before building the payload.
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil, err
+	}
+
+	modelName := info.UpstreamModelName
+	if !info.IsModelMapped {
+		modelName = req.Model
+	}
+
+	if isSeedance20Series(modelName) && len(req.Images) > 0 && a.volcAccessKey != "" && a.volcSecretKey != "" {
+		assetURLs, groupID, uploadErr := uploadAndPollImages(a.volcAccessKey, a.volcSecretKey, req.Images)
+		if uploadErr != nil {
+			return nil, errors.Wrap(uploadErr, "volc asset upload")
+		}
+		req.Images = assetURLs
+		// Store groupID for the controller to persist into task.PrivateData and for cleanup on failure.
+		c.Set(string(constant.ContextKeyVolcGroupID), groupID)
+		cleanupFn := func() { go deleteAssetGroup(a.volcAccessKey, a.volcSecretKey, groupID) }
+		registerTaskFailureCleanup(c, cleanupFn)
 	}
 
 	body, err := a.convertToRequestPayload(&req)
@@ -196,6 +227,27 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 	return bytes.NewReader(data), nil
+}
+
+// CleanupOnTerminal deletes the Volcengine asset group when the task reaches a terminal state.
+// Implements service.TaskTerminalCleaner (checked via type assertion in task_polling.go).
+func (a *TaskAdaptor) CleanupOnTerminal(task *model.Task) {
+	groupID := task.PrivateData.VolcGroupID
+	if groupID == "" || a.volcAccessKey == "" || a.volcSecretKey == "" {
+		return
+	}
+	go deleteAssetGroup(a.volcAccessKey, a.volcSecretKey, groupID)
+}
+
+// registerTaskFailureCleanup appends a cleanup function to the gin context slice.
+// All registered functions are called by the controller on task submission failure.
+func registerTaskFailureCleanup(c *gin.Context, fn func()) {
+	key := string(constant.ContextKeyTaskFailureCleanupFns)
+	var fns []func()
+	if existing, ok := c.Get(key); ok {
+		fns, _ = existing.([]func())
+	}
+	c.Set(key, append(fns, fn))
 }
 
 // DoRequest delegates to common helper.

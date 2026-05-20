@@ -166,6 +166,7 @@ import {
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
+  batchQueryTasksByNodesAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -14271,6 +14272,68 @@ function FlowInner() {
     });
   }, [nodes, pollHappyhorseTask]);
 
+  // 页面刷新后恢复运行中的任务状态（仅在挂载时执行一次）
+  const taskRecoveryFiredRef = React.useRef(false);
+  React.useEffect(() => {
+    if (taskRecoveryFiredRef.current) return;
+    const runningNodes = nodes.filter(
+      (n) => (n.data as any)?.status === "running"
+    );
+    if (!runningNodes.length) {
+      taskRecoveryFiredRef.current = true;
+      return;
+    }
+    taskRecoveryFiredRef.current = true;
+    void (async () => {
+      try {
+        const nodeIds = runningNodes.map((n) => n.id);
+        const records = await batchQueryTasksByNodesAPI(nodeIds);
+        if (!Object.keys(records).length) return;
+        setNodes((prev: any[]) =>
+          prev.map((n) => {
+            const record = records[n.id];
+            if (!record) return n;
+            const prevData = (n.data as any) || {};
+            if (record.status === "failed") {
+              return {
+                ...n,
+                data: {
+                  ...prevData,
+                  status: "failed",
+                  error: record.error || "任务失败",
+                  taskId: record.taskId,
+                },
+              };
+            }
+            if (record.status === "succeeded") {
+              const res = record.result || {};
+              return {
+                ...n,
+                data: {
+                  ...prevData,
+                  status: "succeeded",
+                  taskId: record.taskId,
+                  error: undefined,
+                  ...(res.videoUrl ? { videoUrl: res.videoUrl } : {}),
+                  ...(res.thumbnailUrl ? { thumbnail: res.thumbnailUrl } : {}),
+                  ...(res.imageUrl ? { imageUrl: res.imageUrl } : {}),
+                  ...(res.modelUrl ? { modelUrl: res.modelUrl } : {}),
+                },
+              };
+            }
+            // still queued/processing — keep taskId in data so polling can resume
+            return {
+              ...n,
+              data: { ...prevData, taskId: record.taskId },
+            };
+          })
+        );
+      } catch {
+        // recovery is best-effort; swallow errors
+      }
+    })();
+  }, [nodes, setNodes]);
+
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
     async (nodeId: string) => {
@@ -17030,6 +17093,7 @@ function FlowInner() {
               characterUrl: characterUrlSetting || undefined,
               characterTimestamps: characterTimestampsSetting || undefined,
               characterTaskId: characterTaskIdSetting || undefined,
+              nodeId,
             }
           );
           console.log("✅ [Flow] Sora2 video response received", {
@@ -17235,6 +17299,7 @@ function FlowInner() {
                 };
           const result = await convertSeed3D({
             ...requestPayload,
+            nodeId,
           });
 
           if (!result.success || !result.modelUrl) {
@@ -20281,6 +20346,7 @@ function FlowInner() {
             aspectRatio: nano2AspectRatio,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             imageSize: nano2Resolution,
+            nodeId: node.id,
             ...(node.type === "gptImage2"
               ? {
                   officialFallback: gptImage2OfficialFallback,

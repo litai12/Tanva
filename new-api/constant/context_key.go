@@ -67,4 +67,12 @@ const (
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+
+	// ContextKeyTaskFailureCleanupFns stores []func() to be called if a task submission fails.
+	// Adaptors may register cleanup callbacks (e.g. delete uploaded assets) via this key.
+	ContextKeyTaskFailureCleanupFns ContextKey = "task_failure_cleanup_fns"
+
+	// ContextKeyVolcGroupID stores the Volcengine asset group ID created during task submission.
+	// The controller reads this and persists it into TaskPrivateData for async cleanup.
+	ContextKeyVolcGroupID ContextKey = "doubao_volc_group_id"
 )

@@ -151,6 +151,7 @@ export interface AIImageGenerateRequest {
   nodeConfigNameEn?: string;
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
+  nodeId?: string;
 }
 
 // AI鍥惧儚缂栬緫璇锋眰鍙傛暟
