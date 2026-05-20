@@ -31,7 +31,7 @@
 ## 登录提醒弹窗
 - 组件：`frontend/src/components/auth/LoginNoticeModal.tsx`
 - 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content }`）。
-- 读取：登录后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗。
+- 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。
 - 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
 
 ## 我的积分（`/my-credits`）
@@ -76,6 +76,7 @@
 - `MiniMapImageOverlay` / `TextSelectionOverlay` 已清理残余中文注释，保持扫描基线准确并避免误报未双语化文件。
 - `GlobalImageHistoryPage` / `GlobalImageDetailModal`（`frontend/src/components/global-history/GlobalImageHistoryPage.tsx`, `frontend/src/components/global-history/GlobalImageDetailModal.tsx`）已接入双语文案：历史页标题、搜索/筛选、加载与空态、删除撤销提示，以及详情弹窗元数据标签按语言切换。
 - `FloatingHeader` + `projectStore`（`frontend/src/components/layout/FloatingHeader.tsx`, `frontend/src/stores/projectStore.ts`）已补充双语策略：自动创建/兜底项目名按当前语言生成，且历史 `未命名*`/`Untitled*` 项目名在顶部标题与项目下拉中按当前语言显示。
+- 工作区顶部项目下拉按 `projectStore.recentProjectIds` 展示最近打开的 5 个项目；本地历史不足 5 个时从完整项目列表补齐，当前项目缺失时会兜底加入。
 - 工作区顶部项目名右侧新增快捷 `+` 新建按钮（`FloatingHeader`），点击可直接创建并切换到新项目；项目下拉中的“新建项目”复用同一创建逻辑并带防连点保护。
 - 工作区右上角 Nano Banana/Gemini/GPT-Image-2 路线快捷切换会读取今日普通/尊享路线成功率并在下拉内显示信号条；数据来自 `/api/ai/banana-route-success-rates`。
 - 生文/生图线路的尊享路线视觉对齐 `lt-dev9`：菜单与设置页均使用 amber 王冠样式，不使用绿色星标。

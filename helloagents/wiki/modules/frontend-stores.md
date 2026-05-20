@@ -14,6 +14,7 @@
 - AI 图片工具链路（融合/编辑）在源图为远程 URL 时仅对白名单 host 直传 `sourceImageUrls/sourceImageUrl`；非白名单远程图会先尝试在前端读取并上传 OSS，再传可持久化 URL，避免后端 `imageUrl host not allowed`。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
 - `projectContentStore.updatePartial(..., { markDirty: false })` 会跳过无变化快照；项目 autosave 管理器同步 canvas `zoom/pan` 时使用 160ms 防抖和同值过滤，避免缩放/平移期间把高频视角变化转成 React 内容状态更新。
+- `projectStore` 维护本地 `recentProjectIds`（localStorage: `tanva_recent_project_ids`，最多 5 个），在项目加载、创建、打开、删除时同步，用于工作区顶部项目下拉展示最近打开项目；项目管理弹窗仍读取完整 `projects` 列表。
 
 ## 2026-04 theme note
 - `aiChatStore` now persists `chatTheme: "white" | "black"` for workspace visual style selection.

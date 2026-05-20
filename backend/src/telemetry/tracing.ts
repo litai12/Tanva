@@ -71,6 +71,11 @@ export const initOpenTelemetry = (): void => {
       url: endpoint,
       headers,
     }),
+    // The service sends traces explicitly to OpenObserve. Keep SDK metrics/logs
+    // disabled unless we wire dedicated exporters, otherwise the SDK defaults to
+    // localhost:4318 and spams dev logs when no collector is running.
+    metricReaders: [],
+    logRecordProcessors: [],
     instrumentations: [
       getNodeAutoInstrumentations({
         '@opentelemetry/instrumentation-fs': { enabled: false },

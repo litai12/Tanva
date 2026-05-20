@@ -16,7 +16,6 @@ import MembershipSubscribePage from '@/pages/MembershipSubscribePage';
 import TermsOfService from '@/pages/legal/TermsOfService';
 import PrivacyPolicy from '@/pages/legal/PrivacyPolicy';
 import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
-import LoginNoticeModal from '@/components/auth/LoginNoticeModal';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
@@ -49,7 +48,6 @@ function RootRoutes() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <LoginNoticeModal />
     </>
   );
 }

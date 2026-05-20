@@ -14342,6 +14342,58 @@ function FlowInner() {
             (img): img is string => typeof img === "string" && img.length > 0
           );
 
+      const buildGeneratedImagePatch = (value?: string | null) => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) {
+          return {
+            imageUrl: undefined,
+            imageData: undefined,
+            thumbnail: undefined,
+          };
+        }
+        if (isPersistableImageRef(trimmed)) {
+          return {
+            imageUrl: normalizePersistableImageRef(trimmed),
+            imageData: undefined,
+            thumbnail: undefined,
+          };
+        }
+        return {
+          imageUrl: undefined,
+          imageData: trimmed,
+          thumbnail: undefined,
+        };
+      };
+
+      const buildHistoryImageSource = (value: string) => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (trimmed && isPersistableImageRef(trimmed)) {
+          return { remoteUrl: normalizePersistableImageRef(trimmed) };
+        }
+        return { base64: trimmed };
+      };
+
+      const nodeHasGeneratedImageSource = (
+        data: Record<string, unknown> | null | undefined,
+        value?: string | null
+      ): boolean => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) return false;
+        const normalized = isPersistableImageRef(trimmed)
+          ? normalizePersistableImageRef(trimmed)
+          : trimmed;
+        const currentImageUrl =
+          typeof data?.imageUrl === "string" ? data.imageUrl.trim() : "";
+        const currentImageData =
+          typeof data?.imageData === "string" ? data.imageData.trim() : "";
+        return (
+          currentImageUrl === trimmed ||
+          currentImageUrl === normalized ||
+          currentImageData === trimmed ||
+          currentImageData === normalized
+        );
+      };
+
       // 运行时图片输入归一化：
       // - 允许节点数据里是 URL/OSS key/flow-asset/base64
       // - 对后端 AI 接口：统一转换成 dataURL(base64) 再发送（避免后端不支持 URL）
@@ -20468,6 +20520,7 @@ function FlowInner() {
                       status: "succeeded",
                       imageUrl: nodeImageUrl,
                       imageData: nodeImageData,
+                      thumbnail: undefined,
                       error: undefined,
                     },
                   }
@@ -20996,6 +21049,8 @@ function FlowInner() {
                     status: "running",
                     error: undefined,
                     images: [],
+                    imageUrls: [],
+                    thumbnails: [],
                     generate4SlotErrors: undefined,
                     generate4PassIndex: 0,
                   },
@@ -21150,8 +21205,7 @@ function FlowInner() {
                       ...n,
                       data: {
                         ...n.data,
-                        imageData: imgB64,
-                        thumbnail: undefined,
+                        ...buildGeneratedImagePatch(imgB64),
                       },
                     };
                   return n;
@@ -21166,7 +21220,7 @@ function FlowInner() {
               const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
               void recordImageHistoryEntry({
                 id: historyId,
-                base64: generatedImage,
+                ...buildHistoryImageSource(generatedImage),
                 title: `Generate4 #${
                   slotIndex + 1
                 } ${new Date().toLocaleTimeString()}`,
@@ -21223,7 +21277,7 @@ function FlowInner() {
                       if (
                         outEdges.some((e) => e.target === n.id) &&
                         n.type === "image" &&
-                        (n.data as any)?.imageData === generatedImage
+                        nodeHasGeneratedImageSource(n.data, generatedImage)
                       ) {
                         return {
                           ...n,
@@ -21293,6 +21347,8 @@ function FlowInner() {
                     status: "running",
                     error: undefined,
                     images: [],
+                    imageUrls: [],
+                    thumbnails: [],
                   },
                 }
               : n
@@ -21435,8 +21491,7 @@ function FlowInner() {
                         ...n,
                         data: {
                           ...n.data,
-                          imageData: imgB64,
-                          thumbnail: undefined,
+                          ...buildGeneratedImagePatch(imgB64),
                         },
                       };
                     return n;
@@ -21452,7 +21507,7 @@ function FlowInner() {
                 const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
                 void recordImageHistoryEntry({
                   id: historyId,
-                  base64,
+                  ...buildHistoryImageSource(base64),
                   title: `GeneratePro4 #${
                     slotIndex + 1
                   } ${new Date().toLocaleTimeString()}`,
@@ -21509,7 +21564,7 @@ function FlowInner() {
                         if (
                           outEdges.some((e) => e.target === n.id) &&
                           n.type === "image" &&
-                          (n.data as any)?.imageData === base64
+                          nodeHasGeneratedImageSource(n.data, base64)
                         ) {
                           return {
                             ...n,
@@ -21686,7 +21741,7 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: "succeeded",
-                    imageData: imgBase64,
+                    ...buildGeneratedImagePatch(imgBase64),
                     error: undefined,
                     responseText: generatedResponseText,
                   },
@@ -21718,8 +21773,7 @@ function FlowInner() {
                     ...n,
                     data: {
                       ...n.data,
-                      imageData: imgBase64,
-                      thumbnail: undefined,
+                      ...buildGeneratedImagePatch(imgBase64),
                     },
                   };
                 return n;
@@ -21737,7 +21791,7 @@ function FlowInner() {
               node.type === "generatePro" ? "generatePro" : "generate";
             void recordImageHistoryEntry({
               id: historyId,
-              base64: imgBase64,
+              ...buildHistoryImageSource(imgBase64),
               title: `${
                 node.type === "generatePro"
                   ? "GeneratePro"
@@ -21766,7 +21820,7 @@ function FlowInner() {
                   ns.map((n) => {
                     // 更新当前生成节点自身
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== imgBase64) return n;
+                      if (!nodeHasGeneratedImageSource(n.data, imgBase64)) return n;
                       return {
                         ...n,
                         data: {
@@ -21784,7 +21838,7 @@ function FlowInner() {
                     if (
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image" &&
-                      (n.data as any)?.imageData === imgBase64
+                      nodeHasGeneratedImageSource(n.data, imgBase64)
                     ) {
                       return {
                         ...n,
@@ -26063,4 +26117,3 @@ export default function FlowOverlay() {
     </div>
   );
 }
-

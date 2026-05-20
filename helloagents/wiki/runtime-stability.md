@@ -25,6 +25,7 @@
   - global Nest HTTP exception filter now reports message, stack, status code, route, request context, and trace/request/user identifiers
   - when a backend exception happens after an upstream `fetch`, `backend_error` also includes `upstream_url`, `upstream_host`, `upstream_status_code`, `upstream_payload`, `upstream_response`, and `upstream` using the latest sanitized upstream request captured in the current request context
   - process-level `unhandledRejection` / `uncaughtException` are ingested into the same stream for crash triage
+- OpenTelemetry SDK initialization only wires the explicit OpenObserve trace exporter; SDK default metrics/logs exporters are disabled to avoid local `localhost:4318` retry noise when no OTLP collector is running.
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
 - Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
 - Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.
