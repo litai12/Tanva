@@ -81,7 +81,7 @@ services:
     environment:
       PORT: 4455
       SQL_DSN: postgres://${NEW_API_PG_USER:-new_api}:${NEW_API_PG_PASSWORD:-new_api_pass}@new-api-postgres:5432/${NEW_API_PG_DB:-new_api}?sslmode=disable
-      REDIS_CONN_STRING: redis://host.docker.internal:6379/0
+      REDIS_CONN_STRING: redis://tanva-redis:6379/0
       SESSION_SECRET: ${NEW_API_SESSION_SECRET:-tanva-new-api-local-session}
       GENERATE_DEFAULT_TOKEN: ${NEW_API_GENERATE_DEFAULT_TOKEN:-false}
       MEMORY_CACHE_ENABLED: ${NEW_API_MEMORY_CACHE_ENABLED:-true}
@@ -94,8 +94,6 @@ services:
       all_proxy: ""
       NO_PROXY: ""
       no_proxy: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - tanva_new_api_data:/data
     healthcheck:
