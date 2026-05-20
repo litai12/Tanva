@@ -106,7 +106,15 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
         const getNode = (id: string): FlowNode | undefined =>
           hasNodeLookup ? nodeLookup!.get(id) : fallbackById?.get(id);
 
-        // 3. Collect sibling image edges: connected to any downstream node, not a text input.
+        // Mirrors FlowOverlay's image-edge filter: only "img" and indexed "img1/img2…" handles.
+        // Skips "text", "response-text", and any other non-image handles so @图N indices
+        // stay in sync with the actual images[] array built at run time.
+        const isImgTargetHandle = (h: string | null | undefined): boolean => {
+          if (!h) return false;
+          return h === 'img' || /^img\d+$/.test(h) || h === 'images';
+        };
+
+        // 3. Collect sibling image edges: connected to any downstream node via an image handle.
         //    Deduplicate by sourceNodeId — the same image node may connect to multiple
         //    downstream nodes (e.g. when prompt feeds two generate nodes sharing the same
         //    reference image). Preserve order by edges array position.
@@ -118,7 +126,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           const edge = edges[i];
           if (!downstreamIds.has(edge.target)) continue;
           if (edge.source === nodeId) continue; // skip our own edge
-          if (edge.targetHandle === 'text') continue; // skip text inputs
+          if (!isImgTargetHandle(edge.targetHandle)) continue; // only image-input handles
           if (seenSourceIds.has(edge.source)) continue; // deduplicate same source node
 
           const sourceNode = getNode(edge.source);
