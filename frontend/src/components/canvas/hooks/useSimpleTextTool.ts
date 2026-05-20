@@ -11,6 +11,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useToolStore } from '@/stores/toolStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import type { TextAssetSnapshot } from '@/types/project';
+import { NodeManager } from '@/canvas/NodeManager';
 
 interface TextStyle {
   fontFamily: string;
@@ -107,30 +108,18 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     const resolvedColor = style?.color ?? autoDefaultTextColor;
     const textStyle = { ...defaultStyle, ...style, color: resolvedColor };
     
-    const paperText = new paper.PointText({
-      point: [point.x, point.y],
-      content: content,
-      fillColor: textStyle.color,
+    const textNodeInst = NodeManager.getInstance().createText(id, drawingLayer as unknown as paper.Layer, {
+      text: content,
+      position: point,
       fontSize: textStyle.fontSize,
       fontFamily: textStyle.fontFamily,
       fontWeight: textStyle.fontWeight === 'bold' ? 'bold' : 'normal',
       fontStyle: textStyle.italic ? 'italic' : 'normal',
-      justification: textStyle.align,
-      visible: true
+      fillColor: textStyle.color,
+      justification: textStyle.align as 'left' | 'center' | 'right',
+      data: { type: 'text', textId: id },
     });
-
-    // 确保文本可以被点击检测到
-    paperText.strokeColor = null; // 确保没有描边干扰
-    paperText.selected = false; // 确保没有选中状态干扰
-
-    // 添加数据标识
-    paperText.data = {
-      type: 'text',
-      textId: id
-    };
-
-    // 将文本添加到图层中（正确的方法）
-    drawingLayer.addChild(paperText);
+    const paperText = textNodeInst.getPaperItem()!;
 
     const textItem: TextItem = {
       id,
@@ -195,6 +184,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setTextItems(prev => {
       prev.forEach(item => {
         try { item.paperText?.remove(); } catch {}
+        try { NodeManager.getInstance().destroy(item.id); } catch {}
       });
       return [];
     });
