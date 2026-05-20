@@ -3,9 +3,10 @@ import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { ProjectsSchedulerService } from './projects-scheduler.service';
 import { OssModule } from '../oss/oss.module';
+import { TeamCollabModule } from '../team-collab/team-collab.module';
 
 @Module({
-  imports: [OssModule],
+  imports: [OssModule, TeamCollabModule],
   providers: [ProjectsService, ProjectsSchedulerService],
   controllers: [ProjectsController],
 })

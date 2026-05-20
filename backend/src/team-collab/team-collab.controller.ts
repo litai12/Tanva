@@ -20,7 +20,7 @@ export class TeamCollabController {
   @Get(':projectId/stream')
   async stream(
     @Req() req: any,
-    @Res() res: any,
+    @Res({ passthrough: false }) res: any,
     @Param('projectId') projectId: string,
     @Query('teamId') teamId: string,
   ) {
