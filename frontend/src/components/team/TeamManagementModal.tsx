@@ -102,7 +102,8 @@ function MembersTab({
 }) {
   const [members, setMembers] = useState<any[]>([]);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
 
   useEffect(() => {
@@ -119,12 +120,19 @@ function MembersTab({
     }
   };
 
+  const handleCopyLink = () => {
+    if (!inviteCode) return;
+    navigator.clipboard.writeText(`${window.location.origin}/?inviteCode=${inviteCode}`).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    });
+  };
+
   const handleCopyCode = () => {
     if (!inviteCode) return;
-    const url = `${window.location.origin}/?inviteCode=${inviteCode}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(inviteCode).then(() => {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
     });
   };
 
@@ -219,22 +227,41 @@ function MembersTab({
         <div className="px-6 pb-4 border-t border-slate-100 pt-4">
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">邀请成员</p>
           {inviteCode ? (
-            <div>
+            <div className="space-y-2">
+              {/* 邀请链接 */}
               <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="flex-1 text-xs text-slate-500 truncate">
-                  {`${window.location.origin}/?inviteCode=${inviteCode}`}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-slate-400 mb-0.5">邀请链接</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {`${window.location.origin}/?inviteCode=${inviteCode}`}
+                  </p>
+                </div>
+                <button
+                  onClick={handleCopyLink}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 shrink-0 font-medium"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedLink ? '已复制' : '复制'}
+                </button>
+              </div>
+              {/* 邀请码 */}
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-slate-400 mb-0.5">邀请码</p>
+                  <p className="text-xs font-mono text-slate-600 truncate">{inviteCode}</p>
+                </div>
                 <button
                   onClick={handleCopyCode}
                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 shrink-0 font-medium"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copied ? '已复制' : '复制'}
+                  {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedCode ? '已复制' : '复制'}
                 </button>
               </div>
-              <p className="text-xs text-slate-400 mt-2">
-                将链接分享给对方，对方打开即可确认加入，7 天内有效。
+              <p className="text-xs text-slate-400">
+                链接或邀请码 7 天内有效。
                 <button onClick={() => setInviteCode(null)} className="ml-1 text-blue-500 hover:underline">
                   重新生成
                 </button>
@@ -248,7 +275,7 @@ function MembersTab({
               variant="outline"
               className="rounded-xl"
             >
-              {inviteLoading ? '生成中…' : '生成邀请链接'}
+              {inviteLoading ? '生成中…' : '生成邀请链接 / 邀请码'}
             </Button>
           )}
         </div>
