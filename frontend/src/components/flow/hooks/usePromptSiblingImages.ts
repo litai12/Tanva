@@ -37,20 +37,32 @@ function resolveActiveImageUrl(
   }
 
   const idx = parseHandleIndex(sourceHandle);
+
+  // Mirrors GenerateNode's normalizeImageValue: handles both plain strings and
+  // object entries like { imageData: '...', url: '...' } that some node types produce.
+  const normalizeVal = (v: unknown): string | null => {
+    if (typeof v === 'string') return v || null;
+    if (v && typeof v === 'object') {
+      const rec = v as Record<string, unknown>;
+      if (typeof rec.imageData === 'string' && rec.imageData) return rec.imageData;
+      if (typeof rec.url === 'string' && rec.url) return rec.url;
+    }
+    return null;
+  };
+
   const getAt = (field: unknown): string | null => {
     if (!Array.isArray(field)) return null;
-    const v = field[idx];
-    return typeof v === 'string' && v ? v : null;
+    return normalizeVal(field[idx]);
   };
 
   const url =
     getAt(d.imageUrls) ??
     getAt(d.images) ??
     getAt(d.thumbnails) ??
-    (typeof d.imageData === 'string' && d.imageData ? d.imageData : null) ??
-    (typeof d.imageUrl === 'string' && d.imageUrl ? d.imageUrl : null) ??
-    (typeof d.outputImage === 'string' && d.outputImage ? d.outputImage : null) ??
-    (typeof d.inputImageUrl === 'string' && d.inputImageUrl ? d.inputImageUrl : null);
+    normalizeVal(d.imageData) ??
+    normalizeVal(d.imageUrl) ??
+    normalizeVal(d.outputImage) ??
+    normalizeVal(d.inputImageUrl);
 
   return url ? { url, isVideo: false } : null;
 }
