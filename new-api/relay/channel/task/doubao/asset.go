@@ -182,3 +182,72 @@ func uploadImage(accessKey, secretKey, groupID, imgURL string, imageIndex int) (
 	}
 	return "asset://" + assetID, nil
 }
+
+// pollAssetActiveWithTimeout polls GetAsset until active/failed or the deadline is exceeded.
+func pollAssetActiveWithTimeout(accessKey, secretKey, assetID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	const pollInterval = 3 * time.Second
+	for time.Now().Before(deadline) {
+		result, err := volcCall(accessKey, secretKey, "GetAsset", map[string]any{
+			"Id":          assetID,
+			"ProjectName": volcProject,
+		})
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+		var r struct{ Status string }
+		if err := common.Unmarshal(result, &r); err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+		switch strings.ToLower(r.Status) {
+		case "active":
+			return nil
+		case "failed":
+			return fmt.Errorf("asset %s failed content review", assetID)
+		}
+		time.Sleep(pollInterval)
+	}
+	return fmt.Errorf("asset %s upload timed out", assetID)
+}
+
+// UploadAsset creates an ephemeral review group, uploads sourceURL, waits up to 2 min
+// until the asset passes review, then deletes the group and returns the assetID.
+// Callers use the returned assetID as "asset://<assetID>" in generation requests.
+func UploadAsset(accessKey, secretKey, sourceURL string) (string, error) {
+	groupID, err := createAssetGroup(accessKey, secretKey)
+	if err != nil {
+		return "", fmt.Errorf("create review group: %w", err)
+	}
+	defer func() { go deleteAssetGroup(accessKey, secretKey, groupID) }()
+
+	assetID, err := createAsset(accessKey, secretKey, groupID, sourceURL)
+	if err != nil {
+		return "", fmt.Errorf("create asset: %w", err)
+	}
+	if err := pollAssetActiveWithTimeout(accessKey, secretKey, assetID, 2*time.Minute); err != nil {
+		return "", err
+	}
+	return assetID, nil
+}
+
+// QueryAssetStatus returns the normalized ARK asset status: "active", "failed", or "processing".
+func QueryAssetStatus(accessKey, secretKey, assetID string) (string, error) {
+	result, err := volcCall(accessKey, secretKey, "GetAsset", map[string]any{
+		"Id":          assetID,
+		"ProjectName": volcProject,
+	})
+	if err != nil {
+		return "", err
+	}
+	var r struct{ Status string }
+	if err := common.Unmarshal(result, &r); err != nil {
+		return "", err
+	}
+	s := strings.ToLower(r.Status)
+	if s == "" {
+		return "processing", nil
+	}
+	return s, nil
+}

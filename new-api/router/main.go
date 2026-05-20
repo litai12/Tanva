@@ -18,6 +18,7 @@ func SetRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) error {
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
 	SetVideoRouter(router)
+	SetAssetsRouter(router)
 	SetSpecialProxyRouter(router)
 	SetTencentProxyRouter(router)
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")

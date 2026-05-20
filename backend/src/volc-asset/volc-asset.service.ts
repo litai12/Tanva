@@ -1,45 +1,18 @@
 // backend/src/volc-asset/volc-asset.service.ts
+// Asset upload is delegated to new-api (/v1/assets). new-api holds the ARK AK/SK
+// and handles CreateAsset / group management internally. NestJS is no longer a
+// direct ARK client.
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { signVolcRequest } from './volc-sign.util';
 import type { VolcAssetStatus } from './volc-asset.dto';
-
-interface VolcEnv {
-  accessKey: string;
-  secretKey: string;
-  region: string;
-  service: string;
-  host: string;
-  projectName: string;
-  version: string;
-}
-
-interface CreateAssetGroupResp {
-  Id?: string;
-  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
-}
-interface CreateAssetResp {
-  Id?: string;
-  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
-}
-interface GetAssetResp {
-  Status?: 'Processing' | 'Active' | 'Failed';
-  ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
-}
 
 @Injectable()
 export class VolcAssetService implements OnModuleInit {
   private readonly logger = new Logger(VolcAssetService.name);
-  private env!: VolcEnv;
-  // date string (YYYY-MM-DD) → groupId
-  private readonly groupCache = new Map<string, string>();
+  private newApiBaseUrl = 'http://localhost:4458';
+  private newApiKey = '';
   private hasLoggedMissingReviewGroupTable = false;
-
-  // DB-based credential cache (TTL: 60s, overrides env vars when set)
-  private dbCredentials: { accessKey?: string; secretKey?: string; projectName?: string } | null = null;
-  private dbCredentialsCachedAt = 0;
-  private readonly DB_CREDENTIALS_TTL_MS = 60_000;
 
   constructor(
     private readonly config: ConfigService,
@@ -47,65 +20,128 @@ export class VolcAssetService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.env = {
-      accessKey: (this.config.get<string>('VOLC_ARK_ACCESS_KEY') || '').trim(),
-      secretKey: (this.config.get<string>('VOLC_ARK_SECRET_KEY') || '').trim(),
-      region: (this.config.get<string>('VOLC_ARK_REGION') || 'cn-beijing').trim(),
-      service: 'ark',
-      host: (this.config.get<string>('VOLC_ARK_API_HOST') || 'open.volcengineapi.com').trim(),
-      projectName: (this.config.get<string>('VOLC_ARK_PROJECT_NAME') || 'default').trim(),
-      version: '2024-01-01',
-    };
-    if (!this.env.accessKey || !this.env.secretKey) {
-      this.logger.warn(
-        'VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未在环境变量中配置，将尝试从系统设置（DB）读取。',
+    this.newApiBaseUrl = (
+      this.config.get<string>('NEW_API_BASE_URL') ||
+      process.env.NEW_API_BASE_URL ||
+      'http://localhost:4458'
+    ).replace(/\/+$/, '');
+    this.newApiKey =
+      this.config.get<string>('NEW_API_KEY') ||
+      process.env.NEW_API_KEY ||
+      this.config.get<string>('NEW_API_TOKEN') ||
+      process.env.NEW_API_TOKEN ||
+      '';
+    if (!this.newApiKey) {
+      this.logger.warn('NEW_API_KEY 未配置，VolcAsset 素材上传能力不可用。');
+    } else {
+      this.logger.log(`VolcAssetService 已初始化，通过 new-api (${this.newApiBaseUrl}) 上传素材。`);
+    }
+  }
+
+  isConfigured(): boolean {
+    return !!this.newApiKey;
+  }
+
+  // ── 核心素材操作（委托给 new-api） ──────────────────────────────────────
+
+  async uploadAsset(
+    _userId: string,
+    sourceUrl: string,
+    assetType: 'image',
+  ): Promise<{ assetId: string; status: VolcAssetStatus; errorMessage?: string }> {
+    if (!this.newApiKey) {
+      throw new Error('NEW_API_KEY 未配置，素材上传不可用');
+    }
+
+    const resp = await fetch(`${this.newApiBaseUrl}/v1/assets`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.newApiKey}`,
+      },
+      body: JSON.stringify({ source_url: sourceUrl, type: assetType }),
+    });
+
+    const data = await this.parseJson(resp);
+
+    if (!resp.ok) {
+      throw new Error(
+        data?.error?.message || data?.message || `new-api /v1/assets HTTP ${resp.status}`,
       );
     }
-  }
 
-  private async loadDbCredentials(): Promise<{ accessKey?: string; secretKey?: string; projectName?: string }> {
-    const now = Date.now();
-    if (this.dbCredentials !== null && now - this.dbCredentialsCachedAt < this.DB_CREDENTIALS_TTL_MS) {
-      return this.dbCredentials;
+    const assetId = String(data?.id || data?.asset_id || '').trim();
+    if (!assetId) {
+      throw new Error(`new-api 未返回素材 ID: ${JSON.stringify(data)}`);
     }
-    try {
-      const rows = await this.prisma.systemSetting.findMany({
-        where: { key: { in: ['volc_ark_access_key', 'volc_ark_secret_key', 'volc_ark_project_name'] } },
-      });
-      const map = Object.fromEntries(rows.map((r) => [r.key, r.value.trim()]));
-      this.dbCredentials = {
-        accessKey: map['volc_ark_access_key'] || undefined,
-        secretKey: map['volc_ark_secret_key'] || undefined,
-        projectName: map['volc_ark_project_name'] || undefined,
-      };
-    } catch {
-      this.dbCredentials = {};
-    }
-    this.dbCredentialsCachedAt = Date.now();
-    return this.dbCredentials;
-  }
 
-  private async effectiveEnv(): Promise<VolcEnv> {
-    const db = await this.loadDbCredentials();
     return {
-      ...this.env,
-      accessKey: db.accessKey || this.env.accessKey,
-      secretKey: db.secretKey || this.env.secretKey,
-      projectName: db.projectName || this.env.projectName,
+      assetId,
+      status: this.normalizeStatus(data?.status),
+      errorMessage: data?.error_message || undefined,
     };
   }
 
-  /** 主动使 DB 凭证缓存失效（管理员更新设置后调用）。 */
-  invalidateCredentialsCache(): void {
-    this.dbCredentials = null;
-    this.dbCredentialsCachedAt = 0;
+  async getAssetStatus(
+    assetId: string,
+  ): Promise<{ status: VolcAssetStatus; errorMessage?: string }> {
+    if (!this.newApiKey) {
+      throw new Error('NEW_API_KEY 未配置');
+    }
+
+    const resp = await fetch(
+      `${this.newApiBaseUrl}/v1/assets/${encodeURIComponent(assetId)}`,
+      { headers: { Authorization: `Bearer ${this.newApiKey}` } },
+    );
+
+    const data = await this.parseJson(resp);
+
+    if (!resp.ok) {
+      throw new Error(
+        data?.error?.message || data?.message || `new-api /v1/assets/${assetId} HTTP ${resp.status}`,
+      );
+    }
+
+    return {
+      status: this.normalizeStatus(data?.status),
+      errorMessage: data?.error_message || undefined,
+    };
   }
 
-  /** 检查 AK/SK 是否已配置（含 DB 覆盖）。 */
-  async isConfigured(): Promise<boolean> {
-    const env = await this.effectiveEnv();
-    return !!(env.accessKey && env.secretKey);
+  // ── 素材组管理（noop — 现在由 new-api 内部维护） ────────────────────────
+
+  /** @deprecated new-api 内部管理素材组，此方法已废弃，保留以避免调用方报错。 */
+  invalidateTodayGroup(): void {
+    // noop
   }
+
+  /** @deprecated new-api 内部管理素材组。 */
+  async ensureTodayGroup(): Promise<string> {
+    return '';
+  }
+
+  /** 返回历史遗留的审核组记录（DB 中已有的数据），新数据不再写入。 */
+  async listReviewGroups() {
+    try {
+      return await this.prisma.volcReviewGroup.findMany({ orderBy: { date: 'desc' } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+      return [];
+    }
+  }
+
+  /** @deprecated 素材组生命周期由 new-api 管理，NestJS 侧不再执行清理。 */
+  async cleanupGroupByDate(_date?: string): Promise<{ date: string; deleted: boolean }> {
+    return { date: _date || '', deleted: false };
+  }
+
+  /** @deprecated 素材组生命周期由 new-api 管理，NestJS 侧不再执行清理。 */
+  async cleanupExpiredGroup(): Promise<{ date: string; deleted: boolean }> {
+    return { date: '', deleted: false };
+  }
+
+  // ── 私有工具 ─────────────────────────────────────────────────────────────
 
   private normalizeStatus(s?: string): VolcAssetStatus {
     const u = (s || '').toLowerCase();
@@ -114,65 +150,14 @@ export class VolcAssetService implements OnModuleInit {
     return 'processing';
   }
 
-  // 北京时间 YYYY-MM-DD
-  private todayDate(): string {
-    return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  }
-
-  private async call<T>(action: string, body: Record<string, any>): Promise<T> {
-    const env = await this.effectiveEnv();
-    if (!env.accessKey || !env.secretKey) {
-      throw new Error('Volc asset access key not configured');
-    }
-    // Auto-inject effective projectName so callers don't need to be aware of DB override.
-    const effectiveBody = 'ProjectName' in body ? { ...body, ProjectName: env.projectName } : body;
-    const jsonBody = JSON.stringify(effectiveBody);
-    const signed = signVolcRequest({
-      accessKey: env.accessKey,
-      secretKey: env.secretKey,
-      region: env.region,
-      service: env.service,
-      host: env.host,
-      method: 'POST',
-      action,
-      version: env.version,
-      body: jsonBody,
-    });
-    // Node/undici fetch ignores (and warns about) `Host`; remove before sending.
-    const { Host: _host, ...fetchHeaders } = signed.headers;
-    const resp = await fetch(signed.url, {
-      method: 'POST',
-      headers: fetchHeaders,
-      body: jsonBody,
-    });
-    const text = await resp.text();
-    if (!resp.ok) {
-      let detail = text.slice(0, 200);
-      try {
-        const errParsed = JSON.parse(text);
-        const code = errParsed?.ResponseMetadata?.Error?.Code;
-        const msg = errParsed?.ResponseMetadata?.Error?.Message;
-        if (code) detail = `[${code}] ${msg || 'unknown'}`;
-      } catch {
-        // non-JSON error body — keep raw text
-      }
-      throw new Error(`Volc ${action} HTTP ${resp.status}: ${detail}`);
-    }
-    let parsed: any;
+  private async parseJson(resp: Response): Promise<any> {
+    const text = await resp.text().catch(() => '');
+    if (!text) return {};
     try {
-      parsed = JSON.parse(text);
+      return JSON.parse(text);
     } catch {
-      throw new Error(`Volc ${action} bad response: ${text.slice(0, 200)}`);
+      return { message: text.slice(0, 200) };
     }
-    const err = parsed?.ResponseMetadata?.Error;
-    if (err?.Code) {
-      throw new Error(`Volc ${action} error [${err.Code}]: ${err.Message || 'unknown'}`);
-    }
-    const unwrapped =
-      parsed && typeof parsed === 'object' && parsed.Result !== undefined
-        ? parsed.Result
-        : parsed;
-    return unwrapped as T;
   }
 
   private isVolcReviewGroupTableMissing(error: unknown): boolean {
@@ -187,134 +172,6 @@ export class VolcAssetService implements OnModuleInit {
   private logMissingReviewGroupTableOnce() {
     if (this.hasLoggedMissingReviewGroupTable) return;
     this.hasLoggedMissingReviewGroupTable = true;
-    this.logger.warn(
-      'VolcReviewGroup table is missing. Seedance will run with in-memory fallback; run Prisma migration to restore persistence.',
-    );
-  }
-
-  async ensureTodayGroup(): Promise<string> {
-    const date = this.todayDate();
-    const cached = this.groupCache.get(date);
-    if (cached) return cached;
-
-    try {
-      const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
-      if (existing) {
-        this.groupCache.set(date, existing.groupId);
-        return existing.groupId;
-      }
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-      this.logMissingReviewGroupTableOnce();
-    }
-
-    const resp = await this.call<CreateAssetGroupResp>('CreateAssetGroup', {
-      Name: `tanva-review-${date}`,
-      Description: `Review group for ${date}`,
-      GroupType: 'AIGC',
-      ProjectName: this.env.projectName,
-    });
-    const groupId = resp?.Id;
-    if (!groupId) throw new Error('Volc CreateAssetGroup: empty Id');
-    try {
-      await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-      this.logMissingReviewGroupTableOnce();
-    }
-    this.groupCache.set(date, groupId);
-    return groupId;
-  }
-
-  invalidateTodayGroup() {
-    this.groupCache.delete(this.todayDate());
-  }
-
-  async uploadAsset(
-    userId: string,
-    sourceUrl: string,
-    assetType: 'image',
-  ): Promise<{ assetId: string; status: VolcAssetStatus; errorMessage?: string }> {
-    const groupId = await this.ensureTodayGroup();
-    const resp = await this.call<CreateAssetResp>('CreateAsset', {
-      GroupId: groupId,
-      URL: sourceUrl,
-      AssetType: 'Image',
-      ProjectName: this.env.projectName,
-    });
-    if (!resp?.Id) throw new Error('Volc CreateAsset: empty Id');
-    const initial = await this.getAssetStatus(resp.Id).catch(() => ({
-      status: 'processing' as VolcAssetStatus,
-      errorMessage: undefined,
-    }));
-    return { assetId: resp.Id, status: initial.status, errorMessage: initial.errorMessage };
-  }
-
-  async getAssetStatus(
-    assetId: string,
-  ): Promise<{ status: VolcAssetStatus; errorMessage?: string }> {
-    const resp = await this.call<GetAssetResp>('GetAsset', {
-      Id: assetId,
-      ProjectName: this.env.projectName,
-    });
-    return {
-      status: this.normalizeStatus(resp?.Status),
-      errorMessage: undefined,
-    };
-  }
-
-  async deleteAssetGroup(groupId: string): Promise<void> {
-    await this.call<Record<string, unknown>>('DeleteAssetGroup', {
-      Id: groupId,
-      ProjectName: this.env.projectName,
-    });
-  }
-
-  async listReviewGroups() {
-    try {
-      return await this.prisma.volcReviewGroup.findMany({
-        orderBy: { date: 'desc' },
-      });
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-      this.logMissingReviewGroupTableOnce();
-      return [];
-    }
-  }
-
-  // date: YYYY-MM-DD（北京时间）。不传则取 3 天前。
-  async cleanupGroupByDate(date?: string): Promise<{ date: string; deleted: boolean }> {
-    const targetDate = date ?? (() => {
-      const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
-      d.setDate(d.getDate() - 3);
-      return d.toISOString().slice(0, 10);
-    })();
-
-    let record: { groupId: string } | null = null;
-    try {
-      record = await this.prisma.volcReviewGroup.findUnique({
-        where: { date: targetDate },
-        select: { groupId: true },
-      });
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-      this.logMissingReviewGroupTableOnce();
-      return { date: targetDate, deleted: false };
-    }
-    if (!record) return { date: targetDate, deleted: false };
-
-    await this.deleteAssetGroup(record.groupId);
-    try {
-      await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
-    } catch (error) {
-      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
-      this.logMissingReviewGroupTableOnce();
-    }
-    this.groupCache.delete(targetDate);
-    return { date: targetDate, deleted: true };
-  }
-
-  async cleanupExpiredGroup(): Promise<{ date: string; deleted: boolean }> {
-    return this.cleanupGroupByDate();
+    this.logger.warn('VolcReviewGroup 表不存在，listReviewGroups 返回空列表。');
   }
 }
