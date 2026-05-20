@@ -101,7 +101,6 @@ function MembersTab({
   onClose: () => void;
 }) {
   const [members, setMembers] = useState<any[]>([]);
-  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -111,12 +110,10 @@ function MembersTab({
   }, [teamId]);
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim()) return;
     setInviteLoading(true);
     try {
-      const inv = await teamApi.createInvite(teamId, { email: inviteEmail, expiresInDays: 7 });
+      const inv = await teamApi.createInvite(teamId, { expiresInDays: 7 });
       setInviteCode(inv.code);
-      setInviteEmail('');
     } finally {
       setInviteLoading(false);
     }
@@ -234,31 +231,22 @@ function MembersTab({
                 </button>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                分享此邀请码，7 天内有效。
+                将邀请码发送给对方，7 天内有效。
                 <button onClick={() => setInviteCode(null)} className="ml-1 text-blue-500 hover:underline">
-                  再次邀请
+                  重新生成
                 </button>
               </p>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <input
-                type="email"
-                className="flex-1 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all"
-                placeholder="输入邮箱地址"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleInvite(); }}
-              />
-              <Button
-                size="sm"
-                onClick={handleInvite}
-                disabled={inviteLoading || !inviteEmail.trim()}
-                className="rounded-xl"
-              >
-                {inviteLoading ? '…' : '邀请'}
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              onClick={handleInvite}
+              disabled={inviteLoading}
+              variant="outline"
+              className="rounded-xl"
+            >
+              {inviteLoading ? '生成中…' : '生成邀请码'}
+            </Button>
           )}
         </div>
       )}
