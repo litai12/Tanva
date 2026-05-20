@@ -847,7 +847,9 @@ video::-webkit-media-controls-fullscreen-button {
   transition: border-color 0.12s ease;
 }
 
-.prompt-image-strip__card:hover {
+.prompt-image-strip__card:hover,
+.prompt-image-strip__card:focus-visible {
+  outline: none;
   border-color: #2563eb;
 }
 

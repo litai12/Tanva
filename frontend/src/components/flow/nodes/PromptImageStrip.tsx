@@ -13,7 +13,8 @@ export default function PromptImageStrip({ images, onInsert }: Props) {
     <div className="prompt-image-strip nodrag nopan">
       {images.map((img) => (
         <button
-          key={img.nodeId + img.index}
+          type="button"
+          key={`${img.nodeId}::${img.index}`}
           className="prompt-image-strip__card"
           title={`点击插入 @图${img.index}`}
           onPointerDownCapture={(e) => { e.stopPropagation(); }}
@@ -30,7 +31,7 @@ export default function PromptImageStrip({ images, onInsert }: Props) {
             draggable={false}
           />
           {img.isVideo && (
-            <span className="prompt-image-strip__video-icon" aria-hidden>▶</span>
+            <span className="prompt-image-strip__video-icon" aria-hidden="true">▶</span>
           )}
           <span className="prompt-image-strip__badge">图{img.index}</span>
         </button>
