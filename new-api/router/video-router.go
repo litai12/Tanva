@@ -31,6 +31,17 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.GET("/videos/:task_id", controller.RelayTaskFetch)
 	}
 
+
+	// APIMart character-task proxy — TokenAuth only, no channel distribution.
+	// Finds the APIMart channel internally and forwards directly.
+	characterTaskRouter := router.Group("/v1")
+	characterTaskRouter.Use(middleware.RouteTag("relay"))
+	characterTaskRouter.Use(middleware.TokenAuth())
+	{
+		characterTaskRouter.POST("/characters_tasks", controller.ProxyApimartCharacterCreate)
+		characterTaskRouter.GET("/characters_tasks/:task_id", controller.ProxyApimartCharacterFetch)
+	}
+
 	klingV1Router := router.Group("/kling/v1")
 	klingV1Router.Use(middleware.RouteTag("relay"))
 	klingV1Router.Use(middleware.KlingRequestConvert(), middleware.TokenAuth(), middleware.Distribute())

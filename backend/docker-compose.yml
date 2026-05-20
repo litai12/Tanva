@@ -101,6 +101,14 @@ services:
       GENERATE_DEFAULT_TOKEN: ${NEW_API_GENERATE_DEFAULT_TOKEN:-false}
       MEMORY_CACHE_ENABLED: ${NEW_API_MEMORY_CACHE_ENABLED:-true}
       SYNC_FREQUENCY: ${NEW_API_SYNC_FREQUENCY:-60}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      ALL_PROXY: ""
+      all_proxy: ""
+      NO_PROXY: ""
+      no_proxy: ""
     volumes:
       - tanva_new_api_data:/data
     healthcheck:

@@ -101,11 +101,11 @@ UPDATE models AS target
 SET kind         = f.kind,
     vendor_id    = v.id,
     status       = 1,
-    deleted_at   = NULL,
     updated_time = EXTRACT(EPOCH FROM NOW())::bigint
 FROM alias_forms AS f
 CROSS JOIN (SELECT id FROM vendors WHERE name = 'APIMart AI' AND deleted_at IS NULL LIMIT 1) AS v
-WHERE target.model_name = f.model_name;
+WHERE target.model_name = f.model_name
+  AND target.deleted_at IS NULL;
 
 -- -----------------------------------------------------------------------------
 -- Step 3: Upsert channel (type 59 = ChannelTypeApimart).

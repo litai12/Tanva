@@ -195,8 +195,8 @@ export class Sora2VideoService {
   }
 
   async createCharacterTask(options: CreateCharacterTaskOptions) {
-    if (!this.apiKeyApimart) {
-      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    if (!this.apiKeyV2) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
     if (!options.url && !options.fromTask) {
       throw new BadRequestException("参数 url 和 fromTask 需二选一");
@@ -209,11 +209,11 @@ export class Sora2VideoService {
     if (options.url) payload.url = options.url;
     if (options.fromTask) payload.from_task = options.fromTask;
 
-    const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
+    const response = await fetch(`${this.apiBaseV2}/v1/characters_tasks`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKeyApimart}`,
+        Authorization: `Bearer ${this.apiKeyV2}`,
       },
       body: JSON.stringify(payload),
     });
@@ -243,15 +243,15 @@ export class Sora2VideoService {
   }
 
   async queryCharacterTask(taskId: string) {
-    if (!this.apiKeyApimart) {
-      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    if (!this.apiKeyV2) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
     const response = await fetch(
-      `${this.apiBaseApimart}/v1/characters_tasks/${encodeURIComponent(taskId)}`,
+      `${this.apiBaseV2}/v1/characters_tasks/${encodeURIComponent(taskId)}`,
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${this.apiKeyApimart}`,
+          Authorization: `Bearer ${this.apiKeyV2}`,
         },
       }
     );
@@ -287,19 +287,20 @@ export class Sora2VideoService {
       return this.queryTencentVideoTask(taskId);
     }
 
-    if (!this.apiKeyApimart) {
-      throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
+    if (!this.apiKeyV2) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
     if (!taskId || !taskId.trim()) {
       throw new BadRequestException("taskId 不能为空");
     }
 
+    // Poll new-api's OpenAI-Video endpoint; new-api fetches upstream status internally.
     const response = await fetch(
-      `${this.apiBaseApimart}/v1/tasks/${encodeURIComponent(taskId.trim())}?language=zh&t=${Date.now()}`,
+      `${this.apiBaseV2}/v1/videos/${encodeURIComponent(taskId.trim())}`,
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${this.apiKeyApimart}`,
+          Authorization: `Bearer ${this.apiKeyV2}`,
           "Cache-Control": "no-cache",
           Pragma: "no-cache",
         },
@@ -313,14 +314,15 @@ export class Sora2VideoService {
       throw new ServiceUnavailableException(`查询视频任务失败: ${message}`);
     }
 
-    const data = this.normalizeApimartTaskPayload(dataRaw, taskId.trim());
-    const statusRaw = String(data?.status || "unknown");
+    // new-api returns OpenAI Video format: { id, status, progress, metadata:{url,thumbnail_url} }
+    const statusRaw = String(dataRaw?.status || "unknown");
     const progress =
-      typeof data?.progress === "number" ? data.progress : undefined;
-    const { videoUrl, thumbnailUrl } = this.extractApimartMedia(data);
+      typeof dataRaw?.progress === "number" ? dataRaw.progress : undefined;
+    const videoUrl: string | undefined = dataRaw?.metadata?.url;
+    const thumbnailUrl: string | undefined = dataRaw?.metadata?.thumbnail_url;
 
     return {
-      id: String(data?.id || data?.task_id || data?.taskId || taskId.trim()),
+      id: String(dataRaw?.id || dataRaw?.task_id || taskId.trim()),
       status: statusRaw,
       progress,
       videoUrl,
