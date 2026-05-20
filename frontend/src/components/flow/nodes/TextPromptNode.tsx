@@ -2,6 +2,8 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
+import { usePromptSiblingImages } from '../hooks/usePromptSiblingImages';
+import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 
@@ -39,6 +41,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const incomingCount = incomingTexts.length;
@@ -216,6 +220,21 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: next } } });
     window.dispatchEvent(ev);
   }, [id]);
+
+  const handleInsert = React.useCallback((text: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + text + el.value.slice(end);
+    setValue(next);
+    commitValue(next);
+    // Restore focus and move cursor after inserted text
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + text.length, start + text.length);
+    });
+  }, [commitValue]);
 
   const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
@@ -438,6 +457,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
       </div>
       <textarea
+        ref={textareaRef}
         className="nodrag nopan nowheel"
         value={value}
         onChange={handleValueChange}
@@ -477,6 +497,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           cursor: 'text'
         }}
       />
+      <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
       <Handle
         type="target"
         position={Position.Left}
