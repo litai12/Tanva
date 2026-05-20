@@ -15,7 +15,8 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  async list(@Req() req: any, @Query('teamId') teamId?: string) {
+  async list(@Req() req: any, @Query('teamId') queryTeamId?: string) {
+    const teamId = queryTeamId || (req.headers?.['x-team-id'] as string | undefined);
     return this.projects.listWithTeamAccess(req.user.sub, teamId);
   }
 
