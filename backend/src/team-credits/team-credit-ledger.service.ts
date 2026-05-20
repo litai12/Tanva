@@ -27,14 +27,14 @@ export class TeamCreditLedgerService {
     try {
       await this.prisma.$transaction(async (tx) => {
         // 行锁：SELECT FOR UPDATE
-        const acc = await tx.$queryRaw<{ id: string; balance: number; frozen_balance: number }[]>`
-          SELECT id, balance, frozen_balance
+        const acc = await tx.$queryRaw<{ id: string; balance: number; frozenBalance: number }[]>`
+          SELECT id, balance, "frozenBalance"
           FROM "TeamCreditAccount"
-          WHERE team_id = ${teamId}
+          WHERE "teamId" = ${teamId}
           FOR UPDATE
         `;
         if (!acc.length) throw new BadRequestException('团队积分账户不存在');
-        const { id: accId, balance, frozen_balance: frozen } = acc[0];
+        const { id: accId, balance, frozenBalance: frozen } = acc[0];
         const available = balance - frozen;
         if (available < amount) throw new BadRequestException('团队积分不足');
 
@@ -57,13 +57,13 @@ export class TeamCreditLedgerService {
         if (actorUserId) {
           const updatedCount: number = await tx.$executeRaw`
             UPDATE "TeamMembership"
-            SET credit_used_this_cycle = credit_used_this_cycle + ${amount},
-                updated_at = NOW()
-            WHERE team_id = ${teamId}
-              AND user_id = ${actorUserId}
+            SET "creditUsedThisCycle" = "creditUsedThisCycle" + ${amount},
+                "updatedAt" = NOW()
+            WHERE "teamId" = ${teamId}
+              AND "userId" = ${actorUserId}
               AND (
-                credit_quota_monthly IS NULL
-                OR credit_used_this_cycle + ${amount} <= credit_quota_monthly
+                "creditQuotaMonthly" IS NULL
+                OR "creditUsedThisCycle" + ${amount} <= "creditQuotaMonthly"
               )
           `;
           if (updatedCount === 0) {
@@ -128,13 +128,13 @@ export class TeamCreditLedgerService {
       // 回退成员配额
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
-        SET credit_used_this_cycle = GREATEST(0, credit_used_this_cycle - ${amount}),
-            updated_at = NOW()
+        SET "creditUsedThisCycle" = GREATEST(0, tm."creditUsedThisCycle" - ${amount}),
+            "updatedAt" = NOW()
         FROM "TeamCreditLedger" l
-        WHERE l.task_id = ${taskId}
-          AND l.entry_type = 'reserve'
-          AND l.actor_user_id = tm.user_id
-          AND tm.team_id = ${teamId}
+        WHERE l."taskId" = ${taskId}
+          AND l."entryType" = 'reserve'
+          AND l."actorUserId" = tm."userId"
+          AND tm."teamId" = ${teamId}
       `;
     });
   }
