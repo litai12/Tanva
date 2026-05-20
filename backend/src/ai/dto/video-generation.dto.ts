@@ -96,4 +96,9 @@ export class GenerateVideoDto {
   @IsOptional()
   @IsString()
   characterTaskId?: string;
+
+  @ApiProperty({ description: '画布节点 ID，用于页面刷新后恢复任务状态', required: false })
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
 }
