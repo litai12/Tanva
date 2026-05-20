@@ -37,7 +37,7 @@ export class TeamCoreService {
         name: dto.name,
         ownerId: userId,
         isPersonal: false,
-        maxSeats: 10,
+        maxSeats: 2,
         memberships: {
           create: { userId, role: 'owner' },
         },

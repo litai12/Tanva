@@ -847,6 +847,17 @@ export class AdminController {
     return this.adminService.adminDeductTeamCredits(teamId, dto.amount, dto.description, req.user.id);
   }
 
+  @Patch('teams/:teamId/seats')
+  @ApiOperation({ summary: '修改团队席位数（管理员）' })
+  async adminUpdateTeamSeats(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+    @Body() dto: { maxSeats: number },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminUpdateTeamSeats(teamId, dto.maxSeats);
+  }
+
   @Patch('teams/:teamId/status')
   @ApiOperation({ summary: '修改团队状态（管理员）' })
   async adminUpdateTeamStatus(

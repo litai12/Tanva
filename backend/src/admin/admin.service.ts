@@ -1373,6 +1373,15 @@ export class AdminService {
     };
   }
 
+  async adminUpdateTeamSeats(teamId: string, maxSeats: number) {
+    if (maxSeats < 1) throw new Error('席位数不能小于 1');
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能修改个人团队席位');
+    const memberCount = await this.prisma.teamMembership.count({ where: { teamId } });
+    if (maxSeats < memberCount) throw new Error(`当前已有 ${memberCount} 名成员，席位数不能小于此值`);
+    return this.prisma.team.update({ where: { id: teamId }, data: { maxSeats } });
+  }
+
   async adminUpdateTeamStatus(teamId: string, status: string) {
     const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
     if (team.isPersonal) throw new Error('不能修改个人团队状态');
