@@ -7,8 +7,8 @@
 --   gpt-image-2, gemini-2.5-flash-image-preview, gemini-3.1-flash-image-preview,
 --   gemini-3-pro, gemini-3-pro-image-preview, gemini-2.5-pro
 --
--- Also updates the channel key from 'secretId|secretKey' to
--- 'subAppId|secretId|secretKey' format required by the relay adaptor.
+-- Channel key (subAppId|secretId|secretKey) is NOT updated here —
+-- run separately at deploy time to avoid storing secrets in migrations.
 --
 -- Idempotent: uses string_to_array + DISTINCT to avoid duplicate model names.
 
@@ -51,13 +51,6 @@ FROM
 WHERE c.name = 'tencent'
   AND c."group" LIKE '%vip%'
 ON CONFLICT DO NOTHING;
-
--- Update channel key to subAppId|secretId|secretKey format (idempotent: only if not already 3-part).
-UPDATE channels
-SET key = 'PLACEHOLDER_APP_ID|PLACEHOLDER_SECRET_ID|PLACEHOLDER_SECRET_KEY'
-WHERE name = 'tencent'
-  AND "group" LIKE '%vip%'
-  AND key NOT LIKE '%|%|%';
 
 -- Set ModelPrice for tencent VOD image models (1:1 mapping to backend priceYuan, idempotent).
 UPDATE options
