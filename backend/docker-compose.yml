@@ -41,6 +41,8 @@ services:
     depends_on:
       new-api-postgres:
         condition: service_healthy
+      new-api:
+        condition: service_healthy
     environment:
       PGPASSWORD: ${NEW_API_PG_PASSWORD:-new_api_pass}
       PG_USER: ${NEW_API_PG_USER:-new_api}
@@ -74,8 +76,6 @@ services:
     depends_on:
       new-api-postgres:
         condition: service_healthy
-      new-api-patch:
-        condition: service_completed_successfully
     ports:
       - "${NEW_API_PORT:-4458}:4455"
     environment:
