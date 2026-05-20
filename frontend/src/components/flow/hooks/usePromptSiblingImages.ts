@@ -106,12 +106,19 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
         const getNode = (id: string): FlowNode | undefined =>
           hasNodeLookup ? nodeLookup!.get(id) : fallbackById?.get(id);
 
-        // Mirrors FlowOverlay's image-edge filter: only "img" and indexed "img1/img2…" handles.
-        // Skips "text", "response-text", and any other non-image handles so @图N indices
-        // stay in sync with the actual images[] array built at run time.
+        // Mirrors FlowOverlay's image-edge filter. Covers all known image input handles:
+        //   "img"        – generate / generatePro / imagePro
+        //   "img1…"      – generate4 / generatePro4 indexed outputs
+        //   "image"      – Seedance 2.0 primary, sora2Video
+        //   "image-2…"   – Seedance 2.0 secondary (image-2, image-3…)
+        //   "image2…"    – generateRef (no dash variant)
+        //   "images"     – imageGrid
         const isImgTargetHandle = (h: string | null | undefined): boolean => {
           if (!h) return false;
-          return h === 'img' || /^img\d+$/.test(h) || h === 'images';
+          if (h === 'img' || h === 'image' || h === 'images') return true;
+          if (/^img\d+$/.test(h)) return true;      // img1, img2…
+          if (/^image-?\d+$/.test(h)) return true;  // image2, image-2, image-3…
+          return false;
         };
 
         // 3. Collect sibling image edges: connected to any downstream node via an image handle.
