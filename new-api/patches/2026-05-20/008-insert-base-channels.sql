@@ -52,25 +52,17 @@ SELECT 1, 'yunwu-deepseek', 'default',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-deepseek', NULL, NULL, NULL
 WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-deepseek' AND type = 1 AND "group" = 'default');
 
--- ark-doubao-video
+-- ark-doubao (image + video unified — both types 45/54 use the same volcengine adaptor)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
-SELECT 54, 'ark-doubao-video', 'default',
+SELECT 45, 'ark-doubao', 'default',
+  'doubao-seedream-5-0,doubao-seedream-5-0-lite,doubao-seedream-5-0-260128,doubao-seedream-5-0-lite-260128,'
   'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128',
-  NULL, 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_KEY',
-  EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark-doubao-video' AND type = 54 AND "group" = 'default');
-
--- ark-doubao-image
-INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
-  created_time, test_time, priority, weight, tag, setting, param_override, header_override)
-SELECT 45, 'ark-doubao-image', 'default',
-  'doubao-seedream-5-0,doubao-seedream-5-0-lite,doubao-seedream-5-0-260128,doubao-seedream-5-0-lite-260128',
   '{"doubao-seedream-5-0":"doubao-seedream-5-0-260128","doubao-seedream-5-0-lite":"doubao-seedream-5-0-lite-260128"}',
   1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_KEY',
-  EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-doubao-image', NULL,
+  EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-doubao', NULL,
   '{"watermark":false}', NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark-doubao-image' AND type = 45 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark-doubao' AND type = 45 AND "group" = 'default');
 
 -- openai-official
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -216,10 +208,12 @@ SELECT 35, 'minimax-music', 'default', '', NULL, 1, 'https://api.minimaxi.com', 
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
 WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35 AND "group" = 'default');
 
--- ark (proxy)
+-- ark (proxy — seedream image + seed3d)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
-SELECT 1, 'ark', 'default', '', NULL, 1, 'https://ark.cn-beijing.volces.com/api/v3', 'PLACEHOLDER_ARK_API_KEY',
+SELECT 1, 'ark', 'default',
+  'doubao-seedream-5-0-260128,doubao-seedream-4-5-251128,doubao-seedream-4-0-250828,doubao-seed3d-2-0-260328',
+  NULL, 1, 'https://ark.cn-beijing.volces.com/api/v3', 'PLACEHOLDER_ARK_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
 WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark' AND type = 1 AND "group" = 'default');
 
