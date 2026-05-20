@@ -1359,6 +1359,7 @@ export class AdminService {
         ownerName: t.owner?.name || t.owner?.phone || t.ownerId,
         memberCount: t._count.memberships,
         maxSeats: t.maxSeats,
+        status: t.status,
         availableCredits: (t.creditAccount?.balance ?? 0) - (t.creditAccount?.frozenBalance ?? 0),
         totalCredits: t.creditAccount?.balance ?? 0,
         createdAt: t.createdAt,
@@ -1370,6 +1371,40 @@ export class AdminService {
         totalPages: Math.ceil(total / pageSize),
       },
     };
+  }
+
+  async adminUpdateTeamStatus(teamId: string, status: string) {
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能修改个人团队状态');
+    return this.prisma.team.update({ where: { id: teamId }, data: { status } });
+  }
+
+  async adminDeleteTeam(teamId: string) {
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能删除个人团队');
+    await this.prisma.$transaction([
+      this.prisma.teamMembership.deleteMany({ where: { teamId } }),
+      this.prisma.teamInvite.deleteMany({ where: { teamId } }),
+      this.prisma.teamProjectShare.deleteMany({ where: { teamId } }),
+      this.prisma.teamSubscription.deleteMany({ where: { teamId } }),
+      this.prisma.team.delete({ where: { id: teamId } }),
+    ]);
+    return { deleted: true };
+  }
+
+  async adminGetTeamCreditHistory(teamId: string, page = 1, pageSize = 30) {
+    const acc = await this.prisma.teamCreditAccount.findFirst({ where: { teamId } });
+    if (!acc) return { records: [], pagination: { page, pageSize, total: 0, totalPages: 0 } };
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.teamCreditLedger.findMany({
+        where: { teamAccId: acc.id },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.teamCreditLedger.count({ where: { teamAccId: acc.id } }),
+    ]);
+    return { records, pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
   }
 
   async adminAddTeamCredits(teamId: string, amount: number, description: string, adminId: string) {

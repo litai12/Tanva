@@ -846,4 +846,37 @@ export class AdminController {
     this.checkAdmin(req);
     return this.adminService.adminDeductTeamCredits(teamId, dto.amount, dto.description, req.user.id);
   }
+
+  @Patch('teams/:teamId/status')
+  @ApiOperation({ summary: '修改团队状态（管理员）' })
+  async adminUpdateTeamStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+    @Body() dto: { status: string },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminUpdateTeamStatus(teamId, dto.status);
+  }
+
+  @Delete('teams/:teamId')
+  @ApiOperation({ summary: '删除团队（管理员）' })
+  async adminDeleteTeam(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminDeleteTeam(teamId);
+  }
+
+  @Get('teams/:teamId/credits/history')
+  @ApiOperation({ summary: '获取团队积分历史（管理员）' })
+  async adminGetTeamCreditHistory(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminGetTeamCreditHistory(teamId, page ? Number(page) : 1, pageSize ? Number(pageSize) : 30);
+  }
 }

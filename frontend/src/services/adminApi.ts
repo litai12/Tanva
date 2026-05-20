@@ -1538,6 +1538,7 @@ export interface AdminTeamItem {
   ownerName: string;
   memberCount: number;
   maxSeats: number;
+  status: string;
   availableCredits: number;
   totalCredits: number;
   createdAt: string;
@@ -1580,5 +1581,31 @@ export async function adminDeductTeamCredits(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ amount, description }),
   });
+  return response.json();
+}
+
+export async function adminUpdateTeamStatus(
+  teamId: string,
+  status: string,
+): Promise<void> {
+  await request(`/api/admin/teams/${teamId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function adminDeleteTeam(teamId: string): Promise<void> {
+  await request(`/api/admin/teams/${teamId}`, { method: "DELETE" });
+}
+
+export async function adminGetTeamCreditHistory(
+  teamId: string,
+  page = 1,
+  pageSize = 30,
+): Promise<{ records: any[]; pagination: Pagination }> {
+  const response = await request(
+    `/api/admin/teams/${teamId}/credits/history?page=${page}&pageSize=${pageSize}`,
+  );
   return response.json();
 }
