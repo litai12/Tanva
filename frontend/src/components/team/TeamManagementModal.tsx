@@ -222,17 +222,19 @@ function MembersTab({
             <div>
               <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="flex-1 text-sm font-mono text-slate-600 truncate">{inviteCode}</span>
+                <span className="flex-1 text-xs text-slate-500 truncate">
+                  {`${window.location.origin}/?inviteCode=${inviteCode}`}
+                </span>
                 <button
                   onClick={handleCopyCode}
                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 shrink-0 font-medium"
                 >
                   {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copied ? '已复制' : '复制链接'}
+                  {copied ? '已复制' : '复制'}
                 </button>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                将链接分享给对方，7 天内有效。
+                将链接分享给对方，对方打开即可确认加入，7 天内有效。
                 <button onClick={() => setInviteCode(null)} className="ml-1 text-blue-500 hover:underline">
                   重新生成
                 </button>
@@ -246,7 +248,7 @@ function MembersTab({
               variant="outline"
               className="rounded-xl"
             >
-              {inviteLoading ? '生成中…' : '生成邀请码'}
+              {inviteLoading ? '生成中…' : '生成邀请链接'}
             </Button>
           )}
         </div>
