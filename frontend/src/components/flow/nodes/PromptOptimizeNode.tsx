@@ -8,6 +8,8 @@ import type { PromptOptimizationRequest } from '@/services/promptOptimizationSer
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveFlowModelProvider, type FlowModelProvider } from '@/utils/flowModelProvider';
 import { resolveTextFromSourceNode } from '../utils/textSource';
+import { usePromptSiblingImages } from '../hooks/usePromptSiblingImages';
+import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import RunCreditBadge from './RunCreditBadge';
@@ -36,6 +38,8 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [expandedText, setExpandedText] = React.useState<string>(data.expandedText || '');
   const isComposingRef = React.useRef(false);
+  const expandedTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const siblingImages = usePromptSiblingImages(id);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : 'none';
 
@@ -140,6 +144,20 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       commitExpandedText(result.optimizedPrompt);
     }
   }, [commitExpandedText, result]);
+  const handleInsert = React.useCallback((text: string) => {
+    const el = expandedTextareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = expandedText.slice(0, start) + text + expandedText.slice(end);
+    setExpandedText(next);
+    commitExpandedText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + text.length, start + text.length);
+    });
+  }, [commitExpandedText, expandedText]);
+
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
     const native = (event as React.SyntheticEvent<unknown, Event>).nativeEvent as Event & {
@@ -269,7 +287,8 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       display: 'flex',
       flexDirection: 'column',
-      position: 'relative'
+      position: 'relative',
+      overflow: 'hidden'
     }}>
       <NodeResizer
         isVisible
@@ -413,6 +432,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         <label style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, display: 'block' }}>{lt('优化预览', 'Optimized preview')}</label>
         <div style={{ position: 'relative', flex: 1 }}>
           <textarea
+            ref={expandedTextareaRef}
             className="nodrag nopan nowheel"
             value={loading ? '' : expandedText}
             onChange={handlePreviewChange}
@@ -463,6 +483,8 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
           )}
         </div>
       </div>
+
+      <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
 
       {/* 错误显示 */}
       {error && (
