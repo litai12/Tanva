@@ -62,6 +62,11 @@ export class GenerationTaskService implements OnModuleInit {
       },
     });
 
+    // Supersede previous queued/processing tasks for this node.
+    // Race condition: a concurrent request arriving between create and this updateMany could
+    // create another task for the same nodeId. The id:{not:taskId} guard ensures we never
+    // supersede ourselves; both concurrent tasks will supersede their shared predecessors,
+    // which is acceptable — the node UI will reflect whichever task completes last.
     if (nodeId) {
       await this.prisma.videoTask.updateMany({
         where: {
@@ -76,8 +81,11 @@ export class GenerationTaskService implements OnModuleInit {
   }
 
   async updateVideoTask(taskId: string, update: UpdateVideoTaskParams): Promise<void> {
+    // Memory store uses 'pending'/'processing'/'completed'/'failed'; DB uses 'queued'/'processing'/'succeeded'/'failed'
     const memoryStatus =
-      update.status === 'succeeded' ? 'completed' : update.status;
+      update.status === 'succeeded' ? 'completed' :
+      update.status === 'queued' ? 'pending' :
+      update.status;
 
     updateAsyncTask(taskId, {
       status: memoryStatus as any,
@@ -125,6 +133,8 @@ export class GenerationTaskService implements OnModuleInit {
       }),
     ]);
 
+    // Video tasks take precedence over image tasks for the same nodeId.
+    // Both queries are ordered by createdAt desc, so the first match per nodeId is always the most recent.
     for (const t of videoTasks) {
       if (!t.nodeId || result[t.nodeId] !== null) continue;
       const memTask = getAsyncTaskResult(t.id);
@@ -135,6 +145,8 @@ export class GenerationTaskService implements OnModuleInit {
           ? 'failed'
           : memTask?.status === 'processing'
           ? 'processing'
+          : memTask?.status === 'pending'
+          ? 'queued'
           : t.status;
 
       result[t.nodeId] = {
