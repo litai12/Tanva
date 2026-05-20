@@ -40,10 +40,10 @@ WORKDIR /build
 COPY ./web .
 COPY ./VERSION .
 RUN if [ "${SKIP_WEB_BUILD}" = "1" ]; then \
-      mkdir -p /build/dist && \
-      printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>new-api</title></head><body><div id="root"></div></body></html>' > /build/dist/index.html; \
+      mkdir -p /build/dist; \
     else \
       test -f bun.lock || { echo "web/bun.lock is required when SKIP_WEB_BUILD!=1" >&2; exit 1; } && \
+      bun install --frozen-lockfile && \
       DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build; \
     fi
 
