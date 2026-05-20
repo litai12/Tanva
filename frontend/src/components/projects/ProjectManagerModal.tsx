@@ -308,14 +308,20 @@ export default function ProjectManagerModal() {
   const [previewCache, setPreviewCache] = useState<Record<string, ProjectPreviewCacheEntry>>({});
   const previewRequestsRef = useRef<Set<string>>(new Set());
 
+  // 切换到个人时始终刷新，确保 backend 过滤后的数据是最新的
   useEffect(() => {
-    if (modalOpen && isPersonal && personalProjects.length === 0 && !personalLoading) {
-      load();
+    if (modalOpen && isPersonal) {
+      void load();
     }
-  }, [modalOpen, isPersonal, personalProjects.length, personalLoading, load]);
+    // load 引用稳定，不需加入 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, isPersonal]);
 
+  // 切换到团队时加载对应团队的项目，切换离开时清空
   useEffect(() => {
-    if (modalOpen && !isPersonal) {
+    if (!modalOpen) return;
+    if (!isPersonal) {
+      setTeamProjects([]);
       void loadTeamProjects(contextId);
     }
   }, [modalOpen, contextId, isPersonal, loadTeamProjects]);

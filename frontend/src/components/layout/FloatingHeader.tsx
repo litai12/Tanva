@@ -2132,39 +2132,19 @@ const FloatingHeader: React.FC = () => {
                 >
                   {/* Workspace context switcher — Switch toggle */}
                   {nonPersonalTeams.length > 0 && (
-                    <>
-                      <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-3">
-                        <span className={cn("text-sm font-medium", isDarkTheme ? "text-slate-200" : "text-slate-700")}>
-                          {dropdownContextId === 'personal'
-                            ? '个人'
-                            : (nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? '团队')}
-                        </span>
-                        <Switch
-                          checked={dropdownContextId !== 'personal'}
-                          onCheckedChange={(checked) => {
-                            setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
-                          }}
-                          className="h-5 w-9"
-                        />
-                      </div>
-                      <DropdownMenuSeparator
-                        className='my-1'
-                        style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                    <div className="px-3 pt-2 pb-1.5 flex items-center justify-between gap-3">
+                      <span className={cn("text-xs", isDarkTheme ? "text-slate-400" : "text-slate-400")}>
+                        {nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? nonPersonalTeams[0]?.name}
+                      </span>
+                      <Switch
+                        checked={dropdownContextId !== 'personal'}
+                        onCheckedChange={(checked) => {
+                          setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
+                        }}
+                        className="h-5 w-9"
                       />
-                    </>
+                    </div>
                   )}
-                  <DropdownMenuLabel
-                    className={cn(
-                      "px-2 pb-1 text-[11px] font-medium",
-                      isDarkTheme ? "text-slate-400" : "text-slate-400"
-                    )}
-                  >
-                    {t("workspace.header.switchProject")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator
-                    className='mb-1'
-                    style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
-                  />
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
                     {dropdownTeamLoading ? (
                       <DropdownMenuItem disabled className={cn("cursor-default", isDarkTheme ? "text-slate-500" : "text-slate-400")}>
@@ -2249,42 +2229,33 @@ const FloatingHeader: React.FC = () => {
                       {t("workspace.header.newProject")}
                     </span>
                   </DropdownMenuItem>
-                  {nonPersonalTeams.length > 0 && currentProject && (() => {
-                    const targetTeam = nonPersonalTeams.find((tm) => tm.id === dropdownContextId) ?? nonPersonalTeams[0];
-                    if (!targetTeam) return null;
-                    return (
-                      <>
-                        <DropdownMenuSeparator
-                          className='my-1'
-                          style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
-                        />
-                        <DropdownMenuItem
-                          onClick={(event) => {
-                            event.preventDefault();
-                            if (!currentProject) return;
-                            projectApi.cloneToTeam(currentProject.id, targetTeam.id)
-                              .then(() => {
-                                window.dispatchEvent(new CustomEvent('toast', {
-                                  detail: { message: `已分享至 ${targetTeam.name}`, type: 'success' },
-                                }));
-                              })
-                              .catch((e: any) => {
-                                window.dispatchEvent(new CustomEvent('toast', {
-                                  detail: { message: `分享失败：${(e as any)?.message || ''}`, type: 'error' },
-                                }));
-                              });
-                          }}
-                          className={cn(
-                            "flex items-center gap-2 px-2 py-1 text-sm",
-                            isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
-                          )}
-                        >
-                          <Share2 className='w-4 h-4' />
-                          分享至 {targetTeam.name}
-                        </DropdownMenuItem>
-                      </>
-                    );
-                  })()}
+                  {nonPersonalTeams.length > 0 && currentProject && (
+                    <>
+                      <DropdownMenuSeparator
+                        className='my-1'
+                        style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                      />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const targetTeamId = dropdownContextId !== 'personal'
+                            ? dropdownContextId
+                            : nonPersonalTeams[0]?.id;
+                          const targetTeamName = nonPersonalTeams.find((tm) => tm.id === targetTeamId)?.name ?? '团队';
+                          if (!targetTeamId || !currentProject) return;
+                          void projectApi.cloneToTeam(currentProject.id, targetTeamId)
+                            .then(() => alert(`已分享至 ${targetTeamName}`))
+                            .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1 text-sm",
+                          isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                        )}
+                      >
+                        <Share2 className='w-4 h-4' />
+                        {`分享至 ${nonPersonalTeams.find((tm) => tm.id === (dropdownContextId !== 'personal' ? dropdownContextId : nonPersonalTeams[0]?.id))?.name ?? '团队'}`}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

@@ -40,7 +40,7 @@ export class ProjectsService {
   async list(userId: string) {
     await this.ensureThumbnailColumn();
     const projects = await this.prisma.project.findMany({
-      where: { userId },
+      where: { userId, teamShares: { none: {} } },
       orderBy: { createdAt: 'desc' },
       select: this.projectMetadataSelect,
     });
@@ -734,8 +734,9 @@ export class ProjectsService {
   async listWithTeamAccess(userId: string, teamId?: string) {
     await this.ensureThumbnailColumn();
 
+    // 个人项目：排除已共享到团队的项目（那些只在团队视图中显示）
     const personalProjects = await this.prisma.project.findMany({
-      where: { userId },
+      where: { userId, teamShares: { none: {} } },
       orderBy: { createdAt: 'desc' },
       select: this.projectMetadataSelect,
     });
