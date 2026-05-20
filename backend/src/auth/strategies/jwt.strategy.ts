@@ -23,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (req: Request) => cookieExtractor(req, 'access_token'),
+        ExtractJwt.fromUrlQueryParameter('token'),
       ]),
       secretOrKey: secret,
       ignoreExpiration: false,
@@ -42,7 +43,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       phone: user.phone,
       role: user.role,
     };
-    console.log('JWT validate result:', result);
     return result;
   }
 }

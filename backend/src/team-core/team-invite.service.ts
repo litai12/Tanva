@@ -62,19 +62,19 @@ export class TeamInviteService {
       throw new BadRequestException('邀请码已过期');
     }
 
-    const team = await this.prisma.team.findUniqueOrThrow({
-      where: { id: invite.teamId },
-      include: { subscriptions: { where: { status: 'active' }, take: 1 } },
-    });
-
-    // 检查是否已是成员
+    // 检查是否已是成员（事务外快速检查，事务内再次确认）
     const existing = await this.prisma.teamMembership.findUnique({
       where: { teamId_userId: { teamId: invite.teamId, userId: acceptingUserId } },
     });
     if (existing) throw new BadRequestException('已是团队成员');
 
     // 漏洞 7 修复：在同一事务内原子检查座位上限，防止并发超额
+    // 订阅信息在事务内读取，避免 TOCTOU
     await this.prisma.$transaction(async (tx) => {
+      const team = await tx.team.findUniqueOrThrow({
+        where: { id: invite.teamId },
+        include: { subscriptions: { where: { status: 'active' }, take: 1 } },
+      });
       const memberCount = await tx.teamMembership.count({
         where: { teamId: invite.teamId },
       });
