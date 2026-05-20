@@ -48,7 +48,7 @@ export class TextNode extends BaseNode {
     if (params.fontSize !== undefined) this.pointText.fontSize = params.fontSize
     if (params.fontFamily !== undefined) this.pointText.fontFamily = params.fontFamily
     if (params.fontWeight !== undefined) this.pointText.fontWeight = params.fontWeight
-    if (params.fontStyle !== undefined) this.pointText.fontStyle = params.fontStyle
+    if (params.fontStyle !== undefined) (this.pointText as any).fontStyle = params.fontStyle
     if (params.justification !== undefined) {
       this.pointText.justification = params.justification
     }

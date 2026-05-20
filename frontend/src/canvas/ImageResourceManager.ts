@@ -44,10 +44,10 @@ const MAX_BYTES = (() => {
 })()
 const MAX_CONCURRENT = 6
 
-const scheduleIdle: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number =
+const scheduleIdle = (cb: IdleRequestCallback, opts?: IdleRequestOptions): number =>
   typeof requestIdleCallback !== 'undefined'
-    ? (cb, opts) => requestIdleCallback(cb, opts)
-    : (cb) => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0)
+    ? requestIdleCallback(cb, opts)
+    : (setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0) as unknown as number)
 
 class ImageResourceManager {
   private static _instance: ImageResourceManager | null = null
