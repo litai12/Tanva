@@ -49,10 +49,12 @@ import {
   Plus,
   Sun,
   Moon,
+  Users,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
 import { useProjectStore } from "@/stores/projectStore";
+import { projectApi } from "@/services/projectApi";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
 import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
@@ -795,6 +797,22 @@ const FloatingHeader: React.FC = () => {
 
   const { user, logout, loading, connection } = useAuthStore();
   const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
+  const allTeams = useTeamStore((s) => s.teams);
+  const nonPersonalTeams = useMemo(() => allTeams.filter((t) => !t.isPersonal), [allTeams]);
+  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
+  const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
+  const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
+
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    setDropdownTeamLoading(true);
+    projectApi.listByTeam(dropdownContextId)
+      .then(setDropdownTeamProjects)
+      .catch(() => setDropdownTeamProjects([]))
+      .finally(() => setDropdownTeamLoading(false));
+  }, [dropdownContextId]);
+
+  const dropdownProjects = dropdownContextId === 'personal' ? recentProjects : dropdownTeamProjects.slice(0, MAX_QUICK_PROJECTS);
 
   // 加载用户的 Google API Key 设置
   useEffect(() => {
@@ -2111,6 +2129,49 @@ const FloatingHeader: React.FC = () => {
                       : undefined
                   }
                 >
+                  {/* Workspace context switcher */}
+                  {nonPersonalTeams.length > 0 && (
+                    <>
+                      <DropdownMenuLabel
+                        className={cn(
+                          "px-2 pb-1 text-[11px] font-medium",
+                          isDarkTheme ? "text-slate-400" : "text-slate-400"
+                        )}
+                      >
+                        工作区
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onClick={(e) => { e.preventDefault(); setDropdownContextId('personal'); }}
+                        className={cn(
+                          "flex items-center justify-between gap-3 px-2 py-1 text-sm",
+                          isDarkTheme ? "text-slate-100 hover:!bg-slate-700/70" : "text-slate-700"
+                        )}
+                      >
+                        <span>个人</span>
+                        {dropdownContextId === 'personal' && <Check className='w-4 h-4 text-blue-600' />}
+                      </DropdownMenuItem>
+                      {nonPersonalTeams.map((t) => (
+                        <DropdownMenuItem
+                          key={t.id}
+                          onClick={(e) => { e.preventDefault(); setDropdownContextId(t.id); }}
+                          className={cn(
+                            "flex items-center justify-between gap-3 px-2 py-1 text-sm",
+                            isDarkTheme ? "text-slate-100 hover:!bg-slate-700/70" : "text-slate-700"
+                          )}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-teal-500" />
+                            {t.name}
+                          </span>
+                          {dropdownContextId === t.id && <Check className='w-4 h-4 text-blue-600' />}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator
+                        className='my-1'
+                        style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                      />
+                    </>
+                  )}
                   <DropdownMenuLabel
                     className={cn(
                       "px-2 pb-1 text-[11px] font-medium",
@@ -2124,7 +2185,11 @@ const FloatingHeader: React.FC = () => {
                     style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
                   />
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
-                    {recentProjects.length === 0 ? (
+                    {dropdownTeamLoading ? (
+                      <DropdownMenuItem disabled className={cn("cursor-default", isDarkTheme ? "text-slate-500" : "text-slate-400")}>
+                        加载中…
+                      </DropdownMenuItem>
+                    ) : dropdownProjects.length === 0 ? (
                       <DropdownMenuItem
                         disabled
                         className={cn(
@@ -2135,7 +2200,7 @@ const FloatingHeader: React.FC = () => {
                         {t("workspace.header.noProjects")}
                       </DropdownMenuItem>
                     ) : (
-                      recentProjects.map((project) => (
+                      dropdownProjects.map((project) => (
                         <DropdownMenuItem
                           key={project.id}
                           onClick={(event) => {

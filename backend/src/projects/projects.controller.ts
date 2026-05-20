@@ -15,8 +15,15 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  async list(@Req() req: any, @Query('teamId') queryTeamId?: string) {
+  async list(
+    @Req() req: any,
+    @Query('teamId') queryTeamId?: string,
+    @Query('scope') scope?: string,
+  ) {
     const teamId = queryTeamId || (req.headers?.['x-team-id'] as string | undefined);
+    if (teamId && scope === 'team') {
+      return this.projects.listTeamOnly(req.user.sub, teamId);
+    }
     return this.projects.listWithTeamAccess(req.user.sub, teamId);
   }
 
@@ -86,5 +93,14 @@ export class ProjectsController {
     @Param('teamId') teamId: string,
   ) {
     return this.projects.unshareFromTeam(id, teamId, req.user.sub);
+  }
+
+  @Post(':id/clone-to-team')
+  cloneToTeam(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body('teamId') teamId: string,
+  ) {
+    return this.projects.cloneToTeam(id, teamId, req.user.sub);
   }
 }

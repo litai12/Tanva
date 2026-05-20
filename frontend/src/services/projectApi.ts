@@ -70,8 +70,16 @@ export const projectApi = {
     return json<Project[]>(res);
   },
   async listByTeam(teamId: string): Promise<Project[]> {
-    const res = await fetchWithAuth(`${base}/api/projects?teamId=${encodeURIComponent(teamId)}`);
+    const res = await fetchWithAuth(`${base}/api/projects?teamId=${encodeURIComponent(teamId)}&scope=team`);
     return json<Project[]>(res);
+  },
+  async cloneToTeam(projectId: string, teamId: string): Promise<Project> {
+    const res = await fetchWithAuth(`${base}/api/projects/${projectId}/clone-to-team`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId }),
+    });
+    return json<Project>(res);
   },
   async create(payload: { name?: string }): Promise<Project> {
     const res = await fetchWithAuth(`${base}/api/projects`, {

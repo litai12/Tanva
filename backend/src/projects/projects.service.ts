@@ -680,6 +680,57 @@ export class ProjectsService {
     this.canvasSse?.kickTeamConnections(projectId, teamId);
   }
 
+  async listTeamOnly(userId: string, teamId: string) {
+    await this.ensureThumbnailColumn();
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) return [];
+
+    const shares = await this.prisma.teamProjectShare.findMany({
+      where: { teamId },
+      include: { project: { select: this.projectMetadataSelect } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return shares.map((s) => ({
+      ...s.project,
+      mainUrl: s.project.mainKey ? this.oss.publicUrl(s.project.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(s.project) || undefined,
+      access: s.project.userId === userId ? ('owner' as const) : ('team_edit' as const),
+    }));
+  }
+
+  async cloneToTeam(projectId: string, teamId: string, userId: string) {
+    const src = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!src || src.userId !== userId) throw new ForbiddenException('无权操作此项目');
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) throw new ForbiddenException('你不是该团队成员');
+
+    const cloneName = `${src.name} (团队)`;
+    const newProject = await this.create(userId, cloneName);
+
+    try {
+      const { content } = await this.getContent(userId, projectId);
+      if (content) {
+        await this.updateContent(userId, newProject.id, content);
+      }
+    } catch {
+      // content copy failed — continue with empty project
+    }
+
+    await this.prisma.teamProjectShare.upsert({
+      where: { projectId_teamId: { projectId: newProject.id, teamId } },
+      create: { projectId: newProject.id, teamId, access: 'edit', sharedByUserId: userId },
+      update: {},
+    });
+
+    return { ...newProject, teamId };
+  }
+
   async listWithTeamAccess(userId: string, teamId?: string) {
     await this.ensureThumbnailColumn();
 
