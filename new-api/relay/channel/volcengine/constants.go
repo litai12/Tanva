@@ -27,4 +27,4 @@ var ModelList = []string{
 	"doubao-seed-2.0-mini",
 }
 
-var ChannelName = "volcengine"
+var ChannelName = "ark-doubao"

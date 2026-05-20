@@ -64,7 +64,6 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		constant.ChannelTypeSunoAPI,
 		constant.ChannelTypeKling,
 		constant.ChannelTypeJimeng,
-		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
 		constant.ChannelTypeWuyinkeji,
 	}
@@ -117,8 +116,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			requestPath = "/v1/embeddings" // 修改请求路径
 		}
 
-		// VolcEngine 图像生成模型
-		if channel.Type == constant.ChannelTypeVolcEngine && strings.Contains(testModel, "seedream") {
+		// ARK Doubao / VolcEngine 图像生成模型
+		if (channel.Type == constant.ChannelTypeVolcEngine || channel.Type == constant.ChannelTypeDoubao) && strings.Contains(testModel, "seedream") {
 			requestPath = "/v1/images/generations"
 		}
 

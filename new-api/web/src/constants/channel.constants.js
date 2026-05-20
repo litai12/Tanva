@@ -172,7 +172,7 @@ export const CHANNEL_OPTIONS = [
   {
     value: 54,
     color: 'blue',
-    label: '豆包视频',
+    label: '豆包 ARK (文/图/视)',
   },
   {
     value: 55,

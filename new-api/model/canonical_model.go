@@ -65,7 +65,7 @@ var canonicalModelAliasMap = map[string]string{
 	"doubao-seedance-2.0-face-apimart":      "doubao-seedance-2.0-face",
 	"doubao-seedance-2.0-fast-face-apimart": "doubao-seedance-2.0-fast-face",
 	// Official Doubao ARK API names (dash-separated with date suffix) → APIMart canonical.
-	// This links ark-doubao-video channel entries to the apimart channel pool so that
+	// This links ark-doubao channel entries to the apimart channel pool so that
 	// both are candidates for the same request and can serve as each other's fallback.
 	"doubao-seedance-2-0-260128":      "doubao-seedance-2.0",
 	"doubao-seedance-2-0-fast-260128": "doubao-seedance-2.0-fast",

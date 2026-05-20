@@ -9,7 +9,7 @@ var ModelList = []string{
 	"doubao-seedance-2-0-fast-260128",
 }
 
-var ChannelName = "doubao-video"
+var ChannelName = "ark-doubao"
 
 // videoInputRatioMap 视频输入折扣比率（含视频单价 / 不含视频单价）。
 // 管理员应将 ModelRatio 设置为"不含视频"的较高费率，

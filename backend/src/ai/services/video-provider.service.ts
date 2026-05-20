@@ -863,23 +863,11 @@ export class VideoProviderService {
       return this.queryManagedTencentVideoTask(taskId);
     }
 
-    const apiKey = this.apiKeys[provider];
-    if (!apiKey) throw new Error(`${provider} API Key 未配置`);
-
-    switch (provider) {
-      case "doubao":
-        return this.queryDoubao(taskId, apiKey);
-      case "kling":
-        return this.queryKling(taskId, apiKey);
-      case "kling-2.6":
-        return this.queryKling26(taskId, apiKey);
-      case "vidu":
-        return this.queryVidu(taskId, apiKey);
-      case "viduq3-pro":
-        return this.queryViduQ3Pro(taskId, apiKey);
-      default:
-        throw new Error(`不支持的供应商: ${provider}`);
-    }
+    // Legacy task IDs (created before new-api migration) can no longer be queried.
+    // All new tasks carry the "newapi:" prefix and are handled above.
+    throw new ServiceUnavailableException(
+      `Task "${taskId}" was created before the new-api migration and can no longer be queried. Please create a new video task.`,
+    );
   }
 
   private async createNewApiVideoTask(

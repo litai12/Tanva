@@ -51,7 +51,7 @@ const (
 	ChannelTypeJimeng         = 51
 	ChannelTypeVidu           = 52
 	ChannelTypeSubmodel       = 53
-	ChannelTypeDoubaoVideo    = 54
+	ChannelTypeDoubao         = 54
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
@@ -182,7 +182,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeJimeng:         "Jimeng",
 	ChannelTypeVidu:           "Vidu",
 	ChannelTypeSubmodel:       "Submodel",
-	ChannelTypeDoubaoVideo:    "DoubaoVideo",
+	ChannelTypeDoubao:         "Doubao",
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "Codex",
