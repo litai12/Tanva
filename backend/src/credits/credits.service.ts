@@ -153,6 +153,7 @@ export interface DeductCreditsResult {
   newBalance: number;
   transactionId: string;
   apiUsageId: string;
+  creditsToDeduct: number;
 }
 
 export interface AddCreditsResult {
@@ -3771,6 +3772,7 @@ export class CreditsService {
             transactionId:
               duplicateUsage.transactionId || `duplicate:${duplicateUsage.apiUsageId}`,
             apiUsageId: duplicateUsage.apiUsageId,
+            creditsToDeduct,
           };
         }
       }
@@ -3945,6 +3947,7 @@ export class CreditsService {
         newBalance,
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
+        creditsToDeduct,
       };
     }, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,

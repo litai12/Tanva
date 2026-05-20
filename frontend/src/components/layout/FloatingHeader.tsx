@@ -78,6 +78,8 @@ import {
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
+import { TeamSwitcher } from "@/components/team/TeamSwitcher";
+import { TeamManagementModal } from "@/components/team/TeamManagementModal";
 import PricingCatalogModal from "@/components/layout/PricingCatalogModal";
 import { useTranslation } from "react-i18next";
 import {
@@ -345,6 +347,7 @@ const FloatingHeader: React.FC = () => {
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isPricingCatalogOpen, setIsPricingCatalogOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
+  const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -2283,6 +2286,9 @@ const FloatingHeader: React.FC = () => {
               </Button>
             )}
 
+            {/* 团队切换器 */}
+            <TeamSwitcher onManage={setTeamManagementId} variant="header" />
+
             <Button
               variant='ghost'
               size='sm'
@@ -2732,6 +2738,14 @@ const FloatingHeader: React.FC = () => {
           isOpen={isPricingCatalogOpen}
           onClose={() => setIsPricingCatalogOpen(false)}
         />
+
+        {/* 团队管理弹窗 */}
+        {teamManagementId && (
+          <TeamManagementModal
+            teamId={teamManagementId}
+            onClose={() => setTeamManagementId(null)}
+          />
+        )}
       </div>
     </>
   );

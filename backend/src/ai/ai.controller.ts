@@ -1586,6 +1586,7 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    let teamReserve: { isTeamMode: true; teamId: string; amount: number } | null = null;
     const sanitizedRequestParams = requestParams
       ? Object.fromEntries(
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
@@ -1610,6 +1611,17 @@ export class AiController {
       apiUsageId = deductResult.apiUsageId;
       this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
+
+      // 团队积分预留（在个人积分扣除成功后执行）
+      const { isTeamMode, teamId: reservedTeamId } = await this.reserveTeamCreditsIfNeeded(
+        req,
+        deductResult.creditsToDeduct,
+        apiUsageId,
+        serviceType,
+      );
+      if (isTeamMode && reservedTeamId) {
+        teamReserve = { isTeamMode: true, teamId: reservedTeamId, amount: deductResult.creditsToDeduct };
+      }
 
       // 执行实际操作
       const result = await operation();
@@ -1678,6 +1690,17 @@ export class AiController {
         processingTime,
       );
 
+      // 团队积分确认扣除
+      if (teamReserve) {
+        await this.teamCreditLedger!.deduct({
+          teamId: teamReserve.teamId,
+          amount: teamReserve.amount,
+          taskId: apiUsageId!,
+          taskKind: serviceType,
+          actorUserId: userId,
+        }).catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      }
+
       return result;
     } catch (error) {
       // 更新状态为失败并退还积分
@@ -1708,6 +1731,14 @@ export class AiController {
             `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
               `userId=${userId}, apiUsageId=${apiUsageId}`,
           );
+        }
+        // 释放团队积分预留
+        if (teamReserve) {
+          await this.teamCreditLedger!.release({
+            teamId: teamReserve.teamId,
+            amount: teamReserve.amount,
+            taskId: apiUsageId,
+          }).catch((e) => this.logger.warn(`团队积分释放失败: ${e?.message}`));
         }
       } else {
         this.logger.error(
