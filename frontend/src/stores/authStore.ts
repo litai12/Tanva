@@ -29,8 +29,8 @@ async function loadTeams() {
       const personal = teams.find((t: any) => t.isPersonal);
       if (personal) setActiveTeamId(personal.id);
     }
-  } catch {
-    // 团队加载失败不影响主要认证流程
+  } catch (e) {
+    console.warn('[loadTeams] failed:', e);
   }
 }
 
