@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { authApi, type UserInfo } from '@/services/authApi';
 import { clearTokens } from '@/services/authTokenStorage';
+import { teamApi } from '@/services/teamApi';
+import { useTeamStore } from './teamStore';
 
 type AuthState = {
   user: UserInfo | null;
@@ -16,6 +18,21 @@ type AuthState = {
   logout: () => Promise<void>;
   forceLogout: (reason?: string) => void;
 };
+
+async function loadTeams() {
+  try {
+    const teams = await teamApi.getMyTeams();
+    const { setTeams, setActiveTeamId, activeTeamId } = useTeamStore.getState();
+    setTeams(teams);
+    // 只在没有 activeTeamId 或 activeTeamId 不在当前团队列表时，默认设为个人团队
+    if (!activeTeamId || !teams.find((t: any) => t.id === activeTeamId)) {
+      const personal = teams.find((t: any) => t.isPersonal);
+      if (personal) setActiveTeamId(personal.id);
+    }
+  } catch {
+    // 团队加载失败不影响主要认证流程
+  }
+}
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -33,6 +50,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // 详细来源：server / refresh / local / mock
       const { user, source } = await (authApi as any).meDetailed?.() ?? { user: await authApi.me(), source: null };
       set({ user, initializing: false, connection: (source as any) || null });
+      void loadTeams();
     } catch (e: any) {
       set({ initializing: false, error: e?.message || '加载失败' });
     }
@@ -42,6 +60,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { user } = await authApi.loginWithSms({ phone, code });
       set({ user, loading: false, connection: 'server' });
+      void loadTeams();
     } catch (e: any) {
       set({ loading: false, error: e?.message || '登录失败' });
       throw e;
@@ -52,6 +71,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { user } = await authApi.login({ phone, password });
       set({ user, loading: false, connection: 'server' });
+      void loadTeams();
     } catch (e: any) {
       set({ loading: false, error: e?.message || '登录失败' });
       throw e;
@@ -72,6 +92,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await authApi.logout();
       set({ user: null, loading: false, connection: null });
+      useTeamStore.getState().setTeams([]);
+      useTeamStore.getState().setActiveTeamId(null);
     } catch (e: any) {
       set({ loading: false, error: e?.message || '登出失败' });
     }
@@ -89,5 +111,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.removeItem('last_auth_at');
       clearTokens();
     } catch {}
+    useTeamStore.getState().setTeams([]);
+    useTeamStore.getState().setActiveTeamId(null);
   }
 }));

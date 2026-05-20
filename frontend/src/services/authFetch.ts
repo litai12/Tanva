@@ -3,6 +3,14 @@ import { triggerAuthExpired } from './authEvents';
 import { getAccessToken, getRefreshAuthHeader, setTokens } from './authTokenStorage';
 import { ensureTraceHeader } from '../utils/trace';
 
+// lazy import to avoid circular dep — evaluated after module graph is settled
+let getTeamId: (() => string | null) | null = null;
+setTimeout(() => {
+  import('../stores/teamStore').then(({ useTeamStore }) => {
+    getTeamId = () => useTeamStore.getState().activeTeamId;
+  });
+}, 0);
+
 type RequestInput = RequestInfo | URL;
 
 export type AuthFetchInit = RequestInit & {
@@ -124,6 +132,12 @@ const normalizeInit = (init?: AuthFetchInit): RequestInit => {
     if (!currentAuth && accessToken) {
       headers.set("Authorization", `Bearer ${accessToken}`);
     }
+  }
+
+  // 注入团队上下文
+  const teamId = getTeamId?.();
+  if (teamId) {
+    headers.set('X-Team-Id', teamId);
   }
 
   const credentials =
