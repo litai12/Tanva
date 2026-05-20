@@ -28,6 +28,7 @@ import type { ImageAssetSnapshot } from '@/types/project';
 import { useLayerStore } from '@/stores/layerStore';
 import { NodeManager } from '@/canvas/NodeManager';
 import type { ImageNode } from '@/canvas/nodes/ImageNode';
+import { ImageResourceManager } from '@/canvas/ImageResourceManager';
 
 const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   const value = typeof source === 'string' ? source.trim() : '';
@@ -1443,7 +1444,20 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         (raster.data as any).remoteUrl = normalizedUrl;
       }
 
-      setRasterSourceSafely(raster, renderable);
+      // 使用 ImageResourceManager 预加载后 setImage，避免 raster.source 触发白帧重载
+      const snapId = snap.id;
+      ImageResourceManager.getInstance()
+        .acquire(renderable, 'critical', snapId)
+        .then((htmlImage) => {
+          if (!raster.isInserted()) return;
+          ;(raster as any).setImage(htmlImage);
+          raster.visible = false;
+          try { paper.view.update(); } catch {}
+        })
+        .catch(() => {
+          // 兜底：仍用旧方式（可能出现白帧，但不丢图）
+          setRasterSourceSafely(raster, renderable);
+        });
     }
 
     try {
@@ -1663,77 +1677,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       try { raster.locked = true; } catch {}
     }
 
-    // 图片加载完成后的处理
-    raster.onLoad = () => {
-      const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
-      if (alreadyInitialized) {
-        // 已初始化，只需恢复 bounds
-        const stored = (raster as any)?.data?.__tanvaBounds;
-        if (stored && stored.width > 0 && stored.height > 0) {
-          const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
-          try { raster.bounds = rect.clone(); } catch {}
-        }
-        try { paper.view.update(); } catch {}
-        return;
-      }
-
-      // 使用预设的 bounds
-      const finalBounds = new paper.Rectangle(
-        targetBounds.x,
-        targetBounds.y,
-        targetBounds.width,
-        targetBounds.height
-      );
-
-      raster.bounds = finalBounds;
-
-      // 更新 raster.data 中的原始尺寸（使用实际加载的图片尺寸）
-      raster.data = {
-        ...raster.data,
-        originalWidth: raster.width,
-        originalHeight: raster.height,
-        aspectRatio: raster.width / raster.height,
-      };
-
-      // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId, Boolean(snapshot.locked));
-
-      // 标记初始化完成
-      (raster.data as any).__tanvaImageInitialized = true;
-      (raster.data as any).__tanvaBounds = {
-        x: finalBounds.x,
-        y: finalBounds.y,
-        width: finalBounds.width,
-        height: finalBounds.height
-      };
-
-      // 更新 React 状态中的 bounds
-      setImageInstances(prev => prev.map(img =>
-        img.id === imageId ? {
-          ...img,
-          bounds: {
-            x: finalBounds.x,
-            y: finalBounds.y,
-            width: finalBounds.width,
-            height: finalBounds.height
-          },
-          imageData: {
-            ...img.imageData,
-            width: raster.width,
-            height: raster.height,
-          }
-        } : img
-      ));
-
-      try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
-      paper.view.update();
-    };
-
-    raster.onError = (error: unknown) => {
-      logger.error('克隆图片加载失败', error);
-    };
-
-    // 设置图片源
+    // 设置图片源元数据
     const normalizedUrl = normalizePersistableImageRef(snapshot.url);
     const normalizedSrc = normalizePersistableImageRef(snapshot.src);
     const normalizedKey = normalizePersistableImageRef(snapshot.key);
@@ -1748,9 +1692,66 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (persistedSrc && isRemoteUrl(persistedSrc)) {
       (raster.data as any).remoteUrl = persistedSrc;
     }
+
+    // 用 ImageResourceManager 预加载后 setImage，避免 raster.source 触发白帧重载
     const renderable = toRenderableImageSrc(source);
     if (renderable) {
-      setRasterSourceSafely(raster, renderable);
+      ImageResourceManager.getInstance()
+        .acquire(renderable, 'visible', imageId)
+        .then((htmlImage) => {
+          if (!raster.isInserted()) return;
+          ;(raster as any).setImage(htmlImage);
+
+          const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
+          if (alreadyInitialized) {
+            const stored = (raster as any)?.data?.__tanvaBounds;
+            if (stored && stored.width > 0 && stored.height > 0) {
+              const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
+              try { raster.bounds = rect.clone(); } catch {}
+            }
+            raster.visible = false;
+            try { paper.view.update(); } catch {}
+            return;
+          }
+
+          const finalBounds = new paper.Rectangle(
+            targetBounds.x, targetBounds.y, targetBounds.width, targetBounds.height
+          );
+          raster.bounds = finalBounds;
+
+          const natW = htmlImage.naturalWidth || htmlImage.width || targetBounds.width;
+          const natH = htmlImage.naturalHeight || htmlImage.height || targetBounds.height;
+          raster.data = {
+            ...raster.data,
+            originalWidth: natW,
+            originalHeight: natH,
+            aspectRatio: natW / natH,
+          };
+
+          addImageSelectionElements(raster, finalBounds, imageId, Boolean(snapshot.locked));
+
+          (raster.data as any).__tanvaImageInitialized = true;
+          (raster.data as any).__tanvaBounds = {
+            x: finalBounds.x, y: finalBounds.y,
+            width: finalBounds.width, height: finalBounds.height,
+          };
+
+          setImageInstances(prev => prev.map(img =>
+            img.id === imageId ? {
+              ...img,
+              bounds: { x: finalBounds.x, y: finalBounds.y, width: finalBounds.width, height: finalBounds.height },
+              imageData: { ...img.imageData, width: natW, height: natH },
+            } : img
+          ));
+
+          raster.visible = false;
+          try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
+          paper.view.update();
+        })
+        .catch(() => {
+          // 兜底：仍用旧方式
+          setRasterSourceSafely(raster, renderable);
+        });
     }
 
     // 创建图片实例（立即添加到状态，不等待加载完成）

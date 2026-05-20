@@ -33,12 +33,14 @@ export class ImageNode extends BaseNode {
       .then((htmlImage) => {
         if (!this.raster) return
         ;(this.raster as any).setImage(htmlImage)
+        // DOM overlay renders images; raster exists only for Paper.js hit-testing infrastructure
+        this.raster.visible = false
         onReady?.(this.raster)
       })
       .catch(() => {
-        // fallback: 让 Paper.js 自行加载（会有短暂白帧，但不丢图）
         if (!this.raster) return
         this.raster.source = url
+        this.raster.visible = false
         onReady?.(this.raster)
       })
   }
@@ -62,10 +64,12 @@ export class ImageNode extends BaseNode {
       .then((htmlImage) => {
         if (!this.raster) return
         ;(this.raster as any).setImage(htmlImage)
+        this.raster.visible = false
       })
       .catch(() => {
         if (!this.raster) return
         this.raster.source = url
+        this.raster.visible = false
       })
   }
 

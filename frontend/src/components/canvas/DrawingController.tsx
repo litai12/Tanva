@@ -25,6 +25,7 @@ import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import ImageContainer from './ImageContainer';
+import CanvasImageLayer from './CanvasImageLayer';
 import SelectionGroupToolbar from './SelectionGroupToolbar';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
@@ -8981,6 +8982,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         alignments={snapAlignment.activeAlignments}
         zoom={zoom}
       />
+
+      {/* DOM图片渲染层：GPU加速，解决canvas重绘闪烁问题 */}
+      <CanvasImageLayer imageInstances={imageTool.imageInstances} />
 
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
