@@ -109,7 +109,7 @@ func shouldUseApimartBaseGptImage2ForHighResolution(currentModel string, resolut
 	if resolutionTier == "1K" || !isGptImage2BaseModel(currentModel) {
 		return false
 	}
-	if !isApimartChannel(info) {
+	if !isApimartChannel(info) && !isTencentChannel(info) {
 		return false
 	}
 	return channelHasModel(channelModels, gptImage2CanonicalModel)
@@ -143,6 +143,13 @@ func isApimartChannel(info *relaycommon.RelayInfo) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(info.ChannelBaseUrl)), "api.apimart.ai")
+}
+
+func isTencentChannel(info *relaycommon.RelayInfo) bool {
+	if info == nil || info.ChannelMeta == nil {
+		return false
+	}
+	return info.ChannelType == constant.ChannelTypeTencent
 }
 
 func channelHasModel(channelModels []string, modelName string) bool {
