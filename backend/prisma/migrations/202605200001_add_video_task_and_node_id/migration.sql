@@ -22,17 +22,3 @@ CREATE TABLE IF NOT EXISTS "VideoTask" (
 CREATE INDEX IF NOT EXISTS "VideoTask_nodeId_idx"            ON "VideoTask"("nodeId");
 CREATE INDEX IF NOT EXISTS "VideoTask_userId_createdAt_idx"  ON "VideoTask"("userId", "createdAt");
 CREATE INDEX IF NOT EXISTS "VideoTask_status_updatedAt_idx"  ON "VideoTask"("status", "updatedAt");
-
--- Auto-update updatedAt trigger
-CREATE OR REPLACE FUNCTION update_video_task_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW."updatedAt" = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS video_task_updated_at ON "VideoTask";
-CREATE TRIGGER video_task_updated_at
-  BEFORE UPDATE ON "VideoTask"
-  FOR EACH ROW EXECUTE FUNCTION update_video_task_updated_at();
