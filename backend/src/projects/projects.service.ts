@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -645,5 +645,71 @@ export class ProjectsService {
   private async disableThumbnailColumn(): Promise<void> {
     this.thumbnailColumnChecked = true;
     this.thumbnailColumnAvailable = false;
+  }
+
+  async shareWithTeam(projectId: string, teamId: string, userId: string) {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+    if (project.userId !== userId) throw new ForbiddenException('无权共享此项目');
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+      throw new ForbiddenException('需要团队 owner 或 admin 权限');
+    }
+
+    return this.prisma.teamProjectShare.upsert({
+      where: { projectId_teamId: { projectId, teamId } },
+      create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
+      update: { updatedAt: new Date() },
+    });
+  }
+
+  async unshareFromTeam(projectId: string, teamId: string, userId: string) {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+    if (project.userId !== userId) throw new ForbiddenException('无权取消共享');
+
+    await this.prisma.teamProjectShare.delete({
+      where: { projectId_teamId: { projectId, teamId } },
+    });
+    // CanvasSseManager will be injected in task 7 to kick team SSE connections here
+  }
+
+  async listWithTeamAccess(userId: string, teamId?: string) {
+    await this.ensureThumbnailColumn();
+
+    const personalProjects = await this.prisma.project.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: this.projectMetadataSelect,
+    });
+
+    const personal = personalProjects.map((p) => ({
+      ...p,
+      mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(p) || undefined,
+      access: 'owner' as const,
+    }));
+
+    if (!teamId) return personal;
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) return personal;
+
+    const shares = await this.prisma.teamProjectShare.findMany({
+      where: { teamId, project: { userId: { not: userId } } },
+      include: { project: { select: this.projectMetadataSelect } },
+    });
+
+    const teamShared = shares.map((s) => ({
+      ...s.project,
+      mainUrl: s.project.mainKey ? this.oss.publicUrl(s.project.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(s.project) || undefined,
+      access: 'team_edit' as const,
+    }));
+
+    return [...personal, ...teamShared];
   }
 }

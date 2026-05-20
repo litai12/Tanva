@@ -5,6 +5,7 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectContentDto } from './dto/update-project-content.dto';
+import { ShareProjectDto } from './dto/share-project.dto';
 
 @ApiTags('projects')
 @ApiCookieAuth('access_token')
@@ -14,8 +15,8 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  async list(@Req() req: any) {
-    return this.projects.list(req.user.sub);
+  async list(@Req() req: any, @Query('teamId') teamId?: string) {
+    return this.projects.listWithTeamAccess(req.user.sub, teamId);
   }
 
   @Post()
@@ -70,5 +71,19 @@ export class ProjectsController {
     @Param('updatedAt') updatedAt: string
   ) {
     return this.projects.getWorkflowHistory(req.user.sub, id, updatedAt);
+  }
+
+  @Post(':id/team-shares')
+  shareWithTeam(@Req() req: any, @Param('id') id: string, @Body() dto: ShareProjectDto) {
+    return this.projects.shareWithTeam(id, dto.teamId, req.user.sub);
+  }
+
+  @Delete(':id/team-shares/:teamId')
+  unshareFromTeam(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('teamId') teamId: string,
+  ) {
+    return this.projects.unshareFromTeam(id, teamId, req.user.sub);
   }
 }
