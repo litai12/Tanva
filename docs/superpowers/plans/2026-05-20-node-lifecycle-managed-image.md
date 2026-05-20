@@ -945,27 +945,107 @@ const imageNode = NodeManager.getInstance().createImage(imageId, activeLayer, {
     // 以下逻辑来自原 raster.onLoad 的非 alreadyInitialized 分支
     const originalWidth = raster.width;
     const originalHeight = raster.height;
+    const aspectRatio = originalWidth / originalHeight;
 
     raster.data = {
       ...(raster.data || {}),
-      __tanvaImageInitialized: true,
+      type: 'image',
+      imageId,
+      imageLocked: Boolean(asset.locked),
+      originalWidth,
+      originalHeight,
+      aspectRatio,
     };
 
-    // （保留原有的 bounds 计算、finalBounds 设置、addImageSelectionElements 等调用）
-    // ... 粘贴原 raster.onLoad 初始化分支的完整内容 ...
+    const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
+    let finalBounds: paper.Rectangle;
+
+    if (useOriginalSize) {
+      const centerX = paperBounds.x + paperBounds.width / 2;
+      const centerY = paperBounds.y + paperBounds.height / 2;
+      finalBounds = new paper.Rectangle(
+        centerX - originalWidth / 2,
+        centerY - originalHeight / 2,
+        originalWidth,
+        originalHeight
+      );
+    } else {
+      const boxAspectRatio = paperBounds.width / paperBounds.height;
+      if (aspectRatio > boxAspectRatio) {
+        const newWidth = paperBounds.width;
+        const newHeight = newWidth / aspectRatio;
+        const yOffset = (paperBounds.height - newHeight) / 2;
+        finalBounds = new paper.Rectangle(
+          paperBounds.x,
+          paperBounds.y + yOffset,
+          newWidth,
+          newHeight
+        );
+      } else {
+        const newHeight = paperBounds.height;
+        const newWidth = newHeight * aspectRatio;
+        const xOffset = (paperBounds.width - newWidth) / 2;
+        finalBounds = new paper.Rectangle(
+          paperBounds.x + xOffset,
+          paperBounds.y,
+          newWidth,
+          newHeight
+        );
+      }
+    }
 
     raster.bounds = finalBounds;
     addImageSelectionElements(raster, finalBounds, imageId, Boolean(asset.locked));
 
+    const preferredDisplaySrc = pickRuntimeImageSource({
+      pendingUpload: asset.pendingUpload,
+      localDataUrl: asset.localDataUrl,
+      persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+    });
+
     setImageInstances((prev) =>
       prev.map((img) =>
-        img.id === imageId ? { ...img, status: 'ready', nodeId: imageId } : img
+        img.id === imageId
+          ? {
+              ...img,
+              bounds: {
+                x: finalBounds.x,
+                y: finalBounds.y,
+                width: finalBounds.width,
+                height: finalBounds.height,
+              },
+              imageData: {
+                ...img.imageData,
+                url: asset.url,
+                src: preferredDisplaySrc || asset.url,
+                key: asset.key || img.imageData.key,
+                fileName: asset.fileName || img.imageData.fileName,
+                width: originalWidth,
+                height: originalHeight,
+                contentType: asset.contentType || img.imageData.contentType,
+                pendingUpload: asset.pendingUpload,
+                localDataUrl: asset.localDataUrl,
+              },
+            }
+          : img
       )
     );
 
     if (!suppressAutoSave) {
-      try { historyService.commit(autoSaveReason).catch(() => {}); } catch {}
+      try { paperSaveService.triggerAutoSave('image-loaded'); } catch {}
     }
+
+    try {
+      (raster.data as any).__tanvaImageInitialized = true;
+      (raster.data as any).__tanvaBounds = {
+        x: finalBounds.x,
+        y: finalBounds.y,
+        width: finalBounds.width,
+        height: finalBounds.height,
+      };
+    } catch {}
+
+    paper.view.update();
   },
 });
 
