@@ -1,7 +1,8 @@
 // frontend/src/canvas/nodes/ImageNode.ts
 import paper from 'paper'
 import { BaseNode } from './BaseNode'
-import { ImageResourceManager, LoadPriority } from '../ImageResourceManager'
+import { ImageResourceManager } from '../ImageResourceManager'
+import type { LoadPriority } from '../ImageResourceManager'
 
 export interface ImageNodeMountParams {
   url: string
