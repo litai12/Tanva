@@ -121,7 +121,8 @@ function MembersTab({
 
   const handleCopyCode = () => {
     if (!inviteCode) return;
-    navigator.clipboard.writeText(inviteCode).then(() => {
+    const url = `${window.location.origin}/?inviteCode=${inviteCode}`;
+    navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -227,11 +228,11 @@ function MembersTab({
                   className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 shrink-0 font-medium"
                 >
                   {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copied ? '已复制' : '复制'}
+                  {copied ? '已复制' : '复制链接'}
                 </button>
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                将邀请码发送给对方，7 天内有效。
+                将链接分享给对方，7 天内有效。
                 <button onClick={() => setInviteCode(null)} className="ml-1 text-blue-500 hover:underline">
                   重新生成
                 </button>

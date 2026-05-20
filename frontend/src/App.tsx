@@ -12,6 +12,9 @@ import { tokenRefreshManager } from '@/services/tokenRefreshManager';
 import { useAuthStore } from '@/stores/authStore';
 import { AppLoadingIndicator } from '@/components/AppLoadingIndicator';
 import { useTranslation } from 'react-i18next';
+import { TeamInviteConfirmModal } from '@/components/team/TeamInviteConfirmModal';
+
+const PENDING_INVITE_KEY = 'tanva_pending_team_invite';
 
 // 检测是否为移动设备
 const isMobileDevice = (): boolean => {
@@ -83,6 +86,9 @@ const App: React.FC = () => {
   // 获取认证状态用于显示加载指示器
   const { user, loading: authLoading } = useAuthStore();
 
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
+  const prevUserRef = useRef<typeof user>(undefined);
+
   // 记录上一次打开的项目ID，避免重复打开
   const lastOpenedProjectIdRef = useRef<string | null>(null);
 
@@ -93,6 +99,34 @@ const App: React.FC = () => {
       tokenRefreshManager.destroy();
     };
   }, []);
+
+  // 检测 URL 中的邀请码
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('inviteCode');
+    if (!code) return;
+    url.searchParams.delete('inviteCode');
+    window.history.replaceState({}, '', url.toString());
+    if (useAuthStore.getState().user) {
+      setPendingInviteCode(code);
+    } else {
+      localStorage.setItem(PENDING_INVITE_KEY, code);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 登录后处理待加入的邀请
+  useEffect(() => {
+    const prev = prevUserRef.current;
+    prevUserRef.current = user;
+    if (prev !== undefined && !prev && user) {
+      const code = localStorage.getItem(PENDING_INVITE_KEY);
+      if (code) {
+        localStorage.removeItem(PENDING_INVITE_KEY);
+        setPendingInviteCode(code);
+      }
+    }
+  }, [user]);
 
   // 监听窗口大小变化，更新移动设备状态
   useEffect(() => {
@@ -184,6 +218,14 @@ const App: React.FC = () => {
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
       <LoginModal />
+
+      {pendingInviteCode && (
+        <TeamInviteConfirmModal
+          code={pendingInviteCode}
+          onClose={() => setPendingInviteCode(null)}
+          onJoined={() => setPendingInviteCode(null)}
+        />
+      )}
 
       {/* 认证初始化加载指示器 */}
       {authLoading && !user && (

@@ -224,9 +224,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const handleInsert = React.useCallback((text: string) => {
     const el = textareaRef.current;
     if (!el) return;
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const next = el.value.slice(0, start) + text + el.value.slice(end);
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + text + value.slice(end);
     setValue(next);
     commitValue(next);
     // Restore focus and move cursor after inserted text
@@ -234,7 +234,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       el.focus();
       el.setSelectionRange(start + text.length, start + text.length);
     });
-  }, [commitValue]);
+  }, [commitValue, value]);
 
   const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
@@ -386,7 +386,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       contain: isResizing ? 'layout paint' : undefined,
       display: 'flex',
       flexDirection: 'column',
-      position: 'relative'
+      position: 'relative',
+      overflow: 'hidden'
     }}>
       <NodeResizer
         isVisible

@@ -95,6 +95,11 @@ export class TeamCoreController {
     return this.teamInvite.revokeInvite(inviteId, teamId, req.user.sub);
   }
 
+  @Get('invites/:code')
+  getInviteInfo(@Param('code') code: string) {
+    return this.teamInvite.getInviteInfo(code);
+  }
+
   @Post('invites/:code/accept')
   acceptInvite(@Req() req: any, @Param('code') code: string) {
     return this.teamInvite.acceptInvite(code, req.user.sub);

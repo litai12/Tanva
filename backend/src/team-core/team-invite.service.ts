@@ -53,6 +53,17 @@ export class TeamInviteService {
     });
   }
 
+  async getInviteInfo(code: string) {
+    const invite = await this.prisma.teamInvite.findUnique({
+      where: { code },
+      include: { team: { select: { id: true, name: true } } },
+    });
+    if (!invite) throw new NotFoundException('邀请码不存在');
+    if (invite.status !== 'pending') throw new BadRequestException('邀请码已失效');
+    if (invite.expiresAt && invite.expiresAt < new Date()) throw new BadRequestException('邀请码已过期');
+    return { teamId: invite.teamId, teamName: invite.team.name, expiresAt: invite.expiresAt };
+  }
+
   async acceptInvite(code: string, acceptingUserId: string) {
     const invite = await this.prisma.teamInvite.findUnique({ where: { code } });
     if (!invite) throw new NotFoundException('邀请码不存在');
