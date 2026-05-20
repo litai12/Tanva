@@ -13,7 +13,7 @@ BEGIN;
 
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   1,
@@ -22,9 +22,9 @@ SELECT
   1,
   'https://api.remove.bg',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'remove-bg' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'remove-bg' AND type = 1 AND "group" = 'default'
 );
 
 COMMIT;

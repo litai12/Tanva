@@ -3,57 +3,43 @@
 --          tencent-speech (MPS) and tencent-vod-aigc (VOD) services.
 --
 --   "tencent" → credentials for both mps.tencentcloudapi.com and vod.tencentcloudapi.com
---               (MPS and VOD share the same secretId/secretKey in most deployments)
 --
 -- Key format:  secretId|secretKey
--- Placeholder — fill in via admin console after apply:
---   PLACEHOLDER_TENCENT_SECRET_KEY_PAIR → SecretId|SecretKey
---
--- The upstream endpoint is determined by the route, not the channel base_url:
---   POST /proxy/tencent/mps → mps.tencentcloudapi.com
---   POST /proxy/tencent/vod → vod.tencentcloudapi.com
+-- Placeholder: PLACEHOLDER_TENCENT_SECRET_KEY_PAIR → SecretId|SecretKey
 --
 -- Migration: if old records (tencent-mps, tencent-vod) exist from a prior run,
---   this patch renames tencent-mps → tencent and soft-deletes tencent-vod.
+--   this patch renames tencent-mps → tencent and hard-deletes tencent-vod.
 --
--- Channel type 1 = ChannelTypeOpenAI (no upstream relay; TC3 signing done in handler)
+-- Channel type 1 = ChannelTypeOpenAI (TC3 signing done in handler, not relay)
 -- Scope: PostgreSQL only, data-only, idempotent.
 
 BEGIN;
 
 -- Step 1: Rename tencent-mps → tencent when tencent doesn't exist yet.
 UPDATE channels
-SET name         = 'tencent',
-    base_url     = '',
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+SET name = 'tencent',
+    base_url = ''
 WHERE name = 'tencent-mps'
-  AND deleted_at IS NULL
   AND NOT EXISTS (
-    SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
+    SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1 AND "group" = 'default'
   );
 
--- Step 2: Soft-delete tencent-vod (merged into the tencent channel).
-UPDATE channels
-SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
-WHERE name = 'tencent-vod'
-  AND deleted_at IS NULL;
+-- Step 2: Hard-delete tencent-vod abilities then channel (merged into tencent).
+DELETE FROM abilities
+WHERE channel_id IN (SELECT id FROM channels WHERE name = 'tencent-vod');
 
--- Step 3: Soft-delete any leftover tencent-mps that wasn't renamed
---         (happens when tencent already existed before step 1 ran).
-UPDATE channels
-SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
-WHERE name = 'tencent-mps'
-  AND deleted_at IS NULL
-  AND EXISTS (
-    SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
-  );
+DELETE FROM channels WHERE name = 'tencent-vod';
 
--- Step 4: Insert tencent only if it still doesn't exist after the rename above.
+-- Step 3: Hard-delete leftover tencent-mps if tencent already existed.
+DELETE FROM abilities
+WHERE channel_id IN (SELECT id FROM channels WHERE name = 'tencent-mps');
+
+DELETE FROM channels WHERE name = 'tencent-mps';
+
+-- Step 4: Insert tencent only if it still doesn't exist.
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   1,
@@ -62,9 +48,9 @@ SELECT
   1,
   '',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1 AND "group" = 'default'
 );
 
 COMMIT;

@@ -84,9 +84,9 @@ INSERT INTO channels (
   created_time, test_time, priority, weight, tag,
   setting, param_override, header_override
 )
-VALUES (
+SELECT
   'openai-official',
-  1,                     -- ChannelType OpenAI
+  1,
   'default',
   'gpt-image-2-official',
   '{"gpt-image-2-official": "gpt-image-2"}',
@@ -98,8 +98,9 @@ VALUES (
   0, 0,
   'openai-official',
   NULL, NULL, NULL
-)
-ON CONFLICT DO NOTHING;
+WHERE NOT EXISTS (
+  SELECT 1 FROM channels WHERE name = 'openai-official' AND type = 1 AND "group" = 'default'
+);
 
 -- 同步 models 列表（幂等，已存在则追加）
 UPDATE channels

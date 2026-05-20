@@ -2,8 +2,8 @@
 -- Purpose: add VEO video-generation models to the existing '147ai' channel
 --          and clean up the old '147ai-veo' channel if it was previously created.
 --
--- VEO models use POST /v1/chat/completions (OpenAI chat format) — handled by the
--- magic666/onefourseven adaptor's default branch.
+-- VEO models use POST /v1/chat/completions — handled by the magic666/onefourseven
+-- adaptor's default branch, no code change needed.
 --
 -- All 147AI models (image + video) share one channel and one API key:
 --   channel: 147ai  (type 63, ChannelType147AI)
@@ -11,9 +11,7 @@
 --   key: PLACEHOLDER_147AI_KEY (same credential as patch 001)
 --
 -- Models added here:
---   veo3-fast          (video, chat-completions format)
---   veo3-pro           (video, chat-completions format)
---   veo3-pro-frames    (video, chat-completions format, supports reference image)
+--   veo3-fast, veo3-pro, veo3-pro-frames  (video, chat-completions format)
 --
 -- Scope: PostgreSQL only, data-only, idempotent.
 
@@ -63,15 +61,13 @@ WHERE target.model_name = f.model_name
 -- ---------------------------------------------------------------------------
 
 UPDATE channels
-SET base_url     = 'https://api1.147ai.com',
-    models       = 'gemini-3-pro-image-preview,gemini-3.1-flash-image-preview,gpt-image-2,'
-                || 'gemini-3-pro-image-preview-147ai,gemini-3.1-flash-image-preview-147ai,gpt-image-2-147ai,'
-                || 'veo3-fast,veo3-pro,veo3-pro-frames',
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+SET base_url = 'https://api1.147ai.com',
+    models   = 'gemini-3-pro-image-preview,gemini-3.1-flash-image-preview,gpt-image-2,'
+            || 'gemini-3-pro-image-preview-147ai,gemini-3.1-flash-image-preview-147ai,gpt-image-2-147ai,'
+            || 'veo3-fast,veo3-pro,veo3-pro-frames'
 WHERE name = '147ai'
   AND type = 63
-  AND "group" = 'default'
-  AND deleted_at IS NULL;
+  AND "group" = 'default';
 
 -- ---------------------------------------------------------------------------
 -- Step 3: Register VEO abilities under the '147ai' channel.
@@ -88,8 +84,7 @@ ability_matrix AS (
 INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
 SELECT am.ability_group, am.model, c.id, true, 10, 100, '147ai'
 FROM ability_matrix AS am
-JOIN channels AS c
-  ON c.name = '147ai' AND c.type = 63 AND c."group" = 'default' AND c.deleted_at IS NULL
+JOIN channels AS c ON c.name = '147ai' AND c.type = 63 AND c."group" = 'default'
 ON CONFLICT ("group", model, channel_id) DO UPDATE
 SET enabled  = EXCLUDED.enabled,
     priority = EXCLUDED.priority,
@@ -97,21 +92,13 @@ SET enabled  = EXCLUDED.enabled,
     tag      = EXCLUDED.tag;
 
 -- ---------------------------------------------------------------------------
--- Step 4: Soft-delete the old '147ai-veo' channel (now redundant).
---   Also clean up its abilities so routing doesn't pick up the deleted channel.
+-- Step 4: Hard-delete the old '147ai-veo' channel (now redundant).
 -- ---------------------------------------------------------------------------
 
-UPDATE abilities
-SET enabled = false
-WHERE channel_id IN (
-  SELECT id FROM channels WHERE name = '147ai-veo' AND deleted_at IS NULL
-);
+DELETE FROM abilities
+WHERE channel_id IN (SELECT id FROM channels WHERE name = '147ai-veo');
 
-UPDATE channels
-SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
-WHERE name = '147ai-veo'
-  AND deleted_at IS NULL;
+DELETE FROM channels WHERE name = '147ai-veo';
 
 -- ---------------------------------------------------------------------------
 -- Step 5: Seed ModelPrice for VEO models.

@@ -1,5 +1,5 @@
 -- 004-add-special-proxy-channels.sql
--- Purpose: register three pass-through proxy channels used by the backend's
+-- Purpose: register four pass-through proxy channels used by the backend's
 --          specialised services (minimax speech, minimax music, ark seed3d).
 --
 -- These channels are selected by name in controller/special_proxy.go:
@@ -24,7 +24,7 @@ BEGIN;
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   35,
@@ -33,9 +33,9 @@ SELECT
   1,
   'https://models.kapon.cloud',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'kapon-speech' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'kapon-speech' AND type = 35 AND "group" = 'default'
 );
 
 -- ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ WHERE NOT EXISTS (
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   35,
@@ -53,9 +53,9 @@ SELECT
   1,
   'https://api.minimaxi.com',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'minimax-music' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35 AND "group" = 'default'
 );
 
 -- ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ WHERE NOT EXISTS (
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   1,
@@ -74,9 +74,9 @@ SELECT
   1,
   'https://ark.cn-beijing.volces.com/api/v3',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'ark' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'ark' AND type = 1 AND "group" = 'default'
 );
 
 -- ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ WHERE NOT EXISTS (
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
   type, name, key, status, base_url,
-  created_time, updated_time
+  created_time, test_time
 )
 SELECT
   1,
@@ -94,9 +94,9 @@ SELECT
   1,
   'https://tokendance.agent-universe.cn/gateway/ark',
   EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
+  0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'watcha' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'watcha' AND type = 1 AND "group" = 'default'
 );
 
 COMMIT;
