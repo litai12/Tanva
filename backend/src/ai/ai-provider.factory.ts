@@ -2,10 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
 import { GeminiProProvider } from './providers/gemini-pro.provider';
-import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
-import { Nano2Provider } from './providers/nano2.provider';
 import { Seedream5Provider } from './providers/seedream5.provider';
 import { NewApiProvider } from './providers/new-api.provider';
 
@@ -17,10 +15,8 @@ export class AIProviderFactory implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly geminiProProvider: GeminiProProvider,
-    private readonly bananaProvider: BananaProvider,
     private readonly runningHubProvider: RunningHubProvider,
     private readonly midjourneyProvider: MidjourneyProvider,
-    private readonly nano2Provider: Nano2Provider,
     private readonly seedream5Provider: Seedream5Provider,
     private readonly newApiProvider: NewApiProvider,
   ) {}
@@ -41,12 +37,6 @@ export class AIProviderFactory implements OnModuleInit {
     this.providers.set('gemini-pro', this.geminiProProvider);
     await this.geminiProProvider.initialize();
 
-    // 注册 Banana API 提供商
-    this.providers.set('banana', this.bananaProvider);
-    this.providers.set('banana-2.5', this.bananaProvider);
-    this.providers.set('banana-3.1', this.bananaProvider);
-    await this.bananaProvider.initialize();
-
     // 注册 RunningHub 提供商
     this.providers.set('runninghub', this.runningHubProvider);
     await this.runningHubProvider.initialize();
@@ -54,10 +44,6 @@ export class AIProviderFactory implements OnModuleInit {
     // 注册 Midjourney 提供商
     this.providers.set('midjourney', this.midjourneyProvider);
     await this.midjourneyProvider.initialize();
-
-    // 注册 Nano2 提供商
-    this.providers.set('nano2', this.nano2Provider);
-    await this.nano2Provider.initialize();
 
     // 注册 Seedream5 提供商
     this.providers.set('seedream5', this.seedream5Provider);
@@ -95,28 +81,12 @@ export class AIProviderFactory implements OnModuleInit {
 
     // 如果指定了模型，根据模型名称推断提供商
     if (model) {
-      if (model.includes('apimart')) {
-        return this.providers.get('banana') || this.providers.get('gemini')!;
-      }
       if (model.includes('gemini') || model.includes('google')) {
-        // 优先使用 gemini-pro，如果没有则使用 gemini
         return this.providers.get('gemini-pro') || this.providers.get('gemini')!;
-      } else if (model.includes('banana') || model.includes('147') || model.includes('147ai')) {
-        return this.providers.get('banana') || this.providers.get('gemini')!;
       } else if (model.includes('runninghub') || model.includes('su-effect')) {
         return this.providers.get('runninghub') || this.providers.get('gemini')!;
       } else if (model.includes('midjourney')) {
-        return (
-          this.providers.get('midjourney') ||
-          this.providers.get('banana') ||
-          this.providers.get('gemini')!
-        );
-      } else if (
-        model.includes('nano2') ||
-        model.includes('gemini-3.1-flash-image') ||
-        model.includes('gpt-image-2')
-      ) {
-        return this.providers.get('nano2') || this.providers.get('gemini')!;
+        return this.providers.get('midjourney') || this.providers.get('gemini')!;
       } else if (model.includes('seedream') || model.includes('doubao-seedream')) {
         return this.providers.get('seedream5') || this.providers.get('gemini')!;
       } else if (model.includes('gpt') || model.includes('openai')) {

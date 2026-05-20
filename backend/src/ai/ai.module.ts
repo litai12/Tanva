@@ -5,10 +5,8 @@ import { ImageGenerationService } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
 import { GeminiProProvider } from './providers/gemini-pro.provider';
-import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
-import { Nano2Provider } from './providers/nano2.provider';
 import { Seedream5Provider } from './providers/seedream5.provider';
 import { NewApiProvider } from './providers/new-api.provider';
 import { AIProviderFactory } from './ai-provider.factory';
@@ -26,7 +24,6 @@ import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import { PrismaModule } from '../prisma/prisma.module';
-import { Nano2Service } from './services/nano2.service';
 import { Seedream5Service } from './services/seedream5.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
@@ -49,10 +46,8 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     ImageGenerationService,
     BackgroundRemovalService,
     GeminiProProvider,
-    BananaProvider,
     RunningHubProvider,
     MidjourneyProvider,
-    Nano2Provider,
     Seedream5Provider,
     NewApiProvider,
     AIProviderFactory,
@@ -64,7 +59,6 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     VeoVideoService,
     VideoProviderService,
     VideoWatermarkService,
-    Nano2Service,
     Seedream5Service,
     MinimaxSpeechService,
     MinimaxMusicService,
