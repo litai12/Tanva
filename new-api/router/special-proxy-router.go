@@ -25,10 +25,26 @@ func SetSpecialProxyRouter(router *gin.Engine) {
 		musicGroup.POST("/music_generation", controller.ProxyMinimaxMusic)
 	}
 
-	// Ark seed3d: /proxy/ark/* → ark.cn-beijing.volces.com/api/v3/*
+	// Ark (Doubao): /proxy/ark/* → ark.cn-beijing.volces.com/api/v3/*
+	// Shared by Seed3D and Seedream5 (Doubao provider).
 	arkGroup := router.Group("/proxy/ark")
 	arkGroup.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
 	{
-		arkGroup.Any("/*path", controller.ProxyArkSeed3D)
+		arkGroup.Any("/*path", controller.ProxyArk)
+	}
+
+	// Watcha Seedream5: /proxy/watcha/* → tokendance.agent-universe.cn/gateway/ark/*
+	watchaGroup := router.Group("/proxy/watcha")
+	watchaGroup.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
+	{
+		watchaGroup.Any("/*path", controller.ProxyWatcha)
+	}
+
+	// remove.bg: /proxy/remove-bg/* → api.remove.bg/*
+	// Uses X-Api-Key auth and multipart/form-data (not JSON Bearer).
+	removeBgGroup := router.Group("/proxy/remove-bg")
+	removeBgGroup.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
+	{
+		removeBgGroup.Any("/*path", controller.ProxyRemoveBg)
 	}
 }

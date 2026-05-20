@@ -18954,6 +18954,32 @@ function FlowInner() {
             error: error instanceof Error ? error.message : String(error),
           });
           const msg = error instanceof Error ? error.message : "视频生成失败";
+
+          // If the backend reported a specific image review failure (e.g. "参考图审核未通过 image[0]"),
+          // mark the corresponding source ImageNode with the review-failed icon.
+          const reviewFailMatch = msg.match(/参考图审核未通过 image\[(\d+)\]/);
+          if (reviewFailMatch) {
+            const failedIdx = parseInt(reviewFailMatch[1], 10);
+            const srcEdge = referenceImageSourceEdges[failedIdx];
+            const srcNode = srcEdge ? rf.getNode(srcEdge.source) : undefined;
+            if (srcNode) {
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === srcNode.id
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          volcAssetStatus: "failed",
+                          volcAssetError: "审核未通过，请更换图片",
+                        },
+                      }
+                    : n
+                )
+              );
+            }
+          }
+
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId

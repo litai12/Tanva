@@ -202,15 +202,25 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	if isSeedance20Series(modelName) && len(req.Images) > 0 && a.volcAccessKey != "" && a.volcSecretKey != "" {
-		assetURLs, groupID, uploadErr := uploadAndPollImages(a.volcAccessKey, a.volcSecretKey, req.Images)
-		if uploadErr != nil {
-			return nil, errors.Wrap(uploadErr, "volc asset upload")
+		groupID, cleanup, err := ensureAssetGroup(a.volcAccessKey, a.volcSecretKey, req.Images)
+		if err != nil {
+			return nil, errors.Wrap(err, "创建素材分组失败")
 		}
-		req.Images = assetURLs
-		// Store groupID for the controller to persist into task.PrivateData and for cleanup on failure.
-		c.Set(string(constant.ContextKeyVolcGroupID), groupID)
-		cleanupFn := func() { go deleteAssetGroup(a.volcAccessKey, a.volcSecretKey, groupID) }
-		registerTaskFailureCleanup(c, cleanupFn)
+		if groupID != "" {
+			for i, img := range req.Images {
+				if strings.HasPrefix(img, "asset://") {
+					continue
+				}
+				assetURL, uploadErr := uploadImage(a.volcAccessKey, a.volcSecretKey, groupID, img, i)
+				if uploadErr != nil {
+					cleanup()
+					return nil, uploadErr
+				}
+				req.Images[i] = assetURL
+			}
+			c.Set(string(constant.ContextKeyVolcGroupID), groupID)
+			registerTaskFailureCleanup(c, cleanup)
+		}
 	}
 
 	body, err := a.convertToRequestPayload(&req)

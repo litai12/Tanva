@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 )
 
+
 type volcRespEnvelope struct {
 	ResponseMetadata struct {
 		Error *struct {
@@ -154,33 +155,30 @@ func deleteAssetGroup(accessKey, secretKey, groupID string) {
 	}
 }
 
-// uploadAndPollImages creates a group, uploads all images, polls until all pass review.
-// On success returns asset:// URLs and the group ID for later cleanup.
-// On any error, deletes the group before returning.
-func uploadAndPollImages(accessKey, secretKey string, imageURLs []string) (assetURLs []string, groupID string, err error) {
-	if len(imageURLs) == 0 {
-		return nil, "", nil
+// ensureAssetGroup creates a group if any entry in images is a raw URL (not already asset://).
+// Returns the group ID and a cleanup function (no-op if no group was created).
+func ensureAssetGroup(accessKey, secretKey string, images []string) (groupID string, cleanup func(), err error) {
+	for _, img := range images {
+		if !strings.HasPrefix(img, "asset://") {
+			groupID, err = createAssetGroup(accessKey, secretKey)
+			if err != nil {
+				return "", func() {}, err
+			}
+			return groupID, func() { go deleteAssetGroup(accessKey, secretKey, groupID) }, nil
+		}
 	}
+	return "", func() {}, nil
+}
 
-	groupID, err = createAssetGroup(accessKey, secretKey)
+// uploadImage uploads a single raw URL to the group and polls until active.
+// imageIndex is the position in the caller's array, used only for error messages.
+func uploadImage(accessKey, secretKey, groupID, imgURL string, imageIndex int) (assetURL string, err error) {
+	assetID, err := createAsset(accessKey, secretKey, groupID, imgURL)
 	if err != nil {
-		return nil, "", err
+		return "", fmt.Errorf("参考图上传失败 image[%d]: %w", imageIndex, err)
 	}
-
-	cleanup := func() { go deleteAssetGroup(accessKey, secretKey, groupID) }
-
-	assetURLs = make([]string, 0, len(imageURLs))
-	for _, imgURL := range imageURLs {
-		assetID, err := createAsset(accessKey, secretKey, groupID, imgURL)
-		if err != nil {
-			cleanup()
-			return nil, "", err
-		}
-		if err := pollAssetActive(accessKey, secretKey, assetID); err != nil {
-			cleanup()
-			return nil, "", err
-		}
-		assetURLs = append(assetURLs, "asset://"+assetID)
+	if err := pollAssetActive(accessKey, secretKey, assetID); err != nil {
+		return "", fmt.Errorf("参考图审核未通过 image[%d]", imageIndex)
 	}
-	return assetURLs, groupID, nil
+	return "asset://" + assetID, nil
 }

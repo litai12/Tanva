@@ -3,14 +3,16 @@
 --          specialised services (minimax speech, minimax music, ark seed3d).
 --
 -- These channels are selected by name in controller/special_proxy.go:
---   "kapon-speech"   → models.kapon.cloud  (minimax TTS proxy)
---   "minimax-music"  → api.minimaxi.com    (minimax music generation)
---   "ark-seed3d"     → ark.cn-beijing.volces.com/api/v3  (Doubao 3D generation)
+--   "kapon-speech"    → models.kapon.cloud            (minimax TTS proxy)
+--   "minimax-music"   → api.minimaxi.com              (minimax music generation)
+--   "ark"             → ark.cn-beijing.volces.com/api/v3  (Doubao: Seed3D + Seedream5)
+--   "watcha-seedream" → tokendance.agent-universe.cn/gateway/ark  (Watcha Seedream5)
 --
 -- Keys are PLACEHOLDERS — fill in via admin console after apply:
 --   PLACEHOLDER_MINIMAX_API_KEY       → MINIMAX_API_KEY (for kapon-speech)
 --   PLACEHOLDER_MINIMAX_MUSIC_API_KEY → MINIMAX_MUSIC_API_KEY or MINIMAX_API_KEY (for minimax-music)
---   PLACEHOLDER_ARK_API_KEY           → ARK_API_KEY or SEED3D_API_KEY (for ark-seed3d)
+--   PLACEHOLDER_ARK_API_KEY           → ARK_API_KEY / DOUBAO_API_KEY (for ark: Seed3D + Seedream5)
+--   PLACEHOLDER_WATCHA_SEEDREAM_KEY   → WATCHA_SEEDREAM_API_KEY (for watcha-seedream)
 --
 -- Scope: PostgreSQL only, data-only, idempotent.
 
@@ -57,7 +59,8 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------------
--- ark-seed3d: ark.cn-beijing.volces.com/api/v3 — Doubao Seed3D generation
+-- ark: ark.cn-beijing.volces.com/api/v3 — Doubao / Ark unified proxy channel
+--      used by both Seed3D and Seedream5 (same base URL, same API key)
 -- channel type 1 = ChannelTypeOpenAI (OpenAI-compatible format)
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
@@ -66,14 +69,34 @@ INSERT INTO channels (
 )
 SELECT
   1,
-  'ark-seed3d',
+  'ark',
   'PLACEHOLDER_ARK_API_KEY',
   1,
   'https://ark.cn-beijing.volces.com/api/v3',
   EXTRACT(EPOCH FROM NOW())::bigint,
   EXTRACT(EPOCH FROM NOW())::bigint
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'ark-seed3d' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'ark' AND deleted_at IS NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- watcha-seedream: tokendance.agent-universe.cn/gateway/ark — Watcha Seedream5
+-- channel type 1 = ChannelTypeOpenAI
+-- ---------------------------------------------------------------------------
+INSERT INTO channels (
+  type, name, key, status, base_url,
+  created_time, updated_time
+)
+SELECT
+  1,
+  'watcha-seedream',
+  'PLACEHOLDER_WATCHA_SEEDREAM_KEY',
+  1,
+  'https://tokendance.agent-universe.cn/gateway/ark',
+  EXTRACT(EPOCH FROM NOW())::bigint,
+  EXTRACT(EPOCH FROM NOW())::bigint
+WHERE NOT EXISTS (
+  SELECT 1 FROM channels WHERE name = 'watcha-seedream' AND deleted_at IS NULL
 );
 
 COMMIT;
