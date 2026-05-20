@@ -340,7 +340,7 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		for _, imgURL := range req.Images {
 			r.Content = append(r.Content, ContentItem{
 				Type: "image_url",
-				Role: "user",
+				Role: "reference_image",
 				ImageURL: &MediaURL{
 					URL: imgURL,
 				},
@@ -360,7 +360,6 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
 	r.Content = append(r.Content, ContentItem{
 		Type: "text",
-		Role: "user",
 		Text: req.Prompt,
 	})
 
