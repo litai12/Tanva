@@ -661,7 +661,7 @@ export class ProjectsService {
     return this.prisma.teamProjectShare.upsert({
       where: { projectId_teamId: { projectId, teamId } },
       create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
-      update: { updatedAt: new Date() },
+      update: { access: 'edit', updatedAt: new Date() },
     });
   }
 
