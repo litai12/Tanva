@@ -260,6 +260,7 @@ async function bootstrap() {
       "content-type",
       "authorization",
       "x-api-key",
+      "x-team-id",
       "x-trace-id",
       "traceparent",
       "idempotency-key",
