@@ -84,7 +84,7 @@ class ImageResourceManager {
 
     if (this.isViewportMoving && priority !== 'critical') {
       return new Promise<HTMLImageElement>((resolve, reject) => {
-        this.deferred.push({ url, ownerId, resolve, reject })
+        this.deferred.push({ url, ownerId, priority, resolve, reject })
       })
     }
 
@@ -247,10 +247,19 @@ class ImageResourceManager {
   private flushDeferred(): void {
     const queue = this.deferred.splice(0)
     for (const item of queue) {
-      // 视口停止后以 critical 优先级触发，绕过 deferred 检查直接进入加载
-      this.acquire(item.url, 'critical', item.ownerId)
-        .then(item.resolve)
-        .catch(item.reject)
+      if (item.priority === 'prefetch') {
+        // prefetch 级别：让浏览器空闲时再开始，不抢占首帧渲染
+        scheduleIdle(() => {
+          this.acquire(item.url, item.priority, item.ownerId)
+            .then(item.resolve)
+            .catch(item.reject)
+        }, { timeout: 2000 })
+      } else {
+        // visible / critical：视口停止后立即开始
+        this.acquire(item.url, item.priority, item.ownerId)
+          .then(item.resolve)
+          .catch(item.reject)
+      }
     }
   }
 

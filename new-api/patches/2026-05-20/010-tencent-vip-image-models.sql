@@ -4,11 +4,11 @@
 --          tencent channel, which then calls Tencent VOD AIGC internally.
 --
 -- Model names match what the backend sends in the "model" field:
---   gpt-image-2, gemini-2.5-flash-image-preview, gemini-3-pro, gemini-2.5-pro
+--   gpt-image-2, gemini-2.5-flash-image-preview, gemini-3.1-flash-image-preview,
+--   gemini-3-pro, gemini-3-pro-image-preview, gemini-2.5-pro
 --
 -- Also updates the channel key from 'secretId|secretKey' to
 -- 'subAppId|secretId|secretKey' format required by the relay adaptor.
--- Replace PLACEHOLDER_* with real values before deploying.
 --
 -- Idempotent: uses string_to_array + DISTINCT to avoid duplicate model names.
 
@@ -20,7 +20,7 @@ SET models = (
   SELECT string_agg(DISTINCT m, ',')
   FROM unnest(
     string_to_array(
-      COALESCE(models, '') || ',gpt-image-2,gemini-2.5-flash-image-preview,gemini-3-pro,gemini-2.5-pro',
+      COALESCE(models, '') || ',gpt-image-2,gemini-2.5-flash-image-preview,gemini-3.1-flash-image-preview,gemini-3-pro,gemini-3-pro-image-preview,gemini-2.5-pro',
       ','
     )
   ) AS m
@@ -43,11 +43,20 @@ FROM
   (VALUES
     ('gpt-image-2'),
     ('gemini-2.5-flash-image-preview'),
+    ('gemini-3.1-flash-image-preview'),
     ('gemini-3-pro'),
+    ('gemini-3-pro-image-preview'),
     ('gemini-2.5-pro')
   ) AS m(model_name)
 WHERE c.name = 'tencent'
   AND c."group" LIKE '%vip%'
 ON CONFLICT DO NOTHING;
+
+-- Update channel key to subAppId|secretId|secretKey format (idempotent: only if not already 3-part).
+UPDATE channels
+SET key = 'PLACEHOLDER_APP_ID|PLACEHOLDER_SECRET_ID|PLACEHOLDER_SECRET_KEY'
+WHERE name = 'tencent'
+  AND "group" LIKE '%vip%'
+  AND key NOT LIKE '%|%|%';
 
 COMMIT;

@@ -1,27 +1,19 @@
-import GenericVideoNode, { type VideoProvider } from "./GenericVideoNode";
+import React from 'react';
+import GenericVideoNode, { type VideoProvider } from './GenericVideoNode';
 
-type Props = {
-  id: string;
-  data: any;
-  selected?: boolean;
-};
+type Props = { id: string; data: any; selected?: boolean };
 
-function Seedance20VideoNode({ id, data, selected }: Props) {
-  return (
-    <GenericVideoNode
-      id={id}
-      data={{
-        ...data,
-        provider: "doubao" as VideoProvider,
-        seedanceModel: data?.seedanceModel || "seedance-2.0",
-        seedanceMode: data?.seedanceMode || "reference_images",
-        clipDuration: data?.clipDuration || 5,
-        resolution: data?.resolution || "720P",
-        generateAudio: typeof data?.generateAudio === "boolean" ? data.generateAudio : true,
-      }}
-      selected={selected}
-    />
-  );
-}
+const Seedance20VideoNode = React.memo(function Seedance20VideoNode({ id, data, selected }: Props) {
+  const merged = React.useMemo(() => ({
+    ...data,
+    provider: 'doubao' as VideoProvider,
+    seedanceModel: data?.seedanceModel || 'seedance-2.0',
+    seedanceMode: data?.seedanceMode || 'reference_images',
+    clipDuration: data?.clipDuration || 5,
+    resolution: data?.resolution || '720P',
+    generateAudio: typeof data?.generateAudio === 'boolean' ? data.generateAudio : true,
+  }), [data]);
+  return <GenericVideoNode id={id} data={merged} selected={selected} />;
+});
 
 export default Seedance20VideoNode;

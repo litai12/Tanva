@@ -1,13 +1,11 @@
+import React from 'react';
 import GenericVideoNode, { type VideoProvider } from './GenericVideoNode';
 
-type Props = {
-  id: string;
-  data: any;
-  selected?: boolean;
-};
+type Props = { id: string; data: any; selected?: boolean };
 
-function DoubaoVideoNode({ id, data, selected }: Props) {
-  return <GenericVideoNode id={id} data={{ ...data, provider: 'doubao' as VideoProvider }} selected={selected} />;
-}
+const DoubaoVideoNode = React.memo(function DoubaoVideoNode({ id, data, selected }: Props) {
+  const merged = React.useMemo(() => ({ ...data, provider: 'doubao' as VideoProvider }), [data]);
+  return <GenericVideoNode id={id} data={merged} selected={selected} />;
+});
 
 export default DoubaoVideoNode;

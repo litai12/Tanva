@@ -5,7 +5,9 @@ package tencent
 var ImageModelList = []string{
 	"gpt-image-2",
 	"gemini-2.5-flash-image-preview",
+	"gemini-3.1-flash-image-preview",
 	"gemini-3-pro",
+	"gemini-3-pro-image-preview",
 	"gemini-2.5-pro",
 }
 

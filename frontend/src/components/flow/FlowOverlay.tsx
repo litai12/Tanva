@@ -296,7 +296,11 @@ const FLOW_EDGE_COLOR_BY_KIND = {
   images: "#eab308",
   audio: "#ec4899",
 } as const;
-const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 200;
+// Intentionally very large: auto-threshold is disabled.
+// onlyRenderVisibleElements unmounts off-screen nodes, causing remount stutter
+// when re-entering the viewport. Nodes should stay mounted once rendered.
+// Users can still enable it explicitly via Settings if they need memory savings.
+const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
@@ -5471,6 +5475,11 @@ function FlowInner() {
       updateGroupName(groupId, nextName);
     },
     [rf, updateGroupName]
+  );
+
+  const handleUngroup = React.useCallback(
+    (groupId: string) => dissolveGroups([groupId]),
+    [dissolveGroups]
   );
 
   const changeGroupColor = React.useCallback(
@@ -23286,7 +23295,7 @@ function FlowInner() {
               onRenameGroup: promptGroupName,
               onUpdateGroupName: updateGroupName,
               onChangeGroupColor: changeGroupColor,
-              onUngroup: (groupId: string) => dissolveGroups([groupId]),
+              onUngroup: handleUngroup,
               onRunGroup: runGroupNodes,
               onStopGroup: stopGroupRun,
               groupRunning: runningGroupIds.includes(n.id),
