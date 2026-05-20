@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
 import SmartImage from '@/components/ui/SmartImage';
-import { Check, ChevronDown, Pencil, Share2, Trash2, Users } from 'lucide-react';
+import { Check, Pencil, Share2, Trash2, Users } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 import { useTranslation } from 'react-i18next';
 import { projectApi, type Project } from '@/services/projectApi';
@@ -276,7 +276,6 @@ export default function ProjectManagerModal() {
 
   // 'personal' | teamId
   const [contextId, setContextId] = useState<string>('personal');
-  const [showContextMenu, setShowContextMenu] = useState(false);
   const [teamProjects, setTeamProjects] = useState<Project[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [teamError, setTeamError] = useState('');
@@ -287,11 +286,6 @@ export default function ProjectManagerModal() {
   const projects = isPersonal ? personalProjects : teamProjects;
   const loading = isPersonal ? personalLoading : teamLoading;
   const error = isPersonal ? personalError : teamError;
-  const activeTeamName = useMemo(
-    () => teams.find((t) => t.id === contextId)?.name,
-    [teams, contextId],
-  );
-
   const loadTeamProjects = useCallback(async (teamId: string) => {
     setTeamLoading(true);
     setTeamError('');
@@ -505,53 +499,26 @@ export default function ProjectManagerModal() {
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-3">
             <span className="font-medium">{lt('项目管理', 'Project Manager')}</span>
-            {/* Context switcher */}
-            <div className="relative">
+            {/* Context switcher - flat tabs */}
+            <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 rounded-lg">
               <button
                 type="button"
-                onClick={() => setShowContextMenu((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-200 bg-slate-50 hover:bg-slate-100 text-sm text-slate-700 transition-colors"
+                onClick={() => { setContextId('personal'); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); setShareMenuProjectId(null); }}
+                className={`px-3 py-1 rounded-md text-sm transition-colors ${isPersonal ? 'bg-white shadow-sm text-slate-700 font-medium' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                {isPersonal ? (
-                  <span>个人</span>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5 text-teal-500" />
-                    {activeTeamName}
-                  </span>
-                )}
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                个人
               </button>
-              {showContextMenu && (
-                <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[160px]">
-                  <button
-                    type="button"
-                    onClick={() => { setContextId('personal'); setShowContextMenu(false); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); }}
-                    className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-slate-700"
-                  >
-                    <span>个人</span>
-                    {isPersonal && <Check className="w-4 h-4 text-blue-500" />}
-                  </button>
-                  {nonPersonalTeams.length > 0 && (
-                    <div className="border-t border-slate-100 mt-1 pt-1">
-                      {nonPersonalTeams.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => { setContextId(t.id); setShowContextMenu(false); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); }}
-                          className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-slate-700"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-teal-500" />
-                            {t.name}
-                          </span>
-                          {contextId === t.id && <Check className="w-4 h-4 text-blue-500" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+              {nonPersonalTeams.map((team) => (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => { setContextId(team.id); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); setShareMenuProjectId(null); }}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm transition-colors ${contextId === team.id ? 'bg-white shadow-sm text-slate-700 font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <Users className="w-3 h-3 text-teal-500" />
+                  {team.name}
+                </button>
+              ))}
             </div>
           </div>
           <div />

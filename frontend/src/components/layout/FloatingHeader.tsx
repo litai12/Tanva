@@ -50,6 +50,7 @@ import {
   Sun,
   Moon,
   Users,
+  Share2,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -2129,43 +2130,23 @@ const FloatingHeader: React.FC = () => {
                       : undefined
                   }
                 >
-                  {/* Workspace context switcher */}
+                  {/* Workspace context switcher — Switch toggle */}
                   {nonPersonalTeams.length > 0 && (
                     <>
-                      <DropdownMenuLabel
-                        className={cn(
-                          "px-2 pb-1 text-[11px] font-medium",
-                          isDarkTheme ? "text-slate-400" : "text-slate-400"
-                        )}
-                      >
-                        工作区
-                      </DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onClick={(e) => { e.preventDefault(); setDropdownContextId('personal'); }}
-                        className={cn(
-                          "flex items-center justify-between gap-3 px-2 py-1 text-sm",
-                          isDarkTheme ? "text-slate-100 hover:!bg-slate-700/70" : "text-slate-700"
-                        )}
-                      >
-                        <span>个人</span>
-                        {dropdownContextId === 'personal' && <Check className='w-4 h-4 text-blue-600' />}
-                      </DropdownMenuItem>
-                      {nonPersonalTeams.map((t) => (
-                        <DropdownMenuItem
-                          key={t.id}
-                          onClick={(e) => { e.preventDefault(); setDropdownContextId(t.id); }}
-                          className={cn(
-                            "flex items-center justify-between gap-3 px-2 py-1 text-sm",
-                            isDarkTheme ? "text-slate-100 hover:!bg-slate-700/70" : "text-slate-700"
-                          )}
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-teal-500" />
-                            {t.name}
-                          </span>
-                          {dropdownContextId === t.id && <Check className='w-4 h-4 text-blue-600' />}
-                        </DropdownMenuItem>
-                      ))}
+                      <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-3">
+                        <span className={cn("text-sm font-medium", isDarkTheme ? "text-slate-200" : "text-slate-700")}>
+                          {dropdownContextId === 'personal'
+                            ? '个人'
+                            : (nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? '团队')}
+                        </span>
+                        <Switch
+                          checked={dropdownContextId !== 'personal'}
+                          onCheckedChange={(checked) => {
+                            setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
+                          }}
+                          className="h-5 w-9"
+                        />
+                      </div>
                       <DropdownMenuSeparator
                         className='my-1'
                         style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
@@ -2268,6 +2249,42 @@ const FloatingHeader: React.FC = () => {
                       {t("workspace.header.newProject")}
                     </span>
                   </DropdownMenuItem>
+                  {nonPersonalTeams.length > 0 && currentProject && (() => {
+                    const targetTeam = nonPersonalTeams.find((tm) => tm.id === dropdownContextId) ?? nonPersonalTeams[0];
+                    if (!targetTeam) return null;
+                    return (
+                      <>
+                        <DropdownMenuSeparator
+                          className='my-1'
+                          style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                        />
+                        <DropdownMenuItem
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (!currentProject) return;
+                            projectApi.cloneToTeam(currentProject.id, targetTeam.id)
+                              .then(() => {
+                                window.dispatchEvent(new CustomEvent('toast', {
+                                  detail: { message: `已分享至 ${targetTeam.name}`, type: 'success' },
+                                }));
+                              })
+                              .catch((e: any) => {
+                                window.dispatchEvent(new CustomEvent('toast', {
+                                  detail: { message: `分享失败：${(e as any)?.message || ''}`, type: 'error' },
+                                }));
+                              });
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1 text-sm",
+                            isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                          )}
+                        >
+                          <Share2 className='w-4 h-4' />
+                          分享至 {targetTeam.name}
+                        </DropdownMenuItem>
+                      </>
+                    );
+                  })()}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
