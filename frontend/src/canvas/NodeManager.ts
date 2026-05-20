@@ -1,9 +1,12 @@
 // frontend/src/canvas/NodeManager.ts
 import paper from 'paper'
 import { BaseNode } from './nodes/BaseNode'
-import { ImageNode, ImageNodeMountParams } from './nodes/ImageNode'
-import { TextNode, TextNodeMountParams } from './nodes/TextNode'
-import { PathNode, PathNodeMountParams } from './nodes/PathNode'
+import { ImageNode } from './nodes/ImageNode'
+import type { ImageNodeMountParams } from './nodes/ImageNode'
+import { TextNode } from './nodes/TextNode'
+import type { TextNodeMountParams } from './nodes/TextNode'
+import { PathNode } from './nodes/PathNode'
+import type { PathNodeMountParams } from './nodes/PathNode'
 import { ImageResourceManager } from './ImageResourceManager'
 
 class NodeManager {
