@@ -55,7 +55,7 @@ export class TeamCreditLedgerService {
 
         // 漏洞 3：配额原子更新（行锁保证）
         if (actorUserId) {
-          await tx.$executeRaw`
+          const updatedCount: number = await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET credit_used_this_cycle = credit_used_this_cycle + ${amount},
                 updated_at = NOW()
@@ -66,14 +66,7 @@ export class TeamCreditLedgerService {
                 OR credit_used_this_cycle + ${amount} <= credit_quota_monthly
               )
           `;
-          const updated = await tx.teamMembership.findUnique({
-            where: { teamId_userId: { teamId, userId: actorUserId } },
-            select: { creditUsedThisCycle: true, creditQuotaMonthly: true },
-          });
-          if (
-            updated?.creditQuotaMonthly &&
-            updated.creditUsedThisCycle > updated.creditQuotaMonthly
-          ) {
+          if (updatedCount === 0) {
             throw new BadRequestException('已超出个人月度配额');
           }
         }
