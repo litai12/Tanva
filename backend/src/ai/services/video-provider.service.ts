@@ -880,24 +880,15 @@ export class VideoProviderService {
     const model = this.resolveNewApiVideoModel(options);
     const size = this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
-    // Seedance 2.0: prefer asset:// refs for active volc assets; new-api should upload raw URLs if it has AK/SK configured.
     const isSeedance2 = /doubao-seedance-2/i.test(model);
-    const referenceImages = isSeedance2
-      ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
-      : this.extractReferenceImageUrls(options.referenceImages);
-    const referenceImageRawUrls = isSeedance2
-      ? this.extractReferenceImageUrls(options.referenceImages)
-      : undefined;
+    // Always send raw HTTPS URLs to new-api — asset:// refs are bound to the upload
+    // account's credentials, which differ from the doubao channel's Bearer key.
+    const referenceImages = this.extractReferenceImageUrls(options.referenceImages);
+    const referenceImageRawUrls: string[] | undefined = undefined;
     const referenceVideos = [
       ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
       ...(options.referenceVideo ? [options.referenceVideo] : []),
     ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-
-    if (isSeedance2) {
-      this.logger.log(
-        `new-api Seedance2 refs: ${referenceImages.map((u) => u.startsWith("asset://") ? u : u.substring(0, 60)).join(", ")}`,
-      );
-    }
 
     const payload = this.stripUndefined({
       model,
