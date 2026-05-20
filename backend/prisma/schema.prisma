@@ -553,6 +553,7 @@ model ImageTask {
   textResponse String?   @db.Text
   error        String?   @db.Text
   aiProvider   String?
+  nodeId       String?
   retryCount   Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -560,6 +561,26 @@ model ImageTask {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([nodeId])
+}
+
+model VideoTask {
+  id          String    @id
+  userId      String
+  nodeId      String?
+  status      String    @default("queued")
+  taskType    String
+  prompt      String?   @db.Text
+  result      Json?
+  error       String?   @db.Text
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([nodeId])
+  @@index([userId, createdAt])
+  @@index([status, updatedAt])
 }
 
 model VolcReviewGroup {
