@@ -10,6 +10,7 @@ import { SmsService } from './sms.service';
 import { ReferralModule } from '../referral/referral.module';
 import { CreditsModule } from '../credits/credits.module';
 import { TelemetryModule } from '../telemetry/telemetry.module';
+import { TeamCoreModule } from '../team-core/team-core.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     forwardRef(() => ReferralModule),
     CreditsModule,
     TelemetryModule,
+    TeamCoreModule,
   ],
   providers: [AuthService, SmsService, JwtStrategy, RefreshJwtStrategy],
   controllers: [AuthController],
