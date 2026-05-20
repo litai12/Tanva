@@ -40,12 +40,18 @@ function resolveActiveImageUrl(
 
   // Mirrors GenerateNode's normalizeImageValue: handles both plain strings and
   // object entries like { imageData: '...', url: '...' } that some node types produce.
+  // flow-asset: refs are IndexedDB handles and cannot be used as <img src>, so skip them.
   const normalizeVal = (v: unknown): string | null => {
-    if (typeof v === 'string') return v || null;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      return s && !s.startsWith('flow-asset:') ? s : null;
+    }
     if (v && typeof v === 'object') {
       const rec = v as Record<string, unknown>;
-      if (typeof rec.imageData === 'string' && rec.imageData) return rec.imageData;
-      if (typeof rec.url === 'string' && rec.url) return rec.url;
+      const imageData = typeof rec.imageData === 'string' ? rec.imageData.trim() : null;
+      if (imageData && !imageData.startsWith('flow-asset:')) return imageData;
+      const url = typeof rec.url === 'string' ? rec.url.trim() : null;
+      if (url && !url.startsWith('flow-asset:')) return url;
     }
     return null;
   };
@@ -59,6 +65,8 @@ function resolveActiveImageUrl(
     getAt(d.imageUrls) ??
     getAt(d.images) ??
     getAt(d.thumbnails) ??
+    normalizeVal(d.thumbnail) ??
+    normalizeVal(d.thumbnailDataUrl) ??
     normalizeVal(d.imageData) ??
     normalizeVal(d.imageUrl) ??
     normalizeVal(d.outputImage) ??
