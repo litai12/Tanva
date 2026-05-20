@@ -6720,7 +6720,7 @@ export class AiController {
     @Req() req: any,
   ) {
     if (!this.generationTaskService) {
-      throw new ServiceUnavailableException('任务服务未启用');
+      return {};
     }
     const nodeIds: string[] = Array.isArray(body?.nodeIds) ? body.nodeIds : [];
     if (nodeIds.length === 0) return {};
