@@ -20,6 +20,10 @@ interface Props {
 
 const VIEWPORT_MARGIN_WORLD = 300
 const CULLING_DEBOUNCE_MS = 100
+// Direction-aware prefetch: how many ms of movement to pre-expand the margin
+const LOOKAHEAD_MS = 250
+// Cap extra expansion so a very fast fling doesn't load half the canvas
+const MAX_EXTRA_MARGIN = 1200
 
 const scheduleIdle: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number =
   typeof requestIdleCallback !== 'undefined'
@@ -54,6 +58,10 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   const [viewportBounds, setViewportBounds] = React.useState<ViewportBounds>(SHOW_ALL)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const idleRef = React.useRef<number | null>(null)
+  // Tracks pan velocity (world units / ms) to bias culling margins toward movement direction
+  const panVelRef = React.useRef({ vx: 0, vy: 0, lastPanX: 0, lastPanY: 0, lastT: 0 })
+  // Snapshot taken when debounce fires; used in computeBounds so stale velocity isn't lost
+  const cullingVelRef = React.useRef({ vx: 0, vy: 0 })
 
   // Transform bypass: subscribe to Zustand directly and mutate DOM.
   // Pan/zoom at 60 fps → ZERO React renders.
@@ -65,6 +73,18 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
       const tx = (panX * zoom) / dpr
       const ty = (panY * zoom) / dpr
       el.style.transform = `matrix(${scale}, 0, 0, ${scale}, ${tx}, ${ty})`
+
+      // Track velocity for direction-aware prefetch (world units / ms)
+      const now = performance.now()
+      const vel = panVelRef.current
+      const dt = now - vel.lastT
+      if (dt > 8) {
+        vel.vx = (panX - vel.lastPanX) / dt
+        vel.vy = (panY - vel.lastPanY) / dt
+        vel.lastPanX = panX
+        vel.lastPanY = panY
+        vel.lastT = now
+      }
     }
     // Sync immediately on mount so first render is correct.
     const { zoom, panX, panY } = useCanvasStore.getState()
@@ -81,15 +101,24 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
       const dprOverZoom = dpr / zoom
       const vpW = typeof window !== 'undefined' ? window.innerWidth : 1920
       const vpH = typeof window !== 'undefined' ? window.innerHeight : 1080
+      // Direction-aware margin: expand the leading edge based on last pan velocity.
+      // vx>0 means panning right (canvas moves right → seeing left world content soon).
+      const { vx, vy } = cullingVelRef.current
+      const extraLeft   = Math.min(Math.max(0,  vx) * LOOKAHEAD_MS, MAX_EXTRA_MARGIN)
+      const extraRight  = Math.min(Math.max(0, -vx) * LOOKAHEAD_MS, MAX_EXTRA_MARGIN)
+      const extraTop    = Math.min(Math.max(0,  vy) * LOOKAHEAD_MS, MAX_EXTRA_MARGIN)
+      const extraBottom = Math.min(Math.max(0, -vy) * LOOKAHEAD_MS, MAX_EXTRA_MARGIN)
       return {
-        left:   -panX - VIEWPORT_MARGIN_WORLD,
-        top:    -panY - VIEWPORT_MARGIN_WORLD,
-        right:  vpW * dprOverZoom - panX + VIEWPORT_MARGIN_WORLD,
-        bottom: vpH * dprOverZoom - panY + VIEWPORT_MARGIN_WORLD,
+        left:   -panX - VIEWPORT_MARGIN_WORLD - extraLeft,
+        top:    -panY - VIEWPORT_MARGIN_WORLD - extraTop,
+        right:  vpW * dprOverZoom - panX + VIEWPORT_MARGIN_WORLD + extraRight,
+        bottom: vpH * dprOverZoom - panY + VIEWPORT_MARGIN_WORLD + extraBottom,
       }
     }
 
     const scheduleCulling = () => {
+      // Snapshot velocity at debounce start (pan is still/just-stopped → velocity is fresh)
+      cullingVelRef.current = { vx: panVelRef.current.vx, vy: panVelRef.current.vy }
       if (debounceRef.current !== null) clearTimeout(debounceRef.current)
       if (idleRef.current !== null) cancelIdle(idleRef.current)
       debounceRef.current = setTimeout(() => {

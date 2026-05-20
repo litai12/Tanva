@@ -27,7 +27,7 @@ type NodeSelectProps = {
   align?: "start" | "center" | "end";
 };
 
-export default function NodeSelect({
+function NodeSelect({
   value,
   options,
   onChange,
@@ -162,3 +162,5 @@ export default function NodeSelect({
     </DropdownMenu>
   );
 }
+
+export default React.memo(NodeSelect);

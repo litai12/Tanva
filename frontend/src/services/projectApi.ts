@@ -69,6 +69,10 @@ export const projectApi = {
     const res = await fetchWithAuth(`${base}/api/projects`);
     return json<Project[]>(res);
   },
+  async listByTeam(teamId: string): Promise<Project[]> {
+    const res = await fetchWithAuth(`${base}/api/projects?teamId=${encodeURIComponent(teamId)}`);
+    return json<Project[]>(res);
+  },
   async create(payload: { name?: string }): Promise<Project> {
     const res = await fetchWithAuth(`${base}/api/projects`, {
       method: "POST",

@@ -34,8 +34,8 @@ frontend/src/components/flow/hooks/usePromptSiblingImages.ts
 - 使用 `useEdges()` + `useNodes()` 订阅图状态
 - 逻辑：
   1. 找 `edge.source === nodeId` 的所有边 → 得到下游节点 ID 列表
-  2. 对每个下游节点，找 `edge.target === downstreamId && edge.sourceHandle !== 'text'` 的边，按边 `id` 字典序（即创建顺序）排序
-  3. 从源节点 `data` 里取 active image URL：`imageResults[data.selectedIndex ?? 0]?.url`，视频节点取 `videoResults[0]?.url`
+  2. 对每个下游节点，找 `edge.target === downstreamId && edge.sourceHandle !== 'text'` 的边，按这些边在 `useEdges()` 数组中的位置排序
+  3. 调用 `resolveActiveImageUrl(sourceNode, edge.sourceHandle)` 取 active URL（见下方字段优先级）
   4. 过滤掉无 URL 的，1-based 编号
 - 输出：`SiblingImage[]`
 
@@ -47,6 +47,14 @@ type SiblingImage = {
   nodeId: string
 }
 ```
+
+**排序**：按 `useEdges()` 返回数组中该边的位置（数组下标）排序，不用边 ID 字符串排序。
+
+**取 active URL**：hook 内实现 `resolveActiveImageUrl(node, sourceHandle)` —— `readConnectedImagesFromNode` 是 GenerateNode 私有函数，不导出，hook 自行实现精简版：
+- 带索引 handle（`images-0`、`img1`）→ 对应下标
+- 无索引 handle → 取 index 0
+- 字段优先级：`data.imageUrls[i]` → `data.images[i]` → `data.thumbnails[i]` → `data.imageData` → `data.imageUrl` → `data.outputImage` → `data.inputImageUrl`
+- 视频节点（`type` 含 `video`/`sora`）：取 `data.thumbnailUrl ?? data.videoUrl` 并标 `isVideo: true`
 
 ### `PromptImageStrip.tsx`
 

@@ -2,6 +2,7 @@
  * Canvas drawing controller with selection, context menu, and persistence hooks.
  */
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { canvasEventBus } from '@/canvas/CanvasEventBus';
 import paper from 'paper';
 import {
   ArrowDown,
@@ -5769,22 +5770,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     updatePreciseReadyCursor();
 
-    window.addEventListener("mousedown", handleMouseDown, { capture: true });
-    window.addEventListener("mousemove", handleMouseMove, { capture: true });
-    window.addEventListener("mouseup", handleMouseUp, { capture: true });
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    window.addEventListener("keyup", handleKeyUp, { capture: true });
+    // 通过 CanvasEventBus 订阅，避免与 GlobalEventCapture 重复注册同名捕获监听器
+    const unsubMD = canvasEventBus.on('mousedownCapture', handleMouseDown, 3);
+    const unsubMM = canvasEventBus.on('mousemoveCapture', handleMouseMove, 3);
+    const unsubMU = canvasEventBus.on('mouseupCapture', handleMouseUp, 3);
+    const unsubKD = canvasEventBus.on('keydownCapture', handleKeyDown, 3);
+    const unsubKU = canvasEventBus.on('keyupCapture', handleKeyUp, 3);
     window.addEventListener("blur", handleWindowBlur);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       clearDragState();
       document.body.classList.remove("tanva-precise-edit-ready");
-      window.removeEventListener("mousedown", handleMouseDown, true);
-      window.removeEventListener("mousemove", handleMouseMove, true);
-      window.removeEventListener("mouseup", handleMouseUp, true);
-      window.removeEventListener("keydown", handleKeyDown, true);
-      window.removeEventListener("keyup", handleKeyUp, true);
+      unsubMD(); unsubMM(); unsubMU(); unsubKD(); unsubKU();
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

@@ -60,6 +60,10 @@ class CanvasEventBus {
     const list = this._listeners.get(type);
     if (!list) return;
     for (const { handler } of list) {
+      // Respect stopImmediatePropagation: cancelBubble is set by both
+      // stopPropagation and stopImmediatePropagation. Only break on
+      // stopImmediatePropagation (which also sets cancelBubble).
+      if ((event as Event).cancelBubble) break;
       handler(event as never);
     }
   }

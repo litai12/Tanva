@@ -16,7 +16,7 @@ export interface BioAuthModalProps {
 
 type WizardStep = "loading" | "history" | "consent" | "verifying" | "waiting" | "result";
 
-export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, onFail }: BioAuthModalProps) {
+function BioAuthModalInner({ isOpen, imageUrl, onClose, onStart, onSuccess, onFail }: BioAuthModalProps) {
   const [step, setStep] = React.useState<WizardStep>("loading");
   const [taskId, setTaskId] = React.useState<string | undefined>(undefined);
   const [h5Link, setH5Link] = React.useState<string | undefined>(undefined);
@@ -173,6 +173,8 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, on
     </div>
   );
 }
+
+export const BioAuthModal = React.memo(BioAuthModalInner);
 
 function LoadingStep() {
   return (

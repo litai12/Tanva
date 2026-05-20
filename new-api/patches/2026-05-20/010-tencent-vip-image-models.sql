@@ -59,4 +59,24 @@ WHERE name = 'tencent'
   AND "group" LIKE '%vip%'
   AND key NOT LIKE '%|%|%';
 
+-- Set ModelPrice for tencent VOD image models (1:1 mapping to backend priceYuan, idempotent).
+UPDATE options
+SET value = (value::jsonb
+  || '{"gemini-3-pro": 0.4}'::jsonb
+  || '{"gemini-2.5-pro": 0.1}'::jsonb
+  || '{"gpt-image-2": 0.4}'::jsonb
+  || '{"gemini-2.5-flash-image-preview": 0.2}'::jsonb
+  || '{"gemini-3.1-flash-image-preview": 0.3}'::jsonb
+  || '{"gemini-3-pro-image-preview": 0.4}'::jsonb
+)::text
+WHERE key = 'ModelPrice';
+
+-- Update channel type to Tencent (23) and set base_url (idempotent).
+UPDATE channels
+SET type = 23,
+    base_url = 'https://hunyuan.tencentcloudapi.com'
+WHERE name = 'tencent'
+  AND "group" LIKE '%vip%'
+  AND type != 23;
+
 COMMIT;

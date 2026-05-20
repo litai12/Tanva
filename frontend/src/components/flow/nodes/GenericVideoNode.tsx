@@ -1005,6 +1005,29 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [cacheBustedVideoUrl, lt, sanitizedVideoUrl]);
 
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !sanitizedVideoUrl) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!videoRef.current) return;
+        if (entry.isIntersecting) {
+          // came back into view — nothing to force-play, let user control
+        } else {
+          // left viewport — pause to free decoder resources
+          if (!videoRef.current.paused) {
+            videoRef.current.pause();
+          }
+        }
+      },
+      { threshold: 0.01 }
+    );
+
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [sanitizedVideoUrl]);
+
   // 鍏ㄥ睆鏃跺己鍒惰缃?object-fit: contain锛岀‘淇濊棰戞寜鍘熸瘮渚嬫樉绀?
   React.useEffect(() => {
     const video = videoRef.current;
