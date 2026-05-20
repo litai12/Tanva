@@ -86,21 +86,23 @@ export class TeamCoreService {
     if (team.ownerId !== requestingUserId) throw new ForbiddenException('仅 owner 可解散团队');
 
     await this.prisma.$transaction(async (tx) => {
-      // 释放冻结积分
-      const acc = await tx.teamCreditAccount.findUnique({ where: { teamId } });
-      if (acc && acc.frozenBalance > 0) {
-        await tx.teamCreditAccount.update({
-          where: { teamId },
-          data: { frozenBalance: 0 },
-        });
-      }
+      // 释放冻结积分（保留账户记录供审计）
+      await tx.teamCreditAccount.updateMany({
+        where: { teamId },
+        data: { frozenBalance: 0 },
+      });
       // 取消活跃订阅
       await tx.teamSubscription.updateMany({
         where: { teamId, status: 'active' },
         data: { status: 'cancelled', cancelledAt: new Date() },
       });
-      // 级联删除由 onDelete: Cascade 处理
+      // 软删除团队（级联 status 传递通过子查询过滤；硬删除会触发 Cascade）
+      // 先软标记，保留审计记录
       await tx.team.update({ where: { id: teamId }, data: { status: 'dissolved' } });
+      // 显式清理：成员、邀请、项目共享（不依赖级联以确保软删除后数据一致）
+      await tx.teamMembership.deleteMany({ where: { teamId } });
+      await tx.teamInvite.deleteMany({ where: { teamId } });
+      await tx.teamProjectShare.deleteMany({ where: { teamId } });
     });
   }
 
@@ -153,19 +155,24 @@ export class TeamCoreService {
     const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
     if (team.isPersonal) throw new ForbiddenException('个人团队不可转让');
     if (team.ownerId !== requestingUserId) throw new ForbiddenException('仅 owner 可转让');
-    await this.assertMember(teamId, newOwnerId);
 
-    await this.prisma.$transaction([
-      this.prisma.team.update({ where: { id: teamId }, data: { ownerId: newOwnerId } }),
-      this.prisma.teamMembership.update({
+    await this.prisma.$transaction(async (tx) => {
+      // 在事务内验证 newOwner 仍是成员（防止并发移除）
+      const newOwnerMembership = await tx.teamMembership.findUnique({
+        where: { teamId_userId: { teamId, userId: newOwnerId } },
+      });
+      if (!newOwnerMembership) throw new ForbiddenException('新 owner 不是团队成员');
+
+      await tx.team.update({ where: { id: teamId }, data: { ownerId: newOwnerId } });
+      await tx.teamMembership.update({
         where: { teamId_userId: { teamId, userId: requestingUserId } },
         data: { role: 'member' },
-      }),
-      this.prisma.teamMembership.update({
+      });
+      await tx.teamMembership.update({
         where: { teamId_userId: { teamId, userId: newOwnerId } },
         data: { role: 'owner' },
-      }),
-    ]);
+      });
+    });
   }
 
   // ── 内部辅助 ────────────────────────────────────────────────
@@ -194,19 +201,35 @@ export class TeamCoreService {
       where: { teamId: team.id },
       orderBy: { createdAt: 'asc' },
     });
+
     if (members.length === 1) {
-      // 最后一人，解散
+      // 最后一人，解散（handleSelfLeave 只在非个人团队场景调用，dissolveTeam 内部会检查）
       await this.dissolveTeam(team.id, userId);
       return;
     }
+
     if (team.ownerId === userId) {
-      // owner 退出：提升 admin 或最老 member
+      // owner 退出：找下一个接手者
       const next =
         members.find((m) => m.role === 'admin' && m.userId !== userId) ||
         members.find((m) => m.userId !== userId);
       if (!next) throw new BadRequestException('无法确定新 owner');
-      await this.transferOwnership(team.id, next.userId, userId);
+
+      // 原子：更新团队 ownerId + 新 owner 角色 + 删除旧 owner 成员记录（无中间 demotion）
+      await this.prisma.$transaction([
+        this.prisma.team.update({ where: { id: team.id }, data: { ownerId: next.userId } }),
+        this.prisma.teamMembership.update({
+          where: { teamId_userId: { teamId: team.id, userId: next.userId } },
+          data: { role: 'owner' },
+        }),
+        this.prisma.teamMembership.delete({
+          where: { teamId_userId: { teamId: team.id, userId } },
+        }),
+      ]);
+      return;
     }
+
+    // 非 owner 退出，直接删除自身成员记录
     await this.prisma.teamMembership.delete({
       where: { teamId_userId: { teamId: team.id, userId } },
     });

@@ -44,6 +44,9 @@ export class TeamInviteService {
 
   async revokeInvite(inviteId: string, teamId: string, requestingUserId: string) {
     await this.teamCore.assertRole(teamId, requestingUserId, ['owner', 'admin']);
+    // 确保 invite 属于该 team（防止跨团队撤销）
+    const invite = await this.prisma.teamInvite.findUnique({ where: { id: inviteId } });
+    if (!invite || invite.teamId !== teamId) throw new NotFoundException('邀请不存在');
     return this.prisma.teamInvite.update({
       where: { id: inviteId },
       data: { status: 'revoked' },
@@ -59,16 +62,10 @@ export class TeamInviteService {
       throw new BadRequestException('邀请码已过期');
     }
 
-    // 漏洞 7 修复：检查座位上限
     const team = await this.prisma.team.findUniqueOrThrow({
       where: { id: invite.teamId },
       include: { subscriptions: { where: { status: 'active' }, take: 1 } },
     });
-    const memberCount = await this.prisma.teamMembership.count({
-      where: { teamId: invite.teamId },
-    });
-    const seatLimit = team.subscriptions[0]?.seatCount ?? team.maxSeats;
-    if (memberCount >= seatLimit) throw new BadRequestException('团队座位已满');
 
     // 检查是否已是成员
     const existing = await this.prisma.teamMembership.findUnique({
@@ -76,15 +73,22 @@ export class TeamInviteService {
     });
     if (existing) throw new BadRequestException('已是团队成员');
 
-    await this.prisma.$transaction([
-      this.prisma.teamMembership.create({
+    // 漏洞 7 修复：在同一事务内原子检查座位上限，防止并发超额
+    await this.prisma.$transaction(async (tx) => {
+      const memberCount = await tx.teamMembership.count({
+        where: { teamId: invite.teamId },
+      });
+      const seatLimit = team.subscriptions[0]?.seatCount ?? team.maxSeats;
+      if (memberCount >= seatLimit) throw new BadRequestException('团队座位已满');
+
+      await tx.teamMembership.create({
         data: { teamId: invite.teamId, userId: acceptingUserId, role: 'member' },
-      }),
-      this.prisma.teamInvite.update({
+      });
+      await tx.teamInvite.update({
         where: { id: invite.id },
         data: { status: 'accepted', acceptedUserId: acceptingUserId, acceptedAt: new Date() },
-      }),
-    ]);
+      });
+    });
 
     return { teamId: invite.teamId, message: '加入成功' };
   }
