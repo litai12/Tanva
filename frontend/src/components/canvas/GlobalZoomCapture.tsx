@@ -3,6 +3,7 @@ import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import { NodeManager } from '@/canvas/NodeManager';
+import { canvasEventBus } from '@/canvas/CanvasEventBus';
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -91,8 +92,9 @@ const shouldBypassCanvasZoom = (
 };
 
 /**
- * Capture global pinch/zoom gestures and translate them into canvas zoom.
- * This prevents browser-level page zoom regardless of gesture origin.
+ * Subscribes to the CanvasEventBus (fed by GlobalEventCapture) and translates
+ * pinch/zoom/wheel gestures into canvas viewport updates.
+ * Does NOT register its own window listeners.
  */
 const GlobalZoomCapture = () => {
   const gestureStartZoomRef = useRef<number | null>(null);
@@ -166,7 +168,13 @@ const GlobalZoomCapture = () => {
     };
 
     const handleWheel = (event: WheelEvent) => {
-      if (shouldBypassCanvasZoom(event)) return;
+      if (shouldBypassCanvasZoom(event)) {
+        // Prevent horizontal scroll from triggering browser back/forward navigation
+        if (Math.abs(event.deltaX) > Math.abs(event.deltaY) && !event.ctrlKey && !event.metaKey) {
+          event.preventDefault();
+        }
+        return;
+      }
       if (!(event.ctrlKey || event.metaKey)) return;
       const store = useCanvasStore.getState();
 
@@ -228,16 +236,13 @@ const GlobalZoomCapture = () => {
       NodeManager.getInstance().setViewportMoving(false);
     };
 
-    const gestureStartListener: EventListener = (event) =>
-      handleGestureStart(event as GestureLikeEvent);
-    const gestureChangeListener: EventListener = (event) =>
-      handleGestureChange(event as GestureLikeEvent);
-    const gestureEndListener: EventListener = () => handleGestureEnd();
-
-    window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
-    window.addEventListener('gesturestart', gestureStartListener, { passive: false });
-    window.addEventListener('gesturechange', gestureChangeListener, { passive: false });
-    window.addEventListener('gestureend', gestureEndListener, { passive: false });
+    // Subscribe via bus — no direct window.addEventListener here
+    const unsubs = [
+      canvasEventBus.on('wheel', handleWheel, 10),
+      canvasEventBus.on('gesturestart', (e) => handleGestureStart(e as GestureLikeEvent), 10),
+      canvasEventBus.on('gesturechange', (e) => handleGestureChange(e as GestureLikeEvent), 10),
+      canvasEventBus.on('gestureend', handleGestureEnd, 10),
+    ];
 
     return () => {
       if (viewportRafRef.current !== null) {
@@ -245,10 +250,7 @@ const GlobalZoomCapture = () => {
         viewportRafRef.current = null;
       }
       pendingViewportRef.current = null;
-      window.removeEventListener('wheel', handleWheel, true);
-      window.removeEventListener('gesturestart', gestureStartListener);
-      window.removeEventListener('gesturechange', gestureChangeListener);
-      window.removeEventListener('gestureend', gestureEndListener);
+      unsubs.forEach((fn) => fn());
       if (pinchEndTimerRef.current) clearTimeout(pinchEndTimerRef.current);
     };
   }, []);

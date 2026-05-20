@@ -1,4 +1,18 @@
 import React from "react";
+
+// Module-level registry so the same (url, version) pair always gets the same _ts.
+// Prevents remount of GenericVideoNode (or useMemo re-run) from producing a new
+// cache-busting URL, which would change the <video key> and force a full reload.
+const _videoTimestampRegistry = new Map<string, number>();
+function getStableVideoTimestamp(url: string, version: number): number {
+  const k = `${url}::${version}`;
+  let ts = _videoTimestampRegistry.get(k);
+  if (ts === undefined) {
+    ts = Date.now();
+    _videoTimestampRegistry.set(k, ts);
+  }
+  return ts;
+}
 import { Handle, Position, useReactFlow, useStore } from "reactflow";
 import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
@@ -959,14 +973,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const cacheBustedVideoUrl = React.useMemo(() => {
     if (!sanitizedVideoUrl) return undefined;
-    // 濡傛灉鏄?presigned 閾炬帴锛堝寘鍚?X-Amz / X-Tos 绛夌鍚嶅瓧娈碉級锛屼笉瑕佹坊鍔?cache-bust 鍙傛暟锛堜細瀵艰嚧绛惧悕澶辨晥锛?
+    // presigned 链接（含 X-Amz / X-Tos 签名字段）不加 cache-bust，否则签名失效
     const isPresigned =
       /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(sanitizedVideoUrl) ||
       /x-amz-|x-tos-/i.test(sanitizedVideoUrl);
     if (isPresigned) return sanitizedVideoUrl;
     const version = Number(data.videoVersion || 0);
     const separator = sanitizedVideoUrl.includes("?") ? "&" : "?";
-    return `${sanitizedVideoUrl}${separator}v=${version}&_ts=${Date.now()}`;
+    // Stable timestamp: same url+version always gets the same _ts across re-renders
+    // and re-mounts, keeping <video key> stable and preventing unnecessary reloads.
+    const ts = getStableVideoTimestamp(sanitizedVideoUrl, version);
+    return `${sanitizedVideoUrl}${separator}v=${version}&_ts=${ts}`;
   }, [sanitizedVideoUrl, data.videoVersion]);
 
   const handleMediaError = React.useCallback(() => {
@@ -2222,7 +2239,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           key={`${videoSrc}-${data.videoVersion || 0}`}
           ref={videoRef}
           controls
-          poster={proxifyRemoteAssetUrl(sanitizedThumbnail || "")}
+          preload="auto"
+          {...(sanitizedThumbnail ? { poster: proxifyRemoteAssetUrl(sanitizedThumbnail) } : {})}
           style={commonMediaStyle}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;

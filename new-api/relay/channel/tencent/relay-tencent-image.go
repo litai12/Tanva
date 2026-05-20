@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -228,7 +230,12 @@ func pollVodImageTask(secretId, secretKey string, subAppId int64, taskId string,
 			if url := extractVodImageURL(resp); url != "" {
 				return url, nil
 			}
-			// success without URL: retry a few times
+			// success without URL: log full response for debugging then retry a few times
+			if attempt >= 3 {
+				if raw, err2 := common.Marshal(resp); err2 == nil {
+					common.SysLog(fmt.Sprintf("Tencent VOD task %s done but URL missing; resp=%s", taskId, string(raw)))
+				}
+			}
 			if attempt >= 8 {
 				return "", fmt.Errorf("Tencent VOD image task %s completed but image URL is missing", taskId)
 			}
@@ -254,20 +261,43 @@ func normalizeVodTaskStatus(resp map[string]any) string {
 }
 
 func extractVodImageURL(resp map[string]any) string {
-	candidates := []string{"ImageUrl", "OutputImageUrl", "Url", "MediaUrl", "FileUrl"}
-	for _, k := range candidates {
+	urlCandidates := []string{"ImageUrl", "OutputImageUrl", "Url", "MediaUrl", "FileUrl"}
+
+	// Primary: AigcImageTask.Output.FileInfos[].FileUrl (actual VOD response structure)
+	if aigcTask, ok := resp["AigcImageTask"].(map[string]any); ok {
+		if output, ok := aigcTask["Output"].(map[string]any); ok {
+			if fileInfos, ok := output["FileInfos"].([]any); ok {
+				for _, fi := range fileInfos {
+					if item, ok := fi.(map[string]any); ok {
+						if v, ok := item["FileUrl"].(string); ok && strings.HasPrefix(v, "http") {
+							return v
+						}
+					}
+				}
+			}
+			// Also try top-level candidate keys inside Output
+			for _, k := range urlCandidates {
+				if v, ok := output[k].(string); ok && strings.HasPrefix(v, "http") {
+					return v
+				}
+			}
+		}
+	}
+
+	// Fallback: top-level candidate keys
+	for _, k := range urlCandidates {
 		if v, ok := resp[k].(string); ok && strings.HasPrefix(v, "http") {
 			return v
 		}
 	}
-	// Try nested AigcTaskDetail
+
+	// Fallback: legacy AigcTaskDetail path
 	if detail, ok := resp["AigcTaskDetail"].(map[string]any); ok {
-		for _, k := range candidates {
+		for _, k := range urlCandidates {
 			if v, ok := detail[k].(string); ok && strings.HasPrefix(v, "http") {
 				return v
 			}
 		}
-		// Try OutputMediaSet
 		if outSet, ok := detail["OutputMediaSet"].(map[string]any); ok {
 			if mediaList, ok := outSet["MediaInfoSet"].([]any); ok && len(mediaList) > 0 {
 				if item, ok := mediaList[0].(map[string]any); ok {

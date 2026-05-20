@@ -21,6 +21,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
+import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -75,6 +76,7 @@ const Canvas: React.FC = () => {
 
     return (
         <div className="relative w-full h-full overflow-hidden">
+            <GlobalEventCapture />
             <GlobalZoomCapture />
             <canvas
                 ref={canvasRef}

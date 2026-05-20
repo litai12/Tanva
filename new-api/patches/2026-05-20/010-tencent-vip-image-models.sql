@@ -30,14 +30,14 @@ WHERE name = 'tencent'
   AND "group" LIKE '%vip%';
 
 -- Ensure the abilities table reflects the new image models for the vip tencent channel.
-INSERT INTO abilities (group_name, model, channel_id, enabled, priority, weight)
+INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight)
 SELECT
-  'vip',
+  'vip'::varchar,
   m.model_name,
   c.id,
   true,
-  0,
-  100
+  0::bigint,
+  100::bigint
 FROM
   channels c,
   (VALUES

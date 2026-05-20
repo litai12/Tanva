@@ -267,6 +267,33 @@ body.tanva-canvas-panning {
   cursor: grabbing !important;
 }
 
+/* 平移/拖拽时将 viewport 提升到独立 GPU 层，消除移动残影
+   will-change:transform 让浏览器提前分配合成层，避免跨帧留影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__viewport,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__viewport,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__viewport,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__viewport {
+  will-change: transform;
+}
+
+/* 运动中禁用所有节点的 transition，防止渐变动效在快速移动时产生拖影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__node * {
+  transition: none !important;
+  animation-play-state: paused !important;
+}
+
+/* 运动时冻结 backdrop-filter，避免玻璃态节点在 GPU 层中产生残影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__node {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 .tanva-flow-snap-guides {
   position: absolute;
   inset: 0;

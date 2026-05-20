@@ -48,6 +48,9 @@ html, body, #root {
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  /* Prevent browser back/forward navigation on horizontal trackpad swipe.
+     Child elements with overflow:auto/scroll are unaffected. */
+  overscroll-behavior: none;
 }
 
 /* ==================== 自定义光标系统 ==================== */

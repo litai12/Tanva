@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { canvasEventBus } from '@/canvas/CanvasEventBus';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { clientToProject, getDpr } from '@/utils/paperCoords';
@@ -2818,18 +2819,35 @@ export const useInteractionController = ({
       logger.debug('🎯 检测到原生双击事件');
     };
 
+    // Window-level capture for pan-initiating clicks.
+    // handleMouseDown is on the canvas element and never fires when the cursor is
+    // over a React Flow node (the overlay sits above the canvas in z-order).
+    // This capture handler intercepts pan-triggering events before they reach any
+    // input/textarea, so middle-click and space+click pan the canvas regardless of
+    // which element is under the cursor.
+    const handleMouseDownCapture = (event: MouseEvent) => {
+      if (event.button === 1) {
+        // Middle-click: always pan canvas, prevent default (avoid paste/autoscroll).
+        startViewportPanDrag(event, 'middle', 1);
+        return;
+      }
+      if (event.button === 0 && isSpacePressedRef.current && isSelectionLikeMode()) {
+        // Space + left-click: pan canvas, prevent input from repositioning text cursor.
+        startViewportPanDrag(event, 'space', 0);
+        return;
+      }
+    };
+
     // 绑定事件监听器
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('dblclick', handleDoubleClick); // 双击事件
 
-    // 在窗口级别监听移动/抬起，避免经过 Flow 节点时中断拖拽
-    window.addEventListener('mousemove', handleMouseMove, { capture: true });
-    window.addEventListener('mouseup', handleMouseUp, { capture: true });
-    window.addEventListener('mouseleave', handleMouseUp, { capture: true });
-    
-    // 键盘事件需要绑定到document，因为canvas无法获取焦点
-    document.addEventListener('keydown', handleKeyDown, true);
-    document.addEventListener('keyup', handleKeyUp, true);
+    // 通过 CanvasEventBus 订阅窗口级别事件（实际监听由 GlobalEventCapture 统一管理）
+    const unsubMouseDown = canvasEventBus.on('mousedownCapture', handleMouseDownCapture, 5);
+    const unsubMouseMove = canvasEventBus.on('mousemoveCapture', handleMouseMove, 5);
+    const unsubMouseUp = canvasEventBus.on('mouseupCapture', handleMouseUp, 5);
+    const unsubKeyDown = canvasEventBus.on('keydownCapture', handleKeyDown, 5);
+    const unsubKeyUp = canvasEventBus.on('keyupCapture', handleKeyUp, 5);
     const resetModifierKeys = () => {
       isAltPressedRef.current = false;
       isSpacePressedRef.current = false;
@@ -2849,11 +2867,12 @@ export const useInteractionController = ({
       // 清理事件监听器
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('dblclick', handleDoubleClick);
-      window.removeEventListener('mousemove', handleMouseMove, { capture: true });
-      window.removeEventListener('mouseup', handleMouseUp, { capture: true });
+      unsubMouseDown();
+      unsubMouseMove();
+      unsubMouseUp();
+      unsubKeyDown();
+      unsubKeyUp();
       window.removeEventListener('mouseleave', handleMouseUp, { capture: true });
-      document.removeEventListener('keydown', handleKeyDown, true);
-      document.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
