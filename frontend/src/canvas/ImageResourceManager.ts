@@ -29,12 +29,25 @@ interface PendingEntry {
 interface DeferredLoad {
   url: string
   ownerId: string
+  priority: LoadPriority
   resolve: (img: HTMLImageElement) => void
   reject: (err: unknown) => void
 }
 
-const MAX_BYTES = 128 * 1024 * 1024 // 128 MB
+// Adaptive cache cap: 25 % of reported device memory, clamped [64 MB, 256 MB].
+// navigator.deviceMemory is in GB (powers-of-two approximation); defaults to 4 GB.
+const MAX_BYTES = (() => {
+  const gb = typeof navigator !== 'undefined'
+    ? ((navigator as { deviceMemory?: number }).deviceMemory ?? 4)
+    : 4
+  return Math.max(64, Math.min(256, gb * 1024 * 0.25)) * 1024 * 1024
+})()
 const MAX_CONCURRENT = 6
+
+const scheduleIdle: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number =
+  typeof requestIdleCallback !== 'undefined'
+    ? (cb, opts) => requestIdleCallback(cb, opts)
+    : (cb) => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0)
 
 class ImageResourceManager {
   private static _instance: ImageResourceManager | null = null

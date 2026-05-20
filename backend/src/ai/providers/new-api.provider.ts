@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TencentVodAigcService } from '../services/tencent-vod-aigc.service';
 import {
   AIProviderResponse,
   AnalysisResult,
@@ -27,10 +26,7 @@ export class NewApiProvider implements IAIProvider {
   private apiKey = '';
   private vipApiKey = '';
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly tencentVodAigcService: TencentVodAigcService,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
   async initialize(): Promise<void> {
     this.baseUrl = this.normalizeBaseUrl(
@@ -69,16 +65,6 @@ export class NewApiProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest,
   ): Promise<AIProviderResponse<ImageResult>> {
-    if (this.isVipImageRoute(request.providerOptions)) {
-      const fileInfos = this.toTencentFileInfos(request.imageUrls);
-      return this.callTencentImageGeneration(request.prompt || '', fileInfos, {
-        quality: request.quality,
-        imageSize: request.imageSize,
-        aspectRatio: request.aspectRatio,
-        negativePrompt: (request as any).negativePrompt,
-      });
-    }
-
     const payload: Record<string, unknown> = {
       model: request.model || 'gemini-2.5-flash-image-preview',
       prompt: request.prompt,
@@ -100,14 +86,6 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
-    if (this.isVipImageRoute(request.providerOptions)) {
-      const fileInfos = this.toTencentFileInfos([this.toImageReference(request.sourceImage)]);
-      return this.callTencentImageGeneration(request.prompt || '', fileInfos, {
-        aspectRatio: request.aspectRatio,
-        imageSize: request.imageSize,
-      });
-    }
-
     const payload: Record<string, unknown> = {
       model: request.model || 'gemini-2.5-flash-image-preview',
       prompt: request.prompt,
@@ -122,14 +100,6 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
-    if (this.isVipImageRoute(request.providerOptions)) {
-      const imageUrls = request.sourceImages.map((item) => this.toImageReference(item));
-      const fileInfos = this.toTencentFileInfos(imageUrls);
-      return this.callTencentImageGeneration(request.prompt || '', fileInfos, {
-        aspectRatio: request.aspectRatio,
-      });
-    }
-
     const payload: Record<string, unknown> = {
       model: request.model || 'gemini-2.5-flash-image-preview',
       prompt: request.prompt,
@@ -328,96 +298,6 @@ export class NewApiProvider implements IAIProvider {
           typeof parsed?.explanation === 'string' ? parsed.explanation : undefined,
       },
     };
-  }
-
-  private isVipImageRoute(providerOptions?: ProviderOptionsPayload): boolean {
-    if (!this.tencentVodAigcService.isAvailable()) return false;
-    const imageRoute =
-      providerOptions?.banana?.imageRoute ||
-      (typeof (providerOptions as any)?.bananaImageRoute === 'string'
-        ? (providerOptions as any).bananaImageRoute
-        : undefined);
-    if (imageRoute === 'stable') return true;
-    const vendorKey = (providerOptions as any)?.vendorKey;
-    const platformKey = (providerOptions as any)?.platformKey;
-    if (vendorKey === 'new_api' || platformKey === 'new_api') return true;
-    return false;
-  }
-
-  private toTencentFileInfos(
-    imageUrls?: string[],
-  ): Array<{ type: 'File' | 'Url'; fileId?: string; url?: string }> {
-    if (!imageUrls?.length) return [];
-    return imageUrls
-      .map((raw) => {
-        const url = String(raw || '').trim();
-        if (!url) return null;
-        if (url.startsWith('tencent-fileid:')) {
-          return { type: 'File' as const, fileId: url.slice('tencent-fileid:'.length) };
-        }
-        if (/^\d+$/.test(url)) {
-          return { type: 'File' as const, fileId: url };
-        }
-        return { type: 'Url' as const, url };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
-  }
-
-  private resolveTencentImageVersion(
-    quality?: string,
-    imageSize?: string,
-  ): 'image2_low' | 'image2_medium' | 'image2_high' {
-    if (quality === 'high') return 'image2_high';
-    if (quality === 'medium') return 'image2_medium';
-    if (quality === 'low') return 'image2_low';
-    if (imageSize === '4K') return 'image2_high';
-    if (imageSize === '2K') return 'image2_medium';
-    return 'image2_low';
-  }
-
-  private async callTencentImageGeneration(
-    prompt: string,
-    fileInfos: Array<{ type: 'File' | 'Url'; fileId?: string; url?: string }>,
-    opts: { quality?: string; imageSize?: string; aspectRatio?: string; negativePrompt?: string },
-  ): Promise<AIProviderResponse<ImageResult>> {
-    try {
-      const modelVersion = this.resolveTencentImageVersion(opts.quality, opts.imageSize);
-      const { taskId } = await this.tencentVodAigcService.createImageTask({
-        modelName: 'OG',
-        modelVersion,
-        prompt,
-        fileInfos,
-        aspectRatio: opts.aspectRatio,
-        imageSize: opts.imageSize,
-        negativePrompt: opts.negativePrompt,
-        enhancePrompt: 'Enabled',
-      });
-      this.logger.log(`Tencent AIGC image task created: ${taskId} (version=${modelVersion})`);
-
-      const result = await this.tencentVodAigcService.waitForImageResult(taskId, {
-        maxWaitMs: 15 * 60 * 1000,
-        maxPollAttempts: 320,
-      });
-
-      const imageUrl = result.imageUrl;
-      return {
-        success: true,
-        data: {
-          imageUrl,
-          hasImage: !!imageUrl,
-          textResponse: imageUrl ? 'Image generated successfully' : '',
-          metadata: {
-            provider: 'tencent-vod-aigc',
-            model: 'OG',
-            modelVersion,
-            taskId,
-            raw: result,
-          },
-        },
-      };
-    } catch (error) {
-      return this.errorResponse('IMAGE_GENERATION_FAILED', error);
-    }
   }
 
   private resolveApiKey(providerOptions?: ProviderOptionsPayload): string {

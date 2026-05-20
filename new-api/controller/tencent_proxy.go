@@ -102,13 +102,26 @@ func proxyTencent(c *gin.Context, channelName, host, svcName string) {
 	_, _ = io.Copy(c.Writer, resp.Body)
 }
 
-// parseTencentKey splits a channel key formatted as "secretId|secretKey".
+// parseTencentKey splits a channel key formatted as either:
+//   - "secretId|secretKey"
+//   - "subAppId|secretId|secretKey"  (relay format)
 func parseTencentKey(key string) (secretId, secretKey string, err error) {
-	parts := strings.SplitN(strings.TrimSpace(key), "|", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("tencent channel key must be 'secretId|secretKey'")
+	parts := strings.Split(strings.TrimSpace(key), "|")
+	switch len(parts) {
+	case 2:
+		if parts[0] == "" || parts[1] == "" {
+			return "", "", fmt.Errorf("tencent channel key must be 'secretId|secretKey'")
+		}
+		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
+	case 3:
+		// subAppId|secretId|secretKey
+		if parts[1] == "" || parts[2] == "" {
+			return "", "", fmt.Errorf("tencent channel key must be 'subAppId|secretId|secretKey'")
+		}
+		return strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), nil
+	default:
+		return "", "", fmt.Errorf("tencent channel key format must be 'secretId|secretKey' or 'subAppId|secretId|secretKey'")
 	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
 }
 
 // tc3Sign computes the TC3-HMAC-SHA256 Authorization header value.
