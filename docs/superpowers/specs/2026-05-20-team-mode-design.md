@@ -132,19 +132,21 @@ model TeamCreditLot {
 
 // 团队积分账本（幂等操作记录）
 model TeamCreditLedger {
-  id          String   @id @default(uuid())
-  teamAccId   String
-  entryType   String   // topup | reserve | deduct | release | subscription_renewal
-  amount      Int
-  taskId      String?
-  taskKind    String?
-  actorUserId String?
-  note        String?
-  createdAt   DateTime @default(now())
+  id                String    @id @default(uuid())
+  teamAccId         String
+  entryType         String    // topup | reserve | deduct | release | subscription_renewal
+  amount            Int
+  taskId            String?
+  taskKind          String?
+  actorUserId       String?
+  note              String?
+  reserveExpiresAt  DateTime? // 仅 reserve 类型填写，用于定时自动释放过期冻结（漏洞 2 修复）
+  createdAt         DateTime  @default(now())
 
   account TeamCreditAccount @relation(fields: [teamAccId], references: [id])
 
   @@unique([teamAccId, entryType, taskId]) // 幂等约束
+  @@index([entryType, reserveExpiresAt])   // 定时任务查询过期 reserve
 }
 
 // 团队套餐定义
@@ -319,10 +321,19 @@ GET    /projects?teamId=xxx                 团队可见项目（含个人项目
 
 ## 5. 核心业务流程
 
+### 5.0 积分账户选择规则
+
+**携带 `X-Team-Id` 请求头** → 使用团队积分池（本节流程）  
+**不携带 `X-Team-Id`** → 使用个人积分池（现有 credits 模块逻辑，不变）
+
+这意味着用户可根据当前操作上下文（个人画布 vs 团队画布）自然切换积分来源，无需额外配置。
+
+---
+
 ### 5.1 团队积分消费流程（AI 任务）
 
 ```
-请求到达
+请求到达（携带 X-Team-Id）
   1. JWT 鉴权 + X-Team-Id → 确认用户是团队成员
   2. 配额检查（行锁原子更新，防并发绕过）：
      UPDATE TeamMembership SET creditUsedThisCycle += amount
