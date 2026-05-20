@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore } from '../../stores/authStore';
 import { teamApi } from '../../services/teamApi';
 import { useProjectStore } from '../../stores/projectStore';
+import { projectApi, type Project } from '../../services/projectApi';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, Users, Plus, Settings, LogIn, X } from 'lucide-react';
+import { ChevronDown, Users, Plus, Settings, LogIn, X, FolderOpen, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -92,6 +93,9 @@ function TeamFormModal({
             value={value}
             onChange={(e) => { setValue(e.target.value); setError(''); }}
           />
+          {mode === 'create' && (
+            <p className="text-xs text-slate-400 mt-1.5">新建团队固定 2 席位起</p>
+          )}
           {error && <p className="text-xs text-red-500 mt-1.5">{error}</p>}
           <div className="flex gap-2 mt-3">
             <Button
@@ -119,11 +123,97 @@ function TeamFormModal({
   );
 }
 
+function TeamProjectPickerModal({
+  teamId,
+  teamName,
+  onConfirm,
+  onCancel,
+}: {
+  teamId: string;
+  teamName: string;
+  onConfirm: (projectId?: string) => void;
+  onCancel: () => void;
+}) {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    projectApi.listByTeam(teamId)
+      .then(setProjects)
+      .catch(() => setProjects([]))
+      .finally(() => setLoading(false));
+  }, [teamId]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/20 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-[0_20px_60px_rgba(15,23,42,0.18)] border border-slate-200 p-5 w-96 max-h-[70vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <h3 className="text-sm font-semibold text-slate-800">
+            切换至 · <span className="text-blue-600">{teamName}</span>
+          </h3>
+          <button
+            onClick={onCancel}
+            className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-400"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-slate-400">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              <span className="text-sm">加载中…</span>
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="text-center py-8 text-sm text-slate-400">暂无项目</div>
+          ) : (
+            <div className="space-y-0.5">
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onConfirm(p.id)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left hover:bg-slate-50 transition-colors group"
+                >
+                  <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 group-hover:text-blue-500 transition-colors" />
+                  <span className="text-sm text-slate-700 truncate flex-1">{p.name}</span>
+                  <span className="text-xs text-slate-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">进入</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-slate-100 shrink-0 flex items-center justify-between">
+          <p className="text-xs text-slate-400">关闭此窗口将保留当前工作区</p>
+          {!loading && (
+            <button
+              onClick={() => onConfirm(undefined)}
+              className="text-xs text-blue-500 hover:text-blue-600 transition-colors"
+            >
+              直接进入
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function TeamSwitcher({ onManage, variant = 'header', className }: Props) {
   const { teams, activeTeamId, setActiveTeamId } = useTeamStore();
   const user = useAuthStore((s) => s.user);
-  const loadProjects = useProjectStore((s) => s.load);
+  const projectStore = useProjectStore();
   const [modal, setModal] = useState<ActiveModal>('none');
+  const [teamPickerTarget, setTeamPickerTarget] = useState<{ id: string; name: string } | null>(null);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
   const displayName = (() => {
@@ -131,9 +221,35 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
     return activeTeam.name.length > 10 ? activeTeam.name.slice(0, 10) + '…' : activeTeam.name;
   })();
 
-  const switchTeam = (teamId: string) => {
+  const completeSwitchTeam = (teamId: string, projectId?: string) => {
     setActiveTeamId(teamId);
-    setTimeout(() => loadProjects(), 80);
+    setTimeout(() => {
+      void projectStore.load().then(() => {
+        if (projectId) projectStore.open(projectId);
+      });
+    }, 80);
+  };
+
+  const switchTeam = (teamId: string) => {
+    if (teamId === activeTeamId) return;
+    const target = teams.find((t) => t.id === teamId);
+    if (!target) return;
+
+    if (target.isPersonal) {
+      completeSwitchTeam(teamId);
+    } else {
+      setTeamPickerTarget({ id: teamId, name: target.name });
+    }
+  };
+
+  const handleTeamPickerConfirm = (projectId?: string) => {
+    if (!teamPickerTarget) return;
+    completeSwitchTeam(teamPickerTarget.id, projectId);
+    setTeamPickerTarget(null);
+  };
+
+  const handleTeamPickerCancel = () => {
+    setTeamPickerTarget(null);
   };
 
   const handleModalDone = (newTeamId?: string) => {
@@ -218,6 +334,15 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
           mode={modal}
           onClose={() => setModal('none')}
           onDone={handleModalDone}
+        />
+      )}
+
+      {teamPickerTarget && (
+        <TeamProjectPickerModal
+          teamId={teamPickerTarget.id}
+          teamName={teamPickerTarget.name}
+          onConfirm={handleTeamPickerConfirm}
+          onCancel={handleTeamPickerCancel}
         />
       )}
 
