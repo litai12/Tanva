@@ -17,6 +17,8 @@ import type {
 } from '@/types/canvas';
 import type { ExtendedPath } from '@/types/paper';
 import type { DrawMode, LineStyle } from '@/stores/toolStore';
+import { NodeManager } from '@/canvas/NodeManager';
+import type { PathNode } from '@/canvas/nodes/PathNode';
 
 interface UseDrawingToolsProps {
   context: DrawingContext;
@@ -244,6 +246,7 @@ export const useDrawingTools = ({
 
   // 绘图工具状态
   const pathRef = useRef<ExtendedPath | null>(null);
+  const drawingNodeRef = useRef<PathNode | null>(null);
   const isDrawingRef = useRef(false);
   const hasMovedRef = useRef(false); // 立即跟踪移动状态，避免异步问题
   const initialClickPointRef = useRef<paper.Point | null>(null);
@@ -277,7 +280,15 @@ export const useDrawingTools = ({
   // 实际创建自由绘制路径（当确认用户在拖拽时）
   const createFreeDrawPath = useCallback((startPoint: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
-    pathRef.current = new paper.Path();
+    const drawId = `path_free_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const activeLayer = paper.project.activeLayer as paper.Layer;
+    drawingNodeRef.current = NodeManager.getInstance().createPath(drawId, activeLayer, {
+      strokeColor: currentColor,
+      strokeWidth: strokeWidth,
+      fillColor: null,
+      data: { type: 'path', pathId: drawId },
+    });
+    pathRef.current = drawingNodeRef.current.getPaperItem() as unknown as ExtendedPath;
 
     if (isEraser) {
       // 橡皮擦模式：红色虚线表示擦除轨迹
@@ -888,6 +899,9 @@ export const useDrawingTools = ({
           }
           pathRef.current = null;
           initialClickPointRef.current = null;
+          if (drawingNodeRef.current) {
+            drawingNodeRef.current = null;
+          }
           clearPaperEraserTrails();
         }
       } else if (drawMode === 'image' && createImagePlaceholder && setDrawMode) {
@@ -937,7 +951,12 @@ export const useDrawingTools = ({
         }
         pathRef.current = null;
         initialClickPointRef.current = null;
-        
+
+        if (drawMode === 'free' && drawingNodeRef.current) {
+          try { NodeManager.getInstance().destroy(drawingNodeRef.current.id); } catch {}
+          drawingNodeRef.current = null;
+        }
+
         if (!isEraser && drawMode !== 'image' && drawMode !== '3d-model') {
           eventHandlers.onPathComplete?.(completedPath as any);
         }
@@ -983,6 +1002,9 @@ export const useDrawingTools = ({
     }
 
     pathRef.current = null;
+    if (drawingNodeRef.current) {
+      drawingNodeRef.current = null;
+    }
     hasMovedRef.current = false;
     initialClickPointRef.current = null;
     isDrawingRef.current = false;
