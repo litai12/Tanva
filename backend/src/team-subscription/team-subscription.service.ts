@@ -44,26 +44,27 @@ export class TeamSubscriptionService {
       ? new Date(now.getTime() + 365 * 86400_000)
       : new Date(now.getTime() + 30 * 86400_000);
 
-    // 取消旧订阅
-    await this.prisma.teamSubscription.updateMany({
-      where: { teamId, status: 'active' },
-      data: { status: 'cancelled', cancelledAt: now },
+    // 取消旧订阅并创建新订阅（事务保证原子性）
+    const sub = await this.prisma.$transaction(async (tx) => {
+      await tx.teamSubscription.updateMany({
+        where: { teamId, status: 'active' },
+        data: { status: 'cancelled', cancelledAt: now },
+      });
+      return tx.teamSubscription.create({
+        data: {
+          teamId,
+          planId: dto.planId,
+          billingCycle: dto.billingCycle,
+          seatCount: dto.seatCount,
+          creditsPerRenewal,
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+          nextCreditRenewalAt: now, // 立即触发首次积分发放
+        },
+      });
     });
 
-    const sub = await this.prisma.teamSubscription.create({
-      data: {
-        teamId,
-        planId: dto.planId,
-        billingCycle: dto.billingCycle,
-        seatCount: dto.seatCount,
-        creditsPerRenewal,
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-        nextCreditRenewalAt: now, // 立即触发首次积分发放
-      },
-    });
-
-    // 首次积分立即发放
+    // 首次积分立即发放（idempotent key 保证即使失败，scheduler 会在5分钟内重试）
     await this.teamCredits.topupCredits(teamId, creditsPerRenewal, `sub_init_${sub.id}`);
 
     return sub;
@@ -82,13 +83,12 @@ export class TeamSubscriptionService {
     const idempotentKey = `renewal_${sub.id}_${new Date().toISOString().slice(0, 10)}`;
     const acc = await this.prisma.teamCreditAccount.findUniqueOrThrow({ where: { teamId: sub.teamId } });
 
-    // 幂等检查
-    const existing = await this.prisma.teamCreditLedger.findFirst({
-      where: { teamAccId: acc.id, taskId: idempotentKey },
-    });
-    if (existing) return; // 已续期
-
     await this.prisma.$transaction(async (tx) => {
+      // 幂等检查（在事务内，防止并发重复续期）
+      const existing = await tx.teamCreditLedger.findFirst({
+        where: { teamAccId: acc.id, taskId: idempotentKey },
+      });
+      if (existing) return; // 已续期
       const expiresAt = new Date(Date.now() + 30 * 86400_000);
 
       await tx.teamCreditLot.create({
