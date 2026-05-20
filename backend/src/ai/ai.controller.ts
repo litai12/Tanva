@@ -67,6 +67,7 @@ import {
   updateAsyncTask,
   getAsyncTaskResult,
 } from './services/async-video-task.store';
+import { GenerationTaskService } from './services/generation-task.service';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
 import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { VolcEnhanceVideoDto } from './dto/volc-enhance-video.dto';
@@ -438,6 +439,7 @@ export class AiController {
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
+    @Optional() private readonly generationTaskService?: GenerationTaskService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -2035,84 +2037,6 @@ export class AiController {
     }
   }
 
-  private async analyzeVideoVia147ChatCompletions(params: {
-    model: string;
-    prompt: string;
-    videoUrl: string;
-  }): Promise<string> {
-    const apiKey =
-      process.env.BANANA_API_KEY ||
-      process.env.VEO_API_KEY ||
-      process.env.SORA2_API_KEY ||
-      null;
-    if (!apiKey) {
-      throw new ServiceUnavailableException('147 API Key 未配置（BANANA_API_KEY），请检查后端环境变量');
-    }
-
-    const apiBaseUrl = (
-      process.env.VEO_API_ENDPOINT ||
-      process.env.VEO_API_BASE_URL ||
-      process.env.SORA2_API_ENDPOINT ||
-      'https://api1.147ai.com'
-    ).replace(/\/+$/, '');
-
-    // 视频分析需要较长时间，设置 5 分钟超时
-    const VIDEO_ANALYSIS_TIMEOUT = 5 * 60 * 1000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VIDEO_ANALYSIS_TIMEOUT);
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: params.model,
-          stream: false,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: params.prompt },
-                { type: 'image_url', image_url: { url: params.videoUrl } },
-              ],
-            },
-          ],
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new ServiceUnavailableException(
-          `147 /v1/chat/completions error: HTTP ${response.status} ${text}`.trim()
-        );
-      }
-
-      const data: any = await response.json().catch(() => ({}));
-      const content = data?.choices?.[0]?.message?.content;
-      if (typeof content === 'string' && content.trim().length) return content.trim();
-      if (Array.isArray(content)) {
-        const joined = content
-          .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
-          .join('')
-          .trim();
-        if (joined.length) return joined;
-      }
-
-      throw new ServiceUnavailableException('147 AI 返回了空内容，请稍后重试');
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
 
   private parseAndValidateAllowedUrl(urlValue: string): URL {
     let parsed: URL;
@@ -4138,7 +4062,17 @@ export class AiController {
     this.logger.log('🎨 Seed3D async conversion request received');
 
     const taskId = `async-seed3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    createAsyncTask(taskId);
+    if (this.generationTaskService) {
+      await this.generationTaskService.createVideoTask({
+        taskId,
+        userId: this.getUserId(req) ?? 'anonymous',
+        nodeId: dto.nodeId,
+        taskType: 'seed3d',
+        prompt: dto.prompt,
+      });
+    } else {
+      createAsyncTask(taskId);
+    }
     this.executeSeed3DTaskAsync(taskId, dto, req);
 
     return {
@@ -4200,12 +4134,18 @@ export class AiController {
         status: 'failed',
         error: message,
       });
+      void this.generationTaskService?.updateVideoTask(taskId, {
+        status: 'failed',
+        error: message,
+        completedAt: new Date(),
+      });
       this.logger.error(`[Async] Seed3D task failed: taskId=${taskId}, error=${message}`);
     });
   }
 
   private async processSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): Promise<void> {
     updateAsyncTask(taskId, { status: 'processing' });
+    void this.generationTaskService?.updateVideoTask(taskId, { status: 'processing' });
 
     const result = await this.withCredits(
       req,
@@ -4252,6 +4192,15 @@ export class AiController {
         promptId: (result as any)?.promptId,
         modelKey: (result as any)?.modelKey,
       },
+    });
+    void this.generationTaskService?.updateVideoTask(taskId, {
+      status: 'succeeded',
+      result: {
+        modelUrl: (result as any)?.modelUrl,
+        promptId: (result as any)?.promptId,
+        modelKey: (result as any)?.modelKey,
+      },
+      completedAt: new Date(),
     });
   }
 
@@ -4525,9 +4474,20 @@ export class AiController {
       duration: dto.duration,
     });
 
-    // 创建异步任务并写入内存存储
+    // 创建异步任务：写入内存 + DB
     const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    createAsyncTask(taskId);
+    if (this.generationTaskService) {
+      await this.generationTaskService.createVideoTask({
+        taskId,
+        userId: this.getUserId(req) ?? 'anonymous',
+        nodeId: dto.nodeId,
+        taskType: selectedSoraModel,
+        prompt: dto.prompt,
+        metadata: { quality, aspectRatio: dto.aspectRatio, duration: dto.duration },
+      });
+    } else {
+      createAsyncTask(taskId);
+    }
     const traceContext = this.getTraceContext(req);
     void this.telemetryService.ingestGenerationTask({
       traceId: traceContext.traceId || null,
@@ -4634,6 +4594,7 @@ export class AiController {
       async () => {
         // 更新任务状态为处理中
         updateAsyncTask(taskId, { status: 'processing' });
+        void this.generationTaskService?.updateVideoTask(taskId, { status: 'processing' });
         const startedAt = Date.now();
         void this.telemetryService.ingestGenerationTask({
           traceId: traceContext.traceId || null,
@@ -4729,6 +4690,11 @@ export class AiController {
             status: 'completed',
             result: result as any,
           });
+          void this.generationTaskService?.updateVideoTask(taskId, {
+            status: 'succeeded',
+            result: result as Record<string, any>,
+            completedAt: new Date(),
+          });
           this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
           void this.telemetryService.ingestGenerationTask({
             traceId: traceContext.traceId || null,
@@ -4753,6 +4719,11 @@ export class AiController {
           updateAsyncTask(taskId, {
             status: 'failed',
             error: errorMessage,
+          });
+          void this.generationTaskService?.updateVideoTask(taskId, {
+            status: 'failed',
+            error: errorMessage,
+            completedAt: new Date(),
           });
           this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
           void this.telemetryService.ingestGenerationTask({
@@ -4834,6 +4805,21 @@ export class AiController {
         status: asyncTask.status === 'processing' ? 'processing' : 'pending',
         progress: asyncTask.status === 'processing' ? 50 : 10,
       });
+    }
+
+    // Check DB for tasks that have left memory (e.g. after restart)
+    if (this.generationTaskService) {
+      const dbTask = await this.generationTaskService.findVideoTaskById(trimmedTaskId);
+      if (dbTask) {
+        return this.normalizeVideoTaskResponse({
+          id: trimmedTaskId,
+          status: dbTask.status,
+          videoUrl: (dbTask.result as any)?.videoUrl,
+          thumbnailUrl: (dbTask.result as any)?.thumbnailUrl,
+          raw: dbTask.result as any,
+          error: dbTask.error ?? undefined,
+        });
+      }
     }
 
     // 非异步任务，调用原始的 Sora2 查询接口
@@ -6726,6 +6712,23 @@ export class AiController {
   }
 
   /**
+   * 批量按画布节点 ID 查询任务状态，用于页面刷新后恢复生成任务
+   */
+  @Post('tasks/by-nodes')
+  async batchQueryTasksByNodes(
+    @Body() body: { nodeIds: string[] },
+    @Req() req: any,
+  ) {
+    if (!this.generationTaskService) {
+      throw new ServiceUnavailableException('任务服务未启用');
+    }
+    const nodeIds: string[] = Array.isArray(body?.nodeIds) ? body.nodeIds : [];
+    if (nodeIds.length === 0) return {};
+    const userId = this.getUserId(req) ?? 'anonymous';
+    return this.generationTaskService.batchQueryByNodeIds(nodeIds, userId);
+  }
+
+  /**
    * 异步图像生成 - 创建任务
    */
   @Post('generate-image-async')
@@ -6752,6 +6755,7 @@ export class AiController {
       { ...dto, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
@@ -6788,6 +6792,7 @@ export class AiController {
       { ...dto, sourceImage, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
@@ -6826,6 +6831,7 @@ export class AiController {
       { ...dto, sourceImages, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
