@@ -437,6 +437,7 @@ export class ImageTaskService {
     requestData: Record<string, any>,
     aiProvider?: string,
     traceContext?: PersistedTraceContext,
+    nodeId?: string,
   ) {
     const persistedTraceContext = captureTraceContext(traceContext);
     const requestPayload = {
@@ -456,6 +457,7 @@ export class ImageTaskService {
         aiProvider,
         status: 'queued',
         retryCount: 0,
+        nodeId: nodeId ?? null,
       },
     });
 
