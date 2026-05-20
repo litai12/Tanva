@@ -880,11 +880,24 @@ export class VideoProviderService {
     const model = this.resolveNewApiVideoModel(options);
     const size = this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
-    const referenceImages = this.extractReferenceImageUrls(options.referenceImages);
+    // Seedance 2.0: prefer asset:// refs for active volc assets; new-api should upload raw URLs if it has AK/SK configured.
+    const isSeedance2 = /doubao-seedance-2/i.test(model);
+    const referenceImages = isSeedance2
+      ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
+      : this.extractReferenceImageUrls(options.referenceImages);
+    const referenceImageRawUrls = isSeedance2
+      ? this.extractReferenceImageUrls(options.referenceImages)
+      : undefined;
     const referenceVideos = [
       ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
       ...(options.referenceVideo ? [options.referenceVideo] : []),
     ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+
+    if (isSeedance2) {
+      this.logger.log(
+        `new-api Seedance2 refs: ${referenceImages.map((u) => u.startsWith("asset://") ? u : u.substring(0, 60)).join(", ")}`,
+      );
+    }
 
     const payload = this.stripUndefined({
       model,
@@ -909,6 +922,8 @@ export class VideoProviderService {
         viduModelVariant: options.viduModelVariant,
         seedanceModel: options.seedanceModel,
         managedModelKey: options.managedModelKey,
+        // Fallback raw URLs for new-api to perform its own asset upload if AK/SK is configured.
+        referenceImageRawUrls,
       },
     });
 
@@ -960,6 +975,12 @@ export class VideoProviderService {
     const status = this.normalizeNewApiStatus(result);
     const upstreamVideoUrl = this.extractVideoUrl(result);
     const thumbnailUrl = this.extractThumbnailUrl(result);
+
+    if (status === "succeeded" && !upstreamVideoUrl) {
+      this.logger.warn(
+        `new-api task ${rawTaskId} succeeded but no video URL found. raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
+      );
+    }
 
     if (!upstreamVideoUrl || status !== "succeeded") {
       return { status, thumbnailUrl };
@@ -1029,6 +1050,20 @@ export class VideoProviderService {
       .map((item) => item.trim());
   }
 
+  // Seedance 2.0: use asset:// for active volc assets; fall back to raw URL otherwise.
+  private extractReferenceImageUrlsWithVolcAssets(items: ReferenceImageItem[] | undefined): string[] {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item.volcAssetStatus === "active" && item.volcAssetId) {
+          return `asset://${item.volcAssetId}`;
+        }
+        return (item.url || "").trim();
+      })
+      .filter((url): url is string => url.length > 0);
+  }
+
   private async requestNewApiJson(path: string, init: RequestInit): Promise<any> {
     const response = await fetch(`${this.newApiBaseUrl}${path}`, {
       ...init,
@@ -1062,8 +1097,14 @@ export class VideoProviderService {
   }
 
   private normalizeNewApiStatus(result: any): string {
-    const raw = String(result?.status || result?.data?.status || result?.task_status || "").toLowerCase();
-    if (["succeeded", "success", "completed", "complete", "finished", "finish"].includes(raw)) {
+    const raw = String(
+      result?.status ||
+      result?.data?.status ||
+      result?.data?.task_status ||
+      result?.task_status ||
+      ""
+    ).toLowerCase();
+    if (["succeeded", "success", "succeed", "completed", "complete", "finished", "finish"].includes(raw)) {
       return "succeeded";
     }
     if (["failed", "failure", "error", "cancelled", "canceled"].includes(raw)) {
@@ -1073,23 +1114,53 @@ export class VideoProviderService {
   }
 
   private extractVideoUrl(result: any): string | undefined {
-    const candidates = [
+    const isHttpUrl = (v: unknown): v is string =>
+      typeof v === "string" && /^https?:\/\//i.test(v);
+
+    // flat fields
+    const flat = [
       result?.video_url,
       result?.videoUrl,
       result?.url,
+      result?.metadata?.url,          // new-api OpenAI Video 格式: SetMetadata("url", ...)
       result?.data?.video_url,
       result?.data?.videoUrl,
       result?.data?.url,
+      result?.data?.metadata?.url,
       result?.output?.video_url,
       result?.output?.url,
+      result?.output?.video?.url,
+      result?.video?.url,
     ];
-    for (const value of candidates) {
-      if (typeof value === "string" && /^https?:\/\//i.test(value)) return value;
+    for (const v of flat) {
+      if (isHttpUrl(v)) return v;
     }
-    if (Array.isArray(result?.data)) {
-      const found = result.data.find((item: any) => typeof item?.url === "string" && /^https?:\/\//i.test(item.url));
-      if (found) return found.url;
+
+    // OpenAI Sora format: generations[].url
+    if (Array.isArray(result?.generations)) {
+      for (const item of result.generations) {
+        if (isHttpUrl(item?.url)) return item.url;
+        if (isHttpUrl(item?.video?.url)) return item.video.url;
+      }
     }
+
+    // Kling native format: data.task_result.videos[].url
+    if (Array.isArray(result?.data?.task_result?.videos)) {
+      for (const item of result.data.task_result.videos) {
+        if (isHttpUrl(item?.url)) return item.url;
+      }
+    }
+
+    // Generic nested arrays
+    for (const arr of [result?.data, result?.results, result?.data?.videos, result?.output?.videos]) {
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (isHttpUrl(item?.url)) return item.url;
+          if (isHttpUrl(item?.video_url)) return item.video_url;
+        }
+      }
+    }
+
     return undefined;
   }
 

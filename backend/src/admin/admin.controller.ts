@@ -317,6 +317,10 @@ export class AdminController {
       };
     }
 
+    if (['volc_ark_access_key', 'volc_ark_secret_key', 'volc_ark_project_name'].includes(dto.key)) {
+      this.volcAssetService.invalidateCredentialsCache();
+    }
+
     return setting;
   }
 

@@ -11,6 +11,7 @@ import {
   ImageResult,
   PaperJSGenerateRequest,
   PaperJSResult,
+  ProviderOptionsPayload,
   TextChatRequest,
   TextResult,
   ToolSelectionRequest,
@@ -23,6 +24,7 @@ export class NewApiProvider implements IAIProvider {
   private available = false;
   private baseUrl = 'http://localhost:4458';
   private apiKey = '';
+  private vipApiKey = '';
 
   constructor(private readonly config: ConfigService) {}
 
@@ -37,6 +39,10 @@ export class NewApiProvider implements IAIProvider {
       process.env.NEW_API_KEY ||
       this.config.get<string>('NEW_API_TOKEN') ||
       process.env.NEW_API_TOKEN ||
+      '';
+    this.vipApiKey =
+      this.config.get<string>('NEW_API_KEY_VIP') ||
+      process.env.NEW_API_KEY_VIP ||
       '';
     this.available = !!this.apiKey;
     this.logger.log(
@@ -76,7 +82,7 @@ export class NewApiProvider implements IAIProvider {
       official_fallback: request.officialFallback,
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_GENERATION_FAILED');
+    return this.callImageEndpoint(payload, 'IMAGE_GENERATION_FAILED', request.providerOptions);
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
@@ -90,7 +96,7 @@ export class NewApiProvider implements IAIProvider {
       output_format: request.outputFormat,
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_EDIT_FAILED');
+    return this.callImageEndpoint(payload, 'IMAGE_EDIT_FAILED', request.providerOptions);
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
@@ -104,7 +110,7 @@ export class NewApiProvider implements IAIProvider {
       output_format: request.outputFormat,
     };
 
-    return this.callImageEndpoint(payload, 'IMAGE_BLEND_FAILED');
+    return this.callImageEndpoint(payload, 'IMAGE_BLEND_FAILED', request.providerOptions);
   }
 
   async analyzeImage(
@@ -123,10 +129,13 @@ export class NewApiProvider implements IAIProvider {
       })),
     ];
 
-    const result = await this.chat({
-      model: request.model || 'gemini-3.1-pro',
-      messages: [{ role: 'user', content }],
-    });
+    const result = await this.chat(
+      {
+        model: request.model || 'gemini-3.1-pro',
+        messages: [{ role: 'user', content }],
+      },
+      request.providerOptions,
+    );
 
     if (!result.success) return result as AIProviderResponse<AnalysisResult>;
     return {
@@ -139,12 +148,15 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async generateText(request: TextChatRequest): Promise<AIProviderResponse<TextResult>> {
-    return this.chat({
-      model: request.model || 'gemini-3.1-pro',
-      messages: [{ role: 'user', content: request.prompt }],
-      ...(request.enableWebSearch ? { tools: [{ type: 'web_search_preview' }] } : {}),
-      ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
-    });
+    return this.chat(
+      {
+        model: request.model || 'gemini-3.1-pro',
+        messages: [{ role: 'user', content: request.prompt }],
+        ...(request.enableWebSearch ? { tools: [{ type: 'web_search_preview' }] } : {}),
+        ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
+      },
+      request.providerOptions,
+    );
   }
 
   async selectTool(
@@ -288,15 +300,38 @@ export class NewApiProvider implements IAIProvider {
     };
   }
 
+  private resolveApiKey(providerOptions?: ProviderOptionsPayload): string {
+    if (!this.vipApiKey) return this.apiKey;
+
+    const imageRoute =
+      providerOptions?.banana?.imageRoute ||
+      (typeof (providerOptions as any)?.bananaImageRoute === 'string'
+        ? (providerOptions as any).bananaImageRoute
+        : undefined);
+    if (imageRoute === 'stable') return this.vipApiKey;
+
+    // 通过模型路由系统选中 new_api 渠道时也走 VIP key
+    const vendorKey = (providerOptions as any)?.vendorKey;
+    const platformKey = (providerOptions as any)?.platformKey;
+    if (vendorKey === 'new_api' || platformKey === 'new_api') return this.vipApiKey;
+
+    return this.apiKey;
+  }
+
   private async callImageEndpoint(
     payload: Record<string, unknown>,
     errorCode: string,
+    providerOptions?: ProviderOptionsPayload,
   ): Promise<AIProviderResponse<ImageResult>> {
     try {
-      const result = await this.requestJson('/v1/images/generations', {
-        method: 'POST',
-        body: JSON.stringify(this.stripUndefined(payload)),
-      });
+      const result = await this.requestJson(
+        '/v1/images/generations',
+        {
+          method: 'POST',
+          body: JSON.stringify(this.stripUndefined(payload)),
+        },
+        this.resolveApiKey(providerOptions),
+      );
       const imageUrls = this.extractImageUrls(result);
       const imageData = this.extractImageData(result);
       const textResponse =
@@ -323,12 +358,19 @@ export class NewApiProvider implements IAIProvider {
     }
   }
 
-  private async chat(payload: Record<string, unknown>): Promise<AIProviderResponse<TextResult>> {
+  private async chat(
+    payload: Record<string, unknown>,
+    providerOptions?: ProviderOptionsPayload,
+  ): Promise<AIProviderResponse<TextResult>> {
     try {
-      const result = await this.requestJson('/v1/chat/completions', {
-        method: 'POST',
-        body: JSON.stringify(this.stripUndefined(payload)),
-      });
+      const result = await this.requestJson(
+        '/v1/chat/completions',
+        {
+          method: 'POST',
+          body: JSON.stringify(this.stripUndefined(payload)),
+        },
+        this.resolveApiKey(providerOptions),
+      );
       return {
         success: true,
         data: {
@@ -345,8 +387,9 @@ export class NewApiProvider implements IAIProvider {
     }
   }
 
-  private async requestJson(path: string, init: RequestInit): Promise<any> {
-    if (!this.apiKey) {
+  private async requestJson(path: string, init: RequestInit, apiKey?: string): Promise<any> {
+    const key = apiKey || this.apiKey;
+    if (!key) {
       throw new Error('NEW_API_KEY 未配置');
     }
 
@@ -354,7 +397,7 @@ export class NewApiProvider implements IAIProvider {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${key}`,
         ...(init.headers || {}),
       },
     });

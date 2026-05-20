@@ -36,6 +36,11 @@ export class VolcAssetService implements OnModuleInit {
   private readonly groupCache = new Map<string, string>();
   private hasLoggedMissingReviewGroupTable = false;
 
+  // DB-based credential cache (TTL: 60s, overrides env vars when set)
+  private dbCredentials: { accessKey?: string; secretKey?: string; projectName?: string } | null = null;
+  private dbCredentialsCachedAt = 0;
+  private readonly DB_CREDENTIALS_TTL_MS = 60_000;
+
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
@@ -53,9 +58,53 @@ export class VolcAssetService implements OnModuleInit {
     };
     if (!this.env.accessKey || !this.env.secretKey) {
       this.logger.warn(
-        'VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未配置，VolcAsset 能力不可用。',
+        'VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未在环境变量中配置，将尝试从系统设置（DB）读取。',
       );
     }
+  }
+
+  private async loadDbCredentials(): Promise<{ accessKey?: string; secretKey?: string; projectName?: string }> {
+    const now = Date.now();
+    if (this.dbCredentials !== null && now - this.dbCredentialsCachedAt < this.DB_CREDENTIALS_TTL_MS) {
+      return this.dbCredentials;
+    }
+    try {
+      const rows = await this.prisma.systemSetting.findMany({
+        where: { key: { in: ['volc_ark_access_key', 'volc_ark_secret_key', 'volc_ark_project_name'] } },
+      });
+      const map = Object.fromEntries(rows.map((r) => [r.key, r.value.trim()]));
+      this.dbCredentials = {
+        accessKey: map['volc_ark_access_key'] || undefined,
+        secretKey: map['volc_ark_secret_key'] || undefined,
+        projectName: map['volc_ark_project_name'] || undefined,
+      };
+    } catch {
+      this.dbCredentials = {};
+    }
+    this.dbCredentialsCachedAt = Date.now();
+    return this.dbCredentials;
+  }
+
+  private async effectiveEnv(): Promise<VolcEnv> {
+    const db = await this.loadDbCredentials();
+    return {
+      ...this.env,
+      accessKey: db.accessKey || this.env.accessKey,
+      secretKey: db.secretKey || this.env.secretKey,
+      projectName: db.projectName || this.env.projectName,
+    };
+  }
+
+  /** 主动使 DB 凭证缓存失效（管理员更新设置后调用）。 */
+  invalidateCredentialsCache(): void {
+    this.dbCredentials = null;
+    this.dbCredentialsCachedAt = 0;
+  }
+
+  /** 检查 AK/SK 是否已配置（含 DB 覆盖）。 */
+  async isConfigured(): Promise<boolean> {
+    const env = await this.effectiveEnv();
+    return !!(env.accessKey && env.secretKey);
   }
 
   private normalizeStatus(s?: string): VolcAssetStatus {
@@ -71,19 +120,22 @@ export class VolcAssetService implements OnModuleInit {
   }
 
   private async call<T>(action: string, body: Record<string, any>): Promise<T> {
-    if (!this.env.accessKey || !this.env.secretKey) {
+    const env = await this.effectiveEnv();
+    if (!env.accessKey || !env.secretKey) {
       throw new Error('Volc asset access key not configured');
     }
-    const jsonBody = JSON.stringify(body);
+    // Auto-inject effective projectName so callers don't need to be aware of DB override.
+    const effectiveBody = 'ProjectName' in body ? { ...body, ProjectName: env.projectName } : body;
+    const jsonBody = JSON.stringify(effectiveBody);
     const signed = signVolcRequest({
-      accessKey: this.env.accessKey,
-      secretKey: this.env.secretKey,
-      region: this.env.region,
-      service: this.env.service,
-      host: this.env.host,
+      accessKey: env.accessKey,
+      secretKey: env.secretKey,
+      region: env.region,
+      service: env.service,
+      host: env.host,
       method: 'POST',
       action,
-      version: this.env.version,
+      version: env.version,
       body: jsonBody,
     });
     // Node/undici fetch ignores (and warns about) `Host`; remove before sending.

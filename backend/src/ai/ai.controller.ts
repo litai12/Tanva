@@ -5516,12 +5516,62 @@ export class AiController {
     return 'processing';
   }
 
-  private normalizeVideoTaskResponse<T extends Record<string, any>>(payload: T): T & {
+  private normalizeVideoTaskResponse(payload: Record<string, any>): {
     status: 'queued' | 'processing' | 'succeeded' | 'failed';
+    videoUrl?: string;
+    thumbnailUrl?: string;
+    taskId?: string;
+    error?: string;
+    execution?: Record<string, any>;
   } {
+    const status = this.normalizeUnifiedVideoStatus(payload?.status);
+
+    // 从各种字段名中提取 videoUrl
+    const isHttpUrl = (v: unknown): v is string =>
+      typeof v === 'string' && /^https?:\/\//i.test(v);
+
+    const resolveVideoUrl = (): string | undefined => {
+      const candidates = [
+        payload?.videoUrl,
+        payload?.video_url,
+        payload?.url,
+        payload?.metadata?.url,
+        payload?.data?.url,
+        payload?.data?.video_url,
+        payload?.output?.video_url,
+        payload?.output?.url,
+      ];
+      return candidates.find(isHttpUrl);
+    };
+
+    const resolveThumbnailUrl = (): string | undefined => {
+      const candidates = [
+        payload?.thumbnailUrl,
+        payload?.thumbnail_url,
+        payload?.poster,
+        payload?.metadata?.thumbnail_url,
+      ];
+      return candidates.find(isHttpUrl);
+    };
+
+    const videoUrl = resolveVideoUrl();
+    const thumbnailUrl = resolveThumbnailUrl();
+    const error =
+      typeof payload?.error === 'string' && payload.error ? payload.error : undefined;
+    const taskId =
+      typeof payload?.taskId === 'string' && payload.taskId ? payload.taskId : undefined;
+    const execution =
+      payload?.execution && typeof payload.execution === 'object'
+        ? payload.execution
+        : undefined;
+
     return {
-      ...payload,
-      status: this.normalizeUnifiedVideoStatus(payload?.status),
+      status,
+      ...(videoUrl !== undefined ? { videoUrl } : {}),
+      ...(thumbnailUrl !== undefined ? { thumbnailUrl } : {}),
+      ...(taskId !== undefined ? { taskId } : {}),
+      ...(error !== undefined ? { error } : {}),
+      ...(execution !== undefined ? { execution } : {}),
     };
   }
 

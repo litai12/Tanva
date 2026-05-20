@@ -64,9 +64,12 @@ export class AIProviderFactory implements OnModuleInit {
     const useNewApiSingleTrack =
       this.config.get<string>('AI_MODEL_SINGLE_TRACK', 'new-api') !== 'legacy';
 
+    // 这些 provider 有专属实现（自定义 API 格式），不走 new-api 单轨
+    const nativeProviders = new Set(['runninghub', 'midjourney', 'seedream5']);
+
     // 如果显式指定了 aiProvider，直接使用
     if (aiProvider) {
-      if (useNewApiSingleTrack && newApi) {
+      if (useNewApiSingleTrack && newApi && !nativeProviders.has(aiProvider)) {
         return newApi;
       }
       const provider = this.providers.get(aiProvider);

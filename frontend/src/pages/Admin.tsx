@@ -8355,6 +8355,8 @@ function LoginNoticeSettingsTab() {
   );
 }
 
+const VOLC_ARK_SENSITIVE_KEYS = new Set(['volc_ark_access_key', 'volc_ark_secret_key']);
+
 function SettingsTab() {
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(false);
@@ -8368,6 +8370,12 @@ function SettingsTab() {
   const [groupQrCode, setGroupQrCode] = useState<string>("");
   const [uploadingOfficial, setUploadingOfficial] = useState(false);
   const [uploadingGroup, setUploadingGroup] = useState(false);
+
+  // ARK 素材审核 AK/SK
+  const [volcArkAccessKey, setVolcArkAccessKey] = useState("");
+  const [volcArkSecretKey, setVolcArkSecretKey] = useState("");
+  const [volcArkProjectName, setVolcArkProjectName] = useState("");
+  const [showArkSecretKey, setShowArkSecretKey] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -8401,6 +8409,13 @@ function SettingsTab() {
       if (groupSetting) {
         setGroupQrCode(groupSetting.value);
       }
+      // 加载 ARK AK/SK
+      const arkAccessKeySetting = result.find((s) => s.key === "volc_ark_access_key");
+      if (arkAccessKeySetting) setVolcArkAccessKey(arkAccessKeySetting.value);
+      const arkSecretKeySetting = result.find((s) => s.key === "volc_ark_secret_key");
+      if (arkSecretKeySetting) setVolcArkSecretKey(arkSecretKeySetting.value);
+      const arkProjectSetting = result.find((s) => s.key === "volc_ark_project_name");
+      if (arkProjectSetting) setVolcArkProjectName(arkProjectSetting.value);
     } catch (error) {
       console.error("加载设置失败:", error);
     } finally {
@@ -8501,6 +8516,45 @@ function SettingsTab() {
         description: "Gemini 生文普通渠道供应商路线（147 / Apimart）",
       });
       alert("保存成功");
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveVolcArkSettings = async () => {
+    setSaving(true);
+    try {
+      const tasks: Promise<any>[] = [];
+      if (volcArkAccessKey.trim()) {
+        tasks.push(upsertSetting({
+          key: "volc_ark_access_key",
+          value: volcArkAccessKey.trim(),
+          description: "ARK 素材审核 Access Key（优先级高于环境变量）",
+        }));
+      }
+      if (volcArkSecretKey.trim()) {
+        tasks.push(upsertSetting({
+          key: "volc_ark_secret_key",
+          value: volcArkSecretKey.trim(),
+          description: "ARK 素材审核 Secret Key（优先级高于环境变量）",
+        }));
+      }
+      if (volcArkProjectName.trim()) {
+        tasks.push(upsertSetting({
+          key: "volc_ark_project_name",
+          value: volcArkProjectName.trim(),
+          description: "ARK 素材审核 Project Name（默认 default）",
+        }));
+      }
+      if (tasks.length === 0) {
+        alert("请至少填写 Access Key 或 Secret Key");
+        return;
+      }
+      await Promise.all(tasks);
+      alert("保存成功，新凭证将在 1 分钟内生效");
       loadSettings();
     } catch (error: any) {
       alert(error.message || "保存失败");
@@ -8710,6 +8764,69 @@ function SettingsTab() {
         </div>
       </div>
 
+      {/* ARK 素材审核密钥配置 */}
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-1'>ARK 素材审核密钥配置</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          配置 Seedance 2.0 系列视频生成所需的 ARK AK/SK，用于将参考图片上传至 ARK 素材审核组。
+          此处配置优先级高于环境变量；留空则继续使用环境变量中的值。
+        </p>
+        <div className='space-y-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 mb-1'>
+              Access Key
+            </label>
+            <input
+              type='text'
+              className='w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500'
+              placeholder='AKLTxxxx（留空则使用环境变量）'
+              value={volcArkAccessKey}
+              onChange={(e) => setVolcArkAccessKey(e.target.value)}
+              autoComplete='off'
+            />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 mb-1'>
+              Secret Key
+            </label>
+            <div className='flex gap-2'>
+              <input
+                type={showArkSecretKey ? 'text' : 'password'}
+                className='flex-1 px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500'
+                placeholder='留空则使用环境变量'
+                value={volcArkSecretKey}
+                onChange={(e) => setVolcArkSecretKey(e.target.value)}
+                autoComplete='new-password'
+              />
+              <button
+                type='button'
+                className='px-3 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50'
+                onClick={() => setShowArkSecretKey((v) => !v)}
+              >
+                {showArkSecretKey ? '隐藏' : '显示'}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 mb-1'>
+              Project Name <span className='text-gray-400 font-normal'>（可选，默认 default）</span>
+            </label>
+            <input
+              type='text'
+              className='w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500'
+              placeholder='default'
+              value={volcArkProjectName}
+              onChange={(e) => setVolcArkProjectName(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className='mt-4'>
+          <Button onClick={handleSaveVolcArkSettings} disabled={saving}>
+            {saving ? '保存中...' : '保存配置'}
+          </Button>
+        </div>
+      </div>
+
       {/* 当前设置列表 */}
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>所有系统设置</h3>
@@ -8730,8 +8847,10 @@ function SettingsTab() {
                 <tr key={setting.id} className='border-t'>
                   <td className='px-4 py-2 font-mono text-xs'>{setting.key}</td>
                   <td className='px-4 py-2'>
-                    <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
-                      {setting.value}
+                    <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono'>
+                      {VOLC_ARK_SENSITIVE_KEYS.has(setting.key)
+                        ? `${setting.value.slice(0, 6)}••••••`
+                        : setting.value}
                     </span>
                   </td>
                   <td className='px-4 py-2 text-gray-500'>
