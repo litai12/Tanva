@@ -74,7 +74,7 @@ services:
       args:
         DOCKERHUB_REGISTRY: ${DOCKERHUB_REGISTRY:-docker.1ms.run}
         SKIP_WEB_BUILD: ${NEW_API_SKIP_WEB_BUILD:-1}
-        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}
         HTTP_PROXY: ""
         HTTPS_PROXY: ""
         NO_PROXY: ""
