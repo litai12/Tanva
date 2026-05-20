@@ -48,6 +48,25 @@ services:
       timeout: 3s
       retries: 10
 
+  new-api-patch:
+    image: docker.1ms.run/library/postgres:16-alpine
+    container_name: tanva-new-api-patch
+    restart: "no"
+    depends_on:
+      new-api-postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${NEW_API_PG_PASSWORD:-new_api_pass}
+      PG_USER: ${NEW_API_PG_USER:-new_api}
+      PG_DB: ${NEW_API_PG_DB:-new_api}
+    volumes:
+      - ../new-api/patches:/patches:ro
+    command: >
+      sh -c "find /patches -name '*.sql' | sort | while read f; do
+        echo \"Applying $$f\";
+        psql -h new-api-postgres -U $$PG_USER -d $$PG_DB -f $$f || exit 1;
+      done && echo 'All patches applied.'"
+
   new-api:
     build:
       context: ../new-api
@@ -70,6 +89,8 @@ services:
         condition: service_healthy
       new-api-postgres:
         condition: service_healthy
+      new-api-patch:
+        condition: service_completed_successfully
     ports:
       - "${NEW_API_PORT:-4458}:4455"
     environment:
