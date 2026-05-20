@@ -18,6 +18,7 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ImageTaskService } from './services/image-task.service';
+import { GenerationTaskService } from './services/generation-task.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -66,9 +67,10 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
     TencentVodAigcService,
     ModelRoutingService,
     ImageTaskService,
+    GenerationTaskService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService],
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, GenerationTaskService],
 })
 export class AiModule {}
