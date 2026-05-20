@@ -43,6 +43,7 @@ model User {
   invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
   invites                    User[]                 @relation("UserInvitedBy")
   teamMemberships            TeamMembership[]
+  ownedTeams                 Team[]           @relation("TeamOwner")
 
   // 索引优化：加速用户验证和查找
   @@index([phone, status])  // 手机号登录优化
@@ -642,6 +643,7 @@ model Team {
   id          String   @id @default(uuid())
   name        String
   ownerId     String
+  owner       User     @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   isPersonal  Boolean  @default(false)
   maxSeats    Int      @default(10)
   status      String   @default("active")
