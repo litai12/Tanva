@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,7 +19,11 @@ export class ProjectsService {
   private readonly projectContentFingerprintTtlMs = 30 * 60 * 1000;
   private readonly projectContentFingerprintMaxEntries = 1000;
 
-  constructor(private prisma: PrismaService, private oss: OssService) {}
+  constructor(
+    private prisma: PrismaService,
+    private oss: OssService,
+    @Optional() private readonly canvasSse?: CanvasSseManager,
+  ) {}
 
   private readonly projectMetadataSelect = {
     id: true,
@@ -672,7 +677,7 @@ export class ProjectsService {
     await this.prisma.teamProjectShare.delete({
       where: { projectId_teamId: { projectId, teamId } },
     });
-    // CanvasSseManager will be injected in task 7 to kick team SSE connections here
+    this.canvasSse?.kickTeamConnections(projectId, teamId);
   }
 
   async listWithTeamAccess(userId: string, teamId?: string) {
