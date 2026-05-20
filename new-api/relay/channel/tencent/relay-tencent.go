@@ -241,5 +241,6 @@ func tencentImageResponseHandler(c *gin.Context, resp *http.Response) (any, *typ
 		return nil, types.NewError(err, types.ErrorCodeReadResponseBodyFailed)
 	}
 	c.Data(http.StatusOK, "application/json", body)
-	return nil, nil
+	// Return a minimal Usage so image_handler.go type-asserts safely.
+	return &dto.Usage{PromptTokens: 1, TotalTokens: 1}, nil
 }

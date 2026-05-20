@@ -257,6 +257,33 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge.selected .react
   stroke-width: 1.8px !important;
 }
 
+/* ==================== 文本输入框与画布移动的共存策略 ==================== */
+/* 未聚焦的输入框：不显示文本光标，不允许意外触发文本框选 */
+/* 聚焦后自动恢复默认行为（:not(:focus) 选择器失效） */
+.tanva-flow-overlay .react-flow__node textarea:not(:focus),
+.tanva-flow-overlay .react-flow__node input:not(:focus),
+.tanva-flow-overlay .react-flow__node [contenteditable="true"]:not(:focus) {
+  cursor: default !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* 空格键按下时（pan ready 状态），整个画布区域统一显示抓手光标，包括文本节点 */
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node textarea,
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node input,
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node [contenteditable] {
+  cursor: grab !important;
+  pointer-events: none !important;
+}
+
+/* 平移进行中，所有文本输入框也显示抓手并禁用指针事件 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node textarea,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node input,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node [contenteditable] {
+  cursor: grabbing !important;
+  pointer-events: none !important;
+}
+
 /* 画布平移期间禁止 Flow 节点截获鼠标事件，防止平移被打断 */
 body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node,
 body.tanva-canvas-panning .tanva-flow-overlay .react-flow__edge,

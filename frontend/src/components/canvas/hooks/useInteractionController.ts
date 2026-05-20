@@ -2286,6 +2286,7 @@ export const useInteractionController = ({
 
       if (!isEditable && isSelectionLikeMode() && (event.code === 'Space' || event.key === ' ')) {
         isSpacePressedRef.current = true;
+        document.body.classList.add('tanva-space-pressed');
         const canvasEl = canvasRef.current;
         if (canvasEl && !spacePanDragRef.current) {
           canvasEl.style.cursor = 'grab';
@@ -2494,6 +2495,7 @@ export const useInteractionController = ({
       isAltPressedRef.current = event.altKey;
       if (event.code === 'Space' || event.key === ' ') {
         isSpacePressedRef.current = false;
+        document.body.classList.remove('tanva-space-pressed');
         stopSpacePan();
       }
     };
@@ -2851,6 +2853,7 @@ export const useInteractionController = ({
     const resetModifierKeys = () => {
       isAltPressedRef.current = false;
       isSpacePressedRef.current = false;
+      document.body.classList.remove('tanva-space-pressed');
       stopSpacePan();
       if (isEraserRef.current) {
         drawingToolsRef.current?.clearTemporaryEraserPaths?.();
