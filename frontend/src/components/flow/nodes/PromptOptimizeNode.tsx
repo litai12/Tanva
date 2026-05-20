@@ -144,7 +144,9 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       commitExpandedText(result.optimizedPrompt);
     }
   }, [commitExpandedText, result]);
+
   const handleInsert = React.useCallback((text: string) => {
+    if (isComposingRef.current) return;
     const el = expandedTextareaRef.current;
     if (!el) return;
     const start = el.selectionStart ?? el.value.length;

@@ -222,6 +222,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   }, [id]);
 
   const handleInsert = React.useCallback((text: string) => {
+    if (isComposingRef.current) return;
     const el = textareaRef.current;
     if (!el) return;
     const start = el.selectionStart ?? value.length;
