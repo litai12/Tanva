@@ -70,7 +70,9 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
             downstreamIds.add(edge.target);
           }
         }
-        if (downstreamIds.size === 0) return EMPTY;
+        // Only show sibling images when connected to exactly one downstream node.
+        // If the prompt feeds multiple nodes the context is ambiguous, so hide the strip.
+        if (downstreamIds.size !== 1) return EMPTY;
 
         // 2. Resolve node lookup (supports both ReactFlow v11 nodeLookup and v10 nodes array)
         const nodeLookup = (
