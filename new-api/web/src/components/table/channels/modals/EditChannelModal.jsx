@@ -650,6 +650,7 @@ const EditChannelModal = (props) => {
           localModels = ['suno_music', 'suno_lyrics'];
           break;
         case 45:
+        case 54:
           localModels = getChannelModels(value);
           setInputs((prevInputs) => ({
             ...prevInputs,
@@ -909,6 +910,8 @@ const EditChannelModal = (props) => {
           )
             ? parsedSettings.upstream_model_update_ignored_models.join(',')
             : '';
+          data.volc_access_key = parsedSettings.volc_access_key || '';
+          data.volc_secret_key = parsedSettings.volc_secret_key || '';
         } catch (error) {
           console.error('解析其他设置失败:', error);
           data.azure_responses_version = '';
@@ -928,6 +931,8 @@ const EditChannelModal = (props) => {
           data.upstream_model_update_last_check_time = 0;
           data.upstream_model_update_last_detected_models = [];
           data.upstream_model_update_ignored_models = '';
+          data.volc_access_key = '';
+          data.volc_secret_key = '';
         }
       } else {
         // 兼容历史数据：老渠道没有 settings 时，默认按 json 展示
@@ -946,10 +951,12 @@ const EditChannelModal = (props) => {
         data.upstream_model_update_last_check_time = 0;
         data.upstream_model_update_last_detected_models = [];
         data.upstream_model_update_ignored_models = '';
+        data.volc_access_key = '';
+        data.volc_secret_key = '';
       }
 
       if (
-        data.type === 45 &&
+        (data.type === 45 || data.type === 54) &&
         (!data.base_url ||
           (typeof data.base_url === 'string' && data.base_url.trim() === ''))
       ) {
@@ -2499,6 +2506,30 @@ const EditChannelModal = (props) => {
 
                   {inputs.type === 14 && (
                     <Form.Switch field='claude_beta_query' label={t('Claude 强制 beta=true')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelOtherSettingsChange('claude_beta_query', value)} extraText={t('开启后，该渠道请求 Claude 时将强制追加 ?beta=true（无需客户端手动传参）')} />
+                  )}
+
+                  {inputs.type === 54 && (
+                    <>
+                      <div className='mt-4 mb-2 text-sm font-medium text-gray-700'>
+                        {t('视频素材审核凭证（doubao-seedance-2-0 系列）')}
+                      </div>
+                      <Form.Input
+                        field='volc_access_key'
+                        label={t('Volcengine Access Key')}
+                        placeholder={t('请输入火山引擎 Access Key')}
+                        showClear
+                        onChange={(value) => handleChannelOtherSettingsChange('volc_access_key', value)}
+                        extraText={t('用于自动上传参考图到素材库完成内容审核，仅 doubao-seedance-2-0 系列模型需要')}
+                      />
+                      <Form.Input
+                        field='volc_secret_key'
+                        label={t('Volcengine Secret Key')}
+                        placeholder={t('请输入火山引擎 Secret Key')}
+                        showClear
+                        mode='password'
+                        onChange={(value) => handleChannelOtherSettingsChange('volc_secret_key', value)}
+                      />
+                    </>
                   )}
 
                   {inputs.type === 1 && (

@@ -21,12 +21,12 @@ import (
 // X-TC-Action, X-TC-Version, and X-TC-Region as request headers.
 // new-api looks up the "tencent-mps" channel, adds TC3-HMAC-SHA256 auth, and forwards.
 func ProxyTencentMPS(c *gin.Context) {
-	proxyTencent(c, "tencent-mps", "mps.tencentcloudapi.com", "mps")
+	proxyTencent(c, "tencent", "mps.tencentcloudapi.com", "mps")
 }
 
 // ProxyTencentVOD signs and forwards requests to vod.tencentcloudapi.com.
 func ProxyTencentVOD(c *gin.Context) {
-	proxyTencent(c, "tencent-vod", "vod.tencentcloudapi.com", "vod")
+	proxyTencent(c, "tencent", "vod.tencentcloudapi.com", "vod")
 }
 
 func proxyTencent(c *gin.Context, channelName, host, svcName string) {

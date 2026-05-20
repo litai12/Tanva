@@ -1,58 +1,70 @@
--- 005-add-tencent-channels.sql
--- Purpose: register two Tencent Cloud signing-proxy channels used by
---          the backend's tencent-speech and tencent-vod-aigc services.
+-- 005-add-tencent-channel.sql
+-- Purpose: register ONE shared Tencent Cloud channel used by both
+--          tencent-speech (MPS) and tencent-vod-aigc (VOD) services.
 --
--- These channels are selected by name in controller/tencent_proxy.go:
---   "tencent-mps" → mps.tencentcloudapi.com  (MPS ProcessMedia / DescribeTaskDetail)
---   "tencent-vod" → vod.tencentcloudapi.com  (VOD CreateAigcImageTask, CreateAigcVideoTask, DescribeTaskDetail)
+--   "tencent" → credentials for both mps.tencentcloudapi.com and vod.tencentcloudapi.com
+--               (MPS and VOD share the same secretId/secretKey in most deployments)
 --
--- Key format: secretId|secretKey
--- Keys are PLACEHOLDERS — fill in via admin console after apply:
---   PLACEHOLDER_TENCENT_MPS_SECRET_KEY_PAIR → SecretId|SecretKey for MPS
---   PLACEHOLDER_TENCENT_VOD_SECRET_KEY_PAIR → SecretId|SecretKey for VOD
---     (may be the same pair if both use the same Tencent sub-account)
+-- Key format:  secretId|secretKey
+-- Placeholder — fill in via admin console after apply:
+--   PLACEHOLDER_TENCENT_SECRET_KEY_PAIR → SecretId|SecretKey
 --
--- Channel type 1 = ChannelTypeOpenAI (no special behaviour needed; signing is done in proxy handler)
+-- The upstream endpoint is determined by the route, not the channel base_url:
+--   POST /proxy/tencent/mps → mps.tencentcloudapi.com
+--   POST /proxy/tencent/vod → vod.tencentcloudapi.com
+--
+-- Migration: if old records (tencent-mps, tencent-vod) exist from a prior run,
+--   this patch renames tencent-mps → tencent and soft-deletes tencent-vod.
+--
+-- Channel type 1 = ChannelTypeOpenAI (no upstream relay; TC3 signing done in handler)
 -- Scope: PostgreSQL only, data-only, idempotent.
 
 BEGIN;
 
--- ---------------------------------------------------------------------------
--- tencent-mps: mps.tencentcloudapi.com — Tencent MPS dubbing
--- ---------------------------------------------------------------------------
-INSERT INTO channels (
-  type, name, key, status, base_url,
-  created_time, updated_time
-)
-SELECT
-  1,
-  'tencent-mps',
-  'PLACEHOLDER_TENCENT_MPS_SECRET_KEY_PAIR',
-  1,
-  'https://mps.tencentcloudapi.com',
-  EXTRACT(EPOCH FROM NOW())::bigint,
-  EXTRACT(EPOCH FROM NOW())::bigint
-WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'tencent-mps' AND deleted_at IS NULL
-);
+-- Step 1: Rename tencent-mps → tencent when tencent doesn't exist yet.
+UPDATE channels
+SET name         = 'tencent',
+    base_url     = '',
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE name = 'tencent-mps'
+  AND deleted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
+  );
 
--- ---------------------------------------------------------------------------
--- tencent-vod: vod.tencentcloudapi.com — Tencent VOD AIGC image/video
--- ---------------------------------------------------------------------------
+-- Step 2: Soft-delete tencent-vod (merged into the tencent channel).
+UPDATE channels
+SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE name = 'tencent-vod'
+  AND deleted_at IS NULL;
+
+-- Step 3: Soft-delete any leftover tencent-mps that wasn't renamed
+--         (happens when tencent already existed before step 1 ran).
+UPDATE channels
+SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE name = 'tencent-mps'
+  AND deleted_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
+  );
+
+-- Step 4: Insert tencent only if it still doesn't exist after the rename above.
 INSERT INTO channels (
   type, name, key, status, base_url,
   created_time, updated_time
 )
 SELECT
   1,
-  'tencent-vod',
-  'PLACEHOLDER_TENCENT_VOD_SECRET_KEY_PAIR',
+  'tencent',
+  'PLACEHOLDER_TENCENT_SECRET_KEY_PAIR',
   1,
-  'https://vod.tencentcloudapi.com',
+  '',
   EXTRACT(EPOCH FROM NOW())::bigint,
   EXTRACT(EPOCH FROM NOW())::bigint
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'tencent-vod' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'tencent' AND deleted_at IS NULL
 );
 
 COMMIT;

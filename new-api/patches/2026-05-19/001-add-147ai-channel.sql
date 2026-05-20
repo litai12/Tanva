@@ -93,7 +93,7 @@ WITH channel_seed(name, type, channel_group, models, model_mapping, status, base
       "gpt-image-2-147ai":                    "gpt-image-2"
     }$json$,
     1,
-    'https://api.147ai.cn',
+    'https://api1.147ai.com',
     'PLACEHOLDER_147AI_KEY',
     10, 100, '147ai'
   )
@@ -119,7 +119,7 @@ SET models        = 'gemini-3-pro-image-preview,gemini-3.1-flash-image-preview,g
       "gemini-3.1-flash-image-preview-147ai": "gemini-3.1-flash-image-preview",
       "gpt-image-2-147ai":                    "gpt-image-2"
     }$json$,
-    base_url      = 'https://api.147ai.cn'
+    base_url      = 'https://api1.147ai.com'
 WHERE name = '147ai' AND type = 63 AND "group" = 'default';
 
 -- ---------------------------------------------------------------------------

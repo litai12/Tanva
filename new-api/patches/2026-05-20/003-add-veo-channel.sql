@@ -1,43 +1,26 @@
 -- 003-add-veo-channel.sql
--- Purpose: register the legacy 147AI (api1.147ai.com) as a channel type-1
---          (OpenAI-compatible) for VEO video-generation models.
+-- Purpose: add VEO video-generation models to the existing '147ai' channel
+--          and clean up the old '147ai-veo' channel if it was previously created.
 --
--- VEO models call POST /v1/chat/completions and embed the video URL in the
--- response content — handled transparently by the type-1 OpenAI adaptor.
+-- VEO models use POST /v1/chat/completions (OpenAI chat format) — handled by the
+-- magic666/onefourseven adaptor's default branch.
 --
--- Models:
+-- All 147AI models (image + video) share one channel and one API key:
+--   channel: 147ai  (type 63, ChannelType147AI)
+--   base_url updated to https://api1.147ai.com (unified endpoint for all models)
+--   key: PLACEHOLDER_147AI_KEY (same credential as patch 001)
+--
+-- Models added here:
 --   veo3-fast          (video, chat-completions format)
 --   veo3-pro           (video, chat-completions format)
 --   veo3-pro-frames    (video, chat-completions format, supports reference image)
 --
--- Key: PLACEHOLDER_147AI_LEGACY_KEY — fill in via admin console after apply.
---      (same credential as BANANA_API_KEY)
 -- Scope: PostgreSQL only, data-only, idempotent.
 
 BEGIN;
 
 -- ---------------------------------------------------------------------------
--- Step 1: Seed vendor.
--- ---------------------------------------------------------------------------
-
-WITH vendor_seed(name, description) AS (
-  VALUES ('147AI Legacy', '147AI legacy gateway (api1.147ai.com) — VEO video generation via chat-completions')
-)
-INSERT INTO vendors (name, description, icon, status, created_time, updated_time)
-SELECT s.name, s.description, NULL, 1,
-       EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint
-FROM vendor_seed AS s
-WHERE NOT EXISTS (
-  SELECT 1 FROM vendors WHERE name = s.name AND deleted_at IS NULL
-);
-
-UPDATE vendors
-SET description  = '147AI legacy gateway (api1.147ai.com) — VEO video generation via chat-completions',
-    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
-WHERE name = '147AI Legacy' AND deleted_at IS NULL;
-
--- ---------------------------------------------------------------------------
--- Step 2: Seed models.
+-- Step 1: Seed VEO models.
 -- ---------------------------------------------------------------------------
 
 WITH base_models(model_name, kind) AS (VALUES
@@ -50,11 +33,11 @@ INSERT INTO models (
   sync_official, created_time, updated_time, name_rule
 )
 SELECT f.model_name,
-       '147AI Legacy VEO model — ' || f.model_name,
+       '147AI VEO model — ' || f.model_name,
        NULL, NULL, v.id, NULL, f.kind, 1, 0,
        EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint, 0
 FROM base_models AS f
-CROSS JOIN (SELECT id FROM vendors WHERE name = '147AI Legacy' AND deleted_at IS NULL LIMIT 1) AS v
+CROSS JOIN (SELECT id FROM vendors WHERE name = '147AI' AND deleted_at IS NULL LIMIT 1) AS v
 WHERE NOT EXISTS (
   SELECT 1 FROM models WHERE model_name = f.model_name AND deleted_at IS NULL
 );
@@ -69,46 +52,29 @@ FROM (VALUES
   ('veo3-pro',        'video'),
   ('veo3-pro-frames', 'video')
 ) AS f(model_name, kind)
-CROSS JOIN (SELECT id FROM vendors WHERE name = '147AI Legacy' AND deleted_at IS NULL LIMIT 1) AS v
+CROSS JOIN (SELECT id FROM vendors WHERE name = '147AI' AND deleted_at IS NULL LIMIT 1) AS v
 WHERE target.model_name = f.model_name
   AND target.deleted_at IS NULL;
 
 -- ---------------------------------------------------------------------------
--- Step 3: Upsert channel (type 1 = OpenAI-compatible).
+-- Step 2: Update the existing '147ai' channel.
+--   - Switch base_url to api1.147ai.com (unified endpoint for image + video)
+--   - Append VEO models to the models list
 -- ---------------------------------------------------------------------------
-
-WITH channel_seed(name, type, channel_group, models, status, base_url, key, priority, weight, tag) AS (
-  VALUES (
-    '147ai-veo',
-    1,
-    'default',
-    'veo3-fast,veo3-pro,veo3-pro-frames',
-    1,
-    'https://api1.147ai.com',
-    'PLACEHOLDER_147AI_LEGACY_KEY',
-    10, 100, '147ai-veo'
-  )
-)
-INSERT INTO channels (
-  name, type, "group", models, model_mapping, status, base_url, key,
-  created_time, test_time, priority, weight, tag,
-  setting, param_override, header_override
-)
-SELECT s.name, s.type, s.channel_group, s.models, NULL, s.status, s.base_url, s.key,
-       EXTRACT(EPOCH FROM NOW())::bigint, 0, s.priority, s.weight, s.tag,
-       NULL, NULL, NULL
-FROM channel_seed AS s
-WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = s.name AND type = s.type AND "group" = s.channel_group
-);
 
 UPDATE channels
-SET models    = 'veo3-fast,veo3-pro,veo3-pro-frames',
-    base_url  = 'https://api1.147ai.com'
-WHERE name = '147ai-veo' AND type = 1 AND "group" = 'default';
+SET base_url     = 'https://api1.147ai.com',
+    models       = 'gemini-3-pro-image-preview,gemini-3.1-flash-image-preview,gpt-image-2,'
+                || 'gemini-3-pro-image-preview-147ai,gemini-3.1-flash-image-preview-147ai,gpt-image-2-147ai,'
+                || 'veo3-fast,veo3-pro,veo3-pro-frames',
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE name = '147ai'
+  AND type = 63
+  AND "group" = 'default'
+  AND deleted_at IS NULL;
 
 -- ---------------------------------------------------------------------------
--- Step 4: Seed abilities.
+-- Step 3: Register VEO abilities under the '147ai' channel.
 -- ---------------------------------------------------------------------------
 
 WITH models_list(model) AS (VALUES
@@ -120,10 +86,10 @@ ability_matrix AS (
   CROSS JOIN (VALUES ('default'), ('auto')) AS g(ability_group)
 )
 INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
-SELECT am.ability_group, am.model, c.id, true, 10, 100, '147ai-veo'
+SELECT am.ability_group, am.model, c.id, true, 10, 100, '147ai'
 FROM ability_matrix AS am
 JOIN channels AS c
-  ON c.name = '147ai-veo' AND c.type = 1 AND c."group" = 'default'
+  ON c.name = '147ai' AND c.type = 63 AND c."group" = 'default' AND c.deleted_at IS NULL
 ON CONFLICT ("group", model, channel_id) DO UPDATE
 SET enabled  = EXCLUDED.enabled,
     priority = EXCLUDED.priority,
@@ -131,7 +97,24 @@ SET enabled  = EXCLUDED.enabled,
     tag      = EXCLUDED.tag;
 
 -- ---------------------------------------------------------------------------
--- Step 5: Seed ModelPrice (placeholder — VEO pricing TBD).
+-- Step 4: Soft-delete the old '147ai-veo' channel (now redundant).
+--   Also clean up its abilities so routing doesn't pick up the deleted channel.
+-- ---------------------------------------------------------------------------
+
+UPDATE abilities
+SET enabled = false
+WHERE channel_id IN (
+  SELECT id FROM channels WHERE name = '147ai-veo' AND deleted_at IS NULL
+);
+
+UPDATE channels
+SET deleted_at   = EXTRACT(EPOCH FROM NOW())::bigint,
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE name = '147ai-veo'
+  AND deleted_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Step 5: Seed ModelPrice for VEO models.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO options (key, value) VALUES (

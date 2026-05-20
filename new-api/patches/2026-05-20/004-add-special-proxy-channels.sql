@@ -6,13 +6,13 @@
 --   "kapon-speech"    → models.kapon.cloud            (minimax TTS proxy)
 --   "minimax-music"   → api.minimaxi.com              (minimax music generation)
 --   "ark"             → ark.cn-beijing.volces.com/api/v3  (Doubao: Seed3D + Seedream5)
---   "watcha-seedream" → tokendance.agent-universe.cn/gateway/ark  (Watcha Seedream5)
+--   "watcha" → tokendance.agent-universe.cn/gateway/ark  (Watcha Seedream5)
 --
 -- Keys are PLACEHOLDERS — fill in via admin console after apply:
 --   PLACEHOLDER_MINIMAX_API_KEY       → MINIMAX_API_KEY (for kapon-speech)
 --   PLACEHOLDER_MINIMAX_MUSIC_API_KEY → MINIMAX_MUSIC_API_KEY or MINIMAX_API_KEY (for minimax-music)
 --   PLACEHOLDER_ARK_API_KEY           → ARK_API_KEY / DOUBAO_API_KEY (for ark: Seed3D + Seedream5)
---   PLACEHOLDER_WATCHA_SEEDREAM_KEY   → WATCHA_SEEDREAM_API_KEY (for watcha-seedream)
+--   PLACEHOLDER_WATCHA_SEEDREAM_KEY   → WATCHA_SEEDREAM_API_KEY (for watcha)
 --
 -- Scope: PostgreSQL only, data-only, idempotent.
 
@@ -80,7 +80,7 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------------
--- watcha-seedream: tokendance.agent-universe.cn/gateway/ark — Watcha Seedream5
+-- watcha: tokendance.agent-universe.cn/gateway/ark — Watcha Seedream5
 -- channel type 1 = ChannelTypeOpenAI
 -- ---------------------------------------------------------------------------
 INSERT INTO channels (
@@ -89,14 +89,14 @@ INSERT INTO channels (
 )
 SELECT
   1,
-  'watcha-seedream',
+  'watcha',
   'PLACEHOLDER_WATCHA_SEEDREAM_KEY',
   1,
   'https://tokendance.agent-universe.cn/gateway/ark',
   EXTRACT(EPOCH FROM NOW())::bigint,
   EXTRACT(EPOCH FROM NOW())::bigint
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'watcha-seedream' AND deleted_at IS NULL
+  SELECT 1 FROM channels WHERE name = 'watcha' AND deleted_at IS NULL
 );
 
 COMMIT;
