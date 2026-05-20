@@ -1528,3 +1528,57 @@ export async function cleanupVolcReviewGroup(date?: string) {
   });
   return response.json() as Promise<{ date: string; deleted: boolean }>;
 }
+
+// ── 团队管理 ──────────────────────────────────────────────────
+
+export interface AdminTeamItem {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+  memberCount: number;
+  maxSeats: number;
+  availableCredits: number;
+  totalCredits: number;
+  createdAt: string;
+}
+
+export async function adminGetTeams(params?: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ teams: AdminTeamItem[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  const suffix = searchParams.toString() ? `?${searchParams}` : "";
+  const response = await request(`/api/admin/teams${suffix}`);
+  return response.json();
+}
+
+export async function adminAddTeamCredits(
+  teamId: string,
+  amount: number,
+  description: string,
+): Promise<{ teamId: string; addedCredits: number }> {
+  const response = await request(`/api/admin/teams/${teamId}/credits/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, description }),
+  });
+  return response.json();
+}
+
+export async function adminDeductTeamCredits(
+  teamId: string,
+  amount: number,
+  description: string,
+): Promise<{ teamId: string; deductedCredits: number }> {
+  const response = await request(`/api/admin/teams/${teamId}/credits/deduct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, description }),
+  });
+  return response.json();
+}

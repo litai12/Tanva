@@ -806,4 +806,44 @@ export class AdminController {
     this.checkAdmin(req);
     return this.volcAssetService.cleanupGroupByDate(body?.date);
   }
+
+  // ── 团队管理 ─────────────────────────────────────────────────────
+
+  @Get('teams')
+  @ApiOperation({ summary: '获取所有团队列表（管理员）' })
+  async adminListTeams(
+    @Request() req: AuthenticatedRequest,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminListTeams({
+      search,
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
+    });
+  }
+
+  @Post('teams/:teamId/credits/add')
+  @ApiOperation({ summary: '为团队添加积分（管理员）' })
+  async adminAddTeamCredits(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+    @Body() dto: { amount: number; description: string },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminAddTeamCredits(teamId, dto.amount, dto.description, req.user.id);
+  }
+
+  @Post('teams/:teamId/credits/deduct')
+  @ApiOperation({ summary: '扣除团队积分（管理员）' })
+  async adminDeductTeamCredits(
+    @Request() req: AuthenticatedRequest,
+    @Param('teamId') teamId: string,
+    @Body() dto: { amount: number; description: string },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.adminDeductTeamCredits(teamId, dto.amount, dto.description, req.user.id);
+  }
 }

@@ -49,6 +49,10 @@ import {
   updateNodeConfig,
   createNodeConfig,
   deleteNodeConfig,
+  adminGetTeams,
+  adminAddTeamCredits,
+  adminDeductTeamCredits,
+  type AdminTeamItem,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
@@ -87,6 +91,7 @@ const NORMAL_ADMIN_ROLE = "normal_admin";
 type AdminTabKey =
   | "dashboard"
   | "users"
+  | "teams"
   | "paid-users"
   | "credit-records"
   | "credit-anomalies"
@@ -4766,6 +4771,195 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
 
   return metadata;
 };
+
+// 团队管理 Tab
+function TeamsTab() {
+  const [teams, setTeams] = useState<AdminTeamItem[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [creditModal, setCreditModal] = useState<{
+    teamId: string; teamName: string; mode: 'add' | 'deduct';
+  } | null>(null);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditDesc, setCreditDesc] = useState('');
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [creditError, setCreditError] = useState('');
+
+  const load = useCallback(async (p = 1, q = search) => {
+    setLoading(true);
+    try {
+      const res = await adminGetTeams({ search: q || undefined, page: p, pageSize: 20 });
+      setTeams(res.teams);
+      setPagination(res.pagination);
+      setPage(p);
+    } catch (e: any) {
+      alert(e?.message || '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [search]);
+
+  useEffect(() => { void load(1); }, []);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    void load(1, search);
+  };
+
+  const openCreditModal = (team: AdminTeamItem, mode: 'add' | 'deduct') => {
+    setCreditModal({ teamId: team.id, teamName: team.name, mode });
+    setCreditAmount('');
+    setCreditDesc('');
+    setCreditError('');
+  };
+
+  const submitCredit = async () => {
+    if (!creditModal) return;
+    const amount = Number(creditAmount);
+    if (!amount || amount <= 0) { setCreditError('请输入有效积分数'); return; }
+    setCreditBusy(true);
+    setCreditError('');
+    try {
+      if (creditModal.mode === 'add') {
+        await adminAddTeamCredits(creditModal.teamId, amount, creditDesc || `管理员增加 ${amount} 积分`);
+      } else {
+        await adminDeductTeamCredits(creditModal.teamId, amount, creditDesc || `管理员扣除 ${amount} 积分`);
+      }
+      setCreditModal(null);
+      void load(page);
+    } catch (e: any) {
+      setCreditError(e?.message || '操作失败');
+    } finally {
+      setCreditBusy(false);
+    }
+  };
+
+  return (
+    <div className='space-y-4'>
+      <div className='rounded-lg border bg-white p-4 shadow-sm'>
+        <form onSubmit={handleSearch} className='flex gap-2 mb-4'>
+          <input
+            className='flex-1 border rounded px-3 py-1.5 text-sm'
+            placeholder='搜索团队名称…'
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <button type='submit' className='px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700'>
+            搜索
+          </button>
+        </form>
+
+        {loading ? (
+          <div className='text-center py-8 text-gray-400'>加载中…</div>
+        ) : (
+          <>
+            <table className='w-full text-sm'>
+              <thead>
+                <tr className='border-b text-left text-gray-500'>
+                  <th className='pb-2 pr-4'>团队名称</th>
+                  <th className='pb-2 pr-4'>所有者</th>
+                  <th className='pb-2 pr-4'>成员</th>
+                  <th className='pb-2 pr-4'>可用积分</th>
+                  <th className='pb-2 pr-4'>总积分</th>
+                  <th className='pb-2 pr-4'>创建时间</th>
+                  <th className='pb-2'>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teams.map((team) => (
+                  <tr key={team.id} className='border-b last:border-0 hover:bg-gray-50'>
+                    <td className='py-2 pr-4'>
+                      <div className='font-medium'>{team.name}</div>
+                      <div className='text-xs text-gray-400'>{team.id}</div>
+                    </td>
+                    <td className='py-2 pr-4 text-gray-600'>{team.ownerName}</td>
+                    <td className='py-2 pr-4'>{team.memberCount} / {team.maxSeats}</td>
+                    <td className='py-2 pr-4 font-medium text-blue-600'>{team.availableCredits.toLocaleString()}</td>
+                    <td className='py-2 pr-4 text-gray-500'>{team.totalCredits.toLocaleString()}</td>
+                    <td className='py-2 pr-4 text-gray-500 text-xs'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
+                    <td className='py-2'>
+                      <div className='flex gap-1'>
+                        <button
+                          onClick={() => openCreditModal(team, 'add')}
+                          className='px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200'
+                        >
+                          +积分
+                        </button>
+                        <button
+                          onClick={() => openCreditModal(team, 'deduct')}
+                          className='px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200'
+                        >
+                          -积分
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {teams.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className='py-8 text-center text-gray-400'>暂无团队</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {pagination && pagination.totalPages > 1 && (
+              <div className='flex justify-center gap-2 mt-4'>
+                {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => void load(p)}
+                    className={`px-3 py-1 text-sm rounded ${p === page ? 'bg-blue-600 text-white' : 'border hover:bg-gray-50'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {creditModal && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40'>
+          <div className='bg-white rounded-xl p-6 w-80 shadow-xl'>
+            <h3 className='font-semibold mb-4'>
+              {creditModal.mode === 'add' ? '增加积分' : '扣除积分'} · {creditModal.teamName}
+            </h3>
+            <input
+              type='number'
+              min={1}
+              className='w-full border rounded px-3 py-2 text-sm mb-2'
+              placeholder='积分数量'
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
+            />
+            <input
+              className='w-full border rounded px-3 py-2 text-sm mb-3'
+              placeholder='备注（可选）'
+              value={creditDesc}
+              onChange={(e) => setCreditDesc(e.target.value)}
+            />
+            {creditError && <p className='text-red-500 text-xs mb-2'>{creditError}</p>}
+            <div className='flex gap-2 justify-end'>
+              <button onClick={() => setCreditModal(null)} className='px-3 py-1.5 text-sm border rounded hover:bg-gray-50'>
+                取消
+              </button>
+              <button
+                onClick={() => void submitCredit()}
+                disabled={creditBusy}
+                className={`px-3 py-1.5 text-sm rounded text-white ${creditModal.mode === 'add' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+              >
+                {creditBusy ? '处理中…' : '确认'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 用户管理 Tab
 function UsersTab({
@@ -13459,6 +13653,7 @@ export default function Admin() {
   const tabs: { key: AdminTabKey; label: string }[] = [
     { key: "dashboard", label: "概览" },
     { key: "users", label: "用户管理" },
+    { key: "teams", label: "团队管理" },
     { key: "paid-users", label: "付费用户" },
     { key: "credit-records", label: "积分记录" },
     { key: "credit-anomalies", label: "异常积分" },
@@ -13559,6 +13754,7 @@ export default function Admin() {
         {currentTab === "users" && (
           <UsersTab canManageSensitiveUserFields={canManageSensitiveUserFields} />
         )}
+        {currentTab === "teams" && <TeamsTab />}
         {currentTab === "paid-users" && <PaidUsersTab />}
         {currentTab === "credit-records" && <CreditChangeRecordsTab />}
         {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}

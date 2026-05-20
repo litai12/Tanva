@@ -10,7 +10,9 @@ export type SiblingImage = {
 
 function parseHandleIndex(sourceHandle: string | null | undefined): number {
   if (!sourceHandle) return 0;
-  // "images-2" → 2, "img3" → 2 (0-based), "images" → 0
+  // "images-2" → 2 (0-based, dash suffix used as-is)
+  // "img3" → 2 (1-based trail digit, subtract 1 to get 0-based index)
+  // "images" or null → 0
   const dashMatch = /^[a-z]+-(\d+)$/i.exec(sourceHandle);
   if (dashMatch) return Number(dashMatch[1]);
   const trailMatch = /(\d+)$/.exec(sourceHandle);
@@ -75,14 +77,14 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           state as ReactFlowState & { nodeLookup?: Map<string, FlowNode> }
         ).nodeLookup;
         const hasNodeLookup = nodeLookup && typeof nodeLookup.get === 'function';
-        const fallbackNodes: FlowNode[] = hasNodeLookup
-          ? []
-          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes || state.getNodes());
-        const fallbackById = hasNodeLookup
+        const fallbackNodes = hasNodeLookup
           ? null
-          : new Map(fallbackNodes.map((n) => [n.id, n]));
+          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes || state.getNodes());
+        const fallbackById = fallbackNodes
+          ? new Map(fallbackNodes.map((n) => [n.id, n]))
+          : null;
         const getNode = (id: string): FlowNode | undefined =>
-          hasNodeLookup ? nodeLookup!.get(id) : fallbackById!.get(id);
+          hasNodeLookup ? nodeLookup!.get(id) : fallbackById?.get(id);
 
         // 3. Collect sibling image edges: connected to any downstream node, not a text input
         //    Preserve order by edges array position.

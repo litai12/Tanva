@@ -60,7 +60,8 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthStore, refreshTeams } from "@/stores/authStore";
+import { useTeamStore } from "@/stores/teamStore";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
@@ -793,6 +794,7 @@ const FloatingHeader: React.FC = () => {
   };
 
   const { user, logout, loading, connection } = useAuthStore();
+  const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
 
   // 加载用户的 Google API Key 设置
   useEffect(() => {
@@ -855,7 +857,13 @@ const FloatingHeader: React.FC = () => {
   // 监听全局积分刷新事件
   useEffect(() => {
     const handleRefreshCredits = () => {
-      refreshCreditsAndDailyReward();
+      const activeTeam = useTeamStore.getState().getActiveTeam();
+      if (activeTeam && !activeTeam.isPersonal) {
+        // 团队模式：刷新团队积分
+        void refreshTeams();
+      } else {
+        refreshCreditsAndDailyReward();
+      }
     };
     window.addEventListener("refresh-credits", handleRefreshCredits);
     return () => {
@@ -900,10 +908,13 @@ const FloatingHeader: React.FC = () => {
   }, []);
 
   const topCreditsText = useMemo(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      return activeTeamForCredits.availableCredits.toLocaleString();
+    }
     if (creditsLoading && !creditsInfo) return "...";
     if (creditsInfo) return creditsInfo.balance.toLocaleString();
     return "--";
-  }, [creditsInfo, creditsLoading]);
+  }, [creditsInfo, creditsLoading, activeTeamForCredits]);
   const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
   const isDarkTheme = chatTheme === "black";
   const themeToggleLabel =

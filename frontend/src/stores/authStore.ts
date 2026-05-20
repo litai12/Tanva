@@ -19,6 +19,10 @@ type AuthState = {
   forceLogout: (reason?: string) => void;
 };
 
+export async function refreshTeams() {
+  return loadTeams();
+}
+
 async function loadTeams() {
   try {
     const teams = await teamApi.getMyTeams();

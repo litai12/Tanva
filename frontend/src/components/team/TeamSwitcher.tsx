@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, Users, Plus, Settings, LogIn, X, FolderOpen, Loader2 } from 'lucide-react';
+import { ChevronDown, Users, Plus, Settings, LogIn, X, FolderOpen, Loader2, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -215,9 +215,16 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
   const [modal, setModal] = useState<ActiveModal>('none');
   const [teamPickerTarget, setTeamPickerTarget] = useState<{ id: string; name: string } | null>(null);
 
+  const personalTeam = teams.find((t) => t.isPersonal);
+  const orgTeams = teams.filter((t) => !t.isPersonal);
   const activeTeam = teams.find((t) => t.id === activeTeamId);
+  const isPersonalActive = !activeTeam || activeTeam.isPersonal;
+
   const displayName = (() => {
-    if (!activeTeam) return '工作区';
+    if (!activeTeam || activeTeam.isPersonal) {
+      const name = (user as any)?.name || (user as any)?.phone || '个人';
+      return name.length > 10 ? name.slice(0, 10) + '…' : name;
+    }
     return activeTeam.name.length > 10 ? activeTeam.name.slice(0, 10) + '…' : activeTeam.name;
   })();
 
@@ -242,13 +249,13 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
     }
   };
 
+  const switchToPersonal = () => {
+    if (personalTeam) switchTeam(personalTeam.id);
+  };
+
   const handleTeamPickerConfirm = (projectId?: string) => {
     if (!teamPickerTarget) return;
     completeSwitchTeam(teamPickerTarget.id, projectId);
-    setTeamPickerTarget(null);
-  };
-
-  const handleTeamPickerCancel = () => {
     setTeamPickerTarget(null);
   };
 
@@ -270,35 +277,66 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
           className,
         );
 
+  const userName = (user as any)?.name || (user as any)?.phone || '个人账户';
+
   const menuContent = (
     <DropdownMenuContent
       align="end"
       sideOffset={8}
-      className="w-56 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md shadow-[0_12px_28px_rgba(15,23,42,0.12)] p-1.5"
+      className="w-60 rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md shadow-[0_12px_28px_rgba(15,23,42,0.12)] p-1.5"
     >
-      <DropdownMenuLabel className="px-3 py-1 text-xs text-slate-400 font-normal">
-        切换工作区
+      {/* 个人账户 */}
+      <DropdownMenuLabel className="px-3 py-1 text-[10px] text-slate-400 font-normal uppercase tracking-wide">
+        个人账户
       </DropdownMenuLabel>
+      <DropdownMenuItem
+        onClick={switchToPersonal}
+        className={cn(
+          'rounded-xl px-3 py-2 cursor-pointer text-sm flex items-center gap-2',
+          isPersonalActive ? 'bg-slate-100' : '',
+        )}
+      >
+        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+          <User className="w-3 h-3 text-blue-600" />
+        </div>
+        <span className="flex-1 truncate">{userName}</span>
+        <span className="text-[10px] text-slate-400 shrink-0">个人</span>
+        {isPersonalActive && (
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+        )}
+      </DropdownMenuItem>
 
-      {teams.map((team) => (
-        <DropdownMenuItem
-          key={team.id}
-          onClick={() => switchTeam(team.id)}
-          className={cn(
-            'rounded-xl px-3 py-2 cursor-pointer text-sm flex items-center gap-2',
-            team.id === activeTeamId ? 'bg-slate-100' : '',
-          )}
-        >
-          <span className="flex-1 truncate">{team.name}</span>
-          {team.isPersonal && <span className="text-[10px] text-slate-400">个人</span>}
-          {team.id === activeTeamId && (
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-          )}
-        </DropdownMenuItem>
-      ))}
+      {/* 团队账户 */}
+      {orgTeams.length > 0 && (
+        <>
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuLabel className="px-3 py-1 text-[10px] text-slate-400 font-normal uppercase tracking-wide">
+            团队账户
+          </DropdownMenuLabel>
+          {orgTeams.map((team) => (
+            <DropdownMenuItem
+              key={team.id}
+              onClick={() => switchTeam(team.id)}
+              className={cn(
+                'rounded-xl px-3 py-2 cursor-pointer text-sm flex items-center gap-2',
+                team.id === activeTeamId ? 'bg-slate-100' : '',
+              )}
+            >
+              <div className="w-5 h-5 rounded-lg bg-teal-100 flex items-center justify-center shrink-0">
+                <Users className="w-3 h-3 text-teal-600" />
+              </div>
+              <span className="flex-1 truncate">{team.name}</span>
+              {team.id === activeTeamId && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </>
+      )}
 
       <DropdownMenuSeparator className="my-1" />
 
+      {/* 当前活动团队的管理选项 */}
       {activeTeam && !activeTeam.isPersonal && onManage && (
         <DropdownMenuItem
           onClick={() => onManage(activeTeam.id)}
@@ -342,7 +380,7 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
           teamId={teamPickerTarget.id}
           teamName={teamPickerTarget.name}
           onConfirm={handleTeamPickerConfirm}
-          onCancel={handleTeamPickerCancel}
+          onCancel={() => setTeamPickerTarget(null)}
         />
       )}
 
@@ -350,9 +388,12 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className={triggerClass}>
-              <Users className="w-3 h-3 shrink-0" />
+              {isPersonalActive
+                ? <User className="w-3 h-3 shrink-0" />
+                : <Users className="w-3 h-3 shrink-0" />
+              }
               <span className="truncate">{displayName}</span>
-              {activeTeam?.isPersonal && (
+              {isPersonalActive && (
                 <span className="text-[10px] text-gray-400 shrink-0">个人</span>
               )}
               <ChevronDown className="w-3 h-3 shrink-0 opacity-50" />
@@ -363,9 +404,12 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger className={triggerClass}>
-            <Users className="w-3.5 h-3.5" />
+            {isPersonalActive
+              ? <User className="w-3.5 h-3.5" />
+              : <Users className="w-3.5 h-3.5" />
+            }
             <span>{displayName}</span>
-            {activeTeam?.isPersonal && <span className="text-xs text-white/60">个人</span>}
+            {isPersonalActive && <span className="text-xs text-white/60">个人</span>}
             <ChevronDown className="w-3.5 h-3.5 opacity-70" />
           </DropdownMenuTrigger>
           {menuContent}
