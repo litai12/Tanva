@@ -812,8 +812,6 @@ const FloatingHeader: React.FC = () => {
       .finally(() => setDropdownTeamLoading(false));
   }, [dropdownContextId]);
 
-  const dropdownProjects = dropdownContextId === 'personal' ? recentProjects : dropdownTeamProjects.slice(0, MAX_QUICK_PROJECTS);
-
   // 加载用户的 Google API Key 设置
   useEffect(() => {
     if (!user) return;
@@ -1120,6 +1118,8 @@ const FloatingHeader: React.FC = () => {
     }
     return sliced;
   }, [projects, currentProject?.id]);
+
+  const dropdownProjects = dropdownContextId === 'personal' ? recentProjects : dropdownTeamProjects.slice(0, MAX_QUICK_PROJECTS);
   const sendShortcutOptions = [
     {
       value: "enter" as const,
