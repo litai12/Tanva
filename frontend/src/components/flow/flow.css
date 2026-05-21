@@ -630,13 +630,7 @@ input[type="text"],
   bottom: -3px !important;
 }
 
-/* content-visibility: auto 让浏览器跳过视口外节点的布局/绘制，
-   contain-intrinsic-size 给出初始占位尺寸防止滚动条抖动。
-   注意：仅对非 nodeGroup 类型启用，group 节点需要 overflow:visible */
-.tanva-flow-overlay .react-flow__node:not(.react-flow__node-nodeGroup) {
-  content-visibility: auto;
-  contain-intrinsic-size: 0 200px;
-}
+/* content-visibility: auto 隐式开启 CSS Paint Containment，会裁剪溢出节点边界的下拉菜单/弹窗，已移除 */
 
 /* 低细节模式：隐藏彩色句柄，仅保留节点 UI 主体 */
 .tanva-flow-overlay.low-detail-mode .react-flow__handle,
