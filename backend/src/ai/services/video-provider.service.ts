@@ -881,8 +881,8 @@ export class VideoProviderService {
     const size = this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
-    // Always send raw HTTPS URLs to new-api — asset:// refs are bound to the upload
-    // account's credentials, which differ from the doubao channel's Bearer key.
+    // Always send raw HTTPS URLs to new-api — asset upload is handled by the backend
+    // volc-asset service; new-api forwards URLs directly to Ark without re-uploading.
     const referenceImages = this.extractReferenceImageUrls(options.referenceImages);
     const referenceImageRawUrls: string[] | undefined = undefined;
     const referenceVideos = [

@@ -201,28 +201,6 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		modelName = req.Model
 	}
 
-	if isSeedance20Series(modelName) && len(req.Images) > 0 && a.volcAccessKey != "" && a.volcSecretKey != "" {
-		groupID, cleanup, err := ensureAssetGroup(a.volcAccessKey, a.volcSecretKey, req.Images)
-		if err != nil {
-			return nil, errors.Wrap(err, "创建素材分组失败")
-		}
-		if groupID != "" {
-			for i, img := range req.Images {
-				if strings.HasPrefix(img, "asset://") {
-					continue
-				}
-				assetURL, uploadErr := uploadImage(a.volcAccessKey, a.volcSecretKey, groupID, img, i)
-				if uploadErr != nil {
-					cleanup()
-					return nil, uploadErr
-				}
-				req.Images[i] = assetURL
-			}
-			c.Set(string(constant.ContextKeyVolcGroupID), groupID)
-			registerTaskFailureCleanup(c, cleanup)
-		}
-	}
-
 	body, err := a.convertToRequestPayload(&req)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert request payload failed")
@@ -249,16 +227,6 @@ func (a *TaskAdaptor) CleanupOnTerminal(task *model.Task) {
 	go deleteAssetGroup(a.volcAccessKey, a.volcSecretKey, groupID)
 }
 
-// registerTaskFailureCleanup appends a cleanup function to the gin context slice.
-// All registered functions are called by the controller on task submission failure.
-func registerTaskFailureCleanup(c *gin.Context, fn func()) {
-	key := string(constant.ContextKeyTaskFailureCleanupFns)
-	var fns []func()
-	if existing, ok := c.Get(key); ok {
-		fns, _ = existing.([]func())
-	}
-	c.Set(key, append(fns, fn))
-}
 
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {

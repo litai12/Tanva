@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { X, UserRound, Smartphone, ShieldCheck, ShieldAlert, Loader2, Copy, Check, ChevronRight, Clock } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { startBioAuth, listBioAuthGroups, createAssetInGroup } from "@/services/bioAuthAPI";
@@ -103,7 +104,7 @@ function BioAuthModalInner({ isOpen, imageUrl, onClose, onStart, onSuccess, onFa
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed",
@@ -170,7 +171,8 @@ function BioAuthModalInner({ isOpen, imageUrl, onClose, onStart, onSuccess, onFa
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
