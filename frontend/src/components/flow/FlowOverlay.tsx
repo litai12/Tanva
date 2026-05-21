@@ -66,6 +66,7 @@ import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
 import HappyhorseR2VNode from "./nodes/HappyhorseR2VNode";
 import Wan27VideoNode from "./nodes/Wan27VideoNode";
+import OmniFlashExtVideoNode from "./nodes/OmniFlashExtVideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
 import StoryboardSplitNode from "./nodes/StoryboardSplitNode";
 import GenerateProNode from "./nodes/GenerateProNode";
@@ -975,6 +976,7 @@ const rawNodeTypes = {
   wan2R2V: Wan2R2VNode,
   happyhorseR2V: HappyhorseR2VNode,
   wan27Video: Wan27VideoNode,
+  omniFlashExtVideo: OmniFlashExtVideoNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
   kling30Video: Kling30VideoNode,
@@ -1210,6 +1212,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -1263,6 +1266,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -1663,6 +1667,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 Reference Video", category: "video" },
   { key: "happyhorseR2V", zh: "快乐马", en: "HappyHorse", category: "video" },
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
+  { key: "omniFlashExtVideo", zh: "Omni Flash Ext", en: "Omni Flash Ext", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" },
@@ -1781,6 +1786,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   wan2R2V: "video",
   happyhorseR2V: "video",
   wan27Video: "video",
+  omniFlashExtVideo: "video",
   klingVideo: "video",
   kling26Video: "video",
   kling30Video: "video",
@@ -1836,6 +1842,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   wan2R2V: { w: 300, h: 360 },
   happyhorseR2V: { w: 300, h: 460 },
   wan27Video: { w: 300, h: 420 },
+  omniFlashExtVideo: { w: 300, h: 360 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
   kling30Video: { w: 280, h: 260 },
@@ -2179,6 +2186,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video"],
   happyhorseR2V: ["video"],
   wan27Video: ["video"],
+  omniFlashExtVideo: ["video"],
   klingVideo: ["video"],
   kling26Video: ["video"],
   kling30Video: ["video"],
@@ -2228,6 +2236,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
+  omniFlashExtVideo: ["image", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
   kling26Video: ["image", "image-2", "audio", "text"],
   kling30Video: ["image", "image-2", "audio", "text"],
@@ -2345,6 +2354,9 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "wan2.7": "wan27Video",
   "wan-2.7": "wan27Video",
   "wan2.7-i2v": "wan27Video",
+  "omni-flash-ext": "omniFlashExtVideo",
+  "omni-flash-ext-video": "omniFlashExtVideo",
+  omniflashext: "omniFlashExtVideo",
   pathtracer: "three",
   "path-tracer": "three",
   "three-pathtracer": "three",
@@ -2682,6 +2694,7 @@ const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -9698,6 +9711,19 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "omniFlashExtVideo"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              managedModelKey: "omni-flash-ext",
+              resolution: "720P",
+              duration: 6,
+              aspectRatio: "16:9",
+              videoVersion: 0,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "storyboardSplit"
           ? {
               status: "idle" as const,
@@ -10087,6 +10113,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
       "kling26Video",
       "kling30Video",
@@ -10785,6 +10812,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10812,6 +10840,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10844,6 +10873,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -10874,6 +10904,12 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "omniFlashExtVideo") {
+        if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "image") return isImageSource(sourceNode, sourceHandle);
+        return false;
+      }
+
       if (targetNode.type === "wan27Video") {
         if (targetHandle === "text") {
           return canSourceProvideText(sourceNode, sourceHandle);
@@ -10890,6 +10926,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10938,6 +10975,7 @@ function FlowInner() {
             "happyhorseR2V",
             "wan26",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -11050,6 +11088,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -17416,6 +17455,7 @@ function FlowInner() {
         "doubaoVideo",
         "seedance20Video",
         "seedVideo",
+        "omniFlashExtVideo",
       ];
       if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
@@ -17479,6 +17519,8 @@ function FlowInner() {
         const maxImages =
           isSeedanceNode && seedanceModeSpec
             ? seedanceModeSpec.imageHandleMax + seedanceModeSpec.image2HandleMax
+            : normalizedVideoNodeType === "omniFlashExtVideo"
+            ? 3
             : provider === "vidu" || provider === "viduq3-pro"
             ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
@@ -23408,7 +23450,8 @@ function FlowInner() {
           n.type === "viduQ3" ||
           n.type === "doubaoVideo" ||
           n.type === "seedance20Video" ||
-          n.type === "seedVideo"
+          n.type === "seedVideo" ||
+          n.type === "omniFlashExtVideo"
         ) {
           enhancedNode = {
             ...n,

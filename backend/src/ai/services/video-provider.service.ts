@@ -878,7 +878,9 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
-    const size = this.resolveNewApiVideoSize(options);
+    // omni-flash-ext uses aspect_ratio + resolution natively; sending a WxH
+    // size string would conflict with upstream's aspect_ratio parameter.
+    const size = model === "omni-flash-ext" ? undefined : this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
@@ -1003,6 +1005,9 @@ export class VideoProviderService {
     }
     if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
       return "wan2.7-videoedit";
+    }
+    if (explicit === "omni-flash-ext") {
+      return "omni-flash-ext";
     }
     if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
       return "kling-v3-omni";

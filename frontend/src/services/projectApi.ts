@@ -66,7 +66,7 @@ const inFlightGetContent = new Map<string, Promise<ProjectContentResponse>>();
 
 export const projectApi = {
   async list(): Promise<Project[]> {
-    const res = await fetchWithAuth(`${base}/api/projects`);
+    const res = await fetchWithAuth(`${base}/api/projects?scope=personal`);
     return json<Project[]>(res);
   },
   async listByTeam(teamId: string): Promise<Project[]> {

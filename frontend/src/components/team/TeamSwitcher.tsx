@@ -137,11 +137,13 @@ function TeamFormModal({
 function TeamProjectPickerModal({
   teamId,
   teamName,
+  isPersonal,
   onConfirm,
   onCancel,
 }: {
   teamId: string;
   teamName: string;
+  isPersonal?: boolean;
   onConfirm: (projectId?: string) => void;
   onCancel: () => void;
 }) {
@@ -150,11 +152,12 @@ function TeamProjectPickerModal({
 
   useEffect(() => {
     setLoading(true);
-    projectApi.listByTeam(teamId)
+    const fetchFn = isPersonal ? projectApi.list() : projectApi.listByTeam(teamId);
+    fetchFn
       .then(setProjects)
       .catch(() => setProjects([]))
       .finally(() => setLoading(false));
-  }, [teamId]);
+  }, [teamId, isPersonal]);
 
   return createPortal(
     <div
@@ -167,7 +170,7 @@ function TeamProjectPickerModal({
       >
         <div className="flex items-center justify-between mb-4 shrink-0">
           <h3 className="text-sm font-semibold text-slate-800">
-            切换至 · <span className="text-blue-600">{teamName}</span>
+            切换至 · <span className={isPersonal ? 'text-blue-500' : 'text-blue-600'}>{teamName}</span>
           </h3>
           <button
             onClick={onCancel}
@@ -224,7 +227,7 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
   const user = useAuthStore((s) => s.user);
   const projectStore = useProjectStore();
   const [modal, setModal] = useState<ActiveModal>('none');
-  const [teamPickerTarget, setTeamPickerTarget] = useState<{ id: string; name: string } | null>(null);
+  const [teamPickerTarget, setTeamPickerTarget] = useState<{ id: string; name: string; isPersonal?: boolean } | null>(null);
 
   const personalTeam = teams.find((t) => t.isPersonal);
   const orgTeams = teams.filter((t) => !t.isPersonal);
@@ -254,11 +257,10 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
     const target = teams.find((t) => t.id === teamId);
     if (!target) return;
 
-    if (target.isPersonal) {
-      completeSwitchTeam(teamId);
-    } else {
-      setTeamPickerTarget({ id: teamId, name: target.name });
-    }
+    const displayName = target.isPersonal
+      ? ((user as any)?.name || (user as any)?.phone || '个人工作区')
+      : target.name;
+    setTeamPickerTarget({ id: teamId, name: displayName, isPersonal: target.isPersonal });
   };
 
   const switchToPersonal = () => {
@@ -391,6 +393,7 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
         <TeamProjectPickerModal
           teamId={teamPickerTarget.id}
           teamName={teamPickerTarget.name}
+          isPersonal={teamPickerTarget.isPersonal}
           onConfirm={handleTeamPickerConfirm}
           onCancel={() => setTeamPickerTarget(null)}
         />

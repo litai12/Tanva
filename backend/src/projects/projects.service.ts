@@ -99,7 +99,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
@@ -114,7 +114,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
@@ -169,7 +169,7 @@ export class ProjectsService {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     if (!project.mainKey) {
       return {
@@ -223,8 +223,8 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
-    const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
     const sanitizedContent = sanitizeDesignJson(content);
     const contentHash = this.hashProjectContent(sanitizedContent);
@@ -309,7 +309,7 @@ export class ProjectsService {
   async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
 
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
@@ -353,7 +353,7 @@ export class ProjectsService {
   async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
 
     const updatedAt = new Date(updatedAtRaw);
     if (Number.isNaN(updatedAt.getTime())) {
@@ -650,6 +650,17 @@ export class ProjectsService {
   private async disableThumbnailColumn(): Promise<void> {
     this.thumbnailColumnChecked = true;
     this.thumbnailColumnAvailable = false;
+  }
+
+  /** 检查 userId 是否为项目所属团队的成员，不是则抛 NotFoundException。 */
+  private async assertTeamProjectAccess(userId: string, projectId: string): Promise<void> {
+    const share = await this.prisma.teamProjectShare.findFirst({
+      where: {
+        projectId,
+        team: { memberships: { some: { userId } } },
+      },
+    });
+    if (!share) throw new NotFoundException('项目不存在');
   }
 
   async shareWithTeam(projectId: string, teamId: string, userId: string) {

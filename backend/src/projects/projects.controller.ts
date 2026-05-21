@@ -24,6 +24,9 @@ export class ProjectsController {
     if (teamId && scope === 'team') {
       return this.projects.listTeamOnly(req.user.sub, teamId);
     }
+    if (scope === 'personal') {
+      return this.projects.list(req.user.sub);
+    }
     return this.projects.listWithTeamAccess(req.user.sub, teamId);
   }
 

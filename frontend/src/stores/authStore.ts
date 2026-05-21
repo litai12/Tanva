@@ -3,6 +3,7 @@ import { authApi, type UserInfo } from '@/services/authApi';
 import { clearTokens } from '@/services/authTokenStorage';
 import { teamApi } from '@/services/teamApi';
 import { useTeamStore } from './teamStore';
+import { useProjectStore } from './projectStore';
 
 type AuthState = {
   user: UserInfo | null;
@@ -32,6 +33,13 @@ async function loadTeams() {
     if (!activeTeamId || !teams.find((t: any) => t.id === activeTeamId)) {
       const personal = teams.find((t: any) => t.isPersonal);
       if (personal) setActiveTeamId(personal.id);
+    }
+    // 团队列表加载完成后，如果当前处于团队模式则重新加载项目列表
+    // 修复：页面初始化时 projectStore.load() 先于 loadTeams() 完成，导致 teams 为空时错误加载了个人项目
+    const finalActiveTeamId = useTeamStore.getState().activeTeamId;
+    const finalActiveTeam = useTeamStore.getState().teams.find((t: any) => t.id === finalActiveTeamId);
+    if (finalActiveTeam && !finalActiveTeam.isPersonal) {
+      void useProjectStore.getState().load();
     }
   } catch (e) {
     console.warn('[loadTeams] failed:', e);
