@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { projectApi, type Project } from '@/services/projectApi';
 import { deleteProjectCache } from '@/services/projectCacheStore';
 import { useTeamStore } from '@/stores/teamStore';
+import { useAuthStore } from '@/stores/authStore';
 import i18n from '@/i18n';
 
 type ProjectState = {
@@ -220,6 +221,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     (async () => {
       try {
         const proj = await projectApi.get(id);
+
+        // 若当前处于团队模式，但项目属于当前用户（个人项目），
+        // 则切回个人上下文并重新拉取项目列表，保证左侧列表与项目一致。
+        const currentUser = useAuthStore.getState().user;
+        const { activeTeamId, teams, setActiveTeamId } = useTeamStore.getState();
+        const activeTeam = teams.find((t) => t.id === activeTeamId);
+        if (activeTeam && !activeTeam.isPersonal && currentUser && proj.userId === (currentUser as any).sub) {
+          const personalTeam = teams.find((t) => t.isPersonal);
+          if (personalTeam) {
+            setActiveTeamId(personalTeam.id);
+            await get().load();
+            // load() 会根据 savedId 或首个项目设置 currentProject，
+            // 此处再确保 URL 指定的项目被激活。
+            get().open(id);
+            return;
+          }
+        }
+
         set((s) => {
           const exists = s.projects.some((p) => p.id === proj.id);
           const projects = exists ? s.projects.map((p) => p.id === proj.id ? proj : p) : [proj, ...s.projects];
@@ -233,8 +252,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             recentProjectIds,
             currentProjectId: proj.id,
             currentProject: proj,
-            modalOpen: false, // 确保关闭模态框
-            error: null // 清除任何之前的错误
+            modalOpen: false,
+            error: null,
           };
         });
         try { localStorage.setItem(LS_CURRENT_PROJECT, id); } catch {}

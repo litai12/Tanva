@@ -34,8 +34,9 @@ async function loadTeams() {
       const personal = teams.find((t: any) => t.isPersonal);
       if (personal) setActiveTeamId(personal.id);
     }
-    // 团队列表加载完成后，如果当前处于团队模式则重新加载项目列表
-    // 修复：页面初始化时 projectStore.load() 先于 loadTeams() 完成，导致 teams 为空时错误加载了个人项目
+    // 团队列表加载完成后，如果当前处于团队模式则重新加载项目列表。
+    // 修复：页面初始化时 projectStore.load() 先于 loadTeams() 完成，teams=[] 时
+    // activeTeam 找不到，导致误走个人路径；teams 加载完后需补发一次正确的团队请求。
     const finalActiveTeamId = useTeamStore.getState().activeTeamId;
     const finalActiveTeam = useTeamStore.getState().teams.find((t: any) => t.id === finalActiveTeamId);
     if (finalActiveTeam && !finalActiveTeam.isPersonal) {

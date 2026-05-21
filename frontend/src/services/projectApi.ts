@@ -7,6 +7,7 @@ import { fetchWithAuth } from "./authFetch";
 
 export type Project = {
   id: string;
+  userId: string;
   name: string;
   ossPrefix: string;
   mainKey: string;
