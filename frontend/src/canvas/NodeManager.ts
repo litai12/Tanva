@@ -58,6 +58,15 @@ class NodeManager {
     this.nodes.delete(id)
   }
 
+  /**
+   * 解除节点登记但保留其画布图元。
+   * 用于绘制完成：图元转为普通持久化对象，不再由管理器临时托管。
+   * 注意：不可用 destroy()，它会调用 node.destroy() 移除画布图元。
+   */
+  release(id: string): void {
+    this.nodes.delete(id)
+  }
+
   destroyAll(): void {
     for (const node of this.nodes.values()) node.destroy()
     this.nodes.clear()

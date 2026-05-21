@@ -755,7 +755,68 @@ export class VideoProviderService {
   async generateVideo(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
+    // 尊享路由：托管分组配置把该模型主路由解析为 tencent_vod 时，走腾讯 VOD 转换链路
+    //（generateManaged* → generateXxxViaTencent → TencentVodAigcService → new-api /proxy/tencent/vod）。
+    // 其余模型走 new-api。是否走腾讯由托管分组配置决定，这里不硬编码模型清单。
+    if (await this.shouldRouteVideoToManagedTencent(options)) {
+      return this.generateVideoLegacy(options);
+    }
     return this.createNewApiVideoTask(options);
+  }
+
+  /** 依据托管分组配置判断该视频请求是否应走腾讯 VOD（尊享）路由。 */
+  private async shouldRouteVideoToManagedTencent(
+    options: VideoProviderRequestDto
+  ): Promise<boolean> {
+    const modelKey = this.resolveManagedVideoModelKey(options);
+    if (!modelKey) return false;
+    try {
+      const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
+        modelKey,
+        options.vendorKey
+      );
+      return candidates[0]?.route === "tencent_vod";
+    } catch (error) {
+      this.logger.warn(
+        `resolveVideoModelCandidates failed for ${modelKey}: ${this.summarizeError(error)}`
+      );
+      return false;
+    }
+  }
+
+  /** 把请求映射到托管模型 key；无对应托管模型时返回 null（走 new-api）。 */
+  private resolveManagedVideoModelKey(
+    options: VideoProviderRequestDto
+  ): string | null {
+    const provider = options.provider;
+    if (
+      (provider === "kling" || provider === "kling-2.6") &&
+      options.klingModel === "kling-v3-0"
+    ) {
+      return "kling-3.0";
+    }
+    if (
+      (provider === "kling" || provider === "kling-2.6") &&
+      options.klingModel === "kling-v2-6"
+    ) {
+      return "kling-2.6";
+    }
+    if (provider === "kling-o3") return "kling-o3";
+    if (provider === "vidu" || provider === "viduq3-pro") {
+      try {
+        return this.resolveManagedViduModel(options).modelKey;
+      } catch {
+        return null;
+      }
+    }
+    if (provider === "doubao") {
+      try {
+        return this.resolveManagedSeedanceModel(options).modelKey;
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 
   private async generateVideoLegacy(

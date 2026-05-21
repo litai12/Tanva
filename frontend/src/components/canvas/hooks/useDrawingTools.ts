@@ -958,7 +958,9 @@ export const useDrawingTools = ({
         initialClickPointRef.current = null;
 
         if (drawMode === 'free' && drawingNodeRef.current) {
-          try { NodeManager.getInstance().destroy(drawingNodeRef.current.id); } catch {}
+          // 绘制完成：仅解除管理器登记，保留画布上的线条。
+          // 误用 destroy() 会触发 PathNode.destroy → path.remove()，导致线条松手即消失。
+          try { NodeManager.getInstance().release(drawingNodeRef.current.id); } catch {}
           drawingNodeRef.current = null;
         }
 
