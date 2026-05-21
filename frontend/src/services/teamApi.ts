@@ -34,6 +34,12 @@ export const teamApi = {
     }).then((r) => json<any>(r)),
   removeMember: (teamId: string, userId: string) =>
     fetchWithAuth(`${base}/api/teams/${teamId}/members/${userId}`, { method: 'DELETE' }).then((r) => json<any>(r)),
+  setMemberQuota: (teamId: string, userId: string, quota: { monthly?: number | null; total?: number | null }) =>
+    fetchWithAuth(`${base}/api/teams/${teamId}/members/${userId}/quota`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quota),
+    }).then((r) => json<any>(r)),
   createInvite: (teamId: string, data: { email?: string; phone?: string; expiresInDays?: number }) =>
     fetchWithAuth(`${base}/api/teams/${teamId}/invites`, {
       method: 'POST',

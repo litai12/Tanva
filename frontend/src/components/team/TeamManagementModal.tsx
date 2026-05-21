@@ -6,7 +6,7 @@ import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore, refreshTeams } from '../../stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
-import { X, UserMinus, Crown, Shield, User, Mail, Copy, Check, Zap, Calendar, Users } from 'lucide-react';
+import { X, UserMinus, Crown, Shield, User, Mail, Copy, Check, Zap, Calendar, Users, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -107,6 +107,7 @@ function MembersTab({
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [quotaExpandedUserId, setQuotaExpandedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     teamApi.getMembers(teamId).then(setMembers).catch(() => {});
@@ -191,50 +192,102 @@ function MembersTab({
           )}
         </div>
         <div className="space-y-1">
-          {members.map((m) => (
-            <div
-              key={m.userId}
-              className="flex items-center gap-3 py-2 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-xs font-medium text-slate-600 shrink-0">
-                {(m.user?.name || m.userId).charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-700 truncate">
-                  {m.user?.name || m.userId}
-                </p>
-                {m.user?.email && (
-                  <p className="text-xs text-slate-400 truncate">{m.user.email}</p>
+          {members.map((m) => {
+            const isQuotaExpanded = quotaExpandedUserId === m.userId;
+            const canEditQuota = canManage && m.role !== 'owner' && m.userId !== currentUserId;
+            return (
+              <div key={m.userId} className="rounded-xl hover:bg-slate-50 transition-colors -mx-2">
+                <div className="flex items-center gap-3 py-2 px-2">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-xs font-medium text-slate-600 shrink-0">
+                    {(m.user?.name || m.userId).charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate">
+                      {m.user?.name || m.userId}
+                    </p>
+                    {m.user?.email && (
+                      <p className="text-xs text-slate-400 truncate">{m.user.email}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {canManage && m.role !== 'owner' && m.userId !== currentUserId ? (
+                      <select
+                        value={m.role}
+                        onChange={(e) => handleRoleChange(m.userId, e.target.value)}
+                        className="text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-1 bg-white outline-none cursor-pointer hover:border-slate-300"
+                      >
+                        <option value="admin">管理员</option>
+                        <option value="member">成员</option>
+                      </select>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-slate-500">
+                        {roleIcon(m.role)}
+                        {roleLabel(m.role)}
+                      </span>
+                    )}
+                    {canEditQuota && (
+                      <button
+                        onClick={() => setQuotaExpandedUserId(isQuotaExpanded ? null : m.userId)}
+                        title="配额设置"
+                        className={cn(
+                          'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
+                          isQuotaExpanded
+                            ? 'bg-blue-50 text-blue-500'
+                            : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500',
+                        )}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {canManage && m.role !== 'owner' && m.userId !== currentUserId && (
+                      <button
+                        onClick={() => handleRemove(m.userId)}
+                        className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"
+                        title="移除成员"
+                      >
+                        <UserMinus className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 配额摘要行（已设置时展示）*/}
+                {!isQuotaExpanded && (m.creditQuotaMonthly != null || m.creditQuotaTotal != null) && (
+                  <div className="px-2 pb-1.5 flex gap-3">
+                    {m.creditQuotaMonthly != null && (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                        月度
+                        <span className="text-slate-600 font-medium mx-0.5">{m.creditUsedThisCycle?.toLocaleString() ?? 0}</span>
+                        /
+                        <span className="text-slate-500 mx-0.5">{m.creditQuotaMonthly.toLocaleString()}</span>
+                      </span>
+                    )}
+                    {m.creditQuotaTotal != null && (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                        总量
+                        <span className="text-slate-600 font-medium mx-0.5">{m.creditUsedTotal?.toLocaleString() ?? 0}</span>
+                        /
+                        <span className="text-slate-500 mx-0.5">{m.creditQuotaTotal.toLocaleString()}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* 内联配额编辑器 */}
+                {isQuotaExpanded && (
+                  <MemberQuotaEditor
+                    teamId={teamId}
+                    member={m}
+                    onSaved={(updated) => {
+                      setMembers((prev) => prev.map((x) => (x.userId === m.userId ? { ...x, ...updated } : x)));
+                      setQuotaExpandedUserId(null);
+                    }}
+                    onCancel={() => setQuotaExpandedUserId(null)}
+                  />
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {canManage && m.role !== 'owner' && m.userId !== currentUserId ? (
-                  <select
-                    value={m.role}
-                    onChange={(e) => handleRoleChange(m.userId, e.target.value)}
-                    className="text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-1 bg-white outline-none cursor-pointer hover:border-slate-300"
-                  >
-                    <option value="admin">管理员</option>
-                    <option value="member">成员</option>
-                  </select>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs text-slate-500">
-                    {roleIcon(m.role)}
-                    {roleLabel(m.role)}
-                  </span>
-                )}
-                {canManage && m.role !== 'owner' && m.userId !== currentUserId && (
-                  <button
-                    onClick={() => handleRemove(m.userId)}
-                    className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"
-                    title="移除成员"
-                  >
-                    <UserMinus className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -310,6 +363,144 @@ function MembersTab({
         </div>
       )}
     </>
+  );
+}
+
+/* ─── Member quota inline editor ─────────────────────────────────── */
+
+function MemberQuotaEditor({
+  teamId,
+  member,
+  onSaved,
+  onCancel,
+}: {
+  teamId: string;
+  member: any;
+  onSaved: (updated: Partial<any>) => void;
+  onCancel: () => void;
+}) {
+  const [monthlyEnabled, setMonthlyEnabled] = useState(member.creditQuotaMonthly != null);
+  const [totalEnabled, setTotalEnabled] = useState(member.creditQuotaTotal != null);
+  const [monthly, setMonthly] = useState<string>(member.creditQuotaMonthly?.toString() ?? '');
+  const [total, setTotal] = useState<string>(member.creditQuotaTotal?.toString() ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    const monthlyVal = monthlyEnabled ? parseInt(monthly, 10) : null;
+    const totalVal = totalEnabled ? parseInt(total, 10) : null;
+    if (monthlyEnabled && (isNaN(monthlyVal!) || monthlyVal! < 0)) {
+      setError('月度配额须为非负整数');
+      return;
+    }
+    if (totalEnabled && (isNaN(totalVal!) || totalVal! < 0)) {
+      setError('总量配额须为非负整数');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await teamApi.setMemberQuota(teamId, member.userId, {
+        monthly: monthlyVal,
+        total: totalVal,
+      });
+      onSaved({ creditQuotaMonthly: monthlyVal, creditQuotaTotal: totalVal });
+    } catch (e: any) {
+      setError(e?.message || '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="px-2 pb-3 space-y-2.5">
+      <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2.5">
+        <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">积分配额</p>
+
+        {/* 月度上限 */}
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={monthlyEnabled}
+            onChange={(e) => setMonthlyEnabled(e.target.checked)}
+            className="rounded accent-blue-500"
+          />
+          <span className="text-xs text-slate-600 w-16 shrink-0">月度上限</span>
+          {monthlyEnabled ? (
+            <div className="flex items-center gap-1.5 flex-1">
+              <input
+                type="number"
+                min={0}
+                value={monthly}
+                onChange={(e) => setMonthly(e.target.value)}
+                placeholder="如 10000"
+                className="flex-1 text-xs px-2 py-1 rounded-lg border border-slate-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+              />
+              <span className="text-[10px] text-slate-400 shrink-0">积分/月</span>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">不限</span>
+          )}
+        </label>
+        {monthlyEnabled && (
+          <p className="text-[10px] text-slate-400 pl-6">
+            本周期已用：{member.creditUsedThisCycle?.toLocaleString() ?? 0} 积分，每 30 天自动重置
+          </p>
+        )}
+
+        {/* 总量上限 */}
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={totalEnabled}
+            onChange={(e) => setTotalEnabled(e.target.checked)}
+            className="rounded accent-blue-500"
+          />
+          <span className="text-xs text-slate-600 w-16 shrink-0">总量上限</span>
+          {totalEnabled ? (
+            <div className="flex items-center gap-1.5 flex-1">
+              <input
+                type="number"
+                min={0}
+                value={total}
+                onChange={(e) => setTotal(e.target.value)}
+                placeholder="如 50000"
+                className="flex-1 text-xs px-2 py-1 rounded-lg border border-slate-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+              />
+              <span className="text-[10px] text-slate-400 shrink-0">积分</span>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">不限</span>
+          )}
+        </label>
+        {totalEnabled && (
+          <p className="text-[10px] text-slate-400 pl-6">
+            累计已用：{member.creditUsedTotal?.toLocaleString() ?? 0} 积分
+          </p>
+        )}
+
+        {error && <p className="text-xs text-red-500">{error}</p>}
+
+        <div className="flex gap-2 pt-0.5">
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg h-7 px-3 text-xs"
+          >
+            {saving ? '保存中…' : '保存'}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onCancel}
+            className="rounded-lg h-7 px-3 text-xs text-slate-500"
+          >
+            取消
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

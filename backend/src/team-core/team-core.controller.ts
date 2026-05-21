@@ -8,6 +8,7 @@ import { TeamInviteService } from './team-invite.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
+import { SetMemberQuotaDto } from './dto/set-member-quota.dto';
 
 @ApiTags('teams')
 @ApiCookieAuth('access_token')
@@ -52,6 +53,16 @@ export class TeamCoreController {
     @Body() dto: UpdateMemberRoleDto,
   ) {
     return this.teamCore.updateMemberRole(teamId, userId, dto.role, req.user.sub);
+  }
+
+  @Patch('teams/:teamId/members/:userId/quota')
+  setQuota(
+    @Req() req: any,
+    @Param('teamId') teamId: string,
+    @Param('userId') userId: string,
+    @Body() dto: SetMemberQuotaDto,
+  ) {
+    return this.teamCore.setMemberQuota(teamId, userId, { monthly: dto.monthly, total: dto.total }, req.user.sub);
   }
 
   @Delete('teams/:teamId/members/:userId')

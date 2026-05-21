@@ -53,11 +53,22 @@ export class TeamCreditLedgerService {
           data: { frozenBalance: { increment: amount } },
         });
 
-        // 漏洞 3：配额原子更新（行锁保证）
+        // 配额原子更新（行锁保证）
         if (actorUserId) {
+          // 月度周期重置：超过 30 天自动开启新周期
+          await tx.$executeRaw`
+            UPDATE "TeamMembership"
+            SET "creditUsedThisCycle" = 0,
+                "quotaCycleStartAt" = NOW(),
+                "updatedAt" = NOW()
+            WHERE "teamId" = ${teamId}
+              AND "userId" = ${actorUserId}
+              AND "quotaCycleStartAt" < NOW() - INTERVAL '30 days'
+          `;
           const updatedCount: number = await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET "creditUsedThisCycle" = "creditUsedThisCycle" + ${amount},
+                "creditUsedTotal" = "creditUsedTotal" + ${amount},
                 "updatedAt" = NOW()
             WHERE "teamId" = ${teamId}
               AND "userId" = ${actorUserId}
@@ -65,9 +76,29 @@ export class TeamCreditLedgerService {
                 "creditQuotaMonthly" IS NULL
                 OR "creditUsedThisCycle" + ${amount} <= "creditQuotaMonthly"
               )
+              AND (
+                "creditQuotaTotal" IS NULL
+                OR "creditUsedTotal" + ${amount} <= "creditQuotaTotal"
+              )
           `;
           if (updatedCount === 0) {
-            throw new BadRequestException('已超出个人月度配额');
+            // 查出具体超限原因
+            const m = await tx.teamMembership.findUnique({
+              where: { teamId_userId: { teamId, userId: actorUserId } },
+              select: {
+                creditQuotaMonthly: true,
+                creditQuotaTotal: true,
+                creditUsedThisCycle: true,
+                creditUsedTotal: true,
+              },
+            });
+            if (m?.creditQuotaMonthly != null && (m.creditUsedThisCycle + amount) > m.creditQuotaMonthly) {
+              throw new BadRequestException('已超出个人月度配额');
+            }
+            if (m?.creditQuotaTotal != null && (m.creditUsedTotal + amount) > m.creditQuotaTotal) {
+              throw new BadRequestException('已超出个人总量配额');
+            }
+            throw new BadRequestException('已超出个人配额');
           }
         }
       });
@@ -125,10 +156,11 @@ export class TeamCreditLedgerService {
         where: { id: acc.id },
         data: { frozenBalance: { decrement: amount } },
       });
-      // 回退成员配额
+      // 回退成员配额（月度 + 总量）
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
         SET "creditUsedThisCycle" = GREATEST(0, tm."creditUsedThisCycle" - ${amount}),
+            "creditUsedTotal" = GREATEST(0, tm."creditUsedTotal" - ${amount}),
             "updatedAt" = NOW()
         FROM "TeamCreditLedger" l
         WHERE l."taskId" = ${taskId}

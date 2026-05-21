@@ -664,7 +664,9 @@ model TeamMembership {
   userId              String
   role                String   @default("member")
   creditQuotaMonthly  Int?
+  creditQuotaTotal    Int?
   creditUsedThisCycle Int      @default(0)
+  creditUsedTotal     Int      @default(0)
   quotaCycleStartAt   DateTime @default(now())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

@@ -124,6 +124,27 @@ export class TeamCoreService {
     });
   }
 
+  async setMemberQuota(
+    teamId: string,
+    targetUserId: string,
+    quota: { monthly?: number | null; total?: number | null },
+    requestingUserId: string,
+  ) {
+    await this.assertRole(teamId, requestingUserId, ['owner', 'admin']);
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new ForbiddenException('个人团队不支持成员配额');
+    await this.prisma.teamMembership.findUniqueOrThrow({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+    });
+    return this.prisma.teamMembership.update({
+      where: { teamId_userId: { teamId, userId: targetUserId } },
+      data: {
+        creditQuotaMonthly: quota.monthly,
+        creditQuotaTotal: quota.total,
+      },
+    });
+  }
+
   async updateMemberRole(
     teamId: string,
     targetUserId: string,
