@@ -3,7 +3,6 @@ import { authApi, type UserInfo } from '@/services/authApi';
 import { clearTokens } from '@/services/authTokenStorage';
 import { teamApi } from '@/services/teamApi';
 import { useTeamStore } from './teamStore';
-import { useProjectStore } from './projectStore';
 
 type AuthState = {
   user: UserInfo | null;
@@ -34,14 +33,9 @@ async function loadTeams() {
       const personal = teams.find((t: any) => t.isPersonal);
       if (personal) setActiveTeamId(personal.id);
     }
-    // 团队列表加载完成后，如果当前处于团队模式则重新加载项目列表。
-    // 修复：页面初始化时 projectStore.load() 先于 loadTeams() 完成，teams=[] 时
-    // activeTeam 找不到，导致误走个人路径；teams 加载完后需补发一次正确的团队请求。
-    const finalActiveTeamId = useTeamStore.getState().activeTeamId;
-    const finalActiveTeam = useTeamStore.getState().teams.find((t: any) => t.id === finalActiveTeamId);
-    if (finalActiveTeam && !finalActiveTeam.isPersonal) {
-      void useProjectStore.getState().load();
-    }
+    // 注意：不在此处触发 projectStore.load()。
+    // teams 已持久化到 localStorage，load() 首次调用时就能拿到正确的团队列表，
+    // 不再需要 loadTeams() 完成后的补救性 reload（它会产生竞态，覆盖 URL 导航）。
   } catch (e) {
     console.warn('[loadTeams] failed:', e);
   }

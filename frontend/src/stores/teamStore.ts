@@ -31,7 +31,9 @@ export const useTeamStore = create<TeamStore>()(
     }),
     {
       name: 'tanva_active_team_id',
-      partialize: (s) => ({ activeTeamId: s.activeTeamId }),
+      // 持久化 teams 和 activeTeamId，确保 projectStore.load() 首次调用时
+      // 就能正确判断上下文（避免 teams=[] 时误走个人路径的竞态条件）。
+      partialize: (s) => ({ activeTeamId: s.activeTeamId, teams: s.teams }),
     },
   ),
 );
