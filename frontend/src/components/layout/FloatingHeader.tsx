@@ -266,6 +266,7 @@ const FloatingHeader: React.FC = () => {
     rename,
     optimisticRenameLocal,
     projects,
+    recentProjectIds,
     open,
   } = useProjectStore();
   // Header 下拉中的快速切换与新建，直接复用项目管理的函数
@@ -1112,13 +1113,39 @@ const FloatingHeader: React.FC = () => {
     }
   };
   const recentProjects = useMemo(() => {
-    const sliced = projects.slice(0, MAX_QUICK_PROJECTS);
-    if (currentProject && !sliced.some((p) => p.id === currentProject.id)) {
-      const trimmed = sliced.slice(0, Math.max(MAX_QUICK_PROJECTS - 1, 0));
-      return [...trimmed, currentProject];
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const orderedProjects = recentProjectIds
+      .map((projectId) => {
+        if (currentProject?.id === projectId) return currentProject;
+        return projectById.get(projectId) ?? null;
+      })
+      .filter((project): project is NonNullable<typeof project> => Boolean(project));
+
+    const dedupedProjects: typeof projects = [];
+    for (const project of orderedProjects) {
+      if (dedupedProjects.some((item) => item.id === project.id)) continue;
+      dedupedProjects.push(project);
+      if (dedupedProjects.length >= MAX_QUICK_PROJECTS) break;
     }
-    return sliced;
-  }, [projects, currentProject?.id]);
+
+    if (
+      currentProject &&
+      !dedupedProjects.some((project) => project.id === currentProject.id)
+    ) {
+      dedupedProjects.unshift(currentProject);
+      dedupedProjects.length = Math.min(dedupedProjects.length, MAX_QUICK_PROJECTS);
+    }
+
+    if (dedupedProjects.length < MAX_QUICK_PROJECTS) {
+      for (const project of projects) {
+        if (dedupedProjects.some((item) => item.id === project.id)) continue;
+        dedupedProjects.push(project);
+        if (dedupedProjects.length >= MAX_QUICK_PROJECTS) break;
+      }
+    }
+
+    return dedupedProjects;
+  }, [projects, recentProjectIds, currentProject]);
 
   const dropdownProjects = dropdownContextId === 'personal' ? recentProjects : dropdownTeamProjects.slice(0, MAX_QUICK_PROJECTS);
   const sendShortcutOptions = [

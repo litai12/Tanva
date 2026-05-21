@@ -21,6 +21,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Workspace Header: project quick-switch dropdown now reads a local most-recently-opened project list (`tanva_recent_project_ids`) and shows the latest 5 opened projects, while backfilling from the full project list when history is short.
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 - Flow/Seedream: `Seedream` 节点新增豆包通道专属 `4.5/5.0` 模型切换；观猹通道固定 5.0 且隐藏模型下拉。后端 `seedream5` 链路支持读取 `modelVersion`/`model` 并在豆包通道映射到 `doubao-seedream-4-5-251128` 或 `doubao-seedream-5-0-260128`。
 - Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
@@ -29,6 +30,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Auth/Home: scoped the login notice popup to protected routes so logged-in users browsing the public homepage do not see the reminder overlay.
+- Backend Telemetry: OpenTelemetry startup now disables SDK default metrics/logs exporters while keeping the explicit OpenObserve trace exporter, preventing `localhost:4318` retry spam during local development without an OTLP collector.
 - GPT-Image-2/Nano2: task query now treats upstream business `code=464` as immediate failure (instead of continuing poll-until-timeout), so request failure and credit-refund paths can execute promptly; stable/tencent polling also supports an explicit 15-minute wait budget override.
 - AI Error Mapping: image-generation failure mapping now unifies upstream timeout and task-failure signals (`524`, timeout-like errors, `464`) to avoid mixed `Internal Server Error` user feedback.
 - Flow/GPT-Image-2: node execution now uses async task creation + polling (`/api/ai/generate-image-async` + `/api/ai/image-task/:taskId`) with 15-minute timeout budget, while failed/timeout tasks rely on backend refund-safe status handling.
