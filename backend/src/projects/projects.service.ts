@@ -756,7 +756,7 @@ export class ProjectsService {
     if (!membership) return personal;
 
     const shares = await this.prisma.teamProjectShare.findMany({
-      where: { teamId, project: { userId: { not: userId } } },
+      where: { teamId },
       include: { project: { select: this.projectMetadataSelect } },
     });
 

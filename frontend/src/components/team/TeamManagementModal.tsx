@@ -101,6 +101,7 @@ function MembersTab({
   onClose: () => void;
 }) {
   const [members, setMembers] = useState<any[]>([]);
+  const [seatCount, setSeatCount] = useState<number | null>(null);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -108,6 +109,9 @@ function MembersTab({
 
   useEffect(() => {
     teamApi.getMembers(teamId).then(setMembers).catch(() => {});
+    teamSubscriptionApi.getSubscription(teamId).then((s) => {
+      if (s?.seatCount) setSeatCount(s.seatCount);
+    }).catch(() => {});
   }, [teamId]);
 
   const handleInvite = async () => {
@@ -172,9 +176,21 @@ function MembersTab({
   return (
     <>
       <div className="px-6 py-4">
-        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-          成员 · {members.length} 人
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+            成员 · {members.length} 人
+          </p>
+          {seatCount != null && (
+            <span className={cn(
+              'text-xs font-medium px-2 py-0.5 rounded-full',
+              members.length >= seatCount
+                ? 'bg-red-50 text-red-500'
+                : 'bg-slate-100 text-slate-500',
+            )}>
+              剩余 {Math.max(0, seatCount - members.length)} / {seatCount} 席位
+            </span>
+          )}
+        </div>
         <div className="space-y-1">
           {members.map((m) => (
             <div
