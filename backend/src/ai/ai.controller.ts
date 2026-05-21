@@ -7030,6 +7030,10 @@ export class AiController {
     const teamId = this.getTeamId(req);
     if (!teamId || !this.teamCreditLedger) return { isTeamMode: false };
 
+    // Personal teams use personal-credit billing, not team billing
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isPersonal: true } });
+    if (!team || team.isPersonal) return { isTeamMode: false };
+
     const userId: string = req.user?.sub;
     const result = await this.teamCreditLedger.reserve({ teamId, amount, taskId, taskKind, actorUserId: userId });
     if (!result.reserved) {

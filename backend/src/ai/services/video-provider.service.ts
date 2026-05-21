@@ -881,10 +881,16 @@ export class VideoProviderService {
     const size = this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
-    // Always send raw HTTPS URLs to new-api — asset upload is handled by the backend
-    // volc-asset service; new-api forwards URLs directly to Ark without re-uploading.
-    const referenceImages = this.extractReferenceImageUrls(options.referenceImages);
-    const referenceImageRawUrls: string[] | undefined = undefined;
+    // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
+    // on assets that already passed the upload-time check (volcAssetStatus === "active").
+    // Other models fall back to raw HTTPS URLs.
+    const referenceImages = isSeedance2
+      ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
+      : this.extractReferenceImageUrls(options.referenceImages);
+    // Raw URLs for new-api's own asset re-upload path (only needed when not using asset://).
+    const referenceImageRawUrls: string[] | undefined = isSeedance2
+      ? this.extractReferenceImageUrls(options.referenceImages)
+      : undefined;
     const referenceVideos = [
       ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
       ...(options.referenceVideo ? [options.referenceVideo] : []),

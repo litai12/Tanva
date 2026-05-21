@@ -196,11 +196,6 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 
-	modelName := info.UpstreamModelName
-	if !info.IsModelMapped {
-		modelName = req.Model
-	}
-
 	body, err := a.convertToRequestPayload(&req)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert request payload failed")
