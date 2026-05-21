@@ -252,19 +252,30 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
     }, 80);
   };
 
+  const openPicker = (teamId: string, name: string, isPersonal: boolean) => {
+    // setTimeout(0) 确保 DropdownMenu 的 dismiss 事件先完成，避免 backdrop onClick 立即触发 onCancel
+    setTimeout(() => {
+      setTeamPickerTarget({ id: teamId, name, isPersonal });
+    }, 0);
+  };
+
   const switchTeam = (teamId: string) => {
     if (teamId === activeTeamId) return;
     const target = teams.find((t) => t.id === teamId);
     if (!target) return;
 
-    const displayName = target.isPersonal
+    const name = target.isPersonal
       ? ((user as any)?.name || (user as any)?.phone || '个人工作区')
       : target.name;
-    setTeamPickerTarget({ id: teamId, name: displayName, isPersonal: target.isPersonal });
+    openPicker(teamId, name, !!target.isPersonal);
   };
 
   const switchToPersonal = () => {
-    if (personalTeam) switchTeam(personalTeam.id);
+    const personal = teams.find((t) => t.isPersonal);
+    const name = (user as any)?.name || (user as any)?.phone || '个人工作区';
+    // 即使已在个人模式，也允许弹出项目选择（方便切换项目）。
+    // personal 缺失时（团队列表尚未加载）传空 id，模态框的个人分支只用 projectApi.list()。
+    openPicker(personal?.id ?? '', name, true);
   };
 
   const handleTeamPickerConfirm = (projectId?: string) => {

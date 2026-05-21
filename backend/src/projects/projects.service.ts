@@ -51,7 +51,7 @@ export class ProjectsService {
     }));
   }
 
-  async create(userId: string, name?: string) {
+  async create(userId: string, name?: string, teamId?: string) {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.create({ data: { userId, name: name || '未命名项目', ossPrefix: '', mainKey: '' } });
     const prefix = `projects/${userId}/${project.id}/`;
@@ -86,6 +86,26 @@ export class ProjectsService {
       console.warn('DB update with contentJson failed, falling back:', e);
       updated = await this.prisma.project.update({ where: { id: project.id }, data: { ossPrefix: prefix, mainKey } });
     }
+
+    // 团队上下文：在非个人团队内创建的项目立即共享给该团队，
+    // 实现团队与团队（含个人工作区）之间的项目数据隔离。
+    if (teamId) {
+      const team = await this.prisma.team.findUnique({
+        where: { id: teamId },
+        select: { isPersonal: true },
+      });
+      if (team && !team.isPersonal) {
+        const membership = await this.prisma.teamMembership.findUnique({
+          where: { teamId_userId: { teamId, userId } },
+        });
+        if (membership) {
+          await this.prisma.teamProjectShare.create({
+            data: { projectId: project.id, teamId, access: 'edit', sharedByUserId: userId },
+          });
+        }
+      }
+    }
+
     return { ...updated, mainUrl: this.oss.publicUrl(mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
   }
 

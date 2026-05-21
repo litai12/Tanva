@@ -276,11 +276,21 @@ const FloatingHeader: React.FC = () => {
   };
   const quickCreateInFlightRef = useRef(false);
   const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
+  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
   const handleQuickCreateProject = useCallback(async () => {
     if (quickCreateInFlightRef.current) return;
     quickCreateInFlightRef.current = true;
     setIsQuickCreatingProject(true);
     try {
+      // 个人tab下创建项目：若当前是团队模式，先切换到个人团队再创建，避免新项目混入团队项目列表
+      if (dropdownContextId === 'personal') {
+        const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+        const personalTeam = curTeams.find((t) => t.isPersonal);
+        if (personalTeam && curTeamId !== personalTeam.id) {
+          setActiveTeamId(personalTeam.id);
+          await useProjectStore.getState().load();
+        }
+      }
       await create();
     } catch (error) {
       console.error("Failed to quick create project:", error);
@@ -288,7 +298,7 @@ const FloatingHeader: React.FC = () => {
       quickCreateInFlightRef.current = false;
       setIsQuickCreatingProject(false);
     }
-  }, [create]);
+  }, [create, dropdownContextId]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
@@ -801,7 +811,6 @@ const FloatingHeader: React.FC = () => {
   const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
   const allTeams = useTeamStore((s) => s.teams);
   const nonPersonalTeams = useMemo(() => allTeams.filter((t) => !t.isPersonal), [allTeams]);
-  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
   const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
   const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
 

@@ -1,4 +1,5 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsDateString, Min, Max } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsDateString, Min, Max, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum TransactionType {
@@ -160,6 +161,14 @@ export class CreditsPreviewDto {
   @IsNumber()
   @Min(1)
   outputImageCount?: number;
+}
+
+export class CreditsPreviewBatchDto {
+  @ApiProperty({ description: '批量预览请求列表', type: [CreditsPreviewDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreditsPreviewDto)
+  items!: CreditsPreviewDto[];
 }
 
 export class AdjustCreditsDto {

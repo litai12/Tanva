@@ -15,6 +15,8 @@ export class VolcAssetService implements OnModuleInit {
   private projectName = 'default';
   private readonly version = '2024-01-01';
   private hasLoggedMissingReviewGroupTable = false;
+  // date (YYYY-MM-DD, 北京时间) → groupId
+  private readonly groupCache = new Map<string, string>();
 
   constructor(
     private readonly config: ConfigService,
@@ -49,16 +51,11 @@ export class VolcAssetService implements OnModuleInit {
       throw new Error('VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未配置，素材上传不可用');
     }
 
-    const groupId = await this.createAssetGroup();
-    try {
-      const assetId = await this.createAsset(groupId, sourceUrl);
-      await this.pollAssetActive(assetId, 120_000);
-      return { assetId, status: 'active' };
-    } finally {
-      this.deleteAssetGroup(groupId).catch((e) =>
-        this.logger.warn(`deleteAssetGroup ${groupId}: ${e?.message}`),
-      );
-    }
+    // 使用当天共享组，避免上传后立即删组导致 asset 失效
+    const groupId = await this.ensureTodayGroup();
+    const assetId = await this.createAsset(groupId, sourceUrl);
+    await this.pollAssetActive(assetId, 120_000);
+    return { assetId, status: 'active' };
   }
 
   async getAssetStatus(
@@ -75,14 +72,36 @@ export class VolcAssetService implements OnModuleInit {
     return { status };
   }
 
-  // ── 素材组管理（保留兼容接口） ─────────────────────────────────────────────
+  // ── 素材组管理 ────────────────────────────────────────────────────────────
 
-  /** @deprecated 由本服务内部管理，保留避免调用方报错。 */
-  invalidateTodayGroup(): void {}
+  invalidateTodayGroup(): void {
+    this.groupCache.delete(this.todayDate());
+  }
 
-  /** @deprecated 由本服务内部管理。 */
   async ensureTodayGroup(): Promise<string> {
-    return '';
+    const date = this.todayDate();
+    const cached = this.groupCache.get(date);
+    if (cached) return cached;
+
+    try {
+      const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+      if (existing) {
+        this.groupCache.set(date, existing.groupId);
+        return existing.groupId;
+      }
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+      this.logMissingReviewGroupTableOnce();
+    }
+
+    const groupId = await this.createDailyAssetGroup(date);
+    try {
+      await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+    }
+    this.groupCache.set(date, groupId);
+    return groupId;
   }
 
   async listReviewGroups() {
@@ -95,22 +114,50 @@ export class VolcAssetService implements OnModuleInit {
     }
   }
 
-  /** @deprecated 素材组生命周期由本服务管理。 */
-  async cleanupGroupByDate(_date?: string): Promise<{ date: string; deleted: boolean }> {
-    return { date: _date || '', deleted: false };
+  // date: YYYY-MM-DD（北京时间）。不传则取 3 天前。
+  async cleanupGroupByDate(date?: string): Promise<{ date: string; deleted: boolean }> {
+    const targetDate = date ?? (() => {
+      const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
+      d.setDate(d.getDate() - 3);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    let record: { groupId: string } | null = null;
+    try {
+      record = await this.prisma.volcReviewGroup.findUnique({ where: { date: targetDate } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+    }
+    if (!record) return { date: targetDate, deleted: false };
+
+    try {
+      await this.deleteAssetGroup(record.groupId);
+    } catch (e: any) {
+      this.logger.warn(`cleanupGroupByDate: deleteAssetGroup ${record.groupId}: ${e?.message}`);
+    }
+    try {
+      await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+    } catch (error) {
+      if (!this.isVolcReviewGroupTableMissing(error)) throw error;
+    }
+    this.groupCache.delete(targetDate);
+    return { date: targetDate, deleted: true };
   }
 
-  /** @deprecated 素材组生命周期由本服务管理。 */
   async cleanupExpiredGroup(): Promise<{ date: string; deleted: boolean }> {
-    return { date: '', deleted: false };
+    return this.cleanupGroupByDate();
   }
 
   // ── 私有 ARK 操作 ─────────────────────────────────────────────────────────
 
-  private async createAssetGroup(): Promise<string> {
+  private todayDate(): string {
+    return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+
+  private async createDailyAssetGroup(date: string): Promise<string> {
     const result = await this.volcCall('CreateAssetGroup', {
-      Name: `review-${Date.now()}`,
-      Description: 'auto review',
+      Name: `tanva-review-${date}`,
+      Description: `Review group for ${date}`,
       GroupType: 'AIGC',
       ProjectName: this.projectName,
     });

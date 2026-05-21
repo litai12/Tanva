@@ -12,6 +12,7 @@ import { isGroup, isRaster } from '@/utils/paperCoords';
 import { syncImageGroupBlocksForImageIds, findImagePaperItem } from '@/utils/paperImageGroupBlock';
 import {
   isAssetKeyRef,
+  isBlobUrl,
   isRemoteUrl,
   normalizePersistableImageRef,
   toRenderableImageSrc,
@@ -1681,8 +1682,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const normalizedUrl = normalizePersistableImageRef(snapshot.url);
     const normalizedSrc = normalizePersistableImageRef(snapshot.src);
     const normalizedKey = normalizePersistableImageRef(snapshot.key);
-    const persistedUrl = (normalizedKey || normalizedUrl || source).trim();
-    const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    // Prefer key over url, and both over src (src may be a transient blob URL)
+    const persistedUrl = (normalizedKey || normalizedUrl || (isBlobUrl(normalizedSrc) ? '' : normalizedSrc) || source).trim();
+    // Prefer the snapshot's stored remoteUrl; otherwise derive from persistedSrc
+    const snapshotRemoteUrl = snapshot.remoteUrl ? normalizePersistableImageRef(snapshot.remoteUrl) : '';
+    const persistedSrc = (snapshotRemoteUrl || normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
     if (!raster.data) raster.data = {};
     if (normalizedKey && isAssetKeyRef(normalizedKey)) {
       (raster.data as any).key = normalizedKey;
@@ -1752,7 +1756,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         .catch(() => {
           // 兜底：仍用旧方式
           setRasterSourceSafely(raster, renderable);
+          raster.visible = false;
         });
+    } else if (source) {
+      // renderable is null (e.g. source is a blob URL); try to show via raster directly
+      setRasterSourceSafely(raster, source);
     }
 
     // 创建图片实例（立即添加到状态，不等待加载完成）
@@ -1763,7 +1771,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         url: persistedUrl || source,
         src: persistedSrc || persistedUrl || source,
         key: normalizedKey || snapshot.key,
-        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
+        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : (snapshot.remoteUrl ?? undefined),
         fileName: snapshot.fileName,
         width: snapshot.width ?? snapshot.bounds.width,
         height: snapshot.height ?? snapshot.bounds.height,

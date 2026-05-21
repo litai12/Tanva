@@ -32,7 +32,8 @@ export class ProjectsController {
 
   @Post()
   async create(@Req() req: any, @Body() dto: CreateProjectDto) {
-    return this.projects.create(req.user.sub, dto.name);
+    const teamId = (req.headers?.['x-team-id'] as string | undefined) || undefined;
+    return this.projects.create(req.user.sub, dto.name, teamId);
   }
 
   @Get(':id')

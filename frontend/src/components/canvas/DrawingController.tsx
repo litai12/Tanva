@@ -5824,6 +5824,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             url: img.imageData.url || source,
             src: img.imageData.src || source,
             key: img.imageData.key,
+            remoteUrl: img.imageData.remoteUrl,
             fileName: img.imageData.fileName,
             width: img.imageData.width ?? img.bounds.width,
             height: img.imageData.height ?? img.bounds.height,

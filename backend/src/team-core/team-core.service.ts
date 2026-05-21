@@ -47,6 +47,15 @@ export class TeamCoreService {
   }
 
   async getMyTeams(userId: string) {
+    // 兼容历史用户：注册早于「个人团队」功能的账号没有个人团队行，
+    // 会导致前端无法切换到个人工作区。这里惰性补建。
+    const personal = await this.prisma.team.findFirst({
+      where: { ownerId: userId, isPersonal: true },
+      select: { id: true },
+    });
+    if (!personal) {
+      await this.createPersonalTeam(userId);
+    }
     const memberships = await this.prisma.teamMembership.findMany({
       where: { userId },
       include: {
