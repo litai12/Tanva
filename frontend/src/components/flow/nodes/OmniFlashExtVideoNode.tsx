@@ -292,8 +292,8 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         <label style={{ fontSize: 11, color: "#475569" }}>
           <div style={{ marginBottom: 3 }}>{lt("时长", "Duration")}</div>
           <NodeSelect
-            value={duration}
-            options={DURATION_OPTIONS.map((v) => ({ value: v, label: `${v}s` }))}
+            value={String(duration)}
+            options={DURATION_OPTIONS.map((v) => ({ value: String(v), label: `${v}s` }))}
             onChange={(v) => updateNodeData({ duration: Number(v) })}
             menuLabel={lt("时长", "Duration")}
             title={lt("选择时长", "Select duration")}
