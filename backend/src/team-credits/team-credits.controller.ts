@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiCookieAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { TeamCreditsService } from './team-credits.service';
@@ -30,13 +30,4 @@ export class TeamCreditsController {
     return this.svc.getMemberUsages(teamId, req.user.sub);
   }
 
-  @Patch('members/:userId/quota')
-  setQuota(
-    @Req() req: any,
-    @Param('teamId') teamId: string,
-    @Param('userId') userId: string,
-    @Body('quota') quota: number | null,
-  ) {
-    return this.svc.setMemberQuota(teamId, userId, quota, req.user.sub);
-  }
 }

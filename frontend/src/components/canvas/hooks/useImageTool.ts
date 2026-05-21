@@ -1452,7 +1452,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         .then((htmlImage) => {
           if (!raster.isInserted()) return;
           ;(raster as any).setImage(htmlImage);
-          raster.visible = false;
           try { paper.view.update(); } catch {}
         })
         .catch(() => {

@@ -2142,6 +2142,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                        url: asset.url,
 	                        src: asset.src || asset.url,
 	                        localDataUrl: asset.localDataUrl,
+	                        remoteUrl: asset.remoteUrl,
 	                        key: asset.key,
 	                        fileName: fileName,
 	                        // width/height 代表图片原始像素尺寸（用于信息展示/资产元数据），不要用显示 bounds

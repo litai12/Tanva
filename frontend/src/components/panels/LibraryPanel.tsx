@@ -506,26 +506,49 @@ const LibraryPanel: React.FC = () => {
       return;
     }
     if (asset.type === "2d") {
+      const displayFileName = asset.fileName || `${asset.name}.png`;
+
+      // Prefer an inline data URL (thumbnail already in memory) for zero-latency display.
       const inlineData =
         typeof asset.thumbnail === "string" &&
-        asset.thumbnail.startsWith("data:")
+        asset.thumbnail.startsWith("data:image/")
           ? asset.thumbnail
           : null;
-      const dataUrl = inlineData || (await readDataUrl(asset.url));
 
-      const displayFileName = asset.fileName || `${asset.name}.png`;
-      const payload: string | StoredImageAsset = dataUrl
-        ? dataUrl
-        : {
-            id: asset.id,
-            url: asset.url,
-            src: asset.url,
-            fileName: displayFileName,
-            width: asset.width,
-            height: asset.height,
-            contentType: asset.contentType,
-            localDataUrl: asset.thumbnail,
-          };
+      // Fetch a data URL via backend proxy so CanvasImageLayer can render immediately.
+      // We always pass a StoredImageAsset (never a raw string) so useQuickImageUpload
+      // recognises asset.url as an already-managed OSS ref and skips re-upload.
+      let localDataUrl: string | undefined = inlineData ?? undefined;
+      if (!localDataUrl) {
+        try {
+          const proxyUrl = proxifyRemoteAssetUrl(asset.url, { forceProxy: true });
+          const resp = await fetchWithAuth(proxyUrl, {
+            mode: "cors",
+            credentials: resolveImageFetchCredentials(proxyUrl),
+            auth: "omit",
+            allowRefresh: false,
+          });
+          if (resp.ok) {
+            const blob = await responseToBlob(resp);
+            const du = await blobToDataUrl(blob);
+            if (du.startsWith("data:image/")) localDataUrl = du;
+          }
+        } catch {
+          // Proxy fetch failed — CanvasImageLayer will fall back to loading d.url directly.
+        }
+      }
+
+      const payload: StoredImageAsset = {
+        id: asset.id,
+        url: asset.url,
+        src: asset.url,
+        remoteUrl: asset.url,
+        fileName: displayFileName,
+        width: asset.width,
+        height: asset.height,
+        contentType: asset.contentType,
+        localDataUrl,
+      };
 
       window.dispatchEvent(
         new CustomEvent("triggerQuickImageUpload", {
