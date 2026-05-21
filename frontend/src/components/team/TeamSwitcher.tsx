@@ -17,6 +17,11 @@ import { Button } from '@/components/ui/button';
 import { ChevronDown, Users, Plus, Settings, LogIn, X, FolderOpen, Loader2, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// 团队功能前端展示开关：默认隐藏，仅当 VITE_ENABLE_TEAM 为 1/true/on/yes 时展示。
+const TEAM_UI_ENABLED = ['1', 'true', 'on', 'yes'].includes(
+  String(import.meta.env.VITE_ENABLE_TEAM ?? '').toLowerCase(),
+);
+
 interface Props {
   onManage?: (teamId: string) => void;
   variant?: 'header' | 'home';
@@ -289,7 +294,8 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
     if (newTeamId) switchTeam(newTeamId);
   };
 
-  if (!user) return null;
+  // 团队功能前端展示开关：默认隐藏（VITE_ENABLE_TEAM 未开启时不渲染）。
+  if (!TEAM_UI_ENABLED || !user) return null;
 
   const triggerClass =
     variant === 'header'
