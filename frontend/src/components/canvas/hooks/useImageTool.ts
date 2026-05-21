@@ -1714,7 +1714,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
               const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
               try { raster.bounds = rect.clone(); } catch {}
             }
-            raster.visible = false;
             try { paper.view.update(); } catch {}
             return;
           }
@@ -1749,14 +1748,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             } : img
           ));
 
-          raster.visible = false;
           try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
           paper.view.update();
         })
         .catch(() => {
           // 兜底：仍用旧方式
           setRasterSourceSafely(raster, renderable);
-          raster.visible = false;
         });
     } else if (source) {
       // renderable is null (e.g. source is a blob URL); try to show via raster directly
