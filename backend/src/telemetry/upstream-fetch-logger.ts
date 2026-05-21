@@ -481,7 +481,7 @@ const readResponseBody = async (response: Response): Promise<unknown> => {
 
   try {
     const buffer = await cloned.arrayBuffer();
-    if (buffer.byteLength === 0) return null;
+    if (buffer.byteLength === 0) return { kind: 'empty_body', byteLength: 0 };
 
     const mimeType = contentType?.split(';')[0]?.trim().toLowerCase() || null;
     const isTextLike =

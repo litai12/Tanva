@@ -159,9 +159,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
-		if !info.IsStream {
-			httpResp, responseRecorder = attachResponseTraceRecorder(httpResp)
-		}
+		httpResp, responseRecorder = attachResponseTraceRecorder(httpResp)
 
 		if httpResp.StatusCode != http.StatusOK {
 			NewAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)

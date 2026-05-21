@@ -367,7 +367,7 @@ export class NewApiProvider implements IAIProvider {
         '/v1/chat/completions',
         {
           method: 'POST',
-          body: JSON.stringify(this.stripUndefined(payload)),
+          body: JSON.stringify(this.stripUndefined({ ...payload, stream: false })),
         },
         this.resolveApiKey(providerOptions),
       );
@@ -403,7 +403,17 @@ export class NewApiProvider implements IAIProvider {
     });
 
     const text = await response.text();
+    if (!text || !text.trim()) {
+      this.logger.warn(
+        `new-api empty response body: status=${response.status} url=${this.baseUrl}${path} content-type=${response.headers.get('content-type') ?? 'none'}`,
+      );
+    }
     const data = text ? this.parseJsonObject(text) || text : {};
+    if (response.ok && typeof data === 'string') {
+      this.logger.warn(
+        `new-api response not JSON: status=${response.status} url=${this.baseUrl}${path} preview=${String(data).slice(0, 200)}`,
+      );
+    }
     if (!response.ok) {
       const message =
         typeof data === 'object' && data
