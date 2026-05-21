@@ -15,6 +15,7 @@ import {
   type ResolvedManagedModelRoute,
 } from "./model-routing.service";
 import type { TencentVodAigcCreateVideoTaskRequest } from "./tencent-vod-aigc.service";
+import { VolcAssetService } from "../../volc-asset/volc-asset.service";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
@@ -207,6 +208,7 @@ export class VideoProviderService {
     private readonly oss: OssService,
     private readonly tencentVodAigcService: TencentVodAigcService,
     private readonly modelRoutingService: ModelRoutingService,
+    private readonly volcAssetService: VolcAssetService,
   ) {}
 
   private getCachedDoubaoVideoUrl(taskId: string): string | null {
@@ -930,10 +932,35 @@ export class VideoProviderService {
       `new-api 视频任务创建: model=${model}, provider=${options.provider}, duration=${duration}, size=${size}`,
     );
 
-    const result = await this.requestNewApiJson("/v1/videos", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    let result: any;
+    const hasAssetRefs = isSeedance2 && referenceImages.some((u) => u.startsWith("asset://"));
+    try {
+      result = await this.requestNewApiJson("/v1/videos", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    } catch (err: any) {
+      // asset:// 引用已失效（旧资产组被删），重新上传图片取得新 asset ID 再重试
+      if (hasAssetRefs && this.isStaleAssetError(err)) {
+        const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
+        this.logger.warn(
+          `asset:// 引用失效，重新上传 ${rawUrls.length} 张图片获取新 asset ID: ${err?.message?.slice(0, 120)}`,
+        );
+        const refreshedImages = await this.reuploadImagesAsAssets(rawUrls);
+        const fallbackPayload = {
+          ...payload,
+          image: refreshedImages[0],
+          images: refreshedImages.length > 0 ? refreshedImages : undefined,
+          provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
+        };
+        result = await this.requestNewApiJson("/v1/videos", {
+          method: "POST",
+          body: JSON.stringify(fallbackPayload),
+        });
+      } else {
+        throw err;
+      }
+    }
     const rawTaskId = this.extractTaskId(result);
     if (!rawTaskId) {
       throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
@@ -1064,6 +1091,30 @@ export class VideoProviderService {
         return (item.url || "").trim();
       })
       .filter((url): url is string => url.length > 0);
+  }
+
+  private isStaleAssetError(err: any): boolean {
+    const msg = String(err?.message || "").toLowerCase();
+    return msg.includes("is not found") && (msg.includes("asset") || msg.includes("image_url"));
+  }
+
+  // 对每张图片重新调用 Volcengine 上传，返回新的 asset:// URL 列表。
+  // VolcAssetService 未配置时降级返回原始 HTTPS URL。
+  private async reuploadImagesAsAssets(rawUrls: string[]): Promise<string[]> {
+    if (!this.volcAssetService.isConfigured()) {
+      this.logger.warn("VolcAssetService 未配置，降级使用 HTTPS 直链");
+      return rawUrls;
+    }
+    const results = await Promise.allSettled(
+      rawUrls.map((url) => this.volcAssetService.uploadAsset("system", url, "image")),
+    );
+    return results.map((r, i) => {
+      if (r.status === "fulfilled") {
+        return `asset://${r.value.assetId}`;
+      }
+      this.logger.warn(`重新上传第 ${i + 1} 张图片失败，降级 HTTPS: ${(r as PromiseRejectedResult).reason?.message}`);
+      return rawUrls[i];
+    });
   }
 
   private async requestNewApiJson(path: string, init: RequestInit): Promise<any> {

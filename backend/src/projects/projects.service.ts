@@ -180,7 +180,16 @@ export class ProjectsService {
   async remove(userId: string, id: string) {
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) {
+      // 非创建者：若项目共享到了某团队且当前用户是该团队 owner/admin，则允许删除
+      const manageable = await this.prisma.teamProjectShare.findFirst({
+        where: {
+          projectId: id,
+          team: { memberships: { some: { userId, role: { in: ['owner', 'admin'] } } } },
+        },
+      });
+      if (!manageable) throw new NotFoundException('项目不存在');
+    }
     await this.prisma.project.delete({ where: { id } });
     return { ok: true };
   }
@@ -703,7 +712,15 @@ export class ProjectsService {
 
   async unshareFromTeam(projectId: string, teamId: string, userId: string) {
     const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
-    if (project.userId !== userId) throw new ForbiddenException('无权取消共享');
+    if (project.userId !== userId) {
+      // 非创建者：团队 owner/admin 可将项目移出团队
+      const membership = await this.prisma.teamMembership.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+      });
+      if (!membership || !['owner', 'admin'].includes(membership.role)) {
+        throw new ForbiddenException('无权取消共享');
+      }
+    }
 
     await this.prisma.teamProjectShare.delete({
       where: { projectId_teamId: { projectId, teamId } },

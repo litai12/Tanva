@@ -33,6 +33,7 @@ import { TencentVodAigcService } from './services/tencent-vod-aigc.service';
 import { ModelRoutingService } from './services/model-routing.service';
 import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCreditsModule } from '../team-credits/team-credits.module';
+import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { TeamCreditsModule } from '../team-credits/team-credits.module';
     PrismaModule,
     TelemetryModule,
     TeamCreditsModule,
+    VolcAssetModule,
   ],
   providers: [
     AiService,

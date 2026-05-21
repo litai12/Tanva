@@ -168,7 +168,6 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
             <img
               key={img.id}
               src={src}
-              crossOrigin="anonymous"
               draggable={false}
               style={{
                 position: 'absolute',
