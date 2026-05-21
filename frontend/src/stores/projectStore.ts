@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { projectApi, type Project } from '@/services/projectApi';
 import { deleteProjectCache } from '@/services/projectCacheStore';
+import { useTeamStore } from '@/stores/teamStore';
 import i18n from '@/i18n';
 
 type ProjectState = {
@@ -108,7 +109,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const projects = await projectApi.list();
+      const { activeTeamId, teams } = useTeamStore.getState();
+      const activeTeam = teams.find((t) => t.id === activeTeamId);
+      const isOrgTeam = activeTeam && !activeTeam.isPersonal;
+      const projects = isOrgTeam
+        ? await projectApi.listByTeam(activeTeam.id)
+        : await projectApi.list();
       let recentProjectIds = filterExistingRecentProjectIds(
         readRecentProjectIds(),
         projects
@@ -121,6 +127,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (projects.length > 0) {
           current = projects[0];
           try { localStorage.setItem(LS_CURRENT_PROJECT, current.id); } catch {}
+        } else if (isOrgTeam) {
+          // 团队模式下没有共享项目时不自动创建个人项目
+          writeRecentProjectIds(recentProjectIds);
+          set({ projects: [], recentProjectIds, currentProjectId: null, currentProject: null, loading: false });
+          return;
         } else {
           // 没有项目，自动创建一个"未命名"
           try {

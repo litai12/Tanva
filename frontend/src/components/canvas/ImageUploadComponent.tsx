@@ -45,8 +45,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
 
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
 
-      // 1) Put a local blob preview on canvas immediately.
-      const blobUrl = URL.createObjectURL(file);
+      // 1) Put a local preview on canvas immediately.
+      // Convert to data URL so pickRasterSource recognises it as an inline preview
+      // (isInlineDataUrl checks for "data:image" prefix; blob: URLs are rejected).
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const { key } = generateOssKey({
         projectId,
@@ -58,12 +65,11 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
         id: imageId,
         url: key, // Link key first so the asset can be persisted.
         key,
-        // Runtime uses local preview first; persistence still relies on OSS key.
-        src: blobUrl,
+        src: dataUrl,
         fileName: file.name,
         contentType: file.type,
         pendingUpload: true,
-        localDataUrl: blobUrl,
+        localDataUrl: dataUrl,
       };
       onImageUploaded(localAsset);
 
@@ -111,16 +117,21 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       console.error('Image processing exception:', error);
       if (file) {
         try {
-          // Fallback: keep local blob visible and mark as pending upload.
-          const blobUrl = URL.createObjectURL(file);
+          // Fallback: show a local data URL preview so pickRasterSource can use it.
+          const fallbackDataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          });
           const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const fallbackAsset: StoredImageAsset = {
             id: imageId,
-            url: blobUrl,
-            src: blobUrl,
+            url: fallbackDataUrl,
+            src: fallbackDataUrl,
             fileName: file.name,
             pendingUpload: true,
-            localDataUrl: blobUrl,
+            localDataUrl: fallbackDataUrl,
             contentType: file.type,
           };
           onImageUploaded(fallbackAsset);

@@ -350,6 +350,11 @@ export const useDrawingTools = ({
 
       pathRef.current.add(point);
 
+      // Force canvas repaint so the new segment is visible immediately.
+      // Paper.js only auto-redraws when object properties (e.g. .bounds) change;
+      // manually adding points via .add() does not trigger it on its own.
+      try { paper.view?.update(); } catch (_) {}
+
       // 触发 Paper.js 的 change 事件以更新图层面板
       if (paper.project && (paper.project as any).emit) {
         (paper.project as any).emit('change');

@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { teamApi } from '../../services/teamApi';
 import { teamSubscriptionApi } from '../../services/teamCreditsApi';
 import { useTeamStore } from '../../stores/teamStore';
-import { useAuthStore } from '../../stores/authStore';
+import { useAuthStore, refreshTeams } from '../../stores/authStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
 import { X, UserMinus, Crown, Shield, User, Mail, Copy, Check, Zap, Calendar, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -154,10 +155,8 @@ function MembersTab({
   const handleDissolve = async () => {
     if (!confirm(`确认解散团队「${teamName}」？此操作不可撤销。`)) return;
     await teamApi.dissolveTeam(teamId);
-    const updated = await teamApi.getMyTeams();
-    useTeamStore.getState().setTeams(updated);
-    const personal = updated.find((t: any) => t.isPersonal);
-    if (personal) useTeamStore.getState().setActiveTeamId(personal.id);
+    await refreshTeams();
+    await useProjectStore.getState().load();
     onClose();
   };
 

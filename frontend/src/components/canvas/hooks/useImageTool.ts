@@ -1694,7 +1694,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
 
     // 用 ImageResourceManager 预加载后 setImage，避免 raster.source 触发白帧重载
-    const renderable = toRenderableImageSrc(source);
+    // Fallback: if source is a blob URL (revoked or pending), try localDataUrl.
+    const renderable = toRenderableImageSrc(source) || toRenderableImageSrc(snapshot.localDataUrl ?? null);
     if (renderable) {
       ImageResourceManager.getInstance()
         .acquire(renderable, 'visible', imageId)

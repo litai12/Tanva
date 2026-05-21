@@ -89,9 +89,20 @@ function TeamFormModal({
           <input
             autoFocus
             className="w-full text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all"
-            placeholder={mode === 'create' ? '团队名称' : '粘贴邀请码'}
+            placeholder={mode === 'create' ? '团队名称' : '粘贴邀请码或链接'}
             value={value}
-            onChange={(e) => { setValue(e.target.value); setError(''); }}
+            onChange={(e) => {
+              let val = e.target.value;
+              if (mode === 'join') {
+                try {
+                  const url = new URL(val.trim());
+                  const code = url.searchParams.get('inviteCode');
+                  if (code) val = code;
+                } catch {}
+              }
+              setValue(val);
+              setError('');
+            }}
           />
           {mode === 'create' && (
             <p className="text-xs text-slate-400 mt-1.5">新建团队固定 2 席位起</p>
@@ -230,6 +241,7 @@ export function TeamSwitcher({ onManage, variant = 'header', className }: Props)
 
   const completeSwitchTeam = (teamId: string, projectId?: string) => {
     setActiveTeamId(teamId);
+    window.dispatchEvent(new Event('refresh-credits'));
     setTimeout(() => {
       void projectStore.load().then(() => {
         if (projectId) projectStore.open(projectId);

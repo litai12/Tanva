@@ -1438,6 +1438,7 @@ export const useInteractionController = ({
                   width: imageInstance.imageData?.width,
                   height: imageInstance.imageData?.height,
                   contentType: imageInstance.imageData?.contentType,
+                  pendingUpload: imageInstance.imageData?.pendingUpload,
                   layerId: imageInstance.layerId ?? null,
                 };
                 snapshots.push(snapshot);

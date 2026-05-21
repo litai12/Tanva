@@ -76,50 +76,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return { startIndex: atIdx, query: afterAt };
   }, [siblingImages.length]);
 
-  const handleMentionSelect = React.useCallback((img: SiblingImage) => {
-    const el = textareaRef.current;
-    if (!el || !atMention) return;
-    const cursorPos = el.selectionStart ?? value.length;
-    const before = value.slice(0, atMention.startIndex);
-    const after = value.slice(cursorPos);
-    const inserted = `@图${img.index}`;
-    const next = before + inserted + after;
-    setValue(next);
-    commitValue(next);
-    setAtMention(null);
-    requestAnimationFrame(() => {
-      el.focus();
-      const newCursor = atMention.startIndex + inserted.length;
-      el.setSelectionRange(newCursor, newCursor);
-    });
-  }, [atMention, commitValue, value]);
-
-  const handleMentionKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!atMention || mentionImages.length === 0) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setAtMention(null);
-      return;
-    }
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.min(prev.selectedIdx + 1, mentionImages.length - 1) } : null);
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.max(prev.selectedIdx - 1, 0) } : null);
-      return;
-    }
-    if (event.key === 'Enter' || event.key === 'Tab') {
-      const img = mentionImages[atMention.selectedIdx];
-      if (img) {
-        event.preventDefault();
-        handleMentionSelect(img);
-      }
-    }
-  }, [atMention, handleMentionSelect, mentionImages]);
-
   const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
   const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
   const resizePreviewRafRef = React.useRef<number | null>(null);
@@ -288,6 +244,50 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: next } } });
     window.dispatchEvent(ev);
   }, [id]);
+
+  const handleMentionSelect = React.useCallback((img: SiblingImage) => {
+    const el = textareaRef.current;
+    if (!el || !atMention) return;
+    const cursorPos = el.selectionStart ?? value.length;
+    const before = value.slice(0, atMention.startIndex);
+    const after = value.slice(cursorPos);
+    const inserted = `@图${img.index}`;
+    const next = before + inserted + after;
+    setValue(next);
+    commitValue(next);
+    setAtMention(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      const newCursor = atMention.startIndex + inserted.length;
+      el.setSelectionRange(newCursor, newCursor);
+    });
+  }, [atMention, commitValue, value]);
+
+  const handleMentionKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!atMention || mentionImages.length === 0) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setAtMention(null);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.min(prev.selectedIdx + 1, mentionImages.length - 1) } : null);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.max(prev.selectedIdx - 1, 0) } : null);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const img = mentionImages[atMention.selectedIdx];
+      if (img) {
+        event.preventDefault();
+        handleMentionSelect(img);
+      }
+    }
+  }, [atMention, handleMentionSelect, mentionImages]);
 
   const handleInsert = React.useCallback((text: string) => {
     if (isComposingRef.current) return;
