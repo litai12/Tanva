@@ -76,6 +76,54 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   // Snapshot taken when debounce fires; used in computeBounds so stale velocity isn't lost
   const cullingVelRef = React.useRef({ vx: 0, vy: 0 })
 
+  // Stable display src per image — prevents blank flash during blob→proxy URL transition.
+  // resolveImgSrc may return a proxy URL that differs from what DrawingController preloads
+  // (DrawingController preloads the raw OSS URL; resolveImgSrc generates a /api/assets/proxy
+  // URL). By preloading the exact proxy URL here and only swapping displaySrc after it loads,
+  // we ensure the <img> src attribute never changes to an uncached URL.
+  const confirmedSrcsRef = React.useRef<Map<string, string>>(new Map())
+  const pendingPreloadsRef = React.useRef<Map<string, string>>(new Map())
+  const [, forceUpdate] = React.useReducer(n => n + 1, 0)
+
+  React.useEffect(() => {
+    const confirmed = confirmedSrcsRef.current
+    const pending = pendingPreloadsRef.current
+
+    imageInstances.forEach((img) => {
+      if (!img.visible) return
+      const target = resolveImgSrc(img)
+      if (!target) return
+      if (confirmed.get(img.id) === target) return
+      if (pending.get(img.id) === target) return
+
+      if (!confirmed.has(img.id)) {
+        // First appearance: blob URLs load synchronously from local memory, confirm immediately.
+        // No forceUpdate needed — render already uses the ?? target fallback.
+        confirmed.set(img.id, target)
+        return
+      }
+
+      // Src changed (e.g. blob → proxy URL): preload the exact URL resolveImgSrc will render.
+      // Only swap confirmedSrc after the new URL is in browser memory cache to avoid blank.
+      pending.set(img.id, target)
+      const preloader = new window.Image()
+      const finish = (src: string) => {
+        if (pending.get(img.id) !== src) return
+        confirmed.set(img.id, src)
+        pending.delete(img.id)
+        forceUpdate()
+      }
+      preloader.onload = () => finish(target)
+      preloader.onerror = () => finish(target)
+      preloader.src = target
+    })
+
+    // Remove stale entries for images that have been deleted
+    const activeIds = new Set(imageInstances.map(i => i.id))
+    confirmed.forEach((_, id) => { if (!activeIds.has(id)) confirmed.delete(id) })
+    pending.forEach((_, id) => { if (!activeIds.has(id)) pending.delete(id) })
+  }, [imageInstances])
+
   // Transform bypass: subscribe to Zustand directly and mutate DOM.
   // Pan/zoom at 60 fps → ZERO React renders.
   React.useEffect(() => {
@@ -150,10 +198,9 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   return (
     <div
       style={{
-        position: 'absolute',
+        position: 'fixed',
         inset: 0,
         pointerEvents: 'none',
-        overflow: 'hidden',
         zIndex: 0,
       }}
     >
@@ -169,8 +216,11 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
       >
         {imageInstances.map((img) => {
           if (!img.visible) return null
-          const src = resolveImgSrc(img)
-          if (!src) return null
+          const targetSrc = resolveImgSrc(img)
+          if (!targetSrc) return null
+          // Use confirmedSrc (last successfully preloaded src) to avoid blank during transitions.
+          // Falls back to targetSrc on first render before the effect confirms the initial src.
+          const displaySrc = confirmedSrcsRef.current.get(img.id) ?? targetSrc
           const { x, y, width, height } = img.bounds
           const inViewport =
             x + width  > viewportBounds.left &&
@@ -180,7 +230,7 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
           return (
             <img
               key={img.id}
-              src={src}
+              src={displaySrc}
               draggable={false}
               style={{
                 position: 'absolute',

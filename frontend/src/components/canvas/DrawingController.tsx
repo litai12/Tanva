@@ -8948,7 +8948,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     <>
       {/* 图片上传组件 */}
       <ImageUploadComponent
-        onImageUploaded={imageTool.handleImageUploaded}
+        onImageUploaded={(asset) => {
+          // 取出占位框位置和尺寸，走与粘贴相同的 handleQuickImageUploaded 路径
+          const ph = imageTool.currentPlaceholderRef.current;
+          const bounds = ph?.data?.bounds as { x: number; y: number; width: number; height: number } | undefined;
+          const smartPosition = bounds
+            ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+            : undefined;
+          if (ph) {
+            try { ph.remove(); } catch {}
+            imageTool.currentPlaceholderRef.current = null;
+          }
+          void uploadImageToCanvas?.(asset, asset.fileName, undefined, smartPosition, undefined, undefined, undefined, {
+            initialWidth: bounds?.width,
+            initialHeight: bounds?.height,
+            lockToBounds: !!bounds,
+          });
+        }}
         onUploadError={imageTool.handleImageUploadError}
         trigger={imageTool.triggerImageUpload}
         onTriggerHandled={imageTool.handleUploadTriggerHandled}
@@ -8985,7 +9001,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* DOM图片渲染层：GPU加速，解决canvas重绘闪烁问题 */}
       <CanvasImageLayer imageInstances={imageTool.imageInstances} />
-
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
         // 构建所有画布图片数据，用于预览时显示

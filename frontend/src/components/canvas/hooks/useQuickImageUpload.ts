@@ -1160,6 +1160,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             parallelGroupId?: string;
             parallelGroupIndex?: number;
             parallelGroupTotal?: number;
+            // 上传占位框尺寸（无 placeholderId 时的初始显示尺寸）
+            initialWidth?: number;
+            initialHeight?: number;
         }
     ) => {
         if (!imagePayload) {
@@ -1362,8 +1365,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const placeholderBounds = placeholder?.data?.bounds;
             const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const defaultExpectedSize = 512;
-            const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
-            const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
+            const expectedWidth = placeholderBounds?.width ?? extraOptions?.initialWidth ?? defaultExpectedSize;
+            const expectedHeight = placeholderBounds?.height ?? extraOptions?.initialHeight ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
             const lockToBounds =
                 Boolean(extraOptions?.lockToBounds) || pendingOperationType === 'precise-edit';
