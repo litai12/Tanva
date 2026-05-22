@@ -5,6 +5,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
+import { ImageResourceManager } from '@/canvas/ImageResourceManager';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
@@ -34,7 +35,7 @@ interface UseQuickImageUploadProps {
 
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
-    return value.startsWith('data:image');
+    return value.startsWith('data:image') || value.startsWith('blob:');
 };
 
 const toPreferredRemoteSource = (value: string): string => {
@@ -85,7 +86,9 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         localPreview ||
         asset.url;
 
-    const renderable = toRenderableImageSrc(displayCandidate);
+    // Blob URLs are valid for Paper.js Raster but blocked by toRenderableImageSrc — allow directly.
+    const isBlobPreview = typeof displayCandidate === 'string' && displayCandidate.startsWith('blob:');
+    const renderable = isBlobPreview ? displayCandidate : toRenderableImageSrc(displayCandidate);
     const preferredSource = renderable ? toPreferredRemoteSource(renderable) : '';
     return { source: preferredSource, remoteUrl, key };
 };
@@ -1526,6 +1529,39 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             }
 
+            // ⚡ 立即向 CanvasImageLayer 分派初始实例，不等待 Raster 加载
+            // 与 createImageFromSnapshot 的立即分派策略保持一致，确保图片零延迟渲染
+            {
+                const _earlyLayerId = paper.project.activeLayer?.name ?? '';
+                window.dispatchEvent(new CustomEvent('quickImageAdded', {
+                    detail: {
+                        id: imageId,
+                        imageData: {
+                            id: imageId,
+                            url: asset.url,
+                            src: asset.src || asset.url,
+                            localDataUrl: asset.localDataUrl,
+                            remoteUrl: asset.remoteUrl,
+                            key: asset.key,
+                            fileName: fileName,
+                            width: asset.width,
+                            height: asset.height,
+                            contentType: asset.contentType,
+                            pendingUpload: !!asset.pendingUpload,
+                        },
+                        bounds: {
+                            x: targetPosition.x - expectedWidth / 2,
+                            y: targetPosition.y - expectedHeight / 2,
+                            width: expectedWidth,
+                            height: expectedHeight,
+                        },
+                        isSelected: false,
+                        visible: true,
+                        layerId: _earlyLayerId,
+                    }
+                }));
+            }
+
             // 创建加载指示器（转圈动画）
             const loadingIndicatorSize = 48;
             const loadingGroup = new paper.Group();
@@ -1804,9 +1840,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 });
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
                 
-                // 获取原始尺寸
-                const originalWidth = raster.width;
-                const originalHeight = raster.height;
+                // 获取原始尺寸（从 raster 内部的 HTMLImageElement 读取更可靠，
+                // 避免 setImage 后 paper.js 延迟设置 _size 导致 raster.width=0）
+                const _rasterImg = (raster as any)._image as HTMLImageElement | undefined;
+                const originalWidth = (_rasterImg?.naturalWidth ?? 0) || raster.width || asset.width || 512;
+                const originalHeight = (_rasterImg?.naturalHeight ?? 0) || raster.height || asset.height || 512;
 
                 // 检查是否启用原始尺寸模式
                 const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
@@ -2356,8 +2394,28 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            // 绑定处理器并触发首次加载
 	            bindRasterHandlers();
 	            scheduleLoadTimeout();
-	            setRasterSource(raster, rasterSource);
-	            await rasterReady;
+
+	            // 优先通过 ImageResourceManager 加载（与复制粘贴路径一致）：
+	            // 先用 fetch 尝试加载，CORS 失败时自动降级为无 crossOrigin 的 <img> 加载，
+	            // 避免 raster.source + crossOrigin='anonymous' 遇到缓存不一致时渲染空白的问题。
+	            const _renderableSrc = toRenderableImageSrc(rasterSource) || rasterSource;
+	            if (_renderableSrc && !_renderableSrc.startsWith('data:')) {
+	                try {
+	                    const _htmlImg = await ImageResourceManager.getInstance().acquire(_renderableSrc, 'visible', imageId);
+	                    if (!hasTerminalLoadFailure && raster.isInserted()) {
+	                        (raster as any).setImage(_htmlImg);
+	                        if (!rasterSettled) onLoadHandler?.();
+	                    }
+	                } catch {
+	                    if (!rasterSettled && !hasTerminalLoadFailure) {
+	                        setRasterSource(raster, rasterSource);
+	                        await rasterReady;
+	                    }
+	                }
+	            } else {
+	                setRasterSource(raster, rasterSource);
+	                await rasterReady;
+	            }
 	        } catch (error) {
 	            logger.error('快速上传图片时出错:', error);
 	            try { rejectRasterReady?.(error); } catch {}

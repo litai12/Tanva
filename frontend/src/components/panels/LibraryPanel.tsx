@@ -525,7 +525,7 @@ const LibraryPanel: React.FC = () => {
           const resp = await fetchWithAuth(proxyUrl, {
             mode: "cors",
             credentials: resolveImageFetchCredentials(proxyUrl),
-            auth: "omit",
+            auth: "auto",
             allowRefresh: false,
           });
           if (resp.ok) {

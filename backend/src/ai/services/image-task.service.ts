@@ -377,7 +377,10 @@ export class ImageTaskService {
     );
 
     if (this.isGeminiProvider(providerName)) {
-      return this.imageGenService.generateImage(taskRequestData as any);
+      const resizedData = Array.isArray(taskRequestData.imageUrls)
+        ? { ...taskRequestData, imageUrls: taskRequestData.imageUrls.map((u: unknown) => typeof u === 'string' ? this.oss.withImageResize(u) : u) }
+        : taskRequestData;
+      return this.imageGenService.generateImage(resizedData as any);
     }
 
     const provider = this.providerFactory.getProvider(model, providerName ?? undefined);
@@ -392,10 +395,12 @@ export class ImageTaskService {
       providerOptions: taskRequestData.providerOptions,
       enableWebSearch: taskRequestData.enableWebSearch,
       imageUrls: Array.isArray(taskRequestData.imageUrls)
-        ? taskRequestData.imageUrls.filter(
-            (item: unknown): item is string =>
-              typeof item === 'string' && item.trim().length > 0,
-          )
+        ? taskRequestData.imageUrls
+            .filter(
+              (item: unknown): item is string =>
+                typeof item === 'string' && item.trim().length > 0,
+            )
+            .map((url) => this.oss.withImageResize(url))
         : undefined,
       googleSearch: taskRequestData.googleSearch,
       googleImageSearch: taskRequestData.googleImageSearch,

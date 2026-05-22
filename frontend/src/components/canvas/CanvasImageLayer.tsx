@@ -13,6 +13,7 @@ import React from 'react'
 import { useCanvasStore } from '@/stores/canvasStore'
 import type { ImageInstance } from '@/types/canvas'
 import { toRenderableImageSrc } from '@/utils/imageSource'
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
 
 interface Props {
   imageInstances: ImageInstance[]
@@ -37,11 +38,23 @@ const cancelIdle: (id: number) => void =
 
 function resolveImgSrc(img: ImageInstance): string {
   const d = img.imageData
-  const candidates = [d.localDataUrl, d.remoteUrl, d.url, d.src, d.key]
-  for (const c of candidates) {
+  // localDataUrl (blob URL or data URL) — instant, no auth/CORS required.
+  // Blob URLs are valid for <img> but blocked by toRenderableImageSrc, so return directly.
+  if (d.localDataUrl) {
+    if (d.localDataUrl.startsWith('blob:')) return d.localDataUrl
+    const r = toRenderableImageSrc(d.localDataUrl)
+    if (r) return r
+  }
+  // Remote URL fallbacks: route through backend proxy so private OSS buckets load correctly.
+  // A plain <img> cannot send auth headers; the proxy handles OSS credentials server-side.
+  const remoteCandidates = [d.remoteUrl, d.url, d.src, d.key]
+  for (const c of remoteCandidates) {
     if (!c) continue
     const r = toRenderableImageSrc(c)
-    if (r) return r
+    if (!r) continue
+    if (r.startsWith('data:') || r.startsWith('blob:')) return r
+    if (r.includes('/api/assets/proxy')) return r  // already proxified
+    return proxifyRemoteAssetUrl(r, { forceProxy: true })
   }
   return ''
 }

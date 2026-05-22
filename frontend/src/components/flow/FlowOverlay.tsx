@@ -6260,7 +6260,7 @@ function FlowInner() {
   const rfNodesToTplNodes = React.useCallback(
     (
       ns: RFNode[],
-      options?: { preserveImagePayload?: boolean }
+      options?: { preserveImagePayload?: boolean; preserveRunningState?: boolean }
     ): ClipboardFlowNode[] => {
       return ns.map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
@@ -6268,9 +6268,18 @@ function FlowInner() {
         delete rawData.onSend;
         const data = sanitizeNodeData(rawData, options);
         if (data) {
-          delete data.status;
-          delete data.error;
-          delete data.progressStartedAt;
+          const isRunning = data.status === "running";
+          // Preserve running-state fields in project saves so the task recovery
+          // mechanism can detect and resume in-progress tasks on project reload.
+          // Strip them for clipboard/template copies where running state is irrelevant.
+          if (!options?.preserveRunningState || !isRunning) {
+            delete data.status;
+            delete data.progressStartedAt;
+          }
+          // Always clear non-running error since it would show stale errors on copy.
+          if (!isRunning) {
+            delete data.error;
+          }
         }
         return {
           id: n.id,
@@ -7116,7 +7125,7 @@ function FlowInner() {
     const es = contentFlow?.edges || [];
     const incomingSignature = getFlowSnapshotSignature(ns, es);
     const localSignature = getFlowSnapshotSignature(
-      rfNodesToTplNodes(nodesRef.current as any),
+      rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true }),
       rfEdgesToTplEdges(edgesRef.current as any)
     );
     if (
@@ -7205,7 +7214,7 @@ function FlowInner() {
     if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
     if (nodeDraggingRef.current) return;
-    const nodesSnapshot = rfNodesToTplNodes(nodes as any);
+    const nodesSnapshot = rfNodesToTplNodes(nodes as any, { preserveRunningState: true });
     const edgesSnapshot = rfEdgesToTplEdges(edges);
     scheduleCommit(nodesSnapshot, edgesSnapshot);
   }, [
@@ -14370,10 +14379,16 @@ function FlowInner() {
                 },
               };
             }
-            // still queued/processing — keep taskId in data so polling can resume
+            // still queued/processing — keep running state; ensure progressStartedAt
+            // is set so the progress bar shows correctly after project reload.
             return {
               ...n,
-              data: { ...prevData, taskId: record.taskId },
+              data: {
+                ...prevData,
+                status: "running",
+                taskId: record.taskId,
+                progressStartedAt: prevData.progressStartedAt ?? Date.now(),
+              },
             };
           })
         );
@@ -14381,6 +14396,57 @@ function FlowInner() {
         // recovery is best-effort; swallow errors
       }
     })();
+  }, [nodes, setNodes]);
+
+  // 恢复后对仍在运行的节点保持轮询（每 5 秒），直到任务结束
+  const recoveryPollingRef = React.useRef<number | undefined>();
+  React.useEffect(() => {
+    const check = async () => {
+      const runningNodes = nodes.filter(
+        (n) =>
+          (n.data as any)?.status === "running" &&
+          typeof (n.data as any)?.taskId === "string" &&
+          (n.data as any).taskId.trim().length > 0
+      );
+      if (!runningNodes.length) return;
+      try {
+        const records = await batchQueryTasksByNodesAPI(runningNodes.map((n) => n.id));
+        if (!Object.keys(records).length) return;
+        setNodes((prev: any[]) =>
+          prev.map((n) => {
+            const record = records[n.id];
+            if (!record || record.status === "running" || record.status === "queued") return n;
+            const prevData = (n.data as any) || {};
+            if (record.status === "failed") {
+              return { ...n, data: { ...prevData, status: "failed", error: record.error || "任务失败", taskId: record.taskId } };
+            }
+            if (record.status === "succeeded") {
+              const res = record.result || {};
+              return {
+                ...n,
+                data: {
+                  ...prevData, status: "succeeded", taskId: record.taskId, error: undefined,
+                  ...(res.videoUrl ? { videoUrl: res.videoUrl } : {}),
+                  ...(res.thumbnailUrl ? { thumbnail: res.thumbnailUrl } : {}),
+                  ...(res.imageUrl ? { imageUrl: res.imageUrl } : {}),
+                  ...(res.modelUrl ? { modelUrl: res.modelUrl } : {}),
+                },
+              };
+            }
+            return n;
+          })
+        );
+      } catch { /* best-effort */ }
+    };
+
+    window.clearInterval(recoveryPollingRef.current);
+    const hasRecoveredRunning = nodes.some(
+      (n) => (n.data as any)?.status === "running" && typeof (n.data as any)?.taskId === "string"
+    );
+    if (hasRecoveredRunning && taskRecoveryFiredRef.current) {
+      recoveryPollingRef.current = window.setInterval(() => { void check(); }, 5000);
+    }
+    return () => window.clearInterval(recoveryPollingRef.current);
   }, [nodes, setNodes]);
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）

@@ -40,20 +40,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       return;
     }
 
+    // Create blob URL instantly — no FileReader encoding needed.
+    // finalizeSwapAfterLoaded will revoke it after the remote URL loads.
+    const blobUrl = URL.createObjectURL(file);
+    let blobDispatched = false;
+
     try {
       logger.upload('Starting image processing:', file.name);
 
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
-
-      // 1) Put a local preview on canvas immediately.
-      // Convert to data URL so pickRasterSource recognises it as an inline preview
-      // (isInlineDataUrl checks for "data:image" prefix; blob: URLs are rejected).
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const { key } = generateOssKey({
         projectId,
@@ -61,19 +56,22 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
         fileName: file.name,
         contentType: file.type,
       });
+
+      // 1) Put blob URL preview on canvas immediately — zero latency.
       const localAsset: StoredImageAsset = {
         id: imageId,
-        url: key, // Link key first so the asset can be persisted.
+        url: key,
         key,
-        src: dataUrl,
+        src: blobUrl,
         fileName: file.name,
         contentType: file.type,
         pendingUpload: true,
-        localDataUrl: dataUrl,
+        localDataUrl: blobUrl,
       };
       onImageUploaded(localAsset);
+      blobDispatched = true;
 
-      // 2) Upload in background, then upgrade source and clean local blob.
+      // 2) Upload in background; finalizeSwapAfterLoaded handles blob revocation.
       const result = await imageUploadService.uploadImageFile(file, {
         projectId,
         dir: uploadDir,
@@ -104,7 +102,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           skipInitialStoreUpdate: true,
         });
       } else {
-        console.error('Image upload failed, local fallback kept:', result.error);
+        console.error('Image upload failed, local blob preview kept:', result.error);
         onUploadError(
           result.error ||
             lt(
@@ -115,39 +113,12 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       }
     } catch (error) {
       console.error('Image processing exception:', error);
-      if (file) {
-        try {
-          // Fallback: show a local data URL preview so pickRasterSource can use it.
-          const fallbackDataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(file);
-          });
-          const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          const fallbackAsset: StoredImageAsset = {
-            id: imageId,
-            url: fallbackDataUrl,
-            src: fallbackDataUrl,
-            fileName: file.name,
-            pendingUpload: true,
-            localDataUrl: fallbackDataUrl,
-            contentType: file.type,
-          };
-          onImageUploaded(fallbackAsset);
-          onUploadError(
-            lt(
-              '图片上传失败，已保留本地副本（可稍后重试上传）',
-              'Image upload failed; local copy is kept (you can retry later).'
-            )
-          );
-        } catch (fallbackError) {
-          console.error('Local fallback failed:', fallbackError);
-          onUploadError(lt('图片处理失败，请重试', 'Image processing failed. Please try again.'));
-        }
+      if (!blobDispatched) {
+        // Blob was never sent to canvas — revoke it immediately.
+        URL.revokeObjectURL(blobUrl);
       }
+      onUploadError(lt('图片处理失败，请重试', 'Image processing failed. Please try again.'));
     } finally {
-      // Clear input value to allow selecting the same file again.
       resetInputValue();
     }
   }, [lt, onImageUploaded, onUploadError, projectId, resetInputValue]);

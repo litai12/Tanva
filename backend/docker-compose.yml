@@ -99,6 +99,7 @@ services:
       SQL_DSN: postgres://${NEW_API_PG_USER:-new_api}:${NEW_API_PG_PASSWORD:-new_api_pass}@new-api-postgres:5432/${NEW_API_PG_DB:-new_api}?sslmode=disable
       REDIS_CONN_STRING: redis://redis:6379/0
       SESSION_SECRET: ${NEW_API_SESSION_SECRET:-tanva-new-api-local-session}
+      MAX_FILE_DOWNLOAD_MB: ${NEW_API_MAX_FILE_DOWNLOAD_MB:-100}
       GENERATE_DEFAULT_TOKEN: ${NEW_API_GENERATE_DEFAULT_TOKEN:-false}
       MEMORY_CACHE_ENABLED: ${NEW_API_MEMORY_CACHE_ENABLED:-true}
       SYNC_FREQUENCY: ${NEW_API_SYNC_FREQUENCY:-60}
