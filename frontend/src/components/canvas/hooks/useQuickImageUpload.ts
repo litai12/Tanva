@@ -1924,6 +1924,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     boundsSource = 'selected';
                 }
 
+                // lockToBounds 但没有找到占位符：用 expectedSize + targetPosition 构建边界
+                if (!targetBounds && lockToBounds && expectedWidth > 0 && expectedHeight > 0) {
+                    targetBounds = {
+                        x: targetPosition.x - expectedWidth / 2,
+                        y: targetPosition.y - expectedHeight / 2,
+                        width: expectedWidth,
+                        height: expectedHeight,
+                    };
+                    boundsSource = 'placeholder';
+                }
+
                 if (targetBounds) {
                     const sourceType = boundsSource === 'selected' ? '选中图片边界' : '占位框';
                     logger.upload(`🎯 发现${sourceType}，使用边界尺寸进行自适应`);
