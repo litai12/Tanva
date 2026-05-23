@@ -1756,6 +1756,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       );
   }, [insertSvgAssetToCanvas]);
 
+  // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
+  const quickImageUploadRef = useRef(quickImageUpload);
+  useEffect(() => {
+    quickImageUploadRef.current = quickImageUpload;
+  }, [quickImageUpload]);
+
 	  // ========== 监听AI生成图片的快速上传触发事件 ==========
 	  useEffect(() => {
 	    const handleTriggerQuickUpload = (event: CustomEvent) => {
@@ -1797,7 +1803,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // Keep expand-image result as a new image at placeholder position.
       // Do not replace the source image in-place.
 
-	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
+	      if (imageData && quickImageUploadRef.current.handleQuickImageUploaded) {
 	        const handle = () => {
           let resolvedSmartPosition = smartPosition;
           if (
@@ -1816,7 +1822,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
-	          void quickImageUpload
+	          void quickImageUploadRef.current
 	            .handleQuickImageUploaded(
 	              imageData,
 	              fileName,
@@ -1858,7 +1864,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              logger.error("❌ [DEBUG] 重试快速上传仍失败:", retryError);
 	              if (placeholderId) {
 	                try {
-	                  quickImageUpload.removePredictedPlaceholder(placeholderId);
+	                  quickImageUploadRef.current.removePredictedPlaceholder(placeholderId);
 	                } catch {}
 	              }
 	            }
@@ -1885,13 +1891,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         handleTriggerQuickUpload as EventListener
       );
     };
-  }, [quickImageUpload, canvasRef]);
-
-  // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
-  const quickImageUploadRef = useRef(quickImageUpload);
-  useEffect(() => {
-    quickImageUploadRef.current = quickImageUpload;
-  }, [quickImageUpload]);
+  }, []);
 
   // 使用 ref 存储 imageTool.setImageInstances 的最新引用，避免事件监听闭包过期
   const imageToolSetInstancesRef = useRef(imageTool.setImageInstances);
@@ -8983,6 +8983,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
         projectId={projectId}
       />
+
+      {/* AI 生图进行中指示器 — React 层，不依赖 Paper.js，切换节点不会消失 */}
+      {quickImageUpload.pendingCount > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(17, 24, 39, 0.85)",
+            color: "#f9fafb",
+            fontSize: 13,
+            fontWeight: 500,
+            padding: "7px 14px",
+            borderRadius: 20,
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+            zIndex: 9999,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
+          >
+            <line x1="12" y1="2" x2="12" y2="6" />
+            <line x1="12" y1="18" x2="12" y2="22" />
+            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+            <line x1="2" y1="12" x2="6" y2="12" />
+            <line x1="18" y1="12" x2="22" y2="12" />
+            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+          </svg>
+          AI 生成中{quickImageUpload.pendingCount > 1 ? `（${quickImageUpload.pendingCount}）` : ""}
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
 
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent

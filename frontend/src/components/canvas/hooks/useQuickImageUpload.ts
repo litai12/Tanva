@@ -191,6 +191,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     };
 
     const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
+    const [pendingCount, setPendingCount] = useState(0);
     const predictedPlaceholdersRef = useRef<Map<string, paper.Item>>(new Map());
     const matrixLayoutsRef = useRef<Map<string, MatrixLayoutState>>(new Map());
     const matrixSlotRegistryRef = useRef<Map<string, { contextKey: string; index: number }>>(new Map());
@@ -208,12 +209,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             list[index] = { ...list[index], ...entry };
         } else {
             list.push(entry);
+            setPendingCount((c) => c + 1);
         }
     }, []);
 
     const removePendingImage = useCallback((id?: string) => {
         if (!id) return;
+        const existed = pendingImagesRef.current.some((item) => item.id === id);
         pendingImagesRef.current = pendingImagesRef.current.filter((item) => item.id !== id);
+        if (existed) setPendingCount((c) => Math.max(0, c - 1));
     }, []);
 
     const removePredictedPlaceholder = useCallback((placeholderId: string | undefined | null) => {
@@ -2460,6 +2464,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         showPredictedPlaceholder,
         removePredictedPlaceholder,
         updatePlaceholderProgress,
+        pendingCount,
         // 智能排版相关函数
         calculateSmartPosition,
         getAllCanvasImages,
