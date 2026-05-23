@@ -174,6 +174,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     // 🔥 追踪正在加载中的图片（防止连续生成时位置重叠）
     type PendingImageEntry = {
         id: string;
+        projectId?: string;
         operationType?: string;
         expectedWidth: number;
         expectedHeight: number;
@@ -1062,6 +1063,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         predictedPlaceholdersRef.current.set(params.placeholderId, group);
         upsertPendingImage({
             id: params.placeholderId,
+            projectId: projectId ?? undefined,
             expectedWidth: width,
             expectedHeight: height,
             x: centerPoint.x,
@@ -1175,6 +1177,20 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 removePredictedPlaceholder(extraOptions.placeholderId);
             }
             return;
+        }
+
+        // Guard: if the placeholder was created on a different canvas, don't place the image here
+        if (extraOptions?.placeholderId) {
+            const placeholderEntry = pendingImagesRef.current.find(
+                (e) => e.id === extraOptions.placeholderId
+            );
+            if (placeholderEntry?.projectId && placeholderEntry.projectId !== projectId) {
+                logger.upload(
+                    `⚠️ 图片生成完成但画板已切换，忽略放置 (placeholder projectId: ${placeholderEntry.projectId}, current: ${projectId})`
+                );
+                removePredictedPlaceholder(extraOptions.placeholderId);
+                return;
+            }
         }
 
         let asset: StoredImageAsset | null = null;
@@ -1738,7 +1754,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                hasTerminalLoadFailure = true;
 	                clearLoadTimeout();
 	                removeLoadingIndicator();
-	                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+	                removePendingImage(imageId);
 	                if (placeholderId) {
 	                    removePredictedPlaceholder(placeholderId);
 	                }
@@ -1845,7 +1861,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     移除前数量: pendingImagesRef.current.length,
                     移除前列表: pendingImagesRef.current.map(p => p.id.substring(0, 25))
                 });
-                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+                removePendingImage(imageId);
                 
                 // 获取原始尺寸（从 raster 内部的 HTMLImageElement 读取更可靠，
                 // 避免 setImage 后 paper.js 延迟设置 _size 导致 raster.width=0）
