@@ -89,7 +89,7 @@ var ChannelBaseURLs = []string{
 	"https://api.aiproxy.io",              // 21
 	"https://fastgpt.run/api/openapi",     // 22
 	"https://hunyuan.tencentcloudapi.com", //23
-	"https://generativelanguage.googleapis.com", //24
+	"https://generativelanguage.beqlee.icu", //24
 	"https://api.moonshot.cn",                   //25
 	"https://open.bigmodel.cn",                  //26
 	"https://api.perplexity.ai",                 //27

@@ -50,7 +50,7 @@ export interface MidjourneyButtonInfo {
   disabled?: boolean;
 }
 
-export type BananaImageRoute = 'normal' | 'stable';
+export type BananaImageRoute = 'normal' | 'stable' | 'ultra';
 
 export interface BananaProviderOptions {
   imageRoute?: BananaImageRoute;

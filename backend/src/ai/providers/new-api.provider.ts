@@ -25,6 +25,7 @@ export class NewApiProvider implements IAIProvider {
   private baseUrl = 'http://localhost:4458';
   private apiKey = '';
   private vipApiKey = '';
+  private svipApiKey = '';
 
   constructor(private readonly config: ConfigService) {}
 
@@ -43,6 +44,10 @@ export class NewApiProvider implements IAIProvider {
     this.vipApiKey =
       this.config.get<string>('NEW_API_KEY_VIP') ||
       process.env.NEW_API_KEY_VIP ||
+      '';
+    this.svipApiKey =
+      this.config.get<string>('NEW_API_KEY_SVIP') ||
+      process.env.NEW_API_KEY_SVIP ||
       '';
     this.available = !!this.apiKey;
     this.logger.log(
@@ -66,7 +71,7 @@ export class NewApiProvider implements IAIProvider {
     request: ImageGenerationRequest,
   ): Promise<AIProviderResponse<ImageResult>> {
     const payload: Record<string, unknown> = {
-      model: request.model || 'gemini-2.5-flash-image-preview',
+      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: this.resolveImageCount(request),
       size: request.aspectRatio || '1:1',
@@ -87,7 +92,7 @@ export class NewApiProvider implements IAIProvider {
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
     const payload: Record<string, unknown> = {
-      model: request.model || 'gemini-2.5-flash-image-preview',
+      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: 1,
       size: request.aspectRatio || '1:1',
@@ -101,7 +106,7 @@ export class NewApiProvider implements IAIProvider {
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
     const payload: Record<string, unknown> = {
-      model: request.model || 'gemini-2.5-flash-image-preview',
+      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: 1,
       size: request.aspectRatio || '1:1',
@@ -301,21 +306,39 @@ export class NewApiProvider implements IAIProvider {
   }
 
   private resolveApiKey(providerOptions?: ProviderOptionsPayload): string {
-    if (!this.vipApiKey) return this.apiKey;
-
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
       (typeof (providerOptions as any)?.bananaImageRoute === 'string'
         ? (providerOptions as any).bananaImageRoute
         : undefined);
-    if (imageRoute === 'stable') return this.vipApiKey;
+
+    if (imageRoute === 'ultra' && this.svipApiKey) return this.svipApiKey;
+    if (imageRoute === 'stable' && this.vipApiKey) return this.vipApiKey;
 
     // 通过模型路由系统选中 new_api 渠道时也走 VIP key
     const vendorKey = (providerOptions as any)?.vendorKey;
     const platformKey = (providerOptions as any)?.platformKey;
-    if (vendorKey === 'new_api' || platformKey === 'new_api') return this.vipApiKey;
+    if ((vendorKey === 'new_api' || platformKey === 'new_api') && this.vipApiKey) {
+      return this.vipApiKey;
+    }
 
     return this.apiKey;
+  }
+
+  private resolveUltraModel(model: string, providerOptions?: ProviderOptionsPayload): string {
+    const imageRoute =
+      providerOptions?.banana?.imageRoute ||
+      (typeof (providerOptions as any)?.bananaImageRoute === 'string'
+        ? (providerOptions as any).bananaImageRoute
+        : undefined);
+    if (imageRoute !== 'ultra') return model;
+    if (
+      model === 'gemini-3-pro-image-preview' ||
+      model === 'gemini-3.1-flash-image-preview'
+    ) {
+      return `${model}-ultra`;
+    }
+    return model;
   }
 
   private async callImageEndpoint(
