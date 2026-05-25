@@ -113,6 +113,58 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana 模型分析图像内容',
   },
 
+  // ── 极速通道（beqlee 官方代理，官方价 ×1.1）────────────────────────────────
+  // 注意：resolutionPricing 仅作 fallback，实际定价由 credits.service.ts
+  //       BANANA_ULTRA_RESOLUTION_PRICING 路由感知逻辑覆盖。
+  'gemini-3-pro-image-ultra': {
+    serviceName: 'Nano banana Pro 生图（极速）',
+    provider: 'gemini',
+    creditsPerCall: 100,
+    description: '使用 beqlee 极速代理生成高质量图像（Pro）',
+    resolutionPricing: {
+      '0.5K': 100,
+      '1K': 100,
+      '2K': 100,
+      '4K': 179,
+    },
+  },
+  'gemini-3.1-image-ultra': {
+    serviceName: 'Nano banana 2 生图（极速）',
+    provider: 'gemini',
+    creditsPerCall: 50,
+    description: '使用 beqlee 极速代理生成图像（Banana2）',
+    resolutionPricing: {
+      '0.5K': 50,
+      '1K': 50,
+      '2K': 75,
+      '4K': 113,
+    },
+  },
+  'gemini-image-blend-ultra': {
+    serviceName: 'Nano banana Pro 融合（极速）',
+    provider: 'gemini',
+    creditsPerCall: 100,
+    description: '使用 beqlee 极速代理融合图像（Pro）',
+    resolutionPricing: {
+      '0.5K': 100,
+      '1K': 100,
+      '2K': 100,
+      '4K': 179,
+    },
+  },
+  'gemini-3.1-image-blend-ultra': {
+    serviceName: 'Nano banana 2 融合（极速）',
+    provider: 'gemini',
+    creditsPerCall: 50,
+    description: '使用 beqlee 极速代理融合图像（Banana2）',
+    resolutionPricing: {
+      '0.5K': 50,
+      '1K': 50,
+      '2K': 75,
+      '4K': 113,
+    },
+  },
+
   // Gemini 文字服务
   'gemini-text': {
     serviceName: 'Gemini 文字对话',
