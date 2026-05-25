@@ -4,7 +4,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Logger,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -40,6 +42,15 @@ export class VolcAssetController {
       }
       this.logger.error(`upload failed for user ${userId}: ${msg}`);
       throw new BadGatewayException(msg);
+    }
+  }
+
+  @Get(':assetId/status')
+  async getAssetStatus(@Param('assetId') assetId: string) {
+    try {
+      return await this.svc.getAssetStatus(assetId);
+    } catch (err: any) {
+      throw new BadGatewayException(err?.message || 'Failed to get asset status');
     }
   }
 

@@ -58,6 +58,16 @@ export class VolcAssetService implements OnModuleInit {
     return { assetId, status: 'active' };
   }
 
+  async getAssetStatus(assetId: string): Promise<{ status: VolcAssetStatus; errorMessage?: string }> {
+    if (!this.isConfigured()) {
+      throw new Error('VOLC_ARK_ACCESS_KEY / VOLC_ARK_SECRET_KEY 未配置');
+    }
+    const result = await this.volcCall('GetAsset', { Id: assetId, ProjectName: this.projectName });
+    const status = this.normalizeStatus((result as any)?.Status);
+    const errorMessage = status === 'failed' ? ((result as any)?.AuditMessage || '内容审核未通过') : undefined;
+    return { status, ...(errorMessage ? { errorMessage } : {}) };
+  }
+
   // ── 素材组管理 ────────────────────────────────────────────────────────────
 
   invalidateTodayGroup(): void {
