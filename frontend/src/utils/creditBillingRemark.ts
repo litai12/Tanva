@@ -32,6 +32,7 @@ const normalizeValue = (key: string, value: string): string => {
     if (normalized === 'tencent') return '尊享路线';
     if (normalized === 'apimart') return '普通路线';
     if (normalized === '147') return '官方路线';
+    if (normalized === 'beqlee') return '极速路线';
   }
   if (key === 'volcVersion') {
     if (normalized === 'professional') return '专业版';

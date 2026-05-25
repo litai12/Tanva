@@ -2440,6 +2440,7 @@ export class CreditsService {
       this.normalizeBananaImageRoute(params?.providerOptions?.bananaImageRoute);
     if (explicitRoute === 'stable') return 'tencent';
     if (explicitRoute === 'normal') return 'apimart';
+    if (explicitRoute === 'ultra') return 'beqlee';
 
     const candidates = [
       params?.channel,
@@ -2485,6 +2486,7 @@ export class CreditsService {
     if (channel === 'apimart') return '普通路线';
     if (channel === 'tencent') return '尊享路线';
     if (channel === '147') return '官方路线';
+    if (channel === 'beqlee') return '极速路线';
     return channel;
   }
 
