@@ -55,7 +55,7 @@ FROM (VALUES
   ('gemini-3-pro-image-preview-ultra'),
   ('gemini-3.1-flash-image-preview-ultra')
 ) AS m(model)
-CROSS JOIN (VALUES ('default'), ('auto')) AS g(grp)
+CROSS JOIN (VALUES ('default'), ('auto'), ('svip')) AS g(grp)
 JOIN channels AS c
   ON c.name = 'beqlee-gemini' AND c.type = 24 AND c."group" = 'default'
 ON CONFLICT ("group", model, channel_id) DO UPDATE

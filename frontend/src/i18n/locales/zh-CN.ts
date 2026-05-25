@@ -169,6 +169,7 @@ const zhCN = {
         menuTitle: "生文/生图线路",
         normalShort: "普通",
         stableShort: "尊享",
+        ultraShort: "极速",
         toast: "已切换到{{route}}",
         todayRate: "今日 {{rate}}",
         todayRateUnknown: "今日 --",
@@ -331,11 +332,13 @@ const zhCN = {
         },
         bananaRoute: {
           title: "Nano Banana/Gemini/GPT-Image-2 生文/图路线",
-          desc: "生文与生图统一走路线策略，可在普通与尊享间切换",
+          desc: "生文与生图统一走路线策略，可在普通、尊享与极速间切换",
           normal: "普通路线",
           normalDesc: "生图/生文走普通三方渠道",
           stable: "尊享路线",
           stableDesc: "生图/生文走官方线路",
+          ultra: "极速路线",
+          ultraDesc: "走 beqlee 极速官方代理，定价为官方 ×1.1",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {

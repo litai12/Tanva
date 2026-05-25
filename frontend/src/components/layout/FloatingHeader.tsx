@@ -36,6 +36,7 @@ import {
   Cloud,
   Crown,
   Zap,
+  Flame,
   Key,
   Eye,
   EyeOff,
@@ -118,6 +119,18 @@ const BANANA_NORMAL_ROUTE_PRICING: Record<
   ultra: { "0.5K": 30, "1K": 30, "2K": 40, "4K": 50 },
 };
 
+// 极速通道（beqlee官方代理）= 官方价 ×1.1
+// pro(banana): 0.91×1.1≈100, 0.91×1.1≈100, 1.63×1.1≈179
+// ultra(banana-3.1/nano2): 0.455×1.1≈50, 0.683×1.1≈75, 1.026×1.1≈113
+const BANANA_ULTRA_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
+  pro: { "0.5K": 100, "1K": 100, "2K": 100, "4K": 179 },
+  ultra: { "0.5K": 50, "1K": 50, "2K": 75, "4K": 113 },
+};
+
 const resolveBananaPricingTier = (
   provider: string | undefined
 ): BananaPricingTier | null => {
@@ -136,7 +149,11 @@ const resolveBananaCredits = (
   if (!tier) return null;
 
   const pricing =
-    route === "stable" ? BANANA_STABLE_ROUTE_PRICING : BANANA_NORMAL_ROUTE_PRICING;
+    route === "ultra"
+      ? BANANA_ULTRA_ROUTE_PRICING
+      : route === "stable"
+        ? BANANA_STABLE_ROUTE_PRICING
+        : BANANA_NORMAL_ROUTE_PRICING;
   const normalizedSize = imageSize.trim().toUpperCase() as "0.5K" | "1K" | "2K" | "4K";
   const validSizes: Array<"0.5K" | "1K" | "2K" | "4K"> = [
     "0.5K",
@@ -977,6 +994,18 @@ const FloatingHeader: React.FC = () => {
         inactiveClass:
           "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/20",
         iconClass: "text-amber-600 dark:text-amber-400",
+      },
+      {
+        value: "ultra" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.ultra"),
+        shortLabel: t("workspace.header.routeSwitch.ultraShort"),
+        description: t("workspace.settings.aiTab.bananaRoute.ultraDesc"),
+        Icon: Flame,
+        activeClass:
+          "border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-900/30 dark:text-purple-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-purple-300 hover:bg-purple-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-purple-500 dark:hover:bg-purple-900/20",
+        iconClass: "text-purple-600 dark:text-purple-400",
       },
     ],
     [t]
@@ -1838,6 +1867,34 @@ const FloatingHeader: React.FC = () => {
                     )}
                   </div>
                 </button>
+
+                <button
+                  type='button'
+                  onClick={() => setBananaImageRoute("ultra")}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 text-left transition-all sm:col-span-2",
+                    bananaImageRoute === "ultra"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-900/30"
+                      : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
+                  )}
+                >
+                  <div className='flex items-start justify-between'>
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2 mb-1'>
+                        <Flame className='w-4 h-4 text-purple-600 dark:text-purple-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
+                          {t("workspace.settings.aiTab.bananaRoute.ultra")}
+                        </span>
+                      </div>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
+                        {t("workspace.settings.aiTab.bananaRoute.ultraDesc")}
+                      </div>
+                    </div>
+                    {bananaImageRoute === "ultra" && (
+                      <Check className='flex-shrink-0 w-5 h-5 text-purple-600 dark:text-purple-400' />
+                    )}
+                  </div>
+                </button>
               </div>
               {!bananaProviderSelected && (
                 <div className='mt-3 text-xs text-amber-600 dark:text-amber-400'>
@@ -2455,7 +2512,11 @@ const FloatingHeader: React.FC = () => {
                           })
                         : t("workspace.header.routeSwitch.rateNoData");
                     const filledBarClass =
-                      option.value === "stable" ? "bg-amber-500" : "bg-sky-500";
+                      option.value === "ultra"
+                        ? "bg-purple-500"
+                        : option.value === "stable"
+                          ? "bg-amber-500"
+                          : "bg-sky-500";
                     const emptyBarClass = isDarkTheme ? "bg-slate-600" : "bg-slate-200";
                     return (
                       <DropdownMenuItem
@@ -2512,9 +2573,11 @@ const FloatingHeader: React.FC = () => {
                           <span
                             className={cn(
                               "text-[11px] font-semibold leading-none tabular-nums",
-                              option.value === "stable"
-                                ? "text-amber-700 dark:text-amber-300"
-                                : "text-sky-700 dark:text-sky-300"
+                              option.value === "ultra"
+                                ? "text-purple-700 dark:text-purple-300"
+                                : option.value === "stable"
+                                  ? "text-amber-700 dark:text-amber-300"
+                                  : "text-sky-700 dark:text-sky-300"
                             )}
                           >
                             {rateLabel}
