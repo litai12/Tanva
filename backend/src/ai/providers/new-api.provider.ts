@@ -331,12 +331,22 @@ export class NewApiProvider implements IAIProvider {
       (typeof (providerOptions as any)?.bananaImageRoute === 'string'
         ? (providerOptions as any).bananaImageRoute
         : undefined);
-    if (imageRoute !== 'ultra') return model;
-    if (
-      model === 'gemini-3-pro-image-preview' ||
-      model === 'gemini-3.1-flash-image-preview'
-    ) {
-      return `${model}-ultra`;
+    if (imageRoute === 'ultra') {
+      if (
+        model === 'gemini-3-pro-image-preview' ||
+        model === 'gemini-3.1-flash-image-preview'
+      ) {
+        return `${model}-ultra`;
+      }
+    }
+    if (imageRoute === 'stable') {
+      if (
+        model === 'gemini-3-pro-image-preview' ||
+        model === 'gemini-3.1-flash-image-preview' ||
+        model === 'gemini-2.5-flash-image-preview'
+      ) {
+        return `${model}-vip`;
+      }
     }
     return model;
   }
