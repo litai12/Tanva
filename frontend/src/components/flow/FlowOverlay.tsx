@@ -20573,6 +20573,16 @@ function FlowInner() {
                     };
                   }
 
+                  // 立即把 taskId 写入节点，防止拖拽/水合丢失 running 状态
+                  const gptTaskId = createTaskResult.data.taskId;
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? { ...n, data: { ...n.data, taskId: gptTaskId } }
+                        : n
+                    )
+                  );
+
                   const pollDeadlineAt = Date.now() + 15 * 60 * 1000;
                   const pollIntervalMs = 3000;
                   let resolvedImageUrl = "";
@@ -20581,9 +20591,7 @@ function FlowInner() {
                   let consecutiveQueryFailures = 0;
 
                   while (Date.now() < pollDeadlineAt) {
-                    const statusResult = await queryImageTaskStatusViaAPI(
-                      createTaskResult.data.taskId
-                    );
+                    const statusResult = await queryImageTaskStatusViaAPI(gptTaskId);
                     if (!statusResult.success || !statusResult.data) {
                       consecutiveQueryFailures += 1;
                       failureMessage =
@@ -20669,33 +20677,14 @@ function FlowInner() {
               result.data.imageUrl.trim()) ||
             "";
 
-          let stableImageRef = rawPreview;
-          try {
-            if (rawPreview) {
-              stableImageRef = await uploadImageToStableUrl(
-                rawPreview,
-                `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${nodeId}_${Date.now()}.png`,
-                { reuploadUnstableRemote: true }
-              );
-            }
-          } catch (persistErr) {
-            console.warn(
-              "[Flow] Nano2: failed to persist preview to stable storage",
-              persistErr
-            );
-            stableImageRef = rawPreview;
-          }
-
-          const nodeImageUrl =
-            stableImageRef &&
-            !isDataImageUrl(stableImageRef) &&
-            !isBlobUrl(stableImageRef)
-              ? stableImageRef
+          // 立即显示图片，不等待 stable URL 上传
+          const immediateImageUrl =
+            rawPreview && !isDataImageUrl(rawPreview) && !isBlobUrl(rawPreview)
+              ? rawPreview
               : undefined;
-          const nodeImageData =
-            stableImageRef &&
-            (isDataImageUrl(stableImageRef) || isBlobUrl(stableImageRef))
-              ? stableImageRef
+          const immediateImageData =
+            rawPreview && (isDataImageUrl(rawPreview) || isBlobUrl(rawPreview))
+              ? rawPreview
               : undefined;
 
           setNodes((ns) =>
@@ -20706,23 +20695,62 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageUrl: nodeImageUrl,
-                      imageData: nodeImageData,
+                      imageUrl: immediateImageUrl,
+                      imageData: immediateImageData,
                       thumbnail: undefined,
                       error: undefined,
+                      taskId: undefined,
                     },
                   }
                 : n
             )
           );
 
-          if (stableImageRef) {
-            try {
-              const projectId = useProjectContentStore.getState().projectId;
-              const historyId = `${nodeId}-${Date.now()}`;
-              const historyRemote =
-                !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
+          // stable URL 上传在后台进行，完成后更新节点图片
+          if (rawPreview) {
+            void (async () => {
+              const historyTs = Date.now();
               const historyPrefix = node.type === "gptImage2" ? "GPT-Image-2" : "Nano2";
+              const fileName = `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${nodeId}_${historyTs}.png`;
+              let stableImageRef = rawPreview;
+              try {
+                stableImageRef = await uploadImageToStableUrl(rawPreview, fileName, {
+                  reuploadUnstableRemote: true,
+                });
+              } catch (persistErr) {
+                console.warn("[Flow] Nano2: failed to persist preview to stable storage", persistErr);
+              }
+
+              const stableImageUrl =
+                stableImageRef && !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef)
+                  ? stableImageRef
+                  : undefined;
+              const stableImageData =
+                stableImageRef && (isDataImageUrl(stableImageRef) || isBlobUrl(stableImageRef))
+                  ? stableImageRef
+                  : undefined;
+
+              // 仅在节点仍显示本次结果时才替换为 stable URL
+              setNodes((ns) =>
+                ns.map((n) => {
+                  if (n.id !== nodeId) return n;
+                  const d = n.data as any;
+                  if (d?.status !== "succeeded") return n;
+                  if (d?.imageUrl !== immediateImageUrl && d?.imageData !== immediateImageData) return n;
+                  return {
+                    ...n,
+                    data: {
+                      ...d,
+                      imageUrl: stableImageUrl ?? d.imageUrl,
+                      imageData: stableImageData ?? d.imageData,
+                    },
+                  };
+                })
+              );
+
+              const projectId = useProjectContentStore.getState().projectId;
+              const historyId = `${nodeId}-${historyTs}`;
+              const historyRemote = !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
               void recordImageHistoryEntry({
                 id: historyId,
                 base64: historyRemote ? undefined : stableImageRef,
@@ -20730,7 +20758,7 @@ function FlowInner() {
                 title: `${historyPrefix} ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
-                fileName: `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${historyId}.png`,
+                fileName,
                 projectId,
                 keepThumbnail: false,
                 metadata: {
@@ -20740,7 +20768,7 @@ function FlowInner() {
                   provider: "nano2",
                 },
               }).catch(() => {});
-            } catch {}
+            })();
           }
         } catch (error) {
           const msg =
@@ -25139,7 +25167,7 @@ function FlowInner() {
             } catch {}
 
             // 提交到项目内容
-            const ns = rfNodesToTplNodes(nodesRef.current as any);
+            const ns = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
             const es = rfEdgesToTplEdges(edgesRef.current);
             scheduleCommit(ns, es);
 
@@ -25159,7 +25187,7 @@ function FlowInner() {
           altDragStartRef.current = null;
 
           // 普通拖拽：提交位置变化
-          const ns = rfNodesToTplNodes(nodesRef.current as any);
+          const ns = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
           const es = rfEdgesToTplEdges(edgesRef.current);
           scheduleCommit(ns, es);
           syncViewportToCanvasStore();
