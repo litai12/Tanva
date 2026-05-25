@@ -1001,8 +1001,24 @@ export class VideoProviderService {
         body: JSON.stringify(payload),
       });
     } catch (err: any) {
-      // asset:// 引用已失效（旧资产组被删），重新上传图片取得新 asset ID 再重试
-      if (hasAssetRefs && this.isStaleAssetError(err)) {
+      if (hasAssetRefs && this.isAssetServiceNotActivatedError(err)) {
+        // new-api 上游账号未开通 Asset Service，降级使用 HTTPS 直链重试
+        const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
+        this.logger.warn(
+          `new-api 上游账号未开通 Asset Service，降级 HTTPS 直链重试 ${rawUrls.length} 张图片: ${err?.message?.slice(0, 120)}`,
+        );
+        const fallbackPayload = {
+          ...payload,
+          image: rawUrls[0],
+          images: rawUrls.length > 0 ? rawUrls : undefined,
+          provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
+        };
+        result = await this.requestNewApiJson("/v1/videos", {
+          method: "POST",
+          body: JSON.stringify(fallbackPayload),
+        });
+      } else if (hasAssetRefs && this.isStaleAssetError(err)) {
+        // asset:// 引用已失效（旧资产组被删），重新上传图片取得新 asset ID 再重试
         const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
         this.logger.warn(
           `asset:// 引用失效，重新上传 ${rawUrls.length} 张图片获取新 asset ID: ${err?.message?.slice(0, 120)}`,
@@ -1171,6 +1187,11 @@ export class VideoProviderService {
   private isStaleAssetError(err: any): boolean {
     const msg = String(err?.message || "").toLowerCase();
     return msg.includes("is not found") && (msg.includes("asset") || msg.includes("image_url"));
+  }
+
+  private isAssetServiceNotActivatedError(err: any): boolean {
+    const msg = String(err?.message || "").toLowerCase();
+    return msg.includes("not activated the asset service") || msg.includes("asset service");
   }
 
   // 对每张图片重新调用 Volcengine 上传，返回新的 asset:// URL 列表。

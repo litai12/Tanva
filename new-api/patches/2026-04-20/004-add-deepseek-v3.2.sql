@@ -80,7 +80,7 @@ WHERE target.model_name = src.model_name
 
 WITH channel_seed(name, type, channel_group, models, status, base_url, key, priority, weight, tag, setting, param_override, header_override) AS (
   VALUES
-    ('yunwu-deepseek', 1, 'default', 'deepseek-v3.2', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-deepseek', NULL, NULL, NULL)
+    ('yunwu-deepseek', 1, 'default', 'deepseek-v3.2', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-deepseek', NULL, NULL, NULL)
 )
 INSERT INTO channels (
   name,
@@ -126,7 +126,7 @@ WHERE NOT EXISTS (
 
 WITH channel_seed(name, type, channel_group, models, status, base_url, key, priority, weight, tag, setting, param_override, header_override) AS (
   VALUES
-    ('yunwu-deepseek', 1, 'default', 'deepseek-v3.2', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-deepseek', NULL, NULL, NULL)
+    ('yunwu-deepseek', 1, 'default', 'deepseek-v3.2', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-deepseek', NULL, NULL, NULL)
 )
 UPDATE channels AS target
 SET

@@ -7,10 +7,10 @@ BEGIN;
 
 WITH channel_seed(name, type, channel_group, models, status, base_url, key, priority, weight, tag, setting, param_override, header_override) AS (
   VALUES
-    ('yunwu-gemini', 24, 'default', 'gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3-pro-image-preview,gemini-3.1-flash-image-preview', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-gemini', NULL, NULL, NULL),
-    ('yunwu-openai-image', 1, 'default', 'doubao-seedream-5-0-260128', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-openai-image', NULL, '{response_format:url,watermark:false}', NULL),
-    ('yunwu-openai-video', 1, 'default', 'kling-v3,kling-video-o1,veo_3_1,veo_3_1-fast,veo3.1-pro', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-openai-video', NULL, NULL, NULL),
-    ('ark-doubao-video', 54, 'default', 'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128', 1, 'https://ark.cn-beijing.volces.com', '74056de6-5b85-43f1-bcdb-2cd789672f1c', 0, 0, NULL, NULL, NULL, NULL)
+    ('yunwu-gemini', 24, 'default', 'gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3-pro-image-preview,gemini-3.1-flash-image-preview', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-gemini', NULL, NULL, NULL),
+    ('yunwu-openai-image', 1, 'default', 'doubao-seedream-5-0-260128', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-openai-image', NULL, '{response_format:url,watermark:false}', NULL),
+    ('yunwu-openai-video', 1, 'default', 'kling-v3,kling-video-o1,veo_3_1,veo_3_1-fast,veo3.1-pro', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-openai-video', NULL, NULL, NULL),
+    ('ark-doubao-video', 54, 'default', 'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128', 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_VIDEO_KEY', 0, 0, NULL, NULL, NULL, NULL)
 )
 INSERT INTO channels (
   name,
@@ -73,10 +73,10 @@ WITH channel_seed(
   header_override
 ) AS (
   VALUES
-    ('yunwu-gemini', 24, 'default', 'gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3-pro-image-preview,gemini-3.1-flash-image-preview', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-gemini', NULL, NULL, NULL),
-    ('yunwu-openai-image', 1, 'default', 'doubao-seedream-5-0-260128', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-openai-image', NULL, '{response_format:url,watermark:false}', NULL),
-    ('yunwu-openai-video', 1, 'default', 'kling-v3,kling-video-o1,veo_3_1,veo_3_1-fast,veo3.1-pro', 1, 'https://yunwu.ai', 'sk-eqyIoq7R0epiKjkJu6tMrflz0E11mMni02UD0TDUBnE12GHD', 0, 0, 'yunwu-openai-video', NULL, NULL, NULL),
-    ('ark-doubao-video', 54, 'default', 'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128', 1, 'https://ark.cn-beijing.volces.com', '74056de6-5b85-43f1-bcdb-2cd789672f1c', 0, 0, NULL, NULL, NULL, NULL)
+    ('yunwu-gemini', 24, 'default', 'gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3-pro-image-preview,gemini-3.1-flash-image-preview', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-gemini', NULL, NULL, NULL),
+    ('yunwu-openai-image', 1, 'default', 'doubao-seedream-5-0-260128', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-openai-image', NULL, '{response_format:url,watermark:false}', NULL),
+    ('yunwu-openai-video', 1, 'default', 'kling-v3,kling-video-o1,veo_3_1,veo_3_1-fast,veo3.1-pro', 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY', 0, 0, 'yunwu-openai-video', NULL, NULL, NULL),
+    ('ark-doubao-video', 54, 'default', 'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128', 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_VIDEO_KEY', 0, 0, NULL, NULL, NULL, NULL)
 )
 UPDATE channels AS target
 SET

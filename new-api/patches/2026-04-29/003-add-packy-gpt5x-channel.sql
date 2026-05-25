@@ -116,7 +116,7 @@ WITH channel_seed(name, type, channel_group, models, status, base_url, key, prio
     'gpt-5.2,gpt-5.2-high,gpt-5.2-low,gpt-5.2-medium,gpt-5.2-xhigh,gpt-5.3-codex,gpt-5.3-codex-high,gpt-5.3-codex-low,gpt-5.3-codex-medium,gpt-5.3-codex-xhigh,gpt-5.4,gpt-5.4-high,gpt-5.4-mini,gpt-5.5',
     1,
     'https://www.packyapi.com',
-    'sk-dqf4S4oBMXhjSzSxf6VhTyBqyxRMm7Lm9JSrsyV6ruvA9xIT',
+    'PLACEHOLDER_PACKY_KEY',
     0,
     0,
     'packyapi'
