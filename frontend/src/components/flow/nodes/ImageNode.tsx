@@ -37,7 +37,6 @@ import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { loadSharedImage } from "../utils/sharedImageLoad";
 import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
-import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
 import type { BioAuthStatus } from "@/services/bioAuthAPI";
 import { BioAuthModal } from "./BioAuthModal";
@@ -1155,18 +1154,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id]);
-
-  useVolcAssetPolling({
-    assetId: volcAssetId,
-    status: effectiveVolcStatus,
-    onUpdate: ({ status, errorMessage }) => {
-      patchNode({
-        volcAssetStatus: status,
-        volcAssetError: errorMessage,
-        ...(status === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
-      });
-    },
-  });
 
   // Recover stuck "processing" state with no assetId — means the upload request
   // was interrupted (refresh / crash / network drop) before the server replied.

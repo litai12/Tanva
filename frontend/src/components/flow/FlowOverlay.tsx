@@ -186,7 +186,7 @@ import {
 } from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
-import { uploadVolcAsset, getVolcAssetStatus } from "@/services/volcAssetAPI";
+import { uploadVolcAsset } from "@/services/volcAssetAPI";
 import {
   fetchNodeConfigs,
   getStatusBadge,
@@ -12334,8 +12334,6 @@ function FlowInner() {
           if (existingAssetId && existingStatus === "active" && !isExpired) return;
 
           const srcNodeId = srcNode.id;
-          const REVIEW_POLL_INTERVAL_MS = 2000;
-          const REVIEW_POLL_TIMEOUT_MS = 90000;
 
           const patchSrcNode = (patch: Record<string, unknown>) => {
             setNodes((ns) =>
@@ -12349,16 +12347,7 @@ function FlowInner() {
             try {
               const uploadResult = await uploadVolcAsset(trimmedUrl);
               const uploadedAssetId = uploadResult.assetId;
-              let currentStatus = uploadResult.status;
-
-              const pollStart = Date.now();
-              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
-                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
-                const polled = await getVolcAssetStatus(uploadedAssetId);
-                currentStatus = polled.status;
-              }
-
-              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
               patchSrcNode({
                 volcAssetId: uploadedAssetId,
                 volcAssetStatus: finalStatus,
@@ -18372,8 +18361,6 @@ function FlowInner() {
 
         if (isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0) {
           const REVIEW_VALID_DAYS = 3;
-          const REVIEW_POLL_INTERVAL_MS = 2000;
-          const REVIEW_POLL_TIMEOUT_MS = 90000;
 
           const assetEntries: VolcAssetEntry[] = [];
           let reviewFailed = false;
@@ -18415,16 +18402,7 @@ function FlowInner() {
             try {
               const uploadResult = await uploadVolcAsset(imgUrl);
               const uploadedAssetId = uploadResult.assetId;
-              let currentStatus = uploadResult.status;
-
-              const pollStart = Date.now();
-              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
-                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
-                const polled = await getVolcAssetStatus(uploadedAssetId);
-                currentStatus = polled.status;
-              }
-
-              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
               if (srcNode) {
                 setNodes((ns) =>
                   ns.map((n) =>

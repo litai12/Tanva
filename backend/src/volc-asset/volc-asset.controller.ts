@@ -4,9 +4,7 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Get,
   Logger,
-  Param,
   Post,
   Req,
   UseGuards,
@@ -45,14 +43,4 @@ export class VolcAssetController {
     }
   }
 
-  @Get(':assetId/status')
-  async status(@Param('assetId') assetId: string) {
-    try {
-      return await this.svc.getAssetStatus(assetId);
-    } catch (err: any) {
-      const msg = err?.message || 'Volc status fetch failed';
-      this.logger.error(`status failed for ${assetId}: ${msg}`);
-      throw new BadGatewayException(msg);
-    }
-  }
 }

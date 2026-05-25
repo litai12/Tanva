@@ -13,11 +13,6 @@ export interface UploadAssetResult {
   errorMessage?: string;
 }
 
-export interface AssetStatusResult {
-  status: VolcAssetStatus;
-  errorMessage?: string;
-}
-
 /**
  * 上传素材到火山引擎素材库（通过 URL 拉取）
  */
@@ -42,19 +37,3 @@ export async function uploadVolcAsset(sourceUrl: string): Promise<UploadAssetRes
   return response.json();
 }
 
-/**
- * 查询火山引擎素材库素材状态
- */
-export async function getVolcAssetStatus(assetId: string): Promise<AssetStatusResult> {
-  const apiBaseUrl = getApiBaseUrl();
-  const response = await fetchWithAuth(
-    `${apiBaseUrl}/api/volc-asset/${encodeURIComponent(assetId)}/status`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error((error as { message?: string }).message || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-}

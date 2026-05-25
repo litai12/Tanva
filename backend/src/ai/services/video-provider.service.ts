@@ -879,7 +879,7 @@ export class VideoProviderService {
   async queryTask(
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
-  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; inputTokens?: number; outputTokens?: number }> {
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
     if (taskId.startsWith(this.newApiTaskPrefix)) {
       return this.queryNewApiVideoTask(taskId);
     }
@@ -1049,7 +1049,7 @@ export class VideoProviderService {
 
   private async queryNewApiVideoTask(
     taskId: string,
-  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string }> {
     if (!this.newApiKey) {
       throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
@@ -1067,6 +1067,20 @@ export class VideoProviderService {
       this.logger.warn(
         `new-api task ${rawTaskId} succeeded but no video URL found. raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
       );
+    }
+
+    if (status === "failed") {
+      const error =
+        result?.data?.error?.message ||
+        result?.data?.error?.code ||
+        result?.error?.message ||
+        result?.error?.code ||
+        result?.fail_reason ||
+        result?.data?.fail_reason ||
+        result?.message ||
+        result?.data?.message ||
+        undefined;
+      return { status, thumbnailUrl, error };
     }
 
     if (!upstreamVideoUrl || status !== "succeeded") {
