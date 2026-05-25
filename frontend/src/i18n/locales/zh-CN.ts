@@ -338,7 +338,7 @@ const zhCN = {
           stable: "尊享路线",
           stableDesc: "生图/生文走官方线路",
           ultra: "极速路线",
-          ultraDesc: "走 beqlee 极速官方代理，定价为官方 ×1.1",
+          ultraDesc: "走极速官方代理",
           hint: "仅在选择 Nano Banana 提供商时生效",
         },
         googleKey: {

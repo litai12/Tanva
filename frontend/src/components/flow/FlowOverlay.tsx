@@ -2471,6 +2471,7 @@ const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro",
   "generatePro4",
   "analysis",
+  "viewAngle",
 ]);
 
 const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
@@ -2632,6 +2633,7 @@ const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro",
   "generatePro4",
   "analysis",
+  "viewAngle",
 ]);
 
 const resolveBananaStablePricingTier = (
@@ -21179,10 +21181,53 @@ function FlowInner() {
         (node.data as any)?.modelProvider,
         aiProvider
       );
-      const effectiveAspectRatio =
+      let effectiveAspectRatio =
         node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
           : aspectRatioValue;
+
+      // viewAngle: 从源图检测宽高比以保持输出与源图一致
+      if (node.type === "viewAngle" && !effectiveAspectRatio && imageDatas.length > 0) {
+        try {
+          const srcUrl = imageDatas[0];
+          const detectedRatio = await new Promise<string | undefined>((resolve) => {
+            const img = new window.Image();
+            const tid = window.setTimeout(() => resolve(undefined), 4000);
+            img.onload = () => {
+              window.clearTimeout(tid);
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
+              if (!w || !h) { resolve(undefined); return; }
+              const ratio = w / h;
+              const candidates: Array<{ r: number; v: string }> = [
+                { r: 1, v: "1:1" },
+                { r: 4 / 3, v: "4:3" },
+                { r: 3 / 4, v: "3:4" },
+                { r: 16 / 9, v: "16:9" },
+                { r: 9 / 16, v: "9:16" },
+                { r: 3 / 2, v: "3:2" },
+                { r: 2 / 3, v: "2:3" },
+                { r: 2 / 1, v: "2:1" },
+                { r: 1 / 2, v: "1:2" },
+                { r: 4 / 5, v: "4:5" },
+                { r: 5 / 4, v: "5:4" },
+              ];
+              let best = candidates[0];
+              let bestDiff = Math.abs(Math.log(ratio / best.r));
+              for (const c of candidates) {
+                const diff = Math.abs(Math.log(ratio / c.r));
+                if (diff < bestDiff) { best = c; bestDiff = diff; }
+              }
+              resolve(best.v);
+            };
+            img.onerror = () => { window.clearTimeout(tid); resolve(undefined); };
+            img.src = srcUrl;
+          });
+          if (detectedRatio) {
+            effectiveAspectRatio = detectedRatio as AIImageGenerateRequest["aspectRatio"];
+          }
+        } catch { /* fallback: let backend decide */ }
+      }
 
       // 优先使用节点本地的 imageSize，否则使用全局设置
       const nodeSizeValue = (() => {

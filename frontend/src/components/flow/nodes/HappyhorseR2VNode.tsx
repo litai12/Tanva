@@ -8,6 +8,13 @@ import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
+import {
+  useFlowNodeDarkTheme,
+  flowNodeShellChrome,
+  flowNodeControlField,
+  flowNodeMutedWellBackground,
+  flowNodeWellOutlineBorder,
+} from "./flowNodeDarkTheme";
 
 type VideoHistoryItem = {
   id: string;
@@ -98,6 +105,7 @@ const computeCaps = (model: HappyhorseModel, referenceCount: number): ModelCaps 
 
 function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
+  const isFlowDark = useFlowNodeDarkTheme();
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -465,8 +473,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
       style={{
         width: 280,
         padding: 10,
-        background: "#fff",
-        border: `1px solid ${selected ? "#2563eb" : "#e5e7eb"}`,
+        ...(() => { const s = flowNodeShellChrome(isFlowDark, !!selected); return { background: s.background, color: s.color, border: `1px solid ${s.borderColor}` }; })(),
         borderRadius: 10,
         boxShadow: selected
           ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -693,7 +700,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
         className="sora2-dropdown"
         style={{ marginBottom: 8, position: "relative" }}
       >
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: isFlowDark ? "#9ca3af" : "#6b7280", marginBottom: 4 }}>
           {lt("模式", "Mode")}
         </div>
         <button
@@ -712,10 +719,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             justifyContent: "space-between",
             padding: "6px 10px",
             borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
             fontSize: 12,
             cursor: "pointer",
+            ...flowNodeControlField(isFlowDark),
           }}
         >
           <span>
@@ -738,11 +744,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               top: "calc(100% + 4px)",
               left: 0,
               right: 0,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
               borderRadius: 8,
               padding: 8,
               boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              ...flowNodeControlField(isFlowDark),
             }}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -759,9 +764,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                     style={{
                       padding: "6px 10px",
                       borderRadius: 6,
-                      border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
-                      background: active ? "#2563eb" : "#fff",
-                      color: active ? "#fff" : "#111827",
+                      border: `1px solid ${active ? "#2563eb" : isFlowDark ? "#404040" : "#e5e7eb"}`,
+                      background: active ? "#2563eb" : isFlowDark ? "#2a2a2a" : "#fff",
+                      color: active ? "#fff" : isFlowDark ? "#e5e7eb" : "#111827",
                       fontSize: 12,
                       cursor: "pointer",
                       textAlign: "left",
@@ -786,7 +791,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             marginBottom: 8,
           }}
         >
-          <span style={{ fontSize: 12, color: "#6b7280" }}>
+          <span style={{ fontSize: 12, color: isFlowDark ? "#9ca3af" : "#6b7280" }}>
             {lt("参考图数量", "Reference images")}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -798,8 +803,11 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                 width: 24,
                 height: 24,
                 borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: referenceCount <= MIN_REFS ? "#f3f4f6" : "#fff",
+                border: `1px solid ${isFlowDark ? "#404040" : "#e5e7eb"}`,
+                background: referenceCount <= MIN_REFS
+                  ? isFlowDark ? "#1a1a1a" : "#f3f4f6"
+                  : isFlowDark ? "#252525" : "#fff",
+                color: isFlowDark ? "#e5e7eb" : "#111827",
                 cursor: referenceCount <= MIN_REFS ? "not-allowed" : "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -819,8 +827,11 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                 width: 24,
                 height: 24,
                 borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: referenceCount >= MAX_REFS ? "#f3f4f6" : "#fff",
+                border: `1px solid ${isFlowDark ? "#404040" : "#e5e7eb"}`,
+                background: referenceCount >= MAX_REFS
+                  ? isFlowDark ? "#1a1a1a" : "#f3f4f6"
+                  : isFlowDark ? "#252525" : "#fff",
+                color: isFlowDark ? "#e5e7eb" : "#111827",
                 cursor: referenceCount >= MAX_REFS ? "not-allowed" : "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -839,7 +850,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           className="sora2-dropdown"
           style={{ marginBottom: 8, position: "relative" }}
         >
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          <div style={{ fontSize: 12, color: isFlowDark ? "#9ca3af" : "#6b7280", marginBottom: 4 }}>
             {lt("画幅", "Ratio")}
           </div>
           <button
@@ -857,10 +868,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               justifyContent: "space-between",
               padding: "6px 10px",
               borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
               fontSize: 12,
               cursor: "pointer",
+              ...flowNodeControlField(isFlowDark),
             }}
           >
             <span>{ratio}</span>
@@ -878,11 +888,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                 top: "calc(100% + 4px)",
                 left: 0,
                 right: 0,
-                background: "#fff",
-                border: "1px solid #e5e7eb",
                 borderRadius: 8,
                 padding: 8,
                 boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+                ...flowNodeControlField(isFlowDark),
               }}
             >
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -899,9 +908,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                       style={{
                         padding: "4px 10px",
                         borderRadius: 999,
-                        border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
-                        background: active ? "#2563eb" : "#fff",
-                        color: active ? "#fff" : "#111827",
+                        border: `1px solid ${active ? "#2563eb" : isFlowDark ? "#404040" : "#e5e7eb"}`,
+                        background: active ? "#2563eb" : isFlowDark ? "#2a2a2a" : "#fff",
+                        color: active ? "#fff" : isFlowDark ? "#e5e7eb" : "#111827",
                         fontSize: 12,
                         cursor: "pointer",
                       }}
@@ -921,7 +930,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
         className="sora2-dropdown"
         style={{ marginBottom: 8, position: "relative" }}
       >
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: isFlowDark ? "#9ca3af" : "#6b7280", marginBottom: 4 }}>
           {lt("分辨率", "Resolution")}
         </div>
         <button
@@ -939,10 +948,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             justifyContent: "space-between",
             padding: "6px 10px",
             borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
             fontSize: 12,
             cursor: "pointer",
+            ...flowNodeControlField(isFlowDark),
           }}
         >
           <span>{resolution}</span>
@@ -960,11 +968,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               top: "calc(100% + 4px)",
               left: 0,
               right: 0,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
               borderRadius: 8,
               padding: 8,
               boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              ...flowNodeControlField(isFlowDark),
             }}
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -981,9 +988,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                     style={{
                       padding: "4px 10px",
                       borderRadius: 999,
-                      border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
-                      background: active ? "#2563eb" : "#fff",
-                      color: active ? "#fff" : "#111827",
+                      border: `1px solid ${active ? "#2563eb" : isFlowDark ? "#404040" : "#e5e7eb"}`,
+                      background: active ? "#2563eb" : isFlowDark ? "#2a2a2a" : "#fff",
+                      color: active ? "#fff" : isFlowDark ? "#e5e7eb" : "#111827",
                       fontSize: 12,
                       cursor: "pointer",
                     }}
@@ -1002,7 +1009,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
         className="sora2-dropdown"
         style={{ marginBottom: 8, position: "relative" }}
       >
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: isFlowDark ? "#9ca3af" : "#6b7280", marginBottom: 4 }}>
           {lt("时间长度", "Duration")}
         </div>
         <button
@@ -1020,10 +1027,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             justifyContent: "space-between",
             padding: "6px 10px",
             borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
             fontSize: 12,
             cursor: "pointer",
+            ...flowNodeControlField(isFlowDark),
           }}
         >
           <span>{lt(`${duration}秒`, `${duration}s`)}</span>
@@ -1041,11 +1047,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               top: "calc(100% + 4px)",
               left: 0,
               right: 0,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
               borderRadius: 8,
               padding: 8,
               boxShadow: "0 8px 16px rgba(15,23,42,0.08)",
+              ...flowNodeControlField(isFlowDark),
             }}
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -1062,9 +1067,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                     style={{
                       padding: "4px 10px",
                       borderRadius: 999,
-                      border: `1px solid ${active ? "#2563eb" : "#e5e7eb"}`,
-                      background: active ? "#2563eb" : "#fff",
-                      color: active ? "#fff" : "#111827",
+                      border: `1px solid ${active ? "#2563eb" : isFlowDark ? "#404040" : "#e5e7eb"}`,
+                      background: active ? "#2563eb" : isFlowDark ? "#2a2a2a" : "#fff",
+                      color: active ? "#fff" : isFlowDark ? "#e5e7eb" : "#111827",
                       fontSize: 12,
                       cursor: "pointer",
                     }}
@@ -1083,9 +1088,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           width: "100%",
           aspectRatio: previewAspect,
           minHeight: 140,
-          background: "#f8fafc",
+          background: flowNodeMutedWellBackground(isFlowDark),
           borderRadius: 6,
-          border: "1px solid #eef0f2",
+          border: `1px solid ${flowNodeWellOutlineBorder(isFlowDark)}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1108,8 +1113,8 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             marginTop: 8,
             padding: "8px 10px",
             borderRadius: 8,
-            border: "1px solid #e2e8f0",
-            background: "#f8fafc",
+            border: `1px solid ${flowNodeWellOutlineBorder(isFlowDark)}`,
+            background: flowNodeMutedWellBackground(isFlowDark),
             display: "flex",
             flexDirection: "column",
             gap: 6,
@@ -1125,7 +1130,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
             onClick={() => setShowHistory(!showHistory)}
           >
             <span
-              style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}
+              style={{ fontSize: 12, fontWeight: 600, color: isFlowDark ? "#f1f5f9" : "#0f172a" }}
             >
               {lt("历史记录", "History")}
             </span>
@@ -1133,7 +1138,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
               <span style={{ fontSize: 11, color: "#94a3b8" }}>
                 {historyItems.length} {lt("条", "items")}
               </span>
-              <span style={{ fontSize: 14, color: "#64748b" }}>
+              <span style={{ fontSize: 14, color: isFlowDark ? "#9ca3af" : "#64748b" }}>
                 {showHistory ? "▴" : "▾"}
               </span>
             </div>
@@ -1147,9 +1152,12 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                   key={item.id}
                   style={{
                     borderRadius: 6,
-                    border:
-                      "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"),
-                    background: isActive ? "#eef2ff" : "#fff",
+                    border: isActive
+                      ? `1px solid ${isFlowDark ? "#3b82f6" : "#c7d2fe"}`
+                      : `1px solid ${flowNodeWellOutlineBorder(isFlowDark)}`,
+                    background: isActive
+                      ? isFlowDark ? "rgba(37,99,235,0.18)" : "#eef2ff"
+                      : isFlowDark ? "#1d1d1d" : "#fff",
                     padding: "6px 8px",
                     display: "flex",
                     flexDirection: "column",
@@ -1162,7 +1170,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                       alignItems: "center",
                       justifyContent: "space-between",
                       fontSize: 11,
-                      color: "#475569",
+                      color: isFlowDark ? "#94a3b8" : "#475569",
                     }}
                   >
                     <span>
@@ -1180,7 +1188,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: "#0f172a" }}>
+                  <div style={{ fontSize: 11, color: isFlowDark ? "#e5e7eb" : "#0f172a" }}>
                     {truncatePrompt(item.prompt)}
                   </div>
                   <div
@@ -1193,8 +1201,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                         style={{
                           padding: "4px 8px",
                           borderRadius: 6,
-                          border: "1px solid #94a3b8",
-                          background: "#fff",
+                          border: `1px solid ${isFlowDark ? "#404040" : "#94a3b8"}`,
+                          background: isFlowDark ? "#252525" : "#fff",
+                          color: isFlowDark ? "#e5e7eb" : "#111827",
                           fontSize: 11,
                           cursor: "pointer",
                         }}
@@ -1208,8 +1217,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                       style={{
                         padding: "4px 8px",
                         borderRadius: 6,
-                        border: "1px solid #94a3b8",
-                        background: "#fff",
+                        border: `1px solid ${isFlowDark ? "#404040" : "#94a3b8"}`,
+                        background: isFlowDark ? "#252525" : "#fff",
+                        color: isFlowDark ? "#e5e7eb" : "#111827",
                         fontSize: 11,
                         cursor: "pointer",
                       }}
@@ -1222,8 +1232,9 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                       style={{
                         padding: "4px 8px",
                         borderRadius: 6,
-                        border: "1px solid #94a3b8",
-                        background: "#fff",
+                        border: `1px solid ${isFlowDark ? "#404040" : "#94a3b8"}`,
+                        background: isFlowDark ? "#252525" : "#fff",
+                        color: isFlowDark ? "#e5e7eb" : "#111827",
                         fontSize: 11,
                         cursor: "pointer",
                       }}
@@ -1242,10 +1253,10 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           style={{
             marginTop: 6,
             padding: "6px 8px",
-            background: "#fef2f2",
-            border: "1px solid #fecdd3",
+            background: isFlowDark ? "#2d1515" : "#fef2f2",
+            border: `1px solid ${isFlowDark ? "#7f1d1d" : "#fecdd3"}`,
             borderRadius: 6,
-            color: "#b91c1c",
+            color: isFlowDark ? "#fca5a5" : "#b91c1c",
             fontSize: 12,
           }}
         >

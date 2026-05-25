@@ -36,6 +36,17 @@ export const CREDIT_PRICING_CONFIG = {
       '1K': 20,
     },
   },
+  'gpt-image-2': {
+    serviceName: 'GPT Image 2',
+    provider: 'openai',
+    creditsPerCall: 40,
+    description: '使用 GPT Image 2 生成图像',
+    resolutionPricing: {
+      '1K': 20,
+      '2K': 30,
+      '4K': 40,
+    },
+  },
   'gemini-image-edit': {
     serviceName: 'Nano banana Pro 图像编辑（Pro）',
     provider: 'gemini',

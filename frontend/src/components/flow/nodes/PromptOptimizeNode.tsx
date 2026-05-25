@@ -90,7 +90,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     model: textModel,
     requestParams: {
       aiProvider: effectiveProvider,
-      channelHint: bananaImageRoute === 'stable' ? 'tencent' : 'apimart',
+      channelHint: bananaImageRoute === 'stable' ? 'tencent' : bananaImageRoute === 'ultra' ? 'ultra' : 'apimart',
     },
     enabled: true,
   });
@@ -290,7 +290,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
       display: 'flex',
       flexDirection: 'column',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'visible'
     }}>
       <NodeResizer
         isVisible

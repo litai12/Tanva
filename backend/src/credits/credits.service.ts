@@ -448,7 +448,12 @@ export class CreditsService {
   ) {
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (redisUrl && IORedis) {
-      this.redisClient = new IORedis(redisUrl);
+      this.redisClient = new IORedis(redisUrl, {
+        commandTimeout: 1000,
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 0,
+      });
+      this.redisClient.on('error', () => {/* suppress connection errors */});
     }
   }
 

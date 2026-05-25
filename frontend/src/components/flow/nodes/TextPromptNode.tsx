@@ -493,7 +493,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       display: 'flex',
       flexDirection: 'column',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'visible'
     }}>
       <NodeResizer
         isVisible
