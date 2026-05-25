@@ -3993,58 +3993,6 @@ export class CreditsService {
     });
   }
 
-  async previewCreditsInBatch(
-    userId: string,
-    items: Omit<PreviewCreditsParams, 'userId'>[],
-  ) {
-    const account = await this.getOrCreateAccount(userId);
-    return Promise.all(
-      items.map(async (item) => {
-        const params: PreviewCreditsParams = { userId, ...item };
-        let cachedQuote = await this.getCachedPreviewQuote(params);
-        if (!cachedQuote) {
-          const quote = await this.resolveEffectiveCreditsQuote({
-            serviceType: params.serviceType,
-            model: params.model,
-            requestParams: params.requestParams,
-            outputImageCount: params.outputImageCount,
-          });
-          cachedQuote = {
-            serviceName: quote.serviceName,
-            requestedProvider: quote.requestedProvider,
-            creditsToDeduct: quote.creditsToDeduct,
-            managedPricing:
-              quote.managedRoutePricing?.source && quote.managedRoutePricing.source !== 'none'
-                ? {
-                    source: quote.managedRoutePricing.source,
-                    vendorKey: quote.managedRoutePricing.vendorKey,
-                    ruleKey: quote.managedRoutePricing.ruleKey,
-                    label: quote.managedRoutePricing.label,
-                    evaluatorKey: quote.managedRoutePricing.evaluatorKey,
-                    evaluatorType: quote.managedRoutePricing.evaluatorType,
-                    pricingVersion: quote.managedRoutePricing.pricingVersion,
-                    price: quote.managedRoutePricing.price,
-                  }
-                : null,
-            effectiveRequestParams: quote.effectiveRequestParams ?? null,
-          };
-          await this.setCachedPreviewQuote(params, cachedQuote);
-        }
-        return {
-          serviceType: params.serviceType,
-          serviceName: cachedQuote.serviceName,
-          provider: cachedQuote.requestedProvider,
-          model: params.model ?? null,
-          credits: cachedQuote.creditsToDeduct,
-          balance: account.balance,
-          sufficient: account.balance >= cachedQuote.creditsToDeduct,
-          managedPricing: cachedQuote.managedPricing,
-          requestParams: cachedQuote.effectiveRequestParams ?? null,
-        };
-      }),
-    );
-  }
-
   async previewCredits(params: PreviewCreditsParams) {
     const account = await this.getOrCreateAccount(params.userId);
     let cachedQuote = await this.getCachedPreviewQuote(params);

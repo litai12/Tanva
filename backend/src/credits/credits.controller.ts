@@ -20,7 +20,6 @@ import {
   ApiUsageQueryDto,
   PricingResponseDto,
   CreditsPreviewDto,
-  CreditsPreviewBatchDto,
   AdjustCreditsDto,
 } from './dto/credits.dto';
 
@@ -107,25 +106,6 @@ export class CreditsController {
       requestParams: dto.requestParams,
       outputImageCount: dto.outputImageCount,
     });
-  }
-
-  @Post('preview/batch')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: '批量试算多个请求将消耗的积分' })
-  async previewCreditsBatch(
-    @Request() req: FastifyRequest & { user: AuthenticatedUser },
-    @Body() dto: CreditsPreviewBatchDto,
-  ) {
-    return this.creditsService.previewCreditsInBatch(
-      req.user.id,
-      dto.items.map((item) => ({
-        serviceType: item.serviceType as any,
-        model: item.model,
-        requestParams: item.requestParams,
-        outputImageCount: item.outputImageCount,
-      })),
-    );
   }
 
   @Get('transactions')

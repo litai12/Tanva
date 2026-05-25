@@ -115,7 +115,7 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
   'gemini-prompt-optimize',
 ] as const;
 
-type BananaRouteKey = 'normal' | 'stable';
+type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
 type BananaRouteSuccessRateStats = {
   route: BananaRouteKey;
@@ -899,6 +899,8 @@ export class AiController {
     const channelHint =
       bananaImageRoute === 'stable'
         ? 'tencent'
+        : bananaImageRoute === 'ultra'
+        ? 'beqlee'
         : bananaImageRoute === 'normal'
         ? 'apimart'
         : aiProvider === 'nano2'
@@ -920,6 +922,7 @@ export class AiController {
     const normalized = value.trim().toLowerCase();
     if (normalized === 'normal') return 'normal';
     if (normalized === 'stable') return 'stable';
+    if (normalized === 'ultra' || normalized === 'beqlee') return 'ultra';
     return null;
   }
 
@@ -946,6 +949,7 @@ export class AiController {
       if (typeof candidate !== 'string') continue;
       const normalized = this.normalizeChannelName(candidate);
       if (normalized === 'tencent') return 'stable';
+      if (normalized === 'beqlee') return 'ultra';
       if (normalized === 'apimart' || normalized === '147') return 'normal';
     }
 
@@ -992,6 +996,7 @@ export class AiController {
     const byRoute: Record<BananaRouteKey, BananaRouteSuccessRateStats> = {
       normal: this.createRouteSuccessRateStats('normal'),
       stable: this.createRouteSuccessRateStats('stable'),
+      ultra: this.createRouteSuccessRateStats('ultra'),
     };
 
     const records = await this.prisma.apiUsageRecord.findMany({
@@ -2181,20 +2186,22 @@ export class AiController {
 
   private resolveBananaImageRouteFromProviderOptions(
     providerOptions?: Record<string, any>,
-  ): 'normal' | 'stable' | null {
+  ): BananaRouteKey | null {
     const nestedRouteRaw = providerOptions?.banana?.imageRoute;
     const nestedRoute =
       typeof nestedRouteRaw === 'string' ? nestedRouteRaw.trim().toLowerCase() : '';
     if (nestedRoute === 'normal' || nestedRoute === 'stable') {
-      return nestedRoute as 'normal' | 'stable';
+      return nestedRoute as BananaRouteKey;
     }
+    if (nestedRoute === 'ultra' || nestedRoute === 'beqlee') return 'ultra';
 
     const legacyRouteRaw = providerOptions?.bananaImageRoute;
     const legacyRoute =
       typeof legacyRouteRaw === 'string' ? legacyRouteRaw.trim().toLowerCase() : '';
     if (legacyRoute === 'normal' || legacyRoute === 'stable') {
-      return legacyRoute as 'normal' | 'stable';
+      return legacyRoute as BananaRouteKey;
     }
+    if (legacyRoute === 'ultra' || legacyRoute === 'beqlee') return 'ultra';
 
     return null;
   }
