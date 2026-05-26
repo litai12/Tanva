@@ -43,3 +43,18 @@ export const teamSubscriptionApi = {
   cancelSubscription: (teamId: string) =>
     fetchWithAuth(`${base}/api/teams/${teamId}/subscription`, { method: 'DELETE' }).then((r) => json<any>(r)),
 };
+
+export const teamSeatPackageApi = {
+  createOrder: (
+    teamId: string,
+    body: { seats: number; cycle: 'monthly' | 'annual'; paymentMethod: string },
+  ) =>
+    fetchWithAuth(`${base}/api/teams/${teamId}/seat-packages/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => json<any>(r)),
+
+  listPackages: (teamId: string) =>
+    fetchWithAuth(`${base}/api/teams/${teamId}/seat-packages`).then((r) => json<any>(r)),
+};
