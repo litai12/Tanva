@@ -1,22 +1,22 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { teamApi } from '../../services/teamApi';
-import { teamSubscriptionApi, teamSeatPackageApi } from '../../services/teamCreditsApi';
+import { teamCreditsApi, teamSeatPackageApi } from '../../services/teamCreditsApi';
 import { getPaymentStatus } from '../../services/adminApi';
 import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore, refreshTeams } from '../../stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
-import { X, UserMinus, Crown, Shield, User, Mail, Copy, Check, Zap, Calendar, Users, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { X, UserMinus, Crown, Shield, User, Mail, Copy, Check, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
   teamId: string;
   onClose: () => void;
-  initialTab?: 'members' | 'subscription';
+  initialTab?: 'members' | 'subscription' | 'ledger';
 }
 
-type Tab = 'members' | 'subscription';
+type Tab = 'members' | 'subscription' | 'ledger';
 
 export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
   const { teams } = useTeamStore();
@@ -50,7 +50,7 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
 
         {/* Tabs */}
         <div className="flex px-6 border-b border-slate-100 gap-4">
-          {(['members', 'subscription'] as Tab[]).map((t) => (
+          {(['members', 'subscription', 'ledger'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -61,7 +61,7 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
                   : 'border-transparent text-slate-400 hover:text-slate-600',
               )}
             >
-              {t === 'members' ? '成员' : '套餐'}
+              {t === 'members' ? '成员' : t === 'subscription' ? '套餐' : '记录'}
             </button>
           ))}
         </div>
@@ -76,8 +76,10 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
               teamName={team?.name}
               onClose={onClose}
             />
-          ) : (
+          ) : tab === 'subscription' ? (
             <SubscriptionTab teamId={teamId} myRole={myRole} />
+          ) : (
+            <LedgerTab teamId={teamId} />
           )}
         </div>
       </div>
@@ -113,7 +115,7 @@ function MembersTab({
 
   useEffect(() => {
     teamApi.getMembers(teamId).then(setMembers).catch(() => {});
-    teamSeatPackageApi.listPackages(teamId).then((s) => {
+    teamSeatPackageApi.listPackages(teamId).then((s: any) => {
       if (s?.totalSeats) setSeatCount(s.totalSeats);
     }).catch(() => {});
   }, [teamId]);
@@ -189,7 +191,7 @@ function MembersTab({
                 ? 'bg-red-50 text-red-500'
                 : 'bg-slate-100 text-slate-500',
             )}>
-              剩余 {Math.max(0, seatCount - members.length)} / {seatCount} 席位
+               {Math.max(0, seatCount - members.length)} / {seatCount} 席位
             </span>
           )}
         </div>
@@ -506,6 +508,111 @@ function MemberQuotaEditor({
   );
 }
 
+/* ─── Ledger tab ──────────────────────────────────────────────────── */
+
+interface LedgerEntry {
+  id: string;
+  entryType: string;
+  amount: number;
+  taskId?: string;
+  taskKind?: string;
+  actorUserId?: string;
+  note?: string;
+  createdAt: string;
+}
+
+function LedgerTab({ teamId }: { teamId: string }) {
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [skip, setSkip] = useState(0);
+  const PAGE = 20;
+
+  const load = async (reset = false) => {
+    setLoading(true);
+    const nextSkip = reset ? 0 : skip;
+    try {
+      const data: LedgerEntry[] = await teamCreditsApi.getLedger(teamId, PAGE + 1, nextSkip);
+      const page = data.slice(0, PAGE);
+      setHasMore(data.length > PAGE);
+      setEntries(reset ? page : (prev) => [...prev, ...page]);
+      setSkip(nextSkip + PAGE);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load(true);
+  }, [teamId]);
+
+  const NEGATIVE_TYPES = new Set(['reserve', 'deduct']);
+
+  const entryLabel = (type: string) => {
+    if (type === 'topup') return '充值';
+    if (type === 'admin_add') return '管理员充值';
+    if (type === 'reserve') return '冻结';
+    if (type === 'deduct') return '扣款';
+    if (type === 'release') return '解冻';
+    if (type === 'refund') return '退款';
+    return type;
+  };
+
+  const isNegative = (type: string) => NEGATIVE_TYPES.has(type);
+
+  if (loading && entries.length === 0) {
+    return <div className="px-6 py-10 text-center text-sm text-slate-400">加载中…</div>;
+  }
+
+  if (!loading && entries.length === 0) {
+    return <div className="px-6 py-10 text-center text-sm text-slate-400">暂无积分记录</div>;
+  }
+
+  return (
+    <div className="px-6 py-4">
+      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">团队积分消耗记录</p>
+      <div className="space-y-1">
+        {entries.map((entry) => (
+          <div key={entry.id} className="flex items-start justify-between py-2.5 border-b border-slate-50 last:border-0">
+            <div className="flex-1 min-w-0 pr-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded shrink-0', {
+                  'bg-red-50 text-red-500': isNegative(entry.entryType),
+                  'bg-emerald-50 text-emerald-600': !isNegative(entry.entryType),
+                })}>
+                  {entryLabel(entry.entryType)}
+                </span>
+                {(entry.note || entry.taskKind) && (
+                  <span className="text-xs text-slate-500 truncate">
+                    {entry.note || entry.taskKind}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {new Date(entry.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <span className={cn('text-sm font-semibold shrink-0', isNegative(entry.entryType) ? 'text-red-500' : 'text-emerald-600')}>
+              {isNegative(entry.entryType) ? '-' : '+'}{Math.abs(entry.amount).toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          onClick={() => load(false)}
+          disabled={loading}
+          className="mt-3 w-full py-2 text-xs text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
+        >
+          {loading ? '加载中…' : '加载更多'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ─── Subscription tab ────────────────────────────────────────────── */
 
 function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }) {
@@ -751,6 +858,7 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
         <p className="text-xs text-slate-400 text-center pb-2">只有团队所有者或管理员可以购买套餐</p>
       )}
 
+      {/* QR modal */}
       {qrOrder && (
         <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={handleCloseQr}>
           <div className="bg-white rounded-3xl shadow-2xl p-6 w-80 text-center space-y-4" onClick={(e) => e.stopPropagation()}>

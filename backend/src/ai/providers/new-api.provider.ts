@@ -305,14 +305,15 @@ export class NewApiProvider implements IAIProvider {
     };
   }
 
-  private resolveApiKey(providerOptions?: ProviderOptionsPayload): string {
+  private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
       (typeof (providerOptions as any)?.bananaImageRoute === 'string'
         ? (providerOptions as any).bananaImageRoute
         : undefined);
 
-    if (imageRoute === 'ultra' && this.svipApiKey) return this.svipApiKey;
+    // 极速路线仅对实际映射到 ultra 模型的请求生效，无匹配模型时降级走普通路线
+    if (imageRoute === 'ultra' && this.svipApiKey && resolvedModel?.endsWith('-ultra')) return this.svipApiKey;
     if (imageRoute === 'stable' && this.vipApiKey) return this.vipApiKey;
 
     // 通过模型路由系统选中 new_api 渠道时也走 VIP key
@@ -334,7 +335,8 @@ export class NewApiProvider implements IAIProvider {
     if (imageRoute === 'ultra') {
       if (
         model === 'gemini-3-pro-image-preview' ||
-        model === 'gemini-3.1-flash-image-preview'
+        model === 'gemini-3.1-flash-image-preview' ||
+        model === 'gemini-2.5-flash-image-preview'
       ) {
         return `${model}-ultra`;
       }
@@ -363,7 +365,7 @@ export class NewApiProvider implements IAIProvider {
           method: 'POST',
           body: JSON.stringify(this.stripUndefined(payload)),
         },
-        this.resolveApiKey(providerOptions),
+        this.resolveApiKey(providerOptions, payload.model as string | undefined),
       );
       const imageUrls = this.extractImageUrls(result);
       const imageData = this.extractImageData(result);
