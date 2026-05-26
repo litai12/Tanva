@@ -7,7 +7,7 @@ import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
 import { useCollabToast } from '@/hooks/useCollabToast';
 import CollabCursorLayer from './CollabCursorLayer';
 import CollabPresenceList from './CollabPresenceList';
-import CollabToastHost, { CollabToastApi } from './CollabToastHost';
+import CollabToastHost, { type CollabToastApi } from './CollabToastHost';
 import type { ToastKind } from '@/collab/types';
 
 const MOUSE_THROTTLE_MS = 60;
