@@ -790,6 +790,34 @@ export class AdminController {
 
   // ── Volc 审核素材组管理 ─────────────────────────────────────────────────────
 
+  @Get('orders')
+  @ApiOperation({ summary: '获取订单列表（支持状态/支付方式/类型/日期筛选）' })
+  async getOrders(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: {
+      page?: string;
+      pageSize?: string;
+      search?: string;
+      status?: string;
+      paymentMethod?: string;
+      orderType?: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.getOrders({
+      page: query.page ? parseInt(query.page) : 1,
+      pageSize: query.pageSize ? parseInt(query.pageSize) : 20,
+      search: query.search,
+      status: query.status,
+      paymentMethod: query.paymentMethod,
+      orderType: query.orderType,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+    });
+  }
+
   @Get('volc-review/groups')
   @ApiOperation({ summary: '查询所有审核素材组记录' })
   async listVolcReviewGroups(@Request() req: AuthenticatedRequest) {

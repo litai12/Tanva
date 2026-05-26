@@ -1326,4 +1326,92 @@ export class AdminService {
       },
     };
   }
+
+  async getOrders(options: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    status?: string;
+    paymentMethod?: string;
+    orderType?: string;
+    startDate?: Date;
+    endDate?: Date;
+  } = {}) {
+    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, startDate, endDate } = options;
+
+    const where: any = {};
+
+    if (status && status !== 'all') where.status = status;
+    if (paymentMethod && paymentMethod !== 'all') where.paymentMethod = paymentMethod;
+    if (orderType && orderType !== 'all') where.orderType = orderType;
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = startDate;
+      if (endDate) where.createdAt.lte = endDate;
+    }
+
+    if (search) {
+      where.OR = [
+        { orderNo: { contains: search } },
+        { tradeNo: { contains: search } },
+        {
+          user: {
+            OR: [
+              { phone: { contains: search } },
+              { email: { contains: search } },
+              { name: { contains: search } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [total, orders] = await Promise.all([
+      this.prisma.paymentOrder.count({ where }),
+      this.prisma.paymentOrder.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    const userIds = [...new Set(orders.map((o) => o.userId))];
+    const users = userIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, phone: true, email: true, name: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      orders: orders.map((o) => {
+        const u = userMap.get(o.userId);
+        return {
+          id: o.id,
+          orderNo: o.orderNo,
+          userId: o.userId,
+          userPhone: u?.phone ?? null,
+          userEmail: u?.email ?? null,
+          userName: u?.name ?? null,
+          orderType: o.orderType,
+          amount: Number(o.amount),
+          credits: o.credits,
+          paymentMethod: o.paymentMethod,
+          status: o.status,
+          tradeNo: o.tradeNo,
+          paidAt: o.paidAt,
+          expiredAt: o.expiredAt,
+          createdAt: o.createdAt,
+        };
+      }),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
 }

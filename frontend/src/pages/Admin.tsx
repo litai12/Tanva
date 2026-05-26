@@ -69,6 +69,8 @@ import {
   type NodeConfig,
   listVolcReviewGroups,
   cleanupVolcReviewGroup,
+  getAdminOrders,
+  type AdminOrder,
 } from "@/services/adminApi";
 import { notifyNodeConfigsUpdated } from "@/services/nodeConfigService";
 import {
@@ -7337,6 +7339,185 @@ function WatermarkWhitelistTab() {
   );
 }
 
+// 订单管理 Tab
+function OrdersTab() {
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [paymentMethod, setPaymentMethod] = useState("all");
+  const [orderType, setOrderType] = useState("all");
+
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      const result = await getAdminOrders({
+        page,
+        pageSize: 20,
+        search: search || undefined,
+        status: status !== "all" ? status : undefined,
+        paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
+        orderType: orderType !== "all" ? orderType : undefined,
+      });
+      setOrders(result.orders);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error("加载订单失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadOrders();
+  }, [page, status, paymentMethod, orderType]);
+
+  const handleSearch = () => {
+    setPage(1);
+    void loadOrders();
+  };
+
+  const statusLabel: Record<string, string> = {
+    pending: "待支付",
+    paid: "已支付",
+    failed: "失败",
+    expired: "已过期",
+    cancelled: "已取消",
+  };
+
+  const statusColor: Record<string, string> = {
+    pending: "text-yellow-600 bg-yellow-50",
+    paid: "text-green-600 bg-green-50",
+    failed: "text-red-600 bg-red-50",
+    expired: "text-gray-500 bg-gray-50",
+    cancelled: "text-gray-400 bg-gray-50",
+  };
+
+  const orderTypeLabel: Record<string, string> = {
+    recharge: "积分充值",
+    membership: "会员订阅",
+    team_seat: "团队座位",
+  };
+
+  const methodLabel: Record<string, string> = {
+    alipay: "支付宝",
+    wechat: "微信",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Input
+          placeholder="搜索订单号/手机号/邮箱"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          className="max-w-xs"
+        />
+        <Button onClick={handleSearch}>搜索</Button>
+        <select
+          value={status}
+          onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+          className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="all">全部状态</option>
+          <option value="pending">待支付</option>
+          <option value="paid">已支付</option>
+          <option value="failed">失败</option>
+          <option value="expired">已过期</option>
+        </select>
+        <select
+          value={paymentMethod}
+          onChange={(e) => { setPaymentMethod(e.target.value); setPage(1); }}
+          className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="all">全部方式</option>
+          <option value="alipay">支付宝</option>
+          <option value="wechat">微信</option>
+        </select>
+        <select
+          value={orderType}
+          onChange={(e) => { setOrderType(e.target.value); setPage(1); }}
+          className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="all">全部类型</option>
+          <option value="recharge">积分充值</option>
+          <option value="membership">会员订阅</option>
+          <option value="team_seat">团队座位</option>
+        </select>
+      </div>
+
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <div className="max-h-[800px] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left">订单号</th>
+                <th className="px-4 py-3 text-left">用户</th>
+                <th className="px-4 py-3 text-left">类型</th>
+                <th className="px-4 py-3 text-right">金额</th>
+                <th className="px-4 py-3 text-right">积分</th>
+                <th className="px-4 py-3 text-left">支付方式</th>
+                <th className="px-4 py-3 text-left">状态</th>
+                <th className="px-4 py-3 text-left">创建时间</th>
+                <th className="px-4 py-3 text-left">支付时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">加载中...</td>
+                </tr>
+              ) : orders.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                </tr>
+              ) : (
+                orders.map((order) => (
+                  <tr key={order.id} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{order.orderNo}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs">
+                        <div className="font-medium">{order.userName ?? "—"}</div>
+                        <div className="text-gray-400">{order.userPhone ?? order.userEmail ?? order.userId.slice(0, 8)}</div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{orderTypeLabel[order.orderType] ?? order.orderType}</td>
+                    <td className="px-4 py-3 text-right font-medium">¥{order.amount.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{order.credits.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-gray-600">{methodLabel[order.paymentMethod] ?? order.paymentMethod}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor[order.status] ?? "text-gray-500 bg-gray-50"}`}>
+                        {statusLabel[order.status] ?? order.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {new Date(order.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {order.paidAt ? new Date(order.paidAt).toLocaleString("zh-CN", { hour12: false }) : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</Button>
+          <span className="text-sm text-gray-600">{page} / {pagination.totalPages}（共 {pagination.total} 条）</span>
+          <Button variant="outline" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 付费用户管理 Tab
 function PaidUsersTab() {
   const [users, setUsers] = useState<PaidUser[]>([]);
@@ -13269,6 +13450,7 @@ export default function Admin() {
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<AdminTabKey>("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTabKey>("system");
+  const [usersSubTab, setUsersSubTab] = useState<"users" | "orders">("users");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -13441,7 +13623,32 @@ export default function Admin() {
         )}
 
         {currentTab === "users" && (
-          <UsersTab canManageSensitiveUserFields={canManageSensitiveUserFields} />
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-white p-2 shadow-sm">
+              <div className="flex gap-2">
+                {([
+                  { key: "users", label: "用户列表" },
+                  { key: "orders", label: "订单列表" },
+                ] as const).map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setUsersSubTab(tab.key)}
+                    className={`rounded-md px-4 py-2 text-sm font-medium transition ${
+                      usersSubTab === tab.key
+                        ? "bg-blue-100 text-blue-700"
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {usersSubTab === "users" && (
+              <UsersTab canManageSensitiveUserFields={canManageSensitiveUserFields} />
+            )}
+            {usersSubTab === "orders" && <OrdersTab />}
+          </div>
         )}
         {currentTab === "paid-users" && <PaidUsersTab />}
         {currentTab === "credit-records" && <CreditChangeRecordsTab />}

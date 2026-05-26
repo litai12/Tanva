@@ -1528,3 +1528,44 @@ export async function cleanupVolcReviewGroup(date?: string) {
   });
   return response.json() as Promise<{ date: string; deleted: boolean }>;
 }
+
+export interface AdminOrder {
+  id: string;
+  orderNo: string;
+  userId: string;
+  userPhone: string | null;
+  userEmail: string | null;
+  userName: string | null;
+  orderType: string;
+  amount: number;
+  credits: number;
+  paymentMethod: string;
+  status: string;
+  tradeNo: string | null;
+  paidAt: string | null;
+  expiredAt: string | null;
+  createdAt: string;
+}
+
+export async function getAdminOrders(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: string;
+  paymentMethod?: string;
+  orderType?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ orders: AdminOrder[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.paymentMethod) searchParams.set("paymentMethod", params.paymentMethod);
+  if (params?.orderType) searchParams.set("orderType", params.orderType);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+  const response = await request(`/api/admin/orders?${searchParams}`);
+  return response.json();
+}
