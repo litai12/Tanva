@@ -148,7 +148,12 @@ function MembersTab({
 
   const handleRemove = async (userId: string) => {
     if (!confirm('确认移除该成员？')) return;
-    await teamApi.removeMember(teamId, userId);
+    try {
+      await teamApi.removeMember(teamId, userId);
+    } catch (e: any) {
+      alert('移除失败：' + (e?.message || '未知错误'));
+      return;
+    }
     setMembers((prev) => prev.filter((m) => m.userId !== userId));
   };
 

@@ -11,7 +11,8 @@ async function json<T>(res: Response): Promise<T> {
     try { const d = await res.json(); msg = d?.message || d?.error || msg; } catch {}
     throw new Error(msg);
   }
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : (undefined as unknown as T);
 }
 
 export const teamApi = {
