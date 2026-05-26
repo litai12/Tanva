@@ -2972,6 +2972,8 @@ export class AiController {
 
   @Post('generate-image')
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<GenerateImageUrlResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as GenerateImageDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3278,6 +3280,8 @@ export class AiController {
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as EditImageDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3537,6 +3541,8 @@ export class AiController {
 
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as BlendImagesDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-blend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

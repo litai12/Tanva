@@ -110,6 +110,15 @@ export class GenerateImageDto {
   @IsString()
   imageSize?: string;
 
+  // 兼容别名：resolution 等价于 imageSize，size 等价于 aspectRatio
+  @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
   @IsOptional()
   @IsEnum(ThinkingLevel)
   thinkingLevel?: 'high' | 'low';
@@ -263,6 +272,14 @@ export class EditImageDto {
   imageSize?: string;
 
   @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
   @IsEnum(ThinkingLevel)
   thinkingLevel?: 'high' | 'low';
 
@@ -364,6 +381,14 @@ export class BlendImagesDto {
   @IsOptional()
   @IsString()
   imageSize?: string;
+
+  @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
 
   @IsOptional()
   @IsEnum(ThinkingLevel)
