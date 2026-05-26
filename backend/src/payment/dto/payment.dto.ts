@@ -66,8 +66,8 @@ export const RECHARGE_PACKAGES = [
 export const CREDITS_PER_YUAN = 100;
 
 export const TEAM_SEAT_PLANS = {
-  monthly: { pricePerSeat: 100, creditsPerSeat: 1000, durationDays: 30, label: '月卡' },
-  annual:  { pricePerSeat: 1200, creditsPerSeat: 12000, durationDays: 365, label: '年卡' },
+  monthly: { pricePerSeat: 100, creditsPerSeat: 10000, durationDays: 30, label: '月卡' },
+  annual:  { pricePerSeat: 1200, creditsPerSeat: 120000, durationDays: 365, label: '年卡' },
 } as const;
 
 export type TeamSeatCycle = keyof typeof TEAM_SEAT_PLANS;

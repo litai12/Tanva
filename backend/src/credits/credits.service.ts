@@ -175,6 +175,8 @@ export interface ApiUsageParams {
   userAgent?: string;
   idempotencyKey?: string;
   idempotencyWindowMs?: number;
+  /** 团队项目模式：只建用量记录，不扣个人积分。团队积分由调用方另行扣除。 */
+  skipPersonalDeduction?: boolean;
 }
 
 interface PricingCatalogRuleConditionView {
@@ -3753,6 +3755,7 @@ export class CreditsService {
       userAgent,
       idempotencyKey,
       idempotencyWindowMs,
+      skipPersonalDeduction,
     } = params;
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
       idempotencyKey ?? requestParams?.idempotencyKey,
@@ -3823,6 +3826,60 @@ export class CreditsService {
         }
       }
 
+      // 解析服务名（团队/个人模式共用）
+      let effectiveServiceName = this.resolveSoraServiceName(
+        serviceType,
+        pricing.serviceName,
+        apiUsageRequestParams,
+        model,
+      );
+      effectiveServiceName = this.resolveKlingServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+      );
+      effectiveServiceName = this.resolveManagedVideoServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+      );
+      effectiveServiceName = this.resolveBananaImageServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+        outputImageCount,
+      );
+
+      if (skipPersonalDeduction) {
+        // 团队模式：只建用量记录，不动个人积分
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: {
+            userId,
+            serviceType,
+            serviceName: effectiveServiceName,
+            provider: requestedProvider || pricing.provider,
+            model,
+            creditsUsed: creditsToDeduct,
+            inputTokens,
+            outputTokens,
+            inputImageCount,
+            outputImageCount,
+            requestParams: apiUsageRequestParams,
+            responseStatus: ApiResponseStatus.PENDING,
+            ipAddress,
+            userAgent,
+          },
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          transactionId: `team:${apiUsage.id}`,
+          apiUsageId: apiUsage.id,
+          creditsToDeduct,
+        };
+      }
+
+      // 个人模式：完整的积分扣除流程
       const activeLots = await tx.creditLot.findMany({
         where: {
           accountId: account.id,
@@ -3905,31 +3962,6 @@ export class CreditsService {
       }
 
       const newBalance = account.balance - deductionPlan.totalDeducted;
-
-      // ???????????
-      let effectiveServiceName = this.resolveSoraServiceName(
-        serviceType,
-        pricing.serviceName,
-        apiUsageRequestParams,
-        model,
-      );
-      effectiveServiceName = this.resolveKlingServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-      );
-      effectiveServiceName = this.resolveManagedVideoServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-      );
-      // ????????????? + ??? + ???? + ??
-      effectiveServiceName = this.resolveBananaImageServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-        outputImageCount,
-      );
       const billingRemark = this.buildBillingRemark({
         serviceType,
         model,
@@ -3937,7 +3969,6 @@ export class CreditsService {
         requestParams: apiUsageRequestParams,
       });
 
-      // ??????
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -3946,7 +3977,6 @@ export class CreditsService {
         },
       });
 
-      // ?? API ????
       const apiUsage = await tx.apiUsageRecord.create({
         data: {
           userId,
@@ -3966,7 +3996,6 @@ export class CreditsService {
         },
       });
 
-      // ??????
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,

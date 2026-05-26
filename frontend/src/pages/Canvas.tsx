@@ -22,6 +22,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
+import CollabRoot from '@/components/collab/CollabRoot';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -143,6 +144,9 @@ const Canvas: React.FC = () => {
 
             {/* Paper.js sandbox code panel */}
             <CodeSandboxPanel />
+
+            {/* Real-time team collaboration overlay (presence, cursors, toasts) */}
+            <CollabRoot />
 
             {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}

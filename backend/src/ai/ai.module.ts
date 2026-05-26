@@ -34,6 +34,7 @@ import { ModelRoutingService } from './services/model-routing.service';
 import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCreditsModule } from '../team-credits/team-credits.module';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
+import { TeamCollabModule } from '../team-collab/team-collab.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { VolcAssetModule } from '../volc-asset/volc-asset.module';
     TelemetryModule,
     TeamCreditsModule,
     VolcAssetModule,
+    TeamCollabModule,
   ],
   providers: [
     AiService,

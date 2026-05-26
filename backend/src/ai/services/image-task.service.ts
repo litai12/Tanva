@@ -1,4 +1,4 @@
-import { BadGatewayException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation.service';
 import { OpenObserveTelemetryService } from '../../telemetry/openobserve-telemetry.service';
@@ -9,6 +9,13 @@ import { ApiResponseStatus } from '../../credits/dto/credits.dto';
 import { AIProviderFactory } from '../ai-provider.factory';
 import crypto from 'crypto';
 import { Readable } from 'stream';
+import { CollabEventBus } from '../../team-collab/collab-event-bus.service';
+import { CollabEventLog } from '../../team-collab/collab-event-log.service';
+import {
+  CollabEnvelope,
+  TaskBroadcastStatus,
+  TaskStatusPayload,
+} from '../../team-collab/types';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -59,7 +66,46 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    @Optional() private readonly collabBus?: CollabEventBus,
+    @Optional() private readonly collabLog?: CollabEventLog,
   ) {}
+
+  private async publishTaskStatus(
+    projectId: string | undefined | null,
+    payload: {
+      taskId: string;
+      nodeId?: string | null;
+      taskType: string;
+      status: TaskBroadcastStatus;
+      resultPreview?: TaskStatusPayload['resultPreview'];
+      error?: string | null;
+    },
+  ): Promise<void> {
+    if (!projectId || !this.collabBus || !this.collabLog) return;
+    try {
+      const seq = await this.collabLog.nextSeq(projectId);
+      const envelope: CollabEnvelope<TaskStatusPayload> = {
+        type: 'task_status',
+        payload: {
+          taskId: payload.taskId,
+          nodeId: payload.nodeId ?? null,
+          taskType: payload.taskType,
+          category: 'image',
+          status: payload.status,
+          resultPreview: payload.resultPreview ?? null,
+          error: payload.error ?? null,
+        },
+        ts: Date.now(),
+        seq,
+      };
+      await this.collabLog.append(projectId, envelope);
+      await this.collabBus.publish(projectId, envelope);
+    } catch (err) {
+      this.logger.warn(
+        `publishTaskStatus failed (project=${projectId} task=${payload.taskId}): ${(err as Error).message}`,
+      );
+    }
+  }
 
   private extractBase64Payload(imageValue: string): string {
     const trimmed = imageValue.trim();
@@ -483,6 +529,17 @@ export class ImageTaskService {
       receivedAt: new Date().toISOString(),
     });
 
+    const projectId =
+      typeof (requestData as any)?.projectId === 'string'
+        ? ((requestData as any).projectId as string)
+        : undefined;
+    void this.publishTaskStatus(projectId, {
+      taskId: task.id,
+      nodeId: nodeId ?? null,
+      taskType: type,
+      status: 'queued',
+    });
+
     // 异步执行任务（不等待）
     this.executeTask(task.id).catch((error) => {
       this.logger.error(`任务执行失败: taskId=${task.id}, error=${error.message}`);
@@ -606,6 +663,15 @@ export class ImageTaskService {
             where: { id: taskId },
             data: { status: 'processing' },
           });
+          void this.publishTaskStatus(
+            taskRequestData?.projectId as string | undefined,
+            {
+              taskId,
+              nodeId: task.nodeId ?? null,
+              taskType,
+              status: 'processing',
+            },
+          );
           this.logger.log(
             `开始执行任务: taskId=${taskId}, type=${taskType}, apiUsageId=${effectiveApiUsageId}`
           );
@@ -681,6 +747,19 @@ export class ImageTaskService {
             },
           });
 
+          void this.publishTaskStatus(
+            taskRequestData?.projectId as string | undefined,
+            {
+              taskId,
+              nodeId: task.nodeId ?? null,
+              taskType,
+              status: 'succeeded',
+              resultPreview: persistedImageUrl
+                ? { url: persistedImageUrl, thumbnailUrl: persistedThumbnailUrl ?? undefined }
+                : null,
+            },
+          );
+
           // 任务成功，更新积分状态为成功
           if (effectiveApiUsageId) {
             try {
@@ -727,6 +806,17 @@ export class ImageTaskService {
               completedAt: new Date(),
             },
           });
+
+          void this.publishTaskStatus(
+            taskRequestData?.projectId as string | undefined,
+            {
+              taskId,
+              nodeId: task.nodeId ?? null,
+              taskType,
+              status: 'failed',
+              error: errorMessage || '图像生成失败',
+            },
+          );
 
           // 任务失败，标记积分状态为失败并触发退款
           if (effectiveApiUsageId) {

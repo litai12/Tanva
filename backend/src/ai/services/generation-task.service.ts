@@ -1,10 +1,16 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   createAsyncTask,
   updateAsyncTask,
   getAsyncTaskResult,
 } from './async-video-task.store';
+import { CollabEventBus } from '../../team-collab/collab-event-bus.service';
+import { CollabEventLog } from '../../team-collab/collab-event-log.service';
+import {
+  CollabEnvelope,
+  TaskStatusPayload,
+} from '../../team-collab/types';
 
 export interface CreateVideoTaskParams {
   taskId: string;
@@ -13,6 +19,7 @@ export interface CreateVideoTaskParams {
   taskType: string;
   prompt?: string;
   metadata?: Record<string, any>;
+  projectId?: string;
 }
 
 export interface UpdateVideoTaskParams {
@@ -39,16 +46,25 @@ const STUCK_TASK_TIMEOUT_MS = 40 * 60 * 1000; // 40 minutes
 export class GenerationTaskService implements OnModuleInit {
   private readonly logger = new Logger(GenerationTaskService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly collabBus?: CollabEventBus,
+    @Optional() private readonly collabLog?: CollabEventLog,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.reconcileStuckTasks();
   }
 
   async createVideoTask(params: CreateVideoTaskParams): Promise<void> {
-    const { taskId, userId, nodeId, taskType, prompt, metadata } = params;
+    const { taskId, userId, nodeId, taskType, prompt, metadata, projectId } = params;
 
     createAsyncTask(taskId);
+
+    const persistedMetadata =
+      projectId || metadata
+        ? { ...(metadata ?? {}), ...(projectId ? { projectId } : {}) }
+        : undefined;
 
     await this.prisma.videoTask.create({
       data: {
@@ -58,9 +74,19 @@ export class GenerationTaskService implements OnModuleInit {
         status: 'queued',
         taskType,
         prompt: prompt ?? null,
-        metadata: metadata ?? undefined,
+        metadata: persistedMetadata as any,
       },
     });
+
+    if (projectId) {
+      await this.publishTaskStatus(projectId, {
+        taskId,
+        nodeId: nodeId ?? null,
+        taskType,
+        category: 'video',
+        status: 'queued',
+      });
+    }
 
     // Supersede previous queued/processing tasks for this node.
     // Race condition: a concurrent request arriving between create and this updateMany could
@@ -93,6 +119,22 @@ export class GenerationTaskService implements OnModuleInit {
       error: update.error,
     });
 
+    let projectIdFromDb: string | null = null;
+    let nodeIdFromDb: string | null = null;
+    let taskType: string | undefined;
+    try {
+      const before = await this.prisma.videoTask.findUnique({
+        where: { id: taskId },
+        select: { metadata: true, nodeId: true, taskType: true },
+      });
+      const meta = (before?.metadata as any) ?? null;
+      if (meta && typeof meta === 'object' && typeof meta.projectId === 'string') {
+        projectIdFromDb = meta.projectId;
+      }
+      nodeIdFromDb = before?.nodeId ?? null;
+      taskType = before?.taskType ?? undefined;
+    } catch {}
+
     await this.prisma.videoTask
       .update({
         where: { id: taskId },
@@ -108,6 +150,67 @@ export class GenerationTaskService implements OnModuleInit {
       .catch((err: Error) => {
         this.logger.warn(`VideoTask update failed for ${taskId}: ${err.message}`);
       });
+
+    if (projectIdFromDb && update.status) {
+      const resultPreview = this.extractResultPreview(update.result);
+      await this.publishTaskStatus(projectIdFromDb, {
+        taskId,
+        nodeId: nodeIdFromDb,
+        taskType: taskType ?? 'video',
+        category: 'video',
+        status: update.status,
+        resultPreview,
+        error: update.error ?? null,
+      });
+    }
+  }
+
+  /**
+   * Publish a task_status envelope to project subscribers. Safe to call when
+   * collab services are unavailable — silently no-ops.
+   */
+  async publishTaskStatus(
+    projectId: string,
+    payload: TaskStatusPayload,
+  ): Promise<void> {
+    if (!this.collabBus || !this.collabLog) return;
+    try {
+      const seq = await this.collabLog.nextSeq(projectId);
+      const envelope: CollabEnvelope<TaskStatusPayload> = {
+        type: 'task_status',
+        payload,
+        ts: Date.now(),
+        seq,
+      };
+      await this.collabLog.append(projectId, envelope);
+      await this.collabBus.publish(projectId, envelope);
+    } catch (err) {
+      this.logger.warn(
+        `publishTaskStatus failed (project=${projectId} task=${payload.taskId}): ${(err as Error).message}`,
+      );
+    }
+  }
+
+  private extractResultPreview(
+    result: Record<string, any> | undefined,
+  ): TaskStatusPayload['resultPreview'] {
+    if (!result) return null;
+    const url =
+      typeof result.url === 'string'
+        ? result.url
+        : typeof result.videoUrl === 'string'
+        ? result.videoUrl
+        : typeof result.imageUrl === 'string'
+        ? result.imageUrl
+        : undefined;
+    const thumbnailUrl =
+      typeof result.thumbnailUrl === 'string'
+        ? result.thumbnailUrl
+        : typeof result.coverUrl === 'string'
+        ? result.coverUrl
+        : undefined;
+    if (!url && !thumbnailUrl) return null;
+    return { url, thumbnailUrl };
   }
 
   async findVideoTaskById(taskId: string) {

@@ -1595,6 +1595,17 @@ export async function adminUpdateTeamStatus(
   });
 }
 
+export async function adminUpdateTeamSeats(
+  teamId: string,
+  maxSeats: number,
+): Promise<void> {
+  await request(`/api/admin/teams/${teamId}/seats`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ maxSeats }),
+  });
+}
+
 export async function adminDeleteTeam(teamId: string): Promise<void> {
   await request(`/api/admin/teams/${teamId}`, { method: "DELETE" });
 }

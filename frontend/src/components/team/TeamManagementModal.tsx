@@ -654,8 +654,8 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const PLANS = {
-    monthly: { pricePerSeat: 100, creditsPerSeat: 1000, label: '月卡', days: 30 },
-    annual:  { pricePerSeat: 1200, creditsPerSeat: 12000, label: '年卡', days: 365 },
+    monthly: { pricePerSeat: 100, creditsPerSeat: 10000, label: '月卡', days: 30 },
+    annual:  { pricePerSeat: 1200, creditsPerSeat: 120000, label: '年卡', days: 365 },
   } as const;
 
   const plan = PLANS[cycle];
@@ -820,7 +820,7 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
 
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm">
               <div className="flex justify-between text-slate-600">
-                <span>赠送积分</span>
+                <span>包含积分</span>
                 <span className="font-semibold text-blue-700">+{totalCredits.toLocaleString()} 积分</span>
               </div>
               <div className="flex justify-between text-slate-400 text-xs mt-1">

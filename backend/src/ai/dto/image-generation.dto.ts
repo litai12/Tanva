@@ -213,6 +213,10 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class EditImageDto {
@@ -322,6 +326,10 @@ export class EditImageDto {
   @IsOptional()
   @IsString()
   nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class BlendImagesDto {
@@ -433,6 +441,10 @@ export class BlendImagesDto {
   @IsOptional()
   @IsString()
   nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class AnalyzeImageDto {

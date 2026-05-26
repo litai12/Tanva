@@ -1599,8 +1599,12 @@ export class AiController {
       : undefined;
     const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
+    // 团队模式检测（在预扣积分前）：团队项目不扣个人积分
+    const teamId = this.getTeamId(req);
+    const isTeamProject = !!(teamId && this.teamCreditLedger && await this.isNonPersonalTeam(teamId));
+
     try {
-      // 预扣积分
+      // 预扣积分（团队模式只建用量记录，不动个人积分）
       const deductResult = await this.creditsService.preDeductCredits({
         userId,
         serviceType,
@@ -1611,21 +1615,26 @@ export class AiController {
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
         idempotencyKey,
+        skipPersonalDeduction: isTeamProject,
       });
 
       apiUsageId = deductResult.apiUsageId;
-      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
+      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${isTeamProject}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
 
-      // 团队积分预留（在个人积分扣除成功后执行）
-      const { isTeamMode, teamId: reservedTeamId } = await this.reserveTeamCreditsIfNeeded(
-        req,
-        deductResult.creditsToDeduct,
-        apiUsageId,
-        serviceType,
-      );
-      if (isTeamMode && reservedTeamId) {
-        teamReserve = { isTeamMode: true, teamId: reservedTeamId, amount: deductResult.creditsToDeduct };
+      // 团队积分预留（在个人积分处理后执行）
+      if (isTeamProject && teamId) {
+        const reserved = await this.teamCreditLedger!.reserve({
+          teamId,
+          amount: deductResult.creditsToDeduct,
+          taskId: apiUsageId,
+          taskKind: serviceType,
+          actorUserId: userId,
+        });
+        if (!reserved.reserved) {
+          throw new BadRequestException(reserved.reason ?? '团队积分不足');
+        }
+        teamReserve = { isTeamMode: true, teamId, amount: deductResult.creditsToDeduct };
       }
 
       // 执行实际操作
@@ -1719,23 +1728,33 @@ export class AiController {
       );
 
       if (apiUsageId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage,
-          processingTime,
-        });
-        if (refunded) {
-          this.logger.warn(
-            `[${serviceType}] Credits successfully refunded for failed operation: ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+        if (isTeamProject) {
+          // 团队模式：只标记失败，无个人积分需退还
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.FAILED,
+            errorMessage,
+            processingTime,
+          ).catch((e) => this.logger.warn(`团队模式标记失败状态出错: ${e?.message}`));
         } else {
-          this.logger.error(
-            `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+          const refunded = await this.markFailedAndRefundWithRetry({
+            userId,
+            apiUsageId,
+            serviceType,
+            errorMessage,
+            processingTime,
+          });
+          if (refunded) {
+            this.logger.warn(
+              `[${serviceType}] Credits successfully refunded for failed operation: ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          } else {
+            this.logger.error(
+              `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          }
         }
         // 释放团队积分预留
         if (teamReserve) {
@@ -4115,6 +4134,7 @@ export class AiController {
         nodeId: dto.nodeId,
         taskType: 'seed3d',
         prompt: dto.prompt,
+        projectId: dto.projectId,
       });
     } else {
       createAsyncTask(taskId);
@@ -4530,6 +4550,7 @@ export class AiController {
         taskType: selectedSoraModel,
         prompt: dto.prompt,
         metadata: { quality, aspectRatio: dto.aspectRatio, duration: dto.duration },
+        projectId: dto.projectId,
       });
     } else {
       createAsyncTask(taskId);
@@ -7034,24 +7055,8 @@ export class AiController {
     return req.headers?.['x-team-id'] as string | undefined;
   }
 
-  private async reserveTeamCreditsIfNeeded(
-    req: any,
-    amount: number,
-    taskId: string,
-    taskKind: string,
-  ): Promise<{ isTeamMode: boolean; teamId?: string }> {
-    const teamId = this.getTeamId(req);
-    if (!teamId || !this.teamCreditLedger) return { isTeamMode: false };
-
-    // Personal teams use personal-credit billing, not team billing
+  private async isNonPersonalTeam(teamId: string): Promise<boolean> {
     const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isPersonal: true } });
-    if (!team || team.isPersonal) return { isTeamMode: false };
-
-    const userId: string = req.user?.sub;
-    const result = await this.teamCreditLedger.reserve({ teamId, amount, taskId, taskKind, actorUserId: userId });
-    if (!result.reserved) {
-      throw new BadRequestException(result.reason ?? '团队积分不足');
-    }
-    return { isTeamMode: true, teamId };
+    return !!(team && !team.isPersonal);
   }
 }

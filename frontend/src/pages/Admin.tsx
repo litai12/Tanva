@@ -52,6 +52,7 @@ import {
   adminGetTeams,
   adminAddTeamCredits,
   adminDeductTeamCredits,
+  adminUpdateTeamSeats,
   adminUpdateTeamStatus,
   adminDeleteTeam,
   adminGetTeamCreditHistory,
@@ -4847,6 +4848,10 @@ function UsersTab({
   const [teamCreditBusy, setTeamCreditBusy] = useState(false);
   const [teamCreditError, setTeamCreditError] = useState('');
   const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
+  const [teamSeatModal, setTeamSeatModal] = useState<{ teamId: string; teamName: string; currentSeats: number } | null>(null);
+  const [teamSeatValue, setTeamSeatValue] = useState('');
+  const [teamSeatBusy, setTeamSeatBusy] = useState(false);
+  const [teamSeatError, setTeamSeatError] = useState('');
   const [teamDetailDrawer, setTeamDetailDrawer] = useState<{ teamId: string; teamName: string } | null>(null);
   const [teamCreditHistory, setTeamCreditHistory] = useState<any[]>([]);
   const [teamCreditHistoryLoading, setTeamCreditHistoryLoading] = useState(false);
@@ -4887,6 +4892,23 @@ function UsersTab({
       setTeamCreditError(e?.message || '操作失败');
     } finally {
       setTeamCreditBusy(false);
+    }
+  };
+
+  const submitTeamSeats = async () => {
+    if (!teamSeatModal) return;
+    const seats = Number(teamSeatValue);
+    if (!Number.isInteger(seats) || seats < 1) { setTeamSeatError('请输入有效席位数（正整数）'); return; }
+    setTeamSeatBusy(true);
+    setTeamSeatError('');
+    try {
+      await adminUpdateTeamSeats(teamSeatModal.teamId, seats);
+      setTeamSeatModal(null);
+      void loadTeams(teamPage);
+    } catch (e: any) {
+      setTeamSeatError(e?.message || '操作失败');
+    } finally {
+      setTeamSeatBusy(false);
     }
   };
 
@@ -5262,6 +5284,9 @@ function UsersTab({
                         <td className='px-4 py-3 text-xs text-gray-500'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
                         <td className='px-4 py-3'>
                           <div className='flex flex-wrap gap-1'>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.maxSeats }); setTeamSeatValue(String(team.maxSeats)); setTeamSeatError(''); }}>
+                              席位
+                            </Button>
                             <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
                               充值
                             </Button>
@@ -5300,6 +5325,25 @@ function UsersTab({
               </>
             )}
           </div>
+          {teamSeatModal && (
+            <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40'>
+              <div className='bg-white rounded-xl p-6 w-80 shadow-xl'>
+                <h3 className='font-semibold mb-1'>调整席位 · {teamSeatModal.teamName}</h3>
+                <p className='text-xs text-gray-500 mb-4'>当前席位：{teamSeatModal.currentSeats}</p>
+                <input
+                  type='number' min={1} className='w-full border rounded px-3 py-2 text-sm mb-3'
+                  placeholder='新席位数'
+                  value={teamSeatValue}
+                  onChange={(e) => setTeamSeatValue(e.target.value)}
+                />
+                {teamSeatError && <p className='text-red-500 text-xs mb-2'>{teamSeatError}</p>}
+                <div className='flex gap-2 justify-end'>
+                  <button onClick={() => setTeamSeatModal(null)} className='px-3 py-1.5 text-sm border rounded hover:bg-gray-50'>取消</button>
+                  <button onClick={() => void submitTeamSeats()} disabled={teamSeatBusy} className='px-3 py-1.5 text-sm rounded text-white bg-blue-600 hover:bg-blue-700'>{teamSeatBusy ? '处理中…' : '确认'}</button>
+                </div>
+              </div>
+            </div>
+          )}
           {teamCreditModal && (
             <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40'>
               <div className='bg-white rounded-xl p-6 w-80 shadow-xl'>

@@ -101,4 +101,9 @@ export class GenerateVideoDto {
   @IsOptional()
   @IsString()
   nodeId?: string;
+
+  @ApiProperty({ description: '项目 ID，用于实时协作任务广播', required: false })
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
