@@ -1351,18 +1351,21 @@ export class AdminService {
     }
 
     if (search) {
+      const matchingUsers = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { phone: { contains: search } },
+            { email: { contains: search } },
+            { name: { contains: search } },
+          ],
+        },
+        select: { id: true },
+      });
+      const matchingUserIds = matchingUsers.map((u) => u.id);
       where.OR = [
         { orderNo: { contains: search } },
         { tradeNo: { contains: search } },
-        {
-          user: {
-            OR: [
-              { phone: { contains: search } },
-              { email: { contains: search } },
-              { name: { contains: search } },
-            ],
-          },
-        },
+        ...(matchingUserIds.length > 0 ? [{ userId: { in: matchingUserIds } }] : []),
       ];
     }
 

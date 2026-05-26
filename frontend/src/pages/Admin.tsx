@@ -70,6 +70,7 @@ import {
   listVolcReviewGroups,
   cleanupVolcReviewGroup,
   getAdminOrders,
+  syncAdminOrder,
   type AdminOrder,
 } from "@/services/adminApi";
 import { notifyNodeConfigsUpdated } from "@/services/nodeConfigService";
@@ -7492,38 +7493,62 @@ function OrdersTab() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [committedSearch, setCommittedSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [paymentMethod, setPaymentMethod] = useState("all");
   const [orderType, setOrderType] = useState("all");
-
-  const loadOrders = async () => {
-    setLoading(true);
-    try {
-      const result = await getAdminOrders({
-        page,
-        pageSize: 20,
-        search: search || undefined,
-        status: status !== "all" ? status : undefined,
-        paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
-        orderType: orderType !== "all" ? orderType : undefined,
-      });
-      setOrders(result.orders);
-      setPagination(result.pagination);
-    } catch (error) {
-      console.error("加载订单失败:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [syncingOrderNo, setSyncingOrderNo] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadOrders();
-  }, [page, status, paymentMethod, orderType]);
+    let cancelled = false;
+    const run = async () => {
+      setLoading(true);
+      try {
+        const result = await getAdminOrders({
+          page,
+          pageSize: 20,
+          search: committedSearch || undefined,
+          status: status !== "all" ? status : undefined,
+          paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
+          orderType: orderType !== "all" ? orderType : undefined,
+        });
+        if (!cancelled) {
+          setOrders(result.orders);
+          setPagination(result.pagination);
+        }
+      } catch (error) {
+        console.error("加载订单失败:", error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [page, committedSearch, status, paymentMethod, orderType]);
 
   const handleSearch = () => {
+    setCommittedSearch(searchInput);
     setPage(1);
-    void loadOrders();
+  };
+
+  const handleSync = async (orderNo: string) => {
+    setSyncingOrderNo(orderNo);
+    try {
+      const result = await syncAdminOrder(orderNo);
+      if (result.synced) {
+        setOrders((prev) =>
+          prev.map((o) => (o.orderNo === orderNo ? { ...o, status: "paid" } : o))
+        );
+        alert(`补救成功，积分已到账`);
+      } else {
+        alert(`网关未确认支付，当前状态: ${result.status}`);
+      }
+    } catch {
+      alert("同步失败，请稍后重试");
+    } finally {
+      setSyncingOrderNo(null);
+    }
   };
 
   const statusLabel: Record<string, string> = {
@@ -7558,8 +7583,8 @@ function OrdersTab() {
       <div className="flex flex-wrap gap-2">
         <Input
           placeholder="搜索订单号/手机号/邮箱"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
           className="max-w-xs"
         />
@@ -7610,16 +7635,17 @@ function OrdersTab() {
                 <th className="px-4 py-3 text-left">状态</th>
                 <th className="px-4 py-3 text-left">创建时间</th>
                 <th className="px-4 py-3 text-left">支付时间</th>
+                <th className="px-4 py-3 text-left">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">加载中...</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">加载中...</td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">暂无数据</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">暂无数据</td>
                 </tr>
               ) : (
                 orders.map((order) => (
@@ -7645,6 +7671,19 @@ function OrdersTab() {
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {order.paidAt ? new Date(order.paidAt).toLocaleString("zh-CN", { hour12: false }) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {order.status !== "paid" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={syncingOrderNo === order.orderNo}
+                          onClick={() => void handleSync(order.orderNo)}
+                          className="text-xs"
+                        >
+                          {syncingOrderNo === order.orderNo ? "查询中..." : "同步"}
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))

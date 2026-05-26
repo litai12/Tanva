@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
   Res,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
 import { PaymentService } from './payment.service';
@@ -137,5 +138,16 @@ export class PaymentController {
     @Res() res: FastifyReply,
   ) {
     return this.wechatNotify(req, notifyData, res);
+  }
+
+  /**
+   * 管理员手动同步订单支付状态（用于处理漏单）
+   */
+  @Post('admin/orders/:orderNo/sync')
+  @UseGuards(JwtAuthGuard)
+  async adminSyncOrder(@Request() req: any, @Param('orderNo') orderNo: string) {
+    const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
+    if (role !== 'admin') throw new ForbiddenException('仅管理员可操作');
+    return this.paymentService.syncOrderByAdmin(orderNo);
   }
 }

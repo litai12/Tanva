@@ -1547,6 +1547,11 @@ export interface AdminOrder {
   createdAt: string;
 }
 
+export async function syncAdminOrder(orderNo: string): Promise<{ synced: boolean; status: string }> {
+  const response = await request(`/api/payment/admin/orders/${orderNo}/sync`, { method: "POST" });
+  return response.json();
+}
+
 export async function getAdminOrders(params?: {
   page?: number;
   pageSize?: number;

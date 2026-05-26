@@ -1053,6 +1053,106 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
+  // 每 10 分钟扫描近 2 小时内的 expired 订单，向网关主动核查，补救因回调丢失导致的漏单
+  @Cron('0 */10 * * * *')
+  async reconcileExpiredOrdersJob() {
+    try {
+      const rescued = await this.reconcileExpiredOrders();
+      if (rescued > 0) {
+        this.logger.log(`漏单补救: 补发 ${rescued} 笔过期订单的积分`);
+      }
+    } catch (error) {
+      this.logger.error(
+        '漏单补救任务失败',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  async reconcileExpiredOrders(): Promise<number> {
+    const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const expiredOrders = await this.prisma.paymentOrder.findMany({
+      where: {
+        status: PaymentStatus.EXPIRED,
+        createdAt: { gte: since },
+      },
+    });
+
+    let rescued = 0;
+    for (const order of expiredOrders) {
+      try {
+        let paid = false;
+        let tradeNo: string | null = null;
+        let paidAt: Date | undefined;
+
+        if (order.paymentMethod === PaymentMethod.ALIPAY) {
+          const trade = await this.queryAlipayTradeStatus(order.orderNo);
+          if (this.isAlipaySuccessStatus(trade.status) && this.isAmountMatched(Number(order.amount), trade.totalAmount)) {
+            paid = true;
+            tradeNo = trade.tradeNo ?? null;
+          }
+        } else if (order.paymentMethod === PaymentMethod.WECHAT) {
+          const trade = await this.queryWechatTradeStatus(order.orderNo);
+          if (this.isWechatSuccessStatus(trade.status) && this.isAmountMatched(Number(order.amount), trade.totalAmount)) {
+            paid = true;
+            tradeNo = trade.transactionId ?? null;
+            paidAt = trade.paidAt ?? undefined;
+          }
+        }
+
+        if (paid) {
+          await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+            tradeNo,
+            paymentMethod: order.paymentMethod as PaymentMethod,
+            source: 'reconcile_expired',
+            ...(paidAt ? { paidAt } : {}),
+          });
+          rescued++;
+        }
+      } catch (err) {
+        this.logger.warn(`补救订单失败: orderNo=${order.orderNo}, err=${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return rescued;
+  }
+
+  async syncOrderByAdmin(orderNo: string): Promise<{ synced: boolean; status: string }> {
+    const order = await this.prisma.paymentOrder.findFirst({ where: { orderNo } });
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.status === PaymentStatus.PAID) return { synced: false, status: 'paid' };
+
+    let paid = false;
+    let tradeNo: string | null = null;
+    let paidAt: Date | undefined;
+
+    if (order.paymentMethod === PaymentMethod.ALIPAY) {
+      const trade = await this.queryAlipayTradeStatus(orderNo);
+      if (this.isAlipaySuccessStatus(trade.status) && this.isAmountMatched(Number(order.amount), trade.totalAmount)) {
+        paid = true;
+        tradeNo = trade.tradeNo ?? null;
+      }
+    } else if (order.paymentMethod === PaymentMethod.WECHAT) {
+      const trade = await this.queryWechatTradeStatus(orderNo);
+      if (this.isWechatSuccessStatus(trade.status) && this.isAmountMatched(Number(order.amount), trade.totalAmount)) {
+        paid = true;
+        tradeNo = trade.transactionId ?? null;
+        paidAt = trade.paidAt ?? undefined;
+      }
+    }
+
+    if (paid) {
+      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+        tradeNo,
+        paymentMethod: order.paymentMethod as PaymentMethod,
+        source: 'admin_sync',
+        ...(paidAt ? { paidAt } : {}),
+      });
+      return { synced: true, status: 'paid' };
+    }
+
+    return { synced: false, status: order.status };
+  }
+
   async handleAlipayNotify(data: any) {
     try {
       const notifyData = this.parseNotifyData(data);
