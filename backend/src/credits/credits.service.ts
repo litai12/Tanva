@@ -1139,11 +1139,7 @@ export class CreditsService {
       value === 'seed-2.0-lite' ||
       value === 'seedance-2.0-lite' ||
       value === 'seed-2-0-lite' ||
-      value === '2.0-lite' ||
-      value === 'seedance-2.0' ||
-      value === 'seedance-2.0-fast' ||
-      value === '2.0' ||
-      value === '2.0-fast'
+      value === '2.0-lite'
     ) {
       return 'lite';
     }
@@ -1160,9 +1156,17 @@ export class CreditsService {
       return defaultCredits;
     }
 
+    const seedanceModel =
+      typeof requestParams?.seedanceModel === 'string'
+        ? requestParams.seedanceModel.trim().toLowerCase()
+        : '';
     const seed2Model = this.normalizeSeed2Model(requestParams?.seedanceModel ?? requestParams?.model);
 
     if (!seed2Model) {
+      return defaultCredits;
+    }
+
+    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
       return defaultCredits;
     }
 
@@ -2466,7 +2470,14 @@ export class CreditsService {
 
     for (const candidate of candidates) {
       const normalized = this.asNonEmptyString(candidate);
-      if (normalized) return normalized;
+      if (!normalized) continue;
+
+      const lowered = normalized.toLowerCase();
+      if (lowered === 'seedance-2.0' || lowered === 'seedance-2.0-fast') {
+        return 'Seedance 2.0';
+      }
+
+      return normalized;
     }
 
     return null;
@@ -2496,6 +2507,7 @@ export class CreditsService {
     const duration = Number.isFinite(durationRaw) ? Math.max(0, Math.round(durationRaw)) : null;
     const hasSound = this.asNullableBoolean(requestParams?.sound);
     const generateAudio = this.asNullableBoolean(requestParams?.generateAudio);
+    const seedanceModel = this.asNonEmptyString(requestParams?.seedanceModel)?.toLowerCase() ?? null;
     const channel = this.extractChannelFromApiUsage({
       provider: params.provider ?? null,
       model: params.model ?? null,
@@ -2511,6 +2523,7 @@ export class CreditsService {
 
     if (imageSize) remarkParts.push(`imageSize: ${imageSize}`);
     if (isVideoService && duration !== null) remarkParts.push(`duration: ${duration}s`);
+    if (seedanceModel) remarkParts.push(`seedanceModel: ${seedanceModel}`);
     if (resolution) remarkParts.push(`resolution: ${resolution}`);
     if (aspectRatio) remarkParts.push(`aspectRatio: ${aspectRatio}`);
     if (mode) remarkParts.push(`mode: ${mode}`);

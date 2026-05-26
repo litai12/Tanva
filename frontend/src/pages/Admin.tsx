@@ -1917,6 +1917,152 @@ const createWanPricingTemplate = (
   },
 });
 
+const createSeedance20PricingTemplate = () => ({
+  version: "v2",
+  dimensions: [
+    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast"], {
+      required: true,
+      labels: {
+        "seedance-2.0": "Seedance 2.0",
+        "seedance-2.0-fast": "Seedance 2.0 Fast",
+      },
+    }),
+    createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], {
+      required: true,
+      labels: {
+        "480P": "480P",
+        "720P": "720P",
+        "1080P": "1080P",
+      },
+    }),
+    createNumberDimension("duration", "时长(秒)", {
+      required: true,
+      description: "按秒线性计费",
+    }),
+  ],
+  matchingRules: [
+    {
+      ruleKey: "seedance20_fast_480p",
+      label: "Seedance 2.0 Fast 480P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_480p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0-fast" },
+          { field: "resolution", op: "eq" as const, value: "480P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_fast_720p",
+      label: "Seedance 2.0 Fast 720P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_720p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0-fast" },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_480p",
+      label: "Seedance 2.0 480P",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "seedance20_480p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0" },
+          { field: "resolution", op: "eq" as const, value: "480P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_720p",
+      label: "Seedance 2.0 720P",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "seedance20_720p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0" },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_1080p",
+      label: "Seedance 2.0 1080P",
+      enabled: true,
+      priority: 110,
+      evaluatorKey: "seedance20_1080p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0" },
+          { field: "resolution", op: "eq" as const, value: "1080P" },
+        ],
+        any: [],
+      },
+    },
+  ],
+  evaluators: {
+    seedance20_fast_480p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: 0.806,
+    },
+    seedance20_fast_720p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: 0.966,
+    },
+    seedance20_480p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: 1.0,
+    },
+    seedance20_720p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: 1.2,
+    },
+    seedance20_1080p_eval: {
+      type: "linear" as const,
+      unitField: "duration",
+      unitPriceYuan: 3.0,
+    },
+  },
+  displayConfig: {
+    specAxes: ["seedanceModel", "resolution", "duration"],
+    labels: {
+      "seedanceModel.seedance-2.0": "Seedance 2.0",
+      "seedanceModel.seedance-2.0-fast": "Seedance 2.0 Fast",
+      "resolution.480P": "480P",
+      "resolution.720P": "720P",
+      "resolution.1080P": "1080P",
+    },
+    defaultSelections: {
+      seedanceModel: "seedance-2.0",
+      resolution: "720P",
+      duration: 5,
+    },
+    presets: [
+      { seedanceModel: "seedance-2.0", resolution: "720P", duration: 5 },
+      { seedanceModel: "seedance-2.0", resolution: "720P", duration: 10 },
+      { seedanceModel: "seedance-2.0", resolution: "1080P", duration: 5 },
+      { seedanceModel: "seedance-2.0-fast", resolution: "480P", duration: 5 },
+      { seedanceModel: "seedance-2.0-fast", resolution: "720P", duration: 5 },
+    ],
+  },
+});
+
 const mergeFallbackStructure = <T,>(fallback: T, current?: Partial<T> | null): T => {
   if (Array.isArray(fallback)) {
     return (Array.isArray(current) ? current : fallback) as T;
@@ -2130,12 +2276,12 @@ const DEFAULT_SEEDANCE20_V2_VENDOR_METADATA = {
   },
 } as const;
 
-const SEEDANCE20_SUPPORTED_MODELS = ["seedance-1.5-pro", "seedance-2.0", "seed-2.0-lite"];
+const SEEDANCE20_SUPPORTED_MODELS = ["seedance-1.5-pro", "seedance-2.0", "seedance-2.0-fast"];
 const SEEDANCE20_VOD_METADATA = {
   outputConfig: {
     aspectRatios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
     durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    resolutions: ["480P", "720P"],
+    resolutions: ["480P", "720P", "1080P"],
     audioGeneration: true,
   },
   inputModes: [
@@ -3322,6 +3468,7 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
         provider: "doubao",
         modelName: "Seedance",
         modelVersion: "2.0",
+        pricing: createSeedance20PricingTemplate(),
         metadata: DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
       },
     ],
