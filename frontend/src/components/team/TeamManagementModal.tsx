@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { teamApi } from '../../services/teamApi';
-import { teamSubscriptionApi } from '../../services/teamCreditsApi';
+import { teamSubscriptionApi, teamSeatPackageApi } from '../../services/teamCreditsApi';
+import { getPaymentStatus } from '../../services/adminApi';
 import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore, refreshTeams } from '../../stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -12,15 +13,16 @@ import { cn } from '@/lib/utils';
 interface Props {
   teamId: string;
   onClose: () => void;
+  initialTab?: 'members' | 'subscription';
 }
 
 type Tab = 'members' | 'subscription';
 
-export function TeamManagementModal({ teamId, onClose }: Props) {
+export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
   const { teams } = useTeamStore();
   const currentUser = useAuthStore((s) => s.user);
   const team = teams.find((t) => t.id === teamId);
-  const [tab, setTab] = useState<Tab>('members');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'members');
   const myRole = team?.myRole;
   const canManage = myRole === 'owner' || myRole === 'admin';
 
@@ -507,246 +509,261 @@ function MemberQuotaEditor({
 /* ─── Subscription tab ────────────────────────────────────────────── */
 
 function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }) {
-  const [plans, setPlans] = useState<any[]>([]);
-  const [current, setCurrent] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-  const [seatCount, setSeatCount] = useState(5);
+  const canManage = myRole === 'owner' || myRole === 'admin';
+
+  const [summary, setSummary] = useState<{
+    permanentSeats: number;
+    totalSeats: number;
+    activePackages: Array<{
+      id: string;
+      seats: number;
+      cycle: string;
+      credits: number;
+      expiresAt: string;
+      purchasedAt: string;
+    }>;
+  } | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  const [cycle, setCycle] = useState<'monthly' | 'annual'>('monthly');
+  const [seats, setSeats] = useState(2);
+  const [paymentMethod, setPaymentMethod] = useState<'alipay' | 'wechat'>('alipay');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const isOwner = myRole === 'owner';
+
+  const [qrOrder, setQrOrder] = useState<{
+    orderNo: string;
+    qrCodeUrl: string;
+    amount: number;
+    credits: number;
+  } | null>(null);
+  const [paySuccess, setPaySuccess] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const PLANS = {
+    monthly: { pricePerSeat: 100, creditsPerSeat: 1000, label: '月卡', days: 30 },
+    annual:  { pricePerSeat: 1200, creditsPerSeat: 12000, label: '年卡', days: 365 },
+  } as const;
+
+  const plan = PLANS[cycle];
+  const totalAmount = plan.pricePerSeat * seats;
+  const totalCredits = plan.creditsPerSeat * seats;
+
+  const loadSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const data = await teamSeatPackageApi.listPackages(teamId);
+      setSummary(data);
+    } catch {
+      setSummary(null);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   useEffect(() => {
-    Promise.all([
-      teamSubscriptionApi.listPlans(),
-      teamSubscriptionApi.getSubscription(teamId),
-    ])
-      .then(([p, s]) => {
-        setPlans(p);
-        setCurrent(s);
-        if (p.length > 0 && !selectedPlanId) setSelectedPlanId(p[0].id);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    loadSummary();
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, [teamId]);
 
-  const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  const startPolling = (orderNo: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const status = await getPaymentStatus(orderNo);
+        if (status.status === 'paid') {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+          setPaySuccess(true);
+          setQrOrder(null);
+          loadSummary();
+          window.dispatchEvent(new CustomEvent('refresh-credits'));
+        }
+      } catch {}
+    }, 3000);
+  };
 
-  const monthlyCost = selectedPlan
-    ? billingCycle === 'annual'
-      ? Math.round(selectedPlan.priceAnnualFen / 12)
-      : selectedPlan.priceMonthlyFen
-    : 0;
-  const totalMonthly = monthlyCost * seatCount;
-  const creditsPerMonth = selectedPlan ? selectedPlan.creditsPerSeatPerMonth * seatCount : 0;
-
-  const handleSubscribe = async () => {
-    if (!selectedPlanId || !isOwner) return;
-    if (seatCount < (selectedPlan?.minSeats ?? 1) || seatCount > (selectedPlan?.maxSeats ?? 100)) {
-      setError(`座位数须在 ${selectedPlan?.minSeats}~${selectedPlan?.maxSeats} 之间`);
-      return;
-    }
+  const handleBuy = async () => {
+    if (!canManage || submitting) return;
     setSubmitting(true);
     setError('');
     try {
-      const sub = await teamSubscriptionApi.createSubscription(teamId, {
-        planId: selectedPlanId,
-        billingCycle,
-        seatCount,
+      const order = await teamSeatPackageApi.createOrder(teamId, {
+        seats,
+        cycle,
+        paymentMethod,
       });
-      setCurrent(sub);
+      setQrOrder({
+        orderNo: order.orderNo,
+        qrCodeUrl: order.qrCodeUrl,
+        amount: order.amount,
+        credits: order.credits,
+      });
+      startPolling(order.orderNo);
     } catch (e: any) {
-      setError(e?.message || '订阅失败');
+      setError(e?.message || '创建订单失败');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleCancel = async () => {
-    if (!confirm('确认取消订阅？当前周期结束前仍可使用。')) return;
-    setSubmitting(true);
-    try {
-      await teamSubscriptionApi.cancelSubscription(teamId);
-      setCurrent(null);
-    } catch (e: any) {
-      setError(e?.message || '取消失败');
-    } finally {
-      setSubmitting(false);
-    }
+  const handleCloseQr = () => {
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+    setQrOrder(null);
   };
 
-  if (loading) {
+  if (summaryLoading) {
     return <div className="px-6 py-10 text-center text-sm text-slate-400">加载中…</div>;
   }
 
   return (
     <div className="px-6 py-4 space-y-5">
-      {/* Current subscription */}
-      {current && (
-        <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
-          <div className="flex items-start justify-between gap-3">
+      {paySuccess && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 flex items-center justify-between">
+          <span>购买成功！积分已发放至团队账户。</span>
+          <button onClick={() => setPaySuccess(false)} className="text-emerald-400 hover:text-emerald-600 ml-3">✕</button>
+        </div>
+      )}
+
+      {summary && (
+        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">席位概览</p>
+          <div className="flex items-center gap-6 text-sm">
             <div>
-              <p className="text-xs font-medium text-blue-500 uppercase tracking-wide mb-1">当前套餐</p>
-              <p className="text-sm font-semibold text-slate-800">{current.plan?.name ?? current.planId}</p>
-              <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
-                <span className="flex items-center gap-1">
-                  <Users className="w-3 h-3" />
-                  {current.seatCount} 个座位
-                </span>
-                <span className="flex items-center gap-1">
-                  <Zap className="w-3 h-3" />
-                  {current.creditsPerRenewal?.toLocaleString()} 积分/期
-                </span>
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {current.billingCycle === 'annual' ? '年付' : '月付'}
-                  ，到期 {new Date(current.currentPeriodEnd).toLocaleDateString('zh-CN')}
-                </span>
-              </div>
+              <span className="text-2xl font-bold text-slate-800">{summary.totalSeats}</span>
+              <span className="text-slate-400 ml-1">总席位</span>
             </div>
-            {isOwner && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancel}
-                disabled={submitting}
-                className="text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl shrink-0 text-xs"
-              >
-                取消订阅
-              </Button>
-            )}
+            <div className="text-slate-400">
+              {summary.permanentSeats} 永久 + {summary.totalSeats - summary.permanentSeats} 套餐
+            </div>
           </div>
         </div>
       )}
 
-      {/* Plans */}
-      {plans.length === 0 ? (
-        <p className="text-sm text-slate-400 text-center py-6">暂无可用套餐</p>
-      ) : (
-        <>
-          <div>
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">选择套餐</p>
-            <div className="space-y-2">
-              {plans.map((plan) => (
+      {summary && summary.activePackages.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">已购套餐</p>
+          <div className="space-y-2">
+            {summary.activePackages.map((pkg) => (
+              <div key={pkg.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium text-slate-700">{pkg.seats} 席位</span>
+                  <span className="ml-2 text-xs text-slate-400">{pkg.cycle === 'annual' ? '年卡' : '月卡'}</span>
+                </div>
+                <div className="text-xs text-slate-400">
+                  到期 {new Date(pkg.expiresAt).toLocaleDateString('zh-CN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canManage && (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">购买席位套餐</p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
+            <div className="flex rounded-xl overflow-hidden border border-slate-200">
+              {(['monthly', 'annual'] as const).map((c) => (
                 <button
-                  key={plan.id}
-                  onClick={() => isOwner && setSelectedPlanId(plan.id)}
-                  disabled={!isOwner}
+                  key={c}
+                  onClick={() => setCycle(c)}
                   className={cn(
-                    'w-full text-left rounded-2xl border p-3.5 transition-all',
-                    selectedPlanId === plan.id
-                      ? 'border-slate-800 bg-slate-800 text-white'
-                      : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700',
-                    !isOwner && 'cursor-default',
+                    'flex-1 py-2 text-sm font-medium transition-colors',
+                    cycle === c ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50',
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold">{plan.name}</p>
-                      <p className={cn('text-xs mt-0.5', selectedPlanId === plan.id ? 'text-slate-300' : 'text-slate-400')}>
-                        {plan.creditsPerSeatPerMonth?.toLocaleString()} 积分/人/月
-                        · {plan.minSeats}~{plan.maxSeats} 座位
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold">
-                        ¥{(plan.priceMonthlyFen / 100).toFixed(0)}
-                        <span className={cn('text-xs font-normal ml-0.5', selectedPlanId === plan.id ? 'text-slate-300' : 'text-slate-400')}>
-                          /人/月
-                        </span>
-                      </p>
-                      {plan.priceAnnualFen < plan.priceMonthlyFen * 12 && (
-                        <p className={cn('text-xs', selectedPlanId === plan.id ? 'text-blue-300' : 'text-blue-500')}>
-                          年付省 {Math.round((1 - plan.priceAnnualFen / (plan.priceMonthlyFen * 12)) * 100)}%
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                  {PLANS[c].label}
+                  <span className="ml-1 text-xs opacity-70">¥{PLANS[c].pricePerSeat}/席位</span>
                 </button>
               ))}
             </div>
-          </div>
 
-          {isOwner && selectedPlan && (
-            <div className="space-y-3">
-              {/* Billing cycle */}
-              <div>
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">付款周期</p>
-                <div className="flex gap-2">
-                  {(['monthly', 'annual'] as const).map((cycle) => (
-                    <button
-                      key={cycle}
-                      onClick={() => setBillingCycle(cycle)}
-                      className={cn(
-                        'flex-1 py-2 rounded-xl text-sm border transition-all',
-                        billingCycle === cycle
-                          ? 'border-slate-800 bg-slate-800 text-white'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300',
-                      )}
-                    >
-                      {cycle === 'monthly' ? '月付' : '年付'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Seat count */}
-              <div>
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-                  座位数（{selectedPlan.minSeats}~{selectedPlan.maxSeats}）
-                </p>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setSeatCount((n) => Math.max(selectedPlan.minSeats, n - 1))}
-                    className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 text-lg leading-none"
-                  >
-                    −
-                  </button>
-                  <span className="w-8 text-center text-sm font-semibold text-slate-800">{seatCount}</span>
-                  <button
-                    onClick={() => setSeatCount((n) => Math.min(selectedPlan.maxSeats, n + 1))}
-                    className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 text-lg leading-none"
-                  >
-                    +
-                  </button>
-                  <span className="text-xs text-slate-400 ml-1">
-                    {creditsPerMonth.toLocaleString()} 积分/月
-                  </span>
-                </div>
-              </div>
-
-              {/* Summary + subscribe */}
-              <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
-                <div className="flex items-center justify-between text-sm mb-3">
-                  <span className="text-slate-500">
-                    {billingCycle === 'annual' ? '年付总价' : '月付总价'}
-                  </span>
-                  <span className="font-semibold text-slate-800">
-                    ¥{billingCycle === 'annual'
-                      ? ((selectedPlan.priceAnnualFen / 100) * seatCount).toFixed(0)
-                      : (totalMonthly / 100).toFixed(0)}
-                    <span className="text-xs font-normal text-slate-400">
-                      /{billingCycle === 'annual' ? '年' : '月'}
-                    </span>
-                  </span>
-                </div>
-                {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
-                <Button
-                  className="w-full rounded-xl"
-                  onClick={handleSubscribe}
-                  disabled={submitting}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600">席位数量（最少 2）</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSeats((s) => Math.max(2, s - 1))}
+                  className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors"
                 >
-                  {submitting ? '处理中…' : current ? '更换套餐' : '立即订阅'}
-                </Button>
+                  −
+                </button>
+                <span className="w-8 text-center text-sm font-semibold text-slate-800">{seats}</span>
+                <button
+                  onClick={() => setSeats((s) => Math.min(100, s + 1))}
+                  className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  +
+                </button>
               </div>
             </div>
-          )}
 
-          {!isOwner && (
-            <p className="text-xs text-slate-400 text-center pb-2">只有团队所有者可以管理套餐</p>
-          )}
-        </>
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm">
+              <div className="flex justify-between text-slate-600">
+                <span>赠送积分</span>
+                <span className="font-semibold text-blue-700">+{totalCredits.toLocaleString()} 积分</span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-xs mt-1">
+                <span>{plan.creditsPerSeat.toLocaleString()} 积分/席位 × {seats} 席位</span>
+                <span>有效期 {plan.days} 天</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              {(['alipay', 'wechat'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPaymentMethod(m)}
+                  className={cn(
+                    'flex-1 py-2 rounded-xl text-sm border transition-colors',
+                    paymentMethod === m
+                      ? 'border-slate-800 bg-slate-800 text-white'
+                      : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                  )}
+                >
+                  {m === 'alipay' ? '支付宝' : '微信支付'}
+                </button>
+              ))}
+            </div>
+
+            {error && <p className="text-xs text-red-500">{error}</p>}
+
+            <button
+              onClick={handleBuy}
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? '创建订单…' : `立即购买 ¥${totalAmount.toLocaleString()}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!canManage && (
+        <p className="text-xs text-slate-400 text-center pb-2">只有团队所有者或管理员可以购买套餐</p>
+      )}
+
+      {qrOrder && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={handleCloseQr}>
+          <div className="bg-white rounded-3xl shadow-2xl p-6 w-80 text-center space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800">扫码完成支付</h3>
+              <button onClick={handleCloseQr} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="text-2xl font-bold text-slate-800">¥{qrOrder.amount.toLocaleString()}</div>
+            <div className="text-xs text-slate-400">支付后将发放 {qrOrder.credits.toLocaleString()} 积分</div>
+            {qrOrder.qrCodeUrl ? (
+              <img src={qrOrder.qrCodeUrl} alt="支付二维码" className="w-48 h-48 mx-auto rounded-xl" />
+            ) : (
+              <div className="w-48 h-48 mx-auto rounded-xl bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                二维码加载中…
+              </div>
+            )}
+            <p className="text-xs text-slate-400">请使用{paymentMethod === 'alipay' ? '支付宝' : '微信'}扫码</p>
+          </div>
+        </div>
       )}
     </div>
   );
