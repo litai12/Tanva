@@ -57,10 +57,12 @@ export class TeamSeatPackageService {
     });
 
     const purchasedSeats = activePackages.reduce((sum, p) => sum + p.seats, 0);
+    const usedSeats = await this.prisma.teamMembership.count({ where: { teamId } });
 
     return {
       permanentSeats: TEAM_PERMANENT_SEATS,
       totalSeats: TEAM_PERMANENT_SEATS + purchasedSeats,
+      usedSeats,
       activePackages,
     };
   }

@@ -113,8 +113,8 @@ function MembersTab({
 
   useEffect(() => {
     teamApi.getMembers(teamId).then(setMembers).catch(() => {});
-    teamSubscriptionApi.getSubscription(teamId).then((s) => {
-      if (s?.seatCount) setSeatCount(s.seatCount);
+    teamSeatPackageApi.listPackages(teamId).then((s) => {
+      if (s?.totalSeats) setSeatCount(s.totalSeats);
     }).catch(() => {});
   }, [teamId]);
 
@@ -514,6 +514,7 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
   const [summary, setSummary] = useState<{
     permanentSeats: number;
     totalSeats: number;
+    usedSeats: number;
     activePackages: Array<{
       id: string;
       seats: number;
@@ -632,10 +633,15 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">席位概览</p>
           <div className="flex items-center gap-6 text-sm">
             <div>
-              <span className="text-2xl font-bold text-slate-800">{summary.totalSeats}</span>
-              <span className="text-slate-400 ml-1">总席位</span>
+              <span className={cn(
+                'text-2xl font-bold',
+                summary.usedSeats >= summary.totalSeats ? 'text-red-500' : 'text-slate-800',
+              )}>
+                {summary.usedSeats}
+              </span>
+              <span className="text-slate-400 ml-1">/ {summary.totalSeats} 席位已用</span>
             </div>
-            <div className="text-slate-400">
+            <div className="text-slate-400 text-xs">
               {summary.permanentSeats} 永久 + {summary.totalSeats - summary.permanentSeats} 套餐
             </div>
           </div>
