@@ -335,8 +335,7 @@ export class NewApiProvider implements IAIProvider {
     if (imageRoute === 'ultra') {
       if (
         model === 'gemini-3-pro-image-preview' ||
-        model === 'gemini-3.1-flash-image-preview' ||
-        model === 'gemini-2.5-flash-image-preview'
+        model === 'gemini-3.1-flash-image-preview'
       ) {
         return `${model}-ultra`;
       }

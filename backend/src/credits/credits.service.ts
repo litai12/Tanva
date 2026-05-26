@@ -344,7 +344,6 @@ const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
 };
 
 // 极速通道（beqlee官方代理）= 官方价 ×1.1
-// fast(banana-2.5/gemini-2.5-flash): 0.4×1.1≈44
 // pro(banana): 0.91×1.1≈100, 0.91×1.1≈100, 1.63×1.1≈179
 // ultra(banana-3.1/nano2): 0.455×1.1≈50, 0.683×1.1≈75, 1.026×1.1≈113
 const BANANA_ULTRA_RESOLUTION_PRICING: Record<
@@ -352,10 +351,10 @@ const BANANA_ULTRA_RESOLUTION_PRICING: Record<
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
   fast: {
-    '0.5K': 44,
-    '1K': 44,
-    '2K': 44,
-    '4K': 44,
+    '0.5K': 20,
+    '1K': 20,
+    '2K': 20,
+    '4K': 20,
   },
   pro: {
     '0.5K': 100,

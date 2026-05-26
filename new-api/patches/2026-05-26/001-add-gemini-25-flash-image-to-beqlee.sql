@@ -1,4 +1,6 @@
 -- 001-add-gemini-25-flash-image-to-beqlee.sql
+-- !! SUSPENDED !! gemini-2.5-flash-image-preview 在 Google v1beta/generateContent 返回 404，
+-- 暂时搁置极速线路支持，待确认模型可用后再执行。
 -- Purpose: 为 beqlee-gemini 渠道补充 gemini-2.5-flash-image-preview 模型（极速线路）
 --
 -- 变更：
