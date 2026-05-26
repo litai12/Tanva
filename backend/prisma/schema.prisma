@@ -533,7 +533,7 @@ model PaymentOrder {
   expiredAt     DateTime
   membershipPlanId String?
   subscriptionId String?
-  teamId        String?
+  teamId        String?  // denormalized; no FK — order is user-scoped, team may be deleted independently
   planSnapshot  Json?
   metadata      Json?
   createdAt     DateTime @default(now())
@@ -767,7 +767,7 @@ model TeamSeatPackage {
   teamId         String
   paymentOrderId String?  @unique
   seats          Int
-  cycle          String
+  cycle          String   // 'monthly' | 'annual'
   credits        Int
   status         String   @default("active")
   purchasedAt    DateTime @default(now())
