@@ -764,6 +764,60 @@ export class PaymentService implements OnModuleInit {
         });
         return;
       }
+      if (currentOrder.orderType === 'team_seat') {
+        const meta = currentOrder.metadata as Record<string, unknown> | null;
+        const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
+        if (!teamId) return;
+        const seats = Number(meta?.seats) || 0;
+        const cycle = typeof meta?.cycle === 'string' ? meta.cycle : 'monthly';
+        const durationDays = cycle === 'annual' ? 365 : 30;
+        const paidAt = options?.paidAt ?? new Date();
+        const expiresAt = new Date(paidAt.getTime() + durationDays * 86_400_000);
+
+        await tx.teamSeatPackage.create({
+          data: {
+            teamId,
+            paymentOrderId: orderId,
+            seats,
+            cycle,
+            credits,
+            status: 'active',
+            purchasedAt: paidAt,
+            expiresAt,
+          },
+        });
+
+        let acc = await tx.teamCreditAccount.findUnique({ where: { teamId } });
+        if (!acc) {
+          acc = await tx.teamCreditAccount.create({
+            data: { teamId, balance: 0, frozenBalance: 0, totalEarned: 0 },
+          });
+        }
+        await tx.teamCreditLot.create({
+          data: {
+            teamCreditAccId: acc.id,
+            amount: credits,
+            remaining: credits,
+            expiresAt: null,
+            source: 'topup',
+            sourceRefId: orderId,
+          },
+        });
+        await tx.teamCreditAccount.update({
+          where: { id: acc.id },
+          data: { balance: { increment: credits }, totalEarned: { increment: credits } },
+        });
+        await tx.teamCreditLedger.create({
+          data: {
+            teamAccId: acc.id,
+            entryType: 'topup',
+            amount: credits,
+            taskId: `topup_${orderId}`,
+            note: `购买${cycle === 'annual' ? '年卡' : '月卡'}席位套餐 x${seats}，发放 ${credits} 积分`,
+          },
+        });
+        return;
+      }
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
