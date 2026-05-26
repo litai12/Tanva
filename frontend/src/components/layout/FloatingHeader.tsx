@@ -380,6 +380,7 @@ const FloatingHeader: React.FC = () => {
   const [isPricingCatalogOpen, setIsPricingCatalogOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
   const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
+  const [teamModalInitialTab, setTeamModalInitialTab] = useState<'members' | 'subscription'>('members');
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -946,10 +947,15 @@ const FloatingHeader: React.FC = () => {
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
 
-  /** 画板顶栏积分入口：打开 VIP / 积分弹窗 */
+  /** 画板顶栏积分入口：个人模式打开会员弹窗，团队模式打开团队套餐 */
   const openMembershipHub = useCallback(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      setTeamModalInitialTab('subscription');
+      setTeamManagementId(activeTeamForCredits.id);
+      return;
+    }
     setIsMembershipOpen(true);
-  }, []);
+  }, [activeTeamForCredits]);
 
   const topCreditsText = useMemo(() => {
     if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
@@ -2906,7 +2912,8 @@ const FloatingHeader: React.FC = () => {
         {teamManagementId && (
           <TeamManagementModal
             teamId={teamManagementId}
-            onClose={() => setTeamManagementId(null)}
+            onClose={() => { setTeamManagementId(null); setTeamModalInitialTab('members'); }}
+            initialTab={teamModalInitialTab}
           />
         )}
       </div>
