@@ -533,6 +533,7 @@ model PaymentOrder {
   expiredAt     DateTime
   membershipPlanId String?
   subscriptionId String?
+  teamId        String?
   planSnapshot  Json?
   metadata      Json?
   createdAt     DateTime @default(now())
@@ -655,6 +656,7 @@ model Team {
   projectShares TeamProjectShare[]
   subscriptions TeamSubscription[]
   creditAccount TeamCreditAccount?
+  seatPackages  TeamSeatPackage[]
 
   @@index([ownerId, isPersonal])
 }
@@ -758,6 +760,24 @@ model TeamCreditLedger {
 
   @@unique([teamAccId, entryType, taskId])
   @@index([entryType, reserveExpiresAt])
+}
+
+model TeamSeatPackage {
+  id             String   @id @default(uuid())
+  teamId         String
+  paymentOrderId String?  @unique
+  seats          Int
+  cycle          String
+  credits        Int
+  status         String   @default("active")
+  purchasedAt    DateTime @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status, expiresAt])
 }
 
 model TeamSubscriptionPlan {
