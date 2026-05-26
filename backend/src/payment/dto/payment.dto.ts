@@ -13,7 +13,7 @@ export enum PaymentStatus {
   CANCELLED = 'cancelled',
 }
 
-export type PaymentOrderType = 'recharge' | 'membership';
+export type PaymentOrderType = 'recharge' | 'membership' | 'team_seat';
 
 // 创建订单请求
 export interface CreateOrderDto {
@@ -64,3 +64,12 @@ export const RECHARGE_PACKAGES = [
 
 // 积分兑换比例：1元 = 100积分
 export const CREDITS_PER_YUAN = 100;
+
+export const TEAM_SEAT_PLANS = {
+  monthly: { pricePerSeat: 100, creditsPerSeat: 1000, durationDays: 30, label: '月卡' },
+  annual:  { pricePerSeat: 1200, creditsPerSeat: 12000, durationDays: 365, label: '年卡' },
+} as const;
+
+export type TeamSeatCycle = keyof typeof TEAM_SEAT_PLANS;
+export const TEAM_SEAT_MIN_SEATS = 2;
+export const TEAM_PERMANENT_SEATS = 2;
