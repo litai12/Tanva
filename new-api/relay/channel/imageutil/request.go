@@ -56,7 +56,7 @@ func ExtractRequestedImageSize(request *dto.ImageRequest) string {
 	if request == nil {
 		return ""
 	}
-	for _, key := range []string{"image_size", "imageSize"} {
+	for _, key := range []string{"image_size", "imageSize", "resolution"} {
 		raw, ok := request.Extra[key]
 		if !ok || len(raw) == 0 {
 			continue
@@ -81,6 +81,8 @@ func NormalizeGeminiImageSize(value string) string {
 		return "1K"
 	case "2k":
 		return "2K"
+	case "4k":
+		return "4K"
 	default:
 		return strings.TrimSpace(value)
 	}
