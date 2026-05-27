@@ -63,11 +63,7 @@ services:
       PG_DB: ${NEW_API_PG_DB:-new_api}
     volumes:
       - ../new-api/patches:/patches:ro
-    command: >
-      sh -c "find /patches -name '*.sql' | sort | while read f; do
-        echo \"Applying $$f\";
-        psql -h new-api-postgres -U $$PG_USER -d $$PG_DB -f $$f || exit 1;
-      done && echo 'All patches applied.'"
+    command: ["sh", "/patches/_apply.sh"]
 
   new-api:
     build:

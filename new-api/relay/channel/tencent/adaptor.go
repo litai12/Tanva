@@ -97,8 +97,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Prompt:        request.Prompt,
 		FileInfos:     fileInfos,
 	}
-	// Return non-nil placeholder so image_handler.go proceeds past the nil-check.
-	return struct{}{}, nil
+	return a.pendingImageReq, nil
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
