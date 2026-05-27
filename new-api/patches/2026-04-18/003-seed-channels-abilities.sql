@@ -51,7 +51,6 @@ WHERE NOT EXISTS (
   FROM channels AS existing
   WHERE existing.name = s.name
     AND existing.type = s.type
-    AND existing."group" = s.channel_group
 );
 
 -- -----------------------------------------------------------------------------

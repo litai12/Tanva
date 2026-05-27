@@ -144,7 +144,6 @@ WHERE NOT EXISTS (
   SELECT 1 FROM channels AS existing
   WHERE existing.name = s.name
     AND existing.type = s.type
-    AND existing."group" = s.channel_group
 );
 
 -- Keep non-credential metadata in sync; do NOT overwrite key/status/priority/weight/tag

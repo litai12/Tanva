@@ -99,7 +99,7 @@ SELECT
   'openai-official',
   NULL, NULL, NULL
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'openai-official' AND type = 1 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'openai-official' AND type = 1
 );
 
 -- 同步 models 列表（幂等，已存在则追加）

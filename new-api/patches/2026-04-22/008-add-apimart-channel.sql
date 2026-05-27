@@ -145,7 +145,7 @@ SELECT s.name, s.type, s.channel_group, s.models, s.model_mapping, s.status, s.b
 FROM channel_seed AS s
 WHERE NOT EXISTS (
   SELECT 1 FROM channels AS existing
-  WHERE existing.name = s.name AND existing.type = s.type AND existing."group" = s.channel_group
+  WHERE existing.name = s.name AND existing.type = s.type
 );
 
 -- Keep models / model_mapping / base_url in sync on re-runs. key / status /

@@ -24,7 +24,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'remove-bg' AND type = 1 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'remove-bg' AND type = 1
 );
 
 COMMIT;

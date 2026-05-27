@@ -35,7 +35,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'kapon-speech' AND type = 35 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'kapon-speech' AND type = 35
 );
 
 -- ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35
 );
 
 -- ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'ark' AND type = 1 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'ark' AND type = 1
 );
 
 -- ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'watcha' AND type = 1 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'watcha' AND type = 1
 );
 
 COMMIT;

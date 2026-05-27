@@ -73,7 +73,7 @@ SELECT
   NULL, NULL, NULL
 WHERE NOT EXISTS (
   SELECT 1 FROM channels
-  WHERE name = 'rightcodes-codex' AND type = 1 AND "group" = 'default'
+  WHERE name = 'rightcodes-codex' AND type = 1
 );
 
 UPDATE channels

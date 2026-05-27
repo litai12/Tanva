@@ -50,7 +50,7 @@ SELECT
   NULL, NULL, NULL
 WHERE NOT EXISTS (
   SELECT 1 FROM channels
-  WHERE name = 'rightcodes-draw-vip' AND type = 60 AND "group" = 'default'
+  WHERE name = 'rightcodes-draw-vip' AND type = 60
 );
 
 -- Sync models/model_mapping on re-runs; leave key/status/priority untouched.

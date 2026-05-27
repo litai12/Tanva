@@ -21,7 +21,7 @@ SET name = 'tencent',
     base_url = ''
 WHERE name = 'tencent-mps'
   AND NOT EXISTS (
-    SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1 AND "group" = 'default'
+    SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1
   );
 
 -- Step 2: Hard-delete tencent-vod abilities then channel (merged into tencent).
@@ -50,7 +50,7 @@ SELECT
   EXTRACT(EPOCH FROM NOW())::bigint,
   0
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1
 );
 
 COMMIT;

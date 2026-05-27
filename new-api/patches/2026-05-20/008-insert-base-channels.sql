@@ -13,7 +13,7 @@ SELECT 24, 'yunwu-gemini', 'default',
   'gemini-2.5-flash-image,gemini-3-flash-preview,gemini-3-pro-image-preview,gemini-3.1-flash-image-preview,gemini-3.1-pro-preview',
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-gemini', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-gemini' AND type = 24 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-gemini' AND type = 24);
 
 -- yunwu-openai-image
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -23,7 +23,7 @@ SELECT 1, 'yunwu-openai-image', 'default',
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-openai-image', NULL,
   '{"response_format":"url","watermark":false}', NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai-image' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai-image' AND type = 1);
 
 -- yunwu-openai-video
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -32,7 +32,7 @@ SELECT 1, 'yunwu-openai-video', 'default',
   'kling-v3,kling-video-o1,veo_3_1,veo_3_1-fast,veo3.1-pro',
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-openai-video', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai-video' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai-video' AND type = 1);
 
 -- yunwu-openai
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -41,7 +41,7 @@ SELECT 1, 'yunwu-openai', 'default',
   'gpt-5.4',
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-openai', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-openai' AND type = 1);
 
 -- yunwu-deepseek
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -50,7 +50,7 @@ SELECT 1, 'yunwu-deepseek', 'default',
   'deepseek-v3.2',
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-deepseek', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-deepseek' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'yunwu-deepseek' AND type = 1);
 
 -- ark-doubao (image + video unified — both types 45/54 use the same volcengine adaptor)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -62,7 +62,7 @@ SELECT 45, 'ark-doubao', 'default',
   1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-doubao', NULL,
   '{"watermark":false}', NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark-doubao' AND type = 45 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark-doubao' AND type = 45);
 
 -- openai-official
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -72,7 +72,7 @@ SELECT 1, 'openai-official', 'default',
   '{"gpt-image-2-official":"gpt-image-2"}',
   1, 'https://api.openai.com', 'PLACEHOLDER_OPENAI_OFFICIAL_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'openai-official', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'openai-official' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'openai-official' AND type = 1);
 
 -- apimart
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -102,7 +102,7 @@ SELECT 59, 'apimart', 'default',
   '"wan2.7-videoedit-apimart":"wan2.7-videoedit"}',
   1, 'https://api.apimart.ai', 'PLACEHOLDER_APIMART_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'apimart', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'apimart' AND type = 59 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'apimart' AND type = 59);
 
 -- magic666
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -120,7 +120,7 @@ SELECT 62, 'magic666', 'default',
   '"gemini-3.1-flash-image-preview-magic666":"gemini-3.1-flash-image-preview"}',
   1, 'http://152.53.38.70:3001', 'PLACEHOLDER_MAGIC666_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'magic666', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'magic666' AND type = 62 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'magic666' AND type = 62);
 
 -- packyapi-gpt5x
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -131,7 +131,7 @@ SELECT 1, 'packyapi-gpt5x', 'default',
   'gpt-5.4,gpt-5.4-high,gpt-5.4-mini,gpt-5.5',
   NULL, 1, 'https://www.packyapi.com', 'PLACEHOLDER_PACKYAPI_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'packyapi', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'packyapi-gpt5x' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'packyapi-gpt5x' AND type = 1);
 
 -- rightcodes-draw
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -141,7 +141,7 @@ SELECT 60, 'rightcodes-draw', 'default',
   '{"gpt-image-2-rightcodes":"gpt-image-2"}',
   1, 'https://www.right.codes/draw', 'PLACEHOLDER_RIGHTCODES_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'rightcodes', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-draw' AND type = 60 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-draw' AND type = 60);
 
 -- rightcodes-draw-vip
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -151,7 +151,7 @@ SELECT 60, 'rightcodes-draw-vip', 'default',
   '{"gpt-image-2-vip":"gpt-image-2"}',
   1, 'https://www.right.codes/draw', 'PLACEHOLDER_RIGHTCODES_VIP_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 20, 0, 'rightcodes-vip', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-draw-vip' AND type = 60 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-draw-vip' AND type = 60);
 
 -- rightcodes-codex
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -160,7 +160,7 @@ SELECT 1, 'rightcodes-codex', 'default',
   'gpt-5.5',
   NULL, 1, 'https://www.right.codes/codex', 'PLACEHOLDER_RIGHTCODES_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'rightcodes', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-codex' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'rightcodes-codex' AND type = 1);
 
 -- wuyinkeji
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -169,7 +169,7 @@ SELECT 58, 'wuyinkeji', 'default',
   'gpt-image-2-suchuang',
   NULL, 1, 'https://api.wuyinkeji.com', 'PLACEHOLDER_WUYINKEJI_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'wuyinkeji', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'wuyinkeji' AND type = 58 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'wuyinkeji' AND type = 58);
 
 -- comfly
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -178,7 +178,7 @@ SELECT 1, 'comfly', 'default',
   'gpt-image-2',
   NULL, 1, 'https://api.comfly.chat', 'PLACEHOLDER_COMFLY_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'comfly', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'comfly' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'comfly' AND type = 1);
 
 -- 147ai (image + VEO unified)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -192,21 +192,21 @@ SELECT 63, '147ai', 'default',
   '"gpt-image-2-147ai":"gpt-image-2"}',
   1, 'https://api1.147ai.com', 'PLACEHOLDER_147AI_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, '147ai', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = '147ai' AND type = 63 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = '147ai' AND type = 63);
 
 -- kapon-speech (proxy)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 35, 'kapon-speech', 'default', '', NULL, 1, 'https://models.kapon.cloud', 'PLACEHOLDER_MINIMAX_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-speech' AND type = 35 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-speech' AND type = 35);
 
 -- minimax-music (proxy)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 35, 'minimax-music', 'default', '', NULL, 1, 'https://api.minimaxi.com', 'PLACEHOLDER_MINIMAX_MUSIC_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'minimax-music' AND type = 35);
 
 -- ark (proxy — seedream image + seed3d)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
@@ -215,27 +215,27 @@ SELECT 1, 'ark', 'default',
   'doubao-seedream-5-0-260128,doubao-seedream-4-5-251128,doubao-seedream-4-0-250828,doubao-seed3d-2-0-260328',
   NULL, 1, 'https://ark.cn-beijing.volces.com/api/v3', 'PLACEHOLDER_ARK_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'ark' AND type = 1);
 
 -- watcha (proxy)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 1, 'watcha', 'default', '', NULL, 1, 'https://tokendance.agent-universe.cn/gateway/ark', 'PLACEHOLDER_WATCHA_SEEDREAM_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'watcha' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'watcha' AND type = 1);
 
 -- tencent (proxy)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 1, 'tencent', 'default', '', NULL, 1, '', 'PLACEHOLDER_TENCENT_SECRET_KEY_PAIR',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'tencent' AND type = 1);
 
 -- remove-bg (proxy)
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 1, 'remove-bg', 'default', '', NULL, 1, 'https://api.remove.bg', 'PLACEHOLDER_REMOVE_BG_API_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, NULL, NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'remove-bg' AND type = 1 AND "group" = 'default');
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'remove-bg' AND type = 1);
 
 COMMIT;

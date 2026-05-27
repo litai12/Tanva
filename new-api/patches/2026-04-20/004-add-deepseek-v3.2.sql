@@ -121,7 +121,6 @@ WHERE NOT EXISTS (
   FROM channels AS existing
   WHERE existing.name = s.name
     AND existing.type = s.type
-    AND existing."group" = s.channel_group
 );
 
 WITH channel_seed(name, type, channel_group, models, status, base_url, key, priority, weight, tag, setting, param_override, header_override) AS (

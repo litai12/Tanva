@@ -36,7 +36,9 @@ SELECT
   10, 100, 'beqlee-gemini',
   NULL, NULL, NULL
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'beqlee-gemini' AND type = 24 AND "group" = 'default'
+  -- 任意分组下存在 beqlee-gemini 都视为"已托管"，不再重建。
+  -- 这样用户手动从 default 组删除后，只要 svip / 其他组还有一个，patch 不会再次插入 placeholder。
+  SELECT 1 FROM channels WHERE name = 'beqlee-gemini' AND type = 24
 );
 
 -- Sync models/base_url on re-runs; leave key/status/priority untouched.

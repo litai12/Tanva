@@ -120,7 +120,7 @@ SELECT s.name, s.type, s.channel_group, s.models, s.model_mapping, s.status, s.b
        NULL, NULL, NULL
 FROM channel_seed AS s
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = s.name AND type = s.type AND "group" = s.channel_group
+  SELECT 1 FROM channels WHERE name = s.name AND type = s.type
 );
 
 -- Sync models/model_mapping/base_url on re-runs; leave key/status/priority untouched.

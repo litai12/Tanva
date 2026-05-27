@@ -109,7 +109,7 @@ SELECT
   NULL, NULL
 FROM channel_seed cs
 WHERE NOT EXISTS (
-  SELECT 1 FROM channels WHERE name = 'ark-doubao-image' AND type = 45 AND "group" = 'default'
+  SELECT 1 FROM channels WHERE name = 'ark-doubao-image' AND type = 45
 );
 
 -- Sync models/model_mapping on re-runs; leave key/status/priority untouched.
