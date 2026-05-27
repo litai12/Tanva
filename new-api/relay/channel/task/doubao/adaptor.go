@@ -292,6 +292,52 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
+// deriveDoubaoSize 将 "WxH"（如 "1080x1920"）拆解为 Doubao 期望的 resolution + ratio。
+// 规则：以较短边作为 resolution（480p/720p/1080p），按 gcd 计算最简比作为 ratio。
+func deriveDoubaoSize(size string) (resolution string, ratio string, ok bool) {
+	parts := strings.Split(strings.TrimSpace(size), "x")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	w, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+	h, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+		return "", "", false
+	}
+	short := w
+	if h < short {
+		short = h
+	}
+	switch {
+	case short >= 1080:
+		resolution = "1080p"
+	case short >= 720:
+		resolution = "720p"
+	case short >= 480:
+		resolution = "480p"
+	default:
+		resolution = ""
+	}
+	g := gcdInt(w, h)
+	if g > 0 {
+		ratio = fmt.Sprintf("%d:%d", w/g, h/g)
+	}
+	if resolution == "" && ratio == "" {
+		return "", "", false
+	}
+	return resolution, ratio, true
+}
+
+func gcdInt(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
 	r := requestPayload{
 		Model:   req.Model,
@@ -316,8 +362,38 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 
-	if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
-		r.Duration = lo.ToPtr(dto.IntValue(sec))
+	// 顶层 duration 优先于 seconds（兼容 OpenAI /v1/videos 的 seconds 字符串）
+	if r.Duration == nil {
+		if req.Duration > 0 {
+			r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
+		} else if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
+			r.Duration = lo.ToPtr(dto.IntValue(sec))
+		}
+	}
+
+	// Doubao Ark 用 ratio 而非 aspect_ratio；normalize 阶段塞进 metadata["aspect_ratio"]
+	// 的值在 UnmarshalMetadata 时不会落到 r.Ratio，这里显式补一道。
+	if strings.TrimSpace(r.Ratio) == "" && strings.TrimSpace(req.AspectRatio) != "" {
+		r.Ratio = strings.TrimSpace(req.AspectRatio)
+	}
+
+	// 顶层 resolution 兜底（绝大多数情况已经由 normalize 注入 metadata，这里防御一下）
+	if strings.TrimSpace(r.Resolution) == "" && strings.TrimSpace(req.Resolution) != "" {
+		r.Resolution = strings.TrimSpace(req.Resolution)
+	}
+
+	// 如果只传了 size（如 "1080x1920"），且未指定 resolution/ratio，则拆分推导。
+	// Doubao 不接受 size 字段，但可以由它反推 resolution + ratio。
+	if strings.TrimSpace(req.Size) != "" &&
+		(strings.TrimSpace(r.Resolution) == "" || strings.TrimSpace(r.Ratio) == "") {
+		if res, ratio, ok := deriveDoubaoSize(req.Size); ok {
+			if strings.TrimSpace(r.Resolution) == "" {
+				r.Resolution = res
+			}
+			if strings.TrimSpace(r.Ratio) == "" {
+				r.Ratio = ratio
+			}
+		}
 	}
 
 	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
