@@ -159,10 +159,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 		imageURL, err := pollVodImageTask(a.imageSecretId, a.imageSecretKey, a.imageSubAppId, taskId, 15*time.Minute)
 		if err != nil {
-			return nil, fmt.Errorf("Tencent VOD image polling: %w", err)
+			return nil, fmt.Errorf("Tencent VOD image polling (taskId=%s): %w", taskId, err)
 		}
 
-		body := buildOpenAIImageResponseBody(imageURL)
+		body := buildOpenAIImageResponseBody(imageURL, taskId)
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(body)),

@@ -221,7 +221,7 @@ func pollVodImageTask(secretId, secretKey string, subAppId int64, taskId string,
 			SubAppId: subAppId,
 		})
 		if err != nil {
-			return "", fmt.Errorf("DescribeTaskDetail failed: %w", err)
+			return "", fmt.Errorf("DescribeTaskDetail failed (taskId=%s): %w", taskId, err)
 		}
 
 		status := normalizeVodTaskStatus(resp)
@@ -315,17 +315,19 @@ func extractVodImageURL(resp map[string]any) string {
 
 // ─── Build synthetic OpenAI image response ────────────────────────────────────
 
-func buildOpenAIImageResponseBody(imageURL string) string {
+func buildOpenAIImageResponseBody(imageURL, vodTaskId string) string {
 	type imageItem struct {
 		URL string `json:"url"`
 	}
 	type response struct {
-		Created int64       `json:"created"`
-		Data    []imageItem `json:"data"`
+		Created   int64       `json:"created"`
+		Data      []imageItem `json:"data"`
+		VodTaskId string      `json:"vod_task_id,omitempty"`
 	}
 	r := response{
-		Created: time.Now().Unix(),
-		Data:    []imageItem{{URL: imageURL}},
+		Created:   time.Now().Unix(),
+		Data:      []imageItem{{URL: imageURL}},
+		VodTaskId: vodTaskId,
 	}
 	b, _ := json.Marshal(r)
 	return string(b)
