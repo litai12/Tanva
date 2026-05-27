@@ -1574,3 +1574,95 @@ export async function getAdminOrders(params?: {
   const response = await request(`/api/admin/orders?${searchParams}`);
   return response.json();
 }
+
+// ── 团队管理 ──────────────────────────────────────────────────
+
+export interface AdminTeamItem {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+  memberCount: number;
+  maxSeats: number;
+  status: string;
+  availableCredits: number;
+  totalCredits: number;
+  createdAt: string;
+}
+
+export async function adminGetTeams(params?: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ teams: AdminTeamItem[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  const suffix = searchParams.toString() ? `?${searchParams}` : "";
+  const response = await request(`/api/admin/teams${suffix}`);
+  return response.json();
+}
+
+export async function adminAddTeamCredits(
+  teamId: string,
+  amount: number,
+  description: string,
+): Promise<{ teamId: string; addedCredits: number }> {
+  const response = await request(`/api/admin/teams/${teamId}/credits/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, description }),
+  });
+  return response.json();
+}
+
+export async function adminDeductTeamCredits(
+  teamId: string,
+  amount: number,
+  description: string,
+): Promise<{ teamId: string; deductedCredits: number }> {
+  const response = await request(`/api/admin/teams/${teamId}/credits/deduct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, description }),
+  });
+  return response.json();
+}
+
+export async function adminUpdateTeamStatus(
+  teamId: string,
+  status: string,
+): Promise<void> {
+  await request(`/api/admin/teams/${teamId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function adminUpdateTeamSeats(
+  teamId: string,
+  maxSeats: number,
+): Promise<void> {
+  await request(`/api/admin/teams/${teamId}/seats`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ maxSeats }),
+  });
+}
+
+export async function adminDeleteTeam(teamId: string): Promise<void> {
+  await request(`/api/admin/teams/${teamId}`, { method: "DELETE" });
+}
+
+export async function adminGetTeamCreditHistory(
+  teamId: string,
+  page = 1,
+  pageSize = 30,
+): Promise<{ records: any[]; pagination: Pagination }> {
+  const response = await request(
+    `/api/admin/teams/${teamId}/credits/history?page=${page}&pageSize=${pageSize}`,
+  );
+  return response.json();
+}

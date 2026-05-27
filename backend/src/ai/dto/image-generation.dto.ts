@@ -110,6 +110,15 @@ export class GenerateImageDto {
   @IsString()
   imageSize?: string;
 
+  // 兼容别名：resolution 等价于 imageSize，size 等价于 aspectRatio
+  @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
   @IsOptional()
   @IsEnum(ThinkingLevel)
   thinkingLevel?: 'high' | 'low';
@@ -200,6 +209,14 @@ export class GenerateImageDto {
   @IsOptional()
   @IsString()
   billingTitleSource?: 'dialog' | 'node';
+
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class EditImageDto {
@@ -259,6 +276,14 @@ export class EditImageDto {
   imageSize?: string;
 
   @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
   @IsEnum(ThinkingLevel)
   thinkingLevel?: 'high' | 'low';
 
@@ -297,6 +322,14 @@ export class EditImageDto {
   @IsOptional()
   @IsString()
   billingTitleSource?: 'dialog' | 'node';
+
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class BlendImagesDto {
@@ -358,6 +391,14 @@ export class BlendImagesDto {
   imageSize?: string;
 
   @IsOptional()
+  @IsString()
+  resolution?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
   @IsEnum(ThinkingLevel)
   thinkingLevel?: 'high' | 'low';
 
@@ -396,6 +437,14 @@ export class BlendImagesDto {
   @IsOptional()
   @IsString()
   billingTitleSource?: 'dialog' | 'node';
+
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  projectId?: string;
 }
 
 export class AnalyzeImageDto {
@@ -521,6 +570,10 @@ export class Convert2Dto3DDto {
   @IsOptional()
   @IsString()
   projectId?: string;
+
+  @IsOptional()
+  @IsString()
+  nodeId?: string;
 }
 
 export class ExpandImageDto {

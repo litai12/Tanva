@@ -43,23 +43,23 @@ export type MinimaxMusicSynthesisResult = {
 export class MinimaxMusicService {
   private readonly logger = new Logger(MinimaxMusicService.name);
   private readonly apiKey: string;
-  private readonly apiKeyEnvName: 'MINIMAX_MUSIC_API_KEY' | 'MINIMAX_API_KEY' | 'UNSET';
+  private readonly apiKeyEnvName: 'NEW_API_KEY' | 'UNSET';
   private readonly endpoint: string;
   private readonly defaultModel: MinimaxMusicModel;
   private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
-    const musicApiKey = this.configService.get<string>('MINIMAX_MUSIC_API_KEY')?.trim();
-    const sharedApiKey = this.configService.get<string>('MINIMAX_API_KEY')?.trim();
-    this.apiKey = musicApiKey || sharedApiKey || '';
-    this.apiKeyEnvName = musicApiKey
-      ? 'MINIMAX_MUSIC_API_KEY'
-      : sharedApiKey
-      ? 'MINIMAX_API_KEY'
-      : 'UNSET';
+    this.apiKey =
+      (this.configService.get<string>('NEW_API_KEY') ||
+       this.configService.get<string>('NEW_API_TOKEN') ||
+       '').trim();
+    this.apiKeyEnvName = this.apiKey ? 'NEW_API_KEY' : 'UNSET';
+    const newApiBase = (
+      this.configService.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '');
     this.endpoint =
       this.configService.get<string>('MINIMAX_MUSIC_ENDPOINT')?.trim() ||
-      'https://api.minimaxi.com/v1/music_generation';
+      `${newApiBase}/v1/music_generation`;
     this.defaultModel =
       this.normalizeModel(this.configService.get<string>('MINIMAX_MUSIC_MODEL')) || 'music-2.5+';
 
@@ -74,7 +74,7 @@ export class MinimaxMusicService {
   async generateMusic(input: MinimaxMusicDto): Promise<MinimaxMusicSynthesisResult> {
     if (!this.apiKey) {
       throw new ServiceUnavailableException(
-        '服务端未配置 MINIMAX_MUSIC_API_KEY（可回退 MINIMAX_API_KEY）',
+        '服务端未配置 NEW_API_KEY，请检查后端环境变量',
       );
     }
 

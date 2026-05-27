@@ -1607,6 +1607,7 @@ export type Sora2VideoGenerationOptions = {
   characterUrl?: string;
   characterTimestamps?: string;
   characterTaskId?: string;
+  nodeId?: string;
 };
 
 // 异步任务轮询配置
@@ -1657,6 +1658,7 @@ export async function requestSora2VideoGeneration(
     characterUrl: options?.characterUrl,
     characterTimestamps: options?.characterTimestamps,
     characterTaskId: options?.characterTaskId,
+    nodeId: options?.nodeId,
   });
 
   if (!asyncResponse.success || !asyncResponse.data) {

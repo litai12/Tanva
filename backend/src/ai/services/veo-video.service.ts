@@ -28,19 +28,17 @@ export class VeoVideoService {
   constructor(private readonly configService: ConfigService) {
     this.apiBaseUrl =
       (
-        this.configService.get<string>('VEO_API_ENDPOINT') ??
-        this.configService.get<string>('VEO_API_BASE_URL') ??
-        'https://api1.147ai.com'
+        this.configService.get<string>('NEW_API_BASE_URL') ??
+        'http://localhost:4458'
       ).replace(/\/$/, '');
 
     this.apiKey =
-      this.configService.get<string>('VEO_API_KEY') ??
-      this.configService.get<string>('BANANA_API_KEY') ??
-      this.configService.get<string>('SORA2_API_KEY') ??
+      this.configService.get<string>('NEW_API_KEY') ??
+      this.configService.get<string>('NEW_API_TOKEN') ??
       null;
 
     if (!this.apiKey) {
-      this.logger.warn('VEO API key not configured. Set VEO_API_KEY (or BANANA_API_KEY / SORA2_API_KEY).');
+      this.logger.warn('VEO: NEW_API_KEY not configured.');
     }
   }
 
@@ -59,7 +57,7 @@ export class VeoVideoService {
       if (!this.apiKey) {
         return {
           success: false,
-          error: 'VEO API key not configured on the server (VEO_API_KEY).',
+          error: 'VEO API key not configured on the server (NEW_API_KEY).',
         };
       }
 
@@ -115,7 +113,7 @@ export class VeoVideoService {
       if (!this.apiKey) {
         return {
           success: false,
-          error: 'VEO API key not configured on the server (VEO_API_KEY).',
+          error: 'VEO API key not configured on the server (NEW_API_KEY).',
         };
       }
 

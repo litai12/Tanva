@@ -269,4 +269,31 @@ export class OssService {
 
     return Array.from(new Set(hosts)).filter(Boolean);
   }
+
+  /**
+   * 为 OSS 图片 URL 附加缩放处理参数（仅限本仓库 OSS 域名），
+   * 用于 AI 任务前缩减图片体积，防止超过 new-api 下载大小限制。
+   * maxLongSide 默认 2048px。非 OSS URL 原样返回。
+   */
+  withImageResize(url: string, maxLongSide = 2048): string {
+    if (!url || !url.startsWith('http')) return url;
+    try {
+      const { cdnHost, bucket, region } = this.conf;
+      const ossHost = `${bucket}.${region}.aliyuncs.com`;
+      const u = new URL(url);
+      const isOss =
+        u.hostname === ossHost ||
+        (cdnHost && u.hostname === cdnHost.replace(/^https?:\/\//i, '').replace(/\/+$/, ''));
+      if (!isOss) return url;
+      // 跳过已经附加了 process 参数的 URL
+      if (u.searchParams.has('x-oss-process')) return url;
+      u.searchParams.set(
+        'x-oss-process',
+        `image/resize,l_${maxLongSide},m_lfit/format,jpg/quality,q_85`,
+      );
+      return u.toString();
+    } catch {
+      return url;
+    }
+  }
 }

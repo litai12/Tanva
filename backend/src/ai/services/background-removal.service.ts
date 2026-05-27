@@ -15,15 +15,26 @@ export class BackgroundRemovalService {
   private removalModule: any = null;
   private localModuleAvailable: boolean | null = null; // null = 未测试, true = 可用, false = 不可用
   private readonly isWindows = process.platform === 'win32';
+  private readonly newApiKey: string;
+  private readonly newApiBaseUrl: string;
 
   constructor(private readonly configService: ConfigService) {
+    this.newApiKey = (
+      this.configService.get<string>('NEW_API_KEY') ||
+      this.configService.get<string>('NEW_API_TOKEN') ||
+      ''
+    ).trim();
+    this.newApiBaseUrl = (
+      this.configService.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '');
+
     // Windows 上 @imgly/background-removal-node 的 ONNX Runtime 有 GLib 兼容性问题
     // 会导致进程崩溃，所以在 Windows 上默认禁用本地模块
     if (this.isWindows) {
       this.localModuleAvailable = false;
       this.logger.warn(
         '⚠️ Local background removal disabled on Windows due to ONNX Runtime compatibility issues. ' +
-        'Please configure REMOVE_BG_API_KEY for background removal functionality.'
+        'Please configure the remove-bg channel in new-api for background removal functionality.'
       );
     }
   }
@@ -34,21 +45,20 @@ export class BackgroundRemovalService {
    * @returns 透明PNG的base64数据
    */
   private async removeBackgroundViaRemoveBg(imageBuffer: Buffer): Promise<string> {
-    const apiKey = process.env.REMOVE_BG_API_KEY;
-    if (!apiKey) {
-      throw new Error('REMOVE_BG_API_KEY not configured');
+    if (!this.newApiKey) {
+      throw new Error('NEW_API_KEY not configured (required to proxy remove.bg through new-api)');
     }
 
-    this.logger.log('🌐 Using remove.bg API for background removal...');
+    this.logger.log('🌐 Using remove.bg API (via new-api proxy) for background removal...');
 
     const formData = new FormData();
     formData.append('image_file', new Blob([imageBuffer]), 'image.png');
     formData.append('size', 'auto');
 
-    const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+    const response = await fetch(`${this.newApiBaseUrl}/proxy/remove-bg/v1.0/removebg`, {
       method: 'POST',
       headers: {
-        'X-Api-Key': apiKey,
+        Authorization: `Bearer ${this.newApiKey}`,
       },
       body: formData,
     });
@@ -80,7 +90,7 @@ export class BackgroundRemovalService {
       if (this.isWindows) {
         throw new Error(
           'Local background removal is disabled on Windows due to ONNX Runtime compatibility issues. ' +
-          'Please configure REMOVE_BG_API_KEY environment variable to use the remove.bg cloud service.'
+          'Please configure NEW_API_KEY / remove-bg channel environment variable to use the remove.bg cloud service.'
         );
       }
       throw new Error('Local background removal module is not available on this system');
@@ -196,7 +206,7 @@ export class BackgroundRemovalService {
     this.logger.log(`📊 Input image: ${(buffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
     // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
+    const hasRemoveBgKey = !!this.newApiKey;
 
     if (hasRemoveBgKey) {
       try {
@@ -220,7 +230,7 @@ export class BackgroundRemovalService {
         );
       } else {
         throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
+          `Background removal failed: ${localMessage}. Consider configuring NEW_API_KEY / remove-bg channel for better reliability.`
         );
       }
     }
@@ -253,7 +263,7 @@ export class BackgroundRemovalService {
     this.logger.log(`📊 Fetched image: ${(buffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
     // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
+    const hasRemoveBgKey = !!this.newApiKey;
 
     if (hasRemoveBgKey) {
       try {
@@ -276,7 +286,7 @@ export class BackgroundRemovalService {
         );
       } else {
         throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
+          `Background removal failed: ${localMessage}. Consider configuring NEW_API_KEY / remove-bg channel for better reliability.`
         );
       }
     }
@@ -312,7 +322,7 @@ export class BackgroundRemovalService {
     this.logger.log(`📊 File size: ${(fileBuffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
     // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
+    const hasRemoveBgKey = !!this.newApiKey;
 
     if (hasRemoveBgKey) {
       try {
@@ -335,7 +345,7 @@ export class BackgroundRemovalService {
         );
       } else {
         throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
+          `Background removal failed: ${localMessage}. Consider configuring NEW_API_KEY / remove-bg channel for better reliability.`
         );
       }
     }
@@ -347,7 +357,7 @@ export class BackgroundRemovalService {
    */
   async isAvailable(): Promise<boolean> {
     // 如果配置了 remove.bg API Key，服务就是可用的
-    if (process.env.REMOVE_BG_API_KEY) {
+    if (this.newApiKey) {
       return true;
     }
 
@@ -370,7 +380,7 @@ export class BackgroundRemovalService {
     features: string[];
     provider?: string;
   }> {
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
+    const hasRemoveBgKey = !!this.newApiKey;
 
     // 如果有 remove.bg API Key，优先报告该服务
     if (hasRemoveBgKey) {

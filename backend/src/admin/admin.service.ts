@@ -1,7 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 export interface AdminDashboardStats {
   totalUsers: number;
@@ -97,7 +98,10 @@ export interface CreditChangeRecord {
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
+  ) {}
 
   private toNumber(value: unknown): number {
     if (typeof value === 'bigint') return Number(value);
@@ -1416,5 +1420,150 @@ export class AdminService {
         totalPages: Math.ceil(total / pageSize),
       },
     };
+  }
+
+  // ── 团队管理 ────────────────────────────────────────────────
+
+  async adminListTeams(options: { search?: string; page?: number; pageSize?: number } = {}) {
+    const { search, page = 1, pageSize = 20 } = options;
+    const where: any = { isPersonal: false };
+    if (search) {
+      where.name = { contains: search, mode: 'insensitive' };
+    }
+
+    const [teams, total] = await this.prisma.$transaction([
+      this.prisma.team.findMany({
+        where,
+        include: {
+          owner: { select: { id: true, name: true, phone: true } },
+          _count: { select: { memberships: true } },
+          creditAccount: { select: { balance: true, frozenBalance: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.team.count({ where }),
+    ]);
+
+    return {
+      teams: teams.map((t) => ({
+        id: t.id,
+        name: t.name,
+        ownerId: t.ownerId,
+        ownerName: t.owner?.name || t.owner?.phone || t.ownerId,
+        memberCount: t._count.memberships,
+        maxSeats: t.maxSeats,
+        status: t.status,
+        availableCredits: (t.creditAccount?.balance ?? 0) - (t.creditAccount?.frozenBalance ?? 0),
+        totalCredits: t.creditAccount?.balance ?? 0,
+        createdAt: t.createdAt,
+      })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  async adminUpdateTeamSeats(teamId: string, maxSeats: number) {
+    if (maxSeats < 1) throw new Error('席位数不能小于 1');
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能修改个人团队席位');
+    const memberCount = await this.prisma.teamMembership.count({ where: { teamId } });
+    if (maxSeats < memberCount) throw new Error(`当前已有 ${memberCount} 名成员，席位数不能小于此值`);
+    return this.prisma.team.update({ where: { id: teamId }, data: { maxSeats } });
+  }
+
+  async adminUpdateTeamStatus(teamId: string, status: string) {
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能修改个人团队状态');
+    return this.prisma.team.update({ where: { id: teamId }, data: { status } });
+  }
+
+  async adminDeleteTeam(teamId: string) {
+    const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    if (team.isPersonal) throw new Error('不能删除个人团队');
+    await this.prisma.$transaction([
+      this.prisma.teamMembership.deleteMany({ where: { teamId } }),
+      this.prisma.teamInvite.deleteMany({ where: { teamId } }),
+      this.prisma.teamProjectShare.deleteMany({ where: { teamId } }),
+      this.prisma.teamSubscription.deleteMany({ where: { teamId } }),
+      this.prisma.team.delete({ where: { id: teamId } }),
+    ]);
+    return { deleted: true };
+  }
+
+  async adminGetTeamCreditHistory(teamId: string, page = 1, pageSize = 30) {
+    const acc = await this.prisma.teamCreditAccount.findFirst({ where: { teamId } });
+    if (!acc) return { records: [], pagination: { page, pageSize, total: 0, totalPages: 0 } };
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.teamCreditLedger.findMany({
+        where: { teamAccId: acc.id },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.teamCreditLedger.count({ where: { teamAccId: acc.id } }),
+    ]);
+    return { records, pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
+  }
+
+  async adminAddTeamCredits(teamId: string, amount: number, description: string, adminId: string) {
+    if (amount <= 0) throw new Error('amount must be > 0');
+    const acc = await this.prisma.teamCreditAccount.findFirstOrThrow({ where: { teamId } });
+    await this.prisma.$transaction([
+      this.prisma.teamCreditAccount.update({
+        where: { id: acc.id },
+        data: { balance: { increment: amount }, totalEarned: { increment: amount } },
+      }),
+      this.prisma.teamCreditLedger.create({
+        data: {
+          teamAccId: acc.id,
+          entryType: 'admin_add',
+          amount,
+          taskId: `admin_add_${adminId}_${Date.now()}`,
+          note: description || `管理员手动增加 ${amount} 积分`,
+        },
+      }),
+    ]);
+    void this.teamCreditsPublisher?.publish({
+      teamId,
+      reason: 'admin_adjust',
+      delta: amount,
+      actorUserId: adminId,
+    });
+    return { teamId, addedCredits: amount };
+  }
+
+  async adminDeductTeamCredits(teamId: string, amount: number, description: string, adminId: string) {
+    if (amount <= 0) throw new Error('amount must be > 0');
+    const acc = await this.prisma.teamCreditAccount.findFirstOrThrow({ where: { teamId } });
+    const available = acc.balance - acc.frozenBalance;
+    if (amount > available) throw new Error(`余额不足，可用积分 ${available}`);
+    await this.prisma.$transaction([
+      this.prisma.teamCreditAccount.update({
+        where: { id: acc.id },
+        data: { balance: { decrement: amount }, totalSpent: { increment: amount } },
+      }),
+      this.prisma.teamCreditLedger.create({
+        data: {
+          teamAccId: acc.id,
+          entryType: 'admin_deduct',
+          amount: -amount,
+          taskId: `admin_deduct_${adminId}_${Date.now()}`,
+          note: description || `管理员手动扣除 ${amount} 积分`,
+        },
+      }),
+    ]);
+    void this.teamCreditsPublisher?.publish({
+      teamId,
+      reason: 'admin_adjust',
+      delta: -amount,
+      actorUserId: adminId,
+    });
+    return { teamId, deductedCredits: amount };
   }
 }

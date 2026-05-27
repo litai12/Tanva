@@ -21,10 +21,8 @@ interface Seedream5ProviderConfig {
 @Injectable()
 export class Seedream5Service {
   private readonly logger = new Logger(Seedream5Service.name);
-  private readonly doubaoApiKey: string;
-  private readonly doubaoEndpoint: string;
-  private readonly watchaApiKey: string;
-  private readonly watchaEndpoint: string;
+  private readonly newApiKey: string;
+  private readonly newApiBaseUrl: string;
   private readonly watchaModel: string;
 
   private static readonly SIZE_PRESETS = new Set(['1K', '2K', '3K', '4K']);
@@ -34,36 +32,19 @@ export class Seedream5Service {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.doubaoApiKey = this.normalizeApiKey(
-      this.config.get<string>('ARK_API_KEY') ||
-        this.config.get<string>('DOUBAO_API_KEY') ||
+    this.newApiKey = this.normalizeApiKey(
+      this.config.get<string>('NEW_API_KEY') ||
+        this.config.get<string>('NEW_API_TOKEN') ||
         '',
     );
-    this.doubaoEndpoint = this.normalizeEndpoint(
-      this.config.get<string>('ARK_ENDPOINT') || 'https://ark.cn-beijing.volces.com',
-    );
-
-    this.watchaApiKey = this.normalizeApiKey(
-      this.config.get<string>('WATCHA_SEEDREAM_API_KEY') ||
-        this.config.get<string>('WATCHA_API_KEY') ||
-        '',
-    );
-    this.watchaEndpoint = this.normalizeEndpoint(
-      this.config.get<string>('WATCHA_SEEDREAM_ENDPOINT') ||
-        'https://tokendance.agent-universe.cn/gateway/ark',
+    this.newApiBaseUrl = this.normalizeEndpoint(
+      this.config.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458',
     );
     this.watchaModel =
       this.config.get<string>('WATCHA_SEEDREAM_MODEL')?.trim() || 'seedream-5.0-lite';
 
-    if (!this.doubaoApiKey) {
-      this.logger.warn(
-        'Doubao Seedream key missing. Please set ARK_API_KEY (or DOUBAO_API_KEY).',
-      );
-    }
-    if (!this.watchaApiKey) {
-      this.logger.warn(
-        'Watcha Seedream key missing. Please set WATCHA_SEEDREAM_API_KEY.',
-      );
+    if (!this.newApiKey) {
+      this.logger.warn('NEW_API_KEY missing — Seedream5 requests will fail.');
     }
   }
 
@@ -184,33 +165,30 @@ export class Seedream5Service {
   }): Promise<Seedream5ProviderConfig> {
     const provider = await this.getConfiguredProvider();
 
+    if (!this.newApiKey) {
+      throw new Error('Seedream5: NEW_API_KEY is not configured');
+    }
+
     if (provider === 'watcha') {
-      if (!this.watchaApiKey) {
-        throw new Error(
-          'Seedream5 watcha provider selected, but WATCHA_SEEDREAM_API_KEY is not configured',
-        );
-      }
       return {
         provider: 'watcha',
-        endpoint: this.watchaEndpoint,
-        apiKey: this.watchaApiKey,
+        endpoint: `${this.newApiBaseUrl}/proxy/watcha`,
+        apiKey: this.newApiKey,
         model: this.watchaModel,
         generationPath: '/v3/images/generations',
       };
     }
 
-    if (!this.doubaoApiKey) {
-      throw new Error('Seedream5 Doubao key not configured (ARK_API_KEY or DOUBAO_API_KEY)');
-    }
     return {
       provider: 'doubao',
-      endpoint: this.doubaoEndpoint,
-      apiKey: this.doubaoApiKey,
+      endpoint: `${this.newApiBaseUrl}/proxy/ark`,
+      apiKey: this.newApiKey,
       model: this.resolveDoubaoModel({
         requestedModel: options?.requestedModel,
         requestedModelVersion: options?.requestedModelVersion,
       }),
-      generationPath: '/api/v3/images/generations',
+      // ark channel base_url already includes /api/v3, so only /images/generations remains
+      generationPath: '/images/generations',
     };
   }
 

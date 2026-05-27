@@ -18,8 +18,10 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
     ref
   ) => {
     const { lowDetailMode } = useFlowRenderMode();
+    // 已经成功加载过的图片不再替换为 placeholder，避免缩放时闪烁灰色
+    const wasLoadedRef = React.useRef(false);
     const shouldUseLowDetailPlaceholder =
-      lowDetailMode && !disableLowDetailFallback;
+      lowDetailMode && !disableLowDetailFallback && !wasLoadedRef.current;
     const resolvedSrc = useNonBase64ImageSrc(src, {
       suspend: shouldUseLowDetailPlaceholder,
     });
@@ -133,6 +135,10 @@ const SmartImage = React.forwardRef<HTMLImageElement, SmartImageProps>(
         {...imgProps}
         loading={imgProps.loading ?? "lazy"}
         decoding={imgProps.decoding ?? "async"}
+        onLoad={(e) => {
+          wasLoadedRef.current = true;
+          if (typeof imgProps.onLoad === 'function') imgProps.onLoad(e);
+        }}
         onError={handleError}
         src={finalSrc}
       />

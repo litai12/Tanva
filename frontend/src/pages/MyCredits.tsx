@@ -609,7 +609,7 @@ const MyCredits: React.FC = () => {
             </div>
           </div>
           <div className="mt-4 text-xs text-blue-100/90">
-            {t('creditsPage.summary.latestGenerationTime')}锛?
+            {t('creditsPage.summary.latestGenerationTime')}?
             {latestGenerationTime
               ? ` ${new Date(latestGenerationTime).toLocaleString(currentLocale)}`
               : ` ${t('creditsPage.summary.noGenerationYet')}`}

@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
 import SmartImage from '@/components/ui/SmartImage';
-import { Check, Pencil, Trash2 } from 'lucide-react';
+import { Check, Pencil, Share2, Trash2, Users } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 import { useTranslation } from 'react-i18next';
-import { projectApi } from '@/services/projectApi';
+import { projectApi, type Project } from '@/services/projectApi';
 import type { ProjectContentSnapshot } from '@/types/project';
+import { useTeamStore } from '@/stores/teamStore';
 
 function formatDate(iso: string, locale?: string) {
   try {
@@ -268,8 +269,36 @@ export default function ProjectManagerModal() {
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const locale = isZh ? 'zh-CN' : 'en-US';
-  const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
+  const { modalOpen, closeModal, projects: personalProjects, create, open, rename, remove, loading: personalLoading, load, error: personalError } = useProjectStore();
+  const teams = useTeamStore((s) => s.teams);
+  const nonPersonalTeams = useMemo(() => teams.filter((t) => !t.isPersonal), [teams]);
   const guardLeave = usePendingUploadLeaveGuard();
+
+  // 'personal' | teamId
+  const [contextId, setContextId] = useState<string>('personal');
+  const [teamProjects, setTeamProjects] = useState<Project[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState('');
+  const [cloningToTeam, setCloningToTeam] = useState<string | null>(null);
+  const [shareMenuProjectId, setShareMenuProjectId] = useState<string | null>(null);
+
+  const isPersonal = contextId === 'personal';
+  const projects = isPersonal ? personalProjects : teamProjects;
+  const loading = isPersonal ? personalLoading : teamLoading;
+  const error = isPersonal ? personalError : teamError;
+  const loadTeamProjects = useCallback(async (teamId: string) => {
+    setTeamLoading(true);
+    setTeamError('');
+    try {
+      const list = await projectApi.listByTeam(teamId);
+      setTeamProjects(list);
+    } catch (e: any) {
+      setTeamError(e?.message || '加载失败');
+    } finally {
+      setTeamLoading(false);
+    }
+  }, []);
+
   const [creating, setCreating] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -279,14 +308,30 @@ export default function ProjectManagerModal() {
   const [previewCache, setPreviewCache] = useState<Record<string, ProjectPreviewCacheEntry>>({});
   const previewRequestsRef = useRef<Set<string>>(new Set());
 
+  // 切换到个人时始终刷新，确保 backend 过滤后的数据是最新的
   useEffect(() => {
-    if (modalOpen && projects.length === 0 && !loading) {
-      load();
+    if (modalOpen && isPersonal) {
+      void load();
     }
-  }, [modalOpen, projects.length, loading, load]);
+    // load 引用稳定，不需加入 deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, isPersonal]);
 
+  // 切换到团队时加载对应团队的项目，切换离开时清空
   useEffect(() => {
     if (!modalOpen) return;
+    if (!isPersonal) {
+      setTeamProjects([]);
+      void loadTeamProjects(contextId);
+    }
+  }, [modalOpen, contextId, isPersonal, loadTeamProjects]);
+
+  useEffect(() => {
+    if (!modalOpen) {
+      setContextId('personal');
+      setShareMenuProjectId(null);
+      return;
+    }
     setPage(0);
   }, [modalOpen]);
 
@@ -393,6 +438,19 @@ export default function ProjectManagerModal() {
     }
   };
 
+  const handleShareToTeam = async (projectId: string, teamId: string) => {
+    setCloningToTeam(projectId);
+    setShareMenuProjectId(null);
+    try {
+      await projectApi.cloneToTeam(projectId, teamId);
+      alert(lt('已克隆至团队项目', 'Cloned to team projects'));
+    } catch (e: any) {
+      alert(lt('分享失败：', 'Share failed: ') + e?.message);
+    } finally {
+      setCloningToTeam(null);
+    }
+  };
+
   const handleBatchDelete = async () => {
     if (!selectionMode || selectedIds.size === 0) return;
     const targets = projects.filter((p) => selectedIds.has(p.id));
@@ -445,7 +503,30 @@ export default function ProjectManagerModal() {
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
       <div className="relative flex h-[720px] max-h-[calc(100vh-48px)] w-[1180px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-xl border bg-white shadow-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="font-medium">{lt('项目管理', 'Project Manager')}</div>
+          <div className="flex items-center gap-3">
+            <span className="font-medium">{lt('项目管理', 'Project Manager')}</span>
+            {/* Context switcher - flat tabs */}
+            <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => { setContextId('personal'); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); setShareMenuProjectId(null); }}
+                className={`px-3 py-1 rounded-md text-sm transition-colors ${isPersonal ? 'bg-white shadow-sm text-slate-700 font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                个人
+              </button>
+              {nonPersonalTeams.map((team) => (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => { setContextId(team.id); setPage(0); setSelectionMode(false); setSelectedIds(new Set()); setShareMenuProjectId(null); }}
+                  className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm transition-colors ${contextId === team.id ? 'bg-white shadow-sm text-slate-700 font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <Users className="w-3 h-3 text-teal-500" />
+                  {team.name}
+                </button>
+              ))}
+            </div>
+          </div>
           <div />
         </div>
 
@@ -634,6 +715,42 @@ export default function ProjectManagerModal() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
+                          {isPersonal && nonPersonalTeams.length > 0 && (
+                            <div className="relative">
+                              <Button
+                                size="sm"
+                                className="h-7 w-7 bg-white/95 px-0 text-teal-600 shadow-sm hover:bg-teal-50"
+                                variant="ghost"
+                                title={lt('分享至团队', 'Share to team')}
+                                disabled={cloningToTeam === p.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setShareMenuProjectId((prev) => (prev === p.id ? null : p.id));
+                                }}
+                              >
+                                <Share2 className="h-3.5 w-3.5" />
+                              </Button>
+                              {shareMenuProjectId === p.id && (
+                                <div
+                                  className="absolute right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[140px]"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <p className="px-3 py-1 text-[10px] text-slate-400 uppercase tracking-wide">分享至</p>
+                                  {nonPersonalTeams.map((t) => (
+                                    <button
+                                      key={t.id}
+                                      type="button"
+                                      onClick={() => void handleShareToTeam(p.id, t.id)}
+                                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 text-slate-700"
+                                    >
+                                      <Users className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                                      <span className="truncate">{t.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <Button
                             size="sm"
                             className="h-7 w-7 bg-white/95 px-0 text-red-600 shadow-sm hover:bg-red-50"

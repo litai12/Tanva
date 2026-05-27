@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,7 +19,11 @@ export class ProjectsService {
   private readonly projectContentFingerprintTtlMs = 30 * 60 * 1000;
   private readonly projectContentFingerprintMaxEntries = 1000;
 
-  constructor(private prisma: PrismaService, private oss: OssService) {}
+  constructor(
+    private prisma: PrismaService,
+    private oss: OssService,
+    @Optional() private readonly canvasSse?: CanvasSseManager,
+  ) {}
 
   private readonly projectMetadataSelect = {
     id: true,
@@ -35,7 +40,7 @@ export class ProjectsService {
   async list(userId: string) {
     await this.ensureThumbnailColumn();
     const projects = await this.prisma.project.findMany({
-      where: { userId },
+      where: { userId, teamShares: { none: {} } },
       orderBy: { createdAt: 'desc' },
       select: this.projectMetadataSelect,
     });
@@ -46,7 +51,7 @@ export class ProjectsService {
     }));
   }
 
-  async create(userId: string, name?: string) {
+  async create(userId: string, name?: string, teamId?: string) {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.create({ data: { userId, name: name || '未命名项目', ossPrefix: '', mainKey: '' } });
     const prefix = `projects/${userId}/${project.id}/`;
@@ -81,6 +86,26 @@ export class ProjectsService {
       console.warn('DB update with contentJson failed, falling back:', e);
       updated = await this.prisma.project.update({ where: { id: project.id }, data: { ossPrefix: prefix, mainKey } });
     }
+
+    // 团队上下文：在非个人团队内创建的项目立即共享给该团队，
+    // 实现团队与团队（含个人工作区）之间的项目数据隔离。
+    if (teamId) {
+      const team = await this.prisma.team.findUnique({
+        where: { id: teamId },
+        select: { isPersonal: true },
+      });
+      if (team && !team.isPersonal) {
+        const membership = await this.prisma.teamMembership.findUnique({
+          where: { teamId_userId: { teamId, userId } },
+        });
+        if (membership) {
+          await this.prisma.teamProjectShare.create({
+            data: { projectId: project.id, teamId, access: 'edit', sharedByUserId: userId },
+          });
+        }
+      }
+    }
+
     return { ...updated, mainUrl: this.oss.publicUrl(mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
   }
 
@@ -94,7 +119,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
@@ -109,7 +134,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
@@ -155,7 +180,16 @@ export class ProjectsService {
   async remove(userId: string, id: string) {
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new NotFoundException('项目不存在');
+    if (p.userId !== userId) {
+      // 非创建者：若项目共享到了某团队且当前用户是该团队 owner/admin，则允许删除
+      const manageable = await this.prisma.teamProjectShare.findFirst({
+        where: {
+          projectId: id,
+          team: { memberships: { some: { userId, role: { in: ['owner', 'admin'] } } } },
+        },
+      });
+      if (!manageable) throw new NotFoundException('项目不存在');
+    }
     await this.prisma.project.delete({ where: { id } });
     return { ok: true };
   }
@@ -164,7 +198,7 @@ export class ProjectsService {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     if (!project.mainKey) {
       return {
@@ -218,8 +252,8 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
-    const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
     const sanitizedContent = sanitizeDesignJson(content);
     const contentHash = this.hashProjectContent(sanitizedContent);
@@ -304,7 +338,7 @@ export class ProjectsService {
   async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
 
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
@@ -348,7 +382,7 @@ export class ProjectsService {
   async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
 
     const updatedAt = new Date(updatedAtRaw);
     if (Number.isNaN(updatedAt.getTime())) {
@@ -645,5 +679,142 @@ export class ProjectsService {
   private async disableThumbnailColumn(): Promise<void> {
     this.thumbnailColumnChecked = true;
     this.thumbnailColumnAvailable = false;
+  }
+
+  /** 检查 userId 是否为项目所属团队的成员，不是则抛 NotFoundException。 */
+  private async assertTeamProjectAccess(userId: string, projectId: string): Promise<void> {
+    const share = await this.prisma.teamProjectShare.findFirst({
+      where: {
+        projectId,
+        team: { memberships: { some: { userId } } },
+      },
+    });
+    if (!share) throw new NotFoundException('项目不存在');
+  }
+
+  async shareWithTeam(projectId: string, teamId: string, userId: string) {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+    if (project.userId !== userId) throw new ForbiddenException('无权共享此项目');
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+      throw new ForbiddenException('需要团队 owner 或 admin 权限');
+    }
+
+    return this.prisma.teamProjectShare.upsert({
+      where: { projectId_teamId: { projectId, teamId } },
+      create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
+      update: { access: 'edit', updatedAt: new Date() },
+    });
+  }
+
+  async unshareFromTeam(projectId: string, teamId: string, userId: string) {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+    if (project.userId !== userId) {
+      // 非创建者：团队 owner/admin 可将项目移出团队
+      const membership = await this.prisma.teamMembership.findUnique({
+        where: { teamId_userId: { teamId, userId } },
+      });
+      if (!membership || !['owner', 'admin'].includes(membership.role)) {
+        throw new ForbiddenException('无权取消共享');
+      }
+    }
+
+    await this.prisma.teamProjectShare.delete({
+      where: { projectId_teamId: { projectId, teamId } },
+    });
+    this.canvasSse?.kickTeamConnections(projectId, teamId);
+  }
+
+  async listTeamOnly(userId: string, teamId: string) {
+    await this.ensureThumbnailColumn();
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) return [];
+
+    const shares = await this.prisma.teamProjectShare.findMany({
+      where: { teamId },
+      include: { project: { select: this.projectMetadataSelect } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return shares.map((s) => ({
+      ...s.project,
+      mainUrl: s.project.mainKey ? this.oss.publicUrl(s.project.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(s.project) || undefined,
+      access: s.project.userId === userId ? ('owner' as const) : ('team_edit' as const),
+    }));
+  }
+
+  async cloneToTeam(projectId: string, teamId: string, userId: string) {
+    const src = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!src || src.userId !== userId) throw new ForbiddenException('无权操作此项目');
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) throw new ForbiddenException('你不是该团队成员');
+
+    const cloneName = `${src.name} (团队)`;
+    const newProject = await this.create(userId, cloneName);
+
+    try {
+      const { content } = await this.getContent(userId, projectId);
+      if (content) {
+        await this.updateContent(userId, newProject.id, content);
+      }
+    } catch {
+      // content copy failed — continue with empty project
+    }
+
+    await this.prisma.teamProjectShare.upsert({
+      where: { projectId_teamId: { projectId: newProject.id, teamId } },
+      create: { projectId: newProject.id, teamId, access: 'edit', sharedByUserId: userId },
+      update: {},
+    });
+
+    return { ...newProject, teamId };
+  }
+
+  async listWithTeamAccess(userId: string, teamId?: string) {
+    await this.ensureThumbnailColumn();
+
+    // 个人项目：排除已共享到团队的项目（那些只在团队视图中显示）
+    const personalProjects = await this.prisma.project.findMany({
+      where: { userId, teamShares: { none: {} } },
+      orderBy: { createdAt: 'desc' },
+      select: this.projectMetadataSelect,
+    });
+
+    const personal = personalProjects.map((p) => ({
+      ...p,
+      mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(p) || undefined,
+      access: 'owner' as const,
+    }));
+
+    if (!teamId) return personal;
+
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (!membership) return personal;
+
+    const shares = await this.prisma.teamProjectShare.findMany({
+      where: { teamId },
+      include: { project: { select: this.projectMetadataSelect } },
+    });
+
+    const teamShared = shares.map((s) => ({
+      ...s.project,
+      mainUrl: s.project.mainKey ? this.oss.publicUrl(s.project.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(s.project) || undefined,
+      access: 'team_edit' as const,
+    }));
+
+    return [...personal, ...teamShared];
   }
 }

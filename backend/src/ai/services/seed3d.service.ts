@@ -18,16 +18,14 @@ export class Seed3DService {
     private readonly oss: OssService,
   ) {
     const baseUrl = (
-      this.config.get<string>('SEED3D_BASE_URL') ||
-      this.config.get<string>('ARK_BASE_URL') ||
-      'https://ark.cn-beijing.volces.com/api/v3'
-    ).replace(/\/+$/, '');
+      this.config.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '') + '/proxy/ark';
 
     this.submitUrl = `${baseUrl}/contents/generations/tasks`;
     this.queryUrl = `${baseUrl}/contents/generations/tasks`;
     this.apiKey = (
-      this.config.get<string>('SEED3D_API_KEY') ||
-      this.config.get<string>('ARK_API_KEY') ||
+      this.config.get<string>('NEW_API_KEY') ||
+      this.config.get<string>('NEW_API_TOKEN') ||
       ''
     ).trim();
     this.modelId = (
@@ -52,7 +50,7 @@ export class Seed3DService {
   }): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
     if (!this.apiKey) {
       throw new ServiceUnavailableException(
-        'SEED3D_API_KEY/ARK_API_KEY is not configured',
+        'NEW_API_KEY is not configured',
       );
     }
 

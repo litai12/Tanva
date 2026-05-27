@@ -36,6 +36,7 @@ import {
   Cloud,
   Crown,
   Zap,
+  Flame,
   Key,
   Eye,
   EyeOff,
@@ -49,10 +50,13 @@ import {
   Plus,
   Sun,
   Moon,
+  Users,
+  Share2,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
 import { useProjectStore } from "@/stores/projectStore";
+import { projectApi } from "@/services/projectApi";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
 import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
@@ -60,7 +64,8 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { logger } from "@/utils/logger";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/authStore";
+import { useAuthStore, refreshTeams } from "@/stores/authStore";
+import { useTeamStore } from "@/stores/teamStore";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
@@ -78,6 +83,8 @@ import {
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
+import { TeamSwitcher } from "@/components/team/TeamSwitcher";
+import { TeamManagementModal } from "@/components/team/TeamManagementModal";
 import PricingCatalogModal from "@/components/layout/PricingCatalogModal";
 import { useTranslation } from "react-i18next";
 import {
@@ -112,6 +119,18 @@ const BANANA_NORMAL_ROUTE_PRICING: Record<
   ultra: { "0.5K": 30, "1K": 30, "2K": 40, "4K": 50 },
 };
 
+// 极速通道（beqlee官方代理）= 官方价 ×1.1
+// pro(banana): 0.91×1.1≈100, 0.91×1.1≈100, 1.63×1.1≈179
+// ultra(banana-3.1/nano2): 0.455×1.1≈50, 0.683×1.1≈75, 1.026×1.1≈113
+const BANANA_ULTRA_ROUTE_PRICING: Record<
+  BananaPricingTier,
+  Record<"0.5K" | "1K" | "2K" | "4K", number>
+> = {
+  fast: { "0.5K": 20, "1K": 20, "2K": 20, "4K": 20 },
+  pro: { "0.5K": 100, "1K": 100, "2K": 100, "4K": 179 },
+  ultra: { "0.5K": 50, "1K": 50, "2K": 75, "4K": 113 },
+};
+
 const resolveBananaPricingTier = (
   provider: string | undefined
 ): BananaPricingTier | null => {
@@ -130,7 +149,11 @@ const resolveBananaCredits = (
   if (!tier) return null;
 
   const pricing =
-    route === "stable" ? BANANA_STABLE_ROUTE_PRICING : BANANA_NORMAL_ROUTE_PRICING;
+    route === "ultra"
+      ? BANANA_ULTRA_ROUTE_PRICING
+      : route === "stable"
+        ? BANANA_STABLE_ROUTE_PRICING
+        : BANANA_NORMAL_ROUTE_PRICING;
   const normalizedSize = imageSize.trim().toUpperCase() as "0.5K" | "1K" | "2K" | "4K";
   const validSizes: Array<"0.5K" | "1K" | "2K" | "4K"> = [
     "0.5K",
@@ -260,6 +283,7 @@ const FloatingHeader: React.FC = () => {
     rename,
     optimisticRenameLocal,
     projects,
+    recentProjectIds,
     open,
   } = useProjectStore();
   // Header 下拉中的快速切换与新建，直接复用项目管理的函数
@@ -269,11 +293,21 @@ const FloatingHeader: React.FC = () => {
   };
   const quickCreateInFlightRef = useRef(false);
   const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
+  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
   const handleQuickCreateProject = useCallback(async () => {
     if (quickCreateInFlightRef.current) return;
     quickCreateInFlightRef.current = true;
     setIsQuickCreatingProject(true);
     try {
+      // 个人tab下创建项目：若当前是团队模式，先切换到个人团队再创建，避免新项目混入团队项目列表
+      if (dropdownContextId === 'personal') {
+        const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+        const personalTeam = curTeams.find((t) => t.isPersonal);
+        if (personalTeam && curTeamId !== personalTeam.id) {
+          setActiveTeamId(personalTeam.id);
+          await useProjectStore.getState().load();
+        }
+      }
       await create();
     } catch (error) {
       console.error("Failed to quick create project:", error);
@@ -281,7 +315,7 @@ const FloatingHeader: React.FC = () => {
       quickCreateInFlightRef.current = false;
       setIsQuickCreatingProject(false);
     }
-  }, [create]);
+  }, [create, dropdownContextId]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
@@ -345,6 +379,8 @@ const FloatingHeader: React.FC = () => {
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isPricingCatalogOpen, setIsPricingCatalogOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
+  const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
+  const [teamModalInitialTab, setTeamModalInitialTab] = useState<'members' | 'subscription'>('members');
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -790,6 +826,20 @@ const FloatingHeader: React.FC = () => {
   };
 
   const { user, logout, loading, connection } = useAuthStore();
+  const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
+  const allTeams = useTeamStore((s) => s.teams);
+  const nonPersonalTeams = useMemo(() => allTeams.filter((t) => !t.isPersonal), [allTeams]);
+  const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
+  const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
+
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    setDropdownTeamLoading(true);
+    projectApi.listByTeam(dropdownContextId)
+      .then(setDropdownTeamProjects)
+      .catch(() => setDropdownTeamProjects([]))
+      .finally(() => setDropdownTeamLoading(false));
+  }, [dropdownContextId]);
 
   // 加载用户的 Google API Key 设置
   useEffect(() => {
@@ -852,7 +902,13 @@ const FloatingHeader: React.FC = () => {
   // 监听全局积分刷新事件
   useEffect(() => {
     const handleRefreshCredits = () => {
-      refreshCreditsAndDailyReward();
+      const activeTeam = useTeamStore.getState().getActiveTeam();
+      if (activeTeam && !activeTeam.isPersonal) {
+        // 团队模式：刷新团队积分
+        void refreshTeams();
+      } else {
+        refreshCreditsAndDailyReward();
+      }
     };
     window.addEventListener("refresh-credits", handleRefreshCredits);
     return () => {
@@ -891,16 +947,24 @@ const FloatingHeader: React.FC = () => {
     window.open(href, "_blank", "noopener,noreferrer");
   }, []);
 
-  /** 画板顶栏积分入口：打开 VIP / 积分弹窗 */
+  /** 画板顶栏积分入口：个人模式打开会员弹窗，团队模式打开团队套餐 */
   const openMembershipHub = useCallback(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      setTeamModalInitialTab('subscription');
+      setTeamManagementId(activeTeamForCredits.id);
+      return;
+    }
     setIsMembershipOpen(true);
-  }, []);
+  }, [activeTeamForCredits]);
 
   const topCreditsText = useMemo(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      return activeTeamForCredits.availableCredits.toLocaleString();
+    }
     if (creditsLoading && !creditsInfo) return "...";
     if (creditsInfo) return creditsInfo.balance.toLocaleString();
     return "--";
-  }, [creditsInfo, creditsLoading]);
+  }, [creditsInfo, creditsLoading, activeTeamForCredits]);
   const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
   const isDarkTheme = chatTheme === "black";
   const themeToggleLabel =
@@ -936,6 +1000,18 @@ const FloatingHeader: React.FC = () => {
         inactiveClass:
           "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-amber-500 dark:hover:bg-amber-900/20",
         iconClass: "text-amber-600 dark:text-amber-400",
+      },
+      {
+        value: "ultra" as BananaImageRoute,
+        label: t("workspace.settings.aiTab.bananaRoute.ultra"),
+        shortLabel: t("workspace.header.routeSwitch.ultraShort"),
+        description: t("workspace.settings.aiTab.bananaRoute.ultraDesc"),
+        Icon: Flame,
+        activeClass:
+          "border-purple-500 bg-purple-50 text-purple-700 dark:border-purple-400 dark:bg-purple-900/30 dark:text-purple-200",
+        inactiveClass:
+          "border-slate-200 bg-white text-slate-700 hover:border-purple-300 hover:bg-purple-50/60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-purple-500 dark:hover:bg-purple-900/20",
+        iconClass: "text-purple-600 dark:text-purple-400",
       },
     ],
     [t]
@@ -1081,13 +1157,41 @@ const FloatingHeader: React.FC = () => {
     }
   };
   const recentProjects = useMemo(() => {
-    const sliced = projects.slice(0, MAX_QUICK_PROJECTS);
-    if (currentProject && !sliced.some((p) => p.id === currentProject.id)) {
-      const trimmed = sliced.slice(0, Math.max(MAX_QUICK_PROJECTS - 1, 0));
-      return [...trimmed, currentProject];
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const orderedProjects = recentProjectIds
+      .map((projectId) => {
+        if (currentProject?.id === projectId) return currentProject;
+        return projectById.get(projectId) ?? null;
+      })
+      .filter((project): project is NonNullable<typeof project> => Boolean(project));
+
+    const dedupedProjects: typeof projects = [];
+    for (const project of orderedProjects) {
+      if (dedupedProjects.some((item) => item.id === project.id)) continue;
+      dedupedProjects.push(project);
+      if (dedupedProjects.length >= MAX_QUICK_PROJECTS) break;
     }
-    return sliced;
-  }, [projects, currentProject?.id]);
+
+    if (
+      currentProject &&
+      !dedupedProjects.some((project) => project.id === currentProject.id)
+    ) {
+      dedupedProjects.unshift(currentProject);
+      dedupedProjects.length = Math.min(dedupedProjects.length, MAX_QUICK_PROJECTS);
+    }
+
+    if (dedupedProjects.length < MAX_QUICK_PROJECTS) {
+      for (const project of projects) {
+        if (dedupedProjects.some((item) => item.id === project.id)) continue;
+        dedupedProjects.push(project);
+        if (dedupedProjects.length >= MAX_QUICK_PROJECTS) break;
+      }
+    }
+
+    return dedupedProjects;
+  }, [projects, recentProjectIds, currentProject]);
+
+  const dropdownProjects = dropdownContextId === 'personal' ? recentProjects : dropdownTeamProjects.slice(0, MAX_QUICK_PROJECTS);
   const sendShortcutOptions = [
     {
       value: "enter" as const,
@@ -1769,6 +1873,34 @@ const FloatingHeader: React.FC = () => {
                     )}
                   </div>
                 </button>
+
+                <button
+                  type='button'
+                  onClick={() => setBananaImageRoute("ultra")}
+                  className={cn(
+                    "relative rounded-xl border-2 p-4 text-left transition-all sm:col-span-2",
+                    bananaImageRoute === "ultra"
+                      ? "border-purple-500 bg-purple-50 dark:border-purple-400 dark:bg-purple-900/30"
+                      : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
+                  )}
+                >
+                  <div className='flex items-start justify-between'>
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2 mb-1'>
+                        <Flame className='w-4 h-4 text-purple-600 dark:text-purple-400' />
+                        <span className='text-sm font-medium text-slate-700 dark:text-slate-100'>
+                          {t("workspace.settings.aiTab.bananaRoute.ultra")}
+                        </span>
+                      </div>
+                      <div className='text-xs text-slate-500 dark:text-slate-400'>
+                        {t("workspace.settings.aiTab.bananaRoute.ultraDesc")}
+                      </div>
+                    </div>
+                    {bananaImageRoute === "ultra" && (
+                      <Check className='flex-shrink-0 w-5 h-5 text-purple-600 dark:text-purple-400' />
+                    )}
+                  </div>
+                </button>
               </div>
               {!bananaProviderSelected && (
                 <div className='mt-3 text-xs text-amber-600 dark:text-amber-400'>
@@ -2097,20 +2229,27 @@ const FloatingHeader: React.FC = () => {
                       : undefined
                   }
                 >
-                  <DropdownMenuLabel
-                    className={cn(
-                      "px-2 pb-1 text-[11px] font-medium",
-                      isDarkTheme ? "text-slate-400" : "text-slate-400"
-                    )}
-                  >
-                    {t("workspace.header.switchProject")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator
-                    className='mb-1'
-                    style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
-                  />
+                  {/* Workspace context switcher — Switch toggle */}
+                  {nonPersonalTeams.length > 0 && (
+                    <div className="px-3 pt-2 pb-1.5 flex items-center justify-between gap-3">
+                      <span className={cn("text-xs", isDarkTheme ? "text-slate-400" : "text-slate-400")}>
+                        {nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? nonPersonalTeams[0]?.name}
+                      </span>
+                      <Switch
+                        checked={dropdownContextId !== 'personal'}
+                        onCheckedChange={(checked) => {
+                          setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
+                        }}
+                        className="h-5 w-9"
+                      />
+                    </div>
+                  )}
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
-                    {recentProjects.length === 0 ? (
+                    {dropdownTeamLoading ? (
+                      <DropdownMenuItem disabled className={cn("cursor-default", isDarkTheme ? "text-slate-500" : "text-slate-400")}>
+                        加载中…
+                      </DropdownMenuItem>
+                    ) : dropdownProjects.length === 0 ? (
                       <DropdownMenuItem
                         disabled
                         className={cn(
@@ -2121,7 +2260,7 @@ const FloatingHeader: React.FC = () => {
                         {t("workspace.header.noProjects")}
                       </DropdownMenuItem>
                     ) : (
-                      recentProjects.map((project) => (
+                      dropdownProjects.map((project) => (
                         <DropdownMenuItem
                           key={project.id}
                           onClick={(event) => {
@@ -2189,6 +2328,33 @@ const FloatingHeader: React.FC = () => {
                       {t("workspace.header.newProject")}
                     </span>
                   </DropdownMenuItem>
+                  {nonPersonalTeams.length > 0 && currentProject && (
+                    <>
+                      <DropdownMenuSeparator
+                        className='my-1'
+                        style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
+                      />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const targetTeamId = dropdownContextId !== 'personal'
+                            ? dropdownContextId
+                            : nonPersonalTeams[0]?.id;
+                          const targetTeamName = nonPersonalTeams.find((tm) => tm.id === targetTeamId)?.name ?? '团队';
+                          if (!targetTeamId || !currentProject) return;
+                          void projectApi.cloneToTeam(currentProject.id, targetTeamId)
+                            .then(() => alert(`已分享至 ${targetTeamName}`))
+                            .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-2 py-1 text-sm",
+                          isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                        )}
+                      >
+                        <Share2 className='w-4 h-4' />
+                        {`分享至 ${nonPersonalTeams.find((tm) => tm.id === (dropdownContextId !== 'personal' ? dropdownContextId : nonPersonalTeams[0]?.id))?.name ?? '团队'}`}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -2283,6 +2449,9 @@ const FloatingHeader: React.FC = () => {
               </Button>
             )}
 
+            {/* 团队切换器 */}
+            <TeamSwitcher onManage={setTeamManagementId} variant="header" />
+
             <Button
               variant='ghost'
               size='sm'
@@ -2349,7 +2518,11 @@ const FloatingHeader: React.FC = () => {
                           })
                         : t("workspace.header.routeSwitch.rateNoData");
                     const filledBarClass =
-                      option.value === "stable" ? "bg-amber-500" : "bg-sky-500";
+                      option.value === "ultra"
+                        ? "bg-purple-500"
+                        : option.value === "stable"
+                          ? "bg-amber-500"
+                          : "bg-sky-500";
                     const emptyBarClass = isDarkTheme ? "bg-slate-600" : "bg-slate-200";
                     return (
                       <DropdownMenuItem
@@ -2406,9 +2579,11 @@ const FloatingHeader: React.FC = () => {
                           <span
                             className={cn(
                               "text-[11px] font-semibold leading-none tabular-nums",
-                              option.value === "stable"
-                                ? "text-amber-700 dark:text-amber-300"
-                                : "text-sky-700 dark:text-sky-300"
+                              option.value === "ultra"
+                                ? "text-purple-700 dark:text-purple-300"
+                                : option.value === "stable"
+                                  ? "text-amber-700 dark:text-amber-300"
+                                  : "text-sky-700 dark:text-sky-300"
                             )}
                           >
                             {rateLabel}
@@ -2732,6 +2907,15 @@ const FloatingHeader: React.FC = () => {
           isOpen={isPricingCatalogOpen}
           onClose={() => setIsPricingCatalogOpen(false)}
         />
+
+        {/* 团队管理弹窗 */}
+        {teamManagementId && (
+          <TeamManagementModal
+            teamId={teamManagementId}
+            onClose={() => { setTeamManagementId(null); setTeamModalInitialTab('members'); }}
+            initialTab={teamModalInitialTab}
+          />
+        )}
       </div>
     </>
   );

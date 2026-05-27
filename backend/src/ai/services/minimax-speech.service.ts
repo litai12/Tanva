@@ -115,10 +115,13 @@ export class MinimaxSpeechService {
   };
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('MINIMAX_API_KEY') || '';
-    this.baseUrl = this.configService.get<string>('MINIMAX_BASE_URL')?.trim() ||
-                   this.configService.get<string>('KAPON_BASE_URL')?.trim() ||
-                   'https://models.kapon.cloud';
+    this.apiKey =
+      this.configService.get<string>('NEW_API_KEY') ||
+      this.configService.get<string>('NEW_API_TOKEN') ||
+      '';
+    this.baseUrl = (
+      this.configService.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '');
     this.defaultModel =
       this.configService.get<string>('MINIMAX_SPEECH_MODEL')?.trim() || 'speech-2.6-hd';
     this.defaultOutputFormat =

@@ -42,6 +42,8 @@ model User {
   wechatLoginSessions        WechatLoginSession[]
   invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
   invites                    User[]                 @relation("UserInvitedBy")
+  teamMemberships            TeamMembership[]
+  ownedTeams                 Team[]           @relation("TeamOwner")
 
   // 索引优化：加速用户验证和查找
   @@index([phone, status])  // 手机号登录优化
@@ -121,6 +123,7 @@ model Project {
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id])
   workflowHistory WorkflowHistory[]
+  teamShares      TeamProjectShare[]
 
   // 索引优化：加速项目列表查询
   @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
@@ -530,6 +533,7 @@ model PaymentOrder {
   expiredAt     DateTime
   membershipPlanId String?
   subscriptionId String?
+  teamId        String?  // denormalized; no FK — order is user-scoped, team may be deleted independently
   planSnapshot  Json?
   metadata      Json?
   createdAt     DateTime @default(now())
@@ -553,6 +557,7 @@ model ImageTask {
   textResponse String?   @db.Text
   error        String?   @db.Text
   aiProvider   String?
+  nodeId       String?
   retryCount   Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -560,6 +565,26 @@ model ImageTask {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([nodeId])
+}
+
+model VideoTask {
+  id          String    @id
+  userId      String
+  nodeId      String?
+  status      String    @default("queued")
+  taskType    String
+  prompt      String?   @db.Text
+  result      Json?
+  error       String?   @db.Text
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([nodeId])
+  @@index([userId, createdAt])
+  @@index([status, updatedAt])
 }
 
 model VolcReviewGroup {
@@ -611,4 +636,187 @@ model postgres_log {
   query_id               BigInt?
 
   @@ignore
+}
+
+// ─── 团队模块 ────────────────────────────────────────────────
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String
+  ownerId     String
+  owner       User     @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  isPersonal  Boolean  @default(false)
+  maxSeats    Int      @default(10)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships   TeamMembership[]
+  invites       TeamInvite[]
+  projectShares TeamProjectShare[]
+  subscriptions TeamSubscription[]
+  creditAccount TeamCreditAccount?
+  seatPackages  TeamSeatPackage[]
+
+  @@index([ownerId, isPersonal])
+}
+
+model TeamMembership {
+  teamId              String
+  userId              String
+  role                String   @default("member")
+  creditQuotaMonthly  Int?
+  creditQuotaTotal    Int?
+  creditUsedThisCycle Int      @default(0)
+  creditUsedTotal     Int      @default(0)
+  quotaCycleStartAt   DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model TeamInvite {
+  id             String    @id @default(uuid())
+  teamId         String
+  code           String    @unique
+  email          String?
+  phone          String?
+  status         String    @default("pending")
+  expiresAt      DateTime?
+  inviterUserId  String
+  acceptedUserId String?
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status])
+}
+
+model TeamProjectShare {
+  projectId      String
+  teamId         String
+  access         String   @default("edit")
+  sharedByUserId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, teamId])
+  @@index([teamId])
+}
+
+model TeamCreditAccount {
+  id            String   @id @default(uuid())
+  teamId        String   @unique
+  balance       Int      @default(0)
+  frozenBalance Int      @default(0)
+  totalEarned   Int      @default(0)
+  totalSpent    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  team   Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  lots   TeamCreditLot[]
+  ledger TeamCreditLedger[]
+}
+
+model TeamCreditLot {
+  id              String    @id @default(uuid())
+  teamCreditAccId String
+  amount          Int
+  remaining       Int
+  expiresAt       DateTime?
+  source          String
+  sourceRefId     String?
+  createdAt       DateTime  @default(now())
+
+  account TeamCreditAccount @relation(fields: [teamCreditAccId], references: [id], onDelete: Cascade)
+
+  @@index([teamCreditAccId, expiresAt])
+}
+
+model TeamCreditLedger {
+  id               String    @id @default(uuid())
+  teamAccId        String
+  entryType        String
+  amount           Int
+  taskId           String?
+  taskKind         String?
+  actorUserId      String?
+  note             String?
+  reserveExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+
+  account TeamCreditAccount @relation(fields: [teamAccId], references: [id], onDelete: Cascade)
+
+  @@unique([teamAccId, entryType, taskId])
+  @@index([entryType, reserveExpiresAt])
+}
+
+model TeamSeatPackage {
+  id             String   @id @default(uuid())
+  teamId         String
+  paymentOrderId String?  @unique
+  seats          Int
+  cycle          String   // 'monthly' | 'annual'
+  credits        Int
+  status         String   @default("active")
+  purchasedAt    DateTime @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status, expiresAt])
+}
+
+model TeamSubscriptionPlan {
+  id                     String   @id @default(uuid())
+  name                   String
+  tier                   String
+  priceMonthlyFen        Int
+  priceAnnualFen         Int
+  creditsPerSeatPerMonth Int
+  maxSeats               Int      @default(100)
+  minSeats               Int      @default(1)
+  features               Json     @default("{}")
+  sortWeight             Int      @default(0)
+  enabled                Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  subscriptions TeamSubscription[]
+}
+
+model TeamSubscription {
+  id                  String    @id @default(uuid())
+  teamId              String
+  planId              String
+  billingCycle        String    @default("monthly")
+  seatCount           Int       @default(1)
+  status              String    @default("active")
+  currentPeriodStart  DateTime  @default(now())
+  currentPeriodEnd    DateTime
+  nextCreditRenewalAt DateTime
+  lastRenewedAt       DateTime?
+  creditsPerRenewal   Int
+  cancelledAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  team Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  plan TeamSubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([nextCreditRenewalAt, status])
+  @@index([teamId, status])
 }

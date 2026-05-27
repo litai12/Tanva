@@ -16,6 +16,7 @@ import { SmsService } from "./sms.service";
 import { ReferralService } from "../referral/referral.service";
 import { CreditsService } from "../credits/credits.service";
 import { OpenObserveTelemetryService } from "../telemetry/openobserve-telemetry.service";
+import { TeamCoreService } from "../team-core/team-core.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 type WatchaTokenResponse = {
@@ -129,7 +130,8 @@ export class AuthService {
     @Inject(forwardRef(() => ReferralService))
     private readonly referralService: ReferralService,
     private readonly creditsService: CreditsService,
-    private readonly openObserveTelemetryService: OpenObserveTelemetryService
+    private readonly openObserveTelemetryService: OpenObserveTelemetryService,
+    private readonly teamCoreService: TeamCoreService
   ) {}
 
   private async touchUserLastLoginAt(userId: string) {
@@ -1310,6 +1312,8 @@ export class AuthService {
       if (dto.inviteCode?.trim()) {
         await this.referralService.useInviteCodeInTransaction(tx, newUser.id, dto.inviteCode);
       }
+
+      await this.teamCoreService.createPersonalTeam(newUser.id, tx);
 
       return newUser;
     });

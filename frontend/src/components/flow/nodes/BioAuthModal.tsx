@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { X, UserRound, Smartphone, ShieldCheck, ShieldAlert, Loader2, Copy, Check, ChevronRight, Clock } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { startBioAuth, listBioAuthGroups, createAssetInGroup } from "@/services/bioAuthAPI";
@@ -16,7 +17,7 @@ export interface BioAuthModalProps {
 
 type WizardStep = "loading" | "history" | "consent" | "verifying" | "waiting" | "result";
 
-export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, onFail }: BioAuthModalProps) {
+function BioAuthModalInner({ isOpen, imageUrl, onClose, onStart, onSuccess, onFail }: BioAuthModalProps) {
   const [step, setStep] = React.useState<WizardStep>("loading");
   const [taskId, setTaskId] = React.useState<string | undefined>(undefined);
   const [h5Link, setH5Link] = React.useState<string | undefined>(undefined);
@@ -103,7 +104,7 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, on
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed",
@@ -170,9 +171,12 @@ export function BioAuthModal({ isOpen, imageUrl, onClose, onStart, onSuccess, on
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
+
+export const BioAuthModal = React.memo(BioAuthModalInner);
 
 function LoadingStep() {
   return (

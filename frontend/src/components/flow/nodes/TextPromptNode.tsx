@@ -1,7 +1,10 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
+import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
+import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 
@@ -39,8 +42,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
+  const [atMention, setAtMention] = React.useState<{
+    startIndex: number;
+    query: string;
+    selectedIdx: number;
+  } | null>(null);
+  const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
@@ -48,6 +59,23 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
+  const mentionImages = React.useMemo(() => {
+    if (!atMention || siblingImages.length === 0) return [];
+    const q = atMention.query.toLowerCase();
+    if (!q) return siblingImages;
+    return siblingImages.filter(img => String(img.index).includes(q) || `图${img.index}`.includes(q));
+  }, [atMention, siblingImages]);
+
+  const detectAtMention = React.useCallback((text: string, cursorPos: number) => {
+    if (siblingImages.length === 0) return null;
+    const before = text.slice(0, cursorPos);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx < 0) return null;
+    const afterAt = before.slice(atIdx + 1);
+    if (/[\s\n]/.test(afterAt)) return null;
+    return { startIndex: atIdx, query: afterAt };
+  }, [siblingImages.length]);
+
   const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
   const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
   const resizePreviewRafRef = React.useRef<number | null>(null);
@@ -217,14 +245,84 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     window.dispatchEvent(ev);
   }, [id]);
 
+  const handleMentionSelect = React.useCallback((img: SiblingImage) => {
+    const el = textareaRef.current;
+    if (!el || !atMention) return;
+    const cursorPos = el.selectionStart ?? value.length;
+    const before = value.slice(0, atMention.startIndex);
+    const after = value.slice(cursorPos);
+    const inserted = `@图${img.index}`;
+    const next = before + inserted + after;
+    setValue(next);
+    commitValue(next);
+    setAtMention(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      const newCursor = atMention.startIndex + inserted.length;
+      el.setSelectionRange(newCursor, newCursor);
+    });
+  }, [atMention, commitValue, value]);
+
+  const handleMentionKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!atMention || mentionImages.length === 0) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setAtMention(null);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.min(prev.selectedIdx + 1, mentionImages.length - 1) } : null);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.max(prev.selectedIdx - 1, 0) } : null);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const img = mentionImages[atMention.selectedIdx];
+      if (img) {
+        event.preventDefault();
+        handleMentionSelect(img);
+      }
+    }
+  }, [atMention, handleMentionSelect, mentionImages]);
+
+  const handleInsert = React.useCallback((text: string) => {
+    if (isComposingRef.current) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + text + value.slice(end);
+    setValue(next);
+    commitValue(next);
+    // Restore focus and move cursor after inserted text
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + text.length, start + text.length);
+    });
+  }, [commitValue, value]);
+
   const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
+    const cursorPos = event.target.selectionStart ?? next.length;
     const nativeEvent = event.nativeEvent as InputEvent & { isComposing?: boolean };
     setValue(next);
     if (!isComposingRef.current && !nativeEvent.isComposing) {
       commitValue(next);
     }
-  }, [commitValue]);
+    const mention = detectAtMention(next, cursorPos);
+    if (mention) {
+      setAtMention(prev => ({
+        ...mention,
+        selectedIdx: prev?.startIndex === mention.startIndex ? prev.selectedIdx : 0,
+      }));
+    } else {
+      setAtMention(null);
+    }
+  }, [commitValue, detectAtMention]);
 
   const handleCompositionStart = React.useCallback(() => {
     isComposingRef.current = true;
@@ -236,6 +334,33 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setValue(next);
     commitValue(next);
   }, [commitValue]);
+
+  const handleTextareaSelect = React.useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = event.currentTarget;
+    const cursorPos = el.selectionStart ?? 0;
+    const mention = detectAtMention(el.value, cursorPos);
+    if (!mention) setAtMention(null);
+  }, [detectAtMention]);
+
+  React.useEffect(() => {
+    if (atMention && textareaRef.current) {
+      const rect = textareaRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    } else if (!atMention) {
+      setDropdownPos(null);
+    }
+  }, [atMention !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (!atMention) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (textareaRef.current && !textareaRef.current.contains(e.target as Node)) {
+        setAtMention(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [atMention]);
 
   const commitResize = React.useCallback((width: number, height: number, x: number, y: number) => {
     const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
@@ -367,7 +492,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       contain: isResizing ? 'layout paint' : undefined,
       display: 'flex',
       flexDirection: 'column',
-      position: 'relative'
+      position: 'relative',
+      overflow: 'visible'
     }}>
       <NodeResizer
         isVisible
@@ -438,9 +564,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
       </div>
       <textarea
+        ref={textareaRef}
         className="nodrag nopan nowheel"
         value={value}
         onChange={handleValueChange}
+        onKeyDown={handleMentionKeyDown}
+        onSelect={handleTextareaSelect}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onWheelCapture={(event) => {
@@ -477,6 +606,56 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           cursor: 'text'
         }}
       />
+      <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
+      {atMention && dropdownPos && mentionImages.length > 0 && createPortal(
+        <div
+          className="nodrag nopan"
+          style={{
+            position: 'fixed',
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            minWidth: Math.min(dropdownPos.width, 280),
+            zIndex: 10000,
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.14)',
+            padding: 6,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+          }}
+        >
+          {mentionImages.map((img, idx) => (
+            <button
+              key={`${img.nodeId}::${img.index}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); handleMentionSelect(img); }}
+              style={{
+                padding: 4,
+                borderRadius: 6,
+                border: `2px solid ${idx === atMention.selectedIdx ? '#2563eb' : 'transparent'}`,
+                background: idx === atMention.selectedIdx ? '#eff6ff' : '#f9fafb',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2,
+              }}
+            >
+              <img
+                src={img.url}
+                alt={`图${img.index}`}
+                style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 4, display: 'block' }}
+                draggable={false}
+              />
+              <span style={{ fontSize: 11, color: '#374151', lineHeight: 1 }}>@图{img.index}</span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
       <Handle
         type="target"
         position={Position.Left}

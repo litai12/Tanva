@@ -12,6 +12,7 @@ import { isGroup, isRaster } from '@/utils/paperCoords';
 import { syncImageGroupBlocksForImageIds, findImagePaperItem } from '@/utils/paperImageGroupBlock';
 import {
   isAssetKeyRef,
+  isBlobUrl,
   isRemoteUrl,
   normalizePersistableImageRef,
   toRenderableImageSrc,
@@ -26,6 +27,9 @@ import type {
 } from '@/types/canvas';
 import type { ImageAssetSnapshot } from '@/types/project';
 import { useLayerStore } from '@/stores/layerStore';
+import { NodeManager } from '@/canvas/NodeManager';
+import type { ImageNode } from '@/canvas/nodes/ImageNode';
+import { ImageResourceManager } from '@/canvas/ImageResourceManager';
 
 const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   const value = typeof source === 'string' ? source.trim() : '';
@@ -314,186 +318,136 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // 在Paper.js中创建图片的代表组
     ensureDrawingLayer();
 
-    // 创建Paper.js的Raster对象来显示图片
-    const raster = new paper.Raster();
-    (raster as any).crossOrigin = 'anonymous';
-
-    // 等待图片加载完成后设置位置
-    raster.onLoad = () => {
-      // 🔥 若 Raster source 被切换（dataURL → OSS URL 等）会再次触发 onLoad：
-      // 避免重复创建选择元素/触发状态更新，导致命中/拖拽异常与闪烁
-      const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
-      if (alreadyInitialized) {
-        const stored = (raster as any)?.data?.__tanvaBounds as
-          | { x: number; y: number; width: number; height: number }
-          | undefined;
-        if (
-          stored &&
-          Number.isFinite(stored.x) &&
-          Number.isFinite(stored.y) &&
-          Number.isFinite(stored.width) &&
-          Number.isFinite(stored.height) &&
-          stored.width > 0 &&
-          stored.height > 0
-        ) {
-          const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
-          try { raster.bounds = rect.clone(); } catch {}
-          try {
-            const parent: any = raster.parent;
-            if (parent && parent.className === 'Group' && Array.isArray(parent.children)) {
-              parent.children.forEach((child: any) => {
-                if (!child || child === raster) return;
-                const data = child.data || {};
-                if (data.type === 'image-selection-area' || data.isSelectionBorder || data.isImageHitRect) {
-                  try { child.bounds = rect.clone(); } catch {}
-                  return;
-                }
-                if (data.isResizeHandle) {
-                  const direction = data.direction;
-                  let x = rect.x;
-                  let y = rect.y;
-                  if (direction === 'ne' || direction === 'se') x = rect.x + rect.width;
-                  if (direction === 'sw' || direction === 'se') y = rect.y + rect.height;
-                  try { child.position = new paper.Point(x, y); } catch {}
-                }
-              });
-            }
-          } catch {}
-        }
-        try { paper.view.update(); } catch {}
-        return;
-      }
-
-      // 存储原始尺寸信息
-      const originalWidth = raster.width;
-      const originalHeight = raster.height;
-      const aspectRatio = originalWidth / originalHeight;
-
-      raster.data = {
-        ...(raster.data || {}),
-        type: 'image',
-        imageId,
-        imageLocked: Boolean(asset.locked),
-        originalWidth,
-        originalHeight,
-        aspectRatio
-      };
-
-      // 检查是否启用原始尺寸模式
-      const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
-      let finalBounds;
-
-      if (useOriginalSize) {
-        // 原始尺寸模式：使用图片的真实像素尺寸，以占位框中心为基准
-        const centerX = paperBounds.x + paperBounds.width / 2;
-        const centerY = paperBounds.y + paperBounds.height / 2;
-
-        finalBounds = new paper.Rectangle(
-          centerX - originalWidth / 2,
-          centerY - originalHeight / 2,
-          originalWidth,
-          originalHeight
-        );
-      } else {
-        // 标准模式：根据占位框和图片比例，计算保持比例的实际大小
-        const boxAspectRatio = paperBounds.width / paperBounds.height;
-
-        if (aspectRatio > boxAspectRatio) {
-          // 图片更宽，以宽度为准
-          const newWidth = paperBounds.width;
-          const newHeight = newWidth / aspectRatio;
-          const yOffset = (paperBounds.height - newHeight) / 2;
-
-          finalBounds = new paper.Rectangle(
-            paperBounds.x,
-            paperBounds.y + yOffset,
-            newWidth,
-            newHeight
-          );
-        } else {
-          // 图片更高，以高度为准
-          const newHeight = paperBounds.height;
-          const newWidth = newHeight * aspectRatio;
-          const xOffset = (paperBounds.width - newWidth) / 2;
-
-          finalBounds = new paper.Rectangle(
-            paperBounds.x + xOffset,
-            paperBounds.y,
-            newWidth,
-            newHeight
-          );
-        }
-      }
-
-      // 设置图片边界（保持比例）
-      raster.bounds = finalBounds;
-
-      // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId, Boolean(asset.locked));
-
-      const preferredDisplaySrc = pickRuntimeImageSource({
-        pendingUpload: asset.pendingUpload,
-        localDataUrl: asset.localDataUrl,
-        persistedCandidates: [persistedSrc, persistedUrl, asset.url],
-      });
-
-      // 更新React状态中的bounds为实际尺寸
-      setImageInstances(prev => prev.map(img =>
-        img.id === imageId ? {
-          ...img,
-          bounds: {
-            x: finalBounds.x,
-            y: finalBounds.y,
-            width: finalBounds.width,
-            height: finalBounds.height
-          },
-          imageData: {
-            ...img.imageData,
-            url: asset.url,
-            // 上传中优先本地预览；上传完成/恢复时优先可持久化来源
-            src: preferredDisplaySrc || asset.url,
-            key: asset.key || img.imageData.key,
-            fileName: asset.fileName || img.imageData.fileName,
-            width: originalWidth,
-            height: originalHeight,
-            contentType: asset.contentType || img.imageData.contentType,
-            pendingUpload: asset.pendingUpload,
-            localDataUrl: asset.localDataUrl,
-          }
-        } : img
-      ));
-
-      if (!suppressAutoSave) {
-        try { paperSaveService.triggerAutoSave('image-loaded'); } catch {}
-      }
-
-      // 标记初始化完成并缓存 bounds，防止后续 source 切换重复初始化/命中异常
-      try {
-        if (!raster.data) raster.data = {};
-        (raster.data as any).__tanvaImageInitialized = true;
-        (raster.data as any).__tanvaBounds = {
-          x: finalBounds.x,
-          y: finalBounds.y,
-          width: finalBounds.width,
-          height: finalBounds.height
-        };
-      } catch {}
-
-      paper.view.update();
-    };
-
-    raster.onError = (error: unknown) => {
-      logger.error('图片加载失败', error);
-    };
-
-    // 在监听器绑定后再设置资源，确保跨域标记和回调生效
+    // 计算图片来源 URL
     const normalizedUrl = normalizePersistableImageRef(asset.url);
     const normalizedSrc = normalizePersistableImageRef(asset.src);
     const normalizedKey = normalizePersistableImageRef(asset.key);
     const persistedUrl = (normalizedKey || normalizedUrl || asset.url).trim();
     const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    const preferredDisplaySrc = pickRuntimeImageSource({
+      pendingUpload: asset.pendingUpload,
+      localDataUrl: asset.localDataUrl,
+      persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+    });
+    const sourceForRaster = preferredDisplaySrc || asset.url;
 
-    // 记录元数据：remoteUrl 仅存 http(s)，key 单独存
+    // 用 NodeManager 创建 ImageNode（内部用 ImageResourceManager 预加载 HTMLImageElement，
+    // 调用 raster.setImage(htmlImage) 是瞬时赋值，不触发 Paper.js 内部加载流程，无白帧）
+    const activeLayer = paper.project.activeLayer as paper.Layer;
+    const imageNode = NodeManager.getInstance().createImage(imageId, activeLayer, {
+      url: sourceForRaster,
+      bounds: new paper.Rectangle(
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
+        paperBounds.height
+      ),
+      priority: 'visible',
+      onReady: (raster) => {
+        const originalWidth = raster.width;
+        const originalHeight = raster.height;
+        const aspectRatio = originalWidth / originalHeight;
+
+        raster.data = {
+          ...(raster.data || {}),
+          type: 'image',
+          imageId,
+          imageLocked: Boolean(asset.locked),
+          originalWidth,
+          originalHeight,
+          aspectRatio,
+        };
+
+        const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
+        let finalBounds: paper.Rectangle;
+
+        if (useOriginalSize) {
+          const centerX = paperBounds.x + paperBounds.width / 2;
+          const centerY = paperBounds.y + paperBounds.height / 2;
+          finalBounds = new paper.Rectangle(
+            centerX - originalWidth / 2,
+            centerY - originalHeight / 2,
+            originalWidth,
+            originalHeight
+          );
+        } else {
+          const boxAspectRatio = paperBounds.width / paperBounds.height;
+          if (aspectRatio > boxAspectRatio) {
+            const newWidth = paperBounds.width;
+            const newHeight = newWidth / aspectRatio;
+            const yOffset = (paperBounds.height - newHeight) / 2;
+            finalBounds = new paper.Rectangle(
+              paperBounds.x,
+              paperBounds.y + yOffset,
+              newWidth,
+              newHeight
+            );
+          } else {
+            const newHeight = paperBounds.height;
+            const newWidth = newHeight * aspectRatio;
+            const xOffset = (paperBounds.width - newWidth) / 2;
+            finalBounds = new paper.Rectangle(
+              paperBounds.x + xOffset,
+              paperBounds.y,
+              newWidth,
+              newHeight
+            );
+          }
+        }
+
+        raster.bounds = finalBounds;
+        addImageSelectionElements(raster, finalBounds, imageId, Boolean(asset.locked));
+
+        const preferredSrcForState = pickRuntimeImageSource({
+          pendingUpload: asset.pendingUpload,
+          localDataUrl: asset.localDataUrl,
+          persistedCandidates: [persistedSrc, persistedUrl, asset.url],
+        });
+
+        setImageInstances(prev => prev.map(img =>
+          img.id === imageId ? {
+            ...img,
+            bounds: {
+              x: finalBounds.x,
+              y: finalBounds.y,
+              width: finalBounds.width,
+              height: finalBounds.height,
+            },
+            imageData: {
+              ...img.imageData,
+              url: asset.url,
+              src: preferredSrcForState || asset.url,
+              key: asset.key || img.imageData.key,
+              fileName: asset.fileName || img.imageData.fileName,
+              width: originalWidth,
+              height: originalHeight,
+              contentType: asset.contentType || img.imageData.contentType,
+              pendingUpload: asset.pendingUpload,
+              localDataUrl: asset.localDataUrl,
+            }
+          } : img
+        ));
+
+        if (!suppressAutoSave) {
+          try { paperSaveService.triggerAutoSave('image-loaded'); } catch {}
+        }
+
+        try {
+          (raster.data as any).__tanvaImageInitialized = true;
+          (raster.data as any).__tanvaBounds = {
+            x: finalBounds.x,
+            y: finalBounds.y,
+            width: finalBounds.width,
+            height: finalBounds.height,
+          };
+        } catch {}
+
+        paper.view.update();
+      },
+    });
+
+    const raster = imageNode.getPaperItem()!;
+    // 立即设置 raster 元数据（onReady 触发前就可用）
     if (!raster.data) raster.data = {};
     if (normalizedKey && isAssetKeyRef(normalizedKey)) {
       (raster.data as any).key = normalizedKey;
@@ -502,16 +456,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
     if (persistedSrc && isRemoteUrl(persistedSrc)) {
       (raster.data as any).remoteUrl = persistedSrc;
-    }
-
-    const preferredDisplaySrc = pickRuntimeImageSource({
-      pendingUpload: asset.pendingUpload,
-      localDataUrl: asset.localDataUrl,
-      persistedCandidates: [persistedSrc, persistedUrl, asset.url],
-    });
-    const sourceForRaster = preferredDisplaySrc || asset.url;
-    if (sourceForRaster) {
-      setRasterSourceSafely(raster, sourceForRaster);
     }
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
@@ -1381,6 +1325,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       console.warn('删除Paper对象时出错:', e);
     }
 
+    // 释放 NodeManager 中的图片资源（ImageResourceManager 缓存引用计数）
+    try { NodeManager.getInstance().destroy(imageId); } catch {}
+
     // 从React状态中移除图片
     setImageInstances(prev => {
       const filtered = prev.filter(img => img.id !== imageId);
@@ -1498,7 +1445,19 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         (raster.data as any).remoteUrl = normalizedUrl;
       }
 
-      setRasterSourceSafely(raster, renderable);
+      // 使用 ImageResourceManager 预加载后 setImage，避免 raster.source 触发白帧重载
+      const snapId = snap.id;
+      ImageResourceManager.getInstance()
+        .acquire(renderable, 'critical', snapId)
+        .then((htmlImage) => {
+          if (!raster.isInserted()) return;
+          ;(raster as any).setImage(htmlImage);
+          try { paper.view.update(); } catch {}
+        })
+        .catch(() => {
+          // 兜底：仍用旧方式（可能出现白帧，但不丢图）
+          setRasterSourceSafely(raster, renderable);
+        });
     }
 
     try {
@@ -1718,82 +1677,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       try { raster.locked = true; } catch {}
     }
 
-    // 图片加载完成后的处理
-    raster.onLoad = () => {
-      const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
-      if (alreadyInitialized) {
-        // 已初始化，只需恢复 bounds
-        const stored = (raster as any)?.data?.__tanvaBounds;
-        if (stored && stored.width > 0 && stored.height > 0) {
-          const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
-          try { raster.bounds = rect.clone(); } catch {}
-        }
-        try { paper.view.update(); } catch {}
-        return;
-      }
-
-      // 使用预设的 bounds
-      const finalBounds = new paper.Rectangle(
-        targetBounds.x,
-        targetBounds.y,
-        targetBounds.width,
-        targetBounds.height
-      );
-
-      raster.bounds = finalBounds;
-
-      // 更新 raster.data 中的原始尺寸（使用实际加载的图片尺寸）
-      raster.data = {
-        ...raster.data,
-        originalWidth: raster.width,
-        originalHeight: raster.height,
-        aspectRatio: raster.width / raster.height,
-      };
-
-      // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId, Boolean(snapshot.locked));
-
-      // 标记初始化完成
-      (raster.data as any).__tanvaImageInitialized = true;
-      (raster.data as any).__tanvaBounds = {
-        x: finalBounds.x,
-        y: finalBounds.y,
-        width: finalBounds.width,
-        height: finalBounds.height
-      };
-
-      // 更新 React 状态中的 bounds
-      setImageInstances(prev => prev.map(img =>
-        img.id === imageId ? {
-          ...img,
-          bounds: {
-            x: finalBounds.x,
-            y: finalBounds.y,
-            width: finalBounds.width,
-            height: finalBounds.height
-          },
-          imageData: {
-            ...img.imageData,
-            width: raster.width,
-            height: raster.height,
-          }
-        } : img
-      ));
-
-      try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
-      paper.view.update();
-    };
-
-    raster.onError = (error: unknown) => {
-      logger.error('克隆图片加载失败', error);
-    };
-
-    // 设置图片源
+    // 设置图片源元数据
     const normalizedUrl = normalizePersistableImageRef(snapshot.url);
     const normalizedSrc = normalizePersistableImageRef(snapshot.src);
     const normalizedKey = normalizePersistableImageRef(snapshot.key);
-    const persistedUrl = (normalizedKey || normalizedUrl || source).trim();
-    const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    // Prefer key over url, and both over src (src may be a transient blob URL)
+    const persistedUrl = (normalizedKey || normalizedUrl || (isBlobUrl(normalizedSrc) ? '' : normalizedSrc) || source).trim();
+    // Prefer the snapshot's stored remoteUrl; otherwise derive from persistedSrc
+    const snapshotRemoteUrl = snapshot.remoteUrl ? normalizePersistableImageRef(snapshot.remoteUrl) : '';
+    const persistedSrc = (snapshotRemoteUrl || normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
     if (!raster.data) raster.data = {};
     if (normalizedKey && isAssetKeyRef(normalizedKey)) {
       (raster.data as any).key = normalizedKey;
@@ -1803,9 +1695,68 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (persistedSrc && isRemoteUrl(persistedSrc)) {
       (raster.data as any).remoteUrl = persistedSrc;
     }
-    const renderable = toRenderableImageSrc(source);
+
+    // 用 ImageResourceManager 预加载后 setImage，避免 raster.source 触发白帧重载
+    // Fallback: if source is a blob URL (revoked or pending), try localDataUrl.
+    const renderable = toRenderableImageSrc(source) || toRenderableImageSrc(snapshot.localDataUrl ?? null);
     if (renderable) {
-      setRasterSourceSafely(raster, renderable);
+      ImageResourceManager.getInstance()
+        .acquire(renderable, 'visible', imageId)
+        .then((htmlImage) => {
+          if (!raster.isInserted()) return;
+          ;(raster as any).setImage(htmlImage);
+
+          const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
+          if (alreadyInitialized) {
+            const stored = (raster as any)?.data?.__tanvaBounds;
+            if (stored && stored.width > 0 && stored.height > 0) {
+              const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
+              try { raster.bounds = rect.clone(); } catch {}
+            }
+            try { paper.view.update(); } catch {}
+            return;
+          }
+
+          const finalBounds = new paper.Rectangle(
+            targetBounds.x, targetBounds.y, targetBounds.width, targetBounds.height
+          );
+          raster.bounds = finalBounds;
+
+          const natW = htmlImage.naturalWidth || htmlImage.width || targetBounds.width;
+          const natH = htmlImage.naturalHeight || htmlImage.height || targetBounds.height;
+          raster.data = {
+            ...raster.data,
+            originalWidth: natW,
+            originalHeight: natH,
+            aspectRatio: natW / natH,
+          };
+
+          addImageSelectionElements(raster, finalBounds, imageId, Boolean(snapshot.locked));
+
+          (raster.data as any).__tanvaImageInitialized = true;
+          (raster.data as any).__tanvaBounds = {
+            x: finalBounds.x, y: finalBounds.y,
+            width: finalBounds.width, height: finalBounds.height,
+          };
+
+          setImageInstances(prev => prev.map(img =>
+            img.id === imageId ? {
+              ...img,
+              bounds: { x: finalBounds.x, y: finalBounds.y, width: finalBounds.width, height: finalBounds.height },
+              imageData: { ...img.imageData, width: natW, height: natH },
+            } : img
+          ));
+
+          try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
+          paper.view.update();
+        })
+        .catch(() => {
+          // 兜底：仍用旧方式
+          setRasterSourceSafely(raster, renderable);
+        });
+    } else if (source) {
+      // renderable is null (e.g. source is a blob URL); try to show via raster directly
+      setRasterSourceSafely(raster, source);
     }
 
     // 创建图片实例（立即添加到状态，不等待加载完成）
@@ -1816,7 +1767,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         url: persistedUrl || source,
         src: persistedSrc || persistedUrl || source,
         key: normalizedKey || snapshot.key,
-        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : undefined,
+        remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : (snapshot.remoteUrl ?? undefined),
         fileName: snapshot.fileName,
         width: snapshot.width ?? snapshot.bounds.width,
         height: snapshot.height ?? snapshot.bounds.height,

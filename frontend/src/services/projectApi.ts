@@ -7,6 +7,7 @@ import { fetchWithAuth } from "./authFetch";
 
 export type Project = {
   id: string;
+  userId: string;
   name: string;
   ossPrefix: string;
   mainKey: string;
@@ -66,8 +67,20 @@ const inFlightGetContent = new Map<string, Promise<ProjectContentResponse>>();
 
 export const projectApi = {
   async list(): Promise<Project[]> {
-    const res = await fetchWithAuth(`${base}/api/projects`);
+    const res = await fetchWithAuth(`${base}/api/projects?scope=personal`);
     return json<Project[]>(res);
+  },
+  async listByTeam(teamId: string): Promise<Project[]> {
+    const res = await fetchWithAuth(`${base}/api/projects?teamId=${encodeURIComponent(teamId)}&scope=team`);
+    return json<Project[]>(res);
+  },
+  async cloneToTeam(projectId: string, teamId: string): Promise<Project> {
+    const res = await fetchWithAuth(`${base}/api/projects/${projectId}/clone-to-team`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teamId }),
+    });
+    return json<Project>(res);
   },
   async create(payload: { name?: string }): Promise<Project> {
     const res = await fetchWithAuth(`${base}/api/projects`, {

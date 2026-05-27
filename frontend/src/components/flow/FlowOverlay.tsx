@@ -66,6 +66,7 @@ import Wan26Node from "./nodes/Wan26Node";
 import Wan2R2VNode from "./nodes/Wan2R2VNode";
 import HappyhorseR2VNode from "./nodes/HappyhorseR2VNode";
 import Wan27VideoNode from "./nodes/Wan27VideoNode";
+import OmniFlashExtVideoNode from "./nodes/OmniFlashExtVideoNode";
 import TextNoteNode from "./nodes/TextNoteNode";
 import StoryboardSplitNode from "./nodes/StoryboardSplitNode";
 import GenerateProNode from "./nodes/GenerateProNode";
@@ -166,6 +167,7 @@ import {
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
+  batchQueryTasksByNodesAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -184,7 +186,7 @@ import {
 } from "@/services/videoProviderParams";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
-import { uploadVolcAsset, getVolcAssetStatus } from "@/services/volcAssetAPI";
+import { uploadVolcAsset } from "@/services/volcAssetAPI";
 import {
   fetchNodeConfigs,
   getStatusBadge,
@@ -295,15 +297,19 @@ const FLOW_EDGE_COLOR_BY_KIND = {
   images: "#eab308",
   audio: "#ec4899",
 } as const;
-const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = 31;
+// Intentionally very large: auto-threshold is disabled.
+// onlyRenderVisibleElements unmounts off-screen nodes, causing remount stutter
+// when re-entering the viewport. Nodes should stay mounted once rendered.
+// Users can still enable it explicitly via Settings if they need memory savings.
+const FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
 const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
-const FLOW_LOW_DETAIL_NODE_THRESHOLD = 31;
-const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.4;
-const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.45;
+const FLOW_LOW_DETAIL_NODE_THRESHOLD = 150;
+const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.06;
+const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.10;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -970,6 +976,7 @@ const rawNodeTypes = {
   wan2R2V: Wan2R2VNode,
   happyhorseR2V: HappyhorseR2VNode,
   wan27Video: Wan27VideoNode,
+  omniFlashExtVideo: OmniFlashExtVideoNode,
   klingVideo: KlingVideoNode,
   kling26Video: Kling26VideoNode,
   kling30Video: Kling30VideoNode,
@@ -1205,6 +1212,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -1258,6 +1266,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -1658,6 +1667,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 Reference Video", category: "video" },
   { key: "happyhorseR2V", zh: "快乐马", en: "HappyHorse", category: "video" },
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
+  { key: "omniFlashExtVideo", zh: "Omni Flash Ext", en: "Omni Flash Ext", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
   { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" },
@@ -1776,6 +1786,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   wan2R2V: "video",
   happyhorseR2V: "video",
   wan27Video: "video",
+  omniFlashExtVideo: "video",
   klingVideo: "video",
   kling26Video: "video",
   kling30Video: "video",
@@ -1831,6 +1842,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   wan2R2V: { w: 300, h: 360 },
   happyhorseR2V: { w: 300, h: 460 },
   wan27Video: { w: 300, h: 420 },
+  omniFlashExtVideo: { w: 300, h: 360 },
   klingVideo: { w: 280, h: 260 },
   kling26Video: { w: 280, h: 260 },
   kling30Video: { w: 280, h: 260 },
@@ -2174,6 +2186,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video"],
   happyhorseR2V: ["video"],
   wan27Video: ["video"],
+  omniFlashExtVideo: ["video"],
   klingVideo: ["video"],
   kling26Video: ["video"],
   kling30Video: ["video"],
@@ -2223,6 +2236,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
+  omniFlashExtVideo: ["image", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
   kling26Video: ["image", "image-2", "audio", "text"],
   kling30Video: ["image", "image-2", "audio", "text"],
@@ -2340,6 +2354,9 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "wan2.7": "wan27Video",
   "wan-2.7": "wan27Video",
   "wan2.7-i2v": "wan27Video",
+  "omni-flash-ext": "omniFlashExtVideo",
+  "omni-flash-ext-video": "omniFlashExtVideo",
+  omniflashext: "omniFlashExtVideo",
   pathtracer: "three",
   "path-tracer": "three",
   "three-pathtracer": "three",
@@ -2454,6 +2471,7 @@ const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro",
   "generatePro4",
   "analysis",
+  "viewAngle",
 ]);
 
 const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
@@ -2615,6 +2633,7 @@ const BANANA_STABLE_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro",
   "generatePro4",
   "analysis",
+  "viewAngle",
 ]);
 
 const resolveBananaStablePricingTier = (
@@ -2677,6 +2696,7 @@ const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "wan2R2V",
   "happyhorseR2V",
   "wan27Video",
+  "omniFlashExtVideo",
   "klingVideo",
   "kling26Video",
   "kling30Video",
@@ -5472,6 +5492,11 @@ function FlowInner() {
     [rf, updateGroupName]
   );
 
+  const handleUngroup = React.useCallback(
+    (groupId: string) => dissolveGroups([groupId]),
+    [dissolveGroups]
+  );
+
   const changeGroupColor = React.useCallback(
     (groupId: string, color: string) => {
       const normalized =
@@ -6237,7 +6262,7 @@ function FlowInner() {
   const rfNodesToTplNodes = React.useCallback(
     (
       ns: RFNode[],
-      options?: { preserveImagePayload?: boolean }
+      options?: { preserveImagePayload?: boolean; preserveRunningState?: boolean }
     ): ClipboardFlowNode[] => {
       return ns.map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
@@ -6245,9 +6270,18 @@ function FlowInner() {
         delete rawData.onSend;
         const data = sanitizeNodeData(rawData, options);
         if (data) {
-          delete data.status;
-          delete data.error;
-          delete data.progressStartedAt;
+          const isRunning = data.status === "running";
+          // Preserve running-state fields in project saves so the task recovery
+          // mechanism can detect and resume in-progress tasks on project reload.
+          // Strip them for clipboard/template copies where running state is irrelevant.
+          if (!options?.preserveRunningState || !isRunning) {
+            delete data.status;
+            delete data.progressStartedAt;
+          }
+          // Always clear non-running error since it would show stale errors on copy.
+          if (!isRunning) {
+            delete data.error;
+          }
         }
         return {
           id: n.id,
@@ -7093,7 +7127,7 @@ function FlowInner() {
     const es = contentFlow?.edges || [];
     const incomingSignature = getFlowSnapshotSignature(ns, es);
     const localSignature = getFlowSnapshotSignature(
-      rfNodesToTplNodes(nodesRef.current as any),
+      rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true }),
       rfEdgesToTplEdges(edgesRef.current as any)
     );
     if (
@@ -7182,7 +7216,7 @@ function FlowInner() {
     if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
     if (nodeDraggingRef.current) return;
-    const nodesSnapshot = rfNodesToTplNodes(nodes as any);
+    const nodesSnapshot = rfNodesToTplNodes(nodes as any, { preserveRunningState: true });
     const edgesSnapshot = rfEdgesToTplEdges(edges);
     scheduleCommit(nodesSnapshot, edgesSnapshot);
   }, [
@@ -7432,8 +7466,7 @@ function FlowInner() {
   }, []);
 
   const effectiveFlowLowDetailMode =
-    (isFlowLowDetailMode ||
-      (isCanvasZooming && nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD)) &&
+    isFlowLowDetailMode &&
     !hasRunningFlowNode;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
@@ -8837,6 +8870,7 @@ function FlowInner() {
       middleDragRef.current.dragging = false;
       container.classList.remove("tanva-flow-middle-panning");
       container.style.cursor = "";
+      document.body.classList.remove("tanva-canvas-panning");
       try {
         useCanvasStore.getState().setDragging(false);
       } catch {}
@@ -8862,6 +8896,7 @@ function FlowInner() {
       middleDragRef.current.startPanY = store.panY;
       container.classList.add("tanva-flow-middle-panning");
       container.style.cursor = "grabbing";
+      document.body.classList.add("tanva-canvas-panning");
       try {
         store.setDragging(true);
       } catch {}
@@ -9687,6 +9722,19 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "omniFlashExtVideo"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              managedModelKey: "omni-flash-ext",
+              resolution: "720P",
+              duration: 6,
+              aspectRatio: "16:9",
+              videoVersion: 0,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "storyboardSplit"
           ? {
               status: "idle" as const,
@@ -10076,6 +10124,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
       "kling26Video",
       "kling30Video",
@@ -10774,6 +10823,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10801,6 +10851,7 @@ function FlowInner() {
       "wan2R2V",
       "happyhorseR2V",
       "wan27Video",
+      "omniFlashExtVideo",
       "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10833,6 +10884,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -10863,6 +10915,12 @@ function FlowInner() {
         return false;
       }
 
+      if (targetNode.type === "omniFlashExtVideo") {
+        if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "image") return isImageSource(sourceNode, sourceHandle);
+        return false;
+      }
+
       if (targetNode.type === "wan27Video") {
         if (targetHandle === "text") {
           return canSourceProvideText(sourceNode, sourceHandle);
@@ -10879,6 +10937,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -10927,6 +10986,7 @@ function FlowInner() {
             "happyhorseR2V",
             "wan26",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "kling30Video",
@@ -11039,6 +11099,7 @@ function FlowInner() {
             "wan2R2V",
             "happyhorseR2V",
             "wan27Video",
+            "omniFlashExtVideo",
             "klingVideo",
             "kling26Video",
             "klingO1Video",
@@ -12275,8 +12336,6 @@ function FlowInner() {
           if (existingAssetId && existingStatus === "active" && !isExpired) return;
 
           const srcNodeId = srcNode.id;
-          const REVIEW_POLL_INTERVAL_MS = 2000;
-          const REVIEW_POLL_TIMEOUT_MS = 90000;
 
           const patchSrcNode = (patch: Record<string, unknown>) => {
             setNodes((ns) =>
@@ -12290,16 +12349,7 @@ function FlowInner() {
             try {
               const uploadResult = await uploadVolcAsset(trimmedUrl);
               const uploadedAssetId = uploadResult.assetId;
-              let currentStatus = uploadResult.status;
-
-              const pollStart = Date.now();
-              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
-                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
-                const polled = await getVolcAssetStatus(uploadedAssetId);
-                currentStatus = polled.status;
-              }
-
-              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
               patchSrcNode({
                 volcAssetId: uploadedAssetId,
                 volcAssetStatus: finalStatus,
@@ -14271,6 +14321,125 @@ function FlowInner() {
     });
   }, [nodes, pollHappyhorseTask]);
 
+  // 页面刷新后恢复运行中的任务状态（仅在挂载时执行一次）
+  const taskRecoveryFiredRef = React.useRef(false);
+  React.useEffect(() => {
+    if (taskRecoveryFiredRef.current) return;
+    const runningNodes = nodes.filter(
+      (n) => (n.data as any)?.status === "running"
+    );
+    if (!runningNodes.length) {
+      taskRecoveryFiredRef.current = true;
+      return;
+    }
+    taskRecoveryFiredRef.current = true;
+    void (async () => {
+      try {
+        const nodeIds = runningNodes.map((n) => n.id);
+        const records = await batchQueryTasksByNodesAPI(nodeIds);
+        if (!Object.keys(records).length) return;
+        setNodes((prev: any[]) =>
+          prev.map((n) => {
+            const record = records[n.id];
+            if (!record) return n;
+            const prevData = (n.data as any) || {};
+            if (record.status === "failed") {
+              return {
+                ...n,
+                data: {
+                  ...prevData,
+                  status: "failed",
+                  error: record.error || "任务失败",
+                  taskId: record.taskId,
+                },
+              };
+            }
+            if (record.status === "succeeded") {
+              const res = record.result || {};
+              return {
+                ...n,
+                data: {
+                  ...prevData,
+                  status: "succeeded",
+                  taskId: record.taskId,
+                  error: undefined,
+                  ...(res.videoUrl ? { videoUrl: res.videoUrl } : {}),
+                  ...(res.thumbnailUrl ? { thumbnail: res.thumbnailUrl } : {}),
+                  ...(res.imageUrl ? { imageUrl: res.imageUrl } : {}),
+                  ...(res.modelUrl ? { modelUrl: res.modelUrl } : {}),
+                },
+              };
+            }
+            // still queued/processing — keep running state; ensure progressStartedAt
+            // is set so the progress bar shows correctly after project reload.
+            return {
+              ...n,
+              data: {
+                ...prevData,
+                status: "running",
+                taskId: record.taskId,
+                progressStartedAt: prevData.progressStartedAt ?? Date.now(),
+              },
+            };
+          })
+        );
+      } catch {
+        // recovery is best-effort; swallow errors
+      }
+    })();
+  }, [nodes, setNodes]);
+
+  // 恢复后对仍在运行的节点保持轮询（每 5 秒），直到任务结束
+  const recoveryPollingRef = React.useRef<number | undefined>();
+  React.useEffect(() => {
+    const check = async () => {
+      const runningNodes = nodes.filter(
+        (n) =>
+          (n.data as any)?.status === "running" &&
+          typeof (n.data as any)?.taskId === "string" &&
+          (n.data as any).taskId.trim().length > 0
+      );
+      if (!runningNodes.length) return;
+      try {
+        const records = await batchQueryTasksByNodesAPI(runningNodes.map((n) => n.id));
+        if (!Object.keys(records).length) return;
+        setNodes((prev: any[]) =>
+          prev.map((n) => {
+            const record = records[n.id];
+            if (!record || record.status === "running" || record.status === "queued") return n;
+            const prevData = (n.data as any) || {};
+            if (record.status === "failed") {
+              return { ...n, data: { ...prevData, status: "failed", error: record.error || "任务失败", taskId: record.taskId } };
+            }
+            if (record.status === "succeeded") {
+              const res = record.result || {};
+              return {
+                ...n,
+                data: {
+                  ...prevData, status: "succeeded", taskId: record.taskId, error: undefined,
+                  ...(res.videoUrl ? { videoUrl: res.videoUrl } : {}),
+                  ...(res.thumbnailUrl ? { thumbnail: res.thumbnailUrl } : {}),
+                  ...(res.imageUrl ? { imageUrl: res.imageUrl } : {}),
+                  ...(res.modelUrl ? { modelUrl: res.modelUrl } : {}),
+                },
+              };
+            }
+            return n;
+          })
+        );
+      } catch { /* best-effort */ }
+    };
+
+    window.clearInterval(recoveryPollingRef.current);
+    const hasRecoveredRunning = nodes.some(
+      (n) => (n.data as any)?.status === "running" && typeof (n.data as any)?.taskId === "string"
+    );
+    if (hasRecoveredRunning && taskRecoveryFiredRef.current) {
+      recoveryPollingRef.current = window.setInterval(() => { void check(); }, 5000);
+    }
+    return () => window.clearInterval(recoveryPollingRef.current);
+  }, [nodes, setNodes]);
+
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
     async (nodeId: string) => {
@@ -14341,6 +14510,58 @@ function FlowInner() {
           .filter(
             (img): img is string => typeof img === "string" && img.length > 0
           );
+
+      const buildGeneratedImagePatch = (value?: string | null) => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) {
+          return {
+            imageUrl: undefined,
+            imageData: undefined,
+            thumbnail: undefined,
+          };
+        }
+        if (isPersistableImageRef(trimmed)) {
+          return {
+            imageUrl: normalizePersistableImageRef(trimmed),
+            imageData: undefined,
+            thumbnail: undefined,
+          };
+        }
+        return {
+          imageUrl: undefined,
+          imageData: trimmed,
+          thumbnail: undefined,
+        };
+      };
+
+      const buildHistoryImageSource = (value: string) => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (trimmed && isPersistableImageRef(trimmed)) {
+          return { remoteUrl: normalizePersistableImageRef(trimmed) };
+        }
+        return { base64: trimmed };
+      };
+
+      const nodeHasGeneratedImageSource = (
+        data: Record<string, unknown> | null | undefined,
+        value?: string | null
+      ): boolean => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) return false;
+        const normalized = isPersistableImageRef(trimmed)
+          ? normalizePersistableImageRef(trimmed)
+          : trimmed;
+        const currentImageUrl =
+          typeof data?.imageUrl === "string" ? data.imageUrl.trim() : "";
+        const currentImageData =
+          typeof data?.imageData === "string" ? data.imageData.trim() : "";
+        return (
+          currentImageUrl === trimmed ||
+          currentImageUrl === normalized ||
+          currentImageData === trimmed ||
+          currentImageData === normalized
+        );
+      };
 
       // 运行时图片输入归一化：
       // - 允许节点数据里是 URL/OSS key/flow-asset/base64
@@ -17030,6 +17251,7 @@ function FlowInner() {
               characterUrl: characterUrlSetting || undefined,
               characterTimestamps: characterTimestampsSetting || undefined,
               characterTaskId: characterTaskIdSetting || undefined,
+              nodeId,
             }
           );
           console.log("✅ [Flow] Sora2 video response received", {
@@ -17235,6 +17457,7 @@ function FlowInner() {
                 };
           const result = await convertSeed3D({
             ...requestPayload,
+            nodeId,
           });
 
           if (!result.success || !result.modelUrl) {
@@ -17289,6 +17512,7 @@ function FlowInner() {
         "doubaoVideo",
         "seedance20Video",
         "seedVideo",
+        "omniFlashExtVideo",
       ];
       if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
@@ -17352,6 +17576,8 @@ function FlowInner() {
         const maxImages =
           isSeedanceNode && seedanceModeSpec
             ? seedanceModeSpec.imageHandleMax + seedanceModeSpec.image2HandleMax
+            : normalizedVideoNodeType === "omniFlashExtVideo"
+            ? 3
             : provider === "vidu" || provider === "viduq3-pro"
             ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
             : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
@@ -18137,8 +18363,6 @@ function FlowInner() {
 
         if (isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0) {
           const REVIEW_VALID_DAYS = 3;
-          const REVIEW_POLL_INTERVAL_MS = 2000;
-          const REVIEW_POLL_TIMEOUT_MS = 90000;
 
           const assetEntries: VolcAssetEntry[] = [];
           let reviewFailed = false;
@@ -18180,16 +18404,7 @@ function FlowInner() {
             try {
               const uploadResult = await uploadVolcAsset(imgUrl);
               const uploadedAssetId = uploadResult.assetId;
-              let currentStatus = uploadResult.status;
-
-              const pollStart = Date.now();
-              while (currentStatus === "processing" && Date.now() - pollStart < REVIEW_POLL_TIMEOUT_MS) {
-                await new Promise<void>((resolve) => setTimeout(resolve, REVIEW_POLL_INTERVAL_MS));
-                const polled = await getVolcAssetStatus(uploadedAssetId);
-                currentStatus = polled.status;
-              }
-
-              const finalStatus = currentStatus === "active" ? "active" : "failed";
+              const finalStatus = uploadResult.status === "active" ? "active" : "failed";
               if (srcNode) {
                 setNodes((ns) =>
                   ns.map((n) =>
@@ -18889,6 +19104,32 @@ function FlowInner() {
             error: error instanceof Error ? error.message : String(error),
           });
           const msg = error instanceof Error ? error.message : "视频生成失败";
+
+          // If the backend reported a specific image review failure (e.g. "参考图审核未通过 image[0]"),
+          // mark the corresponding source ImageNode with the review-failed icon.
+          const reviewFailMatch = msg.match(/参考图审核未通过 image\[(\d+)\]/);
+          if (reviewFailMatch) {
+            const failedIdx = parseInt(reviewFailMatch[1], 10);
+            const srcEdge = referenceImageSourceEdges[failedIdx];
+            const srcNode = srcEdge ? rf.getNode(srcEdge.source) : undefined;
+            if (srcNode) {
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === srcNode.id
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          volcAssetStatus: "failed",
+                          volcAssetError: "审核未通过，请更换图片",
+                        },
+                      }
+                    : n
+                )
+              );
+            }
+          }
+
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -20281,6 +20522,7 @@ function FlowInner() {
             aspectRatio: nano2AspectRatio,
             imageUrls: imageDatas.length > 0 ? imageDatas : undefined,
             imageSize: nano2Resolution,
+            nodeId: node.id,
             ...(node.type === "gptImage2"
               ? {
                   officialFallback: gptImage2OfficialFallback,
@@ -20333,6 +20575,16 @@ function FlowInner() {
                     };
                   }
 
+                  // 立即把 taskId 写入节点，防止拖拽/水合丢失 running 状态
+                  const gptTaskId = createTaskResult.data.taskId;
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? { ...n, data: { ...n.data, taskId: gptTaskId } }
+                        : n
+                    )
+                  );
+
                   const pollDeadlineAt = Date.now() + 15 * 60 * 1000;
                   const pollIntervalMs = 3000;
                   let resolvedImageUrl = "";
@@ -20341,9 +20593,7 @@ function FlowInner() {
                   let consecutiveQueryFailures = 0;
 
                   while (Date.now() < pollDeadlineAt) {
-                    const statusResult = await queryImageTaskStatusViaAPI(
-                      createTaskResult.data.taskId
-                    );
+                    const statusResult = await queryImageTaskStatusViaAPI(gptTaskId);
                     if (!statusResult.success || !statusResult.data) {
                       consecutiveQueryFailures += 1;
                       failureMessage =
@@ -20429,33 +20679,14 @@ function FlowInner() {
               result.data.imageUrl.trim()) ||
             "";
 
-          let stableImageRef = rawPreview;
-          try {
-            if (rawPreview) {
-              stableImageRef = await uploadImageToStableUrl(
-                rawPreview,
-                `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${nodeId}_${Date.now()}.png`,
-                { reuploadUnstableRemote: true }
-              );
-            }
-          } catch (persistErr) {
-            console.warn(
-              "[Flow] Nano2: failed to persist preview to stable storage",
-              persistErr
-            );
-            stableImageRef = rawPreview;
-          }
-
-          const nodeImageUrl =
-            stableImageRef &&
-            !isDataImageUrl(stableImageRef) &&
-            !isBlobUrl(stableImageRef)
-              ? stableImageRef
+          // 立即显示图片，不等待 stable URL 上传
+          const immediateImageUrl =
+            rawPreview && !isDataImageUrl(rawPreview) && !isBlobUrl(rawPreview)
+              ? rawPreview
               : undefined;
-          const nodeImageData =
-            stableImageRef &&
-            (isDataImageUrl(stableImageRef) || isBlobUrl(stableImageRef))
-              ? stableImageRef
+          const immediateImageData =
+            rawPreview && (isDataImageUrl(rawPreview) || isBlobUrl(rawPreview))
+              ? rawPreview
               : undefined;
 
           setNodes((ns) =>
@@ -20466,22 +20697,62 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageUrl: nodeImageUrl,
-                      imageData: nodeImageData,
+                      imageUrl: immediateImageUrl,
+                      imageData: immediateImageData,
+                      thumbnail: undefined,
                       error: undefined,
+                      taskId: undefined,
                     },
                   }
                 : n
             )
           );
 
-          if (stableImageRef) {
-            try {
-              const projectId = useProjectContentStore.getState().projectId;
-              const historyId = `${nodeId}-${Date.now()}`;
-              const historyRemote =
-                !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
+          // stable URL 上传在后台进行，完成后更新节点图片
+          if (rawPreview) {
+            void (async () => {
+              const historyTs = Date.now();
               const historyPrefix = node.type === "gptImage2" ? "GPT-Image-2" : "Nano2";
+              const fileName = `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${nodeId}_${historyTs}.png`;
+              let stableImageRef = rawPreview;
+              try {
+                stableImageRef = await uploadImageToStableUrl(rawPreview, fileName, {
+                  reuploadUnstableRemote: true,
+                });
+              } catch (persistErr) {
+                console.warn("[Flow] Nano2: failed to persist preview to stable storage", persistErr);
+              }
+
+              const stableImageUrl =
+                stableImageRef && !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef)
+                  ? stableImageRef
+                  : undefined;
+              const stableImageData =
+                stableImageRef && (isDataImageUrl(stableImageRef) || isBlobUrl(stableImageRef))
+                  ? stableImageRef
+                  : undefined;
+
+              // 仅在节点仍显示本次结果时才替换为 stable URL
+              setNodes((ns) =>
+                ns.map((n) => {
+                  if (n.id !== nodeId) return n;
+                  const d = n.data as any;
+                  if (d?.status !== "succeeded") return n;
+                  if (d?.imageUrl !== immediateImageUrl && d?.imageData !== immediateImageData) return n;
+                  return {
+                    ...n,
+                    data: {
+                      ...d,
+                      imageUrl: stableImageUrl ?? d.imageUrl,
+                      imageData: stableImageData ?? d.imageData,
+                    },
+                  };
+                })
+              );
+
+              const projectId = useProjectContentStore.getState().projectId;
+              const historyId = `${nodeId}-${historyTs}`;
+              const historyRemote = !isDataImageUrl(stableImageRef) && !isBlobUrl(stableImageRef);
               void recordImageHistoryEntry({
                 id: historyId,
                 base64: historyRemote ? undefined : stableImageRef,
@@ -20489,7 +20760,7 @@ function FlowInner() {
                 title: `${historyPrefix} ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
-                fileName: `flow_${node.type === "gptImage2" ? "gpt_image_2" : "nano2"}_${historyId}.png`,
+                fileName,
                 projectId,
                 keepThumbnail: false,
                 metadata: {
@@ -20499,7 +20770,7 @@ function FlowInner() {
                   provider: "nano2",
                 },
               }).catch(() => {});
-            } catch {}
+            })();
           }
         } catch (error) {
           const msg =
@@ -20910,10 +21181,53 @@ function FlowInner() {
         (node.data as any)?.modelProvider,
         aiProvider
       );
-      const effectiveAspectRatio =
+      let effectiveAspectRatio =
         node.type === "generate" && runProvider === "banana-2.5"
           ? undefined
           : aspectRatioValue;
+
+      // viewAngle: 从源图检测宽高比以保持输出与源图一致
+      if (node.type === "viewAngle" && !effectiveAspectRatio && imageDatas.length > 0) {
+        try {
+          const srcUrl = imageDatas[0];
+          const detectedRatio = await new Promise<string | undefined>((resolve) => {
+            const img = new window.Image();
+            const tid = window.setTimeout(() => resolve(undefined), 4000);
+            img.onload = () => {
+              window.clearTimeout(tid);
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
+              if (!w || !h) { resolve(undefined); return; }
+              const ratio = w / h;
+              const candidates: Array<{ r: number; v: string }> = [
+                { r: 1, v: "1:1" },
+                { r: 4 / 3, v: "4:3" },
+                { r: 3 / 4, v: "3:4" },
+                { r: 16 / 9, v: "16:9" },
+                { r: 9 / 16, v: "9:16" },
+                { r: 3 / 2, v: "3:2" },
+                { r: 2 / 3, v: "2:3" },
+                { r: 2 / 1, v: "2:1" },
+                { r: 1 / 2, v: "1:2" },
+                { r: 4 / 5, v: "4:5" },
+                { r: 5 / 4, v: "5:4" },
+              ];
+              let best = candidates[0];
+              let bestDiff = Math.abs(Math.log(ratio / best.r));
+              for (const c of candidates) {
+                const diff = Math.abs(Math.log(ratio / c.r));
+                if (diff < bestDiff) { best = c; bestDiff = diff; }
+              }
+              resolve(best.v);
+            };
+            img.onerror = () => { window.clearTimeout(tid); resolve(undefined); };
+            img.src = srcUrl;
+          });
+          if (detectedRatio) {
+            effectiveAspectRatio = detectedRatio as AIImageGenerateRequest["aspectRatio"];
+          }
+        } catch { /* fallback: let backend decide */ }
+      }
 
       // 优先使用节点本地的 imageSize，否则使用全局设置
       const nodeSizeValue = (() => {
@@ -20996,6 +21310,8 @@ function FlowInner() {
                     status: "running",
                     error: undefined,
                     images: [],
+                    imageUrls: [],
+                    thumbnails: [],
                     generate4SlotErrors: undefined,
                     generate4PassIndex: 0,
                   },
@@ -21150,8 +21466,7 @@ function FlowInner() {
                       ...n,
                       data: {
                         ...n.data,
-                        imageData: imgB64,
-                        thumbnail: undefined,
+                        ...buildGeneratedImagePatch(imgB64),
                       },
                     };
                   return n;
@@ -21166,7 +21481,7 @@ function FlowInner() {
               const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
               void recordImageHistoryEntry({
                 id: historyId,
-                base64: generatedImage,
+                ...buildHistoryImageSource(generatedImage),
                 title: `Generate4 #${
                   slotIndex + 1
                 } ${new Date().toLocaleTimeString()}`,
@@ -21223,7 +21538,7 @@ function FlowInner() {
                       if (
                         outEdges.some((e) => e.target === n.id) &&
                         n.type === "image" &&
-                        (n.data as any)?.imageData === generatedImage
+                        nodeHasGeneratedImageSource(n.data, generatedImage)
                       ) {
                         return {
                           ...n,
@@ -21293,6 +21608,8 @@ function FlowInner() {
                     status: "running",
                     error: undefined,
                     images: [],
+                    imageUrls: [],
+                    thumbnails: [],
                   },
                 }
               : n
@@ -21435,8 +21752,7 @@ function FlowInner() {
                         ...n,
                         data: {
                           ...n.data,
-                          imageData: imgB64,
-                          thumbnail: undefined,
+                          ...buildGeneratedImagePatch(imgB64),
                         },
                       };
                     return n;
@@ -21452,7 +21768,7 @@ function FlowInner() {
                 const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
                 void recordImageHistoryEntry({
                   id: historyId,
-                  base64,
+                  ...buildHistoryImageSource(base64),
                   title: `GeneratePro4 #${
                     slotIndex + 1
                   } ${new Date().toLocaleTimeString()}`,
@@ -21509,7 +21825,7 @@ function FlowInner() {
                         if (
                           outEdges.some((e) => e.target === n.id) &&
                           n.type === "image" &&
-                          (n.data as any)?.imageData === base64
+                          nodeHasGeneratedImageSource(n.data, base64)
                         ) {
                           return {
                             ...n,
@@ -21686,7 +22002,7 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: "succeeded",
-                    imageData: imgBase64,
+                    ...buildGeneratedImagePatch(imgBase64),
                     error: undefined,
                     responseText: generatedResponseText,
                   },
@@ -21718,8 +22034,7 @@ function FlowInner() {
                     ...n,
                     data: {
                       ...n.data,
-                      imageData: imgBase64,
-                      thumbnail: undefined,
+                      ...buildGeneratedImagePatch(imgBase64),
                     },
                   };
                 return n;
@@ -21737,7 +22052,7 @@ function FlowInner() {
               node.type === "generatePro" ? "generatePro" : "generate";
             void recordImageHistoryEntry({
               id: historyId,
-              base64: imgBase64,
+              ...buildHistoryImageSource(imgBase64),
               title: `${
                 node.type === "generatePro"
                   ? "GeneratePro"
@@ -21766,7 +22081,7 @@ function FlowInner() {
                   ns.map((n) => {
                     // 更新当前生成节点自身
                     if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== imgBase64) return n;
+                      if (!nodeHasGeneratedImageSource(n.data, imgBase64)) return n;
                       return {
                         ...n,
                         data: {
@@ -21784,7 +22099,7 @@ function FlowInner() {
                     if (
                       outs.some((e) => e.target === n.id) &&
                       n.type === "image" &&
-                      (n.data as any)?.imageData === imgBase64
+                      nodeHasGeneratedImageSource(n.data, imgBase64)
                     ) {
                       return {
                         ...n,
@@ -23193,7 +23508,7 @@ function FlowInner() {
               onRenameGroup: promptGroupName,
               onUpdateGroupName: updateGroupName,
               onChangeGroupColor: changeGroupColor,
-              onUngroup: (groupId: string) => dissolveGroups([groupId]),
+              onUngroup: handleUngroup,
               onRunGroup: runGroupNodes,
               onStopGroup: stopGroupRun,
               groupRunning: runningGroupIds.includes(n.id),
@@ -23252,7 +23567,8 @@ function FlowInner() {
           n.type === "viduQ3" ||
           n.type === "doubaoVideo" ||
           n.type === "seedance20Video" ||
-          n.type === "seedVideo"
+          n.type === "seedVideo" ||
+          n.type === "omniFlashExtVideo"
         ) {
           enhancedNode = {
             ...n,
@@ -24896,7 +25212,7 @@ function FlowInner() {
             } catch {}
 
             // 提交到项目内容
-            const ns = rfNodesToTplNodes(nodesRef.current as any);
+            const ns = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
             const es = rfEdgesToTplEdges(edgesRef.current);
             scheduleCommit(ns, es);
 
@@ -24916,7 +25232,7 @@ function FlowInner() {
           altDragStartRef.current = null;
 
           // 普通拖拽：提交位置变化
-          const ns = rfNodesToTplNodes(nodesRef.current as any);
+          const ns = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
           const es = rfEdgesToTplEdges(edgesRef.current);
           scheduleCommit(ns, es);
           syncViewportToCanvasStore();
@@ -26063,4 +26379,3 @@ export default function FlowOverlay() {
     </div>
   );
 }
-

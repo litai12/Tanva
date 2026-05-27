@@ -26,10 +26,11 @@ type TencentResponsePayload = Record<string, any>;
 @Injectable()
 export class TencentSpeechService {
   private readonly logger = new Logger(TencentSpeechService.name);
+  private readonly newApiKey: string;
+  private readonly newApiBaseUrl: string;
   private readonly secretId: string;
   private readonly secretKey: string;
   private readonly sessionToken?: string;
-  private readonly endpoint: string;
   private readonly region: string;
   private readonly version: string;
   private readonly service = 'mps';
@@ -59,12 +60,18 @@ export class TencentSpeechService {
     private readonly oss: OssService,
     private readonly aiProviderFactory: AIProviderFactory,
   ) {
+    this.newApiKey = (
+      this.configService.get<string>('NEW_API_KEY') ||
+      this.configService.get<string>('NEW_API_TOKEN') ||
+      ''
+    ).trim();
+    this.newApiBaseUrl = (
+      this.configService.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '');
     this.secretId = (this.configService.get<string>('TENCENT_MPS_SECRET_ID') || '').trim();
     this.secretKey = (this.configService.get<string>('TENCENT_MPS_SECRET_KEY') || '').trim();
     this.sessionToken =
       (this.configService.get<string>('TENCENT_MPS_SESSION_TOKEN') || '').trim() || undefined;
-    this.endpoint =
-      (this.configService.get<string>('TENCENT_MPS_ENDPOINT') || 'mps.tencentcloudapi.com').trim();
     this.region = (this.configService.get<string>('TENCENT_MPS_REGION') || 'ap-guangzhou').trim();
     this.version = (this.configService.get<string>('TENCENT_MPS_API_VERSION') || '2019-06-12').trim();
     const definitionRaw = (this.configService.get<string>('TENCENT_MPS_DUBBING_DEFINITION') || '').trim();
@@ -1282,17 +1289,12 @@ export class TencentSpeechService {
   private async callTencentApi(action: string, payload: Record<string, any>): Promise<TencentResponsePayload> {
     this.ensureCredentialReady();
     const body = JSON.stringify(payload);
-    const timestamp = Math.floor(Date.now() / 1000);
-    const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-    const authorization = this.buildAuthorization(action, body, timestamp, date);
-    const url = `https://${this.endpoint}`;
+    const url = `${this.newApiBaseUrl}/proxy/tencent/mps`;
 
     const headers: Record<string, string> = {
-      Authorization: authorization,
-      'Content-Type': 'application/json; charset=utf-8',
-      Host: this.endpoint,
+      Authorization: `Bearer ${this.newApiKey}`,
+      'Content-Type': 'application/json',
       'X-TC-Action': action,
-      'X-TC-Timestamp': String(timestamp),
       'X-TC-Version': this.version,
       'X-TC-Region': this.region,
     };
@@ -1350,42 +1352,6 @@ export class TencentSpeechService {
     }
   }
 
-  private buildAuthorization(
-    action: string,
-    requestPayload: string,
-    timestamp: number,
-    date: string,
-  ): string {
-    const canonicalHeaders =
-      `content-type:application/json; charset=utf-8\n` +
-      `host:${this.endpoint}\n` +
-      `x-tc-action:${action.toLowerCase()}\n`;
-    const signedHeaders = 'content-type;host;x-tc-action';
-    const hashedPayload = this.sha256Hex(requestPayload);
-    const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\n${signedHeaders}\n${hashedPayload}`;
-    const credentialScope = `${date}/${this.service}/tc3_request`;
-    const stringToSign =
-      `TC3-HMAC-SHA256\n${timestamp}\n${credentialScope}\n${this.sha256Hex(canonicalRequest)}`;
-
-    const secretDate = this.hmac(`TC3${this.secretKey}`, date);
-    const secretService = this.hmac(secretDate, this.service);
-    const secretSigning = this.hmac(secretService, 'tc3_request');
-    const signature = this.hmac(secretSigning, stringToSign).toString('hex');
-
-    return (
-      `TC3-HMAC-SHA256 Credential=${this.secretId}/${credentialScope}, ` +
-      `SignedHeaders=${signedHeaders}, Signature=${signature}`
-    );
-  }
-
-  private sha256Hex(content: string): string {
-    return crypto.createHash('sha256').update(content).digest('hex');
-  }
-
-  private hmac(key: string | Buffer, content: string): Buffer {
-    return crypto.createHmac('sha256', key).update(content).digest();
-  }
-
   private extractResponse(payload: TencentResponsePayload): TencentResponsePayload {
     if (payload?.Response && typeof payload.Response === 'object') {
       return payload.Response as TencentResponsePayload;
@@ -1407,9 +1373,9 @@ export class TencentSpeechService {
   }
 
   private ensureCredentialReady(): void {
-    if (!this.secretId || !this.secretKey) {
+    if (!this.newApiKey) {
       throw new ServiceUnavailableException(
-        'Tencent MPS credentials are not configured (TENCENT_MPS_SECRET_ID/TENCENT_MPS_SECRET_KEY)',
+        'NEW_API_KEY is not configured (required to proxy Tencent MPS calls through new-api)',
       );
     }
   }

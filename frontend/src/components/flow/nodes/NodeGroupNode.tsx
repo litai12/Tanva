@@ -69,7 +69,7 @@ const mixRgba = (
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
 
-export default function NodeGroupNode({ id, data, selected }: Props) {
+function NodeGroupNode({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const [isEditingName, setIsEditingName] = React.useState(false);
   const isDarkTheme = data?.isDarkTheme === true;
@@ -520,3 +520,30 @@ export default function NodeGroupNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+// Custom comparator: data is always a new object (created by nodesWithHandlers),
+// so default shallow-equal would always return false. Compare only fields that
+// actually affect the rendered output.
+export default React.memo(NodeGroupNode, (prev, next) => {
+  if (prev.id !== next.id || prev.selected !== next.selected) return false;
+  const p = prev.data;
+  const n = next.data;
+  return (
+    p.groupName        === n.groupName        &&
+    p.groupColor       === n.groupColor       &&
+    p.groupRunning     === n.groupRunning     &&
+    p.groupStopping    === n.groupStopping    &&
+    p.groupCollapsed   === n.groupCollapsed   &&
+    p.groupChildCount  === n.groupChildCount  &&
+    p.isDarkTheme      === n.isDarkTheme      &&
+    p.groupPreviewImages === n.groupPreviewImages &&
+    // Callbacks: stable when useCallback deps don't change
+    p.onRenameGroup    === n.onRenameGroup    &&
+    p.onUpdateGroupName === n.onUpdateGroupName &&
+    p.onChangeGroupColor === n.onChangeGroupColor &&
+    p.onUngroup        === n.onUngroup        &&
+    p.onRunGroup       === n.onRunGroup       &&
+    p.onStopGroup      === n.onStopGroup      &&
+    p.onToggleCollapse === n.onToggleCollapse
+  );
+});

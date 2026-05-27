@@ -67,6 +67,7 @@ import {
   updateAsyncTask,
   getAsyncTaskResult,
 } from './services/async-video-task.store';
+import { GenerationTaskService } from './services/generation-task.service';
 import { VideoProviderRequestDto } from './dto/video-provider.dto';
 import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { VolcEnhanceVideoDto } from './dto/volc-enhance-video.dto';
@@ -78,6 +79,7 @@ import { Readable } from 'stream';
 import { verify } from 'jsonwebtoken';
 import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
+import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -113,7 +115,7 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
   'gemini-prompt-optimize',
 ] as const;
 
-type BananaRouteKey = 'normal' | 'stable';
+type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
 type BananaRouteSuccessRateStats = {
   route: BananaRouteKey;
@@ -438,6 +440,8 @@ export class AiController {
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
+    @Optional() private readonly generationTaskService?: GenerationTaskService,
+    @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -895,6 +899,8 @@ export class AiController {
     const channelHint =
       bananaImageRoute === 'stable'
         ? 'tencent'
+        : bananaImageRoute === 'ultra'
+        ? 'beqlee'
         : bananaImageRoute === 'normal'
         ? 'apimart'
         : aiProvider === 'nano2'
@@ -916,6 +922,7 @@ export class AiController {
     const normalized = value.trim().toLowerCase();
     if (normalized === 'normal') return 'normal';
     if (normalized === 'stable') return 'stable';
+    if (normalized === 'ultra' || normalized === 'beqlee') return 'ultra';
     return null;
   }
 
@@ -942,6 +949,7 @@ export class AiController {
       if (typeof candidate !== 'string') continue;
       const normalized = this.normalizeChannelName(candidate);
       if (normalized === 'tencent') return 'stable';
+      if (normalized === 'beqlee') return 'ultra';
       if (normalized === 'apimart' || normalized === '147') return 'normal';
     }
 
@@ -988,6 +996,7 @@ export class AiController {
     const byRoute: Record<BananaRouteKey, BananaRouteSuccessRateStats> = {
       normal: this.createRouteSuccessRateStats('normal'),
       stable: this.createRouteSuccessRateStats('stable'),
+      ultra: this.createRouteSuccessRateStats('ultra'),
     };
 
     const records = await this.prisma.apiUsageRecord.findMany({
@@ -1582,6 +1591,7 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    let teamReserve: { isTeamMode: true; teamId: string; amount: number } | null = null;
     const sanitizedRequestParams = requestParams
       ? Object.fromEntries(
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
@@ -1589,8 +1599,12 @@ export class AiController {
       : undefined;
     const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
+    // 团队模式检测（在预扣积分前）：团队项目不扣个人积分
+    const teamId = this.getTeamId(req);
+    const isTeamProject = !!(teamId && this.teamCreditLedger && await this.isNonPersonalTeam(teamId));
+
     try {
-      // 预扣积分
+      // 预扣积分（团队模式只建用量记录，不动个人积分）
       const deductResult = await this.creditsService.preDeductCredits({
         userId,
         serviceType,
@@ -1601,11 +1615,27 @@ export class AiController {
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
         idempotencyKey,
+        skipPersonalDeduction: isTeamProject,
       });
 
       apiUsageId = deductResult.apiUsageId;
-      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
+      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${isTeamProject}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
+
+      // 团队积分预留（在个人积分处理后执行）
+      if (isTeamProject && teamId) {
+        const reserved = await this.teamCreditLedger!.reserve({
+          teamId,
+          amount: deductResult.creditsToDeduct,
+          taskId: apiUsageId,
+          taskKind: serviceType,
+          actorUserId: userId,
+        });
+        if (!reserved.reserved) {
+          throw new BadRequestException(reserved.reason ?? '团队积分不足');
+        }
+        teamReserve = { isTeamMode: true, teamId, amount: deductResult.creditsToDeduct };
+      }
 
       // 执行实际操作
       const result = await operation();
@@ -1674,6 +1704,17 @@ export class AiController {
         processingTime,
       );
 
+      // 团队积分确认扣除
+      if (teamReserve) {
+        await this.teamCreditLedger!.deduct({
+          teamId: teamReserve.teamId,
+          amount: teamReserve.amount,
+          taskId: apiUsageId!,
+          taskKind: serviceType,
+          actorUserId: userId,
+        }).catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      }
+
       return result;
     } catch (error) {
       // 更新状态为失败并退还积分
@@ -1687,23 +1728,41 @@ export class AiController {
       );
 
       if (apiUsageId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage,
-          processingTime,
-        });
-        if (refunded) {
-          this.logger.warn(
-            `[${serviceType}] Credits successfully refunded for failed operation: ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+        if (isTeamProject) {
+          // 团队模式：只标记失败，无个人积分需退还
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.FAILED,
+            errorMessage,
+            processingTime,
+          ).catch((e) => this.logger.warn(`团队模式标记失败状态出错: ${e?.message}`));
         } else {
-          this.logger.error(
-            `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+          const refunded = await this.markFailedAndRefundWithRetry({
+            userId,
+            apiUsageId,
+            serviceType,
+            errorMessage,
+            processingTime,
+          });
+          if (refunded) {
+            this.logger.warn(
+              `[${serviceType}] Credits successfully refunded for failed operation: ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          } else {
+            this.logger.error(
+              `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          }
+        }
+        // 释放团队积分预留
+        if (teamReserve) {
+          await this.teamCreditLedger!.release({
+            teamId: teamReserve.teamId,
+            amount: teamReserve.amount,
+            taskId: apiUsageId,
+          }).catch((e) => this.logger.warn(`团队积分释放失败: ${e?.message}`));
         }
       } else {
         this.logger.error(
@@ -2035,84 +2094,6 @@ export class AiController {
     }
   }
 
-  private async analyzeVideoVia147ChatCompletions(params: {
-    model: string;
-    prompt: string;
-    videoUrl: string;
-  }): Promise<string> {
-    const apiKey =
-      process.env.BANANA_API_KEY ||
-      process.env.VEO_API_KEY ||
-      process.env.SORA2_API_KEY ||
-      null;
-    if (!apiKey) {
-      throw new ServiceUnavailableException('147 API Key 未配置（BANANA_API_KEY），请检查后端环境变量');
-    }
-
-    const apiBaseUrl = (
-      process.env.VEO_API_ENDPOINT ||
-      process.env.VEO_API_BASE_URL ||
-      process.env.SORA2_API_ENDPOINT ||
-      'https://api1.147ai.com'
-    ).replace(/\/+$/, '');
-
-    // 视频分析需要较长时间，设置 5 分钟超时
-    const VIDEO_ANALYSIS_TIMEOUT = 5 * 60 * 1000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VIDEO_ANALYSIS_TIMEOUT);
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: params.model,
-          stream: false,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: params.prompt },
-                { type: 'image_url', image_url: { url: params.videoUrl } },
-              ],
-            },
-          ],
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new ServiceUnavailableException(
-          `147 /v1/chat/completions error: HTTP ${response.status} ${text}`.trim()
-        );
-      }
-
-      const data: any = await response.json().catch(() => ({}));
-      const content = data?.choices?.[0]?.message?.content;
-      if (typeof content === 'string' && content.trim().length) return content.trim();
-      if (Array.isArray(content)) {
-        const joined = content
-          .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
-          .join('')
-          .trim();
-        if (joined.length) return joined;
-      }
-
-      throw new ServiceUnavailableException('147 AI 返回了空内容，请稍后重试');
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new ServiceUnavailableException(`Video analysis timeout (${VIDEO_ANALYSIS_TIMEOUT / 1000}s)`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
 
   private parseAndValidateAllowedUrl(urlValue: string): URL {
     let parsed: URL;
@@ -2224,20 +2205,22 @@ export class AiController {
 
   private resolveBananaImageRouteFromProviderOptions(
     providerOptions?: Record<string, any>,
-  ): 'normal' | 'stable' | null {
+  ): BananaRouteKey | null {
     const nestedRouteRaw = providerOptions?.banana?.imageRoute;
     const nestedRoute =
       typeof nestedRouteRaw === 'string' ? nestedRouteRaw.trim().toLowerCase() : '';
     if (nestedRoute === 'normal' || nestedRoute === 'stable') {
-      return nestedRoute as 'normal' | 'stable';
+      return nestedRoute as BananaRouteKey;
     }
+    if (nestedRoute === 'ultra' || nestedRoute === 'beqlee') return 'ultra';
 
     const legacyRouteRaw = providerOptions?.bananaImageRoute;
     const legacyRoute =
       typeof legacyRouteRaw === 'string' ? legacyRouteRaw.trim().toLowerCase() : '';
     if (legacyRoute === 'normal' || legacyRoute === 'stable') {
-      return legacyRoute as 'normal' | 'stable';
+      return legacyRoute as BananaRouteKey;
     }
+    if (legacyRoute === 'ultra' || legacyRoute === 'beqlee') return 'ultra';
 
     return null;
   }
@@ -3008,6 +2991,8 @@ export class AiController {
 
   @Post('generate-image')
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<GenerateImageUrlResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as GenerateImageDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3040,8 +3025,8 @@ export class AiController {
     );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
     const requestedOutputImageCount =
       dto.batchMode && Number.isFinite(Number(dto.batchCount))
         ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
@@ -3118,8 +3103,8 @@ export class AiController {
               this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
             }
 
-            if (providerName && providerName !== 'gemini-pro') {
-              const provider = this.factory.getProvider(dto.model, providerName);
+            if (!customApiKey) {
+              const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
               const result = await provider.generateImage({
                 prompt: dto.prompt,
                 model,
@@ -3314,6 +3299,8 @@ export class AiController {
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as EditImageDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3323,8 +3310,8 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
@@ -3448,8 +3435,8 @@ export class AiController {
             this.validateImageDataUrl(sourceImage);
           }
 
-          if (providerName && providerName !== 'gemini-pro') {
-            const provider = this.factory.getProvider(dto.model, providerName);
+          if (!customApiKey) {
+            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.editImage({
               prompt: dto.prompt,
               sourceImage,
@@ -3573,6 +3560,8 @@ export class AiController {
 
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
+    if (!dto.imageSize && dto.resolution) dto.imageSize = dto.resolution.toUpperCase();
+    if (!dto.aspectRatio && dto.size) dto.aspectRatio = dto.size as BlendImagesDto['aspectRatio'];
     const startTime = Date.now();
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const generationTaskId = `sync-blend-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3582,8 +3571,8 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // 根据模型选择服务类型：Fast (2.5) / Nano banana 2 (3.1) / Pro
     const serviceType = model?.includes('2.5')
@@ -3695,8 +3684,8 @@ export class AiController {
               )
             : sourceImages;
 
-          if (providerName && providerName !== 'gemini-pro') {
-            const provider = this.factory.getProvider(dto.model, providerName);
+          if (!customApiKey) {
+            const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.blendImages({
               prompt: dto.prompt,
               sourceImages: normalizedSourceImages,
@@ -3903,8 +3892,8 @@ export class AiController {
     const primarySourceImage = normalizedImages[0];
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     // Map analyze billing by provider tier: Fast(2.5), Pro(3.0), Ultra(3.1).
     const serviceType: ServiceType =
@@ -3915,8 +3904,8 @@ export class AiController {
         : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
           sourceImage: primarySourceImage,
@@ -3967,12 +3956,12 @@ export class AiController {
       billingTag === 'prompt_optimize' ? 'gemini-prompt-optimize' : 'gemini-text';
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     return this.withCredits(req, serviceType, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.generateText({
           prompt: dto.prompt,
           model,
@@ -4138,7 +4127,18 @@ export class AiController {
     this.logger.log('🎨 Seed3D async conversion request received');
 
     const taskId = `async-seed3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    createAsyncTask(taskId);
+    if (this.generationTaskService) {
+      await this.generationTaskService.createVideoTask({
+        taskId,
+        userId: this.getUserId(req) ?? 'anonymous',
+        nodeId: dto.nodeId,
+        taskType: 'seed3d',
+        prompt: dto.prompt,
+        projectId: dto.projectId,
+      });
+    } else {
+      createAsyncTask(taskId);
+    }
     this.executeSeed3DTaskAsync(taskId, dto, req);
 
     return {
@@ -4200,12 +4200,18 @@ export class AiController {
         status: 'failed',
         error: message,
       });
+      void this.generationTaskService?.updateVideoTask(taskId, {
+        status: 'failed',
+        error: message,
+        completedAt: new Date(),
+      });
       this.logger.error(`[Async] Seed3D task failed: taskId=${taskId}, error=${message}`);
     });
   }
 
   private async processSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): Promise<void> {
     updateAsyncTask(taskId, { status: 'processing' });
+    void this.generationTaskService?.updateVideoTask(taskId, { status: 'processing' });
 
     const result = await this.withCredits(
       req,
@@ -4252,6 +4258,15 @@ export class AiController {
         promptId: (result as any)?.promptId,
         modelKey: (result as any)?.modelKey,
       },
+    });
+    void this.generationTaskService?.updateVideoTask(taskId, {
+      status: 'succeeded',
+      result: {
+        modelUrl: (result as any)?.modelUrl,
+        promptId: (result as any)?.promptId,
+        modelKey: (result as any)?.modelKey,
+      },
+      completedAt: new Date(),
     });
   }
 
@@ -4525,9 +4540,21 @@ export class AiController {
       duration: dto.duration,
     });
 
-    // 创建异步任务并写入内存存储
+    // 创建异步任务：写入内存 + DB
     const taskId = `async-sora2-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    createAsyncTask(taskId);
+    if (this.generationTaskService) {
+      await this.generationTaskService.createVideoTask({
+        taskId,
+        userId: this.getUserId(req) ?? 'anonymous',
+        nodeId: dto.nodeId,
+        taskType: selectedSoraModel,
+        prompt: dto.prompt,
+        metadata: { quality, aspectRatio: dto.aspectRatio, duration: dto.duration },
+        projectId: dto.projectId,
+      });
+    } else {
+      createAsyncTask(taskId);
+    }
     const traceContext = this.getTraceContext(req);
     void this.telemetryService.ingestGenerationTask({
       traceId: traceContext.traceId || null,
@@ -4634,6 +4661,7 @@ export class AiController {
       async () => {
         // 更新任务状态为处理中
         updateAsyncTask(taskId, { status: 'processing' });
+        void this.generationTaskService?.updateVideoTask(taskId, { status: 'processing' });
         const startedAt = Date.now();
         void this.telemetryService.ingestGenerationTask({
           traceId: traceContext.traceId || null,
@@ -4729,6 +4757,11 @@ export class AiController {
             status: 'completed',
             result: result as any,
           });
+          void this.generationTaskService?.updateVideoTask(taskId, {
+            status: 'succeeded',
+            result: result as Record<string, any>,
+            completedAt: new Date(),
+          });
           this.logger.log(`[Async] Video generation task ${taskId} completed successfully`);
           void this.telemetryService.ingestGenerationTask({
             traceId: traceContext.traceId || null,
@@ -4753,6 +4786,11 @@ export class AiController {
           updateAsyncTask(taskId, {
             status: 'failed',
             error: errorMessage,
+          });
+          void this.generationTaskService?.updateVideoTask(taskId, {
+            status: 'failed',
+            error: errorMessage,
+            completedAt: new Date(),
           });
           this.logger.error(`[Async] Video generation task ${taskId} failed:`, error);
           void this.telemetryService.ingestGenerationTask({
@@ -4834,6 +4872,21 @@ export class AiController {
         status: asyncTask.status === 'processing' ? 'processing' : 'pending',
         progress: asyncTask.status === 'processing' ? 50 : 10,
       });
+    }
+
+    // Check DB for tasks that have left memory (e.g. after restart)
+    if (this.generationTaskService) {
+      const dbTask = await this.generationTaskService.findVideoTaskById(trimmedTaskId);
+      if (dbTask) {
+        return this.normalizeVideoTaskResponse({
+          id: trimmedTaskId,
+          status: dbTask.status,
+          videoUrl: (dbTask.result as any)?.videoUrl,
+          thumbnailUrl: (dbTask.result as any)?.thumbnailUrl,
+          raw: dbTask.result as any,
+          error: dbTask.error ?? undefined,
+        });
+      }
     }
 
     // 非异步任务，调用原始的 Sora2 查询接口
@@ -5530,12 +5583,62 @@ export class AiController {
     return 'processing';
   }
 
-  private normalizeVideoTaskResponse<T extends Record<string, any>>(payload: T): T & {
+  private normalizeVideoTaskResponse(payload: Record<string, any>): {
     status: 'queued' | 'processing' | 'succeeded' | 'failed';
+    videoUrl?: string;
+    thumbnailUrl?: string;
+    taskId?: string;
+    error?: string;
+    execution?: Record<string, any>;
   } {
+    const status = this.normalizeUnifiedVideoStatus(payload?.status);
+
+    // 从各种字段名中提取 videoUrl
+    const isHttpUrl = (v: unknown): v is string =>
+      typeof v === 'string' && /^https?:\/\//i.test(v);
+
+    const resolveVideoUrl = (): string | undefined => {
+      const candidates = [
+        payload?.videoUrl,
+        payload?.video_url,
+        payload?.url,
+        payload?.metadata?.url,
+        payload?.data?.url,
+        payload?.data?.video_url,
+        payload?.output?.video_url,
+        payload?.output?.url,
+      ];
+      return candidates.find(isHttpUrl);
+    };
+
+    const resolveThumbnailUrl = (): string | undefined => {
+      const candidates = [
+        payload?.thumbnailUrl,
+        payload?.thumbnail_url,
+        payload?.poster,
+        payload?.metadata?.thumbnail_url,
+      ];
+      return candidates.find(isHttpUrl);
+    };
+
+    const videoUrl = resolveVideoUrl();
+    const thumbnailUrl = resolveThumbnailUrl();
+    const error =
+      typeof payload?.error === 'string' && payload.error ? payload.error : undefined;
+    const taskId =
+      typeof payload?.taskId === 'string' && payload.taskId ? payload.taskId : undefined;
+    const execution =
+      payload?.execution && typeof payload.execution === 'object'
+        ? payload.execution
+        : undefined;
+
     return {
-      ...payload,
-      status: this.normalizeUnifiedVideoStatus(payload?.status),
+      status,
+      ...(videoUrl !== undefined ? { videoUrl } : {}),
+      ...(thumbnailUrl !== undefined ? { thumbnailUrl } : {}),
+      ...(taskId !== undefined ? { taskId } : {}),
+      ...(error !== undefined ? { error } : {}),
+      ...(execution !== undefined ? { execution } : {}),
     };
   }
 
@@ -5550,14 +5653,14 @@ export class AiController {
     const model = this.resolveTextModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
 
     return this.withCredits(req, 'gemini-paperjs', model, async () => {
       const startTime = Date.now();
 
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
 
         const result = await provider.generatePaperJS({
           prompt: dto.prompt,
@@ -5575,7 +5678,7 @@ export class AiController {
             code: result.data.code,
             explanation: result.data.explanation,
             model,
-            provider: providerName,
+            provider: providerName || 'new-api',
             createdAt: new Date().toISOString(),
             metadata: {
               canvasSize: {
@@ -5628,15 +5731,15 @@ export class AiController {
     const normalizedModel = model?.replace(/^banana-/, '') || model;
 
     // 检查是否使用自定义 API Key
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
-    const skipCredits = !!customApiKey;
+    const customApiKey = null;
+    const skipCredits = false;
     let fallbackProvider: string | null = null;
 
     return this.withCredits(req, 'gemini-img2vector', model, async () => {
       const startTime = Date.now();
 
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (!customApiKey) {
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
 
         if (typeof (provider as any).img2Vector === 'function') {
           try {
@@ -5659,7 +5762,7 @@ export class AiController {
                 imageAnalysis: result.data.imageAnalysis,
                 explanation: result.data.explanation,
                 model,
-                provider: providerName,
+                provider: providerName || 'new-api',
                 createdAt: new Date().toISOString(),
                 metadata: {
                   canvasSize: {
@@ -6456,6 +6559,7 @@ export class AiController {
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
+    const customApiKey = null;
     const videoProviderOptions = {
       ...(dto.providerOptions || {}),
       ...(dto.bananaImageRoute ? { bananaImageRoute: dto.bananaImageRoute } : {}),
@@ -6481,48 +6585,8 @@ export class AiController {
         // 147(Banana) direct video understanding is only used on legacy 147 text route.
         // For normal/stable routes, always use the unified frame-based pipeline so routing
         // follows providerOptions + backend supplier settings consistently.
-        const bananaVideoMode =
-          providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
-            ? await this.getBananaImageProviderMode(videoProviderOptions)
-            : null;
-        const allow147DirectVideoUnderstanding =
-          bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
-
-        if (providerName && providerName !== 'gemini-pro') {
-          if (
-            (providerName === 'banana' ||
-              providerName === 'banana-2.5' ||
-              providerName === 'banana-3.1') &&
-            allow147DirectVideoUnderstanding
-          ) {
-            stage = 'direct_video_understanding';
-            try {
-              const analysisText = await this.analyzeVideoVia147ChatCompletions({
-                model,
-                prompt: dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息',
-                videoUrl: parsedUrl.toString(),
-              });
-              const processingTime = Date.now() - startTime;
-              this.logger.log(
-                `✅ Video analysis (147 direct) completed in ${processingTime}ms`
-              );
-              return {
-                analysis: analysisText,
-                text: analysisText,
-                model,
-                provider: providerName,
-                processingTime,
-              };
-            } catch (err: any) {
-              // 147 直接视频理解失败，不再降级到 ffmpeg 抽帧方案
-              // 因为 ffmpeg 需要服务器安装，不适合云部署环境
-              this.logger.error(
-                `❌ 147 direct video understanding failed: ${this.summarizeError(err)}`
-              );
-              throw err;
-            }
-          }
-        }
+        // 单轨模式下不再直连 147/Banana 视频理解；统一抽帧后交给 new-api
+        // provider 做帧分析与总结。
 
         // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
         stage = 'download_video';
@@ -6587,9 +6651,9 @@ export class AiController {
         this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
 
         // 非 Google provider：抽帧 -> 走现有图片分析/文本总结链路（国内可用，如 banana/147）
-        if (providerName && providerName !== 'gemini-pro') {
+        if (!customApiKey) {
           stage = 'extract_frames';
-          const provider = this.factory.getProvider(dto.model, providerName);
+          const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
           const maxFrames = 8;
           const intervalSeconds = 3;
           this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
@@ -6651,7 +6715,7 @@ export class AiController {
             analysis: analysisText,
             text: analysisText,
             model,
-            provider: providerName,
+            provider: providerName || 'new-api',
             processingTime,
             frameCount: frames.length,
           };
@@ -6765,6 +6829,23 @@ export class AiController {
   }
 
   /**
+   * 批量按画布节点 ID 查询任务状态，用于页面刷新后恢复生成任务
+   */
+  @Post('tasks/by-nodes')
+  async batchQueryTasksByNodes(
+    @Body() body: { nodeIds: string[] },
+    @Req() req: any,
+  ) {
+    if (!this.generationTaskService) {
+      return {};
+    }
+    const nodeIds: string[] = Array.isArray(body?.nodeIds) ? body.nodeIds : [];
+    if (nodeIds.length === 0) return {};
+    const userId = this.getUserId(req) ?? 'anonymous';
+    return this.generationTaskService.batchQueryByNodeIds(nodeIds, userId);
+  }
+
+  /**
    * 异步图像生成 - 创建任务
    */
   @Post('generate-image-async')
@@ -6791,6 +6872,7 @@ export class AiController {
       { ...dto, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
@@ -6827,6 +6909,7 @@ export class AiController {
       { ...dto, sourceImage, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
@@ -6865,6 +6948,7 @@ export class AiController {
       { ...dto, sourceImages, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
+      dto.nodeId,
     );
 
     return {
@@ -6966,5 +7050,13 @@ export class AiController {
       async () => this.minimaxMusicService.generateMusic(dto),
     );
   }
-}
 
+  private getTeamId(req: any): string | undefined {
+    return req.headers?.['x-team-id'] as string | undefined;
+  }
+
+  private async isNonPersonalTeam(teamId: string): Promise<boolean> {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { isPersonal: true } });
+    return !!(team && !team.isPersonal);
+  }
+}

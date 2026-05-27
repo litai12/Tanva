@@ -49,6 +49,14 @@ import {
   updateNodeConfig,
   createNodeConfig,
   deleteNodeConfig,
+  adminGetTeams,
+  adminAddTeamCredits,
+  adminDeductTeamCredits,
+  adminUpdateTeamSeats,
+  adminUpdateTeamStatus,
+  adminDeleteTeam,
+  adminGetTeamCreditHistory,
+  type AdminTeamItem,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
@@ -4770,6 +4778,7 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
   return metadata;
 };
 
+
 // 用户管理 Tab
 function UsersTab({
   canManageSensitiveUserFields,
@@ -4826,6 +4835,121 @@ function UsersTab({
     "immediate" | "next_cycle"
   >("immediate");
   const tableColumnCount = canManageSensitiveUserFields ? 9 : 7;
+
+  // ── 团队视图 ──
+  const [view, setView] = useState<'users' | 'teams'>('users');
+  const [teams, setTeams] = useState<AdminTeamItem[]>([]);
+  const [teamPagination, setTeamPagination] = useState<Pagination | null>(null);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [teamPage, setTeamPage] = useState(1);
+  const [teamCreditModal, setTeamCreditModal] = useState<{
+    teamId: string; teamName: string; mode: 'add' | 'deduct';
+  } | null>(null);
+  const [teamCreditAmount, setTeamCreditAmount] = useState('');
+  const [teamCreditDesc, setTeamCreditDesc] = useState('');
+  const [teamCreditBusy, setTeamCreditBusy] = useState(false);
+  const [teamCreditError, setTeamCreditError] = useState('');
+  const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
+  const [teamSeatModal, setTeamSeatModal] = useState<{ teamId: string; teamName: string; currentSeats: number } | null>(null);
+  const [teamSeatValue, setTeamSeatValue] = useState('');
+  const [teamSeatBusy, setTeamSeatBusy] = useState(false);
+  const [teamSeatError, setTeamSeatError] = useState('');
+  const [teamDetailDrawer, setTeamDetailDrawer] = useState<{ teamId: string; teamName: string } | null>(null);
+  const [teamCreditHistory, setTeamCreditHistory] = useState<any[]>([]);
+  const [teamCreditHistoryLoading, setTeamCreditHistoryLoading] = useState(false);
+
+  const loadTeams = useCallback(async (p = 1, q = teamSearch) => {
+    setTeamsLoading(true);
+    try {
+      const res = await adminGetTeams({ search: q || undefined, page: p, pageSize: 20 });
+      setTeams(res.teams);
+      setTeamPagination(res.pagination);
+      setTeamPage(p);
+    } catch (e: any) {
+      alert(e?.message || '加载团队失败');
+    } finally {
+      setTeamsLoading(false);
+    }
+  }, [teamSearch]);
+
+  useEffect(() => {
+    if (view === 'teams') void loadTeams(1);
+  }, [view]);
+
+  const submitTeamCredit = async () => {
+    if (!teamCreditModal) return;
+    const amount = Number(teamCreditAmount);
+    if (!amount || amount <= 0) { setTeamCreditError('请输入有效积分数'); return; }
+    setTeamCreditBusy(true);
+    setTeamCreditError('');
+    try {
+      if (teamCreditModal.mode === 'add') {
+        await adminAddTeamCredits(teamCreditModal.teamId, amount, teamCreditDesc || `管理员增加 ${amount} 积分`);
+      } else {
+        await adminDeductTeamCredits(teamCreditModal.teamId, amount, teamCreditDesc || `管理员扣除 ${amount} 积分`);
+      }
+      setTeamCreditModal(null);
+      void loadTeams(teamPage);
+    } catch (e: any) {
+      setTeamCreditError(e?.message || '操作失败');
+    } finally {
+      setTeamCreditBusy(false);
+    }
+  };
+
+  const submitTeamSeats = async () => {
+    if (!teamSeatModal) return;
+    const seats = Number(teamSeatValue);
+    if (!Number.isInteger(seats) || seats < 1) { setTeamSeatError('请输入有效席位数（正整数）'); return; }
+    setTeamSeatBusy(true);
+    setTeamSeatError('');
+    try {
+      await adminUpdateTeamSeats(teamSeatModal.teamId, seats);
+      setTeamSeatModal(null);
+      void loadTeams(teamPage);
+    } catch (e: any) {
+      setTeamSeatError(e?.message || '操作失败');
+    } finally {
+      setTeamSeatBusy(false);
+    }
+  };
+
+  const handleTeamStatusChange = async (teamId: string, status: string) => {
+    try {
+      await adminUpdateTeamStatus(teamId, status);
+      setTeams((prev) => prev.map((t) => t.id === teamId ? { ...t, status } : t));
+    } catch (e: any) {
+      alert(e?.message || '修改状态失败');
+    }
+  };
+
+  const handleDeleteTeam = async (team: AdminTeamItem) => {
+    if (!confirm(`确认删除团队「${team.name}」？此操作不可撤销，团队下所有成员关系将被清除。`)) return;
+    setDeletingTeamId(team.id);
+    try {
+      await adminDeleteTeam(team.id);
+      void loadTeams(teamPage);
+    } catch (e: any) {
+      alert(e?.message || '删除失败');
+    } finally {
+      setDeletingTeamId(null);
+    }
+  };
+
+  const openTeamDetail = async (team: AdminTeamItem) => {
+    setTeamDetailDrawer({ teamId: team.id, teamName: team.name });
+    setTeamCreditHistory([]);
+    setTeamCreditHistoryLoading(true);
+    try {
+      const res = await adminGetTeamCreditHistory(team.id);
+      setTeamCreditHistory(res.records);
+    } catch {
+      setTeamCreditHistory([]);
+    } finally {
+      setTeamCreditHistoryLoading(false);
+    }
+  };
 
   const loadUsers = async () => {
     setLoading(true);
@@ -5084,7 +5208,212 @@ function UsersTab({
 
   return (
     <div>
-      <div className='mb-4 flex gap-2'>
+      {/* 视图切换 */}
+      <div className='mb-4 flex gap-1'>
+        <button
+          onClick={() => setView('users')}
+          className={`px-4 py-1.5 rounded text-sm font-medium transition ${view === 'users' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+        >
+          用户
+        </button>
+        <button
+          onClick={() => setView('teams')}
+          className={`px-4 py-1.5 rounded text-sm font-medium transition flex items-center gap-1.5 ${view === 'teams' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+        >
+          团队
+          <span className='text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-medium'>团队</span>
+        </button>
+      </div>
+
+      {/* 团队视图 */}
+      {view === 'teams' && (
+        <div className='space-y-4'>
+          <div className='rounded-lg border bg-white p-4 shadow-sm'>
+            <form onSubmit={(e) => { e.preventDefault(); void loadTeams(1, teamSearch); }} className='flex gap-2 mb-4'>
+              <input
+                className='flex-1 border rounded px-3 py-1.5 text-sm max-w-xs'
+                placeholder='搜索团队名称…'
+                value={teamSearch}
+                onChange={(e) => setTeamSearch(e.target.value)}
+              />
+              <button type='submit' className='px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700'>搜索</button>
+            </form>
+            {teamsLoading ? (
+              <div className='text-center py-8 text-gray-400'>加载中…</div>
+            ) : (
+              <>
+                <table className='w-full text-sm'>
+                  <thead className='bg-gray-50'>
+                    <tr>
+                      <th className='px-4 py-3 text-left'>团队</th>
+                      <th className='px-4 py-3 text-left'>所有者</th>
+                      <th className='px-4 py-3 text-left'>成员</th>
+                      <th className='px-4 py-3 text-left'>积分余额</th>
+                      <th className='px-4 py-3 text-left'>总积分</th>
+                      {canManageSensitiveUserFields && <th className='px-4 py-3 text-left'>状态</th>}
+                      <th className='px-4 py-3 text-left'>创建时间</th>
+                      <th className='px-4 py-3 text-left'>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teams.length === 0 ? (
+                      <tr><td colSpan={canManageSensitiveUserFields ? 8 : 7} className='px-4 py-8 text-center text-gray-400'>暂无团队</td></tr>
+                    ) : teams.map((team) => (
+                      <tr key={team.id} className='border-t hover:bg-gray-50'>
+                        <td className='px-4 py-3'>
+                          <div className='flex items-center gap-1.5'>
+                            <span className='font-medium'>{team.name}</span>
+                            <span className='text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700'>团队</span>
+                          </div>
+                          <div className='text-xs text-gray-400'>{team.ownerName}</div>
+                        </td>
+                        <td className='px-4 py-3 text-gray-600 text-xs'>{team.ownerId}</td>
+                        <td className='px-4 py-3'>{team.memberCount} / {team.maxSeats}</td>
+                        <td className='px-4 py-3 font-medium text-blue-600'>{team.availableCredits.toLocaleString()}</td>
+                        <td className='px-4 py-3 text-gray-500'>{team.totalCredits.toLocaleString()}</td>
+                        {canManageSensitiveUserFields && (
+                          <td className='px-4 py-3'>
+                            <select
+                              value={team.status}
+                              onChange={(e) => void handleTeamStatusChange(team.id, e.target.value)}
+                              className='text-xs border rounded px-2 py-1'
+                            >
+                              <option value='active'>正常</option>
+                              <option value='inactive'>禁用</option>
+                              <option value='banned'>封禁</option>
+                            </select>
+                          </td>
+                        )}
+                        <td className='px-4 py-3 text-xs text-gray-500'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
+                        <td className='px-4 py-3'>
+                          <div className='flex flex-wrap gap-1'>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.maxSeats }); setTeamSeatValue(String(team.maxSeats)); setTeamSeatError(''); }}>
+                              席位
+                            </Button>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                              充值
+                            </Button>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'deduct' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                              扣除
+                            </Button>
+                            {canManageSensitiveUserFields && (
+                              <Button size='sm' variant='outline' onClick={() => void openTeamDetail(team)}>
+                                详情
+                              </Button>
+                            )}
+                            {canManageSensitiveUserFields && (
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                className='border-red-300 text-red-600 hover:bg-red-50'
+                                disabled={deletingTeamId === team.id}
+                                onClick={() => void handleDeleteTeam(team)}
+                              >
+                                {deletingTeamId === team.id ? '删除中…' : '删除'}
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {teamPagination && teamPagination.totalPages > 1 && (
+                  <div className='flex justify-center gap-2 mt-4'>
+                    {Array.from({ length: teamPagination.totalPages }, (_, i) => i + 1).map((p) => (
+                      <button key={p} onClick={() => void loadTeams(p)} className={`px-3 py-1 text-sm rounded ${p === teamPage ? 'bg-blue-600 text-white' : 'border hover:bg-gray-50'}`}>{p}</button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {teamSeatModal && (
+            <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40'>
+              <div className='bg-white rounded-xl p-6 w-80 shadow-xl'>
+                <h3 className='font-semibold mb-1'>调整席位 · {teamSeatModal.teamName}</h3>
+                <p className='text-xs text-gray-500 mb-4'>当前席位：{teamSeatModal.currentSeats}</p>
+                <input
+                  type='number' min={1} className='w-full border rounded px-3 py-2 text-sm mb-3'
+                  placeholder='新席位数'
+                  value={teamSeatValue}
+                  onChange={(e) => setTeamSeatValue(e.target.value)}
+                />
+                {teamSeatError && <p className='text-red-500 text-xs mb-2'>{teamSeatError}</p>}
+                <div className='flex gap-2 justify-end'>
+                  <button onClick={() => setTeamSeatModal(null)} className='px-3 py-1.5 text-sm border rounded hover:bg-gray-50'>取消</button>
+                  <button onClick={() => void submitTeamSeats()} disabled={teamSeatBusy} className='px-3 py-1.5 text-sm rounded text-white bg-blue-600 hover:bg-blue-700'>{teamSeatBusy ? '处理中…' : '确认'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {teamCreditModal && (
+            <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40'>
+              <div className='bg-white rounded-xl p-6 w-80 shadow-xl'>
+                <h3 className='font-semibold mb-4'>
+                  {teamCreditModal.mode === 'add' ? '增加积分' : '扣除积分'} · {teamCreditModal.teamName}
+                </h3>
+                <input type='number' min={1} className='w-full border rounded px-3 py-2 text-sm mb-2' placeholder='积分数量' value={teamCreditAmount} onChange={(e) => setTeamCreditAmount(e.target.value)} />
+                <input className='w-full border rounded px-3 py-2 text-sm mb-3' placeholder='备注（可选）' value={teamCreditDesc} onChange={(e) => setTeamCreditDesc(e.target.value)} />
+                {teamCreditError && <p className='text-red-500 text-xs mb-2'>{teamCreditError}</p>}
+                <div className='flex gap-2 justify-end'>
+                  <button onClick={() => setTeamCreditModal(null)} className='px-3 py-1.5 text-sm border rounded hover:bg-gray-50'>取消</button>
+                  <button onClick={() => void submitTeamCredit()} disabled={teamCreditBusy} className={`px-3 py-1.5 text-sm rounded text-white ${teamCreditModal.mode === 'add' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}>{teamCreditBusy ? '处理中…' : '确认'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 团队积分历史抽屉 */}
+          {teamDetailDrawer && (
+            <div className='fixed inset-0 z-50 flex'>
+              <div className='flex-1 bg-black/30' onClick={() => setTeamDetailDrawer(null)} />
+              <div className='w-[480px] bg-white shadow-2xl flex flex-col'>
+                <div className='flex items-center justify-between px-6 py-4 border-b'>
+                  <div>
+                    <h3 className='font-semibold text-gray-800'>积分明细</h3>
+                    <p className='text-xs text-gray-400'>{teamDetailDrawer.teamName}</p>
+                  </div>
+                  <button onClick={() => setTeamDetailDrawer(null)} className='text-gray-400 hover:text-gray-600 text-xl leading-none'>×</button>
+                </div>
+                <div className='flex-1 overflow-y-auto px-4 py-2'>
+                  {teamCreditHistoryLoading ? (
+                    <div className='text-center py-8 text-gray-400 text-sm'>加载中…</div>
+                  ) : teamCreditHistory.length === 0 ? (
+                    <div className='text-center py-8 text-gray-400 text-sm'>暂无记录</div>
+                  ) : (
+                    <table className='w-full text-xs'>
+                      <thead className='bg-gray-50 sticky top-0'>
+                        <tr>
+                          <th className='px-3 py-2 text-left text-gray-500'>类型</th>
+                          <th className='px-3 py-2 text-left text-gray-500'>金额</th>
+                          <th className='px-3 py-2 text-left text-gray-500'>备注</th>
+                          <th className='px-3 py-2 text-left text-gray-500'>时间</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {teamCreditHistory.map((r) => (
+                          <tr key={r.id} className='border-t'>
+                            <td className='px-3 py-2 text-gray-600'>{r.entryType}</td>
+                            <td className={`px-3 py-2 font-medium ${r.amount >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              {r.amount >= 0 ? '+' : ''}{r.amount}
+                            </td>
+                            <td className='px-3 py-2 text-gray-400 max-w-[160px] truncate'>{r.note || '-'}</td>
+                            <td className='px-3 py-2 text-gray-400'>{new Date(r.createdAt).toLocaleDateString('zh-CN')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 用户视图 */}
+      {view === 'users' && <div className='mb-4 flex gap-2'>
         <Input
           placeholder='搜索手机号/邮箱/昵称'
           value={search}
@@ -5099,9 +5428,9 @@ function UsersTab({
         >
           搜索
         </Button>
-      </div>
+      </div>}
 
-      <div className='bg-white rounded-lg border overflow-hidden'>
+      {view === 'users' && <div className='bg-white rounded-lg border overflow-hidden'>
         <div className='max-h-[1100px] overflow-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-gray-50'>
@@ -5275,9 +5604,9 @@ function UsersTab({
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
-      {pagination && (
+      {view === 'users' && pagination && (
         <div className='mt-4 flex items-center justify-center gap-4'>
           <span className='text-sm text-gray-500'>
             共 {pagination.total} 条记录
@@ -7216,8 +7545,6 @@ function TemplatesTab() {
 function VolcReviewTab() {
   const [groups, setGroups] = useState<{ id: string; date: string; groupId: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dateInput, setDateInput] = useState("");
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -7231,42 +7558,26 @@ function VolcReviewTab() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const handleCleanup = async () => {
-    const date = dateInput.trim() || undefined;
-    setMsg(null);
-    try {
-      const result = await cleanupVolcReviewGroup(date);
-      setMsg({ text: result.deleted ? `已删除 ${result.date} 的素材组` : `${result.date} 无记录，无需清除`, ok: result.deleted });
-      void load();
-    } catch (e: any) {
-      setMsg({ text: e?.message || "操作失败", ok: false });
-    }
-  };
-
   return (
     <div className="rounded-lg border bg-white p-6 shadow-sm space-y-4">
-      <h2 className="text-lg font-semibold">审核素材组管理</h2>
+      <h2 className="text-lg font-semibold">审核素材组</h2>
+
+      {/* 迁移说明 */}
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-1">
+        <p className="font-medium">素材组管理已迁移至 new-api</p>
+        <p className="text-amber-700">
+          ARK 素材审核组的创建、轮询与清理现由 new-api 网关内部负责，
+          请在 new-api 管理后台的渠道配置中设置 ARK AK/SK。
+          此页面仅展示迁移前遗留的历史记录，不支持新建或清除操作。
+        </p>
+      </div>
+
       <div className="flex items-center gap-3">
-        <input
-          type="text"
-          placeholder="日期（如 2026-04-19），空则清除 3 天前"
-          value={dateInput}
-          onChange={(e) => setDateInput(e.target.value)}
-          className="border rounded px-3 py-1.5 text-sm w-64"
-        />
-        <button
-          onClick={handleCleanup}
-          className="px-4 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-        >
-          清除素材组
-        </button>
         <button onClick={load} className="px-4 py-1.5 border rounded text-sm hover:bg-gray-50">
-          刷新
+          刷新历史记录
         </button>
       </div>
-      {msg && (
-        <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-500"}`}>{msg.text}</p>
-      )}
+
       {loading ? (
         <p className="text-sm text-gray-400">加载中…</p>
       ) : (
@@ -7276,33 +7587,20 @@ function VolcReviewTab() {
               <th className="py-2 pr-4">日期</th>
               <th className="py-2 pr-4">素材组 ID</th>
               <th className="py-2 pr-4">创建时间</th>
-              <th className="py-2"></th>
             </tr>
           </thead>
           <tbody>
             {groups.length === 0 ? (
-              <tr><td colSpan={4} className="py-4 text-center text-gray-400">暂无记录</td></tr>
+              <tr>
+                <td colSpan={3} className="py-6 text-center text-gray-400">
+                  无历史记录
+                </td>
+              </tr>
             ) : groups.map((g) => (
               <tr key={g.id} className="border-b hover:bg-gray-50">
                 <td className="py-2 pr-4 font-mono">{g.date}</td>
                 <td className="py-2 pr-4 font-mono text-xs text-gray-500">{g.groupId}</td>
                 <td className="py-2 pr-4 text-gray-400">{new Date(g.createdAt).toLocaleString("zh-CN")}</td>
-                <td className="py-2">
-                  <button
-                    onClick={async () => {
-                      if (!confirm(`确认删除 ${g.date} 的素材组？`)) return;
-                      try {
-                        await cleanupVolcReviewGroup(g.date);
-                        void load();
-                      } catch (e: any) {
-                        setMsg({ text: e?.message || "删除失败", ok: false });
-                      }
-                    }}
-                    className="px-2 py-1 text-xs text-red-600 border border-red-300 rounded hover:bg-red-50"
-                  >
-                    删除
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>

@@ -40,13 +40,20 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       return;
     }
 
+    let dataUrlReady = false;
+
     try {
       logger.upload('Starting image processing:', file.name);
 
-      const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+      // Read as data URL first — works everywhere without CORS/auth issues.
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
 
-      // 1) Put a local blob preview on canvas immediately.
-      const blobUrl = URL.createObjectURL(file);
+      const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const { key } = generateOssKey({
         projectId,
@@ -54,20 +61,22 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
         fileName: file.name,
         contentType: file.type,
       });
+
+      // 1) Put data URL preview on canvas immediately.
       const localAsset: StoredImageAsset = {
         id: imageId,
-        url: key, // Link key first so the asset can be persisted.
+        url: key,
         key,
-        // Runtime uses local preview first; persistence still relies on OSS key.
-        src: blobUrl,
+        src: dataUrl,
         fileName: file.name,
         contentType: file.type,
         pendingUpload: true,
-        localDataUrl: blobUrl,
+        localDataUrl: dataUrl,
       };
       onImageUploaded(localAsset);
+      dataUrlReady = true;
 
-      // 2) Upload in background, then upgrade source and clean local blob.
+      // 2) Upload in background.
       const result = await imageUploadService.uploadImageFile(file, {
         projectId,
         dir: uploadDir,
@@ -98,7 +107,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           skipInitialStoreUpdate: true,
         });
       } else {
-        console.error('Image upload failed, local fallback kept:', result.error);
+        console.error('Image upload failed, local blob preview kept:', result.error);
         onUploadError(
           result.error ||
             lt(
@@ -109,34 +118,12 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       }
     } catch (error) {
       console.error('Image processing exception:', error);
-      if (file) {
-        try {
-          // Fallback: keep local blob visible and mark as pending upload.
-          const blobUrl = URL.createObjectURL(file);
-          const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          const fallbackAsset: StoredImageAsset = {
-            id: imageId,
-            url: blobUrl,
-            src: blobUrl,
-            fileName: file.name,
-            pendingUpload: true,
-            localDataUrl: blobUrl,
-            contentType: file.type,
-          };
-          onImageUploaded(fallbackAsset);
-          onUploadError(
-            lt(
-              '图片上传失败，已保留本地副本（可稍后重试上传）',
-              'Image upload failed; local copy is kept (you can retry later).'
-            )
-          );
-        } catch (fallbackError) {
-          console.error('Local fallback failed:', fallbackError);
-          onUploadError(lt('图片处理失败，请重试', 'Image processing failed. Please try again.'));
-        }
+      if (!dataUrlReady) {
+        onUploadError(lt('图片读取失败，请重试', 'Image read failed. Please try again.'));
+        return;
       }
+      onUploadError(lt('图片处理失败，请重试', 'Image processing failed. Please try again.'));
     } finally {
-      // Clear input value to allow selecting the same file again.
       resetInputValue();
     }
   }, [lt, onImageUploaded, onUploadError, projectId, resetInputValue]);

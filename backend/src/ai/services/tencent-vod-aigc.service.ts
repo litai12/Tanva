@@ -6,7 +6,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import crypto from 'node:crypto';
 
 export interface TencentVodAigcCreateTaskRequest {
   prompt: string;
@@ -78,10 +77,11 @@ export interface TencentVodAigcVideoTaskStatus {
 @Injectable()
 export class TencentVodAigcService {
   private readonly logger = new Logger(TencentVodAigcService.name);
+  private readonly newApiKey: string;
+  private readonly newApiBaseUrl: string;
   private readonly secretId: string;
   private readonly secretKey: string;
   private readonly sessionToken?: string;
-  private readonly endpoint: string;
   private readonly region?: string;
   private readonly version: string;
   private readonly service = 'vod';
@@ -92,14 +92,17 @@ export class TencentVodAigcService {
   private readonly maxPollAttempts: number;
 
   constructor(private readonly configService: ConfigService) {
+    this.newApiKey = this.normalizeEnvValue(
+      this.configService.get<string>('NEW_API_KEY') ||
+      this.configService.get<string>('NEW_API_TOKEN'),
+    );
+    this.newApiBaseUrl = (
+      this.configService.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
+    ).replace(/\/+$/, '');
     this.secretId = this.normalizeEnvValue(this.configService.get<string>('TENCENT_VOD_SECRET_ID'));
     this.secretKey = this.normalizeEnvValue(this.configService.get<string>('TENCENT_VOD_SECRET_KEY'));
     this.sessionToken =
       this.normalizeEnvValue(this.configService.get<string>('TENCENT_VOD_SESSION_TOKEN')) || undefined;
-    this.endpoint = this.normalizeEndpoint(
-      this.normalizeEnvValue(this.configService.get<string>('TENCENT_VOD_ENDPOINT')) ||
-        'vod.tencentcloudapi.com',
-    );
     this.region = this.normalizeEnvValue(this.configService.get<string>('TENCENT_VOD_REGION')) || undefined;
     this.version =
       (this.configService.get<string>('TENCENT_VOD_API_VERSION') || '2018-07-17').trim();
@@ -136,16 +139,8 @@ export class TencentVodAigcService {
     return trimmed;
   }
 
-  private normalizeEndpoint(endpoint: string): string {
-    let value = (endpoint || '').trim();
-    if (!value) return 'vod.tencentcloudapi.com';
-    value = value.replace(/^https?:\/\//i, '');
-    value = value.replace(/\/+.*$/, '');
-    return value.toLowerCase();
-  }
-
   isAvailable(): boolean {
-    return !!this.secretId && !!this.secretKey;
+    return !!this.newApiKey;
   }
 
   async createImageTask(
@@ -663,21 +658,15 @@ export class TencentVodAigcService {
     this.ensureCredentialReady();
 
     const payload = JSON.stringify(body || {});
-    const timestamp = Math.floor(Date.now() / 1000);
-    const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-    const authorization = this.buildAuthorization(action, payload, timestamp, date);
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       const headers: Record<string, string> = {
-        Authorization: authorization,
-        'Content-Type': 'application/json; charset=utf-8',
-        Host: this.endpoint,
+        Authorization: `Bearer ${this.newApiKey}`,
+        'Content-Type': 'application/json',
         'X-TC-Action': action,
         'X-TC-Version': this.version,
-        'X-TC-Timestamp': String(timestamp),
       };
       if (this.region) {
         headers['X-TC-Region'] = this.region;
@@ -686,7 +675,7 @@ export class TencentVodAigcService {
         headers['X-TC-Token'] = this.sessionToken;
       }
 
-      const response = await fetch(`https://${this.endpoint}/`, {
+      const response = await fetch(`${this.newApiBaseUrl}/proxy/tencent/vod`, {
         method: 'POST',
         headers,
         body: payload,
@@ -734,39 +723,10 @@ export class TencentVodAigcService {
     }
   }
 
-  private buildAuthorization(action: string, payload: string, timestamp: number, date: string): string {
-    const canonicalHeaders =
-      `content-type:application/json; charset=utf-8\n` +
-      `host:${this.endpoint}\n` +
-      `x-tc-action:${action.toLowerCase()}\n`;
-    const signedHeaders = 'content-type;host;x-tc-action';
-    const hashedPayload = this.sha256Hex(payload);
-    const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\n${signedHeaders}\n${hashedPayload}`;
-    const credentialScope = `${date}/${this.service}/tc3_request`;
-    const stringToSign =
-      `TC3-HMAC-SHA256\n${timestamp}\n${credentialScope}\n${this.sha256Hex(canonicalRequest)}`;
-
-    const secretDate = this.hmac(`TC3${this.secretKey}`, date);
-    const secretService = this.hmac(secretDate, this.service);
-    const secretSigning = this.hmac(secretService, 'tc3_request');
-    const signature = this.hmac(secretSigning, stringToSign).toString('hex');
-
-    return (
-      `TC3-HMAC-SHA256 Credential=${this.secretId}/${credentialScope}, ` +
-      `SignedHeaders=${signedHeaders}, Signature=${signature}`
-    );
-  }
-
   private ensureCredentialReady(): void {
-    if (!this.secretId || !this.secretKey) {
+    if (!this.newApiKey) {
       throw new ServiceUnavailableException(
-        'Tencent VOD credentials are not configured (TENCENT_VOD_SECRET_ID/TENCENT_VOD_SECRET_KEY)',
-      );
-    }
-    // Common misconfiguration: copied "SecretId,SecretKey" into SecretKey field.
-    if (this.secretKey.includes(',') || this.secretKey.startsWith('AKID')) {
-      throw new ServiceUnavailableException(
-        'Tencent VOD credential format invalid: TENCENT_VOD_SECRET_KEY should be SecretKey only (do not include AKID or comma).',
+        'NEW_API_KEY is not configured (required to proxy Tencent VOD calls through new-api)',
       );
     }
   }
@@ -795,14 +755,6 @@ export class TencentVodAigcService {
       return payload.response as Record<string, any>;
     }
     return payload || {};
-  }
-
-  private sha256Hex(content: string): string {
-    return crypto.createHash('sha256').update(content).digest('hex');
-  }
-
-  private hmac(key: string | Buffer, content: string): Buffer {
-    return crypto.createHmac('sha256', key).update(content).digest();
   }
 
   private pickFirstString(...values: unknown[]): string | undefined {

@@ -11,7 +11,7 @@ type RunCreditBadgeProps = {
   className?: string;
 };
 
-export default function RunCreditBadge({
+function RunCreditBadge({
   credits,
   compact = false,
   inline = false,
@@ -127,3 +127,5 @@ export default function RunCreditBadge({
     </span>
   );
 }
+
+export default React.memo(RunCreditBadge);

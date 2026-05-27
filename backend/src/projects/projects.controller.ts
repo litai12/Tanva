@@ -5,6 +5,7 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectContentDto } from './dto/update-project-content.dto';
+import { ShareProjectDto } from './dto/share-project.dto';
 
 @ApiTags('projects')
 @ApiCookieAuth('access_token')
@@ -14,13 +15,25 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Get()
-  async list(@Req() req: any) {
-    return this.projects.list(req.user.sub);
+  async list(
+    @Req() req: any,
+    @Query('teamId') queryTeamId?: string,
+    @Query('scope') scope?: string,
+  ) {
+    const teamId = queryTeamId || (req.headers?.['x-team-id'] as string | undefined);
+    if (teamId && scope === 'team') {
+      return this.projects.listTeamOnly(req.user.sub, teamId);
+    }
+    if (scope === 'personal') {
+      return this.projects.list(req.user.sub);
+    }
+    return this.projects.listWithTeamAccess(req.user.sub, teamId);
   }
 
   @Post()
   async create(@Req() req: any, @Body() dto: CreateProjectDto) {
-    return this.projects.create(req.user.sub, dto.name);
+    const teamId = (req.headers?.['x-team-id'] as string | undefined) || undefined;
+    return this.projects.create(req.user.sub, dto.name, teamId);
   }
 
   @Get(':id')
@@ -70,5 +83,28 @@ export class ProjectsController {
     @Param('updatedAt') updatedAt: string
   ) {
     return this.projects.getWorkflowHistory(req.user.sub, id, updatedAt);
+  }
+
+  @Post(':id/team-shares')
+  shareWithTeam(@Req() req: any, @Param('id') id: string, @Body() dto: ShareProjectDto) {
+    return this.projects.shareWithTeam(id, dto.teamId, req.user.sub);
+  }
+
+  @Delete(':id/team-shares/:teamId')
+  unshareFromTeam(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('teamId') teamId: string,
+  ) {
+    return this.projects.unshareFromTeam(id, teamId, req.user.sub);
+  }
+
+  @Post(':id/clone-to-team')
+  cloneToTeam(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body('teamId') teamId: string,
+  ) {
+    return this.projects.cloneToTeam(id, teamId, req.user.sub);
   }
 }

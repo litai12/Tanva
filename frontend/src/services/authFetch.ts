@@ -2,6 +2,7 @@ import { tokenRefreshManager } from './tokenRefreshManager';
 import { triggerAuthExpired } from './authEvents';
 import { getAccessToken, getRefreshAuthHeader, setTokens } from './authTokenStorage';
 import { ensureTraceHeader } from '../utils/trace';
+import { useTeamStore } from '../stores/teamStore';
 
 type RequestInput = RequestInfo | URL;
 
@@ -124,6 +125,12 @@ const normalizeInit = (init?: AuthFetchInit): RequestInit => {
     if (!currentAuth && accessToken) {
       headers.set("Authorization", `Bearer ${accessToken}`);
     }
+  }
+
+  // 注入团队上下文
+  const teamId = useTeamStore.getState().activeTeamId;
+  if (teamId) {
+    headers.set('X-Team-Id', teamId);
   }
 
   const credentials =

@@ -30,7 +30,7 @@ const normalizeStartedAt = (value: number | string | null | undefined): number |
   return null;
 };
 
-export default function GenerationProgressBar({
+function GenerationProgressBar({
   status,
   progress,
   simulateDurationMs,
@@ -150,3 +150,5 @@ export default function GenerationProgressBar({
     </div>
   );
 }
+
+export default React.memo(GenerationProgressBar);

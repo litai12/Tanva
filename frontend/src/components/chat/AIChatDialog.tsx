@@ -3887,9 +3887,11 @@ const AIChatDialog: React.FC = () => {
                     !generationStatus.isGenerating
                       ? enableWebSearch
                         ? isBlackTheme
-                          ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                          ? "bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
                           : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                        : "text-slate-700"
+                        : isBlackTheme
+                          ? "text-gray-400 border-gray-600"
+                          : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={lt(
@@ -3914,10 +3916,12 @@ const AIChatDialog: React.FC = () => {
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     autoOptimizeEnabled
                       ? isBlackTheme
-                        ? "bg-[#1d1d1d] text-white border-[#404040] hover:bg-[#262626]"
+                        ? "bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
                         : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating && !autoOptimizing
-                      ? "text-slate-700"
+                      ? isBlackTheme
+                        ? "text-gray-400 border-gray-600"
+                        : "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={

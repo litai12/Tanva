@@ -2,6 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { AuthWrapper } from '@/components/AuthWrapper';
+import LoginNoticeModal from '@/components/auth/LoginNoticeModal';
 
 export default function ProtectedRoute() {
   const user = useAuthStore((s) => s.user);
@@ -24,5 +25,10 @@ export default function ProtectedRoute() {
   }
 
   if (!user) return <Navigate to="/auth/login" replace />;
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <LoginNoticeModal />
+    </>
+  );
 }

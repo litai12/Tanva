@@ -169,6 +169,7 @@ const enUS = {
         menuTitle: "Text/Image Route",
         normalShort: "Normal",
         stableShort: "Premium",
+        ultraShort: "Ultra",
         toast: "Switched to {{route}}",
         todayRate: "Today {{rate}}",
         todayRateUnknown: "Today --",
@@ -336,6 +337,8 @@ const enUS = {
           normalDesc: "Image/text use normal third-party channels (admin controlled)",
           stable: "Premium Route",
           stableDesc: "Image/text use official channel",
+          ultra: "Ultra-Speed Route",
+          ultraDesc: "Routes via beqlee official proxy, priced at official × 1.1",
           hint: "Only applies when Nano Banana providers are selected",
         },
         googleKey: {

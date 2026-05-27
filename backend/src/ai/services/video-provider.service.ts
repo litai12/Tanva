@@ -15,6 +15,7 @@ import {
   type ResolvedManagedModelRoute,
 } from "./model-routing.service";
 import type { TencentVodAigcCreateVideoTaskRequest } from "./tencent-vod-aigc.service";
+import { VolcAssetService } from "../../volc-asset/volc-asset.service";
 
 // 默认请求超时时间（毫秒）
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
@@ -185,7 +186,7 @@ export interface VideoGenerationResult {
     modelKey?: string;
     vendorKey?: string;
     platformKey?: string;
-    route?: "legacy" | "tencent_vod";
+    route?: "legacy" | "tencent_vod" | "new-api";
     providerChannel?: string;
     routedProvider?: string;
     fallbackUsed?: boolean;
@@ -199,11 +200,15 @@ export class VideoProviderService {
   private readonly doubaoVideoCacheTtlMs = 60 * 60 * 1000;
   private readonly doubaoVideoCacheMaxEntries = 500;
   private readonly managedV2TaskPrefix = "managedv2:";
+  private readonly newApiTaskPrefix = "newapi:";
+  private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4458").replace(/\/+$/, "");
+  private readonly newApiKey = process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "";
 
   constructor(
     private readonly oss: OssService,
     private readonly tencentVodAigcService: TencentVodAigcService,
     private readonly modelRoutingService: ModelRoutingService,
+    private readonly volcAssetService: VolcAssetService,
   ) {}
 
   private getCachedDoubaoVideoUrl(taskId: string): string | null {
@@ -750,6 +755,73 @@ export class VideoProviderService {
   async generateVideo(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
+    // 尊享路由：托管分组配置把该模型主路由解析为 tencent_vod 时，走腾讯 VOD 转换链路
+    //（generateManaged* → generateXxxViaTencent → TencentVodAigcService → new-api /proxy/tencent/vod）。
+    // 其余模型走 new-api。是否走腾讯由托管分组配置决定，这里不硬编码模型清单。
+    if (await this.shouldRouteVideoToManagedTencent(options)) {
+      return this.generateVideoLegacy(options);
+    }
+    return this.createNewApiVideoTask(options);
+  }
+
+  /** 依据托管分组配置判断该视频请求是否应走腾讯 VOD（尊享）路由。 */
+  private async shouldRouteVideoToManagedTencent(
+    options: VideoProviderRequestDto
+  ): Promise<boolean> {
+    const modelKey = this.resolveManagedVideoModelKey(options);
+    if (!modelKey) return false;
+    try {
+      const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
+        modelKey,
+        options.vendorKey
+      );
+      return candidates[0]?.route === "tencent_vod";
+    } catch (error) {
+      this.logger.warn(
+        `resolveVideoModelCandidates failed for ${modelKey}: ${this.summarizeError(error)}`
+      );
+      return false;
+    }
+  }
+
+  /** 把请求映射到托管模型 key；无对应托管模型时返回 null（走 new-api）。 */
+  private resolveManagedVideoModelKey(
+    options: VideoProviderRequestDto
+  ): string | null {
+    const provider = options.provider;
+    if (
+      (provider === "kling" || provider === "kling-2.6") &&
+      options.klingModel === "kling-v3-0"
+    ) {
+      return "kling-3.0";
+    }
+    if (
+      (provider === "kling" || provider === "kling-2.6") &&
+      options.klingModel === "kling-v2-6"
+    ) {
+      return "kling-2.6";
+    }
+    if (provider === "kling-o3") return "kling-o3";
+    if (provider === "vidu" || provider === "viduq3-pro") {
+      try {
+        return this.resolveManagedViduModel(options).modelKey;
+      } catch {
+        return null;
+      }
+    }
+    if (provider === "doubao") {
+      try {
+        return this.resolveManagedSeedanceModel(options).modelKey;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private async generateVideoLegacy(
+    options: VideoProviderRequestDto
+  ): Promise<VideoGenerationResult> {
     const { provider } = options;
 
     if (
@@ -807,7 +879,11 @@ export class VideoProviderService {
   async queryTask(
     provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
     taskId: string
-  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; inputTokens?: number; outputTokens?: number }> {
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
+    if (taskId.startsWith(this.newApiTaskPrefix)) {
+      return this.queryNewApiVideoTask(taskId);
+    }
+
     if (taskId.startsWith(this.managedV2TaskPrefix)) {
       return this.queryManagedV2Task(taskId);
     }
@@ -850,22 +926,416 @@ export class VideoProviderService {
       return this.queryManagedTencentVideoTask(taskId);
     }
 
-    const apiKey = this.apiKeys[provider];
-    if (!apiKey) throw new Error(`${provider} API Key 未配置`);
+    // Legacy task IDs (created before new-api migration) can no longer be queried.
+    // All new tasks carry the "newapi:" prefix and are handled above.
+    throw new ServiceUnavailableException(
+      `Task "${taskId}" was created before the new-api migration and can no longer be queried. Please create a new video task.`,
+    );
+  }
 
-    switch (provider) {
-      case "doubao":
-        return this.queryDoubao(taskId, apiKey);
-      case "kling":
-        return this.queryKling(taskId, apiKey);
-      case "kling-2.6":
-        return this.queryKling26(taskId, apiKey);
-      case "vidu":
-        return this.queryVidu(taskId, apiKey);
-      case "viduq3-pro":
-        return this.queryViduQ3Pro(taskId, apiKey);
-      default:
-        throw new Error(`不支持的供应商: ${provider}`);
+  private async createNewApiVideoTask(
+    options: VideoProviderRequestDto,
+  ): Promise<VideoGenerationResult> {
+    if (!this.newApiKey) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    }
+
+    const model = this.resolveNewApiVideoModel(options);
+    // omni-flash-ext uses aspect_ratio + resolution natively; sending a WxH
+    // size string would conflict with upstream's aspect_ratio parameter.
+    const size = model === "omni-flash-ext" ? undefined : this.resolveNewApiVideoSize(options);
+    const duration = this.resolveNewApiDuration(options);
+    const isSeedance2 = /doubao-seedance-2/i.test(model);
+    // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
+    // on assets that already passed the upload-time check (volcAssetStatus === "active").
+    // Other models fall back to raw HTTPS URLs.
+    const referenceImages = isSeedance2
+      ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
+      : this.extractReferenceImageUrls(options.referenceImages);
+    // Raw URLs for new-api's own asset re-upload path (only needed when not using asset://).
+    const referenceImageRawUrls: string[] | undefined = isSeedance2
+      ? this.extractReferenceImageUrls(options.referenceImages)
+      : undefined;
+    const referenceVideos = [
+      ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
+      ...(options.referenceVideo ? [options.referenceVideo] : []),
+    ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+
+    const payload = this.stripUndefined({
+      model,
+      prompt: options.prompt || "",
+      duration,
+      size,
+      resolution: this.normalizeResolutionToken(options.resolution),
+      image: referenceImages[0],
+      images: referenceImages.length > 0 ? referenceImages : undefined,
+      reference_videos: referenceVideos.length > 0 ? referenceVideos : undefined,
+      audio_urls: options.audioUrls?.length ? options.audioUrls : undefined,
+      mode: options.mode,
+      sound: options.sound,
+      aspect_ratio: options.aspectRatio,
+      watermark: options.watermark,
+      generate_audio: options.generateAudio,
+      provider_options: {
+        sourceProvider: options.provider,
+        videoMode: options.videoMode,
+        klingModel: options.klingModel,
+        viduModel: options.viduModel,
+        viduModelVariant: options.viduModelVariant,
+        seedanceModel: options.seedanceModel,
+        managedModelKey: options.managedModelKey,
+        // Fallback raw URLs for new-api to perform its own asset upload if AK/SK is configured.
+        referenceImageRawUrls,
+      },
+    });
+
+    this.logger.log(
+      `new-api 视频任务创建: model=${model}, provider=${options.provider}, duration=${duration}, size=${size}`,
+    );
+
+    let result: any;
+    const hasAssetRefs = isSeedance2 && referenceImages.some((u) => u.startsWith("asset://"));
+    try {
+      result = await this.requestNewApiJson("/v1/videos", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    } catch (err: any) {
+      if (hasAssetRefs && this.isAssetServiceNotActivatedError(err)) {
+        // new-api 上游账号未开通 Asset Service，降级使用 HTTPS 直链重试
+        const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
+        this.logger.warn(
+          `new-api 上游账号未开通 Asset Service，降级 HTTPS 直链重试 ${rawUrls.length} 张图片: ${err?.message?.slice(0, 120)}`,
+        );
+        const fallbackPayload = {
+          ...payload,
+          image: rawUrls[0],
+          images: rawUrls.length > 0 ? rawUrls : undefined,
+          provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
+        };
+        result = await this.requestNewApiJson("/v1/videos", {
+          method: "POST",
+          body: JSON.stringify(fallbackPayload),
+        });
+      } else if (hasAssetRefs && this.isStaleAssetError(err)) {
+        // asset:// 引用已失效（旧资产组被删），重新上传图片取得新 asset ID 再重试
+        const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);
+        this.logger.warn(
+          `asset:// 引用失效，重新上传 ${rawUrls.length} 张图片获取新 asset ID: ${err?.message?.slice(0, 120)}`,
+        );
+        const refreshedImages = await this.reuploadImagesAsAssets(rawUrls);
+        const fallbackPayload = {
+          ...payload,
+          image: refreshedImages[0],
+          images: refreshedImages.length > 0 ? refreshedImages : undefined,
+          provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
+        };
+        result = await this.requestNewApiJson("/v1/videos", {
+          method: "POST",
+          body: JSON.stringify(fallbackPayload),
+        });
+      } else {
+        throw err;
+      }
+    }
+    const rawTaskId = this.extractTaskId(result);
+    if (!rawTaskId) {
+      throw new ServiceUnavailableException(`new-api 未返回视频任务 ID: ${JSON.stringify(result)}`);
+    }
+
+    const taskId = `${this.newApiTaskPrefix}${rawTaskId}`;
+    const videoUrl = this.extractVideoUrl(result);
+    const thumbnailUrl = this.extractThumbnailUrl(result);
+    return {
+      taskId,
+      status: videoUrl ? "succeeded" : "queued",
+      videoUrl,
+      thumbnailUrl,
+      execution: {
+        modelKey: options.managedModelKey || model,
+        vendorKey: "new-api",
+        platformKey: "new-api",
+        route: "new-api",
+        providerChannel: "new-api",
+        routedProvider: options.provider,
+        fallbackUsed: false,
+      },
+    };
+  }
+
+  private async queryNewApiVideoTask(
+    taskId: string,
+  ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string }> {
+    if (!this.newApiKey) {
+      throw new ServiceUnavailableException("NEW_API_KEY 未配置");
+    }
+
+    const rawTaskId = taskId.slice(this.newApiTaskPrefix.length);
+    const result = await this.requestNewApiJson(
+      `/v1/videos/${encodeURIComponent(rawTaskId)}?t=${Date.now()}`,
+      { method: "GET" },
+    );
+    const status = this.normalizeNewApiStatus(result);
+    const upstreamVideoUrl = this.extractVideoUrl(result);
+    const thumbnailUrl = this.extractThumbnailUrl(result);
+
+    if (status === "succeeded" && !upstreamVideoUrl) {
+      this.logger.warn(
+        `new-api task ${rawTaskId} succeeded but no video URL found. raw keys: ${Object.keys(result || {}).join(",")}; data keys: ${Object.keys(result?.data || {}).join(",")}`,
+      );
+    }
+
+    if (status === "failed") {
+      const error =
+        result?.data?.error?.message ||
+        result?.data?.error?.code ||
+        result?.error?.message ||
+        result?.error?.code ||
+        result?.fail_reason ||
+        result?.data?.fail_reason ||
+        result?.message ||
+        result?.data?.message ||
+        undefined;
+      return { status, thumbnailUrl, error };
+    }
+
+    if (!upstreamVideoUrl || status !== "succeeded") {
+      return { status, thumbnailUrl };
+    }
+
+    const videoUrl = this.isOssPublicUrl(upstreamVideoUrl)
+      ? upstreamVideoUrl
+      : await this.uploadRemoteVideoToOss(upstreamVideoUrl, `new-api-${rawTaskId}`);
+    return { status, videoUrl, thumbnailUrl };
+  }
+
+  private resolveNewApiVideoModel(options: VideoProviderRequestDto): string {
+    const explicit = String(
+      options.managedModelKey || options.seedanceModel || options.klingModel || options.viduModel || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (explicit.includes("seedance-2.0-fast") || explicit.includes("seed-2.0-lite") || explicit.includes("seed-2.0-mini")) {
+      return "doubao-seedance-2.0-fast";
+    }
+    if (explicit.includes("seedance") || options.provider === "doubao") {
+      return "doubao-seedance-2.0";
+    }
+    if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
+      return "wan2.7-videoedit";
+    }
+    if (explicit === "omni-flash-ext") {
+      return "omni-flash-ext";
+    }
+    if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
+      return "kling-v3-omni";
+    }
+    if (options.provider === "kling" || options.provider === "kling-2.6") {
+      return explicit.includes("2-6") || explicit.includes("2.6") ? "kling-v2-6" : "kling-v3";
+    }
+    if (options.provider === "vidu" || options.provider === "viduq3-pro") {
+      return "vidu-q3";
+    }
+    return explicit || "kling-v3";
+  }
+
+  private resolveNewApiDuration(options: VideoProviderRequestDto): number {
+    const duration = Number(options.duration || 5);
+    if (!Number.isFinite(duration) || duration <= 0) return 5;
+    return Math.max(1, Math.min(30, Math.round(duration)));
+  }
+
+  private resolveNewApiVideoSize(options: VideoProviderRequestDto): string | undefined {
+    const resolution = this.normalizeResolutionToken(options.resolution);
+    const aspectRatio = String(options.aspectRatio || "").trim();
+    if (resolution === "1080p") {
+      return aspectRatio === "9:16" ? "1080x1920" : "1920x1080";
+    }
+    if (resolution === "720p") {
+      return aspectRatio === "9:16" ? "720x1280" : "1280x720";
+    }
+    return undefined;
+  }
+
+  private normalizeResolutionToken(value: unknown): string | undefined {
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    return value.trim().toLowerCase();
+  }
+
+  private extractReferenceImageUrls(items: ReferenceImageItem[] | undefined): string[] {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => (typeof item === "string" ? item : item?.url))
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim());
+  }
+
+  // Seedance 2.0: use asset:// for active volc assets; fall back to raw URL otherwise.
+  private extractReferenceImageUrlsWithVolcAssets(items: ReferenceImageItem[] | undefined): string[] {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item.volcAssetStatus === "active" && item.volcAssetId) {
+          return `asset://${item.volcAssetId}`;
+        }
+        return (item.url || "").trim();
+      })
+      .filter((url): url is string => url.length > 0);
+  }
+
+  private isStaleAssetError(err: any): boolean {
+    const msg = String(err?.message || "").toLowerCase();
+    return msg.includes("is not found") && (msg.includes("asset") || msg.includes("image_url"));
+  }
+
+  private isAssetServiceNotActivatedError(err: any): boolean {
+    const msg = String(err?.message || "").toLowerCase();
+    return msg.includes("not activated the asset service") || msg.includes("asset service");
+  }
+
+  // 对每张图片重新调用 Volcengine 上传，返回新的 asset:// URL 列表。
+  // VolcAssetService 未配置时降级返回原始 HTTPS URL。
+  private async reuploadImagesAsAssets(rawUrls: string[]): Promise<string[]> {
+    if (!this.volcAssetService.isConfigured()) {
+      this.logger.warn("VolcAssetService 未配置，降级使用 HTTPS 直链");
+      return rawUrls;
+    }
+    const results = await Promise.allSettled(
+      rawUrls.map((url) => this.volcAssetService.uploadAsset("system", url, "image")),
+    );
+    return results.map((r, i) => {
+      if (r.status === "fulfilled") {
+        return `asset://${r.value.assetId}`;
+      }
+      this.logger.warn(`重新上传第 ${i + 1} 张图片失败，降级 HTTPS: ${(r as PromiseRejectedResult).reason?.message}`);
+      return rawUrls[i];
+    });
+  }
+
+  private async requestNewApiJson(path: string, init: RequestInit): Promise<any> {
+    const response = await fetch(`${this.newApiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.newApiKey}`,
+        ...(init.headers || {}),
+      },
+    });
+    const text = await response.text();
+    const data = text ? this.safeJsonParse(text) ?? text : {};
+    if (!response.ok) {
+      const message =
+        typeof data === "object" && data
+          ? (data as any).error?.message || (data as any).message || JSON.stringify(data)
+          : String(data || `HTTP ${response.status}`);
+      throw new ServiceUnavailableException(`new-api 视频接口失败: ${message}`);
+    }
+    return data;
+  }
+
+  private extractTaskId(result: any): string | null {
+    const value =
+      result?.id ||
+      result?.task_id ||
+      result?.taskId ||
+      result?.data?.id ||
+      result?.data?.task_id ||
+      result?.data?.taskId;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  private normalizeNewApiStatus(result: any): string {
+    const raw = String(
+      result?.status ||
+      result?.data?.status ||
+      result?.data?.task_status ||
+      result?.task_status ||
+      ""
+    ).toLowerCase();
+    if (["succeeded", "success", "succeed", "completed", "complete", "finished", "finish"].includes(raw)) {
+      return "succeeded";
+    }
+    if (["failed", "failure", "error", "cancelled", "canceled"].includes(raw)) {
+      return "failed";
+    }
+    return raw || "processing";
+  }
+
+  private extractVideoUrl(result: any): string | undefined {
+    const isHttpUrl = (v: unknown): v is string =>
+      typeof v === "string" && /^https?:\/\//i.test(v);
+
+    // flat fields
+    const flat = [
+      result?.video_url,
+      result?.videoUrl,
+      result?.url,
+      result?.metadata?.url,          // new-api OpenAI Video 格式: SetMetadata("url", ...)
+      result?.data?.video_url,
+      result?.data?.videoUrl,
+      result?.data?.url,
+      result?.data?.metadata?.url,
+      result?.output?.video_url,
+      result?.output?.url,
+      result?.output?.video?.url,
+      result?.video?.url,
+    ];
+    for (const v of flat) {
+      if (isHttpUrl(v)) return v;
+    }
+
+    // OpenAI Sora format: generations[].url
+    if (Array.isArray(result?.generations)) {
+      for (const item of result.generations) {
+        if (isHttpUrl(item?.url)) return item.url;
+        if (isHttpUrl(item?.video?.url)) return item.video.url;
+      }
+    }
+
+    // Kling native format: data.task_result.videos[].url
+    if (Array.isArray(result?.data?.task_result?.videos)) {
+      for (const item of result.data.task_result.videos) {
+        if (isHttpUrl(item?.url)) return item.url;
+      }
+    }
+
+    // Generic nested arrays
+    for (const arr of [result?.data, result?.results, result?.data?.videos, result?.output?.videos]) {
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (isHttpUrl(item?.url)) return item.url;
+          if (isHttpUrl(item?.video_url)) return item.video_url;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private extractThumbnailUrl(result: any): string | undefined {
+    const candidates = [
+      result?.thumbnail_url,
+      result?.thumbnailUrl,
+      result?.poster,
+      result?.data?.thumbnail_url,
+      result?.data?.thumbnailUrl,
+      result?.data?.poster,
+    ];
+    return candidates.find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
+  }
+
+  private stripUndefined(payload: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined),
+    );
+  }
+
+  private safeJsonParse(text: string): any {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
     }
   }
 

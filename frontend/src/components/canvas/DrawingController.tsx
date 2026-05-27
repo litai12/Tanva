@@ -2,6 +2,7 @@
  * Canvas drawing controller with selection, context menu, and persistence hooks.
  */
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { canvasEventBus } from '@/canvas/CanvasEventBus';
 import paper from 'paper';
 import {
   ArrowDown,
@@ -25,6 +26,7 @@ import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import ImageContainer from './ImageContainer';
+import CanvasImageLayer from './CanvasImageLayer';
 import SelectionGroupToolbar from './SelectionGroupToolbar';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
@@ -116,7 +118,7 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
   if (!imageData || typeof imageData !== "object") return null;
   const data = imageData as Record<string, unknown>;
 
-  // key 更“稳定/可迁移”，优先于 remoteUrl
+  // key 更"稳定/可迁移"，优先于 remoteUrl
   const urlCandidates = ["key", "remoteUrl", "url", "src"];
   for (const key of urlCandidates) {
     const candidate = data[key];
@@ -298,7 +300,7 @@ const getPersistedImageAssetSnapshot = (imageId: string): unknown | null => {
 };
 
 // 画布图片同步到 Chat：
-// - 若图片仍处于上传中（pendingUpload=true），优先使用 blob:/data: 预览，避免 key/URL 尚不可用导致“裂图”
+// - 若图片仍处于上传中（pendingUpload=true），优先使用 blob:/data: 预览，避免 key/URL 尚不可用导致"裂图"
 // - 上传完成后优先取可持久化引用（SSOT: ProjectContent.assets），以满足设计 JSON 约束
 const resolveCanvasImageRefForChat = (
   imageId: string,
@@ -342,7 +344,7 @@ const resolveCanvasImageRefForChat = (
   const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
   const localPreview = inlineSource || extractLocalImageData(imageData);
 
-  // 上传中：先给一个“立即可渲染”的引用（blob 优先），避免对话框里显示 404/裂图
+  // 上传中：先给一个"立即可渲染"的引用（blob 优先），避免对话框里显示 404/裂图
   if (pendingUpload && localPreview) {
     return localPreview;
   }
@@ -808,7 +810,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       // 画布侧的 blob: ObjectURL 可能会被回收（例如升级为远程 URL 后），
-      // 直接把 blob: 透传到 Chat 会导致预览“突然裂图”。
+      // 直接把 blob: 透传到 Chat 会导致预览"突然裂图"。
       // 这里把 blob: 克隆为 flow-asset:（IndexedDB + refcount）以跨组件稳定复用。
       if (!trimmed.startsWith("blob:")) return trimmed;
 
@@ -1123,14 +1125,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             (inst) => inst.id === imageInstance.id
           );
           if (alreadyExists) {
-            logger.debug(
-              "ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加",
-              imageInstance.id
+            // 用 onLoadHandler 派发的最终实例（含正确 bounds）更新初始占位实例
+            const updated = prev.map((inst) =>
+              inst.id === imageInstance.id ? imageInstance : inst
             );
-            return prev;
+            try { (window as any).tanvaImageInstances = updated; } catch {}
+            return updated;
           }
           const next = [...prev, imageInstance];
-          // 立即同步到 window，避免“刚发送到画布→立刻保存”时 assets 采集不到新图片
+          // 立即同步到 window，避免"刚发送到画布→立刻保存"时 assets 采集不到新图片
           try {
             (window as any).tanvaImageInstances = next;
           } catch {}
@@ -1753,6 +1756,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       );
   }, [insertSvgAssetToCanvas]);
 
+  // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
+  const quickImageUploadRef = useRef(quickImageUpload);
+  useEffect(() => {
+    quickImageUploadRef.current = quickImageUpload;
+  }, [quickImageUpload]);
+
 	  // ========== 监听AI生成图片的快速上传触发事件 ==========
 	  useEffect(() => {
 	    const handleTriggerQuickUpload = (event: CustomEvent) => {
@@ -1794,7 +1803,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // Keep expand-image result as a new image at placeholder position.
       // Do not replace the source image in-place.
 
-	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
+	      if (imageData && quickImageUploadRef.current.handleQuickImageUploaded) {
 	        const handle = () => {
           let resolvedSmartPosition = smartPosition;
           if (
@@ -1813,7 +1822,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
 	          // 直接调用快速上传的处理函数，传递智能排版相关参数
-	          void quickImageUpload
+	          void quickImageUploadRef.current
 	            .handleQuickImageUploaded(
 	              imageData,
 	              fileName,
@@ -1855,7 +1864,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              logger.error("❌ [DEBUG] 重试快速上传仍失败:", retryError);
 	              if (placeholderId) {
 	                try {
-	                  quickImageUpload.removePredictedPlaceholder(placeholderId);
+	                  quickImageUploadRef.current.removePredictedPlaceholder(placeholderId);
 	                } catch {}
 	              }
 	            }
@@ -1882,13 +1891,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         handleTriggerQuickUpload as EventListener
       );
     };
-  }, [quickImageUpload, canvasRef]);
-
-  // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
-  const quickImageUploadRef = useRef(quickImageUpload);
-  useEffect(() => {
-    quickImageUploadRef.current = quickImageUpload;
-  }, [quickImageUpload]);
+  }, []);
 
   // 使用 ref 存储 imageTool.setImageInstances 的最新引用，避免事件监听闭包过期
   const imageToolSetInstancesRef = useRef(imageTool.setImageInstances);
@@ -1917,7 +1920,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return "";
       };
 
-    // 上传完成后的“软切换”：
+    // 上传完成后的"软切换"：
     // 1) 先回写远程元数据（url/key/remoteUrl/pendingUpload=false）
     // 2) 预加载远程图片，等加载完成后再覆盖渲染源（避免裂图/闪白）
     // 3) 覆盖成功后再回收旧 blob: ObjectURL（避免对话参考图/画布同时引用时被提前 revoke）
@@ -2133,7 +2136,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const objectUrlsToMaybeRevoke = new Set<string>();
         const matchUrls = new Set<string>();
 
-        // 先从运行时实例收集“旧 blob”，用于替换 Chat 参考图
+        // 先从运行时实例收集"旧 blob"，用于替换 Chat 参考图
         try {
           const instances = (window as any).tanvaImageInstances as any[] | undefined;
           if (Array.isArray(instances) && instances.length > 0) {
@@ -2332,7 +2335,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 pendingUpload: false,
               };
 
-              // 远程已加载：用已 decode 的 Image 覆盖，避免“切到远程瞬间空白”
+              // 远程已加载：用已 decode 的 Image 覆盖，避免"切到远程瞬间空白"
               if (
                 nextRenderableSrc &&
                 (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
@@ -2348,7 +2351,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     try { (raster as any).__tanvaSourceRef = nextRenderableSrc; } catch {}
                   } catch {}
                 }
-                // 🔧 Paper.js 在切换 source 时可能会短暂重置 bounds（甚至变成 0），导致“闪一下再恢复”；
+                // 🔧 Paper.js 在切换 source 时可能会短暂重置 bounds（甚至变成 0），导致"闪一下再恢复"；
                 // 这里立即恢复 bounds/选择元素，避免等待 onLoad 回调才补齐造成可见闪烁。
                 if (rectBeforeSwap) {
                   applyBoundsToGroup(rectBeforeSwap);
@@ -2736,7 +2739,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           } catch {}
           applyStoredBounds();
           refreshView();
-          // fallback 分支可能仍是异步加载，补两次延迟刷新，降低“幽灵图”概率
+          // fallback 分支可能仍是异步加载，补两次延迟刷新，降低"幽灵图"概率
           setTimeout(refreshView, 60);
           setTimeout(refreshView, 220);
         };
@@ -3957,7 +3960,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
             // 添加当前选中的图片
             if (imageSourceForAI) allSelectedImages.push(imageSourceForAI);
-            // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+            // 先同步一份"即时可用"的引用（可能包含 blob:），避免 UI 等待
             useAIChatStore.getState().setSourceImagesFromCanvas(allSelectedImages);
             void (async () => {
               try {
@@ -3981,7 +3984,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           } else {
             // 单选模式：只设置当前图片
             if (imageSourceForAI) {
-              // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+              // 先同步一份"即时可用"的引用（可能包含 blob:），避免 UI 等待
               useAIChatStore.getState().setSourceImagesFromCanvas([imageSourceForAI]);
               void (async () => {
                 try {
@@ -4392,7 +4395,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (!projectId) return;
 
     // 只允许进行一次基于快照的初始回填，避免用户删除后又被回填复原
-    // 注意：该标记必须是“按项目隔离”的，否则切换项目后会误判为已回填，导致图片丢失/不可选（刷新后正常）。
+    // 注意：该标记必须是"按项目隔离"的，否则切换项目后会误判为已回填，导致图片丢失/不可选（刷新后正常）。
     const hydratedFlagKey = `__tanva_initial_assets_hydrated__:${projectId}`;
     const alreadyHydrated =
       typeof window !== "undefined" && (window as any)[hydratedFlagKey];
@@ -4414,7 +4417,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } catch {}
 
       // paperJson 恢复只会还原 Paper 场景，不会重建图片/3D/文本的运行时实例。
-      // 若不补齐 imageTool.imageInstances，选择/拖拽会退化为“框选矩形”，表现为图片拖不动。
+      // 若不补齐 imageTool.imageInstances，选择/拖拽会退化为"框选矩形"，表现为图片拖不动。
       try {
         if (imageTool.imageInstances.length === 0) {
           const imageSnapshots: ImageAssetSnapshot[] = Array.isArray(
@@ -4616,7 +4619,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageTool.repairPaperRastersFromSnapshots(projectAssets.images);
             }
           } else if (projectAssets.images?.length) {
-            // 仅种子化状态会产生“可点击但不可见”的幽灵图，这里改为真正重建 Raster。
+            // 仅种子化状态会产生"可点击但不可见"的幽灵图，这里改为真正重建 Raster。
             imageTool.hydrateFromSnapshot(projectAssets.images);
           }
         }
@@ -5768,22 +5771,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     updatePreciseReadyCursor();
 
-    window.addEventListener("mousedown", handleMouseDown, { capture: true });
-    window.addEventListener("mousemove", handleMouseMove, { capture: true });
-    window.addEventListener("mouseup", handleMouseUp, { capture: true });
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    window.addEventListener("keyup", handleKeyUp, { capture: true });
+    // 通过 CanvasEventBus 订阅，避免与 GlobalEventCapture 重复注册同名捕获监听器
+    const unsubMD = canvasEventBus.on('mousedownCapture', handleMouseDown, 3);
+    const unsubMM = canvasEventBus.on('mousemoveCapture', handleMouseMove, 3);
+    const unsubMU = canvasEventBus.on('mouseupCapture', handleMouseUp, 3);
+    const unsubKD = canvasEventBus.on('keydownCapture', handleKeyDown, 3);
+    const unsubKU = canvasEventBus.on('keyupCapture', handleKeyUp, 3);
     window.addEventListener("blur", handleWindowBlur);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       clearDragState();
       document.body.classList.remove("tanva-precise-edit-ready");
-      window.removeEventListener("mousedown", handleMouseDown, true);
-      window.removeEventListener("mousemove", handleMouseMove, true);
-      window.removeEventListener("mouseup", handleMouseUp, true);
-      window.removeEventListener("keydown", handleKeyDown, true);
-      window.removeEventListener("keyup", handleKeyUp, true);
+      unsubMD(); unsubMM(); unsubMU(); unsubKD(); unsubKU();
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -5825,6 +5825,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             url: img.imageData.url || source,
             src: img.imageData.src || source,
             key: img.imageData.key,
+            remoteUrl: img.imageData.remoteUrl,
             fileName: img.imageData.fileName,
             width: img.imageData.width ?? img.bounds.width,
             height: img.imageData.height ?? img.bounds.height,
@@ -8947,7 +8948,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     <>
       {/* 图片上传组件 */}
       <ImageUploadComponent
-        onImageUploaded={imageTool.handleImageUploaded}
+        onImageUploaded={(asset) => {
+          // 取出占位框位置和尺寸，走与粘贴相同的 handleQuickImageUploaded 路径
+          const ph = imageTool.currentPlaceholderRef.current;
+          const bounds = ph?.data?.bounds as { x: number; y: number; width: number; height: number } | undefined;
+          const smartPosition = bounds
+            ? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+            : undefined;
+          if (ph) {
+            try { ph.remove(); } catch {}
+            imageTool.currentPlaceholderRef.current = null;
+          }
+          void uploadImageToCanvas?.(asset, asset.fileName, undefined, smartPosition, undefined, undefined, undefined, {
+            initialWidth: bounds?.width,
+            initialHeight: bounds?.height,
+            lockToBounds: !!bounds,
+          });
+        }}
         onUploadError={imageTool.handleImageUploadError}
         trigger={imageTool.triggerImageUpload}
         onTriggerHandled={imageTool.handleUploadTriggerHandled}
@@ -8967,6 +8984,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         projectId={projectId}
       />
 
+      {/* AI 生图进行中指示器 — React 层，不依赖 Paper.js，切换节点不会消失 */}
+      {quickImageUpload.pendingCount > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(17, 24, 39, 0.85)",
+            color: "#f9fafb",
+            fontSize: 13,
+            fontWeight: 500,
+            padding: "7px 14px",
+            borderRadius: 20,
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+            zIndex: 9999,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
+          >
+            <line x1="12" y1="2" x2="12" y2="6" />
+            <line x1="12" y1="18" x2="12" y2="22" />
+            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+            <line x1="2" y1="12" x2="6" y2="12" />
+            <line x1="18" y1="12" x2="22" y2="12" />
+            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+          </svg>
+          AI 生成中{quickImageUpload.pendingCount > 1 ? `（${quickImageUpload.pendingCount}）` : ""}
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent
         onModel3DUploaded={model3DTool.handleModel3DUploaded}
@@ -8982,6 +9048,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         zoom={zoom}
       />
 
+      {/* DOM图片渲染层：GPU加速，解决canvas重绘闪烁问题 */}
+      <CanvasImageLayer imageInstances={imageTool.imageInstances} />
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
         // 构建所有画布图片数据，用于预览时显示

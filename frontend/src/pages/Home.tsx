@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { TeamSwitcher } from "@/components/team/TeamSwitcher";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
@@ -243,6 +244,7 @@ export default function Home() {
                           t("common.user"),
                       })}
                     </span>
+                    <TeamSwitcher variant="home" />
                     <span
                       className='inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-white/30 text-white bg-green-500/20 backdrop-blur-sm'
                       title={`${status?.label || t("common.status.unknown")}`}

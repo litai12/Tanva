@@ -10,9 +10,18 @@ import { MembershipModule } from '../membership/membership.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
+import { TeamCollabModule } from '../team-collab/team-collab.module';
 
 @Module({
-  imports: [PrismaModule, CreditsModule, OssModule, BusinessPolicyModule, MembershipModule, VolcAssetModule],
+  imports: [
+    PrismaModule,
+    CreditsModule,
+    OssModule,
+    BusinessPolicyModule,
+    MembershipModule,
+    VolcAssetModule,
+    TeamCollabModule,
+  ],
   controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],
   exports: [AdminService, TemplateService, NodeConfigService],

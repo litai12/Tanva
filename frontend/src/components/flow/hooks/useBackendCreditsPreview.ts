@@ -1,16 +1,11 @@
 import React from "react";
-import {
-  buildPreviewRequestSignature,
-  previewCredits,
-} from "@/services/creditsPreviewService";
+import { fetchWithAuth } from "@/services/authFetch";
 
-type Params = {
-  serviceType?: string | null;
-  model?: string | null;
-  requestParams?: Record<string, any> | null;
-  outputImageCount?: number;
-  enabled?: boolean;
-};
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL &&
+  import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000") + "/api";
 
 export const useBackendCreditsPreview = ({
   serviceType,
@@ -18,17 +13,20 @@ export const useBackendCreditsPreview = ({
   requestParams,
   outputImageCount,
   enabled = true,
-}: Params) => {
+}: {
+  serviceType?: string | null;
+  model?: string | null;
+  requestParams?: Record<string, any> | null;
+  outputImageCount?: number;
+  enabled?: boolean;
+}) => {
   const [credits, setCredits] = React.useState<number | undefined>(undefined);
-  const requestSignature = React.useMemo(() => {
-    if (!enabled || !serviceType) return "";
-    return buildPreviewRequestSignature({
-      serviceType,
-      model: model || undefined,
-      requestParams: requestParams || undefined,
-      outputImageCount,
-    });
-  }, [enabled, model, outputImageCount, requestParams, serviceType]);
+
+  const depsKey = React.useMemo(
+    () =>
+      JSON.stringify({ serviceType, model, requestParams, outputImageCount }),
+    [serviceType, model, requestParams, outputImageCount],
+  );
 
   React.useEffect(() => {
     if (!enabled || !serviceType) {
@@ -36,33 +34,40 @@ export const useBackendCreditsPreview = ({
       return;
     }
 
+    const controller = new AbortController();
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      previewCredits({
-        serviceType,
-        model: model || undefined,
-        requestParams: requestParams || undefined,
-        outputImageCount,
-      })
-        .then((result) => {
-          if (cancelled) return;
-          const nextCredits = Number(result?.credits);
-          setCredits(Number.isFinite(nextCredits) && nextCredits > 0 ? nextCredits : undefined);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setCredits(undefined);
+
+    const timer = setTimeout(async () => {
+      try {
+        const body: Record<string, unknown> = { serviceType };
+        if (model) body.model = model;
+        if (requestParams) body.requestParams = requestParams;
+        if (typeof outputImageCount === "number") body.outputImageCount = outputImageCount;
+
+        const res = await fetchWithAuth(`${API_BASE_URL}/credits/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
         });
-    }, 120);
+
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled && typeof data?.credits === "number") {
+          setCredits(data.credits);
+        }
+      } catch {
+        // silently ignore — network errors or auth failures fall back to static config
+      }
+    }, 300);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      clearTimeout(timer);
+      controller.abort();
     };
-  }, [enabled, outputImageCount, requestSignature, serviceType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, depsKey]);
 
-  return {
-    credits,
-    hasCredits: typeof credits === "number" && credits > 0,
-  };
+  return { credits, hasCredits: typeof credits === "number" };
 };

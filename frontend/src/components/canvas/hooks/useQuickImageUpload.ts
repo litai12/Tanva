@@ -5,6 +5,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
+import { ImageResourceManager } from '@/canvas/ImageResourceManager';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
@@ -34,7 +35,7 @@ interface UseQuickImageUploadProps {
 
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
-    return value.startsWith('data:image');
+    return value.startsWith('data:image') || value.startsWith('blob:');
 };
 
 const toPreferredRemoteSource = (value: string): string => {
@@ -85,7 +86,9 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
         localPreview ||
         asset.url;
 
-    const renderable = toRenderableImageSrc(displayCandidate);
+    // Blob URLs are valid for Paper.js Raster but blocked by toRenderableImageSrc — allow directly.
+    const isBlobPreview = typeof displayCandidate === 'string' && displayCandidate.startsWith('blob:');
+    const renderable = isBlobPreview ? displayCandidate : toRenderableImageSrc(displayCandidate);
     const preferredSource = renderable ? toPreferredRemoteSource(renderable) : '';
     return { source: preferredSource, remoteUrl, key };
 };
@@ -171,6 +174,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     // 🔥 追踪正在加载中的图片（防止连续生成时位置重叠）
     type PendingImageEntry = {
         id: string;
+        projectId?: string;
         operationType?: string;
         expectedWidth: number;
         expectedHeight: number;
@@ -188,6 +192,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     };
 
     const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
+    const [pendingCount, setPendingCount] = useState(0);
     const predictedPlaceholdersRef = useRef<Map<string, paper.Item>>(new Map());
     const matrixLayoutsRef = useRef<Map<string, MatrixLayoutState>>(new Map());
     const matrixSlotRegistryRef = useRef<Map<string, { contextKey: string; index: number }>>(new Map());
@@ -205,12 +210,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             list[index] = { ...list[index], ...entry };
         } else {
             list.push(entry);
+            setPendingCount((c) => c + 1);
         }
     }, []);
 
     const removePendingImage = useCallback((id?: string) => {
         if (!id) return;
+        const existed = pendingImagesRef.current.some((item) => item.id === id);
         pendingImagesRef.current = pendingImagesRef.current.filter((item) => item.id !== id);
+        if (existed) setPendingCount((c) => Math.max(0, c - 1));
     }, []);
 
     const removePredictedPlaceholder = useCallback((placeholderId: string | undefined | null) => {
@@ -1055,6 +1063,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         predictedPlaceholdersRef.current.set(params.placeholderId, group);
         upsertPendingImage({
             id: params.placeholderId,
+            projectId: projectId ?? undefined,
             expectedWidth: width,
             expectedHeight: height,
             x: centerPoint.x,
@@ -1157,6 +1166,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             parallelGroupId?: string;
             parallelGroupIndex?: number;
             parallelGroupTotal?: number;
+            // 上传占位框尺寸（无 placeholderId 时的初始显示尺寸）
+            initialWidth?: number;
+            initialHeight?: number;
         }
     ) => {
         if (!imagePayload) {
@@ -1165,6 +1177,20 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 removePredictedPlaceholder(extraOptions.placeholderId);
             }
             return;
+        }
+
+        // Guard: if the placeholder was created on a different canvas, don't place the image here
+        if (extraOptions?.placeholderId) {
+            const placeholderEntry = pendingImagesRef.current.find(
+                (e) => e.id === extraOptions.placeholderId
+            );
+            if (placeholderEntry?.projectId && placeholderEntry.projectId !== projectId) {
+                logger.upload(
+                    `⚠️ 图片生成完成但画板已切换，忽略放置 (placeholder projectId: ${placeholderEntry.projectId}, current: ${projectId})`
+                );
+                removePredictedPlaceholder(extraOptions.placeholderId);
+                return;
+            }
         }
 
         let asset: StoredImageAsset | null = null;
@@ -1359,8 +1385,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const placeholderBounds = placeholder?.data?.bounds;
             const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const defaultExpectedSize = 512;
-            const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
-            const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
+            const expectedWidth = placeholderBounds?.width ?? extraOptions?.initialWidth ?? defaultExpectedSize;
+            const expectedHeight = placeholderBounds?.height ?? extraOptions?.initialHeight ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
             const lockToBounds =
                 Boolean(extraOptions?.lockToBounds) || pendingOperationType === 'precise-edit';
@@ -1524,6 +1550,39 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } else {
                     logger.upload(`📍 快速上传：默认使用视口中心 (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
                 }
+            }
+
+            // ⚡ 立即向 CanvasImageLayer 分派初始实例，不等待 Raster 加载
+            // 与 createImageFromSnapshot 的立即分派策略保持一致，确保图片零延迟渲染
+            {
+                const _earlyLayerId = paper.project.activeLayer?.name ?? '';
+                window.dispatchEvent(new CustomEvent('quickImageAdded', {
+                    detail: {
+                        id: imageId,
+                        imageData: {
+                            id: imageId,
+                            url: asset.url,
+                            src: asset.src || asset.url,
+                            localDataUrl: asset.localDataUrl,
+                            remoteUrl: asset.remoteUrl,
+                            key: asset.key,
+                            fileName: fileName,
+                            width: asset.width,
+                            height: asset.height,
+                            contentType: asset.contentType,
+                            pendingUpload: !!asset.pendingUpload,
+                        },
+                        bounds: {
+                            x: targetPosition.x - expectedWidth / 2,
+                            y: targetPosition.y - expectedHeight / 2,
+                            width: expectedWidth,
+                            height: expectedHeight,
+                        },
+                        isSelected: false,
+                        visible: true,
+                        layerId: _earlyLayerId,
+                    }
+                }));
             }
 
             // 创建加载指示器（转圈动画）
@@ -1695,7 +1754,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                hasTerminalLoadFailure = true;
 	                clearLoadTimeout();
 	                removeLoadingIndicator();
-	                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+	                removePendingImage(imageId);
 	                if (placeholderId) {
 	                    removePredictedPlaceholder(placeholderId);
 	                }
@@ -1802,11 +1861,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     移除前数量: pendingImagesRef.current.length,
                     移除前列表: pendingImagesRef.current.map(p => p.id.substring(0, 25))
                 });
-                pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+                removePendingImage(imageId);
                 
-                // 获取原始尺寸
-                const originalWidth = raster.width;
-                const originalHeight = raster.height;
+                // 获取原始尺寸（从 raster 内部的 HTMLImageElement 读取更可靠，
+                // 避免 setImage 后 paper.js 延迟设置 _size 导致 raster.width=0）
+                const _rasterImg = (raster as any)._image as HTMLImageElement | undefined;
+                const originalWidth = (_rasterImg?.naturalWidth ?? 0) || raster.width || asset.width || 512;
+                const originalHeight = (_rasterImg?.naturalHeight ?? 0) || raster.height || asset.height || 512;
 
                 // 检查是否启用原始尺寸模式
                 const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
@@ -1881,6 +1942,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (!targetBounds && selectedImageBounds) {
                     targetBounds = selectedImageBounds;
                     boundsSource = 'selected';
+                }
+
+                // lockToBounds 但没有找到占位符：用 expectedSize + targetPosition 构建边界
+                if (!targetBounds && lockToBounds && expectedWidth > 0 && expectedHeight > 0) {
+                    targetBounds = {
+                        x: targetPosition.x - expectedWidth / 2,
+                        y: targetPosition.y - expectedHeight / 2,
+                        width: expectedWidth,
+                        height: expectedHeight,
+                    };
+                    boundsSource = 'placeholder';
                 }
 
                 if (targetBounds) {
@@ -2142,6 +2214,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                        url: asset.url,
 	                        src: asset.src || asset.url,
 	                        localDataUrl: asset.localDataUrl,
+	                        remoteUrl: asset.remoteUrl,
 	                        key: asset.key,
 	                        fileName: fileName,
 	                        // width/height 代表图片原始像素尺寸（用于信息展示/资产元数据），不要用显示 bounds
@@ -2355,8 +2428,28 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	            // 绑定处理器并触发首次加载
 	            bindRasterHandlers();
 	            scheduleLoadTimeout();
-	            setRasterSource(raster, rasterSource);
-	            await rasterReady;
+
+	            // 优先通过 ImageResourceManager 加载（与复制粘贴路径一致）：
+	            // 先用 fetch 尝试加载，CORS 失败时自动降级为无 crossOrigin 的 <img> 加载，
+	            // 避免 raster.source + crossOrigin='anonymous' 遇到缓存不一致时渲染空白的问题。
+	            const _renderableSrc = toRenderableImageSrc(rasterSource) || rasterSource;
+	            if (_renderableSrc && !_renderableSrc.startsWith('data:')) {
+	                try {
+	                    const _htmlImg = await ImageResourceManager.getInstance().acquire(_renderableSrc, 'visible', imageId);
+	                    if (!hasTerminalLoadFailure && raster.isInserted()) {
+	                        (raster as any).setImage(_htmlImg);
+	                        if (!rasterSettled) onLoadHandler?.();
+	                    }
+	                } catch {
+	                    if (!rasterSettled && !hasTerminalLoadFailure) {
+	                        setRasterSource(raster, rasterSource);
+	                        await rasterReady;
+	                    }
+	                }
+	            } else {
+	                setRasterSource(raster, rasterSource);
+	                await rasterReady;
+	            }
 	        } catch (error) {
 	            logger.error('快速上传图片时出错:', error);
 	            try { rejectRasterReady?.(error); } catch {}
@@ -2387,6 +2480,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         showPredictedPlaceholder,
         removePredictedPlaceholder,
         updatePlaceholderProgress,
+        pendingCount,
         // 智能排版相关函数
         calculateSmartPosition,
         getAllCanvasImages,

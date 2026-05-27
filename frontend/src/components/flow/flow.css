@@ -257,6 +257,70 @@ body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge.selected .react
   stroke-width: 1.8px !important;
 }
 
+/* ==================== 文本输入框与画布移动的共存策略 ==================== */
+/* 未聚焦的输入框：不显示文本光标，不允许意外触发文本框选 */
+/* 聚焦后自动恢复默认行为（:not(:focus) 选择器失效） */
+.tanva-flow-overlay .react-flow__node textarea:not(:focus),
+.tanva-flow-overlay .react-flow__node input:not(:focus),
+.tanva-flow-overlay .react-flow__node [contenteditable="true"]:not(:focus) {
+  cursor: default !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* 空格键按下时（pan ready 状态），整个画布区域统一显示抓手光标，包括文本节点 */
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node textarea,
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node input,
+body.tanva-space-pressed .tanva-flow-overlay .react-flow__node [contenteditable] {
+  cursor: grab !important;
+  pointer-events: none !important;
+}
+
+/* 平移进行中，所有文本输入框也显示抓手并禁用指针事件 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node textarea,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node input,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node [contenteditable] {
+  cursor: grabbing !important;
+  pointer-events: none !important;
+}
+
+/* 画布平移期间禁止 Flow 节点截获鼠标事件，防止平移被打断 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__edge,
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__handle {
+  pointer-events: none !important;
+}
+body.tanva-canvas-panning {
+  cursor: grabbing !important;
+}
+
+/* 平移/拖拽时将 viewport 提升到独立 GPU 层，消除移动残影
+   will-change:transform 让浏览器提前分配合成层，避免跨帧留影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__viewport,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__viewport,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__viewport,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__viewport {
+  will-change: transform;
+}
+
+/* 运动中禁用所有节点的 transition，防止渐变动效在快速移动时产生拖影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__node * {
+  transition: none !important;
+  animation-play-state: paused !important;
+}
+
+/* 运动时冻结 backdrop-filter，避免玻璃态节点在 GPU 层中产生残影 */
+body.tanva-canvas-panning .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-flow-node-dragging .tanva-flow-overlay .react-flow__node {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 .tanva-flow-snap-guides {
   position: absolute;
   inset: 0;
@@ -566,6 +630,8 @@ input[type="text"],
   bottom: -3px !important;
 }
 
+/* content-visibility: auto 隐式开启 CSS Paint Containment，会裁剪溢出节点边界的下拉菜单/弹窗，已移除 */
+
 /* 低细节模式：隐藏彩色句柄，仅保留节点 UI 主体 */
 .tanva-flow-overlay.low-detail-mode .react-flow__handle,
 .tanva-flow-overlay.low-detail-mode .react-flow__handle *,
@@ -750,4 +816,65 @@ video::-webkit-media-controls-fullscreen-button {
   background: #f3f4f6;
   color: #9ca3af;
   box-shadow: none;
+}
+
+/* PromptImageStrip */
+.prompt-image-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 2px;
+}
+
+.prompt-image-strip__card {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  padding: 0;
+  flex-shrink: 0;
+  transition: border-color 0.12s ease;
+}
+
+.prompt-image-strip__card:hover,
+.prompt-image-strip__card:focus-visible {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.prompt-image-strip__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.prompt-image-strip__badge {
+  position: absolute;
+  bottom: 1px;
+  left: 2px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+  padding: 0 2px;
+  line-height: 14px;
+  pointer-events: none;
+}
+
+.prompt-image-strip__video-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
 }

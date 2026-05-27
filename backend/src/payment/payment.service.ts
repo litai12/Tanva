@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
@@ -18,6 +18,7 @@ import { ReferralService } from '../referral/referral.service';
 import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 // --- 🛡️ 兼容引用 ---
 const alipayLib = require('alipay-sdk');
@@ -39,6 +40,7 @@ export class PaymentService implements OnModuleInit {
     private referralService: ReferralService,
     private membershipService: MembershipService,
     private readonly businessPolicyService: BusinessPolicyService,
+    @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) { }
 
   private isAlipaySuccessStatus(status: string | null | undefined): boolean {
@@ -711,6 +713,10 @@ export class PaymentService implements OnModuleInit {
       paidAt?: Date;
     },
   ): Promise<void> {
+    type TopupBroadcast = { teamId: string; delta: number; taskId: string };
+    // Use a ref-like wrapper because TS's flow analysis narrows the simple
+    // `let x = null` to `never` when only assigned inside a closure.
+    const topupRef: { value: TopupBroadcast | null } = { value: null };
     await this.prisma.$transaction(async (tx) => {
       const policy = await this.businessPolicyService.getMembershipCreditPolicy();
       const currentOrder = await tx.paymentOrder.findUnique({ where: { id: orderId } });
@@ -764,6 +770,63 @@ export class PaymentService implements OnModuleInit {
         });
         return;
       }
+      if (currentOrder.orderType === 'team_seat') {
+        const meta = currentOrder.metadata as Record<string, unknown> | null;
+        const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
+        if (!teamId) return;
+        const seats = Number(meta?.seats) || 0;
+        const cycle = typeof meta?.cycle === 'string' ? meta.cycle : 'monthly';
+        const durationDays = cycle === 'annual' ? 365 : 30;
+        const paidAt = options?.paidAt ?? new Date();
+        const expiresAt = new Date(paidAt.getTime() + durationDays * 86_400_000);
+
+        await tx.teamSeatPackage.create({
+          data: {
+            teamId,
+            paymentOrderId: orderId,
+            seats,
+            cycle,
+            credits,
+            status: 'active',
+            purchasedAt: paidAt,
+            expiresAt,
+          },
+        });
+
+        let acc = await tx.teamCreditAccount.findUnique({ where: { teamId } });
+        if (!acc) {
+          acc = await tx.teamCreditAccount.create({
+            data: { teamId, balance: 0, frozenBalance: 0, totalEarned: 0 },
+          });
+        }
+        await tx.teamCreditLot.create({
+          data: {
+            teamCreditAccId: acc.id,
+            amount: credits,
+            remaining: credits,
+            expiresAt: null,
+            source: 'topup',
+            sourceRefId: orderId,
+          },
+        });
+        await tx.teamCreditAccount.update({
+          where: { id: acc.id },
+          data: { balance: { increment: credits }, totalEarned: { increment: credits } },
+        });
+        await tx.teamCreditLedger.create({
+          data: {
+            teamAccId: acc.id,
+            entryType: 'topup',
+            amount: credits,
+            taskId: `topup_${orderId}`,
+            note: `购买${cycle === 'annual' ? '年卡' : '月卡'}席位套餐 x${seats}，发放 ${credits} 积分`,
+          },
+        });
+        // After-commit broadcast handled outside the tx callback; mark teamId
+        // so we can publish below.
+        topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
+        return;
+      }
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
@@ -810,6 +873,15 @@ export class PaymentService implements OnModuleInit {
         await this.referralService.rewardInviterForInviteeFirstRechargeInTransaction(tx, userId);
       }
     });
+
+    if (topupRef.value && this.teamCreditsPublisher) {
+      void this.teamCreditsPublisher.publish({
+        teamId: topupRef.value.teamId,
+        reason: 'topup',
+        delta: topupRef.value.delta,
+        taskId: topupRef.value.taskId,
+      });
+    }
   }
   
   private async syncPendingOrdersForUser(userId: string, limit = 10): Promise<void> {

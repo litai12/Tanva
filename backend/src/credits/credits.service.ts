@@ -153,6 +153,7 @@ export interface DeductCreditsResult {
   newBalance: number;
   transactionId: string;
   apiUsageId: string;
+  creditsToDeduct: number;
 }
 
 export interface AddCreditsResult {
@@ -174,6 +175,8 @@ export interface ApiUsageParams {
   userAgent?: string;
   idempotencyKey?: string;
   idempotencyWindowMs?: number;
+  /** 团队项目模式：只建用量记录，不扣个人积分。团队积分由调用方另行扣除。 */
+  skipPersonalDeduction?: boolean;
 }
 
 interface PricingCatalogRuleConditionView {
@@ -342,8 +345,35 @@ const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
   },
 };
 
+// 极速通道（beqlee官方代理）= 官方价 ×1.1
+// pro(banana): 0.91×1.1≈100, 0.91×1.1≈100, 1.63×1.1≈179
+// ultra(banana-3.1/nano2): 0.455×1.1≈50, 0.683×1.1≈75, 1.026×1.1≈113
+const BANANA_ULTRA_RESOLUTION_PRICING: Record<
+  BananaTencentPricingTier,
+  Record<'0.5K' | '1K' | '2K' | '4K', number>
+> = {
+  fast: {
+    '0.5K': 20,
+    '1K': 20,
+    '2K': 20,
+    '4K': 20,
+  },
+  pro: {
+    '0.5K': 100,
+    '1K': 100,
+    '2K': 100,
+    '4K': 179,
+  },
+  ultra: {
+    '0.5K': 50,
+    '1K': 50,
+    '2K': 75,
+    '4K': 113,
+  },
+};
+
 const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
-  'normal' | 'stable',
+  'normal' | 'stable' | 'ultra',
   Record<BananaTextPricingTier, number>
 > = {
   normal: {
@@ -356,10 +386,15 @@ const BANANA_TEXT_CHAT_ROUTE_PRICING: Record<
     pro: 10,
     ultra: 10,
   },
+  ultra: {
+    fast: 5,
+    pro: 10,
+    ultra: 10,
+  },
 };
 
 const VIDEO_ANALYZE_ROUTE_PRICING: Record<
-  'normal' | 'stable',
+  'normal' | 'stable' | 'ultra',
   Record<BananaTextPricingTier, number>
 > = {
   normal: {
@@ -371,6 +406,11 @@ const VIDEO_ANALYZE_ROUTE_PRICING: Record<
     fast: 80,
     pro: 120,
     ultra: 160,
+  },
+  ultra: {
+    fast: 60,
+    pro: 100,
+    ultra: 130,
   },
 };
 const VOLC_ENHANCE_VIDEO_PRICING: Record<
@@ -410,7 +450,12 @@ export class CreditsService {
   ) {
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (redisUrl && IORedis) {
-      this.redisClient = new IORedis(redisUrl);
+      this.redisClient = new IORedis(redisUrl, {
+        commandTimeout: 1000,
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 0,
+      });
+      this.redisClient.on('error', () => {/* suppress connection errors */});
     }
   }
 
@@ -1449,11 +1494,11 @@ export class CreditsService {
       return defaultServiceName;
     }
 
-    // ????
+    // 路由判断
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute);
-    let route: 'normal' | 'stable' | null = explicitRoute;
+    let route: 'normal' | 'stable' | 'ultra' | null = explicitRoute;
     if (!route) {
       const channelCandidates = [
         requestParams?.channel,
@@ -1471,7 +1516,7 @@ export class CreditsService {
         }
       }
     }
-    const routeLabel = route === 'stable' ? '尊享' : '普通';
+    const routeLabel = route === 'stable' ? '尊享' : route === 'ultra' ? '极速' : '普通';
 
     // ?????
     const imageSize = requestParams?.imageSize;
@@ -1607,18 +1652,19 @@ export class CreditsService {
 
   private normalizeBananaImageRoute(
     rawRoute: unknown,
-  ): 'normal' | 'stable' | null {
+  ): 'normal' | 'stable' | 'ultra' | null {
     if (typeof rawRoute !== 'string') return null;
     const value = rawRoute.trim().toLowerCase();
     if (!value) return null;
     if (value === 'normal' || value === 'apimart') return 'normal';
     if (value === 'stable' || value === 'tencent') return 'stable';
+    if (value === 'ultra' || value === 'beqlee') return 'ultra';
     return null;
   }
 
   private resolveBananaRouteFromRequestParams(
     requestParams: any,
-  ): 'normal' | 'stable' | null {
+  ): 'normal' | 'stable' | 'ultra' | null {
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
@@ -1726,7 +1772,7 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    const routeKey: 'normal' | 'stable' = route || 'normal';
+    const routeKey: 'normal' | 'stable' | 'ultra' = route || 'normal';
     const configuredCredits = Number(BANANA_TEXT_CHAT_ROUTE_PRICING[routeKey][tier]);
     if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
       this.logger.debug(`[Credits] resolveBananaTextRouteCredits: invalid credits, returning defaultCredits=${defaultCredits}`);
@@ -1743,12 +1789,12 @@ export class CreditsService {
     serviceType: ServiceType,
     requestParams: any,
   ): number | null {
-    // ?????normal=?????stable=????
+    // normal=普通渠道, stable=尊享渠道, ultra=极速渠道(beqlee)
     const explicitRoute =
       this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
       this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-    let route: 'normal' | 'stable' | null = explicitRoute;
+    let route: 'normal' | 'stable' | 'ultra' | null = explicitRoute;
     if (!route) {
       const channelCandidates = [
         requestParams?.channel,
@@ -1773,7 +1819,6 @@ export class CreditsService {
       const normalizedSize = this.normalizeResolutionForGptImage2TencentPricing(
         requestParams?.imageSize,
       );
-      // ?????? GPT_IMAGE2_NORMAL_RESOLUTION_PRICING??????? GPT_IMAGE2_TENCENT_RESOLUTION_PRICING
       const configuredCredits =
         route === 'stable'
           ? Number(
@@ -1791,10 +1836,12 @@ export class CreditsService {
     const tier = BANANA_TENCENT_IMAGE_SERVICE_TIERS[serviceType];
     if (!tier) return null;
 
-    // ??????????(stable)?? BANANA_TENCENT_STABLE_RESOLUTION_PRICING??????? BANANA_TENCENT_RESOLUTION_PRICING
-    const pricingTable = route === 'stable'
-      ? BANANA_TENCENT_STABLE_RESOLUTION_PRICING[tier]
-      : BANANA_TENCENT_RESOLUTION_PRICING[tier];
+    const pricingTable =
+      route === 'stable'
+        ? BANANA_TENCENT_STABLE_RESOLUTION_PRICING[tier]
+        : route === 'ultra'
+          ? BANANA_ULTRA_RESOLUTION_PRICING[tier]
+          : BANANA_TENCENT_RESOLUTION_PRICING[tier];
 
     const normalizedSize = this.normalizeResolutionForBananaTencentPricing(
       requestParams?.imageSize,
@@ -2395,6 +2442,7 @@ export class CreditsService {
       this.normalizeBananaImageRoute(params?.providerOptions?.bananaImageRoute);
     if (explicitRoute === 'stable') return 'tencent';
     if (explicitRoute === 'normal') return 'apimart';
+    if (explicitRoute === 'ultra') return 'beqlee';
 
     const candidates = [
       params?.channel,
@@ -2440,6 +2488,7 @@ export class CreditsService {
     if (channel === 'apimart') return '普通路线';
     if (channel === 'tencent') return '尊享路线';
     if (channel === '147') return '官方路线';
+    if (channel === 'beqlee') return '极速路线';
     return channel;
   }
 
@@ -3706,6 +3755,7 @@ export class CreditsService {
       userAgent,
       idempotencyKey,
       idempotencyWindowMs,
+      skipPersonalDeduction,
     } = params;
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
       idempotencyKey ?? requestParams?.idempotencyKey,
@@ -3771,10 +3821,65 @@ export class CreditsService {
             transactionId:
               duplicateUsage.transactionId || `duplicate:${duplicateUsage.apiUsageId}`,
             apiUsageId: duplicateUsage.apiUsageId,
+            creditsToDeduct,
           };
         }
       }
 
+      // 解析服务名（团队/个人模式共用）
+      let effectiveServiceName = this.resolveSoraServiceName(
+        serviceType,
+        pricing.serviceName,
+        apiUsageRequestParams,
+        model,
+      );
+      effectiveServiceName = this.resolveKlingServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+      );
+      effectiveServiceName = this.resolveManagedVideoServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+      );
+      effectiveServiceName = this.resolveBananaImageServiceName(
+        serviceType,
+        effectiveServiceName,
+        apiUsageRequestParams,
+        outputImageCount,
+      );
+
+      if (skipPersonalDeduction) {
+        // 团队模式：只建用量记录，不动个人积分
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: {
+            userId,
+            serviceType,
+            serviceName: effectiveServiceName,
+            provider: requestedProvider || pricing.provider,
+            model,
+            creditsUsed: creditsToDeduct,
+            inputTokens,
+            outputTokens,
+            inputImageCount,
+            outputImageCount,
+            requestParams: apiUsageRequestParams,
+            responseStatus: ApiResponseStatus.PENDING,
+            ipAddress,
+            userAgent,
+          },
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          transactionId: `team:${apiUsage.id}`,
+          apiUsageId: apiUsage.id,
+          creditsToDeduct,
+        };
+      }
+
+      // 个人模式：完整的积分扣除流程
       const activeLots = await tx.creditLot.findMany({
         where: {
           accountId: account.id,
@@ -3857,31 +3962,6 @@ export class CreditsService {
       }
 
       const newBalance = account.balance - deductionPlan.totalDeducted;
-
-      // ???????????
-      let effectiveServiceName = this.resolveSoraServiceName(
-        serviceType,
-        pricing.serviceName,
-        apiUsageRequestParams,
-        model,
-      );
-      effectiveServiceName = this.resolveKlingServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-      );
-      effectiveServiceName = this.resolveManagedVideoServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-      );
-      // ????????????? + ??? + ???? + ??
-      effectiveServiceName = this.resolveBananaImageServiceName(
-        serviceType,
-        effectiveServiceName,
-        apiUsageRequestParams,
-        outputImageCount,
-      );
       const billingRemark = this.buildBillingRemark({
         serviceType,
         model,
@@ -3889,7 +3969,6 @@ export class CreditsService {
         requestParams: apiUsageRequestParams,
       });
 
-      // ??????
       await tx.creditAccount.update({
         where: { id: account.id },
         data: {
@@ -3898,7 +3977,6 @@ export class CreditsService {
         },
       });
 
-      // ?? API ????
       const apiUsage = await tx.apiUsageRecord.create({
         data: {
           userId,
@@ -3918,7 +3996,6 @@ export class CreditsService {
         },
       });
 
-      // ??????
       const transaction = await tx.creditTransaction.create({
         data: {
           accountId: account.id,
@@ -3945,6 +4022,7 @@ export class CreditsService {
         newBalance,
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
+        creditsToDeduct,
       };
     }, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
