@@ -305,6 +305,11 @@ export class NewApiProvider implements IAIProvider {
     };
   }
 
+  private static readonly ULTRA_CAPABLE_MODELS = new Set([
+    'gemini-3-pro-image-preview',
+    'gemini-3.1-flash-image-preview',
+  ]);
+
   private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
@@ -312,8 +317,15 @@ export class NewApiProvider implements IAIProvider {
         ? (providerOptions as any).bananaImageRoute
         : undefined);
 
-    // 极速路线仅对实际映射到 ultra 模型的请求生效，无匹配模型时降级走普通路线
-    if (imageRoute === 'ultra' && this.svipApiKey && resolvedModel?.endsWith('-ultra')) return this.svipApiKey;
+    // 极速路线仅对真正支持 ultra 的模型生效，其他模型降级走普通路线
+    if (
+      imageRoute === 'ultra' &&
+      this.svipApiKey &&
+      resolvedModel &&
+      NewApiProvider.ULTRA_CAPABLE_MODELS.has(resolvedModel)
+    ) {
+      return this.svipApiKey;
+    }
     if (imageRoute === 'stable' && this.vipApiKey) return this.vipApiKey;
 
     // 通过模型路由系统选中 new_api 渠道时也走 VIP key
@@ -348,31 +360,9 @@ export class NewApiProvider implements IAIProvider {
     return NewApiProvider.MODEL_ALIAS_MAP[model] || model;
   }
 
-  private resolveUltraModel(model: string, providerOptions?: ProviderOptionsPayload): string {
-    const normalized = this.normalizeUpstreamModel(model);
-    const imageRoute =
-      providerOptions?.banana?.imageRoute ||
-      (typeof (providerOptions as any)?.bananaImageRoute === 'string'
-        ? (providerOptions as any).bananaImageRoute
-        : undefined);
-    if (imageRoute === 'ultra') {
-      if (
-        normalized === 'gemini-3-pro-image-preview' ||
-        normalized === 'gemini-3.1-flash-image-preview'
-      ) {
-        return `${normalized}-ultra`;
-      }
-    }
-    if (imageRoute === 'stable') {
-      if (
-        normalized === 'gemini-3-pro-image-preview' ||
-        normalized === 'gemini-3.1-flash-image-preview' ||
-        normalized === 'gemini-2.5-flash-image-preview'
-      ) {
-        return `${normalized}-vip`;
-      }
-    }
-    return normalized;
+  // 上游始终发真模型名；vip / svip 路线通过 API key 切到 new-api 对应分组
+  private resolveUltraModel(model: string, _providerOptions?: ProviderOptionsPayload): string {
+    return this.normalizeUpstreamModel(model);
   }
 
   private async callImageEndpoint(
