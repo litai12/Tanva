@@ -48,7 +48,7 @@ To help us understand and resolve the issue more quickly, please include the fol
 
 ## Security Best Practices
 
-When deploying and using neoSparkMart, we recommend following these security best practices:
+When deploying and using tanvasMart, we recommend following these security best practices:
 
 ### Deployment Security
 

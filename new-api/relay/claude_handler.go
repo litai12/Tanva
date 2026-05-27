@@ -136,9 +136,9 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *typ
 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
-		usage, neoSparkMartErr := chatCompletionsViaResponses(c, info, adaptor, openAIRequest)
-		if neoSparkMartErr != nil {
-			return neoSparkMartErr
+		usage, tanvasMartErr := chatCompletionsViaResponses(c, info, adaptor, openAIRequest)
+		if tanvasMartErr != nil {
+			return tanvasMartErr
 		}
 
 		service.PostTextConsumeQuota(c, info, usage, nil)

@@ -231,10 +231,10 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	}
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
 		if header.Get("HTTP-Referer") == "" {
-			header.Set("HTTP-Referer", "https://www.neoSparkMart.ai")
+			header.Set("HTTP-Referer", "https://www.tanvasMart.ai")
 		}
 		if header.Get("X-OpenRouter-Title") == "" {
-			header.Set("X-OpenRouter-Title", "neoSparkMart")
+			header.Set("X-OpenRouter-Title", "tanvasMart")
 		}
 	}
 	return nil

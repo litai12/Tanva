@@ -2,7 +2,7 @@
 
 ![new-api](/web/public/logo.png)
 
-# neoSparkMart
+# tanvasMart
 
 🍥 **新一代大模型网关与AI资产管理系统**
 
@@ -38,7 +38,7 @@
     <img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=539ac4217e69431684ad4a0bab768811&claim_uid=tbFPfKIDHpc4TzR" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" />
   </a><!--
   --><a href="https://www.producthunt.com/products/new-api/launches/new-api?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-new-api" target="_blank" rel="noopener noreferrer">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="neoSparkMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
+    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="tanvasMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
   </a>
 </p>
 
@@ -77,7 +77,7 @@
   --><a href="https://bda.pku.edu.cn/" target="_blank">
     <img src="./docs/images/pku.png" alt="北京大学" height="80" />
   </a><!--
-  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_neoSparkMart" target="_blank">
+  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_tanvasMart" target="_blank">
     <img src="./docs/images/ucloud.png" alt="UCloud 优刻得" height="80" />
   </a><!--
   --><a href="https://www.aliyun.com/" target="_blank">
@@ -151,7 +151,7 @@ docker run --name new-api -d --restart always \
 
 🎉 部署完成后，访问 `http://localhost:3000` 即可使用！
 
-📖 更多部署方式请参考 [部署指南](https://docs.neoSparkMart.pro/zh/docs/installation)
+📖 更多部署方式请参考 [部署指南](https://docs.tanvasMart.pro/zh/docs/installation)
 
 ---
 
@@ -159,7 +159,7 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 📖 [官方文档](https://docs.neoSparkMart.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
+### 📖 [官方文档](https://docs.tanvasMart.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
 
 </div>
 
@@ -167,17 +167,17 @@ docker run --name new-api -d --restart always \
 
 | 分类 | 链接 |
 |------|------|
-| 🚀 部署指南 | [安装文档](https://docs.neoSparkMart.pro/zh/docs/installation) |
-| ⚙️ 环境配置 | [环境变量](https://docs.neoSparkMart.pro/zh/docs/installation/config-maintenance/environment-variables) |
+| 🚀 部署指南 | [安装文档](https://docs.tanvasMart.pro/zh/docs/installation) |
+| ⚙️ 环境配置 | [环境变量](https://docs.tanvasMart.pro/zh/docs/installation/config-maintenance/environment-variables) |
 | 📡 接口文档 | [API 文档](/console/docs)（登录后访问，自托管交互式文档） |
-| ❓ 常见问题 | [FAQ](https://docs.neoSparkMart.pro/zh/docs/support/faq) |
-| 💬 社区交流 | [交流渠道](https://docs.neoSparkMart.pro/zh/docs/support/community-interaction) |
+| ❓ 常见问题 | [FAQ](https://docs.tanvasMart.pro/zh/docs/support/faq) |
+| 💬 社区交流 | [交流渠道](https://docs.tanvasMart.pro/zh/docs/support/community-interaction) |
 
 ---
 
 ## ✨ 主要特性
 
-> 详细特性请参考 [特性说明](https://docs.neoSparkMart.pro/zh/docs/guide/wiki/basic-concepts/features-introduction)
+> 详细特性请参考 [特性说明](https://docs.tanvasMart.pro/zh/docs/guide/wiki/basic-concepts/features-introduction)
 
 ### 🎨 核心功能
 
@@ -330,7 +330,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope block 采样率                               | `5` |
 | `HOSTNAME` | Pyroscope 标签里的主机名                                          | `new-api` |
 
-📖 **完整配置：** [环境变量文档](https://docs.neoSparkMart.pro/zh/docs/installation/config-maintenance/environment-variables)
+📖 **完整配置：** [环境变量文档](https://docs.tanvasMart.pro/zh/docs/installation/config-maintenance/environment-variables)
 
 </details>
 
@@ -422,7 +422,7 @@ docker run --name new-api -d --restart always \
 | 项目 | 说明 |
 |------|------|
 | [neko-api-key-tool](https://github.com/Calcium-Ion/neko-api-key-tool) | Key 额度查询工具 |
-| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | neoSparkMart 高性能优化版 |
+| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | tanvasMart 高性能优化版 |
 
 ---
 
@@ -432,10 +432,10 @@ docker run --name new-api -d --restart always \
 
 | 资源 | 链接 |
 |------|------|
-| 📘 常见问题 | [FAQ](https://docs.neoSparkMart.pro/zh/docs/support/faq) |
-| 💬 社区交流 | [交流渠道](https://docs.neoSparkMart.pro/zh/docs/support/community-interaction) |
-| 🐛 反馈问题 | [问题反馈](https://docs.neoSparkMart.pro/zh/docs/support/feedback-issues) |
-| 📚 完整文档 | [官方文档](https://docs.neoSparkMart.pro/zh/docs) |
+| 📘 常见问题 | [FAQ](https://docs.tanvasMart.pro/zh/docs/support/faq) |
+| 💬 社区交流 | [交流渠道](https://docs.tanvasMart.pro/zh/docs/support/community-interaction) |
+| 🐛 反馈问题 | [问题反馈](https://docs.tanvasMart.pro/zh/docs/support/feedback-issues) |
+| 📚 完整文档 | [官方文档](https://docs.tanvasMart.pro/zh/docs) |
 
 ### 🤝 贡献指南
 
@@ -470,11 +470,11 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 💖 感谢使用 neoSparkMart
+### 💖 感谢使用 tanvasMart
 
 如果这个项目对你有帮助，欢迎给我们一个 ⭐️ Star！
 
-**[官方文档](https://docs.neoSparkMart.pro/zh/docs)** • **[问题反馈](https://github.com/Calcium-Ion/new-api/issues)** • **[最新发布](https://github.com/Calcium-Ion/new-api/releases)**
+**[官方文档](https://docs.tanvasMart.pro/zh/docs)** • **[问题反馈](https://github.com/Calcium-Ion/new-api/issues)** • **[最新发布](https://github.com/Calcium-Ion/new-api/releases)**
 
 <sub>Built with ❤️ by QuantumNous</sub>
 

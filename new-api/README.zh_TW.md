@@ -2,7 +2,7 @@
 
 ![new-api](/web/public/logo.png)
 
-# neoSparkMart
+# tanvasMart
 
 🍥 **新一代大模型網關與AI資產管理系統**
 
@@ -38,7 +38,7 @@
     <img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=539ac4217e69431684ad4a0bab768811&claim_uid=tbFPfKIDHpc4TzR" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" />
   </a>
   <a href="https://www.producthunt.com/products/new-api/launches/new-api?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-new-api" target="_blank" rel="noopener noreferrer">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="neoSparkMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
+    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="tanvasMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
   </a>
 </p>
 
@@ -77,7 +77,7 @@
   --><a href="https://bda.pku.edu.cn/" target="_blank">
     <img src="./docs/images/pku.png" alt="北京大學" height="80" />
   </a><!--
-  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_neoSparkMart" target="_blank">
+  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_tanvasMart" target="_blank">
     <img src="./docs/images/ucloud.png" alt="UCloud 優刻得" height="80" />
   </a><!--
   --><a href="https://www.aliyun.com/" target="_blank">
@@ -151,7 +151,7 @@ docker run --name new-api -d --restart always \
 
 🎉 部署完成後，訪問 `http://localhost:3000` 即可使用！
 
-📖 更多部署方式請參考 [部署指南](https://docs.neoSparkMart.pro/zh/docs/installation)
+📖 更多部署方式請參考 [部署指南](https://docs.tanvasMart.pro/zh/docs/installation)
 
 ---
 
@@ -159,7 +159,7 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 📖 [官方文件](https://docs.neoSparkMart.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
+### 📖 [官方文件](https://docs.tanvasMart.pro/zh/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
 
 </div>
 
@@ -167,17 +167,17 @@ docker run --name new-api -d --restart always \
 
 | 分類 | 連結 |
 |------|------|
-| 🚀 部署指南 | [安裝文件](https://docs.neoSparkMart.pro/zh/docs/installation) |
-| ⚙️ 環境配置 | [環境變數](https://docs.neoSparkMart.pro/zh/docs/installation/config-maintenance/environment-variables) |
-| 📡 接口文件 | [API 文件](https://docs.neoSparkMart.pro/zh/docs/api) |
-| ❓ 常見問題 | [FAQ](https://docs.neoSparkMart.pro/zh/docs/support/faq) |
-| 💬 社群交流 | [交流管道](https://docs.neoSparkMart.pro/zh/docs/support/community-interaction) |
+| 🚀 部署指南 | [安裝文件](https://docs.tanvasMart.pro/zh/docs/installation) |
+| ⚙️ 環境配置 | [環境變數](https://docs.tanvasMart.pro/zh/docs/installation/config-maintenance/environment-variables) |
+| 📡 接口文件 | [API 文件](https://docs.tanvasMart.pro/zh/docs/api) |
+| ❓ 常見問題 | [FAQ](https://docs.tanvasMart.pro/zh/docs/support/faq) |
+| 💬 社群交流 | [交流管道](https://docs.tanvasMart.pro/zh/docs/support/community-interaction) |
 
 ---
 
 ## ✨ 主要特性
 
-> 詳細特性請參考 [特性說明](https://docs.neoSparkMart.pro/zh/docs/guide/wiki/basic-concepts/features-introduction)
+> 詳細特性請參考 [特性說明](https://docs.tanvasMart.pro/zh/docs/guide/wiki/basic-concepts/features-introduction)
 
 ### 🎨 核心功能
 
@@ -207,11 +207,11 @@ docker run --name new-api -d --restart always \
 ### 🚀 高級功能
 
 **API 格式支援：**
-- ⚡ [OpenAI Responses](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/openai/create-response)
-- ⚡ [OpenAI Realtime API](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/realtime/create-realtime-session)（含 Azure）
-- ⚡ [Claude Messages](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/create-message)
-- ⚡ [Google Gemini](https://doc.neoSparkMart.pro/api/google-gemini-chat)
-- 🔄 [Rerank 模型](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/rerank/create-rerank)（Cohere、Jina）
+- ⚡ [OpenAI Responses](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/openai/create-response)
+- ⚡ [OpenAI Realtime API](https://docs.tanvasMart.pro/zh/docs/api/ai-model/realtime/create-realtime-session)（含 Azure）
+- ⚡ [Claude Messages](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/create-message)
+- ⚡ [Google Gemini](https://doc.tanvasMart.pro/api/google-gemini-chat)
+- 🔄 [Rerank 模型](https://docs.tanvasMart.pro/zh/docs/api/ai-model/rerank/create-rerank)（Cohere、Jina）
 
 **智慧路由：**
 - ⚖️ 管道加權隨機
@@ -254,17 +254,17 @@ docker run --name new-api -d --restart always \
 
 ## 🤖 模型支援
 
-> 詳情請參考 [接口文件 - 中繼接口](https://docs.neoSparkMart.pro/zh/docs/api)
+> 詳情請參考 [接口文件 - 中繼接口](https://docs.tanvasMart.pro/zh/docs/api)
 
 | 模型類型 | 說明 | 文件 |
 |---------|------|------|
-| 🤖 OpenAI-Compatible | OpenAI 兼容模型 | [文件](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/openai/createchatcompletion) |
-| 🤖 OpenAI Responses | OpenAI Responses 格式 | [文件](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/openai/createresponse) |
-| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [文件](https://doc.neoSparkMart.pro/api/midjourney-proxy-image) |
-| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [文件](https://doc.neoSparkMart.pro/api/suno-music) |
-| 🔄 Rerank | Cohere、Jina | [文件](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/rerank/create-rerank) |
-| 💬 Claude | Messages 格式 | [文件](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/createmessage) |
-| 🌐 Gemini | Google Gemini 格式 | [文件](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
+| 🤖 OpenAI-Compatible | OpenAI 兼容模型 | [文件](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/openai/createchatcompletion) |
+| 🤖 OpenAI Responses | OpenAI Responses 格式 | [文件](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/openai/createresponse) |
+| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [文件](https://doc.tanvasMart.pro/api/midjourney-proxy-image) |
+| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [文件](https://doc.tanvasMart.pro/api/suno-music) |
+| 🔄 Rerank | Cohere、Jina | [文件](https://docs.tanvasMart.pro/zh/docs/api/ai-model/rerank/create-rerank) |
+| 💬 Claude | Messages 格式 | [文件](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/createmessage) |
+| 🌐 Gemini | Google Gemini 格式 | [文件](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
 | 🔧 Dify | ChatFlow 模式 | - |
 | 🎯 自訂 | 支援完整調用位址 | - |
 
@@ -273,16 +273,16 @@ docker run --name new-api -d --restart always \
 <details>
 <summary>查看完整接口列表</summary>
 
-- [聊天接口 (Chat Completions)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/openai/createchatcompletion)
-- [響應接口 (Responses)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/openai/createresponse)
-- [圖像接口 (Image)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/images/openai/post-v1-images-generations)
-- [音訊接口 (Audio)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/audio/openai/create-transcription)
-- [影片接口 (Video)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/audio/openai/createspeech)
-- [嵌入接口 (Embeddings)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/embeddings/createembedding)
-- [重排序接口 (Rerank)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/rerank/creatererank)
-- [即時對話 (Realtime)](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/realtime/createrealtimesession)
-- [Claude 聊天](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/createmessage)
-- [Google Gemini 聊天](https://docs.neoSparkMart.pro/zh/docs/api/ai-model/chat/gemini/geminirelayv1beta)
+- [聊天接口 (Chat Completions)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/openai/createchatcompletion)
+- [響應接口 (Responses)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/openai/createresponse)
+- [圖像接口 (Image)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/images/openai/post-v1-images-generations)
+- [音訊接口 (Audio)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/audio/openai/create-transcription)
+- [影片接口 (Video)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/audio/openai/createspeech)
+- [嵌入接口 (Embeddings)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/embeddings/createembedding)
+- [重排序接口 (Rerank)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/rerank/creatererank)
+- [即時對話 (Realtime)](https://docs.tanvasMart.pro/zh/docs/api/ai-model/realtime/createrealtimesession)
+- [Claude 聊天](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/createmessage)
+- [Google Gemini 聊天](https://docs.tanvasMart.pro/zh/docs/api/ai-model/chat/gemini/geminirelayv1beta)
 
 </details>
 
@@ -325,7 +325,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope block 採樣率                               | `5` |
 | `HOSTNAME` | Pyroscope 標籤裡的主機名                                          | `new-api` |
 
-📖 **完整配置：** [環境變數文件](https://docs.neoSparkMart.pro/zh/docs/installation/config-maintenance/environment-variables)
+📖 **完整配置：** [環境變數文件](https://docs.tanvasMart.pro/zh/docs/installation/config-maintenance/environment-variables)
 
 </details>
 
@@ -417,7 +417,7 @@ docker run --name new-api -d --restart always \
 | 項目 | 說明 |
 |------|------|
 | [neko-api-key-tool](https://github.com/Calcium-Ion/neko-api-key-tool) | Key 額度查詢工具 |
-| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | neoSparkMart 高性能優化版 |
+| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | tanvasMart 高性能優化版 |
 
 ---
 
@@ -427,10 +427,10 @@ docker run --name new-api -d --restart always \
 
 | 資源 | 連結 |
 |------|------|
-| 📘 常見問題 | [FAQ](https://docs.neoSparkMart.pro/zh/docs/support/faq) |
-| 💬 社群交流 | [交流管道](https://docs.neoSparkMart.pro/zh/docs/support/community-interaction) |
-| 🐛 回饋問題 | [問題回饋](https://docs.neoSparkMart.pro/zh/docs/support/feedback-issues) |
-| 📚 完整文件 | [官方文件](https://docs.neoSparkMart.pro/zh/docs) |
+| 📘 常見問題 | [FAQ](https://docs.tanvasMart.pro/zh/docs/support/faq) |
+| 💬 社群交流 | [交流管道](https://docs.tanvasMart.pro/zh/docs/support/community-interaction) |
+| 🐛 回饋問題 | [問題回饋](https://docs.tanvasMart.pro/zh/docs/support/feedback-issues) |
+| 📚 完整文件 | [官方文件](https://docs.tanvasMart.pro/zh/docs) |
 
 ### 🤝 貢獻指南
 
@@ -465,11 +465,11 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 💖 感謝使用 neoSparkMart
+### 💖 感謝使用 tanvasMart
 
 如果這個項目對你有幫助，歡迎給我們一個 ⭐️ Star！
 
-**[官方文件](https://docs.neoSparkMart.pro/zh/docs)** • **[問題回饋](https://github.com/Calcium-Ion/new-api/issues)** • **[最新發布](https://github.com/Calcium-Ion/new-api/releases)**
+**[官方文件](https://docs.tanvasMart.pro/zh/docs)** • **[問題回饋](https://github.com/Calcium-Ion/new-api/issues)** • **[最新發布](https://github.com/Calcium-Ion/new-api/releases)**
 
 <sub>Built with ❤️ by QuantumNous</sub>
 

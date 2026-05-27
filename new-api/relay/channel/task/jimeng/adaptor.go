@@ -103,7 +103,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if isneoSparkMartRelay(info.ApiKey) {
+	if istanvasMartRelay(info.ApiKey) {
 		return fmt.Sprintf("%s/jimeng/?Action=CVSync2AsyncSubmitTask&Version=2022-08-31", a.baseURL), nil
 	}
 	return fmt.Sprintf("%s/?Action=CVSync2AsyncSubmitTask&Version=2022-08-31", a.baseURL), nil
@@ -113,7 +113,7 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if isneoSparkMartRelay(info.ApiKey) {
+	if istanvasMartRelay(info.ApiKey) {
 		req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 	} else {
 		return a.signRequest(req, a.accessKey, a.secretKey)
@@ -219,7 +219,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	uri := fmt.Sprintf("%s/?Action=CVSync2AsyncGetResult&Version=2022-08-31", baseUrl)
-	if isneoSparkMartRelay(key) {
+	if istanvasMartRelay(key) {
 		uri = fmt.Sprintf("%s/jimeng/?Action=CVSync2AsyncGetResult&Version=2022-08-31", a.baseURL)
 	}
 	payload := map[string]string{
@@ -239,7 +239,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	if isneoSparkMartRelay(key) {
+	if istanvasMartRelay(key) {
 		req.Header.Set("Authorization", "Bearer "+key)
 	} else {
 		keyParts := strings.Split(key, "|")
@@ -475,6 +475,6 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	return common.Marshal(openAIVideo)
 }
 
-func isneoSparkMartRelay(apiKey string) bool {
+func istanvasMartRelay(apiKey string) bool {
 	return strings.HasPrefix(apiKey, "sk-")
 }

@@ -22,8 +22,8 @@ import (
 
 // 上游地址
 const (
-	upstreamModelsURL  = "https://basellm.github.io/llm-metadata/api/neoSparkMart/models.json"
-	upstreamVendorsURL = "https://basellm.github.io/llm-metadata/api/neoSparkMart/vendors.json"
+	upstreamModelsURL  = "https://basellm.github.io/llm-metadata/api/tanvasMart/models.json"
+	upstreamVendorsURL = "https://basellm.github.io/llm-metadata/api/tanvasMart/vendors.json"
 )
 
 func normalizeLocale(locale string) (string, bool) {
@@ -43,10 +43,10 @@ func getUpstreamBase() string {
 func getUpstreamURLs(locale string) (modelsURL, vendorsURL string) {
 	base := strings.TrimRight(getUpstreamBase(), "/")
 	if l, ok := normalizeLocale(locale); ok && l != "" {
-		return fmt.Sprintf("%s/api/i18n/%s/neoSparkMart/models.json", base, l),
-			fmt.Sprintf("%s/api/i18n/%s/neoSparkMart/vendors.json", base, l)
+		return fmt.Sprintf("%s/api/i18n/%s/tanvasMart/models.json", base, l),
+			fmt.Sprintf("%s/api/i18n/%s/tanvasMart/vendors.json", base, l)
 	}
-	return fmt.Sprintf("%s/api/neoSparkMart/models.json", base), fmt.Sprintf("%s/api/neoSparkMart/vendors.json", base)
+	return fmt.Sprintf("%s/api/tanvasMart/models.json", base), fmt.Sprintf("%s/api/tanvasMart/vendors.json", base)
 }
 
 type upstreamEnvelope[T any] struct {

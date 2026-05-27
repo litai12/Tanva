@@ -2,7 +2,7 @@
 
 set -e
 
-echo "Building neoSparkMart Electron App..."
+echo "Building tanvasMart Electron App..."
 
 echo "Step 1: Building frontend..."
 cd ../web

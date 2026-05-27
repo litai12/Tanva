@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	neoSparkMartcommon "github.com/QuantumNous/new-api/common"
+	tanvasMartcommon "github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestTaskSubmitReqUnmarshalAndNormalizeTopLevelVideoFields(t *testing.T) {
 	}`)
 
 	var req TaskSubmitReq
-	require.NoError(t, neoSparkMartcommon.Unmarshal(raw, &req))
+	require.NoError(t, tanvasMartcommon.Unmarshal(raw, &req))
 
 	normalizeTaskSubmitReq(&req)
 
@@ -49,7 +49,7 @@ func TestTaskSubmitReqUnmarshalSupportsSnakeAndCamelAliases(t *testing.T) {
 	}`)
 
 	var req TaskSubmitReq
-	require.NoError(t, neoSparkMartcommon.Unmarshal(raw, &req))
+	require.NoError(t, tanvasMartcommon.Unmarshal(raw, &req))
 
 	normalizeTaskSubmitReq(&req)
 

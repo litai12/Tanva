@@ -138,24 +138,24 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	httpResp = resp.(*http.Response)
 	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 	if httpResp.StatusCode != http.StatusOK {
-		neoSparkMartErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-		service.ResetStatusCode(neoSparkMartErr, statusCodeMappingStr)
-		return nil, neoSparkMartErr
+		tanvasMartErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+		service.ResetStatusCode(tanvasMartErr, statusCodeMappingStr)
+		return nil, tanvasMartErr
 	}
 
 	if info.IsStream {
-		usage, neoSparkMartErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
-		if neoSparkMartErr != nil {
-			service.ResetStatusCode(neoSparkMartErr, statusCodeMappingStr)
-			return nil, neoSparkMartErr
+		usage, tanvasMartErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
+		if tanvasMartErr != nil {
+			service.ResetStatusCode(tanvasMartErr, statusCodeMappingStr)
+			return nil, tanvasMartErr
 		}
 		return usage, nil
 	}
 
-	usage, neoSparkMartErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
-	if neoSparkMartErr != nil {
-		service.ResetStatusCode(neoSparkMartErr, statusCodeMappingStr)
-		return nil, neoSparkMartErr
+	usage, tanvasMartErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
+	if tanvasMartErr != nil {
+		service.ResetStatusCode(tanvasMartErr, statusCodeMappingStr)
+		return nil, tanvasMartErr
 	}
 	return usage, nil
 }

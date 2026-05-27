@@ -283,7 +283,7 @@ func RequestWxNativePay(c *gin.Context) {
 	callbackBase := service.GetCallbackAddress()
 	notifyUrl := callbackBase + "/api/wxpay/notify"
 
-	description := fmt.Sprintf("neoSparkMart充值 %d", req.Amount)
+	description := fmt.Sprintf("tanvasMart充值 %d", req.Amount)
 	codeUrl, err := wxCreateNativeOrder(description, tradeNo, notifyUrl, fen)
 	if err != nil {
 		common.SysError("wxpay create native failed: " + err.Error())

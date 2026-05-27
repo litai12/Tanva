@@ -5563,7 +5563,7 @@
       "path": "new-api/web/src/components/layout/Footer.jsx",
       "sha256": "79ffb97ad6ca61877a0557a3ccfb82ecc2e256a9a37c503671c83074d1ac85ce",
       "feature": "module",
-      "description": "Module `Footer` (module). Exports: default. Ext deps: @douyinfe/semi-ui, react, react-i18next | Local deps: new-api/web/src/context/Status/index.jsx, new-api/web/src/helpers/index.js Tags: flow, http, publish | API: https://docs.neoSparkMart.pro/getting-started/, https://docs.neoSparkMart.pro/installation/ | Storage: footer_html",
+      "description": "Module `Footer` (module). Exports: default. Ext deps: @douyinfe/semi-ui, react, react-i18next | Local deps: new-api/web/src/context/Status/index.jsx, new-api/web/src/helpers/index.js Tags: flow, http, publish | API: https://docs.tanvasMart.pro/getting-started/, https://docs.tanvasMart.pro/installation/ | Storage: footer_html",
       "needsReview": true,
       "carriedFrom": "2026-05-19T14:29:48.226Z"
     },

@@ -1,4 +1,4 @@
-# neoSparkMart Data Patches
+# tanvasMart Data Patches
 
 这个目录用于存放 TapCanvas 自己维护的 `new-api` 生产数据 patch。
 

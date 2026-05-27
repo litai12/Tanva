@@ -19,7 +19,7 @@ const (
 // https://platform.openai.com/docs/models/model-endpoint-compatibility
 // https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Blfmc9dlf
 // https://openai.com/pricing
-// TODO: when a neoSparkMart is enabled, check the pricing here
+// TODO: when a tanvasMart is enabled, check the pricing here
 // 1 === $0.002 / 1K tokens
 // 1 === ￥0.014 / 1k tokens
 
@@ -363,21 +363,21 @@ var defaultModelPrice = map[string]float64{
 	"gpt-image-2-tencent-low":    0.4,
 	"gpt-image-2-tencent-medium": 1.6,
 	"gpt-image-2-tencent-high":   5.6,
-	"wan2.7-videoedit":                6.0,
-	"wan-2.6":                         4.0,
-	"wan-2.6-r2v":                     4.0,
-	"wan-2.7":                         4.0,
-	"happyhorse-1.0-t2v":              6.0,
-	"happyhorse-1.0-i2v":              6.0,
-	"happyhorse-1.0-r2v":              6.0,
-	"happyhorse-1.0-video-edit":       6.0,
-	"kling-v2-6":                      1.5,
-	"kling-v3":                        3.0,
-	"kling-v3-apimart":                3.0,
-	"kling-v3-omni":                   3.0,
-	"kling-v3-omni-apimart":           3.0,
-	"vidu-q3":                         1.25,
-	"vidu-q3-tencent":                 0.625,
+	"wan2.7-videoedit":           6.0,
+	"wan-2.6":                    4.0,
+	"wan-2.6-r2v":                4.0,
+	"wan-2.7":                    4.0,
+	"happyhorse-1.0-t2v":         6.0,
+	"happyhorse-1.0-i2v":         6.0,
+	"happyhorse-1.0-r2v":         6.0,
+	"happyhorse-1.0-video-edit":  6.0,
+	"kling-v2-6":                 1.5,
+	"kling-v3":                   3.0,
+	"kling-v3-apimart":           3.0,
+	"kling-v3-omni":              3.0,
+	"kling-v3-omni-apimart":      3.0,
+	"vidu-q3":                    1.25,
+	"vidu-q3-tencent":            0.625,
 }
 
 var defaultAudioRatio = map[string]float64{

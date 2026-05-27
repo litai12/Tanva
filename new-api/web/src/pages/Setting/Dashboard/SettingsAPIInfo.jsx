@@ -166,11 +166,11 @@ const SettingsAPIInfo = ({ options, refresh }) => {
         );
       } else {
         const newId = Math.max(...apiInfoList.map((api) => api.id), 0) + 1;
-        const neoSparkMart = {
+        const tanvasMart = {
           id: newId,
           ...apiForm,
         };
-        newList = [...apiInfoList, neoSparkMart];
+        newList = [...apiInfoList, tanvasMart];
       }
 
       setApiInfoList(newList);

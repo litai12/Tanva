@@ -51,7 +51,7 @@ func main() {
 		return
 	}
 
-	common.SysLog("neoSparkMart " + common.Version + " started")
+	common.SysLog("tanvasMart " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}

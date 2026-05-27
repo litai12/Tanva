@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Agent } from 'undici';
 import {
   AIProviderResponse,
   AnalysisResult,
@@ -18,9 +19,19 @@ import {
   ToolSelectionResult,
 } from './ai-provider.interface';
 
+// 图片生成/编辑链路上游可能跑很久（大图 + 4K），把 undici 默认 5 分钟
+// 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
+const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
+
 @Injectable()
 export class NewApiProvider implements IAIProvider {
   private readonly logger = new Logger(NewApiProvider.name);
+  private readonly httpDispatcher = new Agent({
+    headersTimeout: LONG_RUNNING_TIMEOUT_MS,
+    bodyTimeout: LONG_RUNNING_TIMEOUT_MS,
+    connectTimeout: 10_000,
+    keepAliveTimeout: 60_000,
+  });
   private available = false;
   private baseUrl = 'http://localhost:4458';
   private apiKey = '';
@@ -445,6 +456,8 @@ export class NewApiProvider implements IAIProvider {
 
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
+      // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
+      dispatcher: this.httpDispatcher,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,

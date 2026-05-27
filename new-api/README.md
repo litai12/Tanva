@@ -2,7 +2,7 @@
 
 ![new-api](/web/public/logo.png)
 
-# neoSparkMart
+# tanvasMart
 
 🍥 **Next-Generation LLM Gateway and AI Asset Management System**
 
@@ -38,7 +38,7 @@
     <img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=539ac4217e69431684ad4a0bab768811&claim_uid=tbFPfKIDHpc4TzR" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" />
   </a><!--
   --><a href="https://www.producthunt.com/products/new-api/launches/new-api?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-new-api" target="_blank" rel="noopener noreferrer">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="neoSparkMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
+    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1047693&theme=light&t=1769577875005" alt="tanvasMart - All-in-one AI asset management gateway. | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
   </a>
 </p>
 
@@ -77,7 +77,7 @@
   --><a href="https://bda.pku.edu.cn/" target="_blank">
     <img src="./docs/images/pku.png" alt="Peking University" height="80" />
   </a><!--
-  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_neoSparkMart" target="_blank">
+  --><a href="https://www.compshare.cn/?ytag=GPU_yy_gh_tanvasMart" target="_blank">
     <img src="./docs/images/ucloud.png" alt="UCloud" height="80" />
   </a><!--
   --><a href="https://www.aliyun.com/" target="_blank">
@@ -151,7 +151,7 @@ docker run --name new-api -d --restart always \
 
 🎉 After deployment is complete, visit `http://localhost:3000` to start using!
 
-📖 For more deployment methods, please refer to [Deployment Guide](https://docs.neoSparkMart.pro/en/docs/installation)
+📖 For more deployment methods, please refer to [Deployment Guide](https://docs.tanvasMart.pro/en/docs/installation)
 
 ## TapCanvas Patch And Web API Notes
 
@@ -167,7 +167,7 @@ docker run --name new-api -d --restart always \
 
 <div align="center">
 
-### 📖 [Official Documentation](https://docs.neoSparkMart.pro/en/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
+### 📖 [Official Documentation](https://docs.tanvasMart.pro/en/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
 
 </div>
 
@@ -175,17 +175,17 @@ docker run --name new-api -d --restart always \
 
 | Category | Link |
 |------|------|
-| 🚀 Deployment Guide | [Installation Documentation](https://docs.neoSparkMart.pro/en/docs/installation) |
-| ⚙️ Environment Configuration | [Environment Variables](https://docs.neoSparkMart.pro/en/docs/installation/config-maintenance/environment-variables) |
-| 📡 API Documentation | [API Documentation](https://docs.neoSparkMart.pro/en/docs/api) |
-| ❓ FAQ | [FAQ](https://docs.neoSparkMart.pro/en/docs/support/faq) |
-| 💬 Community Interaction | [Communication Channels](https://docs.neoSparkMart.pro/en/docs/support/community-interaction) |
+| 🚀 Deployment Guide | [Installation Documentation](https://docs.tanvasMart.pro/en/docs/installation) |
+| ⚙️ Environment Configuration | [Environment Variables](https://docs.tanvasMart.pro/en/docs/installation/config-maintenance/environment-variables) |
+| 📡 API Documentation | [API Documentation](https://docs.tanvasMart.pro/en/docs/api) |
+| ❓ FAQ | [FAQ](https://docs.tanvasMart.pro/en/docs/support/faq) |
+| 💬 Community Interaction | [Communication Channels](https://docs.tanvasMart.pro/en/docs/support/community-interaction) |
 
 ---
 
 ## ✨ Key Features
 
-> For detailed features, please refer to [Features Introduction](https://docs.neoSparkMart.pro/en/docs/guide/wiki/basic-concepts/features-introduction)
+> For detailed features, please refer to [Features Introduction](https://docs.tanvasMart.pro/en/docs/guide/wiki/basic-concepts/features-introduction)
 
 ### 🎨 Core Functions
 
@@ -215,11 +215,11 @@ docker run --name new-api -d --restart always \
 ### 🚀 Advanced Features
 
 **API Format Support:**
-- ⚡ [OpenAI Responses](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/openai/create-response)
-- ⚡ [OpenAI Realtime API](https://docs.neoSparkMart.pro/en/docs/api/ai-model/realtime/create-realtime-session) (including Azure)
-- ⚡ [Claude Messages](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/create-message)
-- ⚡ [Google Gemini](https://doc.neoSparkMart.pro/en/api/google-gemini-chat)
-- 🔄 [Rerank Models](https://docs.neoSparkMart.pro/en/docs/api/ai-model/rerank/create-rerank) (Cohere, Jina)
+- ⚡ [OpenAI Responses](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/openai/create-response)
+- ⚡ [OpenAI Realtime API](https://docs.tanvasMart.pro/en/docs/api/ai-model/realtime/create-realtime-session) (including Azure)
+- ⚡ [Claude Messages](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/create-message)
+- ⚡ [Google Gemini](https://doc.tanvasMart.pro/en/api/google-gemini-chat)
+- 🔄 [Rerank Models](https://docs.tanvasMart.pro/en/docs/api/ai-model/rerank/create-rerank) (Cohere, Jina)
 
 **Intelligent Routing:**
 - ⚖️ Channel weighted random
@@ -262,17 +262,17 @@ docker run --name new-api -d --restart always \
 
 ## 🤖 Model Support
 
-> For details, please refer to [API Documentation - Relay Interface](https://docs.neoSparkMart.pro/en/docs/api)
+> For details, please refer to [API Documentation - Relay Interface](https://docs.tanvasMart.pro/en/docs/api)
 
 | Model Type | Description | Documentation |
 |---------|------|------|
-| 🤖 OpenAI-Compatible | OpenAI compatible models | [Documentation](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/openai/createchatcompletion) |
-| 🤖 OpenAI Responses | OpenAI Responses format | [Documentation](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/openai/createresponse) |
-| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [Documentation](https://doc.neoSparkMart.pro/api/midjourney-proxy-image) |
-| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [Documentation](https://doc.neoSparkMart.pro/api/suno-music) |
-| 🔄 Rerank | Cohere, Jina | [Documentation](https://docs.neoSparkMart.pro/en/docs/api/ai-model/rerank/creatererank) |
-| 💬 Claude | Messages format | [Documentation](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/createmessage) |
-| 🌐 Gemini | Google Gemini format | [Documentation](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
+| 🤖 OpenAI-Compatible | OpenAI compatible models | [Documentation](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/openai/createchatcompletion) |
+| 🤖 OpenAI Responses | OpenAI Responses format | [Documentation](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/openai/createresponse) |
+| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [Documentation](https://doc.tanvasMart.pro/api/midjourney-proxy-image) |
+| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [Documentation](https://doc.tanvasMart.pro/api/suno-music) |
+| 🔄 Rerank | Cohere, Jina | [Documentation](https://docs.tanvasMart.pro/en/docs/api/ai-model/rerank/creatererank) |
+| 💬 Claude | Messages format | [Documentation](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/createmessage) |
+| 🌐 Gemini | Google Gemini format | [Documentation](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
 | 🔧 Dify | ChatFlow mode | - |
 | 🎯 Custom | Supports complete call address | - |
 
@@ -281,16 +281,16 @@ docker run --name new-api -d --restart always \
 <details>
 <summary>View complete interface list</summary>
 
-- [Chat Interface (Chat Completions)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/openai/createchatcompletion)
-- [Response Interface (Responses)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/openai/createresponse)
-- [Image Interface (Image)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/images/openai/post-v1-images-generations)
-- [Audio Interface (Audio)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/audio/openai/create-transcription)
-- [Video Interface (Video)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/audio/openai/createspeech)
-- [Embedding Interface (Embeddings)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/embeddings/createembedding)
-- [Rerank Interface (Rerank)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/rerank/creatererank)
-- [Realtime Conversation (Realtime)](https://docs.neoSparkMart.pro/en/docs/api/ai-model/realtime/createrealtimesession)
-- [Claude Chat](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/createmessage)
-- [Google Gemini Chat](https://docs.neoSparkMart.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta)
+- [Chat Interface (Chat Completions)](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/openai/createchatcompletion)
+- [Response Interface (Responses)](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/openai/createresponse)
+- [Image Interface (Image)](https://docs.tanvasMart.pro/en/docs/api/ai-model/images/openai/post-v1-images-generations)
+- [Audio Interface (Audio)](https://docs.tanvasMart.pro/en/docs/api/ai-model/audio/openai/create-transcription)
+- [Video Interface (Video)](https://docs.tanvasMart.pro/en/docs/api/ai-model/audio/openai/createspeech)
+- [Embedding Interface (Embeddings)](https://docs.tanvasMart.pro/en/docs/api/ai-model/embeddings/createembedding)
+- [Rerank Interface (Rerank)](https://docs.tanvasMart.pro/en/docs/api/ai-model/rerank/creatererank)
+- [Realtime Conversation (Realtime)](https://docs.tanvasMart.pro/en/docs/api/ai-model/realtime/createrealtimesession)
+- [Claude Chat](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/createmessage)
+- [Google Gemini Chat](https://docs.tanvasMart.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta)
 
 </details>
 
@@ -333,7 +333,7 @@ docker run --name new-api -d --restart always \
 | `PYROSCOPE_BLOCK_RATE` | Pyroscope block sampling rate | `5` |
 | `HOSTNAME` | Hostname tag for Pyroscope | `new-api` |
 
-📖 **Complete configuration:** [Environment Variables Documentation](https://docs.neoSparkMart.pro/en/docs/installation/config-maintenance/environment-variables)
+📖 **Complete configuration:** [Environment Variables Documentation](https://docs.tanvasMart.pro/en/docs/installation/config-maintenance/environment-variables)
 
 </details>
 
@@ -425,7 +425,7 @@ docker run --name new-api -d --restart always \
 | Project | Description |
 |------|------|
 | [neko-api-key-tool](https://github.com/Calcium-Ion/neko-api-key-tool) | Key quota query tool |
-| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | neoSparkMart high-performance optimized version |
+| [new-api-horizon](https://github.com/Calcium-Ion/new-api-horizon) | tanvasMart high-performance optimized version |
 
 ---
 
@@ -435,10 +435,10 @@ docker run --name new-api -d --restart always \
 
 | Resource | Link |
 |------|------|
-| 📘 FAQ | [FAQ](https://docs.neoSparkMart.pro/en/docs/support/faq) |
-| 💬 Community Interaction | [Communication Channels](https://docs.neoSparkMart.pro/en/docs/support/community-interaction) |
-| 🐛 Issue Feedback | [Issue Feedback](https://docs.neoSparkMart.pro/en/docs/support/feedback-issues) |
-| 📚 Complete Documentation | [Official Documentation](https://docs.neoSparkMart.pro/en/docs) |
+| 📘 FAQ | [FAQ](https://docs.tanvasMart.pro/en/docs/support/faq) |
+| 💬 Community Interaction | [Communication Channels](https://docs.tanvasMart.pro/en/docs/support/community-interaction) |
+| 🐛 Issue Feedback | [Issue Feedback](https://docs.tanvasMart.pro/en/docs/support/feedback-issues) |
+| 📚 Complete Documentation | [Official Documentation](https://docs.tanvasMart.pro/en/docs) |
 
 ### 🤝 Contribution Guide
 
@@ -473,11 +473,11 @@ If your organization's policies do not permit the use of AGPLv3-licensed softwar
 
 <div align="center">
 
-### 💖 Thank you for using neoSparkMart
+### 💖 Thank you for using tanvasMart
 
 If this project is helpful to you, welcome to give us a ⭐️ Star！
 
-**[Official Documentation](https://docs.neoSparkMart.pro/en/docs)** • **[Issue Feedback](https://github.com/Calcium-Ion/new-api/issues)** • **[Latest Release](https://github.com/Calcium-Ion/new-api/releases)**
+**[Official Documentation](https://docs.tanvasMart.pro/en/docs)** • **[Issue Feedback](https://github.com/Calcium-Ion/new-api/issues)** • **[Latest Release](https://github.com/Calcium-Ion/new-api/releases)**
 
 <sub>Built with ❤️ by QuantumNous</sub>
 

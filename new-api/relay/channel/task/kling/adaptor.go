@@ -136,7 +136,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	path := lo.Ternary(info.Action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
 
-	if isneoSparkMartRelay(info.ApiKey) {
+	if istanvasMartRelay(info.ApiKey) {
 		return fmt.Sprintf("%s/kling%s", a.baseURL, path), nil
 	}
 
@@ -226,7 +226,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 	path := lo.Ternary(action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
 	url := fmt.Sprintf("%s%s/%s", baseUrl, path, taskID)
-	if isneoSparkMartRelay(key) {
+	if istanvasMartRelay(key) {
 		url = fmt.Sprintf("%s/kling%s/%s", baseUrl, path, taskID)
 	}
 
@@ -313,8 +313,8 @@ func (a *TaskAdaptor) createJWTToken() (string, error) {
 }
 
 func (a *TaskAdaptor) createJWTTokenWithKey(apiKey string) (string, error) {
-	if isneoSparkMartRelay(apiKey) {
-		return apiKey, nil // neoSparkMart relay
+	if istanvasMartRelay(apiKey) {
+		return apiKey, nil // tanvasMart relay
 	}
 	keyParts := strings.Split(apiKey, "|")
 	if len(keyParts) != 2 {
@@ -374,7 +374,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return taskInfo, nil
 }
 
-func isneoSparkMartRelay(apiKey string) bool {
+func istanvasMartRelay(apiKey string) bool {
 	return strings.HasPrefix(apiKey, "sk-")
 }
 

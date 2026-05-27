@@ -83,8 +83,8 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 	return claudeErr
 }
 
-func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (neoSparkMartErr *types.NewAPIError) {
-	neoSparkMartErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (tanvasMartErr *types.NewAPIError) {
+	tanvasMartErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -102,10 +102,10 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	err = common.Unmarshal(responseBody, &errResponse)
 	if err != nil {
 		if showBodyWhenFail {
-			neoSparkMartErr.Err = buildErrWithBody("")
+			tanvasMartErr.Err = buildErrWithBody("")
 		} else {
 			logger.LogError(ctx, fmt.Sprintf("bad response status code %d, body: %s", resp.StatusCode, string(responseBody)))
-			neoSparkMartErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
+			tanvasMartErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
 		}
 		return
 	}
@@ -114,22 +114,22 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		// General format error (OpenAI, Anthropic, Gemini, etc.)
 		oaiError := errResponse.TryToOpenAIError()
 		if oaiError != nil {
-			neoSparkMartErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
+			tanvasMartErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
 			if showBodyWhenFail {
-				neoSparkMartErr.Err = buildErrWithBody(neoSparkMartErr.Error())
+				tanvasMartErr.Err = buildErrWithBody(tanvasMartErr.Error())
 			}
 			return
 		}
 	}
-	neoSparkMartErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	tanvasMartErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 	if showBodyWhenFail {
-		neoSparkMartErr.Err = buildErrWithBody(neoSparkMartErr.Error())
+		tanvasMartErr.Err = buildErrWithBody(tanvasMartErr.Error())
 	}
 	return
 }
 
-func ResetStatusCode(neoSparkMartErr *types.NewAPIError, statusCodeMappingStr string) {
-	if neoSparkMartErr == nil {
+func ResetStatusCode(tanvasMartErr *types.NewAPIError, statusCodeMappingStr string) {
+	if tanvasMartErr == nil {
 		return
 	}
 	if statusCodeMappingStr == "" || statusCodeMappingStr == "{}" {
@@ -140,16 +140,16 @@ func ResetStatusCode(neoSparkMartErr *types.NewAPIError, statusCodeMappingStr st
 	if err != nil {
 		return
 	}
-	if neoSparkMartErr.StatusCode == http.StatusOK {
+	if tanvasMartErr.StatusCode == http.StatusOK {
 		return
 	}
-	codeStr := strconv.Itoa(neoSparkMartErr.StatusCode)
+	codeStr := strconv.Itoa(tanvasMartErr.StatusCode)
 	if value, ok := statusCodeMapping[codeStr]; ok {
 		intCode, ok := parseStatusCodeMappingValue(value)
 		if !ok {
 			return
 		}
-		neoSparkMartErr.StatusCode = intCode
+		tanvasMartErr.StatusCode = intCode
 	}
 }
 

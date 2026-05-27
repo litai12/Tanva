@@ -85,9 +85,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *types
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
 		applySystemPromptIfNeeded(c, info, request)
-		usage, neoSparkMartErr := chatCompletionsViaResponses(c, info, adaptor, request)
-		if neoSparkMartErr != nil {
-			return neoSparkMartErr
+		usage, tanvasMartErr := chatCompletionsViaResponses(c, info, adaptor, request)
+		if tanvasMartErr != nil {
+			return tanvasMartErr
 		}
 
 		var containAudioTokens = usage.CompletionTokenDetails.AudioTokens > 0 || usage.PromptTokensDetails.AudioTokens > 0
@@ -229,7 +229,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *types
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		httpResp, responseRecorder = attachResponseTraceRecorder(httpResp)
 		if httpResp.StatusCode != http.StatusOK {
-			neoSparkMartErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+			tanvasMartErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			responseBody := ""
 			if responseRecorder != nil {
 				responseBody = string(responseRecorder.data)
@@ -238,16 +238,16 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *types
 				UpstreamURL:          upstreamURL,
 				UpstreamRequestBody:  upstreamRequestBody,
 				UpstreamResponseBody: responseBody,
-				ErrorMessage:         neoSparkMartErr.Error(),
+				ErrorMessage:         tanvasMartErr.Error(),
 			})
 			// reset status code 重置状态码
-			service.ResetStatusCode(neoSparkMartErr, statusCodeMappingStr)
-			return neoSparkMartErr
+			service.ResetStatusCode(tanvasMartErr, statusCodeMappingStr)
+			return tanvasMartErr
 		}
 	}
 
-	usage, neoSparkMartErr := adaptor.DoResponse(c, httpResp, info)
-	if neoSparkMartErr != nil {
+	usage, tanvasMartErr := adaptor.DoResponse(c, httpResp, info)
+	if tanvasMartErr != nil {
 		responseBody := ""
 		if responseRecorder != nil {
 			responseBody = string(responseRecorder.data)
@@ -256,11 +256,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *types
 			UpstreamURL:          upstreamURL,
 			UpstreamRequestBody:  upstreamRequestBody,
 			UpstreamResponseBody: responseBody,
-			ErrorMessage:         neoSparkMartErr.Error(),
+			ErrorMessage:         tanvasMartErr.Error(),
 		})
 		// reset status code 重置状态码
-		service.ResetStatusCode(neoSparkMartErr, statusCodeMappingStr)
-		return neoSparkMartErr
+		service.ResetStatusCode(tanvasMartErr, statusCodeMappingStr)
+		return tanvasMartErr
 	}
 	if responseRecorder != nil {
 		upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{

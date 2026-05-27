@@ -1,7 +1,7 @@
 {
   "name": "new-api-electron",
   "version": "1.0.0",
-  "description": "neoSparkMart - AI Model Gateway Desktop Application",
+  "description": "tanvasMart - AI Model Gateway Desktop Application",
   "main": "main.js",
   "scripts": {
     "start-app": "electron .",
@@ -29,7 +29,7 @@
     "electron-builder": "^26.7.0"
   },
   "build": {
-    "appId": "com.neoSparkMart.desktop",
+    "appId": "com.tanvasMart.desktop",
     "productName": "New-API-App",
     "publish": null,
     "directories": {

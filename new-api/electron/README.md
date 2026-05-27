@@ -1,6 +1,6 @@
-# neoSparkMart Electron Desktop App
+# tanvasMart Electron Desktop App
 
-This directory contains the Electron wrapper for neoSparkMart, providing a native desktop application with system tray support for Windows, macOS, and Linux.
+This directory contains the Electron wrapper for tanvasMart, providing a native desktop application with system tray support for Windows, macOS, and Linux.
 
 ## Prerequisites
 
@@ -68,6 +68,6 @@ const PORT = 3000; // Change to desired port
 ### Database Location
 - **Development**: `../data/new-api.db` (project directory)
 - **Production**:
-  - macOS: `~/Library/Application Support/neoSparkMart/data/`
-  - Windows: `%APPDATA%/neoSparkMart/data/`
-  - Linux: `~/.config/neoSparkMart/data/`
+  - macOS: `~/Library/Application Support/tanvasMart/data/`
+  - Windows: `%APPDATA%/tanvasMart/data/`
+  - Linux: `~/.config/tanvasMart/data/`
