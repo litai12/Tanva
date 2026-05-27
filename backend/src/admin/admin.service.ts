@@ -1,7 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 export interface AdminDashboardStats {
   totalUsers: number;
@@ -97,7 +98,10 @@ export interface CreditChangeRecord {
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
+  ) {}
 
   private toNumber(value: unknown): number {
     if (typeof value === 'bigint') return Number(value);
@@ -1434,6 +1438,12 @@ export class AdminService {
         },
       }),
     ]);
+    void this.teamCreditsPublisher?.publish({
+      teamId,
+      reason: 'admin_adjust',
+      delta: amount,
+      actorUserId: adminId,
+    });
     return { teamId, addedCredits: amount };
   }
 
@@ -1457,6 +1467,12 @@ export class AdminService {
         },
       }),
     ]);
+    void this.teamCreditsPublisher?.publish({
+      teamId,
+      reason: 'admin_adjust',
+      delta: -amount,
+      actorUserId: adminId,
+    });
     return { teamId, deductedCredits: amount };
   }
 }

@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { AppLoadingIndicator } from '@/components/AppLoadingIndicator';
 import { useTranslation } from 'react-i18next';
 import { TeamInviteConfirmModal } from '@/components/team/TeamInviteConfirmModal';
+import { useTeamRealtime } from '@/hooks/useTeamRealtime';
 
 const PENDING_INVITE_KEY = 'tanva_pending_team_invite';
 
@@ -60,6 +61,7 @@ const MobileWarning: React.FC = () => {
 
 const App: React.FC = () => {
   const { t } = useTranslation();
+  useTeamRealtime();
   const [isMobile, setIsMobile] = useState<boolean>(() => isMobileDevice());
   const [showPromptDemo, setShowPromptDemo] = useState<boolean>(() => {
     if (typeof window === 'undefined') {

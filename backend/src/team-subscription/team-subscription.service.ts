@@ -1,7 +1,8 @@
-import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamCoreService } from '../team-core/team-core.service';
 import { TeamCreditsService } from '../team-credits/team-credits.service';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class TeamSubscriptionService {
     private readonly prisma: PrismaService,
     private readonly teamCore: TeamCoreService,
     private readonly teamCredits: TeamCreditsService,
+    @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) {}
 
   async listPlans() {
@@ -134,6 +136,12 @@ export class TeamSubscriptionService {
           lastRenewedAt: new Date(),
         },
       });
+    });
+    void this.teamCreditsPublisher?.publish({
+      teamId: sub.teamId,
+      reason: 'subscription_grant',
+      delta: sub.creditsPerRenewal,
+      taskId: idempotentKey,
     });
   }
 }

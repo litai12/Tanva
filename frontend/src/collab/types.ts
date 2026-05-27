@@ -8,7 +8,9 @@ export type CollabEventType =
   | 'presence_leave'
   | 'access_revoked'
   | 'connected'
-  | 'snapshot_required';
+  | 'snapshot_required'
+  | 'team_credits_changed'
+  | 'user_credits_changed';
 
 export interface CollabEnvelope<T = unknown> {
   type: CollabEventType;
@@ -76,6 +78,25 @@ export interface ConnectedPayload {
   connId: string;
   presence: PresenceUser[];
   degraded?: boolean;
+}
+
+export type TeamCreditsChangeReason =
+  | 'reserve'
+  | 'deduct'
+  | 'release'
+  | 'topup'
+  | 'admin_adjust'
+  | 'subscription_grant';
+
+export interface TeamCreditsChangedPayload {
+  teamId: string;
+  delta: number;
+  balance: number;
+  frozenBalance: number;
+  availableCredits: number;
+  reason: TeamCreditsChangeReason;
+  actorUserId?: string | null;
+  taskId?: string | null;
 }
 
 export type CollabListener = (envelope: CollabEnvelope) => void;

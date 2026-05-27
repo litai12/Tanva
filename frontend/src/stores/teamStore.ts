@@ -17,6 +17,8 @@ interface TeamStore {
   setActiveTeamId: (id: string | null) => void;
   getActiveTeam: () => TeamInfo | null;
   getPersonalTeam: () => TeamInfo | null;
+  /** Patch a single team's availableCredits without reloading the whole list. */
+  patchTeamCredits: (teamId: string, availableCredits: number) => void;
 }
 
 export const useTeamStore = create<TeamStore>()(
@@ -28,6 +30,14 @@ export const useTeamStore = create<TeamStore>()(
       setActiveTeamId: (id) => set({ activeTeamId: id }),
       getActiveTeam: () => get().teams.find((t) => t.id === get().activeTeamId) ?? null,
       getPersonalTeam: () => get().teams.find((t) => t.isPersonal) ?? null,
+      patchTeamCredits: (teamId, availableCredits) => {
+        const current = get().teams;
+        const idx = current.findIndex((t) => t.id === teamId);
+        if (idx < 0 || current[idx].availableCredits === availableCredits) return;
+        const next = current.slice();
+        next[idx] = { ...next[idx], availableCredits };
+        set({ teams: next });
+      },
     }),
     {
       name: 'tanva_active_team_id',

@@ -6,7 +6,9 @@ export type CollabEventType =
   | 'toast'
   | 'presence_join'
   | 'presence_leave'
-  | 'access_revoked';
+  | 'access_revoked'
+  | 'team_credits_changed'
+  | 'user_credits_changed';
 
 export interface CollabEnvelope<T = unknown> {
   type: CollabEventType;
@@ -72,6 +74,36 @@ export interface ToastPayload {
 
 export interface AccessRevokedPayload {
   reason?: string;
+}
+
+export type TeamCreditsChangeReason =
+  | 'reserve'
+  | 'deduct'
+  | 'release'
+  | 'topup'
+  | 'admin_adjust'
+  | 'subscription_grant';
+
+export interface TeamCreditsChangedPayload {
+  teamId: string;
+  /** Net change applied (positive for grants/release, negative for reserve/deduct). */
+  delta: number;
+  /** New available balance = balance - frozenBalance. */
+  availableCredits: number;
+  /** New raw balance. */
+  balance: number;
+  /** New frozenBalance. */
+  frozenBalance: number;
+  reason: TeamCreditsChangeReason;
+  actorUserId?: string | null;
+  taskId?: string | null;
+}
+
+export interface UserCreditsChangedPayload {
+  userId: string;
+  delta: number;
+  balance: number;
+  reason: string;
 }
 
 export const PERSISTED_EVENT_TYPES: ReadonlySet<CollabEventType> = new Set([

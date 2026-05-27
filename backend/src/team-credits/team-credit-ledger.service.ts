@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 const RESERVE_TTL_MS = 10 * 60 * 1000; // 10 分钟预留超时
 
@@ -8,7 +9,10 @@ const RESERVE_TTL_MS = 10 * 60 * 1000; // 10 分钟预留超时
 export class TeamCreditLedgerService {
   private readonly logger = new Logger(TeamCreditLedgerService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly publisher?: TeamCreditsPublisher,
+  ) {}
 
   /**
    * 预留积分（幂等）
@@ -103,6 +107,13 @@ export class TeamCreditLedgerService {
         }
       });
 
+      void this.publisher?.publish({
+        teamId,
+        reason: 'reserve',
+        delta: -amount,
+        actorUserId,
+        taskId,
+      });
       return { reserved: true };
     } catch (e: any) {
       if (e instanceof BadRequestException) return { reserved: false, reason: e.message };
@@ -136,6 +147,16 @@ export class TeamCreditLedgerService {
           },
         });
       });
+      void this.publisher?.publish({
+        teamId,
+        reason: 'deduct',
+        // balance went down by `amount`; frozen also went down by `amount`,
+        // so `availableCredits = balance - frozen` did not change here.
+        // We still emit so clients refetch / re-display consistent state.
+        delta: 0,
+        actorUserId,
+        taskId,
+      });
       return { deducted: true };
     } catch {
       return { deducted: false };
@@ -168,6 +189,12 @@ export class TeamCreditLedgerService {
           AND l."actorUserId" = tm."userId"
           AND tm."teamId" = ${teamId}
       `;
+    });
+    void this.publisher?.publish({
+      teamId,
+      reason: 'release',
+      delta: amount, // frozen -= amount, so availableCredits goes up
+      taskId,
     });
   }
 

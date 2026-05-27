@@ -326,7 +326,30 @@ export class NewApiProvider implements IAIProvider {
     return this.apiKey;
   }
 
+  private static readonly MODEL_ALIAS_MAP: Record<string, string> = {
+    'gemini-3.1-image': 'gemini-3.1-flash-image-preview',
+    'gemini-3.1-image-edit': 'gemini-3.1-flash-image-preview',
+    'gemini-3.1-image-blend': 'gemini-3.1-flash-image-preview',
+    'gemini-3.1-image-analyze': 'gemini-3.1-flash-image-preview',
+    'gemini-2.5-image': 'gemini-2.5-flash-image-preview',
+    'gemini-2.5-image-edit': 'gemini-2.5-flash-image-preview',
+    'gemini-2.5-image-blend': 'gemini-2.5-flash-image-preview',
+    'gemini-2.5-image-analyze': 'gemini-2.5-flash-image-preview',
+    'gemini-3-pro-image': 'gemini-3-pro-image-preview',
+    'gemini-3-pro-image-edit': 'gemini-3-pro-image-preview',
+    'gemini-3-pro-image-blend': 'gemini-3-pro-image-preview',
+    'gemini-3-pro-image-analyze': 'gemini-3-pro-image-preview',
+    'gemini-image-edit': 'gemini-3-pro-image-preview',
+    'gemini-image-blend': 'gemini-3-pro-image-preview',
+    'gemini-image-analyze': 'gemini-3-pro-image-preview',
+  };
+
+  private normalizeUpstreamModel(model: string): string {
+    return NewApiProvider.MODEL_ALIAS_MAP[model] || model;
+  }
+
   private resolveUltraModel(model: string, providerOptions?: ProviderOptionsPayload): string {
+    const normalized = this.normalizeUpstreamModel(model);
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
       (typeof (providerOptions as any)?.bananaImageRoute === 'string'
@@ -334,22 +357,22 @@ export class NewApiProvider implements IAIProvider {
         : undefined);
     if (imageRoute === 'ultra') {
       if (
-        model === 'gemini-3-pro-image-preview' ||
-        model === 'gemini-3.1-flash-image-preview'
+        normalized === 'gemini-3-pro-image-preview' ||
+        normalized === 'gemini-3.1-flash-image-preview'
       ) {
-        return `${model}-ultra`;
+        return `${normalized}-ultra`;
       }
     }
     if (imageRoute === 'stable') {
       if (
-        model === 'gemini-3-pro-image-preview' ||
-        model === 'gemini-3.1-flash-image-preview' ||
-        model === 'gemini-2.5-flash-image-preview'
+        normalized === 'gemini-3-pro-image-preview' ||
+        normalized === 'gemini-3.1-flash-image-preview' ||
+        normalized === 'gemini-2.5-flash-image-preview'
       ) {
-        return `${model}-vip`;
+        return `${normalized}-vip`;
       }
     }
-    return model;
+    return normalized;
   }
 
   private async callImageEndpoint(
@@ -397,6 +420,9 @@ export class NewApiProvider implements IAIProvider {
     providerOptions?: ProviderOptionsPayload,
   ): Promise<AIProviderResponse<TextResult>> {
     try {
+      if (typeof payload.model === 'string') {
+        payload = { ...payload, model: this.normalizeUpstreamModel(payload.model) };
+      }
       const result = await this.requestJson(
         '/v1/chat/completions',
         {

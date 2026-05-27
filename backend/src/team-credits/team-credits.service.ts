@@ -1,12 +1,14 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamCoreService } from '../team-core/team-core.service';
+import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 @Injectable()
 export class TeamCreditsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamCore: TeamCoreService,
+    @Optional() private readonly publisher?: TeamCreditsPublisher,
   ) {}
 
   async getAccount(teamId: string, requestingUserId: string) {
@@ -94,6 +96,13 @@ export class TeamCreditsService {
         },
       }),
     ]);
+
+    void this.publisher?.publish({
+      teamId,
+      reason: 'topup',
+      delta: amount,
+      taskId: `topup_${sourceRefId}`,
+    });
 
     return { teamId, addedCredits: amount };
   }
