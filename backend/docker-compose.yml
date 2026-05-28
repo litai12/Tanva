@@ -34,20 +34,6 @@ services:
     volumes:
       - tanva_openobserve_data:/data
 
-  redis:
-    image: docker.1ms.run/library/redis:7-alpine
-    container_name: tanva-new-api-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - tanva_new_api_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   new-api-patch:
     image: docker.1ms.run/library/postgres:16-alpine
     container_name: tanva-new-api-patch
@@ -56,8 +42,6 @@ services:
       new-api-postgres:
         condition: service_healthy
       new-api:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     environment:
       PGPASSWORD: ${NEW_API_PG_PASSWORD:-new_api_pass}
@@ -86,16 +70,16 @@ services:
     container_name: tanva-new-api
     restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
       new-api-postgres:
         condition: service_healthy
     ports:
       - "${NEW_API_PORT:-4458}:4455"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: 4455
       SQL_DSN: postgres://${NEW_API_PG_USER:-new_api}:${NEW_API_PG_PASSWORD:-new_api_pass}@new-api-postgres:5432/${NEW_API_PG_DB:-new_api}?sslmode=disable
-      REDIS_CONN_STRING: redis://redis:6379/0
+      REDIS_CONN_STRING: ${NEW_API_REDIS_CONN_STRING:-redis://host.docker.internal:6379/0}
       SESSION_SECRET: ${NEW_API_SESSION_SECRET:-tanva-new-api-local-session}
       MAX_FILE_DOWNLOAD_MB: ${NEW_API_MAX_FILE_DOWNLOAD_MB:-100}
       GENERATE_DEFAULT_TOKEN: ${NEW_API_GENERATE_DEFAULT_TOKEN:-false}
@@ -127,5 +111,4 @@ services:
 volumes:
   tanva_new_api_postgres_data:
   tanva_openobserve_data:
-  tanva_new_api_redis_data:
   tanva_new_api_data:
