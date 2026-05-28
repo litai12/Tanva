@@ -105,3 +105,14 @@ SET models = (
   ) sub
 )
 WHERE name = 'ark-doubao';
+
+-- Step 6: 补充 watcha seedream 模型定价（100 积分=1元，seedream 全系 30 积分=0.30元）
+-- 缺少定价会报 "模型 seedream-5.0-lite 的价格未配置"
+UPDATE options
+SET value = (value::jsonb || jsonb_build_object(
+  'seedream-5.0-lite', 0.3,
+  'seedream-5.0', 0.3,
+  'seedream-4.5', 0.3,
+  'seedream-4.0', 0.3
+))::text
+WHERE key = 'ModelPrice';
