@@ -13,11 +13,17 @@ import type {
  */
 export function useTeamRealtime(): void {
   const activeTeamId = useTeamStore((s) => s.activeTeamId);
+  // 实时仅服务团队协作：仅当激活的是真实团队（非个人团队）才连 WS。
+  // 个人/单人模式下 teamId 保持 null → realtimeClient 不建立连接，积分/任务走轮询。
+  const isTeamMode = useTeamStore((s) => {
+    const t = s.teams.find((team) => team.id === s.activeTeamId);
+    return Boolean(t && !t.isPersonal);
+  });
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const patchTeamCredits = useTeamStore((s) => s.patchTeamCredits);
 
   useEffect(() => {
-    if (!activeTeamId || !userId) {
+    if (!isTeamMode || !activeTeamId || !userId) {
       realtimeClient.setContext({ teamId: null });
       return;
     }
@@ -41,5 +47,5 @@ export function useTeamRealtime(): void {
     return () => {
       unsub();
     };
-  }, [activeTeamId, userId, patchTeamCredits]);
+  }, [isTeamMode, activeTeamId, userId, patchTeamCredits]);
 }

@@ -23,6 +23,7 @@
 - v1 转发信号：`team_credits_changed`、`cursor`、`task_status`、`presence_join`/`presence_leave`。
 - 光标上行（客户端经 WS 上报自己的光标，由网关广播给同项目对端）。
 - presence 由 **WS 连接生命周期**驱动（见「presence」一节）。
+- **仅团队模式连 WS**：只有激活的是真实团队（非个人团队）时前端才建立 WS 连接。个人/单人模式不连，积分与任务状态继续走现有轮询——因为光标/presence 对单人零价值、积分对单人仅边际价值，单人连 WS 无意义。控制点：`useTeamRealtime` 仅在 team 模式设置 `teamId`，而 `realtimeClient` 无 `teamId` 不连接。
 
 **v1 不做 / 待生产端**：
 - `user_credits_changed`：**当前没有任何生产端**（核对后确认：`TeamCreditsPublisher.publish()` 只发 `team_credits_changed` 到 `channelForTeam`；`team-credits.service.ts`、`payment.service.ts`、`admin.service.ts` 的调用点全是 team 维度）。因此个人模式积分实时**v1 不做**——个人积分仍走前端现有的 `refresh-credits` 轮询/事件。WS 仍订阅 `user:{userId}` 频道并对 `user_credits_changed` 放行（零成本、面向未来），但在补上生产端之前不会触发。
