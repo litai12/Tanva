@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useTeamStore } from '@/stores/teamStore';
 import { useCanvasCollab } from '@/hooks/useCanvasCollab';
 import { usePresence } from '@/hooks/usePresence';
 import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
@@ -9,7 +10,7 @@ import CollabCursorLayer from './CollabCursorLayer';
 import CollabToastHost, { type CollabToastApi } from './CollabToastHost';
 import type { ToastKind } from '@/collab/types';
 
-const MOUSE_THROTTLE_MS = 60;
+const MOUSE_THROTTLE_MS = 10000;
 
 /**
  * Top-level wiring for canvas real-time collaboration. Mounted once inside
@@ -39,6 +40,9 @@ const CollabRoot: React.FC = () => {
   }, []);
 
   // Always call the hook with a placeholder when no project; React rules.
+  const activeTeam = useTeamStore((s) => s.getActiveTeam());
+  const isTeamMode = Boolean(activeTeam && !activeTeam.isPersonal);
+
   const collab = useCanvasCollab({
     projectId: projectId ?? '',
     onAccessRevoked,
@@ -72,19 +76,19 @@ const CollabRoot: React.FC = () => {
     },
   });
 
-  // Throttled mouse-move → cursor publish.
+  // Throttled mouse-move → cursor publish. Only in team mode, max once per 10s.
   const lastMouseSent = useRef(0);
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !isTeamMode) return;
     const handler = (e: MouseEvent) => {
       const now = Date.now();
       if (now - lastMouseSent.current < MOUSE_THROTTLE_MS) return;
       lastMouseSent.current = now;
-      // collab.sendCursor(e.clientX, e.clientY);
+      collab.sendCursor(e.clientX, e.clientY);
     };
     window.addEventListener('mousemove', handler, { passive: true });
     return () => window.removeEventListener('mousemove', handler);
-  }, [projectId, collab]);
+  }, [projectId, isTeamMode, collab]);
 
   if (!projectId) {
     return <CollabToastHost apiRef={setToastApi} />;
