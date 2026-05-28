@@ -110,7 +110,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const connect = useCallback(() => {
     return; // SSE temporarily disabled
     const currentEs = esRef.current;
-    if (currentEs) {
+    if (currentEs != null) {
       currentEs.close();
       esRef.current = null;
     }
