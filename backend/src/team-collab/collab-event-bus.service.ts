@@ -49,8 +49,8 @@ export class CollabEventBus implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const IORedis = require('ioredis');
-      this.publisher = new IORedis(url, { lazyConnect: false, maxRetriesPerRequest: 2 });
-      this.subscriber = new IORedis(url, { lazyConnect: false, maxRetriesPerRequest: 2 });
+      this.publisher = new IORedis(url, { lazyConnect: false, maxRetriesPerRequest: 2, enableOfflineQueue: false });
+      this.subscriber = new IORedis(url, { lazyConnect: false, maxRetriesPerRequest: 2, enableOfflineQueue: false });
       this.subscriber.on('message', (channel: string, raw: string) => {
         const handlers = this.localHandlers.get(channel);
         if (!handlers || handlers.size === 0) return;
