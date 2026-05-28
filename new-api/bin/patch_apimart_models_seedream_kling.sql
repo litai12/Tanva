@@ -55,6 +55,22 @@ SET key = (SELECT key FROM channels WHERE name = 'ark' LIMIT 1)
 WHERE name IN ('ark-doubao', 'ark-doubao-image')
   AND key != (SELECT key FROM channels WHERE name = 'ark' LIMIT 1);
 
+-- Step 4b: 向 ark-doubao-image 补充 seedream 4.x 模型
+-- （new-api 路由 doubao 图像时优先找 type 45 渠道，4.x 不在此渠道会报 "No available channel"）
+UPDATE channels
+SET models = (
+  SELECT string_agg(m, ',' ORDER BY m)
+  FROM (
+    SELECT DISTINCT trim(m) AS m
+    FROM unnest(string_to_array(
+      models || ',doubao-seedream-4-5-251128,doubao-seedream-4-0-250828',
+      ','
+    )) AS t(m)
+    WHERE trim(m) <> ''
+  ) sub
+)
+WHERE name = 'ark-doubao-image';
+
 -- Step 5: 向 ark-doubao 渠道补充 doubao-seed3d-2-0-260328 模型
 UPDATE channels
 SET models = (
