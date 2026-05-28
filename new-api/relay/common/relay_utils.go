@@ -36,6 +36,17 @@ func GetFullRequestURL(baseURL string, requestURL string, channelType int) strin
 			fullRequestURL = fmt.Sprintf("%s%s", baseURL, strings.TrimPrefix(requestURL, "/openai/deployments"))
 		}
 	}
+
+	// When base_url already ends with a versioned path segment (/v3, /v2, …),
+	// the relay's /v1 prefix would produce a double-version URL (e.g. /v3/v1/…).
+	// Strip /v1 so the final URL uses the version in base_url instead.
+	trimmedBase := strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(trimmedBase, "/v3") || strings.HasSuffix(trimmedBase, "/v2") {
+		if strings.HasPrefix(requestURL, "/v1/") {
+			fullRequestURL = fmt.Sprintf("%s%s", baseURL, strings.TrimPrefix(requestURL, "/v1"))
+		}
+	}
+
 	return fullRequestURL
 }
 
