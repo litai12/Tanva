@@ -19,7 +19,7 @@ export class AnalyzeVideoDto {
 
   @IsOptional()
   @IsString()
-  bananaImageRoute?: 'normal' | 'stable';
+  bananaImageRoute?: 'normal' | 'stable' | 'ultra';
 
   @IsOptional()
   @IsString()

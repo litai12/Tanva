@@ -16,36 +16,24 @@ export interface ImageTaskJobPayload {
   nodeId?: string | null;
 }
 
-// ── Rate-limit tunables (override via env) ────────────────────────────────────
-// Per-user: max N task submissions per window
-const USER_LIMIT         = Number(process.env.IMAGE_TASK_USER_LIMIT          ?? 20);
-const USER_WINDOW_SEC    = Number(process.env.IMAGE_TASK_USER_WINDOW_SEC      ?? 60);
-// Global: max total jobs waiting+active before new submissions are rejected
-const GLOBAL_QUEUE_LIMIT = Number(process.env.IMAGE_TASK_GLOBAL_QUEUE_LIMIT  ?? 500);
+// ── Queue depth two-watermark (backpressure, NOT admission rate-limiting) ─────
+// High watermark: start rejecting new submissions when queue reaches this depth.
+// Low watermark:  resume accepting once queue drains below this level.
+// These only protect against unbounded Redis growth, NOT normal burst traffic.
+const QUEUE_HIGH_WATERMARK = Number(process.env.IMAGE_TASK_QUEUE_HIGH ?? 200_000_000);
+const QUEUE_LOW_WATERMARK  = Number(process.env.IMAGE_TASK_QUEUE_LOW  ?? 100_000_000);
 
 @Injectable()
 export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ImageTaskQueueService.name);
   private queue!: Queue;
-  private redis!: {
-    incr(key: string): Promise<number>;
-    expire(key: string, ttl: number): Promise<number>;
-    ttl(key: string): Promise<number>;
-    on(event: string, handler: (...args: any[]) => void): void;
-    disconnect(): void;
-  };
+  /** True while queue depth is above high watermark — latched until it drops to low watermark */
+  private backpressureActive = false;
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
     const url = this.config.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379';
-
-    // Reuse ioredis (already a dep via bullmq)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const IORedis = require('ioredis');
-    this.redis = new IORedis(url, { lazyConnect: false, maxRetriesPerRequest: 2, enableOfflineQueue: false });
-    this.redis.on('error', (err: Error) => this.logger.warn(`Rate-limiter redis error: ${err.message}`));
-
     this.queue = new Queue(IMAGE_TASK_QUEUE, {
       connection: { url },
       defaultJobOptions: {
@@ -55,16 +43,19 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
       },
     });
     this.logger.log(
-      `Image task queue initialized — userLimit=${USER_LIMIT}/${USER_WINDOW_SEC}s globalLimit=${GLOBAL_QUEUE_LIMIT}`,
+      `Image task queue initialized` +
+      ` — highWatermark=${QUEUE_HIGH_WATERMARK} lowWatermark=${QUEUE_LOW_WATERMARK}`,
     );
   }
 
   /**
-   * Check rate limits then enqueue.
-   * Throws TooManyRequestsException (HTTP 429) when either limit is exceeded.
+   * Enqueue a task.
+   * Only rejects (503) when queue depth is above the high watermark AND
+   * has not yet drained back to the low watermark — normal burst traffic
+   * is always accepted.
    */
   async addJob(payload: ImageTaskJobPayload): Promise<void> {
-    await this.checkRateLimits(payload.userId);
+    await this.checkBackpressure();
     await this.queue.add('execute', payload, { jobId: payload.taskId });
   }
 
@@ -76,36 +67,30 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.queue.close();
-    this.redis.disconnect();
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  private async checkRateLimits(userId: string): Promise<void> {
-    // 1. Global queue depth — fast: single LLEN via BullMQ counts
+  private async checkBackpressure(): Promise<void> {
     const counts = await this.queue.getJobCounts('waiting', 'active');
     const depth = (counts.waiting ?? 0) + (counts.active ?? 0);
-    if (depth >= GLOBAL_QUEUE_LIMIT) {
-      this.logger.warn(`Global queue limit hit: depth=${depth}/${GLOBAL_QUEUE_LIMIT}`);
-      throw new HttpException(
-        `系统任务队列已满（${depth}/${GLOBAL_QUEUE_LIMIT}），请稍后重试`,
-        HttpStatus.TOO_MANY_REQUESTS,
+
+    if (!this.backpressureActive && depth >= QUEUE_HIGH_WATERMARK) {
+      this.backpressureActive = true;
+      this.logger.warn(
+        `Queue backpressure ON: depth=${depth} >= high=${QUEUE_HIGH_WATERMARK}`,
+      );
+    } else if (this.backpressureActive && depth <= QUEUE_LOW_WATERMARK) {
+      this.backpressureActive = false;
+      this.logger.log(
+        `Queue backpressure OFF: depth=${depth} <= low=${QUEUE_LOW_WATERMARK}`,
       );
     }
 
-    // 2. Per-user sliding window (Redis INCR + EXPIRE)
-    const key = `rl:img:${userId}`;
-    const count = await this.redis.incr(key);
-    if (count === 1) {
-      // First request in this window — set expiry
-      await this.redis.expire(key, USER_WINDOW_SEC);
-    }
-    if (count > USER_LIMIT) {
-      const ttl = await this.redis.ttl(key);
-      this.logger.warn(`User rate limit hit: userId=${userId} count=${count}/${USER_LIMIT} ttl=${ttl}s`);
+    if (this.backpressureActive) {
       throw new HttpException(
-        `提交过于频繁，${USER_WINDOW_SEC} 秒内最多 ${USER_LIMIT} 个任务（当前 ${count}），请 ${ttl} 秒后重试`,
-        HttpStatus.TOO_MANY_REQUESTS,
+        `服务器任务队列繁忙（积压 ${depth} 个），请稍后重试`,
+        HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }

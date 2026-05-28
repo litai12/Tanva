@@ -1,6 +1,7 @@
 ﻿import {
   Body,
   Controller,
+  HttpCode,
   Logger,
   Post,
   UseGuards,
@@ -6906,18 +6907,33 @@ export class AiController {
   /**
    * 批量按 taskId 查询图像任务状态，供前端全局轮询池使用
    */
+  @HttpCode(200)
   @Post('tasks/by-ids')
   async batchQueryTasksByIds(
     @Body() body: { taskIds: string[] },
     @Req() req: any,
   ) {
-    if (!this.generationTaskService) {
+    if (!this.generationTaskService || !this.imageTaskService) {
       return {};
     }
     const taskIds: string[] = Array.isArray(body?.taskIds) ? body.taskIds : [];
     if (taskIds.length === 0) return {};
     const userId = this.getUserId(req) ?? 'anonymous';
-    return this.generationTaskService.batchQueryByTaskIds(taskIds, userId);
+    const result = await this.generationTaskService.batchQueryByTaskIds(taskIds, userId);
+
+    // For taskIds not yet in DB (still in Redis queue), return {status:'queued'}
+    // instead of null so the frontend knows the task exists and is pending.
+    const nullIds = taskIds.filter((id) => result[id] === null);
+    if (nullIds.length > 0) {
+      await Promise.all(
+        nullIds.map(async (id) => {
+          const inQueue = await this.imageTaskService!.isTaskInQueue(id);
+          if (inQueue) result[id] = { status: 'queued' };
+        }),
+      );
+    }
+
+    return result;
   }
 
   /**

@@ -535,7 +535,7 @@ async function performGenerateImageRequest(
 
     // Backend delegated to async task (e.g. seedream5) — transparently poll for result
     if (typeof data?.taskId === "string" && data.taskId && !data.imageUrl && !data.imageData) {
-      return pollImageTaskResult(data.taskId);
+      return pollImageTaskResult(data.taskId, undefined, undefined, request.nodeId);
     }
 
     const resolvedModel = resolveDefaultModel(
@@ -982,11 +982,12 @@ export async function createBlendImagesTaskViaAPI(
 export async function pollImageTaskResult(
   taskId: string,
   _intervalMs = 5000,
-  timeoutMs = 15 * 60 * 1000
+  timeoutMs = 15 * 60 * 1000,
+  ownerId?: string
 ): Promise<AIServiceResponse<AIImageResult>> {
   const { waitForTask } = await import("@/utils/imageTaskPoller");
   try {
-    const r = await waitForTask(taskId, timeoutMs);
+    const r = await waitForTask(taskId, timeoutMs, ownerId);
     const normalStatus = String(r.status || "").toLowerCase();
 
     if (normalStatus === "succeeded") {
@@ -1928,6 +1929,8 @@ export async function generateVideoViaAPI(
         "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify(payload),
+      // 同步视频生成可能超过 3 分钟，禁用默认请求超时。
+      timeoutMs: 0,
     });
 
     if (!response.ok) {
@@ -2692,19 +2695,30 @@ export interface GenerationTaskRecord {
   updatedAt: string;
 }
 
+// 后发取消先发：by-nodes 是批量轮询接口，任意时刻只需保留最新一次请求。
+// 新请求进来时 abort 掉仍在途的旧请求，避免旧响应覆盖新状态、也省掉无用的连接占用。
+let byNodesInflight: AbortController | null = null;
+
 export async function batchQueryTasksByNodesAPI(
   nodeIds: string[]
 ): Promise<Record<string, GenerationTaskRecord | null>> {
   if (!nodeIds.length) return {};
+  byNodesInflight?.abort();
+  const controller = new AbortController();
+  byNodesInflight = controller;
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/tasks/by-nodes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nodeIds }),
+      signal: controller.signal,
     });
     if (!response.ok) return {};
     return (await response.json()) as Record<string, GenerationTaskRecord | null>;
   } catch {
+    // 含被后发请求 abort 的情况：旧调用方静默拿到空结果，不做任何状态更新即可
     return {};
+  } finally {
+    if (byNodesInflight === controller) byNodesInflight = null;
   }
 }

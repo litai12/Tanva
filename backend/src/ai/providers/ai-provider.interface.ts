@@ -70,7 +70,7 @@ export interface MidjourneyModalRequest {
   maskBase64?: string;
 }
 
-export type BananaImageRoute = 'normal' | 'stable';
+export type BananaImageRoute = 'normal' | 'stable' | 'ultra';
 
 export interface BananaProviderOptions {
   imageRoute?: BananaImageRoute;

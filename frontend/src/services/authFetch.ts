@@ -9,7 +9,15 @@ type RequestInput = RequestInfo | URL;
 export type AuthFetchInit = RequestInit & {
   auth?: "auto" | "omit";
   allowRefresh?: boolean;
+  /**
+   * 单个请求最长存活时间（毫秒），超时后中止以释放连接。
+   * 默认 3 分钟。传 0 或负数可禁用（用于同步视频生成等长耗时接口）。
+   */
+  timeoutMs?: number;
 };
+
+// 默认 3 分钟：避免请求长时间占用 HTTP/1.1 连接槽（单 origin 仅 6 个并发）。
+const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
 
 let refreshPromise: Promise<boolean> | null = null;
 let creditsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -121,6 +129,44 @@ async function ensureRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
+// 把调用方自带的 signal 与超时 signal 合成：任一触发即中止，请求结束后清理定时器。
+const createTimeoutSignal = (
+  callerSignal: AbortSignal | null | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal | undefined; cleanup: () => void } => {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return { signal: callerSignal ?? undefined, cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException(`Request timeout after ${timeoutMs}ms`, "TimeoutError"),
+    );
+  }, timeoutMs);
+
+  const onCallerAbort = () => {
+    clearTimeout(timer);
+    controller.abort((callerSignal as AbortSignal | undefined)?.reason);
+  };
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+    } else {
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
+  };
+
+  return { signal: controller.signal, cleanup };
+};
+
 const normalizeInit = (init?: AuthFetchInit): RequestInit => {
   const { auth, ...rest } = init || {};
   const headers = new Headers(rest.headers || {});
@@ -155,7 +201,12 @@ export async function fetchWithAuth(
   input: RequestInput,
   init?: AuthFetchInit
 ): Promise<Response> {
-  const { allowRefresh = true, auth = "auto", ...rest } = init || {};
+  const {
+    allowRefresh = true,
+    auth = "auto",
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    ...rest
+  } = init || {};
   const rawUrl = resolveRequestUrl(input).trim().toLowerCase();
   if (rawUrl.startsWith("blob:")) {
     return new Response(null, { status: 410, statusText: "blob-url-skipped" });
@@ -168,7 +219,16 @@ export async function fetchWithAuth(
     return fetch(input, directInit);
   }
   const normalized = normalizeInit({ ...rest, auth });
-  const response = await fetch(input, normalized);
+  const { signal: timedSignal, cleanup } = createTimeoutSignal(
+    normalized.signal,
+    timeoutMs,
+  );
+  let response: Response;
+  try {
+    response = await fetch(input, { ...normalized, signal: timedSignal });
+  } finally {
+    cleanup();
+  }
   if (response.status === 403) {
     notifyCreditsRefreshIfNeeded(input, normalized, response);
     return response;
@@ -191,7 +251,19 @@ export async function fetchWithAuth(
   const refreshed = await ensureRefresh();
   if (refreshed) {
     const retryNormalized = normalizeInit({ ...rest, auth });
-    const retryResponse = await fetch(input, retryNormalized);
+    const { signal: retrySignal, cleanup: retryCleanup } = createTimeoutSignal(
+      retryNormalized.signal,
+      timeoutMs,
+    );
+    let retryResponse: Response;
+    try {
+      retryResponse = await fetch(input, {
+        ...retryNormalized,
+        signal: retrySignal,
+      });
+    } finally {
+      retryCleanup();
+    }
     // refresh 返回 ok 但重试仍 401：认为登录态已失效，触发退出/登录提示。
     // 403 是业务权限拒绝（例如会员权益不足），不能当作登录过期处理。
     if (retryResponse.status === 401) {

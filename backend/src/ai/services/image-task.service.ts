@@ -48,12 +48,13 @@ function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string
 
 function normalizeBananaRoute(
   value: unknown,
-): 'normal' | 'stable' | null {
+): 'normal' | 'stable' | 'ultra' | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === 'normal' || normalized === 'apimart') return 'normal';
   if (normalized === 'stable' || normalized === 'tencent') return 'stable';
+  if (normalized === 'ultra' || normalized === 'beqlee') return 'ultra';
   return null;
 }
 
@@ -296,7 +297,7 @@ export class ImageTaskService {
 
   private resolveBananaImageRouteFromTaskRequestData(
     requestData: Record<string, any> | null,
-  ): 'normal' | 'stable' | null {
+  ): 'normal' | 'stable' | 'ultra' | null {
     if (!requestData) return null;
     return (
       normalizeBananaRoute(requestData.bananaImageRoute) ||
@@ -540,6 +541,10 @@ export class ImageTaskService {
     return { id: taskId, status: 'queued' as const };
   }
 
+  async isTaskInQueue(taskId: string): Promise<boolean> {
+    return this.imageTaskQueue.hasJob(taskId);
+  }
+
   /**
    * 查询任务状态
    */
@@ -598,6 +603,11 @@ export class ImageTaskService {
 
   private async executeTaskCore(task: Awaited<ReturnType<typeof this.prisma.imageTask.findUniqueOrThrow>>): Promise<void> {
     const taskId = task.id;
+
+    if (task.status === 'failed') {
+      this.logger.warn(`跳过已标记 failed 的任务: taskId=${taskId}, 原因可能是重启期间被 reconcile 清除`);
+      return;
+    }
 
     const taskRequestData =
       task.requestData && typeof task.requestData === 'object'

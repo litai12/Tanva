@@ -27,7 +27,7 @@ function loadEnv(envPath) {
 }
 const env = loadEnv(path.join(__dirname, '../.env'));
 const JWT_SECRET = env.JWT_ACCESS_SECRET || 'dev-access-secret';
-const BACKEND_PID = 71599; // NestJS server pid from ps output
+const BACKEND_PID = 82083; // NestJS server pid after auto-restart
 
 // ── sign JWT without external lib (HS256 pure JS) ────────────────────────────
 function b64url(buf) {
@@ -132,7 +132,7 @@ function getProcessMemMB(pid) {
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-const st = { submitted: 0, failed: 0, startMs: Date.now(), waves: 0 };
+const st = { submitted: 0, failed: 0, rateLimited: 0, startMs: Date.now(), waves: 0 };
 
 // ── GEMINI prompt pool ────────────────────────────────────────────────────────
 const PROMPTS = [
@@ -158,11 +158,13 @@ async function submitOne(i) {
     const res = await request('POST', '/api/ai/generate-image-async', {
       prompt: randomPrompt(i),
       aspectRatio: '1:1',
-      // no aiProvider → default Gemini route
     });
     if (res.status === 200 || res.status === 201) {
       st.submitted++;
       return res.body?.taskId || res.body?.id || '?';
+    } else if (res.status === 429) {
+      st.rateLimited++;
+      return null;
     } else {
       st.failed++;
       return null;
@@ -186,20 +188,21 @@ async function printStatus(redis) {
   const elapsed = ((Date.now() - st.startMs) / 1000).toFixed(0);
   const rate = elapsed > 0 ? (st.submitted / elapsed).toFixed(1) : '0';
 
+  const rateLimitPct = TOTAL > 0 ? ((st.rateLimited / TOTAL) * 100).toFixed(1) : '0';
   const lines = [
     ``,
-    `  ┌─ Image Task Stress Test (1000 Gemini tasks) ${'─'.repeat(25)}`,
-    `  │  Elapsed   : ${elapsed}s          Submit rate: ${rate} tasks/s`,
-    `  │  Submitted  : ${String(st.submitted).padStart(4)} / ${TOTAL}   Failed to submit: ${st.failed}`,
-    `  │  Wave       : ${st.waves}`,
+    `  ┌─ Image Task Stress Test (${TOTAL} Gemini tasks) ${'─'.repeat(23)}`,
+    `  │  Elapsed     : ${elapsed}s       Submit rate: ${rate} tasks/s`,
+    `  │  Accepted    : ${String(st.submitted).padStart(4)} / ${TOTAL}`,
+    `  │  Rate-limited: ${String(st.rateLimited).padStart(4)}  (429) ${rateLimitPct}%`,
+    `  │  Errors      : ${String(st.failed).padStart(4)}  (5xx/net)`,
     `  ├─ Queue ─────────────────────────────────────────────────`,
-    `  │  Wait       : ${String(q.wait).padStart(5)}  (queued, not picked up)`,
-    `  │  Active     : ${String(q.active).padStart(5)}  (being processed by worker)`,
-    `  │  Completed  : ${String(q.completed).padStart(5)}`,
-    `  │  Failed     : ${String(q.failed).padStart(5)}`,
-    `  │  Delayed    : ${String(q.delayed).padStart(5)}`,
-    `  ├─ Server Memory (pid ${BACKEND_PID}) ─────────────────────────`,
-    `  │  RSS         : ${mem} MB`,
+    `  │  Wait        : ${String(q.wait).padStart(5)}  (queued, not yet processed)`,
+    `  │  Active      : ${String(q.active).padStart(5)}  (worker concurrency in use)`,
+    `  │  Completed   : ${String(q.completed).padStart(5)}`,
+    `  │  Failed      : ${String(q.failed).padStart(5)}`,
+    `  ├─ Server Memory (pid ${BACKEND_PID}) ──────────────────────────`,
+    `  │  RSS          : ${mem} MB`,
     `  └${'─'.repeat(58)}`,
     ``,
   ];
@@ -262,13 +265,15 @@ async function main() {
   const q   = await redis.stats();
   const mem = getProcessMemMB(BACKEND_PID);
   console.log(`\n══════════ FINAL SUMMARY ══════════`);
-  console.log(`  Submitted : ${st.submitted} / ${TOTAL}`);
-  console.log(`  Q.wait    : ${q.wait}`);
-  console.log(`  Q.active  : ${q.active}`);
-  console.log(`  Q.completed: ${q.completed}`);
-  console.log(`  Q.failed  : ${q.failed}`);
-  console.log(`  Server RSS: ${mem} MB`);
-  console.log(`  Elapsed   : ${((Date.now()-st.startMs)/1000).toFixed(0)}s`);
+  console.log(`  Accepted     : ${st.submitted} / ${TOTAL}`);
+  console.log(`  Rate-limited : ${st.rateLimited} (429)`);
+  console.log(`  Errors       : ${st.failed}`);
+  console.log(`  Q.wait       : ${q.wait}`);
+  console.log(`  Q.active     : ${q.active}`);
+  console.log(`  Q.completed  : ${q.completed}`);
+  console.log(`  Q.failed     : ${q.failed}`);
+  console.log(`  Server RSS   : ${mem} MB`);
+  console.log(`  Elapsed      : ${((Date.now()-st.startMs)/1000).toFixed(0)}s`);
   console.log(`═══════════════════════════════════\n`);
 }
 

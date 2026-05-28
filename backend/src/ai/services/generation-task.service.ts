@@ -317,17 +317,33 @@ export class GenerationTaskService implements OnModuleInit {
   private async reconcileStuckTasks(): Promise<void> {
     const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);
     try {
-      const { count: vCount } = await this.prisma.videoTask.updateMany({
-        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+      // `processing` → immediately orphan on startup regardless of age.
+      // The process died; there is no worker still running these tasks.
+      //
+      // `queued` → only orphan if stuck for > 40 min (Redis job may still exist
+      // and the worker will re-pick it up after restart).
+      const { count: vProcessing } = await this.prisma.videoTask.updateMany({
+        where: { status: 'processing', updatedAt: { lt: cutoff } },
         data: { status: 'failed', error: 'task orphaned after backend restart' },
       });
-      const { count: iCount } = await this.prisma.imageTask.updateMany({
-        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+      const { count: iProcessing } = await this.prisma.imageTask.updateMany({
+        where: { status: 'processing', updatedAt: { lt: cutoff } },
         data: { status: 'failed', error: 'task orphaned after backend restart' },
       });
-      if (vCount + iCount > 0) {
+      const { count: vQueued } = await this.prisma.videoTask.updateMany({
+        where: { status: 'queued', updatedAt: { lt: cutoff } },
+        data: { status: 'failed', error: 'task orphaned after backend restart' },
+      });
+      const { count: iQueued } = await this.prisma.imageTask.updateMany({
+        where: { status: 'queued', updatedAt: { lt: cutoff } },
+        data: { status: 'failed', error: 'task orphaned after backend restart' },
+      });
+      const total = vProcessing + iProcessing + vQueued + iQueued;
+      if (total > 0) {
         this.logger.warn(
-          `Reconciled ${vCount} orphaned video tasks and ${iCount} orphaned image tasks`,
+          `Reconciled orphaned tasks on startup:` +
+          ` processing(video=${vProcessing} image=${iProcessing})` +
+          ` stuck-queued(video=${vQueued} image=${iQueued})`,
         );
       }
     } catch (err) {

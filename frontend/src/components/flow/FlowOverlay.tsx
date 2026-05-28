@@ -4814,6 +4814,48 @@ function FlowInner() {
     [effectiveSnapAlignmentEnabled, updateFlowSnapAlignments]
   );
 
+  // 取消已删除节点的轮询：节点从画布移除后，其 taskId 不应再占用全局轮询池
+  // （by-ids 共享轮询），否则会一直查到 15min 超时为止。taskIds 在调用时同步捕获，
+  // 不受随后 nodesRef 更新影响。
+  const cancelPollingForRemovedNodes = React.useCallback(
+    (removedIds: Iterable<string>) => {
+      const idSet = new Set<string>();
+      for (const id of removedIds) idSet.add(String(id));
+      if (!idSet.size) return;
+      // 兜底：部分流程会把 taskId 写到 node.data.taskId 上，按它取消
+      const taskIds: string[] = [];
+      for (const n of nodesRef.current) {
+        if (!idSet.has(String(n.id))) continue;
+        const taskId = (n.data as any)?.taskId;
+        if (typeof taskId === "string" && taskId.trim()) taskIds.push(taskId.trim());
+      }
+      void import("@/utils/imageTaskPoller").then(({ cancelTask, cancelTasksByOwner }) => {
+        // 主路径：按 owner(nodeId) 取消，覆盖 generate4 等不会把 taskId 写回节点的多任务流程
+        cancelTasksByOwner(idSet);
+        for (const t of taskIds) cancelTask(t);
+      });
+    },
+    []
+  );
+
+  // 生命周期兜底：节点从画布集合中消失（删除/切换项目/清空画布等任意原因）时，
+  // 取消其名下的轮询。纯本地集合 diff，不向后端发请求——不是「每轮去查」的对账，
+  // 而是跟随节点的存在性生命周期。删除动作侧已即时取消，这里只兜非删除动作的移除。
+  const prevNodeIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const curr = new Set<string>();
+    for (const n of nodes) curr.add(String(n.id));
+    const removed: string[] = [];
+    for (const id of prevNodeIdsRef.current) {
+      if (!curr.has(id)) removed.push(id);
+    }
+    prevNodeIdsRef.current = curr;
+    if (!removed.length) return;
+    void import("@/utils/imageTaskPoller").then(({ cancelTasksByOwner }) => {
+      cancelTasksByOwner(removed);
+    });
+  }, [nodes]);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       let processedChanges = changes;
@@ -4853,6 +4895,7 @@ function FlowInner() {
             }
           }
           if (expandedRemoveIds.size > 0) {
+            cancelPollingForRemovedNodes(expandedRemoveIds);
             setEdges((prev: any[]) =>
               prev.filter(
                 (edge: any) =>
@@ -5037,7 +5080,7 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [applyFlowSnappingToChanges, onNodesChange, setEdges]
+    [applyFlowSnappingToChanges, onNodesChange, setEdges, cancelPollingForRemovedNodes]
   );
 
   const rf = useReactFlow();
@@ -13509,6 +13552,7 @@ function FlowInner() {
       );
       if (!ids.size) return;
 
+      cancelPollingForRemovedNodes(ids);
       setNodes((prev: any[]) => prev.filter((n: any) => !ids.has(n.id)));
       setEdges((prev: any[]) =>
         prev.filter((e: any) => !ids.has(e.source) && !ids.has(e.target))
@@ -13520,7 +13564,7 @@ function FlowInner() {
     window.addEventListener("flow:deleteNode", handler as EventListener);
     return () =>
       window.removeEventListener("flow:deleteNode", handler as EventListener);
-  }, [rf, setNodes, setEdges]);
+  }, [rf, setNodes, setEdges, cancelPollingForRemovedNodes]);
 
   // 监听节点右键菜单：复制节点（直接在画板上创建副本）
   React.useEffect(() => {
@@ -14392,11 +14436,15 @@ function FlowInner() {
     })();
   }, [nodes, setNodes]);
 
-  // 恢复后对仍在运行的节点保持轮询（每 5 秒），直到任务结束
-  const recoveryPollingRef = React.useRef<number | undefined>();
+  // 恢复后对仍在运行的节点保持轮询（每 5 秒），直到任务结束。
+  // 单一顺序循环：发请求 → 等响应回来 → 再等 5s → 发下一个，任意时刻只有一个请求在途。
+  // 循环只在挂载时启动一次，内部从 nodesRef 读取最新节点，避免 setNodes 触发的
+  // nodes 变化把循环反复重启——那会绕过 5s 间隔并制造 by-nodes 请求风暴（死循环）。
+  const recoveryPollingRef = React.useRef<{ stop: () => void } | undefined>();
   React.useEffect(() => {
     const check = async () => {
-      const runningNodes = nodes.filter(
+      if (!taskRecoveryFiredRef.current) return;
+      const runningNodes = (nodesRef.current || []).filter(
         (n) =>
           (n.data as any)?.status === "running" &&
           typeof (n.data as any)?.taskId === "string" &&
@@ -14406,15 +14454,18 @@ function FlowInner() {
       try {
         const records = await batchQueryTasksByNodesAPI(runningNodes.map((n) => n.id));
         if (!Object.keys(records).length) return;
-        setNodes((prev: any[]) =>
-          prev.map((n) => {
+        setNodes((prev: any[]) => {
+          let changed = false;
+          const next = prev.map((n) => {
             const record = records[n.id];
             if (!record || record.status === "running" || record.status === "queued") return n;
             const prevData = (n.data as any) || {};
             if (record.status === "failed") {
+              changed = true;
               return { ...n, data: { ...prevData, status: "failed", error: record.error || "任务失败", taskId: record.taskId } };
             }
             if (record.status === "succeeded") {
+              changed = true;
               const res = record.result || {};
               return {
                 ...n,
@@ -14428,20 +14479,24 @@ function FlowInner() {
               };
             }
             return n;
-          })
-        );
+          });
+          // 没有任何节点变化时返回原引用，避免每 5s 触发一次无意义的全量重渲染
+          return changed ? next : prev;
+        });
       } catch { /* best-effort */ }
     };
 
-    window.clearInterval(recoveryPollingRef.current);
-    const hasRecoveredRunning = nodes.some(
-      (n) => (n.data as any)?.status === "running" && typeof (n.data as any)?.taskId === "string"
-    );
-    if (hasRecoveredRunning && taskRecoveryFiredRef.current) {
-      recoveryPollingRef.current = window.setInterval(() => { void check(); }, 5000);
-    }
-    return () => window.clearInterval(recoveryPollingRef.current);
-  }, [nodes, setNodes]);
+    let stopped = false;
+    recoveryPollingRef.current = { stop: () => { stopped = true; } };
+    void (async () => {
+      while (!stopped) {
+        await check();
+        if (stopped) break;
+        await new Promise<void>((r) => setTimeout(r, 5000));
+      }
+    })();
+    return () => recoveryPollingRef.current?.stop();
+  }, [setNodes]);
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
@@ -20594,7 +20649,7 @@ function FlowInner() {
                   let failureMessage = "";
 
                   try {
-                    const r = await waitForTask(gptTaskId, 15 * 60 * 1000);
+                    const r = await waitForTask(gptTaskId, 15 * 60 * 1000, nodeId);
                     if (r.status === "succeeded") {
                       resolvedImageUrl = r.imageUrl || "";
                       resolvedTextResponse = r.textResponse || "";
@@ -21389,7 +21444,7 @@ function FlowInner() {
                   error: createResult.error || { code: "TASK_CREATE_FAILED", message: "任务创建失败", timestamp: new Date() },
                 };
               } else {
-                result = await pollImageTaskResult(createResult.data.taskId);
+                result = await pollImageTaskResult(createResult.data.taskId, undefined, undefined, nodeId);
               }
             }
 
@@ -21674,7 +21729,7 @@ function FlowInner() {
                   error: createResult.error || { code: "TASK_CREATE_FAILED", message: "任务创建失败", timestamp: new Date() },
                 };
               } else {
-                result = await pollImageTaskResult(createResult.data.taskId);
+                result = await pollImageTaskResult(createResult.data.taskId, undefined, undefined, nodeId);
               }
             }
 
@@ -21955,7 +22010,7 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, taskId } } : n))
           );
-          return pollImageTaskResult(taskId);
+          return pollImageTaskResult(taskId, undefined, undefined, nodeId);
         };
 
         result = await executeImageRequest(runProvider, nodeSpecificModel);
