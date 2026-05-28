@@ -1171,11 +1171,12 @@ export class AutoScreenshotService {
             } catch (loadError) {
               // 如果重新加载失败，记录警告但继续使用原图片
               // 这可能会导致 canvas 被污染，但至少不会完全失败
-              logger.warn('⚠️ 跨域图片重新加载失败，使用原图片（可能导致截图失败）:', {
+              logger.warn('⚠️ 跨域图片重新加载失败，跳过该图层绘制:', {
                 src: imgSrc,
                 error: loadError
               });
-              imageToDraw = raster.image;
+              ctx.restore();
+              return;
             }
           }
         }

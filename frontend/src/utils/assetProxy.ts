@@ -184,10 +184,6 @@ export function proxifyRemoteAssetUrl(
     value.startsWith("/api/assets/proxy") ||
     value.startsWith("/assets/proxy")
   ) {
-    if (!proxyEnabled) {
-      const direct = tryUnwrapAssetProxyUrl(value);
-      if (direct && !shouldForceProxyUrl(direct)) return direct;
-    }
     // 开发模式使用当前前端 origin，生产使用后端配置
     const frontendBase = import.meta.env.DEV
       ? getFrontendOrigin()
@@ -202,10 +198,6 @@ export function proxifyRemoteAssetUrl(
 
     // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的前端/后端域名
     if (isAssetProxyPath(url.pathname)) {
-      if (!proxyEnabled) {
-        const direct = tryUnwrapAssetProxyUrl(url.toString());
-        if (direct && !shouldForceProxyUrl(direct)) return direct;
-      }
       const frontendBase = import.meta.env.DEV
         ? getFrontendOrigin()
         : apiBase;
