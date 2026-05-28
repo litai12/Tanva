@@ -51,6 +51,11 @@ function scheduleReconnect(): void {
 }
 
 function connect(): void {
+  // 清掉可能在途的重连定时器，避免它稍后用旧上下文覆盖这次显式连接
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   const url = buildUrl();
   closeSocket();
   if (!url) return; // 缺 token/teamId，不连

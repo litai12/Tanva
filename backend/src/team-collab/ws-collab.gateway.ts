@@ -89,7 +89,8 @@ export class WsCollabGateway implements OnModuleDestroy {
     } catch {
       return this.reject(socket, 400, 'Bad Request');
     }
-    if (url.pathname !== WS_PATH) return; // 非本网关路径，忽略（其它 upgrade 监听器可处理）
+    // 本进程只有这一个 upgrade 处理器，未匹配路径直接拒绝，避免 socket 悬挂泄漏。
+    if (url.pathname !== WS_PATH) return this.reject(socket, 404, 'Not Found');
 
     const origin = req.headers.origin ?? '';
     if (this.originAllowed && origin && !this.originAllowed(origin)) {

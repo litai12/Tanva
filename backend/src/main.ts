@@ -209,43 +209,33 @@ async function bootstrap() {
     }
   };
 
-  // 动态检查 origin，允许 trycloudflare.com 的所有子域名（用于内网穿透）
+  // 统一的 origin 放行判定，供 HTTP CORS 与 WS upgrade 复用，保证两者规则一致
+  const isOriginAllowed = (origin?: string): boolean => {
+    if (corsDevAllowAll || corsAllowAll) return true;
+    // 没有 origin（同源请求）或 file://（origin 为 "null"），允许
+    if (!origin || origin === "null") return true;
+    const hostname = resolveHostname(origin);
+    // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
+    if (hostname === "trycloudflare.com" || hostname.endsWith(".trycloudflare.com")) {
+      return true;
+    }
+    // 配置了 CORS_ORIGIN：精确或同 hostname 匹配
+    if (corsOrigins.length > 0) {
+      return corsOrigins.some(
+        (allowedOrigin: string) =>
+          allowedOrigin === origin || resolveHostname(allowedOrigin) === hostname
+      );
+    }
+    // 未配置 CORS_ORIGIN：允许所有来源（开发环境）
+    return true;
+  };
+
+  // 动态检查 origin（CORS 插件回调）
   const originCallback = (
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean | string) => void
   ) => {
-    // 如果没有 origin（如同源请求）或 file://（origin 为 "null"），允许
-    if (!origin || origin === "null") {
-      callback(null, true);
-      return;
-    }
-
-    const hostname = resolveHostname(origin);
-
-    // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
-    if (
-      hostname === "trycloudflare.com" ||
-      hostname.endsWith(".trycloudflare.com")
-    ) {
-      callback(null, true);
-      return;
-    }
-
-    // 如果配置了 CORS_ORIGIN，检查是否在允许列表中
-    if (corsOrigins.length > 0) {
-      const allowed = corsOrigins.some((allowedOrigin: string) => {
-        if (allowedOrigin === origin) {
-          return true;
-        }
-
-        return resolveHostname(allowedOrigin) === hostname;
-      });
-      callback(null, allowed);
-      return;
-    }
-
-    // 如果没有配置 CORS_ORIGIN，允许所有来源（开发环境）
-    callback(null, true);
+    callback(null, isOriginAllowed(origin));
   };
 
   // 使用 Fastify 的 CORS 插件，确保 preflight (OPTIONS) 被正确处理并返回 Access-Control-Allow-* 头
@@ -304,11 +294,7 @@ async function bootstrap() {
 
   // 实时协作：把 WS 网关挂到底层 http server 的 upgrade 事件（仅 /ws/collab）
   const wsGateway = app.get(WsCollabGateway);
-  wsGateway.setOriginCheck((origin: string) => {
-    if (corsDevAllowAll || corsAllowAll) return true;
-    if (corsOrigins.length === 0) return true;
-    return corsOrigins.includes(origin);
-  });
+  wsGateway.setOriginCheck((origin: string) => isOriginAllowed(origin));
   wsGateway.attach(fastifyInstance.server);
 
   const port = Number(process.env.PORT || configService.get("PORT") || 4000);
