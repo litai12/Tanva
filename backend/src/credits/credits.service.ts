@@ -2403,11 +2403,43 @@ export class CreditsService {
       distinct: ['accountId'],
     });
 
+    if (accountsWithExpiredQuota.length === 0) {
+      return { processedAccounts: 0, expiredLots: 0, expiredCredits: 0 };
+    }
+
+    // 过滤掉付费用户（曾支付成功过任何订单，不论积分还是套餐）。
+    // 付费用户的免费额度 lot 不应由"免费用户"清理任务扣除积分。
+    const accountIds = accountsWithExpiredQuota.map((a) => a.accountId);
+    const creditAccounts = await this.prisma.creditAccount.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, userId: true },
+    });
+    const accountIdToUserId = new Map(creditAccounts.map((a) => [a.id, a.userId]));
+    const allUserIds = creditAccounts.map((a) => a.userId);
+
+    const paidUserIds = new Set(
+      (
+        await this.prisma.paymentOrder.findMany({
+          where: {
+            userId: { in: allUserIds },
+            status: 'paid',
+          },
+          select: { userId: true },
+          distinct: ['userId'],
+        })
+      ).map((o) => o.userId),
+    );
+
     let processedAccounts = 0;
     let expiredLots = 0;
     let expiredCredits = 0;
 
     for (const item of accountsWithExpiredQuota) {
+      const userId = accountIdToUserId.get(item.accountId);
+      if (userId && paidUserIds.has(userId)) {
+        continue;
+      }
+
       const result = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw<Array<{ id: string }>>(
           Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${item.accountId} FOR UPDATE`,

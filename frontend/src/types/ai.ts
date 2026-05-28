@@ -192,6 +192,7 @@ export interface AIImageEditRequest {
   nodeConfigNameEn?: string;
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
+  nodeId?: string;
 }
 
 // AI鍥惧儚铻嶅悎璇锋眰鍙傛暟
@@ -232,6 +233,7 @@ export interface AIImageBlendRequest {
   nodeConfigNameEn?: string;
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
+  nodeId?: string;
 }
 
 // AI鐢熸垚缁撴灉

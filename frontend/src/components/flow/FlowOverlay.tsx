@@ -158,6 +158,9 @@ import {
   generateImageViaAPI,
   editImageViaAPI,
   blendImagesViaAPI,
+  createEditImageTaskViaAPI,
+  createBlendImagesTaskViaAPI,
+  pollImageTaskResult,
   createSora2CharacterViaAPI,
   generateWan26ViaAPI,
   generateWan26R2VViaAPI,
@@ -21358,50 +21361,58 @@ function FlowInner() {
             const remoteInputs = imageDatas.filter(isRemoteUrl);
             const hasOnlyRemote =
               imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
-            if (imageDatas.length === 0) {
-              result = await generateImageViaAPI({
-                prompt,
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-                ...(enableWebSearchForNode ? {
-                  enableWebSearch: true,
-                  googleSearch: true,
-                  googleImageSearch: true,
-                } : {}),
-              });
-            } else if (imageDatas.length === 1) {
-              result = await editImageViaAPI({
-                prompt,
-                ...(hasOnlyRemote
-                  ? { sourceImageUrl: imageDatas[0] }
-                  : { sourceImage: imageDatas[0] }),
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-              });
-            } else {
-              result = await blendImagesViaAPI({
-                prompt,
-                ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
-                  : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-              });
+            {
+              const createResult = await (imageDatas.length === 0
+                ? createImageGenerationTaskViaAPI({
+                    prompt,
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                    ...(enableWebSearchForNode ? {
+                      enableWebSearch: true,
+                      googleSearch: true,
+                      googleImageSearch: true,
+                    } : {}),
+                  })
+                : imageDatas.length === 1
+                ? createEditImageTaskViaAPI({
+                    prompt,
+                    ...(hasOnlyRemote
+                      ? { sourceImageUrl: imageDatas[0] }
+                      : { sourceImage: imageDatas[0] }),
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                  })
+                : createBlendImagesTaskViaAPI({
+                    prompt,
+                    ...(hasOnlyRemote
+                      ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+                      : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                  }));
+              if (!createResult.success || !createResult.data?.taskId) {
+                result = {
+                  success: false,
+                  error: createResult.error || { code: "TASK_CREATE_FAILED", message: "任务创建失败", timestamp: new Date() },
+                };
+              } else {
+                result = await pollImageTaskResult(createResult.data.taskId);
+              }
             }
 
             const generatedSrc =
@@ -21635,50 +21646,58 @@ function FlowInner() {
             const remoteInputs = imageDatas.filter(isRemoteUrl);
             const hasOnlyRemote =
               imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
-            if (imageDatas.length === 0) {
-              result = await generateImageViaAPI({
-                prompt,
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-                ...(enableWebSearchForNode ? {
-                  enableWebSearch: true,
-                  googleSearch: true,
-                  googleImageSearch: true,
-                } : {}),
-              });
-            } else if (imageDatas.length === 1) {
-              result = await editImageViaAPI({
-                prompt,
-                ...(hasOnlyRemote
-                  ? { sourceImageUrl: imageDatas[0] }
-                  : { sourceImage: imageDatas[0] }),
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-              });
-            } else {
-              result = await blendImagesViaAPI({
-                prompt,
-                ...(hasOnlyRemote
-                  ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
-                  : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
-                outputFormat: "png",
-                aiProvider: runProvider,
-                model: nodeSpecificModel,
-                aspectRatio: effectiveAspectRatio,
-                imageSize: effectiveImageSize,
-                providerOptions,
-                ...nodeConfigCreditParams,
-              });
+            {
+              const createResult = await (imageDatas.length === 0
+                ? createImageGenerationTaskViaAPI({
+                    prompt,
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                    ...(enableWebSearchForNode ? {
+                      enableWebSearch: true,
+                      googleSearch: true,
+                      googleImageSearch: true,
+                    } : {}),
+                  })
+                : imageDatas.length === 1
+                ? createEditImageTaskViaAPI({
+                    prompt,
+                    ...(hasOnlyRemote
+                      ? { sourceImageUrl: imageDatas[0] }
+                      : { sourceImage: imageDatas[0] }),
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                  })
+                : createBlendImagesTaskViaAPI({
+                    prompt,
+                    ...(hasOnlyRemote
+                      ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+                      : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
+                    outputFormat: "png",
+                    aiProvider: runProvider,
+                    model: nodeSpecificModel,
+                    aspectRatio: effectiveAspectRatio,
+                    imageSize: effectiveImageSize,
+                    providerOptions,
+                    ...nodeConfigCreditParams,
+                  }));
+              if (!createResult.success || !createResult.data?.taskId) {
+                result = {
+                  success: false,
+                  error: createResult.error || { code: "TASK_CREATE_FAILED", message: "任务创建失败", timestamp: new Date() },
+                };
+              } else {
+                result = await pollImageTaskResult(createResult.data.taskId);
+              }
             }
 
             const generatedSrc =
@@ -21905,53 +21924,60 @@ function FlowInner() {
           const hasOnlyRemote =
             imageDatas.length > 0 && remoteInputs.length === imageDatas.length;
           const requestImageSize = imageSizeOverride || effectiveImageSize;
-          if (imageDatas.length === 0) {
-            return await generateImageViaAPI({
-              prompt,
-              outputFormat: "png",
-              aiProvider: provider,
-              model,
-              aspectRatio: effectiveAspectRatio,
-              imageSize: requestImageSize,
-              providerOptions: requestProviderOptions,
-              ...nodeConfigCreditParams,
-              ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
-            });
+          const createResult = await (imageDatas.length === 0
+            ? createImageGenerationTaskViaAPI({
+                prompt,
+                outputFormat: "png",
+                aiProvider: provider,
+                model,
+                aspectRatio: effectiveAspectRatio,
+                imageSize: requestImageSize,
+                providerOptions: requestProviderOptions,
+                nodeId,
+                ...nodeConfigCreditParams,
+                ...(enableWebSearchForNode ? { enableWebSearch: true } : {}),
+              })
+            : imageDatas.length === 1
+            ? createEditImageTaskViaAPI({
+                prompt,
+                ...(hasOnlyRemote
+                  ? { sourceImageUrl: imageDatas[0] }
+                  : { sourceImage: imageDatas[0] }),
+                outputFormat: "png",
+                aiProvider: provider,
+                model,
+                aspectRatio: effectiveAspectRatio,
+                imageSize: requestImageSize,
+                providerOptions: requestProviderOptions,
+                nodeId,
+                ...nodeConfigCreditParams,
+              })
+            : createBlendImagesTaskViaAPI({
+                prompt,
+                ...(hasOnlyRemote
+                  ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
+                  : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
+                outputFormat: "png",
+                aiProvider: provider,
+                model,
+                aspectRatio: effectiveAspectRatio,
+                imageSize: requestImageSize,
+                providerOptions: requestProviderOptions,
+                nodeId,
+                ...nodeConfigCreditParams,
+              }));
+          if (!createResult.success || !createResult.data?.taskId) {
+            return {
+              success: false as const,
+              error: createResult.error || { code: "TASK_CREATE_FAILED", message: "任务创建失败", timestamp: new Date() },
+            };
           }
-          if (imageDatas.length === 1) {
-            console.log("[FlowOverlay] editImage调用参数:", {
-              aiProvider: provider,
-              model,
-              nodeSpecificModel,
-              imageSize: requestImageSize,
-            });
-            return await editImageViaAPI({
-              prompt,
-              ...(hasOnlyRemote
-                ? { sourceImageUrl: imageDatas[0] }
-                : { sourceImage: imageDatas[0] }),
-              outputFormat: "png",
-              aiProvider: provider,
-              model,
-              aspectRatio: effectiveAspectRatio,
-              imageSize: requestImageSize,
-              providerOptions: requestProviderOptions,
-              ...nodeConfigCreditParams,
-            });
-          }
-          return await blendImagesViaAPI({
-            prompt,
-            ...(hasOnlyRemote
-              ? { sourceImageUrls: imageDatas.slice(0, maxFlowReferenceImages) }
-              : { sourceImages: imageDatas.slice(0, maxFlowReferenceImages) }),
-            outputFormat: "png",
-            aiProvider: provider,
-            model,
-            aspectRatio: effectiveAspectRatio,
-            imageSize: requestImageSize,
-            providerOptions: requestProviderOptions,
-            ...nodeConfigCreditParams,
-          });
+          // 立即把 taskId 写入节点，断线后可凭此恢复轮询
+          const taskId = createResult.data.taskId;
+          setNodes((ns) =>
+            ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, taskId } } : n))
+          );
+          return pollImageTaskResult(taskId);
         };
 
         result = await executeImageRequest(runProvider, nodeSpecificModel);

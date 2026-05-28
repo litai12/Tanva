@@ -841,6 +841,209 @@ export async function queryImageTaskStatusViaAPI(
   }
 }
 
+export async function createEditImageTaskViaAPI(
+  request: AIImageEditRequest
+): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
+  const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("edit-image-async");
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image-async`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute ? { "X-Banana-Image-Route": bananaImageRoute } : {}),
+      },
+      body: JSON.stringify(requestWithRoute),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      logApiTiming("edit-image-async", startedAt, {
+        success: false,
+        status: response.status,
+        provider: requestWithRoute.aiProvider,
+        model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("edit-image-async", startedAt, {
+      success: true,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+    });
+    return { success: true, data: { taskId: data.taskId, status: data.status } };
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+    logApiTiming("edit-image-async", startedAt, {
+      success: false,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      error: rawMessage,
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: normalizeImageGenerationErrorMessage(rawMessage),
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+export async function createBlendImagesTaskViaAPI(
+  request: AIImageBlendRequest
+): Promise<AIServiceResponse<AsyncImageTaskCreateResult>> {
+  const startedAt = getTimestamp();
+  const idempotencyKey = buildIdempotencyKey("blend-images-async");
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images-async`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute ? { "X-Banana-Image-Route": bananaImageRoute } : {}),
+      },
+      body: JSON.stringify(requestWithRoute),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const rawMessage = readBackendErrorMessage(errorData);
+      logApiTiming("blend-images-async", startedAt, {
+        success: false,
+        status: response.status,
+        provider: requestWithRoute.aiProvider,
+        model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(rawMessage, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("blend-images-async", startedAt, {
+      success: true,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+    });
+    return { success: true, data: { taskId: data.taskId, status: data.status } };
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+    logApiTiming("blend-images-async", startedAt, {
+      success: false,
+      provider: requestWithRoute.aiProvider,
+      model: resolveDefaultModel(requestWithRoute.model, requestWithRoute.aiProvider),
+      error: rawMessage,
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: normalizeImageGenerationErrorMessage(rawMessage),
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
+ * 轮询图像任务直到完成，每 intervalMs 毫秒轮询一次（默认 5s）
+ */
+export async function pollImageTaskResult(
+  taskId: string,
+  intervalMs = 5000,
+  timeoutMs = 15 * 60 * 1000
+): Promise<AIServiceResponse<AIImageResult>> {
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveFailures = 0;
+  let failureMessage = "";
+
+  while (Date.now() < deadline) {
+    const statusResult = await queryImageTaskStatusViaAPI(taskId);
+    if (!statusResult.success || !statusResult.data) {
+      consecutiveFailures++;
+      failureMessage = statusResult.error?.message || "任务查询失败";
+      if (consecutiveFailures >= 3) break;
+      await new Promise((r) => setTimeout(r, intervalMs));
+      continue;
+    }
+    consecutiveFailures = 0;
+    const { status, imageUrl, textResponse, error } = statusResult.data;
+    const normalStatus = String(status || "").toLowerCase();
+
+    if (normalStatus === "succeeded") {
+      if (!imageUrl) {
+        return {
+          success: false,
+          error: {
+            code: "NO_IMAGE",
+            message: textResponse || "任务完成但未返回图片",
+            timestamp: new Date(),
+          },
+        };
+      }
+      return {
+        success: true,
+        data: {
+          id: `${taskId}-${Date.now()}`,
+          imageUrl,
+          imageData: undefined,
+          textResponse: textResponse || "",
+          prompt: "",
+          model: "",
+          createdAt: new Date(),
+          hasImage: true,
+          metadata: { imageUrl },
+        },
+      };
+    }
+    if (normalStatus === "failed") {
+      return {
+        success: false,
+        error: {
+          code: "TASK_FAILED",
+          message: error || "任务失败，积分将自动返还。",
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  return {
+    success: false,
+    error: {
+      code: "TASK_TIMEOUT",
+      message: failureMessage || "生成超时（15分钟），积分将自动返还。",
+      timestamp: new Date(),
+    },
+  };
+}
+
 /**
  * 编辑图像 - 通过后端 API
  * 注意：优先使用 sourceImageUrl；若无则使用 sourceImage（base64）
