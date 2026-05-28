@@ -30,6 +30,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Backend/Uploads: replaced Express `FileInterceptor` (multer) usage in `POST /api/uploads/image` and `POST /api/uploads/video` with Fastify-native multipart parsing (`req.file()`), fixing `TypeError: req.on is not a function` under the Fastify adapter.
+- Backend/OSS(TOS): switched server-side `putStream/putBuffer` write path on TOS hosts from `ali-oss` direct auth to presigned `PostObject` upload, fixing `InvalidArgument: Unsupported Authorization Type` during `/api/uploads/image` writes.
+- Backend/OSS(TOS): removed unsigned extra multipart form fields (`Content-Type`/`Cache-Control`) from TOS PostObject relay uploads to prevent policy/signature mismatch (`SignatureDoesNotMatch`).
+- Backend/OSS(TOS): added tolerant TOS PostObject signing for relay uploads by retrying with a decoded secret candidate when `OSS_ACCESS_KEY_SECRET` appears base64-wrapped and upstream returns `SignatureDoesNotMatch`.
+- Backend/OSS(TOS): added optional temporary-credential token support for presign/upload (`OSS_SESSION_TOKEN`/`OSS_SECURITY_TOKEN`/`TOS_SESSION_TOKEN` -> `x-tos-security-token`) and explicit SignatureDoesNotMatch hints.
+- Frontend/OSS Upload: changed image-upload relay default to off (`VITE_IMAGE_UPLOAD_BACKEND_RELAY` now defaults false), so image uploads prefer the direct presign upload path unless relay is explicitly enabled.
+- Frontend/OSS Upload: when presign returns `securityToken`, direct TOS form upload now forwards `x-tos-security-token`.
+- Backend/Uploads: image/video relay uploads now gracefully fallback to local disk storage under `.local-uploads/` when OSS/TOS write fails, and return `GET /api/uploads/local?key=...` URLs for immediate rendering.
+- Frontend/OSS Upload: direct OSS image upload failures now automatically fallback to backend relay upload, reducing autosave/thumbnail failures when cloud signature configuration is unstable.
 - Auth/Home: scoped the login notice popup to protected routes so logged-in users browsing the public homepage do not see the reminder overlay.
 - Backend Telemetry: OpenTelemetry startup now disables SDK default metrics/logs exporters while keeping the explicit OpenObserve trace exporter, preventing `localhost:4318` retry spam during local development without an OTLP collector.
 - GPT-Image-2/Nano2: task query now treats upstream business `code=464` as immediate failure (instead of continuing poll-until-timeout), so request failure and credit-refund paths can execute promptly; stable/tencent polling also supports an explicit 15-minute wait budget override.

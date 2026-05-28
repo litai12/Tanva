@@ -47,9 +47,17 @@ const WORKER_TIMEOUT_MS = 60_000;
 class ImageUploadWorkerClient {
   private worker: Worker | null = null;
   private pending = new Map<string, PendingRequest>();
+  private readonly workerEnabled = (() => {
+    const raw = String(
+      (import.meta.env.VITE_IMAGE_UPLOAD_WORKER as string | undefined) || ""
+    )
+      .trim()
+      .toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  })();
 
   isSupported(): boolean {
-    return typeof Worker !== "undefined";
+    return this.workerEnabled && typeof Worker !== "undefined";
   }
 
   private ensureWorker(): Worker {

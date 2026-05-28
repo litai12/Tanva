@@ -16,7 +16,6 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
-const DEFAULT_MANAGED_ASSET_HOST = "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com";
 const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 8_000;
 const WEAK_NETWORK_IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const DEFAULT_IMAGE_FETCH_RETRIES = 1;
@@ -27,7 +26,7 @@ const RETRYABLE_IMAGE_FETCH_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]
 const getOssBaseUrl = (): string | null => {
   const envBase = getPublicAssetBaseUrl();
   if (envBase) return envBase.endsWith("/") ? envBase : `${envBase}/`;
-  return `https://${DEFAULT_MANAGED_ASSET_HOST}/`;
+  return null;
 };
 
 const shouldAvoidSameOriginDirectBase = (baseUrl: string): boolean => {
@@ -260,11 +259,10 @@ const BACKEND_DEFAULT_ALLOWED_HOSTS = [
   "volces.com",
   "tencentcos.cn",
   "myqcloud.com",
-  "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com",
 ];
 
 const getManagedAssetHosts = (): Set<string> => {
-  const hosts = new Set<string>([DEFAULT_MANAGED_ASSET_HOST]);
+  const hosts = new Set<string>();
   const publicBaseHost = normalizeUrlHost(getPublicAssetBaseUrl());
   if (publicBaseHost) hosts.add(publicBaseHost);
   if (typeof window !== "undefined" && window.location?.hostname) {
@@ -450,39 +448,15 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       return `${directBase}${withoutLeading}`;
     }
-    return withoutLeading.startsWith("/") ? withoutLeading : `/${withoutLeading}`;
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
+      { forceProxy: true }
+    );
   }
   if (isRemoteUrl(trimmed)) {
     const managedDirect = trimmed;
-    if (isLikelyManagedAssetUrl(managedDirect)) {
-      try {
-        const parsed = new URL(managedDirect);
-        const pathKey = parsed.pathname.replace(/^\/+/, "");
-        if (isAssetKeyRef(pathKey)) {
-          const direct = resolvePublicAssetUrlFromKey(pathKey);
-          if (direct) return direct;
-          const directBase = getOssBaseUrl();
-          if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-            return `${directBase}${pathKey}`;
-          }
-        }
-      } catch {
-        // ignore
-      }
-      return managedDirect;
-    }
     try {
       const parsed = new URL(managedDirect);
-      const pathKey = parsed.pathname.replace(/^\/+/, "");
-      if (isAssetKeyRef(pathKey)) {
-        const direct = resolvePublicAssetUrlFromKey(pathKey);
-        if (direct) return direct;
-        const directBase = getOssBaseUrl();
-        if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
-          return `${directBase}${pathKey}`;
-        }
-      }
-
       const host = parsed.hostname.toLowerCase();
       const hotlinkSensitiveHosts = ["apimart.ai"];
       const needsDisplayProxy = hotlinkSensitiveHosts.some(
@@ -556,6 +530,22 @@ export const resolveImageToDataUrl = async (
   };
   if (isRemoteUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] 远程 URL`);
+        try {
+      if (isLikelyManagedAssetUrl(trimmed)) {
+        const parsed = new URL(trimmed);
+        const pathKey = parsed.pathname.replace(/^\/+/, "");
+        if (isAssetKeyRef(pathKey)) {
+          addCandidate(
+            proxifyRemoteAssetUrl(
+              `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
+              { forceProxy: true }
+            )
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
@@ -581,6 +571,11 @@ export const resolveImageToDataUrl = async (
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
+    addCandidate(
+      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+        forceProxy: true,
+      })
+    );
     // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
@@ -674,6 +669,22 @@ export const resolveImageToBlob = async (
     if (!candidates.includes(normalized)) candidates.push(normalized);
   };
   if (isRemoteUrl(trimmed)) {
+    try {
+      if (isLikelyManagedAssetUrl(trimmed)) {
+        const parsed = new URL(trimmed);
+        const pathKey = parsed.pathname.replace(/^\/+/, "");
+        if (isAssetKeyRef(pathKey)) {
+          addCandidate(
+            proxifyRemoteAssetUrl(
+              `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
+              { forceProxy: true }
+            )
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
@@ -698,16 +709,15 @@ export const resolveImageToBlob = async (
     addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
+    addCandidate(
+      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+        forceProxy: true,
+      })
+    );
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       addCandidate(`${directBase}${withoutLeading}`);
     }
-    addCandidate(
-      proxifyRemoteAssetUrl(
-        `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`,
-        { forceProxy: true }
-      )
-    );
   } else if (
     trimmed.startsWith("/") ||
     trimmed.startsWith("./") ||

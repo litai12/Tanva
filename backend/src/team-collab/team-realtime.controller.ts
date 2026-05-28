@@ -44,6 +44,12 @@ export class TeamRealtimeController {
     const userId: string = req.user.sub;
     await this.assertTeamMember(teamId, userId);
 
+    const origin = req.headers?.origin;
+    if (origin) {
+      res.raw.setHeader('Access-Control-Allow-Origin', origin);
+      res.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.raw.setHeader('Vary', 'Origin');
+    }
     res.raw.setHeader('Content-Type', 'text/event-stream');
     res.raw.setHeader('Cache-Control', 'no-cache');
     res.raw.setHeader('Connection', 'keep-alive');

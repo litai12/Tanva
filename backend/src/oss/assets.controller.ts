@@ -68,7 +68,11 @@ export class AssetsController {
   private normalizeTargetUrlForFetch(rawUrl: string): string {
     const managedKey = this.extractManagedAssetKey(rawUrl);
     if (!managedKey) return rawUrl;
-    return this.resolveBucketOriginUrl(managedKey) || this.oss.signUrl(managedKey, 300) || this.oss.publicUrl(managedKey);
+    return (
+      this.resolveBucketOriginUrl(managedKey) ||
+      this.oss.signUrl(managedKey, 300) ||
+      this.oss.publicUrl(managedKey)
+    );
   }
 
   private resolveTargetUrl(params: { url?: string; key?: string }): string {
@@ -90,10 +94,35 @@ export class AssetsController {
 
   private isAllowedHost(hostname: string): boolean {
     const allowed = this.oss.allowedPublicHosts();
-    // 支持精确匹配和后缀匹配（如 .aliyuncs.com）
-    return allowed.some(host =>
-      hostname === host || hostname.endsWith('.' + host) || hostname.endsWith(host)
+    return allowed.some((host) =>
+      hostname === host || hostname.endsWith(`.${host}`) || hostname.endsWith(host),
     );
+  }
+
+  private setProxyCorsHeaders(reply: FastifyReply): void {
+    reply.header('access-control-allow-origin', '*');
+    reply.header(
+      'access-control-expose-headers',
+      'content-type,content-length,content-range,accept-ranges,etag,last-modified,cache-control',
+    );
+    reply.header('cross-origin-resource-policy', 'cross-origin');
+  }
+
+  private setPassthroughHeaders(reply: FastifyReply, headers: Record<string, string>): void {
+    const passthroughHeaders = [
+      'content-type',
+      'content-length',
+      'content-range',
+      'accept-ranges',
+      'etag',
+      'last-modified',
+      'cache-control',
+      'content-disposition',
+    ] as const;
+    passthroughHeaders.forEach((name) => {
+      const value = headers?.[name];
+      if (value) reply.header(name, value);
+    });
   }
 
   @Get('proxy')
@@ -104,7 +133,7 @@ export class AssetsController {
     @Res() reply: FastifyReply,
     @Req() req: FastifyRequest,
     @Query('url') url?: string,
-    @Query('key') key?: string
+    @Query('key') key?: string,
   ) {
     const abortController = new AbortController();
     let abortedByClient = false;
@@ -135,8 +164,6 @@ export class AssetsController {
       });
     };
 
-    // 客户端中断时：取消上游请求，避免继续拉取大文件占用内存/连接池。
-    // 注意：FastifyReply.raw 是 Node ServerResponse。
     try {
       const rawReply = reply.raw as any;
       rawReply?.once?.('close', () => {
@@ -152,6 +179,38 @@ export class AssetsController {
       rawReq?.once?.('error', abortUpstream);
     } catch {
       // ignore
+    }
+
+    const pickHeader = (name: string): string | undefined => {
+      const raw = (req.headers as Record<string, unknown>)[name];
+      return typeof raw === 'string' ? raw : undefined;
+    };
+
+    const upstreamHeaders: Record<string, string> = {};
+    const range = pickHeader('range');
+    const ifNoneMatch = pickHeader('if-none-match');
+    const ifModifiedSince = pickHeader('if-modified-since');
+    if (range) upstreamHeaders.range = range;
+    if (ifNoneMatch) upstreamHeaders['if-none-match'] = ifNoneMatch;
+    if (ifModifiedSince) upstreamHeaders['if-modified-since'] = ifModifiedSince;
+
+    const directManagedKey =
+      this.normalizeManagedAssetKey(key) ||
+      this.extractManagedAssetKey(url);
+
+    if (directManagedKey && !range) {
+      try {
+        const object = await this.oss.getObjectBuffer(directManagedKey);
+        this.setProxyCorsHeaders(reply);
+        this.setPassthroughHeaders(reply, object.headers || {});
+        if (!object.headers?.['cache-control']) {
+          reply.header('cache-control', 'public, max-age=3600');
+        }
+        reply.status(200).send(object.buffer);
+        return;
+      } catch {
+        // Fall through to URL proxy path.
+      }
     }
 
     const initialUrl = this.resolveTargetUrl({ url, key });
@@ -171,27 +230,14 @@ export class AssetsController {
       throw new BadRequestException('Host not allowed');
     }
 
-    const pickHeader = (name: string): string | undefined => {
-      const raw = (req.headers as Record<string, unknown>)[name];
-      return typeof raw === 'string' ? raw : undefined;
-    };
-
-    const upstreamHeaders: Record<string, string> = {};
-    const range = pickHeader('range');
-    const ifNoneMatch = pickHeader('if-none-match');
-    const ifModifiedSince = pickHeader('if-modified-since');
-    if (range) upstreamHeaders['range'] = range;
-    if (ifNoneMatch) upstreamHeaders['if-none-match'] = ifNoneMatch;
-    if (ifModifiedSince) upstreamHeaders['if-modified-since'] = ifModifiedSince;
-
     const upstreamTimeoutMs = (() => {
       const raw =
         process.env.ASSET_PROXY_UPSTREAM_TIMEOUT_MS ||
         process.env.OSS_PROXY_TIMEOUT_MS ||
         '';
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed)) return DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS;
-      return Math.max(2_000, Math.min(60_000, Math.floor(parsed)));
+      const parsedValue = Number(raw);
+      if (!Number.isFinite(parsedValue)) return DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS;
+      return Math.max(2_000, Math.min(60_000, Math.floor(parsedValue)));
     })();
 
     const fetchWithAbortAndTimeout = async (targetUrl: string): Promise<Response> => {
@@ -236,7 +282,6 @@ export class AssetsController {
             throw new BadRequestException('Redirect host not allowed');
           }
 
-          // 继续跟随重定向前，必须显式取消/消费上一个响应体，否则 undici 会占用连接与内存。
           try {
             await res.body?.cancel();
           } catch {
@@ -253,7 +298,7 @@ export class AssetsController {
 
     const fetchWithRetry = async (inputUrl: string) => {
       let lastError: unknown = null;
-      for (let attempt = 0; attempt <= MAX_PROXY_UPSTREAM_RETRIES; attempt++) {
+      for (let attempt = 0; attempt <= MAX_PROXY_UPSTREAM_RETRIES; attempt += 1) {
         try {
           const res = await fetchWithRedirectCheck(inputUrl);
           if (RETRYABLE_PROXY_STATUS.has(res.status) && attempt < MAX_PROXY_UPSTREAM_RETRIES) {
@@ -289,31 +334,14 @@ export class AssetsController {
     upstreamBody = upstream.body;
     if (abortedByClient) return;
 
-    // 设置 CORS 头，允许跨域访问（用于视频抽帧等场景）
-    reply.header('access-control-allow-origin', '*');
-    reply.header(
-      'access-control-expose-headers',
-      'content-type,content-length,content-range,accept-ranges,etag,last-modified,cache-control'
-    );
-    reply.header('cross-origin-resource-policy', 'cross-origin');
+    this.setProxyCorsHeaders(reply);
 
-    const passthroughHeaders = [
-      'content-type',
-      'content-length',
-      'content-range',
-      'accept-ranges',
-      'etag',
-      'last-modified',
-      'cache-control',
-      'content-disposition',
-    ] as const;
-    passthroughHeaders.forEach((name) => {
-      const value = upstream.headers.get(name);
-      if (value) reply.header(name, value);
-    });
+    const upstreamHeaderRecord: Record<string, string> = {};
+    for (const [k, v] of upstream.headers.entries()) {
+      upstreamHeaderRecord[k.toLowerCase()] = v;
+    }
+    this.setPassthroughHeaders(reply, upstreamHeaderRecord);
 
-    // 仅对成功响应缓存，避免把偶发的 4xx/5xx “缓存成空白图”。
-    // 上游若未提供 cache-control，则设置一个温和的默认值。
     if (upstream.ok && !upstream.headers.get('cache-control')) {
       reply.header('cache-control', 'public, max-age=3600');
     }
@@ -328,7 +356,6 @@ export class AssetsController {
       return;
     }
 
-    // Node fetch 返回 Web ReadableStream；转为 Node stream 以支持流式转发（视频 Range/seek）
     const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
     const nodeStream: Readable = typeof fromWeb === 'function'
       ? fromWeb(upstream.body as unknown)

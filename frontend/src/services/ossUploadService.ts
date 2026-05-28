@@ -7,7 +7,7 @@ export type OssUploadOptions = {
   dir?: string;
   /** 最大允许尺寸，默认 32MB（由后端 presign 默认值决定） */
   maxSize?: number;
-  /** 建议文件名（用于推断后缀） */
+  /** Suggested filename for extension inference */
   fileName?: string;
   /** 当前项目 ID，用于自动归档到项目目录 */
   projectId?: string | null;
@@ -15,7 +15,7 @@ export type OssUploadOptions = {
   contentType?: string;
   /** 指定 OSS key（覆盖自动生成） */
   key?: string;
-  /** 可选：显式透传 access token（供 Worker 使用） */
+  /** Optional explicit access token for worker usage */
   authToken?: string;
 };
 
@@ -31,9 +31,13 @@ type PresignResponse = {
   host: string;
   dir: string;
   expire: number;
-  accessId: string;
+  accessId?: string;
   policy: string;
   signature: string;
+  algorithm?: string;
+  credential?: string;
+  date?: string;
+  securityToken?: string;
 };
 
 type PresignCacheEntry = {
@@ -43,7 +47,25 @@ type PresignCacheEntry = {
 
 const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
 const PRESIGN_CACHE_SAFETY_MS = 10_000;
+const DEFAULT_UPLOAD_TIMEOUT_MS = 60_000;
 const presignCache = new Map<string, PresignCacheEntry>();
+
+async function fetchWithTimeout(
+  input: string,
+  init: Parameters<typeof fetchWithAuth>[1],
+  timeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchWithAuth(input, {
+      ...(init || {}),
+      signal: controller.signal,
+    } as any);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL &&
@@ -54,6 +76,8 @@ function getApiBaseUrl(): string {
 
 function isBackendImageRelayEnabled(): boolean {
   const raw = String((import.meta.env.VITE_IMAGE_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
@@ -85,15 +109,15 @@ function inferExtension(fileName?: string, contentType?: string) {
 }
 
 export function dataURLToBlob(dataURL: string): Blob {
-  // 🔧 修复：处理重复的 data URL 前缀（如 "data:image/png;base64,data:image/png;base64,xxx"）
+  // 🔧 修复：处理重复的 data URL 前缀（如 "data:image/png;base64,data:image/png;base64,xxx"�?
   let normalizedDataURL = dataURL;
 
-  // 检测并修复重复前缀：如果 split(',') 后的 raw 部分仍然以 "data:" 开头，说明有重复前缀
+  // 检测并修复重复前缀：如�?split(',') 后的 raw 部分仍然�?"data:" 开头，说明有重复前缀
   const firstSplit = dataURL.split(",");
   if (firstSplit.length >= 2 && firstSplit[1].startsWith("data:")) {
-    // 使用第二个 data URL 部分作为实际数据
+    // 使用第二�?data URL 部分作为实际数据
     normalizedDataURL = firstSplit.slice(1).join(",");
-    logger.warn("检测到重复的 data URL 前缀，已自动修复");
+    logger.warn("检测到重复�?data URL 前缀，已自动修复");
   }
 
   const [meta, raw] = normalizedDataURL.split(",");
@@ -116,7 +140,7 @@ export async function dataURLToBlobAsync(dataURL: string): Promise<Blob> {
   try {
     return await dataUrlToBlob(dataURL);
   } catch {
-    // 兜底：极端情况下 fetch(data:) 不可用时回退到同步解码
+    // 兜底：极端情况下 fetch(data:) 不可用时回退到同步解�?
     return dataURLToBlob(dataURL);
   }
 }
@@ -132,14 +156,14 @@ async function requestPresign(
     return cached.value;
   }
 
-  // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
+  // 后端基础地址，统一�?.env 读取；无配置默认 http://localhost:4000
   const API_BASE = getApiBaseUrl();
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authToken) {
     headers.Authorization = `Bearer ${authToken}`;
   }
-  const res = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/uploads/presign`, {
     method: "POST",
     headers,
     body: JSON.stringify({ dir, maxSize }),
@@ -158,7 +182,7 @@ async function requestPresign(
     }
     // 毫秒级时间戳
     if (rawExpire > 1e12) return rawExpire;
-    // 秒级时间戳
+    // 秒级时间�?
     if (rawExpire > 1e9) return rawExpire * 1000;
     // TTL 秒数
     return Date.now() + rawExpire * 1000;
@@ -235,7 +259,7 @@ async function uploadImageViaBackend(
   if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
 
   try {
-    const res = await fetchWithAuth(`${API_BASE}/api/uploads/image`, {
+    const res = await fetchWithTimeout(`${API_BASE}/api/uploads/image`, {
       method: "POST",
       body: formData,
       headers,
@@ -290,12 +314,25 @@ export async function uploadToOSS(
   data: Blob | File,
   options: OssUploadOptions = {}
 ): Promise<OssUploadResult> {
+  const tryBackendImageFallback = async (
+    dir: string,
+    fallbackKey?: string
+  ): Promise<OssUploadResult | null> => {
+    if (!isLikelyImageUpload(data, options)) return null;
+    const backendUpload = await uploadImageViaBackend(data, { ...options, dir }, fallbackKey);
+    if (!backendUpload.success || !backendUpload.url) {
+      return {
+        success: false,
+        error: backendUpload.error || "Backend image upload fallback failed",
+      };
+    }
+    return backendUpload;
+  };
+
   try {
     const dir = normalizeDir(options.dir, options.projectId);
     const isImage = isLikelyImageUpload(data, options);
 
-    // Image uploads prefer backend relay to avoid browser-policy false positives
-    // where direct OSS POST returns 200 but object is not immediately readable in render chain.
     if (isImage && isBackendImageRelayEnabled()) {
       const extension = inferExtension(
         options.fileName,
@@ -320,10 +357,10 @@ export async function uploadToOSS(
           error: "Backend image upload succeeded but asset is still not readable",
         };
       }
-      // backend failed: continue to legacy presign direct upload fallback below
-      logger.warn("Backend image upload failed, fallback to direct OSS upload", {
-        error: backendUpload.error,
-      });
+      return {
+        success: false,
+        error: backendUpload.error || "Backend image upload failed",
+      };
     }
 
     const presign = await requestPresign(dir, options.maxSize, options.authToken);
@@ -338,7 +375,7 @@ export async function uploadToOSS(
         const normalized = forced.replace(/^\/+/, "");
         const expectedPrefix = (presign.dir || dir).replace(/^\/+/, "");
         if (expectedPrefix && !normalized.startsWith(expectedPrefix)) {
-          throw new Error(`指定 key 必须以 ${expectedPrefix} 开头`);
+          throw new Error(`Specified key must start with ${expectedPrefix}`);
         }
         return normalized;
       }
@@ -348,11 +385,17 @@ export async function uploadToOSS(
     const formData = new FormData();
     formData.append("key", key);
     formData.append("policy", presign.policy);
-    formData.append("OSSAccessKeyId", presign.accessId);
-    formData.append("signature", presign.signature);
-    formData.append("success_action_status", "200");
-    if (options.contentType) {
-      formData.append("Content-Type", options.contentType);
+    if (presign.algorithm && presign.credential && presign.date) {
+      formData.append("x-tos-algorithm", presign.algorithm);
+      formData.append("x-tos-credential", presign.credential);
+      formData.append("x-tos-date", presign.date);
+      if (presign.securityToken) {
+        formData.append("x-tos-security-token", presign.securityToken);
+      }
+      formData.append("x-tos-signature", presign.signature);
+    } else {
+      formData.append("OSSAccessKeyId", presign.accessId || "");
+      formData.append("signature", presign.signature);
     }
     formData.append(
       "file",
@@ -366,34 +409,22 @@ export async function uploadToOSS(
           })
     );
 
-    // Abort if the upload stalls for more than 10 minutes to prevent zombie tasks
-    const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(
-      () => abortController.abort(new DOMException("Upload timeout", "TimeoutError")),
-      UPLOAD_TIMEOUT_MS,
-    );
-    let uploadResp: Response;
-    try {
-      uploadResp = await fetchWithAuth(presign.host, {
-        method: "POST",
-        body: formData,
-        auth: "omit",
-        allowRefresh: false,
-        credentials: "omit",
-        signal: abortController.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const uploadResp = await fetchWithTimeout(presign.host, {
+      method: "POST",
+      body: formData,
+      auth: "omit",
+      allowRefresh: false,
+      credentials: "omit",
+    });
 
     if (!uploadResp.ok) {
       const text = await uploadResp.text();
-      throw new Error(
-        `OSS 上传失败: ${uploadResp.status} ${uploadResp.statusText} ${
-          text || ""
-        }`.trim()
+      const directError = new Error(
+        `OSS upload failed: ${uploadResp.status} ${uploadResp.statusText} ${text || ""}`.trim()
       );
+      const fallback = await tryBackendImageFallback(dir, key);
+      if (fallback) return fallback;
+      throw directError;
     }
 
     const publicUrl = `${presign.host}/${key}`;
@@ -404,25 +435,8 @@ export async function uploadToOSS(
           key,
           publicUrl,
         });
-        if (isBackendImageRelayEnabled()) {
-          const backendUpload = await uploadImageViaBackend(data, options, key);
-          if (backendUpload.success && backendUpload.url) {
-            const backendReadable = await verifyUploadedAssetReadable(
-              backendUpload.key,
-              backendUpload.url,
-              options.authToken
-            );
-            if (backendReadable) return backendUpload;
-            return {
-              success: false,
-              error: "Backend image upload succeeded but asset is still not readable",
-            };
-          }
-          return {
-            success: false,
-            error: backendUpload.error || "Image upload fallback failed",
-          };
-        }
+        const fallback = await tryBackendImageFallback(dir, key);
+        if (fallback) return fallback;
         return {
           success: false,
           error: "Image uploaded but remote asset is not readable",
@@ -436,14 +450,30 @@ export async function uploadToOSS(
       size: data.size,
     };
   } catch (error: any) {
-    logger.error("OSS 上传失败:", error);
+    try {
+      const dir = normalizeDir(options.dir, options.projectId);
+      const extension = inferExtension(
+        options.fileName,
+        options.contentType || (data as File).type
+      );
+      const fallbackKey = (() => {
+        const forced = typeof options.key === "string" ? options.key.trim() : "";
+        if (forced) return forced.replace(/^\/+/, "");
+        return buildKey(dir, options.fileName, extension);
+      })();
+      const fallback = await tryBackendImageFallback(dir, fallbackKey);
+      if (fallback) return fallback;
+    } catch {
+      // keep original error
+    }
+
+    logger.error("OSS upload failed:", error);
     return {
       success: false,
-      error: error?.message || "OSS 上传失败",
+      error: error?.message || "OSS upload failed",
     };
   }
 }
-
 export async function getImageDimensions(
   file: File | Blob
 ): Promise<{ width: number; height: number }> {
@@ -468,7 +498,7 @@ export async function fileToDataURL(
   mimeType?: string
 ): Promise<string> {
   if (file instanceof File && mimeType && file.type !== mimeType) {
-    // 直接读取即可，mimeType 信息由 File 自身提供
+    // 直接读取即可，mimeType 信息�?File 自身提供
   }
   return await fileToDataUrl(file);
 }

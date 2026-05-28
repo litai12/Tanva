@@ -1573,6 +1573,18 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
       return patch;
     };
+    const uploadFailSafeTimer = window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: buildUploadFailurePatch(
+              lt("上传超时，请重试", "Upload timed out, please retry")
+            ),
+          },
+        })
+      );
+    }, 75_000);
 
     try {
       const uploadResult = await imageUploadService.uploadImageFile(file, {
@@ -1675,6 +1687,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
           },
         })
       );
+    } finally {
+      window.clearTimeout(uploadFailSafeTimer);
     }
   }, [id, projectId, rf]);
 

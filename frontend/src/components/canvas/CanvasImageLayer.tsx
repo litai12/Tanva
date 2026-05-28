@@ -45,16 +45,14 @@ function resolveImgSrc(img: ImageInstance): string {
     const r = toRenderableImageSrc(d.localDataUrl)
     if (r) return r
   }
-  // Remote URL fallbacks: route through backend proxy so private OSS buckets load correctly.
-  // A plain <img> cannot send auth headers; the proxy handles OSS credentials server-side.
+  // Remote URL: direct-first. Proxy is used only as runtime fallback after load error.
   const remoteCandidates = [d.remoteUrl, d.url, d.src, d.key]
   for (const c of remoteCandidates) {
     if (!c) continue
     const r = toRenderableImageSrc(c)
     if (!r) continue
     if (r.startsWith('data:') || r.startsWith('blob:')) return r
-    if (r.includes('/api/assets/proxy')) return r  // already proxified
-    return proxifyRemoteAssetUrl(r, { forceProxy: true })
+    return r
   }
   return ''
 }
@@ -75,6 +73,9 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   const panVelRef = React.useRef({ vx: 0, vy: 0, lastPanX: 0, lastPanY: 0, lastT: 0 })
   // Snapshot taken when debounce fires; used in computeBounds so stale velocity isn't lost
   const cullingVelRef = React.useRef({ vx: 0, vy: 0 })
+  const [proxyFallbackSrcs, setProxyFallbackSrcs] = React.useState<
+    Map<string, { original: string; fallback: string }>
+  >(new Map())
 
   // Stable display src per image — prevents blank flash during blob→proxy URL transition.
   // resolveImgSrc may return a proxy URL that differs from what DrawingController preloads
@@ -91,10 +92,15 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
 
     imageInstances.forEach((img) => {
       if (!img.visible) return
-      const target = resolveImgSrc(img)
-      if (!target) return
-      if (confirmed.get(img.id) === target) return
-      if (pending.get(img.id) === target) return
+        const rawTarget = resolveImgSrc(img)
+        const fallbackEntry = proxyFallbackSrcs.get(img.id)
+        const target =
+          fallbackEntry && fallbackEntry.original === rawTarget
+            ? fallbackEntry.fallback
+            : rawTarget
+        if (!target) return
+        if (confirmed.get(img.id) === target) return
+        if (pending.get(img.id) === target) return
 
       if (!confirmed.has(img.id)) {
         // First appearance: blob URLs load synchronously from local memory, confirm immediately.
@@ -122,6 +128,21 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
     const activeIds = new Set(imageInstances.map(i => i.id))
     confirmed.forEach((_, id) => { if (!activeIds.has(id)) confirmed.delete(id) })
     pending.forEach((_, id) => { if (!activeIds.has(id)) pending.delete(id) })
+  }, [imageInstances, proxyFallbackSrcs])
+
+  React.useEffect(() => {
+    const activeIds = new Set(imageInstances.map((item) => item.id))
+    setProxyFallbackSrcs((prev) => {
+      let changed = false
+      const next = new Map(prev)
+      for (const key of next.keys()) {
+        if (!activeIds.has(key)) {
+          changed = true
+          next.delete(key)
+        }
+      }
+      return changed ? next : prev
+    })
   }, [imageInstances])
 
   // Transform bypass: subscribe to Zustand directly and mutate DOM.
@@ -216,7 +237,12 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
       >
         {imageInstances.map((img) => {
           if (!img.visible) return null
-          const targetSrc = resolveImgSrc(img)
+          const rawTargetSrc = resolveImgSrc(img)
+          const fallbackEntry = proxyFallbackSrcs.get(img.id)
+          const targetSrc =
+            fallbackEntry && fallbackEntry.original === rawTargetSrc
+              ? fallbackEntry.fallback
+              : rawTargetSrc
           if (!targetSrc) return null
           // Use confirmedSrc (last successfully preloaded src) to avoid blank during transitions.
           // Falls back to targetSrc on first render before the effect confirms the initial src.
@@ -231,6 +257,30 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
             <img
               key={img.id}
               src={displaySrc}
+              onError={() => {
+                if (
+                  displaySrc.startsWith('data:') ||
+                  displaySrc.startsWith('blob:') ||
+                  displaySrc.includes('/api/assets/proxy')
+                ) {
+                  return
+                }
+                const fallback = proxifyRemoteAssetUrl(displaySrc, { forceProxy: true })
+                if (!fallback || fallback === displaySrc) return
+                setProxyFallbackSrcs((prev) => {
+                  const existing = prev.get(img.id)
+                  if (
+                    existing &&
+                    existing.original === rawTargetSrc &&
+                    existing.fallback === fallback
+                  ) {
+                    return prev
+                  }
+                  const next = new Map(prev)
+                  next.set(img.id, { original: rawTargetSrc, fallback })
+                  return next
+                })
+              }}
               draggable={false}
               style={{
                 position: 'absolute',

@@ -2,17 +2,16 @@ import {
   Body,
   Controller,
   Post,
+  Req,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiCookieAuth, ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { OssService } from './oss.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { Readable } from 'stream';
+import type { FastifyRequest } from 'fastify';
 
 const SUPPORTED_VIDEO_TYPES = [
   'video/mp4',
@@ -56,12 +55,81 @@ function inferExtFromMime(mimeType?: string): string {
   return 'png';
 }
 
+function extractMultipartField(
+  fields: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const raw = fields?.[key] as
+    | string
+    | { value?: unknown }
+    | { fieldname?: string; value?: unknown }
+    | undefined;
+  if (!raw) return undefined;
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'object' && typeof raw.value === 'string') return raw.value;
+  return undefined;
+}
+
+function isMultipartFileTooLargeError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    code === 'FST_REQ_FILE_TOO_LARGE' ||
+    code === 'FST_FILES_LIMIT' ||
+    code === 'LIMIT_FILE_SIZE'
+  );
+}
+
 @ApiTags('uploads')
 @Controller('uploads')
 export class UploadsController {
   private readonly logger = new Logger(UploadsController.name);
 
   constructor(private readonly oss: OssService) {}
+
+  private async readSingleMultipartFile(
+    req: FastifyRequest,
+    maxFileSize: number
+  ): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    originalName: string;
+    fields: Record<string, unknown> | undefined;
+  }> {
+    const request = req as FastifyRequest & {
+      file: (options?: unknown) => Promise<any>;
+    };
+
+    if (typeof request.file !== 'function') {
+      throw new BadRequestException('Multipart parser is not available');
+    }
+
+    try {
+      const part = await request.file({
+        limits: { files: 1, fileSize: maxFileSize },
+      });
+      if (!part) {
+        throw new BadRequestException('No file uploaded');
+      }
+
+      const buffer = await part.toBuffer();
+      if (!buffer || buffer.length === 0) {
+        throw new BadRequestException('Uploaded file is empty');
+      }
+
+      return {
+        buffer,
+        mimeType: String(part.mimetype || ''),
+        originalName: String(part.filename || ''),
+        fields: part.fields as Record<string, unknown> | undefined,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      if (isMultipartFileTooLargeError(error)) {
+        throw new BadRequestException(`File too large (max ${maxFileSize} bytes)`);
+      }
+      throw error;
+    }
+  }
 
   @Post('presign')
   @ApiCookieAuth('access_token')
@@ -76,24 +144,24 @@ export class UploadsController {
   @Post('image')
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE_SIZE } }))
   @ApiConsumes('multipart/form-data')
   async uploadImage(
-    @UploadedFile() file: any,
-    @Body() body: { dir?: string; key?: string; fileName?: string }
+    @Req() req: FastifyRequest
   ) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
+    const file = await this.readSingleMultipartFile(req, MAX_IMAGE_SIZE);
+    const form = file.fields;
 
-    const mimeType = String(file.mimetype || '').toLowerCase();
+    const mimeType = String(file.mimeType || '').toLowerCase();
     if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
-      throw new BadRequestException(`Unsupported image format: ${file.mimetype}`);
+      throw new BadRequestException(`Unsupported image format: ${file.mimeType}`);
     }
 
-    const dir = normalizeUploadDir(body?.dir, 'uploads/images/');
-    const explicitKey = typeof body?.key === 'string' ? body.key.trim().replace(/^\/+/, '') : '';
-    const safeFileName = sanitizeFileName(body?.fileName || file.originalname || `image.${inferExtFromMime(mimeType)}`);
+    const dir = normalizeUploadDir(extractMultipartField(form, 'dir'), 'uploads/images/');
+    const explicitKey = (extractMultipartField(form, 'key') || '').trim().replace(/^\/+/, '');
+    const declaredFileName = extractMultipartField(form, 'fileName');
+    const safeFileName = sanitizeFileName(
+      declaredFileName || file.originalName || `image.${inferExtFromMime(mimeType)}`
+    );
     const key = (() => {
       if (explicitKey) return explicitKey;
       const ext = safeFileName.includes('.') ? safeFileName.split('.').pop() || inferExtFromMime(mimeType) : inferExtFromMime(mimeType);
@@ -107,34 +175,29 @@ export class UploadsController {
         'Cache-Control': 'public, max-age=31536000, immutable',
       },
     });
-
     return { url: result.url, key: result.key };
   }
 
   @Post('video')
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_VIDEO_SIZE } }))
   @ApiConsumes('multipart/form-data')
-  async uploadVideo(@UploadedFile() file: any) {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
+  async uploadVideo(@Req() req: FastifyRequest) {
+    const file = await this.readSingleMultipartFile(req, MAX_VIDEO_SIZE);
 
-    if (!SUPPORTED_VIDEO_TYPES.includes(file.mimetype)) {
+    if (!SUPPORTED_VIDEO_TYPES.includes(file.mimeType)) {
       throw new BadRequestException(
-        `Unsupported video format: ${file.mimetype}. Supported: ${SUPPORTED_VIDEO_TYPES.join(', ')}`
+        `Unsupported video format: ${file.mimeType}. Supported: ${SUPPORTED_VIDEO_TYPES.join(', ')}`
       );
     }
 
-    const ext = file.originalname.split('.').pop() || 'mp4';
+    const ext = file.originalName.split('.').pop() || 'mp4';
     const key = `videos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
     const stream = Readable.from(file.buffer);
     const result = await this.oss.putStream(key, stream, {
-      headers: { 'Content-Type': file.mimetype },
+      headers: { 'Content-Type': file.mimeType },
     });
-
     return { url: result.url, key: result.key };
   }
 
