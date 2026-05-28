@@ -3103,7 +3103,7 @@ export class AiController {
               this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
             }
 
-            if (!customApiKey) {
+            {
               const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
               const result = await provider.generateImage({
                 prompt: dto.prompt,
@@ -3195,24 +3195,6 @@ export class AiController {
               }
               throw new Error(result.error?.message || 'Failed to generate image');
             }
-
-            // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-            const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
-
-            const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-            const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-            return {
-              imageUrl: upload.url,
-              textResponse: data.textResponse || '',
-              metadata: {
-                ...(data.metadata || {}),
-                ...(dto.enableWebSearch ? { webSearchEnabled: true } : {}),
-                imageUrl: upload.url,
-                imageKey: upload.key,
-                mimeType: upload.mimeType,
-                bytes: upload.size,
-              },
-            };
           } catch (error) {
             if (attempt < maxAttempts && shouldRetryOutputError(error)) {
               const delay =
@@ -3435,7 +3417,7 @@ export class AiController {
             this.validateImageDataUrl(sourceImage);
           }
 
-          if (!customApiKey) {
+          {
             const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.editImage({
               prompt: dto.prompt,
@@ -3478,11 +3460,6 @@ export class AiController {
             }
             throw new Error(result.error?.message || 'Failed to edit image');
           }
-
-          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-          const data = await this.imageGeneration.editImage({ ...dto, sourceImage, customApiKey });
-          const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-          return { ...data, imageData: watermarked };
         } catch (error) {
           if (attempt < maxAttempts && shouldRetryOutputError(error)) {
             const delay =
@@ -3684,7 +3661,7 @@ export class AiController {
               )
             : sourceImages;
 
-          if (!customApiKey) {
+          {
             const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
             const result = await provider.blendImages({
               prompt: dto.prompt,
@@ -3727,15 +3704,6 @@ export class AiController {
             }
             throw new Error(result.error?.message || 'Failed to blend images');
           }
-
-          // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-          const data = await this.imageGeneration.blendImages({
-            ...dto,
-            sourceImages: normalizedSourceImages,
-            customApiKey,
-          });
-          const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-          return { ...data, imageData: watermarked };
         } catch (error) {
           if (attempt < maxAttempts && shouldRetryOutputError(error)) {
             const delay =

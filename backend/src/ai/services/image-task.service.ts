@@ -422,14 +422,7 @@ export class ImageTaskService {
       taskRequestData?.aiProvider,
     );
 
-    if (this.isGeminiProvider(providerName)) {
-      const resizedData = Array.isArray(taskRequestData.imageUrls)
-        ? { ...taskRequestData, imageUrls: taskRequestData.imageUrls.map((u: unknown) => typeof u === 'string' ? this.oss.withImageResize(u) : u) }
-        : taskRequestData;
-      return this.imageGenService.generateImage(resizedData as any);
-    }
-
-    const provider = this.providerFactory.getProvider(model, providerName ?? undefined);
+    const provider = this.providerFactory.getProvider(model, this.isGeminiProvider(providerName) ? 'new-api' : (providerName ?? undefined));
     const result = await provider.generateImage({
       prompt: task.prompt,
       model,
@@ -699,12 +692,24 @@ export class ImageTaskService {
             case 'generate':
               result = await this.runGenerateTask(task, taskRequestData || {}, model);
               break;
-            case 'edit':
-              result = await this.imageGenService.editImage(task.requestData as any);
+            case 'edit': {
+              const editProvider = this.providerFactory.getProvider(model, 'new-api');
+              const editResult = await editProvider.editImage(taskRequestData as any);
+              if (!editResult?.success || !editResult?.data) {
+                throw new Error(editResult?.error?.message || 'Failed to edit image');
+              }
+              result = { imageData: editResult.data.imageData, imageUrl: editResult.data.imageUrl, textResponse: editResult.data.textResponse || '' };
               break;
-            case 'blend':
-              result = await this.imageGenService.blendImages(task.requestData as any);
+            }
+            case 'blend': {
+              const blendProvider = this.providerFactory.getProvider(model, 'new-api');
+              const blendResult = await blendProvider.blendImages(taskRequestData as any);
+              if (!blendResult?.success || !blendResult?.data) {
+                throw new Error(blendResult?.error?.message || 'Failed to blend images');
+              }
+              result = { imageData: blendResult.data.imageData, imageUrl: blendResult.data.imageUrl, textResponse: blendResult.data.textResponse || '' };
               break;
+            }
             case 'expand':
               throw new Error('扩图功能暂未实现异步模式');
             default:
