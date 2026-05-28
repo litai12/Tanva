@@ -41,6 +41,10 @@ export interface CanvasCollabHandle {
 
 export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired }: UseCanvasCollabOptions): CanvasCollabHandle {
   const activeTeamId = useTeamStore((s) => s.activeTeamId);
+  const isTeamMode = useTeamStore((s) => {
+    const team = s.teams.find((t) => t.id === s.activeTeamId);
+    return Boolean(team && !team.isPersonal);
+  });
   const [connected, setConnected] = useState(false);
   const [connId, setConnId] = useState<string | null>(null);
   const [degraded, setDegraded] = useState(false);
@@ -104,7 +108,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   }, []);
 
   const connect = useCallback(() => {
-    if (!projectId || !activeTeamId) return;
+    return; // SSE temporarily disabled
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
