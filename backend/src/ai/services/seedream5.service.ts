@@ -172,23 +172,22 @@ export class Seedream5Service {
     if (provider === 'watcha') {
       return {
         provider: 'watcha',
-        endpoint: `${this.newApiBaseUrl}/proxy/watcha`,
+        endpoint: this.newApiBaseUrl,
         apiKey: this.newApiKey,
         model: this.watchaModel,
-        generationPath: '/v3/images/generations',
+        generationPath: '/v1/images/generations',
       };
     }
 
     return {
       provider: 'doubao',
-      endpoint: `${this.newApiBaseUrl}/proxy/ark`,
+      endpoint: this.newApiBaseUrl,
       apiKey: this.newApiKey,
       model: this.resolveDoubaoModel({
         requestedModel: options?.requestedModel,
         requestedModelVersion: options?.requestedModelVersion,
       }),
-      // ark channel base_url already includes /api/v3, so only /images/generations remains
-      generationPath: '/images/generations',
+      generationPath: '/v1/images/generations',
     };
   }
 
@@ -234,29 +233,23 @@ export class Seedream5Service {
       this.normalizeSize(params.size),
     );
 
+    const n =
+      params.batchMode && Number.isFinite(Number(params.batchCount)) && Number(params.batchCount) > 1
+        ? Math.min(Math.max(Math.floor(Number(params.batchCount)), 2), 10)
+        : 1;
+
     const payload: any = {
       model: providerConfig.model,
-      sequential_image_generation: params.batchMode ? 'auto' : 'disabled',
-      response_format: 'url',
+      prompt: params.prompt || '',
+      n,
       size: normalizedSize,
-      stream: false,
-      watermark: false,
+      response_format: 'url',
     };
 
-    if (params.batchMode && params.batchCount) {
-      payload.sequential_image_generation_options = {
-        max_images: Math.min(Math.max(params.batchCount, 2), 10),
-      };
-    }
-
-    if (params.prompt) {
-      payload.prompt = params.prompt;
-    }
-
     if (params.image_urls && params.image_urls.length > 0) {
-      payload.image =
+      payload.image_urls =
         params.image_urls.length === 1
-          ? params.image_urls[0]
+          ? [params.image_urls[0]]
           : params.image_urls.slice(0, 5);
     }
 
