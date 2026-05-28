@@ -20588,41 +20588,21 @@ function FlowInner() {
                     )
                   );
 
-                  const pollDeadlineAt = Date.now() + 15 * 60 * 1000;
-                  const pollIntervalMs = 3000;
+                  const { waitForTask } = await import("@/utils/imageTaskPoller");
                   let resolvedImageUrl = "";
                   let resolvedTextResponse = "";
                   let failureMessage = "";
-                  let consecutiveQueryFailures = 0;
 
-                  while (Date.now() < pollDeadlineAt) {
-                    const statusResult = await queryImageTaskStatusViaAPI(gptTaskId);
-                    if (!statusResult.success || !statusResult.data) {
-                      consecutiveQueryFailures += 1;
-                      failureMessage =
-                        statusResult.error?.message || "GPT-Image-2 任务查询失败";
-                      if (consecutiveQueryFailures >= 3) {
-                        break;
-                      }
-                      await new Promise((r) => setTimeout(r, pollIntervalMs));
-                      continue;
+                  try {
+                    const r = await waitForTask(gptTaskId, 15 * 60 * 1000);
+                    if (r.status === "succeeded") {
+                      resolvedImageUrl = r.imageUrl || "";
+                      resolvedTextResponse = r.textResponse || "";
+                    } else {
+                      failureMessage = r.error || "GPT-Image-2 任务失败，积分将自动返还。";
                     }
-                    consecutiveQueryFailures = 0;
-
-                    const taskStatus = String(statusResult.data.status || "").toLowerCase();
-                    if (taskStatus === "succeeded") {
-                      resolvedImageUrl = statusResult.data.imageUrl || "";
-                      resolvedTextResponse = statusResult.data.textResponse || "";
-                      break;
-                    }
-                    if (taskStatus === "failed") {
-                      failureMessage =
-                        statusResult.data.error ||
-                        "GPT-Image-2 任务失败，积分将自动返还。";
-                      break;
-                    }
-
-                    await new Promise((r) => setTimeout(r, pollIntervalMs));
+                  } catch (e) {
+                    failureMessage = e instanceof Error ? e.message : "GPT-Image-2 生成超时（15分钟），积分将自动返还。";
                   }
 
                   if (!resolvedImageUrl) {
@@ -20630,9 +20610,7 @@ function FlowInner() {
                       success: false as const,
                       error: {
                         code: "TASK_TIMEOUT_OR_FAILED",
-                        message:
-                          failureMessage ||
-                          "GPT-Image-2 生成超时（15分钟），积分将自动返还。",
+                        message: failureMessage || "GPT-Image-2 生成超时（15分钟），积分将自动返还。",
                         timestamp: new Date(),
                       },
                     };

@@ -6904,6 +6904,23 @@ export class AiController {
   }
 
   /**
+   * 批量按 taskId 查询图像任务状态，供前端全局轮询池使用
+   */
+  @Post('tasks/by-ids')
+  async batchQueryTasksByIds(
+    @Body() body: { taskIds: string[] },
+    @Req() req: any,
+  ) {
+    if (!this.generationTaskService) {
+      return {};
+    }
+    const taskIds: string[] = Array.isArray(body?.taskIds) ? body.taskIds : [];
+    if (taskIds.length === 0) return {};
+    const userId = this.getUserId(req) ?? 'anonymous';
+    return this.generationTaskService.batchQueryByTaskIds(taskIds, userId);
+  }
+
+  /**
    * 批量按画布节点 ID 查询任务状态，用于页面刷新后恢复生成任务
    */
   @Post('tasks/by-nodes')
@@ -7046,10 +7063,10 @@ export class AiController {
 
     return {
       status: task.status,
-      imageUrl: task.imageUrl,
-      thumbnailUrl: task.thumbnailUrl,
-      textResponse: task.textResponse,
-      error: task.error,
+      imageUrl: (task as any).imageUrl ?? null,
+      thumbnailUrl: (task as any).thumbnailUrl ?? null,
+      textResponse: (task as any).textResponse ?? null,
+      error: (task as any).error ?? null,
       progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
     };
   }

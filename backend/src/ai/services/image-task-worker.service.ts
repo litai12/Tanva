@@ -36,8 +36,7 @@ export class ImageTaskWorkerService implements OnModuleInit, OnModuleDestroy {
     this.worker = new Worker(
       IMAGE_TASK_QUEUE,
       async (job) => {
-        const { taskId } = job.data as { taskId: string };
-        await this.imageTaskService.executeTaskById(taskId);
+        await this.imageTaskService.executeTaskFromJob(job.data);
       },
       {
         connection: { url },

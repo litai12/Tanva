@@ -217,6 +217,31 @@ export class GenerationTaskService implements OnModuleInit {
     return this.prisma.videoTask.findUnique({ where: { id: taskId } });
   }
 
+  async batchQueryByTaskIds(
+    taskIds: string[],
+    userId: string,
+  ): Promise<Record<string, { status: string; imageUrl?: string; thumbnailUrl?: string; textResponse?: string; error?: string } | null>> {
+    const limited = taskIds.slice(0, 100);
+    const result: Record<string, { status: string; imageUrl?: string; thumbnailUrl?: string; textResponse?: string; error?: string } | null> = {};
+    for (const id of limited) result[id] = null;
+
+    const imageTasks = await this.prisma.imageTask.findMany({
+      where: { id: { in: limited }, userId },
+    });
+
+    for (const t of imageTasks) {
+      result[t.id] = {
+        status: t.status,
+        imageUrl: t.imageUrl ?? undefined,
+        thumbnailUrl: t.thumbnailUrl ?? undefined,
+        textResponse: t.textResponse ?? undefined,
+        error: t.error ?? undefined,
+      };
+    }
+
+    return result;
+  }
+
   async batchQueryByNodeIds(
     nodeIds: string[],
     userId: string,

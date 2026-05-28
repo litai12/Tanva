@@ -975,37 +975,27 @@ export async function createBlendImagesTaskViaAPI(
 }
 
 /**
- * 轮询图像任务直到完成，每 intervalMs 毫秒轮询一次（默认 5s）
+ * 轮询图像任务直到完成。
+ * 通过全局批量轮询池（imageTaskPoller）实现，所有并发任务共享一个 HTTP 请求，
+ * 避免多任务时占满浏览器连接数。
  */
 export async function pollImageTaskResult(
   taskId: string,
-  intervalMs = 5000,
+  _intervalMs = 5000,
   timeoutMs = 15 * 60 * 1000
 ): Promise<AIServiceResponse<AIImageResult>> {
-  const deadline = Date.now() + timeoutMs;
-  let consecutiveFailures = 0;
-  let failureMessage = "";
-
-  while (Date.now() < deadline) {
-    const statusResult = await queryImageTaskStatusViaAPI(taskId);
-    if (!statusResult.success || !statusResult.data) {
-      consecutiveFailures++;
-      failureMessage = statusResult.error?.message || "任务查询失败";
-      if (consecutiveFailures >= 3) break;
-      await new Promise((r) => setTimeout(r, intervalMs));
-      continue;
-    }
-    consecutiveFailures = 0;
-    const { status, imageUrl, textResponse, error } = statusResult.data;
-    const normalStatus = String(status || "").toLowerCase();
+  const { waitForTask } = await import("@/utils/imageTaskPoller");
+  try {
+    const r = await waitForTask(taskId, timeoutMs);
+    const normalStatus = String(r.status || "").toLowerCase();
 
     if (normalStatus === "succeeded") {
-      if (!imageUrl) {
+      if (!r.imageUrl) {
         return {
           success: false,
           error: {
             code: "NO_IMAGE",
-            message: textResponse || "任务完成但未返回图片",
+            message: r.textResponse || "任务完成但未返回图片",
             timestamp: new Date(),
           },
         };
@@ -1014,39 +1004,40 @@ export async function pollImageTaskResult(
         success: true,
         data: {
           id: `${taskId}-${Date.now()}`,
-          imageUrl,
+          imageUrl: r.imageUrl,
           imageData: undefined,
-          textResponse: textResponse || "",
+          textResponse: r.textResponse || "",
           prompt: "",
           model: "",
           createdAt: new Date(),
           hasImage: true,
-          metadata: { imageUrl },
-        },
-      };
-    }
-    if (normalStatus === "failed") {
-      return {
-        success: false,
-        error: {
-          code: "TASK_FAILED",
-          message: error || "任务失败，积分将自动返还。",
-          timestamp: new Date(),
+          metadata: { imageUrl: r.imageUrl },
         },
       };
     }
 
-    await new Promise((r) => setTimeout(r, intervalMs));
+    return {
+      success: false,
+      error: {
+        code: "TASK_FAILED",
+        message: r.error || "任务失败，积分将自动返还。",
+        timestamp: new Date(),
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e ?? "");
+    const isTimeout = msg.includes("timed out");
+    return {
+      success: false,
+      error: {
+        code: isTimeout ? "TASK_TIMEOUT" : "TASK_FAILED",
+        message: isTimeout
+          ? "生成超时（15分钟），积分将自动返还。"
+          : (msg || "任务失败，积分将自动返还。"),
+        timestamp: new Date(),
+      },
+    };
   }
-
-  return {
-    success: false,
-    error: {
-      code: "TASK_TIMEOUT",
-      message: failureMessage || "生成超时（15分钟），积分将自动返还。",
-      timestamp: new Date(),
-    },
-  };
 }
 
 /**
