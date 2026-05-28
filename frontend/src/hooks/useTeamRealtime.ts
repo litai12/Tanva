@@ -23,6 +23,10 @@ const base =
  * connection is closed and a new one is opened.
  */
 export function useTeamRealtime(): void {
+  // SSE temporarily disabled — credits refresh via polling instead
+  return;
+
+  // eslint-disable-next-line no-unreachable
   const activeTeamId = useTeamStore((s) => s.activeTeamId);
   const user = useAuthStore((s) => s.user);
   const userId = user?.id ?? null;

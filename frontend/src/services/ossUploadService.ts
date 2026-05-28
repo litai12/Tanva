@@ -366,13 +366,26 @@ export async function uploadToOSS(
           })
     );
 
-    const uploadResp = await fetchWithAuth(presign.host, {
-      method: "POST",
-      body: formData,
-      auth: "omit",
-      allowRefresh: false,
-      credentials: "omit",
-    });
+    // Abort if the upload stalls for more than 10 minutes to prevent zombie tasks
+    const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(
+      () => abortController.abort(new DOMException("Upload timeout", "TimeoutError")),
+      UPLOAD_TIMEOUT_MS,
+    );
+    let uploadResp: Response;
+    try {
+      uploadResp = await fetchWithAuth(presign.host, {
+        method: "POST",
+        body: formData,
+        auth: "omit",
+        allowRefresh: false,
+        credentials: "omit",
+        signal: abortController.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!uploadResp.ok) {
       const text = await uploadResp.text();

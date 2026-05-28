@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import paper from "paper";
+import { pollingManager } from "@/utils/pollingManager";
 import { aiImageService } from "@/services/aiImageService";
 import { paperSandboxService } from "@/services/paperSandboxService";
 import { fetchWithAuth } from "@/services/authFetch";
@@ -3796,7 +3797,6 @@ export const useAIChatStore = create<AIChatState>()(
             placeholderLogger.warn("预测占位符生成失败", error);
           }
 
-          let progressInterval: ReturnType<typeof setInterval> | null = null;
           try {
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
@@ -3811,7 +3811,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "generateImage progress interval start");
             const PROGRESS_MAX = 95;
             const PROGRESS_INCREMENT = PROGRESS_MAX / 120; // 约0.79%每秒
-            progressInterval = setInterval(() => {
+            pollingManager.start(aiMessageId, () => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -3819,7 +3819,7 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX) {
-                if (progressInterval) clearInterval(progressInterval);
+                pollingManager.stop(aiMessageId);
                 return;
               }
 
@@ -3954,7 +3954,7 @@ export const useAIChatStore = create<AIChatState>()(
             const result = await generateImageViaAPI(generateRequest);
             logProcessStep(metrics, "generateImage API response received");
 
-            if (progressInterval) clearInterval(progressInterval);
+            pollingManager.stop(aiMessageId);
 
             if (result.success && result.data) {
               // 生成成功 - 更新消息内容和状态
@@ -4337,7 +4337,7 @@ export const useAIChatStore = create<AIChatState>()(
             console.error("❌ 图像生成异常:", error);
             removePredictivePlaceholder();
           } finally {
-            if (progressInterval) clearInterval(progressInterval);
+            pollingManager.stop(aiMessageId);
             // 🔥 无论成功失败，都减少正在生成的图片计数
             generatingImageCount--;
             logProcessStep(metrics, "generateImage finished (finally)");
