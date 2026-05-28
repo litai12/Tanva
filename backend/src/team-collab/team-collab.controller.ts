@@ -100,6 +100,7 @@ export class TeamCollabController {
     }
 
     req.raw.on('close', async () => {
+      this.rateBuckets.delete(connId);
       unsubscribe();
       const released = await this.locks.releaseByConn(projectId, connId);
       for (const nodeId of released) {
@@ -118,11 +119,10 @@ export class TeamCollabController {
   async patch(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasPatchDto,
   ) {
     const userId: string = req.user.sub;
-    await this.assertProjectAccess(projectId, userId, teamId);
     this.assertConnAndRate(dto.connId, userId);
     const seq = await this.log.nextSeq(projectId);
     const envelope: CollabEnvelope = {
@@ -143,12 +143,11 @@ export class TeamCollabController {
   async cursor(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasCursorDto,
   ) {
     const userId: string = req.user.sub;
     const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
-    await this.assertProjectAccess(projectId, userId, teamId);
     this.assertConnAndRate(dto.connId, userId);
     const envelope: CollabEnvelope<CursorPayload> = {
       type: 'cursor',
@@ -171,11 +170,10 @@ export class TeamCollabController {
   async lock(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasLockDto,
   ) {
     const userId: string = req.user.sub;
-    await this.assertProjectAccess(projectId, userId, teamId);
     this.assertConnAndRate(dto.connId, userId);
     const result = await this.locks.claim(projectId, dto.nodeId, userId, dto.connId);
     if (result.acquired) {
@@ -204,11 +202,10 @@ export class TeamCollabController {
   async renew(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasLockDto,
   ) {
     const userId: string = req.user.sub;
-    await this.assertProjectAccess(projectId, userId, teamId);
     this.assertConnAndRate(dto.connId, userId);
     const result = await this.locks.renew(projectId, dto.nodeId, userId, dto.connId);
     if (result.acquired) {
@@ -233,11 +230,10 @@ export class TeamCollabController {
   async unlock(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasLockDto,
   ) {
     const userId: string = req.user.sub;
-    await this.assertProjectAccess(projectId, userId, teamId);
     this.assertConnAndRate(dto.connId, userId);
     const ok = await this.locks.release(projectId, dto.nodeId, userId, dto.connId);
     if (ok) {
@@ -258,12 +254,11 @@ export class TeamCollabController {
   async toast(
     @Req() req: any,
     @Param('projectId') projectId: string,
-    @Query('teamId') teamId: string,
+    @Query('teamId') _teamId: string,
     @Body() dto: CanvasToastDto,
   ) {
     const userId: string = req.user.sub;
     const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
-    await this.assertProjectAccess(projectId, userId, teamId);
     if (dto.connId) this.assertConnAndRate(dto.connId, userId);
     const env: CollabEnvelope<ToastPayload> = {
       type: 'toast',
