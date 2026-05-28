@@ -36,12 +36,32 @@ SET models = (
 )
 WHERE name = 'apimart';
 
--- Step 2: 启用 watcha 渠道（seedream5.service.ts watcha 路径走此渠道）
--- 模型: seedream-5.0-lite, seedream-5.0, seedream-4.5, seedream-4.0
--- key 已正确配置（WATCHA_SEEDREAM_API_KEY）
+-- Step 2: 启用 watcha 渠道，补充 doubao 模型名及映射
+-- 后端 seedream5_provider=watcha 时发送 seedream-5.0-lite；
+-- doubao 模型名映射确保两种命名都能命中此渠道
 UPDATE channels
-SET status = 1
-WHERE name = 'watcha' AND status != 1;
+SET
+  status = 1,
+  models = (
+    SELECT string_agg(m, ',' ORDER BY m)
+    FROM (
+      SELECT DISTINCT trim(m) AS m
+      FROM unnest(string_to_array(
+        models || ',doubao-seedream-5-0-260128,doubao-seedream-5-0,doubao-seedream-5-0-lite,doubao-seedream-5-0-lite-260128,doubao-seedream-4-5-251128,doubao-seedream-4-0-250828',
+        ','
+      )) AS t(m)
+      WHERE trim(m) <> ''
+    ) sub
+  ),
+  model_mapping = '{
+    "doubao-seedream-5-0-260128": "seedream-5.0",
+    "doubao-seedream-5-0": "seedream-5.0",
+    "doubao-seedream-5-0-lite": "seedream-5.0-lite",
+    "doubao-seedream-5-0-lite-260128": "seedream-5.0-lite",
+    "doubao-seedream-4-5-251128": "seedream-4.5",
+    "doubao-seedream-4-0-250828": "seedream-4.0"
+  }'
+WHERE name = 'watcha';
 
 -- Step 3: 启用 ark-doubao 渠道（seed3d 走此渠道的 doubao task relay）
 UPDATE channels
