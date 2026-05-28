@@ -109,11 +109,8 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   const connect = useCallback(() => {
     return; // SSE temporarily disabled
-    const currentEs = esRef.current;
-    if (currentEs != null) {
-      currentEs.close();
-      esRef.current = null;
-    }
+    esRef.current?.close();
+    esRef.current = null;
     const token = getAccessToken() ?? '';
     const params = new URLSearchParams({
       teamId: activeTeamId ?? '',
