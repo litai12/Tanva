@@ -3016,6 +3016,21 @@ export class AiController {
         ? 'gpt-image-2'
         : dto.model;
     const model = this.resolveImageModel(providerName, inferredRequestedModel);
+
+    // seedream5 始终走 async 任务轮询链路，避免同步等待超时
+    if (providerName === 'seedream5' && this.imageTaskService) {
+      const task = await this.imageTaskService.createTask(
+        userId,
+        'generate',
+        dto.prompt,
+        { ...dto, model },
+        providerName,
+        { traceId, parentRequestId },
+        dto.nodeId,
+      );
+      return { taskId: task.id, status: task.status } as any;
+    }
+
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
     const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
       (dto.imageUrls || []).filter(

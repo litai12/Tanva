@@ -533,6 +533,11 @@ async function performGenerateImageRequest(
 
     const data = await response.json();
 
+    // Backend delegated to async task (e.g. seedream5) — transparently poll for result
+    if (typeof data?.taskId === "string" && data.taskId && !data.imageUrl && !data.imageData) {
+      return pollImageTaskResult(data.taskId);
+    }
+
     const resolvedModel = resolveDefaultModel(
       requestWithRoute.model,
       requestWithRoute.aiProvider

@@ -28,6 +28,7 @@ function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string
   switch (taskType) {
     case 'generate':
       if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
+      if (normalizedModel?.includes('seedream')) return 'doubao-seedream-5-0-260128';
       if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image';
       return 'gemini-3-pro-image';
