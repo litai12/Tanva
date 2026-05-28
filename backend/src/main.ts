@@ -15,6 +15,7 @@ import { ConfigService } from "@nestjs/config";
 import { AppModule } from "./app.module";
 import { OpenObserveTelemetryService } from "./telemetry/openobserve-telemetry.service";
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
+import { WsCollabGateway } from "./team-collab/ws-collab.gateway";
 
 // 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
 function configureProxyForUndici() {
@@ -300,6 +301,15 @@ async function bootstrap() {
     .build();
   const doc = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup("api/docs", app, doc);
+
+  // 实时协作：把 WS 网关挂到底层 http server 的 upgrade 事件（仅 /ws/collab）
+  const wsGateway = app.get(WsCollabGateway);
+  wsGateway.setOriginCheck((origin: string) => {
+    if (corsDevAllowAll || corsAllowAll) return true;
+    if (corsOrigins.length === 0) return true;
+    return corsOrigins.includes(origin);
+  });
+  wsGateway.attach(fastifyInstance.server);
 
   const port = Number(process.env.PORT || configService.get("PORT") || 4000);
   const host = process.env.HOST || "0.0.0.0";
