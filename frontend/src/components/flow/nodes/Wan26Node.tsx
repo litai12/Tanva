@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useReactFlow } from "reactflow";
+import { Handle, Position, useStore, type ReactFlowState } from "reactflow";
 import { Video, Download, Share2, AlertTriangle } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";
@@ -86,7 +86,6 @@ const isSupportedAudioFile = (file: File): boolean => {
 function Wan26Node({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const projectId = useProjectContentStore((s) => s.projectId);
-  const rf = useReactFlow();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected ? "0 0 0 2px rgba(37,99,235,0.12)" : "0 1px 2px rgba(0,0,0,0.04)";
 
@@ -113,33 +112,16 @@ function Wan26Node({ id, data, selected }: Props) {
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const [showHistory, setShowHistory] = React.useState(false);
 
-  // 判断是 T2V 还是 I2V 模式：检查是否有连接到 image 接入点的边
-  const [isI2VMode, setIsI2VMode] = React.useState(false);
-
-  // 定期检查边的连接状态
-  React.useEffect(() => {
-    const checkImageConnection = () => {
-      try {
-        const edges = rf.getEdges();
-        const hasImageConnection = edges.some(
+  // 判断是 T2V 还是 I2V 模式：响应式订阅 image 接入点的边连接（零轮询）
+  const isI2VMode = useStore(
+    React.useCallback(
+      (state: ReactFlowState) =>
+        state.edges.some(
           (edge) => edge.target === id && edge.targetHandle === "image"
-        );
-        setIsI2VMode(hasImageConnection);
-      } catch {
-        setIsI2VMode(false);
-      }
-    };
-
-    // 初始检查
-    checkImageConnection();
-
-    // 定期检查（每100ms检查一次）
-    const interval = setInterval(checkImageConnection, 100);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [rf, id]);
+        ),
+      [id]
+    )
+  );
 
   const nodeTitle = "Wan2.6";
 

@@ -51,9 +51,10 @@ const MiniMapImageOverlay: React.FC = () => {
     return { x: svgPt.x, y: svgPt.y };
   }, [svgEl]);
 
-  // Find the MiniMap SVG host element.
+  // Find the MiniMap SVG host element. Stops polling once found.
   React.useEffect(() => {
-    const find = () => {
+    let id: number | undefined;
+    const find = (): boolean => {
       let host: SVGSVGElement | null = null;
       const container = document.querySelector('.react-flow__minimap') as HTMLElement | null;
       if (container) {
@@ -70,11 +71,16 @@ const MiniMapImageOverlay: React.FC = () => {
         try { if (!(window as any).__minimap_found__) { console.log('[MiniMapImageOverlay] Found MiniMap Graph'); (window as any).__minimap_found__ = true; } } catch {}
         setTargetEl(target);
         if (host) setSvgEl(host);
+        return true;
       }
+      return false;
     };
-    find();
-    const id = window.setInterval(find, 500);
-    return () => window.clearInterval(id);
+    if (!find()) {
+      id = window.setInterval(() => {
+        if (find() && id !== undefined) window.clearInterval(id);
+      }, 500);
+    }
+    return () => { if (id !== undefined) window.clearInterval(id); };
   }, []);
 
   const updateImages = React.useCallback(() => {

@@ -23,3 +23,8 @@
 ## 约束（设计 JSON）
 - `contentJson` 属于「设计 JSON」：只允许保存远程 URL/路径引用；禁止 `data:`/`blob:`/裸 base64（如 `iVBORw0...`）进入 DB/OSS。
 - 后端会在读写 `contentJson` 时做清洗（见 `backend/src/utils/designJsonSanitizer.ts`）；历史数据可用 `backend/scripts/sanitize-design-json.ts` 批量修复。
+
+## 性能观测
+- `PUT /api/projects/:id/content` 是整包项目 JSON 保存，是 100 人级在线编辑时的核心压力点。
+- 保存慢或内容大时会输出 `[ProjectSaveHotspot]` 日志，包含 `contentBytes`、`durationMs`、`timings.sanitizeAndHashMs`、`ossPutMs`、`dbUpdateMs`、`workflowHistoryMs`、`duplicate` 等字段。
+- 日志阈值可通过 `PROJECT_SAVE_SLOW_LOG_MS`（默认 2000ms）和 `PROJECT_SAVE_LARGE_LOG_BYTES`（默认 2MB）调整。

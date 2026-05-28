@@ -119,3 +119,56 @@ export async function applyWatermarkToBase64(
   return output.toString("base64");
 }
 
+/**
+ * 对 Buffer 图片添加水印，返回 Buffer。
+ * 失败时静默返回原图，不影响主流程。
+ */
+export async function applyWatermarkToBuffer(buffer: Buffer): Promise<Buffer> {
+  const image = sharp(buffer);
+  const { width = 0, height = 0 } = await image.metadata();
+  if (!width || !height) return buffer;
+
+  const watermarkPath = resolveWatermarkImagePath();
+  if (!watermarkPath) return buffer;
+
+  let watermarkBuffer: Buffer;
+  try {
+    watermarkBuffer = fs.readFileSync(watermarkPath);
+  } catch {
+    return buffer;
+  }
+
+  const watermarkMeta = await sharp(watermarkBuffer).metadata();
+  const wmWidth = watermarkMeta.width || 100;
+  const wmHeight = watermarkMeta.height || 100;
+
+  const shortSide = Math.min(width, height);
+  const targetWmWidth = Math.round(shortSide * WATERMARK_SCALE);
+  const targetWmHeight = Math.round((targetWmWidth / wmWidth) * wmHeight);
+
+  const processedWatermark = await sharp(watermarkBuffer)
+    .resize(targetWmWidth, targetWmHeight, { fit: "inside" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { data, info } = processedWatermark;
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = Math.round(data[i] * WATERMARK_OPACITY);
+  }
+
+  const watermarkWithOpacity = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+
+  const left = width - info.width - WATERMARK_MARGIN;
+  const top = height - info.height - WATERMARK_MARGIN;
+
+  return image
+    .composite([{ input: watermarkWithOpacity, left: Math.max(0, left), top: Math.max(0, top) }])
+    .png()
+    .toBuffer();
+}
+

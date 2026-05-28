@@ -27,6 +27,13 @@
   - process-level `unhandledRejection` / `uncaughtException` are ingested into the same stream for crash triage
 - OpenTelemetry SDK initialization only wires the explicit OpenObserve trace exporter; SDK default metrics/logs exporters are disabled to avoid local `localhost:4318` retry noise when no OTLP collector is running.
 - Added per-project serialized save execution and duplicate-content hash short-circuit in ProjectsService.updateContent to reduce concurrent save amplification without dropping real changes.
+- Frontend autosave and thumbnail refresh are intentionally conservative under concurrency:
+  - project autosave minimum persisted interval is 60s
+  - project thumbnail refresh cooldown is 5 minutes
+  - backend request telemetry skips project content/upload success payload logging unless `OPENOBSERVE_LOG_HEAVY_PAYLOAD_REQUESTS=true`
+- Project saves emit `[ProjectSaveHotspot]` when slow or large, with stage timings for sanitize/hash, OSS put, DB update, and workflow history snapshot.
+- `fetchWithAuth` coalesces AI-triggered `refresh-credits` events so batch generation does not fan out into repeated balance/daily-reward fetches.
+- Current small-concurrency overload risk is write amplification: each editing client can emit whole-project saves, thumbnail generation/upload, DB metadata writes, and telemetry writes on the same interaction loop.
 - Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
 - Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.
 - Flow node-local expensive updates should prefer frame-batched previews over continuous ReactFlow state writes. `ImageSplit` crop previews share image decode promises and throttle resize observations, while `TextPrompt` resize commits dimensions/position only at drag end.

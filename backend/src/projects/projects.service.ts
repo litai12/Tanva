@@ -8,6 +8,9 @@ import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
+  private static readonly SLOW_SAVE_LOG_MS = Number(process.env.PROJECT_SAVE_SLOW_LOG_MS || 2000);
+  private static readonly LARGE_SAVE_LOG_BYTES = Number(process.env.PROJECT_SAVE_LARGE_LOG_BYTES || 2 * 1024 * 1024);
+
   private readonly workflowHistoryRetentionDays = 7;
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
@@ -242,96 +245,140 @@ export class ProjectsService {
   ) {
     void version;
     return this.runProjectSaveSerialized(id, async () => {
-    await this.ensureThumbnailColumn();
-    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
-    const project = await this.prisma.project.findUnique({
-      where: { id },
-      select: {
-        ...this.projectMetadataSelect,
-        contentJson: !supportsThumbnailColumn,
-      },
-    });
-    if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
-    const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
-    const mainKey = project.mainKey || `${prefix}project.json`;
-    const sanitizedContent = sanitizeDesignJson(content);
-    const contentHash = this.hashProjectContent(sanitizedContent);
-    const cachedFingerprint = this.projectContentFingerprint.get(id);
-
-    // Skip duplicate saves that would write exactly the same payload again.
-    if (cachedFingerprint?.hash === contentHash) {
-      const currentVersion = project.contentVersion ?? cachedFingerprint.version;
-      this.rememberProjectContentFingerprint(id, contentHash, currentVersion);
-      return {
-        version: currentVersion,
-        updatedAt: project.updatedAt,
-        mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
-        thumbnailUrl: this.extractThumbnail(project) || undefined,
+      const saveStartedAt = Date.now();
+      const timings: Record<string, number> = {};
+      const timeStep = async <T>(name: string, task: () => Promise<T>): Promise<T> => {
+        const startedAt = Date.now();
+        try {
+          return await task();
+        } finally {
+          timings[name] = Date.now() - startedAt;
+        }
       };
-    }
 
-    try {
-      await this.oss.putJSON(mainKey, sanitizedContent);
-    } catch (err) {
-      // 在开发环境中，OSS错误不应该阻止项目内容更新
-      // eslint-disable-next-line no-console
-      console.warn('OSS putJSON failed, continuing with database update:', err);
-      // 不抛出错误，继续更新数据库
-    }
-
-    const newVersion = (project.contentVersion ?? 0) + 1;
-    const baseUpdate: Prisma.ProjectUpdateInput = {
-      ossPrefix: prefix,
-      mainKey,
-      contentVersion: newVersion,
-    };
-    const contentForStorage =
-      !supportsThumbnailColumn && sanitizedContent
-        ? this.patchContentThumbnail(sanitizedContent as any, this.extractThumbnail(project) || null)
-        : sanitizedContent;
-    let updated2: any;
-    try {
-      updated2 = await this.prisma.project.update({
+      await this.ensureThumbnailColumn();
+      const supportsThumbnailColumn = await this.supportsThumbnailColumn();
+      const project = await this.prisma.project.findUnique({
         where: { id },
-        data: this.withOptionalContentJson(baseUpdate, contentForStorage),
+        select: {
+          ...this.projectMetadataSelect,
+          contentJson: !supportsThumbnailColumn,
+        },
       });
-    } catch (e: any) {
-      if (this.shouldDowngradeThumbnailColumn(e)) {
-        await this.disableThumbnailColumn();
-        updated2 = await this.prisma.project.update({
-          where: { id },
-          data: this.withOptionalContentJson(
-            baseUpdate,
-            this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
-          ),
+      if (!project) throw new NotFoundException('项目不存在');
+      if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+      const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
+      const mainKey = project.mainKey || `${prefix}project.json`;
+      const sanitizeStartedAt = Date.now();
+      const sanitizedContent = sanitizeDesignJson(content);
+      const contentFingerprint = this.hashProjectContent(sanitizedContent);
+      timings.sanitizeAndHashMs = Date.now() - sanitizeStartedAt;
+      const contentHash = contentFingerprint.hash;
+      const contentBytes = contentFingerprint.bytes;
+      const cachedFingerprint = this.projectContentFingerprint.get(id);
+
+      // Skip duplicate saves that would write exactly the same payload again.
+      if (cachedFingerprint?.hash === contentHash) {
+        const currentVersion = project.contentVersion ?? cachedFingerprint.version;
+        this.rememberProjectContentFingerprint(id, contentHash, currentVersion);
+        this.logProjectSaveIfHot({
+          projectId: id,
+          userId,
+          contentBytes,
+          durationMs: Date.now() - saveStartedAt,
+          timings,
+          version: currentVersion,
+          duplicate: true,
         });
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn('DB update(contentJson) failed, fallback without contentJson:', e);
-        updated2 = await this.prisma.project.update({ where: { id }, data: { ossPrefix: prefix, mainKey, contentVersion: newVersion } });
+        return {
+          version: currentVersion,
+          updatedAt: project.updatedAt,
+          mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
+          thumbnailUrl: this.extractThumbnail(project) || undefined,
+        };
       }
-    }
 
-    if (options?.createWorkflowHistory) {
-      await this.tryCreateWorkflowHistorySnapshot(
+      try {
+        await timeStep('ossPutMs', () => this.oss.putJSON(mainKey, sanitizedContent));
+      } catch (err) {
+        // 在开发环境中，OSS错误不应该阻止项目内容更新
+        // eslint-disable-next-line no-console
+        console.warn('OSS putJSON failed, continuing with database update:', err);
+        // 不抛出错误，继续更新数据库
+      }
+
+      const newVersion = (project.contentVersion ?? 0) + 1;
+      const baseUpdate: Prisma.ProjectUpdateInput = {
+        ossPrefix: prefix,
+        mainKey,
+        contentVersion: newVersion,
+      };
+      const contentForStorage =
+        !supportsThumbnailColumn && sanitizedContent
+          ? this.patchContentThumbnail(sanitizedContent as any, this.extractThumbnail(project) || null)
+          : sanitizedContent;
+      let updated2: any;
+      try {
+        updated2 = await timeStep('dbUpdateMs', () =>
+          this.prisma.project.update({
+            where: { id },
+            data: this.withOptionalContentJson(baseUpdate, contentForStorage),
+          }),
+        );
+      } catch (e: any) {
+        if (this.shouldDowngradeThumbnailColumn(e)) {
+          await this.disableThumbnailColumn();
+          updated2 = await timeStep('dbUpdateFallbackMs', () =>
+            this.prisma.project.update({
+              where: { id },
+              data: this.withOptionalContentJson(
+                baseUpdate,
+                this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
+              ),
+            }),
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn('DB update(contentJson) failed, fallback without contentJson:', e);
+          updated2 = await timeStep('dbUpdateMetadataOnlyMs', () =>
+            this.prisma.project.update({
+              where: { id },
+              data: { ossPrefix: prefix, mainKey, contentVersion: newVersion },
+            }),
+          );
+        }
+      }
+
+      if (options?.createWorkflowHistory) {
+        await timeStep('workflowHistoryMs', () =>
+          this.tryCreateWorkflowHistorySnapshot(
+            userId,
+            id,
+            updated2,
+            sanitizedContent,
+            options.workflowHistoryMeta
+          ),
+        );
+      }
+
+      const persistedVersion = updated2.contentVersion ?? newVersion;
+      this.rememberProjectContentFingerprint(id, contentHash, persistedVersion);
+      this.logProjectSaveIfHot({
+        projectId: id,
         userId,
-        id,
-        updated2,
-        sanitizedContent,
-        options.workflowHistoryMeta
-      );
-    }
+        contentBytes,
+        durationMs: Date.now() - saveStartedAt,
+        timings,
+        version: persistedVersion,
+        duplicate: false,
+      });
 
-    const persistedVersion = updated2.contentVersion ?? newVersion;
-    this.rememberProjectContentFingerprint(id, contentHash, persistedVersion);
-
-    return {
-      version: persistedVersion,
-      updatedAt: updated2.updatedAt,
-      mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
-      thumbnailUrl: this.extractThumbnail(updated2) || undefined,
-    };
+      return {
+        version: persistedVersion,
+        updatedAt: updated2.updatedAt,
+        mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
+        thumbnailUrl: this.extractThumbnail(updated2) || undefined,
+      };
     });
   }
 
@@ -526,9 +573,40 @@ export class ProjectsService {
     }
   }
 
-  private hashProjectContent(content: unknown): string {
+  private hashProjectContent(content: unknown): { hash: string; bytes: number } {
     const serialized = JSON.stringify(content) ?? 'null';
-    return createHash('sha256').update(serialized).digest('hex');
+    return {
+      hash: createHash('sha256').update(serialized).digest('hex'),
+      bytes: Buffer.byteLength(serialized, 'utf8'),
+    };
+  }
+
+  private logProjectSaveIfHot(params: {
+    projectId: string;
+    userId: string;
+    contentBytes: number;
+    durationMs: number;
+    timings: Record<string, number>;
+    version: number;
+    duplicate: boolean;
+  }): void {
+    if (
+      params.durationMs < ProjectsService.SLOW_SAVE_LOG_MS &&
+      params.contentBytes < ProjectsService.LARGE_SAVE_LOG_BYTES
+    ) {
+      return;
+    }
+
+    // eslint-disable-next-line no-console
+    console.warn('[ProjectSaveHotspot]', JSON.stringify({
+      projectId: params.projectId,
+      userId: params.userId,
+      contentBytes: params.contentBytes,
+      durationMs: params.durationMs,
+      timings: params.timings,
+      version: params.version,
+      duplicate: params.duplicate,
+    }));
   }
 
   private rememberProjectContentFingerprint(projectId: string, hash: string, version: number): void {

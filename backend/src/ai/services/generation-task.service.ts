@@ -217,6 +217,31 @@ export class GenerationTaskService implements OnModuleInit {
     return this.prisma.videoTask.findUnique({ where: { id: taskId } });
   }
 
+  async batchQueryByTaskIds(
+    taskIds: string[],
+    userId: string,
+  ): Promise<Record<string, { status: string; imageUrl?: string; thumbnailUrl?: string; textResponse?: string; error?: string } | null>> {
+    const limited = taskIds.slice(0, 100);
+    const result: Record<string, { status: string; imageUrl?: string; thumbnailUrl?: string; textResponse?: string; error?: string } | null> = {};
+    for (const id of limited) result[id] = null;
+
+    const imageTasks = await this.prisma.imageTask.findMany({
+      where: { id: { in: limited }, userId },
+    });
+
+    for (const t of imageTasks) {
+      result[t.id] = {
+        status: t.status,
+        imageUrl: t.imageUrl ?? undefined,
+        thumbnailUrl: t.thumbnailUrl ?? undefined,
+        textResponse: t.textResponse ?? undefined,
+        error: t.error ?? undefined,
+      };
+    }
+
+    return result;
+  }
+
   async batchQueryByNodeIds(
     nodeIds: string[],
     userId: string,
@@ -292,17 +317,33 @@ export class GenerationTaskService implements OnModuleInit {
   private async reconcileStuckTasks(): Promise<void> {
     const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);
     try {
-      const { count: vCount } = await this.prisma.videoTask.updateMany({
-        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+      // `processing` → immediately orphan on startup regardless of age.
+      // The process died; there is no worker still running these tasks.
+      //
+      // `queued` → only orphan if stuck for > 40 min (Redis job may still exist
+      // and the worker will re-pick it up after restart).
+      const { count: vProcessing } = await this.prisma.videoTask.updateMany({
+        where: { status: 'processing', updatedAt: { lt: cutoff } },
         data: { status: 'failed', error: 'task orphaned after backend restart' },
       });
-      const { count: iCount } = await this.prisma.imageTask.updateMany({
-        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+      const { count: iProcessing } = await this.prisma.imageTask.updateMany({
+        where: { status: 'processing', updatedAt: { lt: cutoff } },
         data: { status: 'failed', error: 'task orphaned after backend restart' },
       });
-      if (vCount + iCount > 0) {
+      const { count: vQueued } = await this.prisma.videoTask.updateMany({
+        where: { status: 'queued', updatedAt: { lt: cutoff } },
+        data: { status: 'failed', error: 'task orphaned after backend restart' },
+      });
+      const { count: iQueued } = await this.prisma.imageTask.updateMany({
+        where: { status: 'queued', updatedAt: { lt: cutoff } },
+        data: { status: 'failed', error: 'task orphaned after backend restart' },
+      });
+      const total = vProcessing + iProcessing + vQueued + iQueued;
+      if (total > 0) {
         this.logger.warn(
-          `Reconciled ${vCount} orphaned video tasks and ${iCount} orphaned image tasks`,
+          `Reconciled orphaned tasks on startup:` +
+          ` processing(video=${vProcessing} image=${iProcessing})` +
+          ` stuck-queued(video=${vQueued} image=${iQueued})`,
         );
       }
     } catch (err) {

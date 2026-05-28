@@ -40,6 +40,7 @@
     "ali-oss": "^6.20.0",
     "alipay-sdk": "^4.14.0",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.77.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie": "^0.6.0",

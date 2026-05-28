@@ -1,93 +1,51 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useTeamStore } from '@/stores/teamStore';
 import { useAuthStore } from '@/stores/authStore';
-import { getAccessToken } from '@/services/authTokenStorage';
+import { realtimeClient } from '@/services/realtimeClient';
 import type {
   CollabEnvelope,
   TeamCreditsChangedPayload,
 } from '@/collab/types';
 
-const RECONNECT_MS = 3000;
-
-const base =
-  import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
-    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
-    : 'http://localhost:4000';
-
 /**
- * Opens a long-lived SSE connection to the team realtime stream so the
- * locally-rendered team credits balance stays in sync when another user (or
- * an admin action) mutates the account.
- *
- * Mounted once at app shell level. When `activeTeamId` changes the previous
- * connection is closed and a new one is opened.
+ * 通过共享 WS 客户端订阅团队积分实时变更，保持本地余额同步。
+ * 在 App 外壳挂载一次；activeTeamId 变化时由 realtimeClient 用新参数重连。
  */
 export function useTeamRealtime(): void {
   const activeTeamId = useTeamStore((s) => s.activeTeamId);
-  const user = useAuthStore((s) => s.user);
-  const userId = user?.id ?? null;
+  // 实时仅服务团队协作：仅当激活的是真实团队（非个人团队）才连 WS。
+  // 个人/单人模式下 teamId 保持 null → realtimeClient 不建立连接，积分/任务走轮询。
+  const isTeamMode = useTeamStore((s) => {
+    const t = s.teams.find((team) => team.id === s.activeTeamId);
+    return Boolean(t && !t.isPersonal);
+  });
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const patchTeamCredits = useTeamStore((s) => s.patchTeamCredits);
 
-  const esRef = useRef<EventSource | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
-    if (!activeTeamId || !userId) return;
+    if (!isTeamMode || !activeTeamId || !userId) {
+      realtimeClient.setContext({ teamId: null });
+      return;
+    }
+    realtimeClient.setContext({ teamId: activeTeamId });
 
-    const closeConn = () => {
-      if (esRef.current) {
+    const unsub = realtimeClient.subscribe((env: CollabEnvelope) => {
+      if (env.type === 'team_credits_changed') {
+        const p = env.payload as TeamCreditsChangedPayload;
+        if (!p?.teamId) return;
+        patchTeamCredits(p.teamId, p.availableCredits);
         try {
-          esRef.current.close();
+          window.dispatchEvent(new CustomEvent('team-credits-changed', { detail: p }));
         } catch {}
-        esRef.current = null;
-      }
-    };
-
-    const connect = () => {
-      closeConn();
-      const token = getAccessToken() ?? '';
-      const url = `${base}/api/team-realtime/teams/${activeTeamId}/stream?token=${encodeURIComponent(token)}`;
-      const es = new EventSource(url);
-      esRef.current = es;
-
-      es.addEventListener('team_credits_changed', (e: MessageEvent) => {
-        try {
-          const env = JSON.parse(e.data) as CollabEnvelope<TeamCreditsChangedPayload>;
-          const p = env.payload;
-          if (!p?.teamId) return;
-          patchTeamCredits(p.teamId, p.availableCredits);
-          // also notify any other listeners (e.g. ledger panels that want to refetch)
-          try {
-            window.dispatchEvent(
-              new CustomEvent('team-credits-changed', {
-                detail: p,
-              }),
-            );
-          } catch {}
-        } catch {}
-      });
-
-      es.addEventListener('user_credits_changed', () => {
+      } else if (env.type === 'user_credits_changed') {
         try {
           window.dispatchEvent(new CustomEvent('refresh-credits'));
         } catch {}
-      });
-
-      es.addEventListener('error', () => {
-        closeConn();
-        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
-      });
-    };
-
-    connect();
+      }
+    });
 
     return () => {
-      closeConn();
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = null;
-      }
+      unsub();
     };
-  }, [activeTeamId, userId, patchTeamCredits]);
+  }, [isTeamMode, activeTeamId, userId, patchTeamCredits]);
 }

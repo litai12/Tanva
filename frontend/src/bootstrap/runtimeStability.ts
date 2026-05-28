@@ -126,6 +126,13 @@ const getApiBase = (): string => {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+const isBrowserExtensionUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  return /^(chrome-extension|moz-extension|safari-extension|safari-web-extension|extension):\/\//i.test(
+    url
+  );
+};
+
 const toErrorInfo = (reason: unknown): { message: string; stack: string | null } => {
   if (reason instanceof Error) {
     return {
@@ -168,6 +175,9 @@ const reportRuntimeError = (
   if (!shouldEnableTelemetry) return;
   if (isTelemetryTemporarilyDisabled()) return;
   if (reportedErrorCount >= MAX_ERROR_REPORTS_PER_PAGE) return;
+  // Browser-extension failures are never the app's bug; skip them so they
+  // don't spawn perpetually-"pending" sendBeacon pings in DevTools.
+  if (isBrowserExtensionUrl(source) || isBrowserExtensionUrl(message.match(/(chrome|moz|safari(?:-web)?)-extension:\/\/\S+/i)?.[0])) return;
 
   const signature = `${kind}|${message}|${source ?? ""}`;
   if (seenErrorSignatures.has(signature)) return;

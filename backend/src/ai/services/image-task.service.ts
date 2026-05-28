@@ -1,4 +1,5 @@
-import { BadGatewayException, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { ImageTaskQueueService, type ImageTaskJobPayload } from './image-task-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation.service';
 import { OpenObserveTelemetryService } from '../../telemetry/openobserve-telemetry.service';
@@ -47,18 +48,20 @@ function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string
 
 function normalizeBananaRoute(
   value: unknown,
-): 'normal' | 'stable' | null {
+): 'normal' | 'stable' | 'ultra' | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === 'normal' || normalized === 'apimart') return 'normal';
   if (normalized === 'stable' || normalized === 'tencent') return 'stable';
+  if (normalized === 'ultra' || normalized === 'beqlee') return 'ultra';
   return null;
 }
 
 @Injectable()
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
+
 
   constructor(
     private readonly prisma: PrismaService,
@@ -67,6 +70,8 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    @Inject(forwardRef(() => ImageTaskQueueService))
+    private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
   ) {}
@@ -292,7 +297,7 @@ export class ImageTaskService {
 
   private resolveBananaImageRouteFromTaskRequestData(
     requestData: Record<string, any> | null,
-  ): 'normal' | 'stable' | null {
+  ): 'normal' | 'stable' | 'ultra' | null {
     if (!requestData) return null;
     return (
       normalizeBananaRoute(requestData.bananaImageRoute) ||
@@ -493,33 +498,32 @@ export class ImageTaskService {
       traceFlags: persistedTraceContext.traceFlags ?? 1,
     };
 
-    const task = await this.prisma.imageTask.create({
-      data: {
-        userId,
-        type,
-        prompt,
-        requestData: requestPayload,
-        aiProvider,
-        status: 'queued',
-        retryCount: 0,
-        nodeId: nodeId ?? null,
-      },
+    // 生成 taskId，完整 payload 进队列，DB 写入推迟到 worker 侧执行（削峰）
+    const taskId = crypto.randomUUID();
+
+    this.logger.log(`创建图像任务: taskId=${taskId}, type=${type}, userId=${userId}`);
+
+    await this.imageTaskQueue.addJob({
+      taskId,
+      userId,
+      type,
+      prompt,
+      requestData: requestPayload,
+      aiProvider,
+      nodeId: nodeId ?? null,
     });
 
-    this.logger.log(`创建图像任务: taskId=${task.id}, type=${type}, userId=${userId}`);
     void this.telemetryService.ingestGenerationTask({
       traceId: persistedTraceContext.traceId || null,
       parentRequestId: persistedTraceContext.parentRequestId || null,
-      taskId: task.id,
+      taskId,
       taskType: type,
       stage: 'queued',
       userId,
       provider: aiProvider || null,
       prompt: prompt?.slice(0, 500) || null,
       status: 'queued',
-      metadata: {
-        requestKeys: Object.keys(requestPayload),
-      },
+      metadata: { requestKeys: Object.keys(requestPayload) },
       receivedAt: new Date().toISOString(),
     });
 
@@ -528,18 +532,17 @@ export class ImageTaskService {
         ? ((requestData as any).projectId as string)
         : undefined;
     void this.publishTaskStatus(projectId, {
-      taskId: task.id,
+      taskId,
       nodeId: nodeId ?? null,
       taskType: type,
       status: 'queued',
     });
 
-    // 异步执行任务（不等待）
-    this.executeTask(task.id).catch((error) => {
-      this.logger.error(`任务执行失败: taskId=${task.id}, error=${error.message}`);
-    });
+    return { id: taskId, status: 'queued' as const };
+  }
 
-    return task;
+  async isTaskInQueue(taskId: string): Promise<boolean> {
+    return this.imageTaskQueue.hasJob(taskId);
   }
 
   /**
@@ -550,20 +553,59 @@ export class ImageTaskService {
       where: { id: taskId, userId },
     });
 
-    if (!task) {
-      throw new NotFoundException(`任务不存在: taskId=${taskId}`);
+    if (task) return task;
+
+    // DB 记录尚未写入（任务仍在队列中等待 worker 处理）
+    const inQueue = await this.imageTaskQueue.hasJob(taskId);
+    if (inQueue) {
+      return { id: taskId, status: 'queued', userId, createdAt: new Date(), updatedAt: new Date() };
     }
 
-    return task;
+    throw new NotFoundException(`任务不存在: taskId=${taskId}`);
   }
 
   /**
    * 执行图像生成任务
    */
-  private async executeTask(taskId: string): Promise<void> {
+  /** Worker 调用的入口（携带完整 payload，DB 写入在此进行） */
+  async executeTaskFromJob(payload: ImageTaskJobPayload): Promise<void> {
+    const { taskId, userId, type, prompt, requestData, aiProvider, nodeId } = payload;
+
+    // 幂等写入：若 job 被重投递，upsert 保证不重复创建
+    const task = await this.prisma.imageTask.upsert({
+      where: { id: taskId },
+      create: {
+        id: taskId,
+        userId,
+        type,
+        prompt,
+        requestData,
+        aiProvider,
+        status: 'queued',
+        retryCount: 0,
+        nodeId: nodeId ?? null,
+      },
+      update: {}, // 已存在则不覆盖
+    });
+
+    return this.executeTaskCore(task);
+  }
+
+  /** @deprecated 保留供直接按 ID 触发（管理后台等场景） */
+  async executeTaskById(taskId: string): Promise<void> {
     const task = await this.prisma.imageTask.findUnique({ where: { id: taskId } });
     if (!task) {
       this.logger.error(`任务不存在: taskId=${taskId}`);
+      return;
+    }
+    return this.executeTaskCore(task);
+  }
+
+  private async executeTaskCore(task: Awaited<ReturnType<typeof this.prisma.imageTask.findUniqueOrThrow>>): Promise<void> {
+    const taskId = task.id;
+
+    if (task.status === 'failed') {
+      this.logger.warn(`跳过已标记 failed 的任务: taskId=${taskId}, 原因可能是重启期间被 reconcile 清除`);
       return;
     }
 

@@ -470,6 +470,22 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if quota != 0 {
 			shouldRefund = true
 		}
+		other := taskBillingOther(task)
+		other["task_id"] = task.TaskID
+		if task.FailReason != "" {
+			other["fail_reason"] = task.FailReason
+		}
+		model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+			UserId:    task.UserId,
+			LogType:   model.LogTypeError,
+			Content:   fmt.Sprintf("task failed: %s", task.FailReason),
+			ChannelId: task.ChannelId,
+			ModelName: taskModelName(task),
+			Quota:     0,
+			TokenId:   task.PrivateData.TokenId,
+			Group:     task.Group,
+			Other:     other,
+		})
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)
 	}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeamStore } from '../stores/teamStore';
 import { getAccessToken } from '../services/authTokenStorage';
 import { fetchWithAuth } from '../services/authFetch';
+import { realtimeClient } from '../services/realtimeClient';
 import type {
   CollabEnvelope,
   CollabEventType,
@@ -51,6 +52,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   const connIdRef = useRef<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const patchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cursorLastSent = useRef<number>(0);
@@ -108,88 +110,42 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   }, []);
 
   const connect = useCallback(() => {
-    return; // SSE temporarily disabled
-    esRef.current?.close();
-    esRef.current = null;
-    const token = getAccessToken() ?? '';
-    const params = new URLSearchParams({
-      teamId: activeTeamId ?? '',
-      token,
-    });
-    if (lastSeqRef.current > 0) params.set('after', String(lastSeqRef.current));
-    const url = `${base}/api/canvas/${projectId}/stream?${params.toString()}`;
-    const es = new EventSource(url, { withCredentials: false });
-
-    const namedTypes: CollabEventType[] = [
-      'cursor',
-      'node_patch',
-      'node_lock',
-      'task_status',
-      'toast',
-      'presence_join',
-      'presence_leave',
-      'access_revoked',
-      'snapshot_required',
-    ];
-
-    es.addEventListener('connected', (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as ConnectedPayload;
-        connIdRef.current = data.connId;
-        setConnId(data.connId);
+    // 设置 project 上下文（realtimeClient 会用新参数重连，始终单连接）。
+    realtimeClient.setContext({ projectId: projectId || null });
+    const unsub = realtimeClient.subscribe((env: CollabEnvelope) => {
+      if (!env || typeof env.type !== 'string') return;
+      if (env.type === 'connected') {
+        const data = env.payload as ConnectedPayload;
         setConnected(true);
-        setDegraded(Boolean(data.degraded));
-        dispatch({
-          type: 'connected',
-          payload: data,
-          ts: Date.now(),
-        });
-      } catch {}
-    });
-
-    es.addEventListener('snapshot_required', (e: MessageEvent) => {
-      try {
-        const payload = JSON.parse(e.data ?? '{}');
+        setDegraded(Boolean(data?.degraded));
+        // 注意：connId 故意不写入 connIdRef（锁功能 v1 不启用，保持 no-op）。
+        dispatch({ type: 'connected', payload: data, ts: Date.now() });
+        return;
+      }
+      if (env.type === 'access_revoked') {
+        onAccessRevokedRef.current?.();
+        return;
+      }
+      if (env.type === 'snapshot_required') {
         onSnapshotRequiredRef.current?.();
-        dispatch({ type: 'snapshot_required', payload, ts: Date.now() });
-      } catch {}
+      }
+      // 抑制自己发出的事件
+      if (env.senderConnId && env.senderConnId === connIdRef.current) return;
+      dispatch(env);
     });
-
-    for (const t of namedTypes) {
-      if (t === 'snapshot_required') continue;
-      es.addEventListener(t, (e: MessageEvent) => {
-        try {
-          const env = JSON.parse(e.data) as CollabEnvelope;
-          if (env.senderConnId && env.senderConnId === connIdRef.current) return;
-          if (env.type === 'access_revoked') {
-            onAccessRevokedRef.current?.();
-            es.close();
-          }
-          dispatch(env);
-        } catch {}
-      });
-    }
-
-    es.addEventListener('error', () => {
-      setConnected(false);
-      try {
-        es.close();
-      } catch {}
-      esRef.current = null;
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
-    });
-
-    esRef.current = es;
-  }, [projectId, activeTeamId, dispatch]);
+    // 保存退订函数到 cleanupRef
+    cleanupRef.current = unsub;
+  }, [projectId, dispatch]);
 
   useEffect(() => {
     connect();
     return () => {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
       }
+      // 离开画布：清掉 project 上下文（团队连接仍由 useTeamRealtime 维持）
+      realtimeClient.setContext({ projectId: null });
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;
@@ -217,17 +173,12 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   const sendCursor = useCallback(
     (x: number, y: number, viewport?: { zoom?: number; offsetX?: number; offsetY?: number }) => {
-      if (!connIdRef.current) return;
       const now = Date.now();
       if (now - cursorLastSent.current < CURSOR_THROTTLE_MS) return;
       cursorLastSent.current = now;
-      fetchWithAuth(`${base}/api/canvas/${projectId}/cursor?teamId=${activeTeamId ?? ''}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y, viewport, connId: connIdRef.current }),
-      }).catch(() => undefined);
+      realtimeClient.send({ type: 'cursor', payload: { x, y, viewport } });
     },
-    [projectId, activeTeamId],
+    [],
   );
 
   const claimLock = useCallback(
