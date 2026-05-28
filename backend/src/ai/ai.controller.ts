@@ -60,7 +60,7 @@ import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { applyWatermarkToBase64 } from './services/watermark.util';
+import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 import {
   createAsyncTask,
@@ -602,6 +602,27 @@ export class AiController {
       this.logger.warn('Watermark failed, fallback to original image', error as any);
       return imageData;
     }
+  }
+
+  private async uploadImageDataToOss(
+    imageData: string,
+    req: any,
+    userId: string,
+  ): Promise<{ url: string; key: string; mimeType: string; bytes: number }> {
+    const payload = this.extractBase64Payload(imageData).replace(/\s+/g, '');
+    if (!payload) throw new BadGatewayException('生成图像数据为空，无法上传。');
+    let buffer = Buffer.from(payload, 'base64');
+    if (!buffer.length) buffer = Buffer.from(payload, 'base64url');
+    if (!buffer.length) throw new BadGatewayException('生成图像数据解码失败，无法上传。');
+
+    const watermarked = await this.watermarkBufferIfNeeded(buffer, req);
+    const { mimeType, extension } = this.inferImageMimeFromBuffer(watermarked);
+    const userTag = userId
+      ? require('crypto').createHash('sha1').update(String(userId)).digest('hex').slice(0, 8)
+      : 'anonymous';
+    const key = `uploads/ai/generated/${userTag}/${Date.now()}-${require('crypto').randomBytes(6).toString('hex')}.${extension}`;
+    const { url } = await this.oss.putBuffer(key, watermarked, mimeType);
+    return { url, key, mimeType, bytes: watermarked.length };
   }
 
   private extractBase64Payload(value: string): string {
@@ -2325,6 +2346,58 @@ export class AiController {
     return candidates;
   }
 
+  private async fetchImageBuffer(
+    imageUrl: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
+    const candidates = this.buildImageFetchCandidates(parsed);
+    const maxBytes = 30 * 1024 * 1024;
+    const errors: string[] = [];
+
+    for (const candidateUrl of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch(candidateUrl, { signal: controller.signal });
+        if (!response.ok) {
+          errors.push(`${candidateUrl} -> HTTP ${response.status}`);
+          continue;
+        }
+        const contentType = response.headers.get('content-type') || 'image/png';
+        if (!contentType.startsWith('image/')) {
+          errors.push(`${candidateUrl} -> invalid content-type: ${contentType}`);
+          continue;
+        }
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength && contentLength > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+          throw new BadRequestException('图片文件过大，请使用更小的图片（最大 30MB）');
+        }
+        return { buffer, contentType };
+      } catch (error: any) {
+        if (error?.name === 'AbortError') { errors.push(`${candidateUrl} -> timeout`); continue; }
+        if (error instanceof HttpException) throw error;
+        errors.push(`${candidateUrl} -> ${this.summarizeError(error)}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+    throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
+  }
+
+  private async watermarkBufferIfNeeded(buffer: Buffer, req: any): Promise<Buffer> {
+    const skip = await this.canSkipWatermark(req);
+    if (skip) return buffer;
+    try {
+      return await applyWatermarkToBuffer(buffer);
+    } catch {
+      return buffer;
+    }
+  }
+
   private async persistProviderImageUrlToManaged(
     imageUrl: string,
     req: any,
@@ -2342,17 +2415,22 @@ export class AiController {
       return { url: sourceImageUrl, sourceImageUrl, uploaded: false };
     }
 
-    const sourceImageDataUrl = await this.fetchImageAsDataUrl(sourceImageUrl);
-    const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
-    const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+    const { buffer, contentType } = await this.fetchImageBuffer(sourceImageUrl);
+    const watermarked = await this.watermarkBufferIfNeeded(buffer, req);
+    const { mimeType, extension } = this.inferImageMimeFromBuffer(watermarked);
+    const userTag = userId
+      ? require('crypto').createHash('sha1').update(String(userId)).digest('hex').slice(0, 8)
+      : 'anonymous';
+    const key = `uploads/ai/generated/${userTag}/${Date.now()}-${require('crypto').randomBytes(6).toString('hex')}.${extension}`;
+    const { url } = await this.oss.putBuffer(key, watermarked, contentType.startsWith('image/') ? contentType : mimeType);
 
     return {
-      url: upload.url,
+      url,
       sourceImageUrl,
       uploaded: true,
-      key: upload.key,
-      mimeType: upload.mimeType,
-      bytes: upload.size,
+      key,
+      mimeType,
+      bytes: watermarked.length,
     };
   }
 
@@ -3447,11 +3525,17 @@ export class AiController {
             });
             if (result.success && result.data) {
               if (result.data.imageData) {
-                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+                const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
                 return {
-                  imageData: watermarked,
+                  imageUrl: upload.url,
                   textResponse: result.data.textResponse || '',
-                  metadata: result.data.metadata,
+                  metadata: {
+                    ...(result.data.metadata || {}),
+                    imageUrl: upload.url,
+                    imageKey: upload.key,
+                    mimeType: upload.mimeType,
+                    bytes: upload.bytes,
+                  },
                 };
               }
 
@@ -3461,15 +3545,16 @@ export class AiController {
                 throw new BadGatewayException('编辑成功但未返回图片数据');
               }
 
-              const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
-              const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+              const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
               return {
-                imageData: watermarked,
+                imageUrl: managed.url,
                 textResponse: result.data.textResponse || '',
                 metadata: {
                   ...(result.data.metadata || {}),
+                  imageUrl: managed.url,
                   sourceImageUrl: providerImageUrl,
                   sourceImageUrls: providerImageUrls,
+                  ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
                 },
               };
             }
@@ -3525,7 +3610,7 @@ export class AiController {
         prompt: dto.prompt?.slice(0, 500) || null,
         status: 'succeeded',
         durationMs: Date.now() - startTime,
-        metadata: { model, serviceType, hasImageData: Boolean(result?.imageData) },
+        metadata: { model, serviceType, hasImageUrl: Boolean(result?.imageUrl) },
         receivedAt: new Date().toISOString(),
       });
       return result;
@@ -3691,11 +3776,17 @@ export class AiController {
             });
             if (result.success && result.data) {
               if (result.data.imageData) {
-                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+                const upload = await this.uploadImageDataToOss(result.data.imageData, req, userId);
                 return {
-                  imageData: watermarked,
+                  imageUrl: upload.url,
                   textResponse: result.data.textResponse || '',
-                  metadata: result.data.metadata,
+                  metadata: {
+                    ...(result.data.metadata || {}),
+                    imageUrl: upload.url,
+                    imageKey: upload.key,
+                    mimeType: upload.mimeType,
+                    bytes: upload.bytes,
+                  },
                 };
               }
 
@@ -3705,15 +3796,16 @@ export class AiController {
                 throw new BadGatewayException('融合成功但未返回图片数据');
               }
 
-              const sourceImageDataUrl = await this.fetchImageAsDataUrl(providerImageUrl);
-              const watermarked = await this.watermarkIfNeeded(sourceImageDataUrl, req);
+              const managed = await this.persistProviderImageUrlToManaged(providerImageUrl, req, userId);
               return {
-                imageData: watermarked,
+                imageUrl: managed.url,
                 textResponse: result.data.textResponse || '',
                 metadata: {
                   ...(result.data.metadata || {}),
+                  imageUrl: managed.url,
                   sourceImageUrl: providerImageUrl,
                   sourceImageUrls: providerImageUrls,
+                  ...(managed.uploaded ? { imageKey: managed.key, mimeType: managed.mimeType, bytes: managed.bytes } : {}),
                 },
               };
             }
@@ -3769,7 +3861,7 @@ export class AiController {
         prompt: dto.prompt?.slice(0, 500) || null,
         status: 'succeeded',
         durationMs: Date.now() - startTime,
-        metadata: { model, serviceType, hasImageData: Boolean(result?.imageData) },
+        metadata: { model, serviceType, hasImageUrl: Boolean(result?.imageUrl) },
         receivedAt: new Date().toISOString(),
       });
       return result;

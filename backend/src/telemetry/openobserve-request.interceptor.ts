@@ -24,6 +24,28 @@ type TraceableRequest = FastifyRequest & {
   routerPath?: string;
 };
 
+const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
+  if (value == null || value === '') return defaultValue;
+  return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
+};
+
+const shouldLogHeavyPayloadRequests = (): boolean =>
+  isEnabled(process.env.OPENOBSERVE_LOG_HEAVY_PAYLOAD_REQUESTS, false);
+
+const isHeavyPayloadPath = (path: string): boolean =>
+  /^\/api\/projects\/[^/]+\/content(?:[/?#]|$)/.test(path) ||
+  /^\/api\/uploads\/(?:image|video|transfer-video)(?:[/?#]|$)/.test(path);
+
+const shouldEmitRequestTelemetry = (path: string, statusCode: number): boolean => {
+  if (path.startsWith('/api/telemetry/')) return false;
+  if (statusCode >= 400) return true;
+  if (isHeavyPayloadPath(path) && !shouldLogHeavyPayloadRequests()) return false;
+  return true;
+};
+
+const shouldCaptureRequestBody = (path: string): boolean =>
+  !isHeavyPayloadPath(path);
+
 const toOriginInfo = (
   value: unknown,
 ): { origin: string | null; originHost: string | null } => {
@@ -78,14 +100,11 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
     const requestOrigin = originHeader.origin || refererHeader.origin;
     const requestOriginHost = originHeader.originHost || refererHeader.originHost;
 
-    // Avoid recursive logging from the telemetry ingestion endpoint itself.
-    if (path.startsWith('/api/telemetry/')) {
-      return next.handle();
-    }
-
-const emit = (statusCode: number) => {
+    const emit = (statusCode: number) => {
+      if (!shouldEmitRequestTelemetry(path, statusCode)) return;
       const user = request.user;
       const userId = user?.id || user?.userId || user?.sub || null;
+      const captureBody = shouldCaptureRequestBody(path);
       void this.openObserveTelemetryService.ingestBackendRequest({
         traceId,
         method: request.method,
@@ -99,7 +118,9 @@ const emit = (statusCode: number) => {
         requestId: request.id || null,
         headers: request.headers ? (request.headers as unknown as Record<string, unknown>) : null,
         query: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>) : null,
-        body: request.body ?? null,
+        body: captureBody
+          ? request.body ?? null
+          : { omitted: true, reason: 'heavy_payload_path' },
         receivedAt: new Date().toISOString(),
       });
     };

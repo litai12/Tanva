@@ -3253,6 +3253,7 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         clearMessages: () => {
+          pollingManager.stopAll();
           const currentMessages = get().messages;
           currentMessages.forEach((msg) => {
             if (msg.videoLocalUrl) {
@@ -4615,7 +4616,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "editImage progress interval start");
             const PROGRESS_MAX_EDIT = 95;
             const PROGRESS_INCREMENT_EDIT = PROGRESS_MAX_EDIT / 120; // 约0.79%每秒
-            const progressInterval = setInterval(() => {
+            pollingManager.start(aiMessageId, () => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -4623,7 +4624,7 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX_EDIT) {
-                clearInterval(progressInterval);
+                pollingManager.stop(aiMessageId);
                 return;
               }
 
@@ -4727,7 +4728,7 @@ export const useAIChatStore = create<AIChatState>()(
 
             let result = await editImageViaAPI(await buildEditRequest(modelToUse));
 
-            clearInterval(progressInterval);
+            pollingManager.stop(aiMessageId);
 
             logProcessStep(metrics, "editImage API response received");
 
@@ -5555,7 +5556,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "blendImages progress interval start");
             const PROGRESS_MAX_BLEND = 95;
             const PROGRESS_INCREMENT_BLEND = PROGRESS_MAX_BLEND / 120; // 约0.79%每秒
-            const progressInterval = setInterval(() => {
+            pollingManager.start(aiMessageId, () => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -5563,7 +5564,7 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX_BLEND) {
-                clearInterval(progressInterval);
+                pollingManager.stop(aiMessageId);
                 return;
               }
 
@@ -5603,7 +5604,7 @@ export const useAIChatStore = create<AIChatState>()(
             });
             logProcessStep(metrics, "blendImages API response received");
 
-            clearInterval(progressInterval);
+            pollingManager.stop(aiMessageId);
 
             if (result.success && result.data) {
               const imageRemoteUrl = getResultImageRemoteUrl(result.data);
@@ -6172,7 +6173,6 @@ export const useAIChatStore = create<AIChatState>()(
           }
           logProcessStep(metrics, "analyzeImage message prepared");
 
-          let progressInterval: ReturnType<typeof setInterval> | null = null;
           try {
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
@@ -6206,7 +6206,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "analyzeImage progress interval start");
             const PROGRESS_MAX_ANALYZE = 95;
             const PROGRESS_INCREMENT_ANALYZE = PROGRESS_MAX_ANALYZE / 120; // 约0.79%每秒
-            progressInterval = setInterval(() => {
+            pollingManager.start(aiMessageId, () => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -6214,10 +6214,7 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX_ANALYZE) {
-                if (progressInterval) {
-                  clearInterval(progressInterval);
-                  progressInterval = null;
-                }
+                pollingManager.stop(aiMessageId);
                 return;
               }
 
@@ -6266,10 +6263,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
             });
 
-            if (progressInterval) {
-              clearInterval(progressInterval);
-              progressInterval = null;
-            }
+            pollingManager.stop(aiMessageId);
             logProcessStep(metrics, "analyzeImage API response received");
 
             if (result.success && result.data) {
@@ -6324,9 +6318,7 @@ export const useAIChatStore = create<AIChatState>()(
             console.error("❌ 图片分析异常:", error);
             logProcessStep(metrics, "analyzeImage failed");
           } finally {
-            if (progressInterval) {
-              clearInterval(progressInterval);
-            }
+            pollingManager.stop(aiMessageId);
           }
         },
 
@@ -6448,7 +6440,7 @@ export const useAIChatStore = create<AIChatState>()(
             logProcessStep(metrics, "analyzePdf progress interval start");
             const PROGRESS_MAX_PDF = 95;
             const PROGRESS_INCREMENT_PDF = PROGRESS_MAX_PDF / 120; // 约0.79%每秒
-            const progressInterval = setInterval(() => {
+            pollingManager.start(aiMessageId, () => {
               const currentMessage = get().messages.find(
                 (m) => m.id === aiMessageId
               );
@@ -6456,7 +6448,7 @@ export const useAIChatStore = create<AIChatState>()(
                 currentMessage?.generationStatus?.progress ?? 0;
 
               if (currentProgress >= PROGRESS_MAX_PDF) {
-                clearInterval(progressInterval);
+                pollingManager.stop(aiMessageId);
                 return;
               }
 
@@ -6482,7 +6474,7 @@ export const useAIChatStore = create<AIChatState>()(
               aiProvider: state.aiProvider,
             });
 
-            clearInterval(progressInterval);
+            pollingManager.stop(aiMessageId);
             logProcessStep(metrics, "analyzePdf API response received");
 
             if (result.success && result.data) {

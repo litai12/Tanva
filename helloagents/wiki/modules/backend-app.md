@@ -10,6 +10,7 @@
 
 ## 关键行为
 - 请求体限制：`bodyLimit` 200MB（适配较大的项目内容请求）
+- OpenObserve 请求遥测默认跳过项目内容保存与上传接口的成功请求体，避免把大 JSON / multipart payload 再序列化一次；如需排查可临时设置 `OPENOBSERVE_LOG_HEAVY_PAYLOAD_REQUESTS=true`
 - CORS：支持 `trycloudflare.com` 子域名 + `CORS_ORIGIN` 白名单（逗号分隔）；`CORS_ORIGIN=*` 可放开所有来源（慎用生产），开发环境也可通过开关放开所有来源
 - Swagger：`/api/docs`（cookie auth 名为 `access_token`）
 - 代理：启动时用 undici `EnvHttpProxyAgent` 读取 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY/NO_PROXY`

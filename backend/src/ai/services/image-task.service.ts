@@ -1,4 +1,5 @@
-import { BadGatewayException, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { ImageTaskQueueService } from './image-task-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation.service';
 import { OpenObserveTelemetryService } from '../../telemetry/openobserve-telemetry.service';
@@ -60,6 +61,7 @@ function normalizeBananaRoute(
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
 
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageGenService: ImageGenerationService,
@@ -67,6 +69,8 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    @Inject(forwardRef(() => ImageTaskQueueService))
+    private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
   ) {}
@@ -534,10 +538,8 @@ export class ImageTaskService {
       status: 'queued',
     });
 
-    // 异步执行任务（不等待）
-    this.executeTask(task.id).catch((error) => {
-      this.logger.error(`任务执行失败: taskId=${task.id}, error=${error.message}`);
-    });
+    // 推入 BullMQ 队列，由 Worker 按并发限制执行
+    await this.imageTaskQueue.addJob(task.id);
 
     return task;
   }
@@ -560,7 +562,8 @@ export class ImageTaskService {
   /**
    * 执行图像生成任务
    */
-  private async executeTask(taskId: string): Promise<void> {
+  /** Worker 调用的入口，public 供 ImageTaskWorkerService 使用 */
+  async executeTaskById(taskId: string): Promise<void> {
     const task = await this.prisma.imageTask.findUnique({ where: { id: taskId } });
     if (!task) {
       this.logger.error(`任务不存在: taskId=${taskId}`);

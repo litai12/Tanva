@@ -8,7 +8,7 @@ type RefreshOptions = {
   force?: boolean;
 };
 
-const COOLDOWN_MS = 30000;
+const COOLDOWN_MS = 5 * 60 * 1000;
 const MAX_THUMBNAIL_SIZE = 6 * 1024 * 1024; // 6MB 上限，避免缩略图过大导致上传被拒
 const inFlight = new Set<string>();
 const lastTriggerAt = new Map<string, number>();

@@ -12,8 +12,10 @@ export type AuthFetchInit = RequestInit & {
 };
 
 let refreshPromise: Promise<boolean> | null = null;
+let creditsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const CREDITS_REFRESH_EVENT = "refresh-credits";
+const CREDITS_REFRESH_DEBOUNCE_MS = 1500;
 const SAFE_URL_BASE = "http://localhost";
 const CREDITS_AFFECTING_PATH_PATTERNS = [
   "/api/ai/",
@@ -74,7 +76,13 @@ const notifyCreditsRefreshIfNeeded = (
 ) => {
   if (typeof window === "undefined") return;
   if (!shouldNotifyCreditsRefresh(input, normalized, response)) return;
-  window.dispatchEvent(new CustomEvent(CREDITS_REFRESH_EVENT));
+  if (creditsRefreshTimer) {
+    clearTimeout(creditsRefreshTimer);
+  }
+  creditsRefreshTimer = setTimeout(() => {
+    creditsRefreshTimer = null;
+    window.dispatchEvent(new CustomEvent(CREDITS_REFRESH_EVENT));
+  }, CREDITS_REFRESH_DEBOUNCE_MS);
 };
 
 const refreshUrl =

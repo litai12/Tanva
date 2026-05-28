@@ -199,9 +199,9 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   }, [inviteCode]);
 
   useEffect(() => {
-    if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming) return;
+    if (!isOpen || tab !== 'wechat' || wechatSession || wechatLoading || wechatConsuming || wechatError) return;
     void loadWechatSession();
-  }, [isOpen, tab, wechatSession, wechatLoading, wechatConsuming, loadWechatSession]);
+  }, [isOpen, tab, wechatSession, wechatLoading, wechatConsuming, wechatError, loadWechatSession]);
 
   useEffect(() => {
     let timer: number | undefined;
@@ -351,6 +351,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   onClick={() => {
                     setWechatSession(null);
                     setWechatConsuming(false);
+                    setWechatError(null);
                     wechatConsumingRef.current = false;
                     void loadWechatSession();
                   }}
