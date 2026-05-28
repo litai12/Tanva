@@ -109,8 +109,9 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   const connect = useCallback(() => {
     return; // SSE temporarily disabled
-    if (esRef.current) {
-      esRef.current.close();
+    const currentEs = esRef.current;
+    if (currentEs) {
+      currentEs.close();
       esRef.current = null;
     }
     const token = getAccessToken() ?? '';
