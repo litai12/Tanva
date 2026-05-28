@@ -80,7 +80,7 @@ const CollabRoot: React.FC = () => {
       const now = Date.now();
       if (now - lastMouseSent.current < MOUSE_THROTTLE_MS) return;
       lastMouseSent.current = now;
-      collab.sendCursor(e.clientX, e.clientY);
+      // collab.sendCursor(e.clientX, e.clientY);
     };
     window.addEventListener('mousemove', handler, { passive: true });
     return () => window.removeEventListener('mousemove', handler);
