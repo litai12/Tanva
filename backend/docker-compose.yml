@@ -38,6 +38,8 @@ services:
     image: docker.1ms.run/library/redis:7-alpine
     container_name: tanva-new-api-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     volumes:
       - tanva_new_api_redis_data:/data
     healthcheck:
@@ -99,6 +101,7 @@ services:
       GENERATE_DEFAULT_TOKEN: ${NEW_API_GENERATE_DEFAULT_TOKEN:-false}
       MEMORY_CACHE_ENABLED: ${NEW_API_MEMORY_CACHE_ENABLED:-true}
       SYNC_FREQUENCY: ${NEW_API_SYNC_FREQUENCY:-60}
+      DEBUG: ${NEW_API_DEBUG:-true}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       http_proxy: ""
