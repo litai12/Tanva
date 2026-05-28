@@ -19,10 +19,10 @@ export class Seed3DService {
   ) {
     const baseUrl = (
       this.config.get<string>('NEW_API_BASE_URL') || 'http://localhost:4458'
-    ).replace(/\/+$/, '') + '/proxy/ark';
+    ).replace(/\/+$/, '');
 
-    this.submitUrl = `${baseUrl}/contents/generations/tasks`;
-    this.queryUrl = `${baseUrl}/contents/generations/tasks`;
+    this.submitUrl = `${baseUrl}/v1/video/generations`;
+    this.queryUrl = `${baseUrl}/v1/video/generations`;
     this.apiKey = (
       this.config.get<string>('NEW_API_KEY') ||
       this.config.get<string>('NEW_API_TOKEN') ||
@@ -118,26 +118,23 @@ export class Seed3DService {
       typeof params.imageUrl === 'string' ? params.imageUrl.trim() : '';
     const text = this.buildTaskText(params);
 
-    const content: Array<Record<string, any>> = [];
-    if (text) {
-      content.push({ type: 'text', text });
-    }
-    if (imageUrl) {
-      content.push({
-        type: 'image_url',
-        image_url: { url: imageUrl },
-      });
-    }
-    if (!content.length) {
+    if (!text && !imageUrl) {
       throw new ServiceUnavailableException('Seed3D request content is empty');
     }
 
-    const payload = {
+    // new-api TaskSubmitReq format: new-api doubao adaptor converts to Ark content array
+    const payload: Record<string, any> = {
       model: this.modelId,
-      content,
+      prompt: text,
     };
+    if (imageUrl) {
+      payload.image = imageUrl;
+    }
 
     const response = await this.requestJson(this.submitUrl, 'POST', payload);
+
+    // new-api returns OpenAI video format on success: { id, task_id, status, ... }
+    // or error: { error: { message, code } } / { message }
     const upstreamError = this.extractUpstreamError(response);
     if (upstreamError) {
       throw new ServiceUnavailableException(
@@ -145,7 +142,9 @@ export class Seed3DService {
       );
     }
 
-    const jobId = this.extractJobId(response);
+    const jobId =
+      (typeof response?.task_id === 'string' ? response.task_id : '') ||
+      (typeof response?.id === 'string' ? response.id : '');
     if (!jobId) {
       this.logger.error(
         `Seed3D submit missing task id, response=${JSON.stringify(response)}`,
@@ -164,31 +163,30 @@ export class Seed3DService {
 
     while (Date.now() < deadline) {
       const response = await this.requestJson(taskUrl, 'GET');
-      const status = this.extractStatus(response);
-      const modelUrl = this.extractModelUrl(response, sourceImageUrl);
-      if (modelUrl) return modelUrl;
 
-      if (status) {
-        if (this.isFailureStatus(status)) {
-          const upstreamError = this.extractUpstreamError(response);
-          throw new ServiceUnavailableException(
-            upstreamError
-              ? `Seed3D task failed: ${upstreamError}`
-              : `Seed3D task failed: ${status}`,
-          );
-        }
-        if (this.isSuccessStatus(status)) {
-          this.logger.error(
-            `Seed3D task succeeded but model URL missing, jobId=${jobId}, response=${JSON.stringify(
-              response,
-            )}`,
-          );
-          throw new ServiceUnavailableException(
-            'Seed3D task finished but model URL is missing',
-          );
-        }
+      // new-api TaskDto response: { code: "success", data: { status, data, fail_reason, ... } }
+      const taskDto = response?.data;
+      const status: string = typeof taskDto?.status === 'string'
+        ? taskDto.status.toUpperCase()
+        : '';
+
+      if (status === 'SUCCESS') {
+        // task.Data holds the raw Ark JSON; extract 3D model URL from it
+        const rawArkData = taskDto?.data ?? null;
+        const modelUrl = this.extractModelUrl(rawArkData, sourceImageUrl);
+        if (modelUrl) return modelUrl;
+        this.logger.error(
+          `Seed3D task succeeded but model URL missing, jobId=${jobId}, rawData=${JSON.stringify(rawArkData)}`,
+        );
+        throw new ServiceUnavailableException('Seed3D task finished but model URL is missing');
       }
 
+      if (status === 'FAILURE') {
+        const reason = taskDto?.fail_reason || 'Task failed';
+        throw new ServiceUnavailableException(`Seed3D task failed: ${reason}`);
+      }
+
+      // QUEUED / IN_PROGRESS / SUBMITTED / unknown → keep polling
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
 
