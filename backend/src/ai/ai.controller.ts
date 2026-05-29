@@ -2210,6 +2210,20 @@ export class AiController {
     );
   }
 
+  /**
+   * 把图片 URL 规范化为上游可访问的公网 URL 并保留 SSRF 白名单校验，
+   * 但【不下载成 base64】—— 交给 new-api 自己 fetch + 缓存，省后端内存/带宽，
+   * 异步任务还能避免把 base64 塞进 BullMQ(Redis)和 requestData(DB)。
+   */
+  private resolveImageUrlForUpstream(urlValue: string): string {
+    const normalized = this.normalizeImageUrlForUpstream(urlValue);
+    if (normalized && /^https?:\/\//i.test(normalized)) {
+      // 复用与 fetchImageAsDataUrl 相同的白名单/SSRF 校验（纯解析，不发起下载）
+      this.parseAndValidateAllowedImageUrl(normalized);
+    }
+    return normalized;
+  }
+
   private normalizeImageUrlsForUpstream(urls: string[]): string[] {
     const out: string[] = [];
     for (const value of urls) {
@@ -3488,12 +3502,13 @@ export class AiController {
               sourceImage = fallbackUrl;
             }
           } else if (isMidjourney && fallbackUrl) {
-            // MJ: 直接使用 URL
-            sourceImage = fallbackUrl;
+            // MJ: 直接使用 URL（仍走规范化 + SSRF 白名单校验，不下载）
+            sourceImage = this.resolveImageUrlForUpstream(fallbackUrl);
           } else if (dto.sourceImage && !fallbackUrl) {
             sourceImage = dto.sourceImage;
           } else if (fallbackUrl) {
-            sourceImage = await this.fetchImageAsDataUrl(fallbackUrl);
+            // 不再下载成 base64，直接把 URL 透传给上游（new-api 自己 fetch+缓存）
+            sourceImage = this.resolveImageUrlForUpstream(fallbackUrl);
           }
 
           if (!sourceImage) {
@@ -3737,13 +3752,11 @@ export class AiController {
               ? dto.sourceImageUrls
               : []
             : dto.sourceImages?.length
-            ? await Promise.all(
-                dto.sourceImages.map(async (value) =>
-                  /^https?:\/\//i.test(value) ? this.fetchImageAsDataUrl(value) : value,
-                ),
+            ? dto.sourceImages.map((value) =>
+                /^https?:\/\//i.test(value) ? this.resolveImageUrlForUpstream(value) : value,
               )
             : dto.sourceImageUrls?.length
-            ? await Promise.all(dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url)))
+            ? dto.sourceImageUrls.map((url) => this.resolveImageUrlForUpstream(url))
             : [];
 
           if (!sourceImages.length) {
@@ -7004,10 +7017,10 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 如果提供了 URL，先下载图片
+    // 提供 URL 时直接透传（不下载成 base64），避免把大 base64 塞进 BullMQ/DB
     let sourceImage = dto.sourceImage;
     if (dto.sourceImageUrl && !sourceImage) {
-      sourceImage = await this.fetchImageAsDataUrl(dto.sourceImageUrl);
+      sourceImage = this.resolveImageUrlForUpstream(dto.sourceImageUrl);
     }
 
     const task = await this.imageTaskService.createTask(
@@ -7041,12 +7054,10 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 如果提供了 URL，先下载图片
+    // 提供 URL 时直接透传（不下载成 base64），避免把大 base64 塞进 BullMQ/DB
     let sourceImages = dto.sourceImages || [];
     if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
-      sourceImages = await Promise.all(
-        dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url))
-      );
+      sourceImages = dto.sourceImageUrls.map((url) => this.resolveImageUrlForUpstream(url));
     }
 
     const task = await this.imageTaskService.createTask(
