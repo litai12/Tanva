@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   createAsyncTask,
@@ -28,11 +28,18 @@ export interface UpdateVideoTaskParams {
   completedAt?: Date;
 }
 
-const STUCK_TASK_TIMEOUT_MS = 40 * 60 * 1000; // 40 minutes
+const QUEUED_STUCK_MS = 40 * 60 * 1000; // queued 兜底超时（Redis job 可能还在，重启后 worker 会重投）
+const VIDEO_PROCESSING_STUCK_MS = 40 * 60 * 1000; // 视频/3D 生成可能较久，用较长阈值，避免误杀正常任务
+// 图像：worker 侧已有 15min 硬上限(race)+退款；这里取「硬上限 + 5min 上传缓冲」，只兜进程崩溃的孤儿，
+// 避免误杀「已出图、正在上传 OSS」尚未写完的任务（race 只包住生成，不包住上传/落库）。
+const IMAGE_PROCESSING_STUCK_MS =
+  Number(process.env.IMAGE_TASK_MAX_DURATION_MS ?? 15 * 60 * 1000) + 5 * 60 * 1000;
+const RECONCILE_INTERVAL_MS = 60 * 1000; // 每分钟扫一次，卡死/孤儿任务无需等下次重启即可被判失败
 
 @Injectable()
-export class GenerationTaskService implements OnModuleInit {
+export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(GenerationTaskService.name);
+  private reconcileTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,7 +48,16 @@ export class GenerationTaskService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // 启动即扫一次，之后每分钟扫一次：把卡死/孤儿任务判失败（进程常驻也能清理，无需等下次重启）。
+    // 用「比正常任务时长更宽」的阈值（见上方常量），避免多实例/滚动发布时误杀其它进程仍在跑的任务。
     await this.reconcileStuckTasks();
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcileStuckTasks();
+    }, RECONCILE_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
   }
 
   async createVideoTask(params: CreateVideoTaskParams): Promise<void> {
@@ -232,39 +248,41 @@ export class GenerationTaskService implements OnModuleInit {
 
 
   private async reconcileStuckTasks(): Promise<void> {
-    const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);
+    const now = Date.now();
+    // 每种任务用各自的阈值，且都比「正常最长耗时」更宽，纯粹兜底卡死/孤儿：
+    //   图像 processing：worker 硬上限 + 上传缓冲（约 20min）
+    //   视频 processing：40min（视频本就慢）
+    //   queued：40min（Redis job 可能还在，重启后 worker 会重投）
+    const queuedCutoff = new Date(now - QUEUED_STUCK_MS);
+    const videoProcessingCutoff = new Date(now - VIDEO_PROCESSING_STUCK_MS);
+    const imageProcessingCutoff = new Date(now - IMAGE_PROCESSING_STUCK_MS);
     try {
-      // `processing` → immediately orphan on startup regardless of age.
-      // The process died; there is no worker still running these tasks.
-      //
-      // `queued` → only orphan if stuck for > 40 min (Redis job may still exist
-      // and the worker will re-pick it up after restart).
       const { count: vProcessing } = await this.prisma.videoTask.updateMany({
-        where: { status: 'processing', updatedAt: { lt: cutoff } },
-        data: { status: 'failed', error: 'task orphaned after backend restart' },
+        where: { status: 'processing', updatedAt: { lt: videoProcessingCutoff } },
+        data: { status: 'failed', error: 'task stuck/orphaned, auto-failed' },
       });
       const { count: iProcessing } = await this.prisma.imageTask.updateMany({
-        where: { status: 'processing', updatedAt: { lt: cutoff } },
-        data: { status: 'failed', error: 'task orphaned after backend restart' },
+        where: { status: 'processing', updatedAt: { lt: imageProcessingCutoff } },
+        data: { status: 'failed', error: 'task stuck/orphaned, auto-failed' },
       });
       const { count: vQueued } = await this.prisma.videoTask.updateMany({
-        where: { status: 'queued', updatedAt: { lt: cutoff } },
-        data: { status: 'failed', error: 'task orphaned after backend restart' },
+        where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
+        data: { status: 'failed', error: 'task orphaned, auto-failed' },
       });
       const { count: iQueued } = await this.prisma.imageTask.updateMany({
-        where: { status: 'queued', updatedAt: { lt: cutoff } },
-        data: { status: 'failed', error: 'task orphaned after backend restart' },
+        where: { status: 'queued', updatedAt: { lt: queuedCutoff } },
+        data: { status: 'failed', error: 'task orphaned, auto-failed' },
       });
       const total = vProcessing + iProcessing + vQueued + iQueued;
       if (total > 0) {
         this.logger.warn(
-          `Reconciled orphaned tasks on startup:` +
+          `Reconciled stuck tasks:` +
           ` processing(video=${vProcessing} image=${iProcessing})` +
           ` stuck-queued(video=${vQueued} image=${iQueued})`,
         );
       }
     } catch (err) {
-      this.logger.error('Failed to reconcile stuck tasks on startup', err);
+      this.logger.error('Failed to reconcile stuck tasks', err);
     }
   }
 }

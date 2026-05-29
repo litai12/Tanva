@@ -14367,6 +14367,96 @@ function FlowInner() {
     });
   }, [nodes, pollHappyhorseTask]);
 
+  // 页面刷新后恢复：对仍处于 running 的图像节点，按其 taskId 取「一次」任务状态——
+  //   失败        → 标记 fail
+  //   succeeded   → 直接回填结果
+  //   queued/processing → 继续轮询直到拿到终态
+  // 不会重新触发生成，只读状态回写 UI。按 taskId 去重（recoveredTaskIdsRef），
+  // 因此增量水合出来的 running 节点也会被各自恢复一次。
+  // 非图像任务（视频等）的 /image-task 会 404 → 跳过、保持原状，避免被误判为失败。
+  const recoveredTaskIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const pending = nodes.filter((n) => {
+      const d = n.data as any;
+      return (
+        d?.status === "running" &&
+        typeof d?.taskId === "string" &&
+        d.taskId.trim().length > 0 &&
+        !recoveredTaskIdsRef.current.has(d.taskId.trim())
+      );
+    });
+    if (!pending.length) return;
+
+    // 终态回写：仅当该节点当前仍绑定同一个 taskId 时才覆盖，
+    // 避免覆盖用户在恢复期间对同一节点发起的新一轮生成（taskId 已变）。
+    const applyTerminal = (
+      nodeId: string,
+      taskId: string,
+      r: {
+        status: string;
+        imageUrl?: string;
+        thumbnailUrl?: string;
+        textResponse?: string;
+        error?: string;
+      },
+    ) => {
+      setNodes((prev: any[]) =>
+        prev.map((n) => {
+          if (n.id !== nodeId) return n;
+          const prevData = (n.data as any) || {};
+          if (prevData.taskId !== taskId) return n; // 已被新一轮生成替换
+          if (r.status === "succeeded") {
+            return {
+              ...n,
+              data: {
+                ...prevData,
+                status: "succeeded",
+                error: undefined,
+                ...(r.imageUrl ? { imageUrl: r.imageUrl } : {}),
+                ...(r.thumbnailUrl ? { thumbnail: r.thumbnailUrl } : {}),
+                ...(r.textResponse ? { textResponse: r.textResponse } : {}),
+              },
+            };
+          }
+          return {
+            ...n,
+            data: { ...prevData, status: "failed", error: r.error || "任务失败" },
+          };
+        }),
+      );
+    };
+
+    for (const node of pending) {
+      const nodeId = node.id;
+      const taskId = ((node.data as any).taskId as string).trim();
+      // 标记为已尝试恢复（每个 taskId 只恢复一次，避免对视频等 404 任务反复请求）
+      recoveredTaskIdsRef.current.add(taskId);
+      void (async () => {
+        const once = await queryImageTaskStatusViaAPI(taskId);
+        if (!once.success || !once.data) {
+          // 取不到状态（多为视频等非 /image-task 任务，或任务已不存在）——保持原状，不误判
+          return;
+        }
+        const s = once.data.status;
+        if (s === "succeeded" || s === "failed" || s === "cancelled") {
+          applyTerminal(nodeId, taskId, once.data);
+          return;
+        }
+        // queued / processing：继续轮询直到终态
+        try {
+          const { waitForTask } = await import("@/utils/imageTaskPoller");
+          const r = await waitForTask(taskId, 15 * 60 * 1000, nodeId);
+          applyTerminal(nodeId, taskId, r);
+        } catch (e) {
+          applyTerminal(nodeId, taskId, {
+            status: "failed",
+            error: e instanceof Error ? e.message : "任务恢复超时",
+          });
+        }
+      })();
+    }
+  }, [nodes, setNodes]);
+
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(

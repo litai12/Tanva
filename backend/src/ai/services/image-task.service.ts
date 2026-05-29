@@ -62,6 +62,10 @@ function normalizeBananaRoute(
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
 
+  // 单个图像任务最大执行时长，超过即判定卡死并标记失败（默认 15 分钟，可用环境变量覆盖）
+  private static readonly TASK_MAX_DURATION_MS = Number(
+    process.env.IMAGE_TASK_MAX_DURATION_MS ?? 15 * 60 * 1000,
+  );
 
   constructor(
     private readonly prisma: PrismaService,
@@ -498,14 +502,12 @@ export class ImageTaskService {
       traceFlags: persistedTraceContext.traceFlags ?? 1,
     };
 
-    // 同步执行：不再经过 BullMQ 队列，直接在本次请求内完成生成与落库。
-    // executeTaskFromJob 会 upsert DB 记录并执行生成，其内部已捕获所有异常并把
-    // 失败状态写入 DB（不会向外抛出），因此这里执行完读取终态即可。
+    // 生成 taskId，完整 payload 进队列，DB 写入推迟到 worker 侧执行（削峰）
     const taskId = crypto.randomUUID();
 
-    this.logger.log(`创建图像任务(同步执行): taskId=${taskId}, type=${type}, userId=${userId}`);
+    this.logger.log(`创建图像任务: taskId=${taskId}, type=${type}, userId=${userId}`);
 
-    await this.executeTaskFromJob({
+    await this.imageTaskQueue.addJob({
       taskId,
       userId,
       type,
@@ -515,17 +517,32 @@ export class ImageTaskService {
       nodeId: nodeId ?? null,
     });
 
-    const finalTask = await this.prisma.imageTask.findUnique({ where: { id: taskId } });
-    const status = (finalTask?.status as string | undefined) ?? 'failed';
+    void this.telemetryService.ingestGenerationTask({
+      traceId: persistedTraceContext.traceId || null,
+      parentRequestId: persistedTraceContext.parentRequestId || null,
+      taskId,
+      taskType: type,
+      stage: 'queued',
+      userId,
+      provider: aiProvider || null,
+      prompt: prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: { requestKeys: Object.keys(requestPayload) },
+      receivedAt: new Date().toISOString(),
+    });
 
-    return {
-      id: taskId,
-      status,
-      imageUrl: finalTask?.imageUrl ?? null,
-      thumbnailUrl: finalTask?.thumbnailUrl ?? null,
-      textResponse: finalTask?.textResponse ?? null,
-      error: finalTask?.error ?? null,
-    };
+    const projectId =
+      typeof (requestData as any)?.projectId === 'string'
+        ? ((requestData as any).projectId as string)
+        : undefined;
+    void this.publishTaskStatus(projectId, {
+      taskId,
+      nodeId: nodeId ?? null,
+      taskType: type,
+      status: 'queued',
+    });
+
+    return { id: taskId, status: 'queued' as const };
   }
 
   async isTaskInQueue(taskId: string): Promise<boolean> {
@@ -540,7 +557,39 @@ export class ImageTaskService {
       where: { id: taskId, userId },
     });
 
-    if (task) return task;
+    if (task) {
+      // 孤儿/卡死兜底：创建已超过最大时长（默认 15min）却仍未结束的任务，前端查询时直接判失败。
+      // 进程崩溃/重启会让 worker 来不及写终态、DB 行卡在 processing；这里在轮询时纠正。
+      if (task.status === 'processing' || task.status === 'queued') {
+        const ageMs = Date.now() - new Date(task.createdAt).getTime();
+        if (ageMs > ImageTaskService.TASK_MAX_DURATION_MS) {
+          const reason = `任务超过 ${Math.round(
+            ImageTaskService.TASK_MAX_DURATION_MS / 60000,
+          )} 分钟未完成，已判定为孤儿任务`;
+          // 原子翻转：只有真正把它从 queued/processing 改成 failed 的那一次请求负责退款，
+          // 避免多个并发轮询重复退款。
+          const { count } = await this.prisma.imageTask.updateMany({
+            where: { id: taskId, status: { in: ['queued', 'processing'] } },
+            data: { status: 'failed', error: reason, completedAt: new Date() },
+          });
+          if (count === 1) {
+            const apiUsageId = (task.requestData as any)?.apiUsageId;
+            if (typeof apiUsageId === 'string' && apiUsageId.trim()) {
+              try {
+                await this.creditsService.refundCredits(task.userId, apiUsageId.trim());
+                this.logger.warn(`孤儿任务已判失败并退款: taskId=${taskId}`);
+              } catch (err) {
+                this.logger.warn(`孤儿任务退款失败: taskId=${taskId}, error=${err}`);
+              }
+            } else {
+              this.logger.warn(`孤儿任务已判失败（无 apiUsageId，未退款）: taskId=${taskId}`);
+            }
+          }
+          return { ...task, status: 'failed', error: reason };
+        }
+      }
+      return task;
+    }
 
     // DB 记录尚未写入（任务仍在队列中等待 worker 处理）
     const inQueue = await this.imageTaskQueue.hasJob(taskId);
@@ -591,8 +640,12 @@ export class ImageTaskService {
   private async executeTaskCore(task: Awaited<ReturnType<typeof this.prisma.imageTask.findUniqueOrThrow>>): Promise<void> {
     const taskId = task.id;
 
-    if (task.status === 'failed') {
-      this.logger.warn(`跳过已标记 failed 的任务: taskId=${taskId}, 原因可能是重启期间被 reconcile 清除`);
+    // 幂等闸门：只处理 queued 的任务。已 succeeded/processing/failed 的行直接跳过，
+    // 避免重启后积压的旧 job 重投递时重复生成、重复预扣积分（double-charge）。
+    if (task.status !== 'queued') {
+      this.logger.warn(
+        `跳过非 queued 任务: taskId=${taskId}, status=${task.status}（重复投递或重启 reconcile 所致）`,
+      );
       return;
     }
 
@@ -716,35 +769,52 @@ export class ImageTaskService {
             receivedAt: new Date().toISOString(),
           });
 
-          let result: any;
+          const generate = async (): Promise<any> => {
+            switch (taskType) {
+              case 'generate':
+                return await this.runGenerateTask(task, taskRequestData || {}, model);
+              case 'edit': {
+                const editProvider = this.providerFactory.getProvider(model, 'new-api');
+                const editResult = await editProvider.editImage(taskRequestData as any);
+                if (!editResult?.success || !editResult?.data) {
+                  throw new Error(editResult?.error?.message || 'Failed to edit image');
+                }
+                return { imageData: editResult.data.imageData, imageUrl: editResult.data.imageUrl, textResponse: editResult.data.textResponse || '' };
+              }
+              case 'blend': {
+                const blendProvider = this.providerFactory.getProvider(model, 'new-api');
+                const blendResult = await blendProvider.blendImages(taskRequestData as any);
+                if (!blendResult?.success || !blendResult?.data) {
+                  throw new Error(blendResult?.error?.message || 'Failed to blend images');
+                }
+                return { imageData: blendResult.data.imageData, imageUrl: blendResult.data.imageUrl, textResponse: blendResult.data.textResponse || '' };
+              }
+              case 'expand':
+                throw new Error('扩图功能暂未实现异步模式');
+              default:
+                throw new Error(`不支持的任务类型: ${taskType}`);
+            }
+          };
 
-          switch (taskType) {
-            case 'generate':
-              result = await this.runGenerateTask(task, taskRequestData || {}, model);
-              break;
-            case 'edit': {
-              const editProvider = this.providerFactory.getProvider(model, 'new-api');
-              const editResult = await editProvider.editImage(taskRequestData as any);
-              if (!editResult?.success || !editResult?.data) {
-                throw new Error(editResult?.error?.message || 'Failed to edit image');
-              }
-              result = { imageData: editResult.data.imageData, imageUrl: editResult.data.imageUrl, textResponse: editResult.data.textResponse || '' };
-              break;
-            }
-            case 'blend': {
-              const blendProvider = this.providerFactory.getProvider(model, 'new-api');
-              const blendResult = await blendProvider.blendImages(taskRequestData as any);
-              if (!blendResult?.success || !blendResult?.data) {
-                throw new Error(blendResult?.error?.message || 'Failed to blend images');
-              }
-              result = { imageData: blendResult.data.imageData, imageUrl: blendResult.data.imageUrl, textResponse: blendResult.data.textResponse || '' };
-              break;
-            }
-            case 'expand':
-              throw new Error('扩图功能暂未实现异步模式');
-            default:
-              throw new Error(`不支持的任务类型: ${taskType}`);
-          }
+          // 最大时长上限：生图超过该时长即判定为卡死，抛错走下方 catch（标记 failed + 退款 + 释放 worker 槽位）。
+          const timeoutMs = ImageTaskService.TASK_MAX_DURATION_MS;
+          let timeoutHandle: NodeJS.Timeout | undefined;
+          const result: any = await Promise.race([
+            generate(),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `图像生成超时（超过 ${Math.round(timeoutMs / 60000)} 分钟），已自动判定为失败`,
+                    ),
+                  ),
+                timeoutMs,
+              );
+            }),
+          ]).finally(() => {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          });
 
           const taskImagePayload =
             typeof result?.imageUrl === 'string' && /^https?:\/\//i.test(result.imageUrl)
