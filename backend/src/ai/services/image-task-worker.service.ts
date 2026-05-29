@@ -12,7 +12,7 @@ export class ImageTaskWorkerService implements OnModuleInit, OnModuleDestroy {
   // 固定并发：不再按内存动态夹取（旧逻辑在容器里常被夹到 1，导致任务全部卡在 queued）。
   // 也不再挂 BullMQ 限流器——并发只由这个固定值决定。
   private static readonly CONCURRENCY = Number(
-    process.env.IMAGE_TASK_MAX_CONCURRENT ?? 100,
+    process.env.IMAGE_TASK_MAX_CONCURRENT ?? 1000000,
   );
 
   constructor(
