@@ -6949,22 +6949,6 @@ export class AiController {
     return result;
   }
 
-  /**
-   * 批量按画布节点 ID 查询任务状态，用于页面刷新后恢复生成任务
-   */
-  @Post('tasks/by-nodes')
-  async batchQueryTasksByNodes(
-    @Body() body: { nodeIds: string[] },
-    @Req() req: any,
-  ) {
-    if (!this.generationTaskService) {
-      return {};
-    }
-    const nodeIds: string[] = Array.isArray(body?.nodeIds) ? body.nodeIds : [];
-    if (nodeIds.length === 0) return {};
-    const userId = this.getUserId(req) ?? 'anonymous';
-    return this.generationTaskService.batchQueryByNodeIds(nodeIds, userId);
-  }
 
   /**
    * 异步图像生成 - 创建任务

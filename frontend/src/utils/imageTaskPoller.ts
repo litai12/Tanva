@@ -1,11 +1,10 @@
 /**
- * Global image-task polling pool.
+ * Per-task image-task polling.
  *
- * All callers register a taskId and receive a Promise that resolves when the
- * task reaches a terminal state.  A single shared interval fires one batch
- * request (POST /api/ai/tasks/by-ids) for every pending taskId — regardless
- * of how many tasks are in flight — so the browser never opens more than one
- * connection for polling.
+ * Every caller registers a taskId and receives a Promise that resolves when the
+ * task reaches a terminal state. Each task runs its OWN independent polling loop
+ * (GET /api/ai/image-task/:taskId) — one slow or stuck task no longer holds back
+ * the others, and there is no shared batch request that all tasks must wait on.
  */
 
 import { fetchWithAuth } from "@/services/authFetch";
@@ -36,80 +35,54 @@ const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 
 const pending = new Map<string, PendingEntry>();
-let loopRunning = false;
 
-// TEMP DEBUG (remove after diagnosing duplicate-poll): ids we've already resolved
-// as terminal. If one is ever re-sent in a later tick, something re-registered it.
-const _debugTerminal = new Set<string>();
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function tick() {
-  if (pending.size === 0) return;
+/**
+ * Independent polling loop for a single task. Exits when the task reaches a
+ * terminal state (resolve), times out (reject), or is cancelled (silent — the
+ * entry is gone from `pending`, so we just stop without settling the promise).
+ *
+ * The loop is bound to the exact `entry` it was started for: every check is an
+ * identity comparison against `pending.get(taskId)`, not a mere presence check.
+ * If the task is cancelled and then re-registered (a new entry) while a request
+ * is still in flight, this stale loop sees a different object and exits without
+ * touching the new registration's promise.
+ */
+async function pollOne(taskId: string, entry: PendingEntry) {
+  while (pending.get(taskId) === entry) {
+    let result: TaskPollResult | null = null;
 
-  const taskIds = [...pending.keys()];
-
-  // TEMP DEBUG
-  const _reSent = taskIds.filter((id) => _debugTerminal.has(id));
-  if (_reSent.length) {
-    console.warn("[poller] re-sent already-terminal taskIds:", _reSent);
-  }
-  console.debug("[poller] tick → taskIds:", taskIds);
-
-  let results: Record<string, TaskPollResult | null> = {};
-
-  try {
-    const res = await fetchWithAuth(`${API_BASE_URL}/ai/tasks/by-ids`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskIds }),
-    });
-    if (res.ok) {
-      results = (await res.json()) as Record<string, TaskPollResult | null>;
+    try {
+      const res = await fetchWithAuth(
+        `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}`,
+        { method: "GET" },
+      );
+      if (res.ok) {
+        result = (await res.json()) as TaskPollResult;
+      }
+      // !res.ok (e.g. transient 404 while the DB record is still being written,
+      // or a 5xx) → leave the entry alive and retry on the next tick.
+    } catch {
+      // network error — leave the entry alive for the next tick
     }
-  } catch {
-    // network error — leave all entries alive for the next tick
-  }
 
-  // TEMP DEBUG
-  console.debug(
-    "[poller] tick ← statuses:",
-    Object.fromEntries(
-      taskIds.map((id): [string, string] => [id, results[id]?.status ?? "(absent)"]),
-    ),
-  );
+    // The entry may have been cancelled (or replaced) while we awaited.
+    if (pending.get(taskId) !== entry) return;
 
-  const now = Date.now();
-  for (const [taskId, entry] of pending) {
-    const r = results[taskId];
-
-    if (r && TERMINAL.has(r.status)) {
-      _debugTerminal.add(taskId); // TEMP DEBUG
-      entry.resolve(r);
+    if (result && TERMINAL.has(result.status)) {
       pending.delete(taskId);
-      continue;
+      entry.resolve(result);
+      return;
     }
 
-    if (now >= entry.deadlineAt) {
+    if (Date.now() >= entry.deadlineAt) {
+      pending.delete(taskId);
       entry.reject(new Error(`Task ${taskId} timed out`));
-      pending.delete(taskId);
+      return;
     }
-  }
-}
 
-/** Sequential loop: wait for response, then wait interval, then repeat. */
-async function runLoop() {
-  loopRunning = true;
-  while (pending.size > 0) {
-    await tick();
-    if (pending.size > 0) {
-      await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
-  }
-  loopRunning = false;
-}
-
-function ensureRunning() {
-  if (!loopRunning) {
-    void runLoop();
+    await sleep(POLL_INTERVAL_MS);
   }
 }
 
@@ -122,17 +95,10 @@ export function waitForTask(
   timeoutMs = DEFAULT_TIMEOUT_MS,
   ownerId?: string,
 ): Promise<TaskPollResult> {
-  // TEMP DEBUG (remove after diagnosing duplicate-poll): catch re-registration
-  // of an already-completed task, with a stack trace pointing at the caller.
-  if (_debugTerminal.has(taskId)) {
-    console.warn(
-      `[poller] waitForTask re-registers already-terminal task ${taskId} (owner=${ownerId})`,
-      new Error("re-register stack").stack,
-    );
-  }
   const existing = pending.get(taskId);
   if (existing) {
-    // Extend deadline if this caller wants to wait longer
+    // Already polling — extend the deadline if this caller wants longer, and
+    // chain onto the existing promise so every waiter is settled together.
     existing.deadlineAt = Math.max(existing.deadlineAt, Date.now() + timeoutMs);
     if (ownerId) existing.ownerId = ownerId;
     return new Promise((resolve, reject) => {
@@ -143,22 +109,19 @@ export function waitForTask(
     });
   }
 
+  let entry!: PendingEntry;
   const p = new Promise<TaskPollResult>((resolve, reject) => {
-    pending.set(taskId, {
-      resolve,
-      reject,
-      deadlineAt: Date.now() + timeoutMs,
-      ownerId,
-    });
+    entry = { resolve, reject, deadlineAt: Date.now() + timeoutMs, ownerId };
+    pending.set(taskId, entry);
   });
 
-  ensureRunning();
+  void pollOne(taskId, entry);
   return p;
 }
 
 /**
  * Remove a taskId from the pool without resolving/rejecting its promise.
- * The sequential loop exits on its own once `pending` is empty.
+ * Its polling loop exits on the next iteration once the entry is gone.
  */
 export function cancelTask(taskId: string) {
   pending.delete(taskId);
@@ -166,9 +129,9 @@ export function cancelTask(taskId: string) {
 
 /**
  * Remove every pending task whose ownerId is in the given set — used when the
- * owning canvas nodes are deleted, so their taskIds stop participating in the
- * shared by-ids poll (even for flows like generate4 whose per-slot taskIds are
- * never written back onto node.data). Same silent-removal contract as cancelTask.
+ * owning canvas nodes are deleted, so their taskIds stop being polled (even for
+ * flows like generate4 whose per-slot taskIds are never written back onto
+ * node.data). Same silent-removal contract as cancelTask.
  * Returns the number of entries removed.
  */
 export function cancelTasksByOwner(ownerIds: Iterable<string>): number {

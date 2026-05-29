@@ -19,7 +19,8 @@ import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ImageTaskService } from './services/image-task.service';
 import { ImageTaskQueueService } from './services/image-task-queue.service';
-import { ImageTaskWorkerService } from './services/image-task-worker.service';
+// ImageTaskWorkerService 已停用：图像任务改为同步执行（createTask 内联生成），
+// 不再经过 BullMQ 队列，故不再注册该 worker——彻底移除其并发限制。
 import { GenerationTaskService } from './services/generation-task.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
@@ -76,7 +77,6 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     ModelRoutingService,
     ImageTaskService,
     ImageTaskQueueService,
-    ImageTaskWorkerService,
     GenerationTaskService,
     ApiKeyOrJwtGuard,
   ],

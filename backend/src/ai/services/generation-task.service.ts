@@ -3,7 +3,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   createAsyncTask,
   updateAsyncTask,
-  getAsyncTaskResult,
 } from './async-video-task.store';
 import { CollabEventBus } from '../../team-collab/collab-event-bus.service';
 import { CollabEventLog } from '../../team-collab/collab-event-log.service';
@@ -27,17 +26,6 @@ export interface UpdateVideoTaskParams {
   result?: Record<string, any>;
   error?: string;
   completedAt?: Date;
-}
-
-export interface GenerationTaskRecord {
-  taskId: string;
-  nodeId: string | null;
-  category: 'image' | 'video';
-  taskType: string;
-  status: string;
-  result: Record<string, any> | null;
-  error: string | null;
-  updatedAt: Date;
 }
 
 const STUCK_TASK_TIMEOUT_MS = 40 * 60 * 1000; // 40 minutes
@@ -242,77 +230,6 @@ export class GenerationTaskService implements OnModuleInit {
     return result;
   }
 
-  async batchQueryByNodeIds(
-    nodeIds: string[],
-    userId: string,
-  ): Promise<Record<string, GenerationTaskRecord | null>> {
-    const limited = nodeIds.slice(0, 50);
-    const result: Record<string, GenerationTaskRecord | null> = {};
-    for (const id of limited) result[id] = null;
-
-    const [videoTasks, imageTasks] = await Promise.all([
-      this.prisma.videoTask.findMany({
-        where: { nodeId: { in: limited }, userId },
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.imageTask.findMany({
-        where: { nodeId: { in: limited }, userId },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-
-    // Video tasks take precedence over image tasks for the same nodeId.
-    // Both queries are ordered by createdAt desc, so the first match per nodeId is always the most recent.
-    for (const t of videoTasks) {
-      if (!t.nodeId || result[t.nodeId] !== null) continue;
-      const memTask = getAsyncTaskResult(t.id);
-      const liveStatus =
-        memTask?.status === 'completed'
-          ? 'succeeded'
-          : memTask?.status === 'failed'
-          ? 'failed'
-          : memTask?.status === 'processing'
-          ? 'processing'
-          : memTask?.status === 'pending'
-          ? 'queued'
-          : t.status;
-
-      result[t.nodeId] = {
-        taskId: t.id,
-        nodeId: t.nodeId,
-        category: 'video',
-        taskType: t.taskType,
-        status: liveStatus,
-        result: (memTask?.status === 'completed'
-          ? memTask.result
-          : t.result) as Record<string, any> | null,
-        error: memTask?.error ?? t.error,
-        updatedAt: t.updatedAt,
-      };
-    }
-
-    for (const t of imageTasks) {
-      if (!t.nodeId || result[t.nodeId] !== null) continue;
-      result[t.nodeId] = {
-        taskId: t.id,
-        nodeId: t.nodeId,
-        category: 'image',
-        taskType: t.type,
-        status: t.status,
-        result: t.imageUrl
-          ? {
-              imageUrl: t.imageUrl,
-              thumbnailUrl: t.thumbnailUrl,
-              textResponse: t.textResponse,
-            }
-          : null,
-        error: t.error,
-        updatedAt: t.updatedAt,
-      };
-    }
-
-    return result;
-  }
 
   private async reconcileStuckTasks(): Promise<void> {
     const cutoff = new Date(Date.now() - STUCK_TASK_TIMEOUT_MS);

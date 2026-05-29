@@ -498,12 +498,14 @@ export class ImageTaskService {
       traceFlags: persistedTraceContext.traceFlags ?? 1,
     };
 
-    // 生成 taskId，完整 payload 进队列，DB 写入推迟到 worker 侧执行（削峰）
+    // 同步执行：不再经过 BullMQ 队列，直接在本次请求内完成生成与落库。
+    // executeTaskFromJob 会 upsert DB 记录并执行生成，其内部已捕获所有异常并把
+    // 失败状态写入 DB（不会向外抛出），因此这里执行完读取终态即可。
     const taskId = crypto.randomUUID();
 
-    this.logger.log(`创建图像任务: taskId=${taskId}, type=${type}, userId=${userId}`);
+    this.logger.log(`创建图像任务(同步执行): taskId=${taskId}, type=${type}, userId=${userId}`);
 
-    await this.imageTaskQueue.addJob({
+    await this.executeTaskFromJob({
       taskId,
       userId,
       type,
@@ -513,32 +515,17 @@ export class ImageTaskService {
       nodeId: nodeId ?? null,
     });
 
-    void this.telemetryService.ingestGenerationTask({
-      traceId: persistedTraceContext.traceId || null,
-      parentRequestId: persistedTraceContext.parentRequestId || null,
-      taskId,
-      taskType: type,
-      stage: 'queued',
-      userId,
-      provider: aiProvider || null,
-      prompt: prompt?.slice(0, 500) || null,
-      status: 'queued',
-      metadata: { requestKeys: Object.keys(requestPayload) },
-      receivedAt: new Date().toISOString(),
-    });
+    const finalTask = await this.prisma.imageTask.findUnique({ where: { id: taskId } });
+    const status = (finalTask?.status as string | undefined) ?? 'failed';
 
-    const projectId =
-      typeof (requestData as any)?.projectId === 'string'
-        ? ((requestData as any).projectId as string)
-        : undefined;
-    void this.publishTaskStatus(projectId, {
-      taskId,
-      nodeId: nodeId ?? null,
-      taskType: type,
-      status: 'queued',
-    });
-
-    return { id: taskId, status: 'queued' as const };
+    return {
+      id: taskId,
+      status,
+      imageUrl: finalTask?.imageUrl ?? null,
+      thumbnailUrl: finalTask?.thumbnailUrl ?? null,
+      textResponse: finalTask?.textResponse ?? null,
+      error: finalTask?.error ?? null,
+    };
   }
 
   async isTaskInQueue(taskId: string): Promise<boolean> {
