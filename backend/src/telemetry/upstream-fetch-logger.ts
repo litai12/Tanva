@@ -17,7 +17,7 @@ const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
 };
 
 const shouldLogUpstreamRequests = (): boolean => {
-  return isEnabled(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, true);
+  return isEnabled(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, false);
 };
 
 const getOpenObserveEndpointPrefix = (): string | null => {

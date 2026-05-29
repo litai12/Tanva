@@ -17,23 +17,6 @@ services:
       timeout: 3s
       retries: 10
 
-  openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:v0.70.2
-    container_name: tanva-openobserve
-    restart: unless-stopped
-    ports:
-      - "5080:5080"
-    environment:
-      ZO_DATA_DIR: /data
-      ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-root@tanva.local}
-      ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-ChangeMe_123456}
-      ZO_COMPACT_DATA_RETENTION_DAYS: ${ZO_COMPACT_DATA_RETENTION_DAYS:-7}
-      ZO_LOCAL_MODE: "true"
-      ZO_BASE_URI: /openobserve
-      ZO_WEB_URL: https://test.tanvas.cn/openobserve
-    volumes:
-      - tanva_openobserve_data:/data
-
   redis:
     image: docker.1ms.run/library/redis:7-alpine
     container_name: tanva-new-api-redis
@@ -125,6 +108,5 @@ services:
 
 volumes:
   tanva_new_api_postgres_data:
-  tanva_openobserve_data:
   tanva_new_api_redis_data:
   tanva_new_api_data:

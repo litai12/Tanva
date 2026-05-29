@@ -350,7 +350,7 @@ export class OpenObserveTelemetryService {
   }
 
   private shouldSend(): boolean {
-    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
+    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), false);
   }
 
   private getBackendRequestBodyMaxLength(): number {
