@@ -558,33 +558,22 @@ export class ImageTaskService {
     });
 
     if (task) {
-      // 孤儿/卡死兜底：创建已超过最大时长（默认 15min）却仍未结束的任务，前端查询时直接判失败。
-      // 进程崩溃/重启会让 worker 来不及写终态、DB 行卡在 processing；这里在轮询时纠正。
+      // 孤儿/卡死兜底：创建已超过最大时长（默认 15min）却仍未结束的任务，前端查询时直接判失败，
+      // 让前端停止轮询。进程崩溃/重启会让 worker 来不及写终态、DB 行卡在 processing；这里在轮询时纠正。
+      // 说明：这里只纠正状态、不退款——活进程里超时的任务由 worker 的 15min race 负责退款；
+      // 进程崩溃导致的孤儿退款是已知缺口（worker 自扣的 apiUsageId 未落库），见对话中的后续跟进。
       if (task.status === 'processing' || task.status === 'queued') {
         const ageMs = Date.now() - new Date(task.createdAt).getTime();
         if (ageMs > ImageTaskService.TASK_MAX_DURATION_MS) {
           const reason = `任务超过 ${Math.round(
             ImageTaskService.TASK_MAX_DURATION_MS / 60000,
           )} 分钟未完成，已判定为孤儿任务`;
-          // 原子翻转：只有真正把它从 queued/processing 改成 failed 的那一次请求负责退款，
-          // 避免多个并发轮询重复退款。
-          const { count } = await this.prisma.imageTask.updateMany({
+          // 原子翻转，避免并发轮询重复处理。
+          await this.prisma.imageTask.updateMany({
             where: { id: taskId, status: { in: ['queued', 'processing'] } },
             data: { status: 'failed', error: reason, completedAt: new Date() },
           });
-          if (count === 1) {
-            const apiUsageId = (task.requestData as any)?.apiUsageId;
-            if (typeof apiUsageId === 'string' && apiUsageId.trim()) {
-              try {
-                await this.creditsService.refundCredits(task.userId, apiUsageId.trim());
-                this.logger.warn(`孤儿任务已判失败并退款: taskId=${taskId}`);
-              } catch (err) {
-                this.logger.warn(`孤儿任务退款失败: taskId=${taskId}, error=${err}`);
-              }
-            } else {
-              this.logger.warn(`孤儿任务已判失败（无 apiUsageId，未退款）: taskId=${taskId}`);
-            }
-          }
+          this.logger.warn(`孤儿任务查询时判失败: taskId=${taskId}, age=${Math.round(ageMs / 1000)}s`);
           return { ...task, status: 'failed', error: reason };
         }
       }
@@ -841,8 +830,10 @@ export class ImageTaskService {
             }
           }
 
-          await this.prisma.imageTask.update({
-            where: { id: taskId },
+          // 仅当任务仍是 processing 时才写成功，避免覆盖「孤儿兜底/对账」已判定的 failed
+          // （生成接近 15min 上限、上传又拖过线时可能发生）。被判失败则丢弃这次迟到的成功结果。
+          const { count: succeededCount } = await this.prisma.imageTask.updateMany({
+            where: { id: taskId, status: 'processing' },
             data: {
               status: 'succeeded',
               imageUrl: persistedImageUrl,
@@ -851,6 +842,11 @@ export class ImageTaskService {
               completedAt: new Date(),
             },
           });
+
+          if (succeededCount === 0) {
+            this.logger.warn(`任务已被判失败，丢弃迟到的成功结果: taskId=${taskId}`);
+            return;
+          }
 
           void this.publishTaskStatus(
             taskRequestData?.projectId as string | undefined,
