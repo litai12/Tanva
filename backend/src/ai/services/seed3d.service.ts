@@ -164,15 +164,18 @@ export class Seed3DService {
     while (Date.now() < deadline) {
       const response = await this.requestJson(taskUrl, 'GET');
 
-      // new-api TaskDto response: { code: "success", data: { status, data, fail_reason, ... } }
-      const taskDto = response?.data;
-      const status: string = typeof taskDto?.status === 'string'
-        ? taskDto.status.toUpperCase()
-        : '';
+      // new-api 有两种 polling 响应格式：
+      // 1. { code: "success", data: { status, data, fail_reason, ... } }  (wrapped)
+      // 2. { id, status, content: [...], ... }                             (flat, Ark 原始透传)
+      const taskDto = response?.data ?? response;
+      const rawStatus: string = typeof taskDto?.status === 'string' ? taskDto.status : '';
+      const status = rawStatus.toUpperCase();
 
-      if (status === 'SUCCESS') {
-        // task.Data holds the raw Ark JSON; extract 3D model URL from it
-        const rawArkData = taskDto?.data ?? null;
+      this.logger.debug(`Seed3D poll jobId=${jobId} status=${status || '(empty)'}`);
+
+      if (status === 'SUCCESS' || status === 'SUCCEEDED') {
+        // wrapped 格式：task.Data 是 Ark 原始 JSON；flat 格式：直接从 response 提取 URL
+        const rawArkData = taskDto?.data ?? response;
         const modelUrl = this.extractModelUrl(rawArkData, sourceImageUrl);
         if (modelUrl) return modelUrl;
         this.logger.error(
@@ -181,8 +184,8 @@ export class Seed3DService {
         throw new ServiceUnavailableException('Seed3D task finished but model URL is missing');
       }
 
-      if (status === 'FAILURE') {
-        const reason = taskDto?.fail_reason || 'Task failed';
+      if (status === 'FAILURE' || status === 'FAILED') {
+        const reason = taskDto?.fail_reason || taskDto?.error || 'Task failed';
         throw new ServiceUnavailableException(`Seed3D task failed: ${reason}`);
       }
 

@@ -4088,6 +4088,15 @@ export const useAIChatStore = create<AIChatState>()(
                   fileName
                 );
 
+                // 已有远程 URL 时画布可直接加载，无需等待 OSS 上传完成
+                const canvasImagePayload =
+                  typeof imagePayload === "object" &&
+                  imagePayload !== null &&
+                  (imagePayload as any).pendingUpload === true &&
+                  /^https?:\/\//i.test(imageSrc)
+                    ? { ...(imagePayload as any), pendingUpload: false }
+                    : imagePayload;
+
                 // 优先使用占位框位置；让 quick upload 根据 placeholderId 查找并自适应
                 let smartPosition: { x: number; y: number } | undefined =
                   undefined;
@@ -4096,7 +4105,7 @@ export const useAIChatStore = create<AIChatState>()(
                 window.dispatchEvent(
                   new CustomEvent("triggerQuickImageUpload", {
                     detail: {
-                      imageData: imagePayload,
+                      imageData: canvasImagePayload,
                       fileName: fileName,
                       operationType: "generate",
                       smartPosition,
@@ -4921,6 +4930,13 @@ export const useAIChatStore = create<AIChatState>()(
                   imageSrc,
                   fileName
                 );
+                const canvasImagePayload =
+                  typeof imagePayload === "object" &&
+                  imagePayload !== null &&
+                  (imagePayload as any).pendingUpload === true &&
+                  /^https?:\/\//i.test(imageSrc)
+                    ? { ...(imagePayload as any), pendingUpload: false }
+                    : imagePayload;
 
                 // 🎯 获取当前选中图片的ID和边界信息用于智能排版
                 let selectedImageBounds = null;
@@ -4949,7 +4965,7 @@ export const useAIChatStore = create<AIChatState>()(
                 window.dispatchEvent(
                   new CustomEvent("triggerQuickImageUpload", {
                     detail: {
-                      imageData: imagePayload,
+                      imageData: canvasImagePayload,
                       fileName: fileName,
                       selectedImageBounds: selectedImageBounds, // 保持兼容性
                       operationType: isPreciseLocalEdit ? "precise-edit" : "edit",
@@ -5714,6 +5730,13 @@ export const useAIChatStore = create<AIChatState>()(
                   imageSrc,
                   fileName
                 );
+                const canvasImagePayload =
+                  typeof imagePayload === "object" &&
+                  imagePayload !== null &&
+                  (imagePayload as any).pendingUpload === true &&
+                  /^https?:\/\//i.test(imageSrc)
+                    ? { ...(imagePayload as any), pendingUpload: false }
+                    : imagePayload;
 
                 // 🎯 获取源图像ID列表用于智能排版
                 let sourceImageIds: string[] = [];
@@ -5731,7 +5754,7 @@ export const useAIChatStore = create<AIChatState>()(
                 window.dispatchEvent(
                   new CustomEvent("triggerQuickImageUpload", {
                     detail: {
-                      imageData: imagePayload,
+                      imageData: canvasImagePayload,
                       fileName: fileName,
                       operationType: "blend",
                       // 让 quick upload 根据 placeholderId/源图自动定位，避免跳到缓存链条位置

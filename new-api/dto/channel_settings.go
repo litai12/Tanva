@@ -7,6 +7,11 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// ImageUpstreamStream 让 Gemini 出图请求改用上游 streamGenerateContent(SSE)，
+	// 使上游响应头尽早返回（规避经 Cloudflare 代理时的 ~100s 524 超时）；
+	// new-api 仍在内部把 SSE 流收完后，向下游返回一次性 images JSON。
+	// 仅影响 Gemini imagine 出图链路（RelayModeImagesGenerations）。
+	ImageUpstreamStream bool `json:"image_upstream_stream,omitempty"`
 }
 
 type VertexKeyType string

@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1655,6 +1656,119 @@ func GeminiImagineImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 	if usage.TotalTokens <= 0 {
+		const imageTokens = 258
+		generatedImages := len(openAIResponse.Data)
+		usage = dto.Usage{
+			PromptTokens:     imageTokens * generatedImages,
+			CompletionTokens: 0,
+			TotalTokens:      imageTokens * generatedImages,
+		}
+	}
+
+	return &usage, nil
+}
+
+// imagineStreamScannerMaxBuffer 返回 SSE 单行最大缓冲。出图的 inlineData.data
+// 是整张图的 base64，可达数 MB，必须远大于 bufio 默认 64KB，否则 scanner 报
+// bufio.ErrTooLong。沿用 helper 的全局配置 StreamScannerMaxBufferMB。
+func imagineStreamScannerMaxBuffer() int {
+	if constant.StreamScannerMaxBufferMB > 0 {
+		return constant.StreamScannerMaxBufferMB << 20
+	}
+	return helper.DefaultMaxScannerBufferSize
+}
+
+// GeminiImagineImageStreamHandler 处理“上游 SSE、下游一次性 JSON”的出图链路：
+// 上游用 streamGenerateContent(SSE)让响应头尽早返回（规避经 Cloudflare 代理时的
+// ~100s 524），new-api 在内部把 SSE 流收完、累积所有 inlineData 图片块后，向下游
+// 返回与 GeminiImagineImageHandler 等价的一次性 images JSON。
+// 注意：本 handler 不写下游 SSE 头、不 ping，故不能复用 geminiStreamHandler。
+func GeminiImagineImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), imagineStreamScannerMaxBuffer())
+	scanner.Split(bufio.ScanLines)
+
+	openAIResponse := dto.ImageResponse{
+		Created: common.GetTimestamp(),
+		Data:    make([]dto.ImageData, 0),
+	}
+	var latestUsage dto.GeminiUsageMetadata
+	blockReason := ""
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(line[len("data:"):])
+		if payload == "" || strings.HasPrefix(payload, "[DONE]") {
+			continue
+		}
+
+		var chunk dto.GeminiChatResponse
+		if jsonErr := common.Unmarshal([]byte(payload), &chunk); jsonErr != nil {
+			// 单个 chunk 解析失败不应终止整条流；记录后继续。
+			logger.LogWarn(c, fmt.Sprintf("gemini imagine stream: skip malformed chunk: %s", jsonErr.Error()))
+			continue
+		}
+
+		if chunk.PromptFeedback != nil && chunk.PromptFeedback.BlockReason != nil {
+			blockReason = *chunk.PromptFeedback.BlockReason
+		}
+
+		for _, candidate := range chunk.Candidates {
+			for _, part := range candidate.Content.Parts {
+				if part.InlineData == nil || !strings.HasPrefix(part.InlineData.MimeType, "image/") {
+					continue
+				}
+				data := strings.TrimSpace(part.InlineData.Data)
+				if data == "" {
+					continue
+				}
+				openAIResponse.Data = append(openAIResponse.Data, dto.ImageData{
+					B64Json: data,
+				})
+			}
+		}
+
+		// usageMetadata 通常出现在末个 chunk；保留最后一个非零值。
+		if chunk.UsageMetadata.TotalTokenCount > 0 ||
+			chunk.UsageMetadata.CandidatesTokenCount > 0 ||
+			chunk.UsageMetadata.PromptTokenCount > 0 {
+			latestUsage = chunk.UsageMetadata
+		}
+	}
+
+	if scanErr := scanner.Err(); scanErr != nil {
+		return nil, types.NewOpenAIError(scanErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if len(openAIResponse.Data) == 0 {
+		if blockReason != "" {
+			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", blockReason))
+			return nil, types.NewOpenAIError(
+				errors.New("request blocked by Gemini API: "+blockReason),
+				types.ErrorCodePromptBlocked,
+				http.StatusBadRequest,
+			)
+		}
+		return nil, types.NewOpenAIError(errors.New("no images generated"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	jsonResponse, jsonErr := common.Marshal(openAIResponse)
+	if jsonErr != nil {
+		return nil, types.NewError(jsonErr, types.ErrorCodeBadResponseBody)
+	}
+
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.WriteHeader(resp.StatusCode)
+	_, _ = c.Writer.Write(jsonResponse)
+
+	usage := buildUsageFromGeminiMetadata(latestUsage, info.GetEstimatePromptTokens())
+	if usage.TotalTokens <= 0 {
+		// 与 GeminiImagineImageHandler 保持一致的兜底计费，避免流式/非流式不一致。
 		const imageTokens = 258
 		generatedImages := len(openAIResponse.Data)
 		usage = dto.Usage{

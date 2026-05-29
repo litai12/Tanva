@@ -231,8 +231,22 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if info.RelayMode == constant.RelayModeGemini {
 			info.DisablePing = true
 		}
+	} else if shouldStreamGeminiImagineImage(info) {
+		// 出图渠道开启 image_upstream_stream 时，对上游用 SSE 让响应头尽早返回，
+		// 规避经 Cloudflare 代理时的 ~100s 524；下游仍返回一次性 images JSON。
+		action = "streamGenerateContent?alt=sse"
 	}
 	return fmt.Sprintf("%s/%s/models/%s:%s", info.ChannelBaseUrl, version, info.UpstreamModelName, action), nil
+}
+
+// shouldStreamGeminiImagineImage 判断当前 Gemini imagine 出图请求是否走
+// “上游 SSE、下游一次性 JSON” 链路。GetRequestURL 与 DoResponse 共用此判断，
+// 注意：DoResponse 阶段 info.IsStream 会因上游 Content-Type 为 text/event-stream
+// 而被置为 true，故此处不依赖 info.IsStream。
+func shouldStreamGeminiImagineImage(info *relaycommon.RelayInfo) bool {
+	return info.RelayMode == constant.RelayModeImagesGenerations &&
+		model_setting.IsGeminiModelSupportImagine(info.UpstreamModelName) &&
+		info.ChannelSetting.ImageUpstreamStream
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
@@ -329,6 +343,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 	if info.RelayMode == constant.RelayModeImagesGenerations &&
 		model_setting.IsGeminiModelSupportImagine(info.UpstreamModelName) {
+		// 必须排在下方通用 stream 分支之前：上游为 SSE 时 info.IsStream 已被置 true，
+		// 但出图要把 SSE 收在 new-api 内部、向下游返回一次性 JSON。
+		if shouldStreamGeminiImagineImage(info) {
+			return GeminiImagineImageStreamHandler(c, info, resp)
+		}
 		return GeminiImagineImageHandler(c, info, resp)
 	}
 
