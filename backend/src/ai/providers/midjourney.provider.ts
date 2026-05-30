@@ -1100,7 +1100,144 @@ export class MidjourneyProvider implements IAIProvider {
     };
   }
 
+  // ===== 经 new-api task API 的受管出图（MIDJOURNEY_VIA_NEW_API=1）=====
+  // V7/Niji(type 64 优创适配器) 与 普通 MJ(type 65 mj-proxy 适配器) 统一走
+  // new-api 的 task API：POST /v1/video/generations → 轮询 /v1/video/generations/{id}。
+  // distributor 按 model 命中 abilities 选渠道，计费走 ModelPrice；上游真实密钥在面板。
+
+  // toNewApiImageUrls：把输入图(http 直接用 / base64 传 OSS)统一成 http URL。
+  private async toNewApiImageUrls(imageInputs: string[]): Promise<string[]> {
+    const urls: string[] = [];
+    for (const img of imageInputs) {
+      if (typeof img !== 'string' || !img.trim()) continue;
+      urls.push(await this.toPromptImageUrl(img));
+    }
+    return urls;
+  }
+
+  private async submitNewApiTask(
+    model: string,
+    prompt: string,
+    imageUrls: string[]
+  ): Promise<string> {
+    const url = `${this.newApiBaseUrl}/v1/video/generations`;
+    const body: Record<string, any> = {
+      model,
+      prompt: (prompt ?? '').replace(/\r?\n/g, ' ').trim(),
+    };
+    if (imageUrls.length > 0) body.images = imageUrls;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.newApiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      const msg =
+        data?.error?.message || data?.message ||
+        (typeof data?.error === 'string' ? data.error : undefined) ||
+        text || `HTTP ${res.status}`;
+      throw new Error(`MJ 提交失败：${msg}`);
+    }
+    const taskId =
+      data?.task_id || data?.id || data?.data?.task_id || data?.data?.id;
+    if (!taskId) {
+      throw new Error('new-api 未返回 task_id');
+    }
+    this.logger.log(`[Midjourney] new-api task submitted: ${taskId} (model=${model})`);
+    return String(taskId);
+  }
+
+  // 轮询 new-api task；返回合成的 MidjourneyTaskResponse 复用既有 OSS/响应逻辑。
+  private async pollNewApiImageTask(taskId: string): Promise<MidjourneyTaskResponse> {
+    for (let attempt = 1; attempt <= this.maxPollAttempts; attempt += 1) {
+      if (attempt > 1) {
+        await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
+      }
+      const res = await fetch(
+        `${this.newApiBaseUrl}/v1/video/generations/${encodeURIComponent(taskId)}`,
+        { headers: { Accept: 'application/json', Authorization: `Bearer ${this.newApiKey}` } }
+      );
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        this.logger.warn(`[Midjourney] new-api task fetch HTTP ${res.status}: ${text?.slice(0, 200)}`);
+        continue;
+      }
+      const task = data?.data ?? data;
+      const status = String(task?.status ?? '').toUpperCase();
+      const resultUrl = task?.result_url || task?.resultUrl || task?.url;
+      if (status === 'SUCCESS' || status === 'SUCCEEDED') {
+        if (!resultUrl) continue; // 状态成功但 URL 尚未就绪，继续轮询
+        return {
+          id: taskId,
+          action: 'diffusion',
+          status: 'SUCCESS',
+          imageUrl: resultUrl,
+          imageUrls: [resultUrl],
+        };
+      }
+      if (status === 'FAILURE' || status === 'FAILED') {
+        throw new Error(`MJ 任务失败：${task?.fail_reason || task?.failReason || '未知原因'}`);
+      }
+    }
+    throw new Error(`MJ 任务超时（等待 ${this.maxPollAttempts} 次后仍未完成），请稍后重试。`);
+  }
+
+  // runManagedImage：generate/edit/blend 经 new-api 受管路径的统一实现。
+  private async runManagedImage(
+    model: string,
+    prompt: string,
+    imageInputs: string[]
+  ): Promise<AIProviderResponse<ImageResult>> {
+    try {
+      const images = await this.toNewApiImageUrls(imageInputs);
+      const taskId = await this.submitNewApiTask(model, prompt, images);
+      const task = await this.pollNewApiImageTask(taskId);
+
+      const imageUrl = this.extractImageUrl(task);
+      const allImageUrls =
+        Array.isArray(task.imageUrls) && task.imageUrls.length > 0
+          ? task.imageUrls
+          : imageUrl
+          ? [imageUrl]
+          : [];
+      const ossUrls = await this.uploadImagesToOSS(allImageUrls);
+      const ossUrl =
+        ossUrls.find((u): u is string => typeof u === 'string' && u.trim().length > 0) || null;
+      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
+
+      return this.buildSuccessImageResponse(task, imageData, ossUrl, {}, ossUrls);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: { code: 'MIDJOURNEY_IMAGE_ERROR', message } };
+    }
+  }
+
   async generateImage(request: ImageGenerationRequest): Promise<AIProviderResponse<ImageResult>> {
+    if (this.viaNewApi) {
+      return this.runManagedImage(
+        request.model ?? 'midjourney-fast',
+        request.prompt ?? '',
+        Array.isArray(request.imageUrls) ? request.imageUrls : []
+      );
+    }
     try {
       const requestMode = this.resolveRequestMode(request.model);
       const payload = await this.buildImaginePayload(request, requestMode);
@@ -1143,6 +1280,13 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
+    if (this.viaNewApi) {
+      return this.runManagedImage(
+        request.model ?? 'midjourney-fast',
+        request.prompt ?? '',
+        request.sourceImage ? [request.sourceImage] : []
+      );
+    }
     try {
       const requestMode = this.resolveRequestMode(request.model);
 
@@ -1200,6 +1344,19 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
+    if (this.viaNewApi) {
+      if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
+        return {
+          success: false,
+          error: { code: 'MIDJOURNEY_IMAGE_ERROR', message: 'MJ Blend 至少需要两张图片进行融合。' },
+        };
+      }
+      return this.runManagedImage(
+        request.model ?? 'midjourney-fast',
+        request.prompt ?? '',
+        request.sourceImages
+      );
+    }
     try {
       const requestMode = this.resolveRequestMode(request.model);
       if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
