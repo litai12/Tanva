@@ -11,16 +11,19 @@ import { aiImageService } from "@/services/aiImageService";
 import { paperSandboxService } from "@/services/paperSandboxService";
 import { fetchWithAuth } from "@/services/authFetch";
 import {
-  generateImageViaAPI,
-  editImageViaAPI,
-  blendImagesViaAPI,
   analyzeImageViaAPI,
   generateTextResponseViaAPI,
   midjourneyActionViaAPI,
   generateVideoViaAPI,
   generateVideoAsyncAPI,
   querySora2VideoTaskViaAPI,
+  createImageGenerationTaskViaAPI,
+  createEditImageTaskViaAPI,
+  createBlendImagesTaskViaAPI,
+  pollImageTaskResult,
+  type AsyncImageTaskCreateResult,
 } from "@/services/aiBackendAPI";
+import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
   markVideoTaskSuccess,
@@ -73,6 +76,7 @@ import {
 import type { StoredImageAsset } from "@/types/canvas";
 import type {
   AIImageResult,
+  AIServiceResponse,
   BananaImageRoute,
   RunningHubGenerateOptions,
   AIProviderOptions,
@@ -106,6 +110,45 @@ let generatingImageCount = 0;
 
 const placeholderLogger = logger.scope("placeholder");
 
+/**
+ * 异步图像任务统一封装：创建任务 -> 轮询任务状态。
+ *
+ * AI 对话的生图/编辑/混合改走异步任务链路（create-task + poll），与
+ * flow/canvas 节点（FlowOverlay）保持一致，避免同步 /generate-image 长连接
+ * 被边缘网关（阿里云 ESA/SLB）在 ~3min 掐断、导致后端仍在跑却不退积分。
+ *
+ * 返回结构与旧的同步 *ViaAPI 完全一致（AIServiceResponse<AIImageResult>），
+ * 因此下游成功/失败处理无需改动。失败时积分由后端任务生命周期负责返还。
+ *
+ * @param createTask 创建任务的 thunk（generate/edit/blend 之一）
+ * @param ownerId    轮询归属 id（传 aiMessageId）：消息/会话被移除时可取消轮询
+ */
+async function runImageGenerationTask(
+  createTask: () => Promise<AIServiceResponse<AsyncImageTaskCreateResult>>,
+  ownerId: string,
+): Promise<AIServiceResponse<AIImageResult>> {
+  const createResult = await createTask();
+  if (!createResult.success || !createResult.data?.taskId) {
+    return {
+      success: false,
+      error:
+        createResult.error ?? {
+          code: "TASK_CREATE_FAILED",
+          message: "创建图像任务失败，请稍后重试。",
+          timestamp: new Date(),
+        },
+    };
+  }
+  // pollImageTaskResult 默认 15min 超时；失败/超时返回的 error.message 已含
+  // “积分将自动返还”提示，与后端退款语义一致。
+  return pollImageTaskResult(
+    createResult.data.taskId,
+    undefined,
+    undefined,
+    ownerId,
+  );
+}
+
 // 限制图片上传并发，避免同时 atob/encode/上传导致内存峰值
 const aiChatUploadLimiter = createAsyncLimiter(2);
 // 限制 AI 对话图片历史/缩略图处理并发，避免多图同时转码导致瞬时内存峰值
@@ -113,6 +156,11 @@ const aiChatHistoryLimiter = createAsyncLimiter(2);
 
 // AI Chat 并行图片生成并发上限（1-10，可通过 env 覆盖）
 const MAX_AI_IMAGE_PARALLEL_CONCURRENCY = 10;
+// 4K 大图的并发上限：异步链路下生成已下放后端，前端不再持有大图 base64，
+// 故无需把 4K 降到 1（那样就成了「一个个串行」）；但 N 张已完成的 4K 会同时
+// 驻留为画布栅格（单张 ~64MB 原始像素），所以给 4K 一个适中的并发上限，
+// 既保证「真正并行」又避免一次性落图造成内存峰值。
+const MAX_AI_IMAGE_4K_PARALLEL_CONCURRENCY = 4;
 const AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT = (() => {
   const raw = String(
     import.meta.env.VITE_AI_IMAGE_PARALLEL_CONCURRENCY ?? ""
@@ -3255,6 +3303,10 @@ export const useAIChatStore = create<AIChatState>()(
         clearMessages: () => {
           pollingManager.stopAll();
           const currentMessages = get().messages;
+          // 取消这些消息名下仍在进行的异步图像任务轮询：消息被清空后不应再
+          // 把生成结果写回（避免陈旧回写 / 误触画布落图）。取消即让对应的
+          // runImageGenerationTask 永不 settle、后续副作用不再执行。
+          cancelTasksByOwner(currentMessages.map((msg) => msg.id));
           currentMessages.forEach((msg) => {
             if (msg.videoLocalUrl) {
               revokeVideoObjectUrlForMessage(msg.id);
@@ -3470,8 +3522,16 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         deleteSession: async (sessionId) => {
+          // 删除会话前先收集其消息 id，删除后取消这些消息名下的异步图像任务
+          // 轮询，防止已删会话的生成结果陈旧回写。
+          const deletedMessageIds =
+            contextManager.getSession(sessionId)?.messages.map((m) => m.id) ??
+            [];
           const removed = contextManager.deleteSession(sessionId);
           if (!removed) return;
+          if (deletedMessageIds.length > 0) {
+            cancelTasksByOwner(deletedMessageIds);
+          }
 
           const activeId = contextManager.getCurrentSessionId();
           let nextMessages: ChatMessage[] = [];
@@ -3952,7 +4012,10 @@ export const useAIChatStore = create<AIChatState>()(
                     googleImageSearch: state.enableWebSearch,
                   };
 
-            const result = await generateImageViaAPI(generateRequest);
+            const result = await runImageGenerationTask(
+              () => createImageGenerationTaskViaAPI(generateRequest),
+              aiMessageId,
+            );
             logProcessStep(metrics, "generateImage API response received");
 
             pollingManager.stop(aiMessageId);
@@ -4735,7 +4798,11 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: prompt.substring(0, 50) + "...",
             });
 
-            let result = await editImageViaAPI(await buildEditRequest(modelToUse));
+            const editRequestForPrimary = await buildEditRequest(modelToUse);
+            let result = await runImageGenerationTask(
+              () => createEditImageTaskViaAPI(editRequestForPrimary),
+              aiMessageId,
+            );
 
             pollingManager.stop(aiMessageId);
 
@@ -4770,8 +4837,12 @@ export const useAIChatStore = create<AIChatState>()(
                 stage: "降级 Gemini 2.5 Flash",
               });
 
-              result = await editImageViaAPI(
-                await buildEditRequest(GEMINI_FLASH_IMAGE_MODEL)
+              const editRequestForFallback = await buildEditRequest(
+                GEMINI_FLASH_IMAGE_MODEL
+              );
+              result = await runImageGenerationTask(
+                () => createEditImageTaskViaAPI(editRequestForFallback),
+                aiMessageId,
               );
               logProcessStep(metrics, "editImage fallback response received");
 
@@ -5603,13 +5674,13 @@ export const useAIChatStore = create<AIChatState>()(
               state.bananaImageRoute
             );
 
-            const result = await blendImagesViaAPI({
+            const blendRequest = {
               prompt,
               sourceImageUrls,
               model: modelToUse,
               aiProvider: state.aiProvider,
               providerOptions,
-              outputFormat: "png",
+              outputFormat: "png" as const,
               aspectRatio: state.aspectRatio || undefined,
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
               thinkingLevel: state.thinkingLevel || undefined,
@@ -5617,7 +5688,11 @@ export const useAIChatStore = create<AIChatState>()(
               parallelGroupId: groupId,
               parallelGroupIndex: groupIndex,
               parallelGroupTotal: groupTotal,
-            });
+            };
+            const result = await runImageGenerationTask(
+              () => createBlendImagesTaskViaAPI(blendRequest),
+              aiMessageId,
+            );
             logProcessStep(metrics, "blendImages API response received");
 
             pollingManager.stop(aiMessageId);
@@ -8419,23 +8494,26 @@ export const useAIChatStore = create<AIChatState>()(
               console.warn("⚠️ [并行生成] 预创建画板占位符失败:", error);
             }
 
-            // ⚠️ 这里不要真正 Promise.all 并发：多张大图同时解码/转码会造成瞬时内存峰值。
-            // 改为限制并发执行（仍保留“批量生成”的 UX：先占位，后逐个完成）。
-            const deviceMemory =
-              typeof navigator !== "undefined"
-                ? (navigator as any).deviceMemory
-                : undefined;
-            const imageSize = state.imageSize ?? "1K";
-            const suggestedConcurrency =
-              imageSize === "4K" ||
-              (typeof deviceMemory === "number" && deviceMemory <= 4)
-                ? 1
-                : MAX_AI_IMAGE_PARALLEL_CONCURRENCY;
-            const concurrencyLimit = Math.min(
-              AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT,
-              suggestedConcurrency
+            // 生成阶段已改走异步任务链路：前端只负责「创建任务 + 轮询 URL」，
+            // 真正的生成与 OSS 上传在后端 worker（高并发）完成，浏览器在等待期间
+            // 不再持有大图 base64。因此 4K / 低内存设备也不需要把并发降到 1——
+            // 旧逻辑那样会让 N 张图变成「一个个串行生成」。
+            //
+            // 解码 / 上传 / 落图等内存敏感步骤另有独立限流（aiChatUploadLimiter、
+            // aiChatHistoryLimiter、ImageResourceManager 解码上限），不受这里的
+            // 生成并发影响。4K 仅保留一个适中的并发上限，避免一次性落入过多 4K
+            // 栅格造成内存峰值，但仍是「真正并行」而非串行。
+            const slotConcurrencyCap =
+              (state.imageSize ?? "1K") === "4K"
+                ? Math.min(
+                    AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT,
+                    MAX_AI_IMAGE_4K_PARALLEL_CONCURRENCY
+                  )
+                : AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT;
+            const concurrency = Math.max(
+              1,
+              Math.min(multiplier, slotConcurrencyCap)
             );
-            const concurrency = Math.max(1, Math.min(multiplier, concurrencyLimit));
 
             void (async () => {
               const results = await mapWithLimit(

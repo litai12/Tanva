@@ -566,6 +566,7 @@ const AIChatDialog: React.FC = () => {
         { label: "1K", value: "1K" },
       ];
     }
+    // 注意：0.5K 仅 gemini-3.1-flash-image 支持（512px），后端会把 "0.5K" 转成 API 需要的 "512"
     const sizes = [
       ...(isUltraMode ? [{ label: "0.5K", value: "0.5K" }] : []),
       { label: "1K", value: "1K" },

@@ -18,6 +18,7 @@ import {
   ToolSelectionRequest,
   ToolSelectionResult,
 } from './ai-provider.interface';
+import { normalizeGeminiImageSize } from '../image-size.util';
 
 // 图片生成/编辑链路上游可能跑很久（大图 + 4K），把 undici 默认 5 分钟
 // 的 headers/body 超时放宽到 20 分钟，避免在等上游时被本地 fetch 砍断。
@@ -619,8 +620,8 @@ export class NewApiProvider implements IAIProvider {
   }
 
   private normalizeResolution(value: unknown): string | undefined {
-    if (typeof value !== 'string' || !value.trim()) return undefined;
-    return value.trim();
+    // 前端的 "0.5K" 需转换成 Gemini API 实际枚举 "512"，否则上游返回 invalid argument
+    return normalizeGeminiImageSize(value);
   }
 
   private resolveImageCount(request: ImageGenerationRequest): number {

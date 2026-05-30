@@ -715,6 +715,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
       return [{ label: "1K", value: "1K" }];
     }
     if (providerMode === "ultra") {
+      // 0.5K（512px）仅 gemini-3.1-flash-image 支持，后端会把 "0.5K" 转成 API 需要的 "512"
       return [
         { label: "0.5K", value: "0.5K" },
         { label: "1K", value: "1K" },
