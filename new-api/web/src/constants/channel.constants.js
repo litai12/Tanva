@@ -204,6 +204,16 @@ export const CHANNEL_OPTIONS = [
     color: 'purple',
     label: 'Magic666',
   },
+  {
+    value: 64,
+    color: 'light-blue',
+    label: 'Youchuan',
+  },
+  {
+    value: 65,
+    color: 'cyan',
+    label: 'MJProxy',
+  },
 ];
 
 // Channel types that support upstream model list fetching in UI.

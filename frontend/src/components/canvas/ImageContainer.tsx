@@ -150,6 +150,50 @@ const ensureDataUrlString = (
     : `data:${mime};base64,${imageData}`;
 };
 
+type EditImageLikeResult = {
+  data?: { imageData?: string; imageUrl?: string } | null;
+} | null;
+
+/**
+ * 放置类：结果仅用于放到画布（triggerQuickImageUpload / handleQuickImageUploaded
+ * 既支持 base64 也支持远程 URL，且远程 URL 会跳过重复上传）。
+ * 后端 edit-image 现在只回传托管 OSS imageUrl（不再回传 base64 imageData，见 perf
+ * 提交“图片URL透传给上游”），故优先透传 imageUrl，避免无谓的下载/重传。
+ */
+const resolveEditedImageRef = (
+  result?: EditImageLikeResult,
+  mime: string = "image/png"
+): string | undefined => {
+  const data = result?.data;
+  if (!data) return undefined;
+  if (typeof data.imageData === "string" && data.imageData.trim()) {
+    return ensureDataUrlString(data.imageData, mime);
+  }
+  const url = typeof data.imageUrl === "string" ? data.imageUrl.trim() : "";
+  return url || undefined;
+};
+
+/**
+ * 像素处理类：结果会被 removeBackground(source:"base64") 或再次作为源图复用，
+ * 必须拿到真正的 dataURL。缺少 imageData 时经代理把 OSS URL 拉取转换为 dataURL；
+ * 转换失败则返回 undefined（严格，不兜底 URL），让调用方走自身的兜底或失败分支，
+ * 避免把不可被 base64 解码的 URL 传给下游导致更隐蔽的失败。
+ */
+const resolveEditedImageDataUrl = async (
+  result?: EditImageLikeResult,
+  mime: string = "image/png"
+): Promise<string | undefined> => {
+  const data = result?.data;
+  if (!data) return undefined;
+  if (typeof data.imageData === "string" && data.imageData.trim()) {
+    return ensureDataUrlString(data.imageData, mime);
+  }
+  const url = typeof data.imageUrl === "string" ? data.imageUrl.trim() : "";
+  if (!url) return undefined;
+  const dataUrl = await resolveImageToDataUrl(url, { preferProxy: true });
+  return dataUrl || undefined;
+};
+
 const normalizeImageSrc = (value?: string | null): string => {
   return toRenderableImageSrc(value) || "";
 };
@@ -1892,11 +1936,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           providerOptions: TEXT_EDIT_BANANA_PROVIDER_OPTIONS,
         });
 
-        if (!result.success || !result.data?.imageData) {
+        const editedImageData = resolveEditedImageRef(result);
+        if (!result.success || !editedImageData) {
           throw new Error(result.error?.message || "图片文字修改失败");
         }
-
-        const editedImageData = ensureDataUrlString(result.data.imageData);
         const centerPoint = {
           x: realTimeBounds.x + realTimeBounds.width / 2,
           y: realTimeBounds.y + realTimeBounds.height / 2,
@@ -1961,7 +2004,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       // 仅用于「一键抠图 / 一键分层(主体层)」的预处理模型优先级
       // 顺序：2.5 -> 3.1 -> 3 pro
       const BG_REMOVAL_MODELS = [
-        "gemini-2.5-flash-image",
+        "gemini-2.5-flash-image-preview",
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
       ] as const;
@@ -1998,12 +2041,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           imageOnly: true,
         });
 
-        if (editResult.success && editResult.data?.imageData) {
+        const preprocessed = editResult.success
+          ? await resolveEditedImageDataUrl(editResult, "image/png")
+          : undefined;
+        if (preprocessed) {
           selectedModel = model;
-          preprocessedImage = ensureDataUrlString(
-            editResult.data.imageData,
-            "image/png"
-          );
+          preprocessedImage = preprocessed;
           break;
         }
 
@@ -2239,7 +2282,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const extractBackgroundLayer = useCallback(
     async (baseImage: string): Promise<string> => {
-      const BG_EXTRACT_MODEL = "gemini-2.5-flash-image";
+      const BG_EXTRACT_MODEL = "gemini-2.5-flash-image-preview";
       const BG_EXTRACT_PROVIDER = "banana";
       const prompt =
         "去掉画面中的主体，只保留背景。保持背景内容、颜色、光影和风格不变，并自然补全被遮挡的区域。";
@@ -2253,11 +2296,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         imageOnly: true,
       });
 
-      if (!result.success || !result.data?.imageData) {
+      const extracted = resolveEditedImageRef(result, "image/png");
+      if (!result.success || !extracted) {
         throw new Error(result.error?.message || "背景提取失败");
       }
 
-      return ensureDataUrlString(result.data.imageData, "image/png");
+      return extracted;
     },
     []
   );
@@ -2281,7 +2325,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, []);
 
   const extractTextLayer = useCallback(async (baseImage: string): Promise<string> => {
-    const TEXT_LAYER_MODEL = "gemini-2.5-flash-image";
+    const TEXT_LAYER_MODEL = "gemini-2.5-flash-image-preview";
     const TEXT_LAYER_PROVIDER = "banana";
     const prompt =
       "提取出来图中的文字，保留文字和文字本身的颜色样式，图形都不要，背景留白色。";
@@ -2295,15 +2339,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageOnly: true,
     });
 
-    if (!result.success || !result.data?.imageData) {
+    const textLayer = resolveEditedImageRef(result, "image/png");
+    if (!result.success || !textLayer) {
       throw new Error(result.error?.message || "文字层提取失败");
     }
 
-    return ensureDataUrlString(result.data.imageData, "image/png");
+    return textLayer;
   }, []);
 
   const removeTextLayer = useCallback(async (baseImage: string): Promise<string> => {
-    const TEXT_REMOVE_MODEL = "gemini-2.5-flash-image";
+    const TEXT_REMOVE_MODEL = "gemini-2.5-flash-image-preview";
     const TEXT_REMOVE_PROVIDER = "banana";
     const prompt =
       "去掉画面中的所有文字与文字相关图形元素，保留主体、背景、构图、颜色和光影不变，并自然补全被遮挡的区域。";
@@ -2317,11 +2362,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageOnly: true,
     });
 
-    if (!result.success || !result.data?.imageData) {
+    const textless = result.success
+      ? await resolveEditedImageDataUrl(result, "image/png")
+      : undefined;
+    if (!result.success || !textless) {
       throw new Error(result.error?.message || "去文字处理失败");
     }
 
-    return ensureDataUrlString(result.data.imageData, "image/png");
+    return textless;
   }, []);
 
   const handleLayerSeparation = useCallback(
@@ -3185,14 +3233,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           thinkingLevel: chatState.thinkingLevel ?? undefined,
         });
 
-        if (!editResult.success || !editResult.data?.imageData) {
+        // 后端 edit-image 现在统一返回托管 OSS imageUrl（不再回传 base64 imageData），
+        // 放置到画布优先透传 URL（handleQuickImageUploaded 支持远程 URL 并跳过重复上传）。
+        const expandedImage = resolveEditedImageRef(editResult, "image/png");
+
+        if (!editResult.success || !expandedImage) {
           throw new Error(editResult.error?.message || "扩图失败");
         }
 
-        const finalImageUrl = ensureDataUrlString(
-          editResult.data.imageData,
-          "image/png"
-        );
+        const finalImageUrl = expandedImage;
 
         window.dispatchEvent(
           new CustomEvent("triggerQuickImageUpload", {
@@ -3345,15 +3394,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             imageOnly: true,
           });
 
-          if (!editResult.success || !editResult.data?.imageData) {
+          // 后端 edit-image 现在统一返回托管 OSS imageUrl（不再回传 base64 imageData），
+          // 放置到画布优先透传 URL（handleQuickImageUploaded 支持远程 URL 并跳过重复上传）。
+          const resultImageData = resolveEditedImageRef(editResult, "image/png");
+
+          if (!editResult.success || !resultImageData) {
             throw new Error(editResult.error?.message || "高清放大失败");
           }
-
-          const resultImageData = editResult.data.imageData.startsWith(
-            "data:image"
-          )
-            ? editResult.data.imageData
-            : `data:image/png;base64,${editResult.data.imageData}`;
 
           const fileName = `hd-4k-${Date.now()}.png`;
           window.dispatchEvent(

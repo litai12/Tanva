@@ -61,6 +61,8 @@ const (
 	ChannelTypeDummy          = 61 // this one is only for count, do not add any channel after this
 	ChannelTypeMagic666       = 62
 	ChannelType147AI          = 63
+	ChannelTypeYouchuan       = 64 // 悠船 Midjourney V7 / Niji 7 (task adaptor)
+	ChannelTypeMjProxy        = 65 // 标准 midjourney-proxy(如 147AI) 普通 MJ (task adaptor)
 
 )
 
@@ -129,6 +131,8 @@ var ChannelBaseURLs = []string{
 	"",                                          //61 (Dummy)
 	"http://152.53.38.70:3001",                 //62
 	"https://api.147ai.cn",                     //63
+	"https://ali.youchuan.cn",                  //64 (Youchuan)
+	"https://api.147ai.cn",                     //65 (MjProxy, e.g. 147AI)
 }
 
 var ChannelTypeNames = map[int]string{
@@ -191,6 +195,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeRightCode:      "RightCode",
 	ChannelTypeMagic666:       "Magic666",
 	ChannelType147AI:          "147AI",
+	ChannelTypeYouchuan:       "Youchuan",
+	ChannelTypeMjProxy:        "MJProxy",
 }
 
 func GetChannelTypeName(channelType int) string {
