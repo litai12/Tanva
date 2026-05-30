@@ -361,6 +361,8 @@ export class NewApiProvider implements IAIProvider {
     'gemini-3.1-image-blend': 'gemini-3.1-flash-image-preview',
     'gemini-3.1-image-analyze': 'gemini-3.1-flash-image-preview',
     'gemini-2.5-image': 'gemini-2.5-flash-image-preview',
+    // 兜底：裸名（无 -preview）规整为 new-api 实际配置的渠道模型名，避免 503 无可用渠道
+    'gemini-2.5-flash-image': 'gemini-2.5-flash-image-preview',
     'gemini-2.5-image-edit': 'gemini-2.5-flash-image-preview',
     'gemini-2.5-image-blend': 'gemini-2.5-flash-image-preview',
     'gemini-2.5-image-analyze': 'gemini-2.5-flash-image-preview',

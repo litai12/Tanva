@@ -12,6 +12,7 @@ import (
 // Route layout:
 //   /minimaxi/v1/*path      → kapon-speech channel  (minimax TTS, fixed path prefix)
 //   /v1/music_generation    → minimax-music channel  (minimax music, fixed path)
+//   /youchuan/*path         → youchuan channel       (x-youchuan-app/secret auth)
 //   /proxy/:name/*path      → GenericChannelProxy    (Bearer, looks up channel by name)
 //
 // The /proxy/tencent/* routes (TC3 signing) are registered separately in
@@ -29,6 +30,16 @@ func SetSpecialProxyRouter(router *gin.Engine) {
 	musicGroup.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
 	{
 		musicGroup.POST("/music_generation", controller.ProxyMinimaxMusic)
+	}
+
+	// Youchuan (Midjourney V7 / Niji 7): /youchuan/*path → ali.youchuan.cn/*path
+	// Injects x-youchuan-app / x-youchuan-secret (from the "youchuan" channel key
+	// stored as "appId|secret") instead of Bearer, so the backend's youchuan-mode
+	// requests (e.g. /v1/tob/diffusion, /v1/tob/job/{id}) get the right upstream auth.
+	youchuanGroup := router.Group("/youchuan")
+	youchuanGroup.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
+	{
+		youchuanGroup.Any("/*path", controller.ProxyYouchuan)
 	}
 
 	// Generic channel proxy: /proxy/:name/*path

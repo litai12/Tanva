@@ -69,6 +69,12 @@ export class MidjourneyProvider implements IAIProvider {
   private apiKey: string | null = null;
   private youchuanAppId: string | null = null;
   private youchuanSecretKey: string | null = null;
+  // 当 MIDJOURNEY_VIA_NEW_API=1 时，legacy(/mj/*) 与 youchuan(/v1/tob/*) 两类上游
+  // 都改走 new-api 网关：base_url 指向 new-api，鉴权用 Bearer NEW_API_KEY，
+  // 上游真实密钥(mj-api-secret / x-youchuan-app+secret)由 new-api 渠道面板持有。
+  private viaNewApi = false;
+  private newApiBaseUrl = '';
+  private newApiKey = '';
 
   constructor(
     private readonly config: ConfigService,
@@ -94,6 +100,34 @@ export class MidjourneyProvider implements IAIProvider {
     this.youchuanSecretKey = this.config.get<string>('YOUCHUAN_SECRET_KEY')?.trim() ?? null;
     this.apiKey = this.config.get<string>('MIDJOURNEY_API_KEY') ?? null;
 
+    this.viaNewApi =
+      String(this.config.get<string>('MIDJOURNEY_VIA_NEW_API') ?? '')
+        .trim()
+        .toLowerCase() === '1';
+    this.newApiBaseUrl = (
+      this.config.get<string>('NEW_API_BASE_URL') ?? 'http://localhost:4458'
+    )
+      .trim()
+      .replace(/\/$/, '');
+    this.newApiKey = (this.config.get<string>('NEW_API_KEY') ?? '').trim();
+
+    if (this.viaNewApi) {
+      if (!this.newApiKey) {
+        this.logger.warn(
+          'MIDJOURNEY_VIA_NEW_API=1 但缺少 NEW_API_KEY，Midjourney 请求无法通过 new-api 网关鉴权。'
+        );
+      }
+      // 经 new-api 时上游真实密钥由网关持有，本地不再强依赖 MIDJOURNEY_API_KEY /
+      // YOUCHUAN_* 是否配置。每个请求仍按模型在 legacy/youchuan 之间选路（决定
+      // base path 与 payload 形态），只是 base_url 与鉴权头改指向 new-api。
+      // authMode 仅作 ensureConfigured() 的兜底默认；实际选路由 resolveRequestMode 决定。
+      this.authMode = 'legacy';
+      this.logger.log(
+        `Midjourney provider: V7/Niji(youchuan) 经 new-api 网关 ${this.newApiBaseUrl}/youchuan/v1/tob/*；普通 MJ(legacy) 仍直连原生上游 ${this.apiBaseUrl}。`
+      );
+      return;
+    }
+
     if (this.apiKey) {
       this.authMode = 'legacy';
       this.logger.log(`Midjourney provider initialised with legacy 147 credentials (endpoint: ${this.apiBaseUrl}).`);
@@ -112,6 +146,10 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   private ensureConfigured(): MidjourneyAuthMode {
+    if (this.viaNewApi && this.newApiKey) {
+      return this.authMode ?? 'legacy';
+    }
+
     if (this.authMode === 'youchuan' && this.youchuanAppId && this.youchuanSecretKey) {
       return this.authMode;
     }
@@ -148,7 +186,15 @@ export class MidjourneyProvider implements IAIProvider {
 
   private resolveRequestMode(model?: string): MidjourneyAuthMode {
     if (this.shouldUseYouchuanModel(model)) {
-      if (!this.hasYouchuanCredentials()) {
+      // 经 new-api 时优创真实密钥由网关持有，本地无需 YOUCHUAN_* 凭据，
+      // 但必须有 NEW_API_KEY 才能向网关鉴权——缺失则快速失败，避免发出空 Bearer。
+      if (this.viaNewApi) {
+        if (!this.newApiKey) {
+          throw new ServiceUnavailableException(
+            'V7/Niji 7 已切换到 new-api 网关（MIDJOURNEY_VIA_NEW_API=1），但后端缺少 NEW_API_KEY，无法向网关鉴权。'
+          );
+        }
+      } else if (!this.hasYouchuanCredentials()) {
         throw new ServiceUnavailableException(
           'V7/Niji 7 模式需要配置 Youchuan 账号，但后端未配置（YOUCHUAN_APP_ID / YOUCHUAN_SECRET_KEY），请切换到 147 AI 账号或联系管理员配置。'
         );
@@ -164,6 +210,18 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   private buildRequestHeaders(mode: MidjourneyAuthMode): Record<string, string> {
+    // 经 new-api 的 youchuan(V7/Niji) 透传：用 Bearer NEW_API_KEY 向网关鉴权；
+    // 上游优创密钥(x-youchuan-app/secret)由 new-api 的 /youchuan 渠道注入。
+    // 说明：legacy(普通 MJ) 不走 new-api —— new-api 的 MJ relay 靠 webhook 回填
+    // 任务进度，而本 provider 是轮询模型，经标准 relay 会卡在 pending。
+    if (this.viaNewApi && mode === 'youchuan') {
+      return {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.newApiKey}`,
+      };
+    }
+
     if (mode === 'youchuan') {
       return {
         'Content-Type': 'application/json',
@@ -186,9 +244,17 @@ export class MidjourneyProvider implements IAIProvider {
     }
 
     // 根据 requestMode 使用不同的 base URL
-    const baseUrl = requestMode === 'youchuan'
-      ? (this.config.get<string>('YOUCHUAN_API_BASE_URL')?.trim() ?? 'https://ali.youchuan.cn')
-      : this.apiBaseUrl;
+    let baseUrl: string;
+    if (this.viaNewApi && requestMode === 'youchuan') {
+      // V7/Niji 经 new-api 的 /youchuan 透传(拼出 /youchuan/v1/tob/*)。
+      baseUrl = `${this.newApiBaseUrl}/youchuan`;
+    } else if (requestMode === 'youchuan') {
+      baseUrl =
+        this.config.get<string>('YOUCHUAN_API_BASE_URL')?.trim() ?? 'https://ali.youchuan.cn';
+    } else {
+      // legacy(普通 MJ) 始终直连原生上游，不经 new-api(见 buildRequestHeaders 注释)。
+      baseUrl = this.apiBaseUrl;
+    }
 
     return `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
   }
@@ -1303,6 +1369,7 @@ export class MidjourneyProvider implements IAIProvider {
 
   isAvailable(): boolean {
     return Boolean(
+      (this.viaNewApi && this.newApiKey) ||
       (this.authMode === 'youchuan' && this.youchuanAppId && this.youchuanSecretKey) ||
       (this.authMode === 'legacy' && this.apiKey)
     );
