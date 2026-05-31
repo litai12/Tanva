@@ -135,6 +135,7 @@ quota   = round(credits × 5000)
 | `Status` | `QUEUED`；`Progress` = `0%` |
 | `SubmitTime` / `CreatedAt` | 当前时间 |
 | `Properties` | `{UpstreamModelName, Resolution, Duration, AspectRatio}` |
+| `PrivateData` | `{TokenId, TokenKey}`（供失败退还时反向扣减 token；复用 `TaskPrivateData.TokenId` + `resolveTokenKey`） |
 | `Data` | 初始可空，成功后写结果 URL |
 
 **轮询时（观察到 `DescribeTaskDetail` 透传）** —— 这是被动镜像的关键：
@@ -146,10 +147,12 @@ quota   = round(credits × 5000)
    | 上游状态（小写归一） | TaskStatus | Progress | 备注 |
    |---|---|---|---|
    | finish/finished/success/succeed/.../done | `SUCCESS` | `100%` | 写 `FinishTime` + 结果 URL 到 `Data` |
-   | failed/fail/error/cancel/exception/timeout | `FAILURE` | `100%` | 写 `FailReason` |
+   | failed/fail/error/cancel/exception/timeout | `FAILURE` | `100%` | 写 `FailReason` + **退还创建时扣的 quota**（见下） |
    | 其余（处理中/空） | `IN_PROGRESS` | `50%` | 终态前一直处理中 |
 
    因为后端会一直轮到终态，**终态那次 poll 也经过 proxy**，所以 new-api 能观察到 success/fail 并据此收尾——不依赖自身轮询。
+
+**失败退还**：与 new-api 其他视频任务一致，镜像首次转入 `FAILURE` 时退还创建时扣的 quota：`model.IncreaseUserQuota(userId, task.Quota, true)` + `model.IncreaseTokenQuota(tokenId, tokenKey, task.Quota)`，并写一条退费日志（`RecordConsumeLog`，quota 取负 / 或 task 退费日志）。退还必须**幂等且只退一次**——用 `model.Task` 的状态机做 CAS（只在「非终态 → FAILURE」这一跳里退），重复 poll 不重复退；userId/tokenId/quota 从镜像行 `model.Task` 自身取（创建时已存），不依赖本次 poll 的 token 上下文。
 
 **关键：把 `tencent_vod` 排除出 new-api 自身的任务轮询器**。`service/task_polling.go` 的 `TaskPollingLoop` 会捞所有未完成任务按平台分发，default 分支走 `UpdateVideoTasks` → `GetTaskAdaptorFunc(platform)`，而 `tencent_vod` 没有注册适配器 → 会每轮报 `video adaptor not found` 且任务永不收尾。
 解决：在 `model.GetAllUnFinishSyncTasks` 查询里加 `platform != 'tencent_vod'`（new-api 不是这些任务的轮询者，统一由 proxy 被动镜像驱动）。`sweepTimedOutTasks` 的超时清理可保留（超时仍可置 FAILURE，作兜底），或一并排除——实现计划里二选一确认。
@@ -186,6 +189,7 @@ new-api TaskPollingLoop（自身轮询器）：跳过 platform=tencent_vod（不
 - 计费链路任何失败（解析、查表、扣费、日志）一律 `common.SysLog` 记录并**吞掉**，绝不改变对客户端/后端的透传响应。优先保证视频功能可用，统计可后补。
 - 上游非 2xx / 无 TaskId：不扣费、不写消费日志（可选写一条 error 日志便于排查，非必须）。
 - 余额不足：`Decrease*Quota` 会返回错误；过渡期策略为**仅记录告警**、不阻断（因当前透传已发生、任务已在腾讯侧创建，阻断无意义）。后续如需「预扣 + 阻断」再单独设计。
+- 任务失败：镜像首次转入 `FAILURE` 时**退还**创建时扣的 quota（`IncreaseUserQuota` + `IncreaseTokenQuota` + 退费日志），靠 `model.Task` 状态机 CAS 保证只退一次；与 new-api 其他视频任务行为一致。
 
 ## 测试
 
@@ -217,4 +221,5 @@ new-api TaskPollingLoop（自身轮询器）：跳过 platform=tencent_vod（不
 
 - 不追求与后端 credits 分毫对齐（过渡期）。
 - 不做预扣+阻断、不做持久化幂等表、不引入实时汇率。
+- 失败退还采用「创建全扣 + 失败整退」，不做按进度的差额结算。
 - 双轨结束后若要「new-api 成为唯一计费源」，再评估迁移到 codex 推荐的「后端传 `X-Billing-Credits`，new-api 单一事实源记账」方案。
