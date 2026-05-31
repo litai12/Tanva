@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -93,13 +95,20 @@ func proxyTencent(c *gin.Context, channelName, host, svcName string) {
 	}
 	defer resp.Body.Close()
 
+	respBytes, _ := io.ReadAll(resp.Body)
+
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/json"
 	}
 	c.Status(resp.StatusCode)
 	c.Header("Content-Type", contentType)
-	_, _ = io.Copy(c.Writer, resp.Body)
+	_, _ = c.Writer.Write(respBytes)
+
+	// 仅 VOD 视频任务链路做旁路记账/镜像（MPS 等不命中 action，自然 no-op）。
+	if svcName == "vod" {
+		observeTencentVodTask(c, ch, action, body, resp.StatusCode, respBytes)
+	}
 }
 
 // parseTencentKey splits a channel key formatted as either:
@@ -162,4 +171,28 @@ func tc3HMAC(key []byte, data string) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write([]byte(data))
 	return h.Sum(nil)
+}
+
+// observeTencentVodTask 在 /proxy/tencent/vod 透传成功后旁路记账/镜像。
+// 仅对 vod 服务、且 action 命中时动作；任何失败只 SysLog，不影响透传。
+func observeTencentVodTask(c *gin.Context, ch *model.Channel, action string, reqBody []byte, status int, respBytes []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			common.SysLog(fmt.Sprintf("observeTencentVodTask panic: %v", r))
+		}
+	}()
+
+	switch {
+	case isTencentVodCreateAction(action):
+		if status < 200 || status >= 300 {
+			return
+		}
+		taskId := extractTencentVodResponseTaskId(respBytes)
+		if taskId == "" {
+			return
+		}
+		billAndMirrorTencentVodCreate(c, ch, reqBody, taskId)
+	case isTencentVodDescribeAction(action):
+		mirrorTencentVodPoll(c, reqBody, respBytes)
+	}
 }
