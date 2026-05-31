@@ -84,13 +84,13 @@ type Properties struct {
 	// see the exact request shape without diving into upstream channel logs.
 	// Populated by controller/relay.go after InitTask, when a TaskSubmitReq is
 	// available in gin context.
-	Size           string `json:"size,omitempty"`
-	Resolution     string `json:"resolution,omitempty"`
-	AspectRatio    string `json:"aspect_ratio,omitempty"`
-	Duration       int    `json:"duration,omitempty"`
-	Seconds        string `json:"seconds,omitempty"`
-	Mode           string `json:"mode,omitempty"`
-	NegativePrompt string `json:"negative_prompt,omitempty"`
+	Size           string   `json:"size,omitempty"`
+	Resolution     string   `json:"resolution,omitempty"`
+	AspectRatio    string   `json:"aspect_ratio,omitempty"`
+	Duration       int      `json:"duration,omitempty"`
+	Seconds        string   `json:"seconds,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	NegativePrompt string   `json:"negative_prompt,omitempty"`
 	ReferenceCount int      `json:"reference_count,omitempty"`
 	HasInputRef    bool     `json:"has_input_reference,omitempty"`
 	InputVideoUrl  string   `json:"input_video_url,omitempty"`
@@ -316,6 +316,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
 		Where("submit_time < ?", cutoffUnix).
+		Where("platform != ?", constant.TaskPlatformTencentVod).
 		Order("submit_time").
 		Limit(limit).
 		Find(&tasks).Error

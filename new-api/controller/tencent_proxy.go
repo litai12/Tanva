@@ -95,7 +95,7 @@ func proxyTencent(c *gin.Context, channelName, host, svcName string) {
 	}
 	defer resp.Body.Close()
 
-	respBytes, _ := io.ReadAll(resp.Body)
+	respBytes, readErr := io.ReadAll(resp.Body)
 
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
@@ -106,7 +106,8 @@ func proxyTencent(c *gin.Context, channelName, host, svcName string) {
 	_, _ = c.Writer.Write(respBytes)
 
 	// 仅 VOD 视频任务链路做旁路记账/镜像（MPS 等不命中 action，自然 no-op）。
-	if svcName == "vod" {
+	// 响应体读取失败时跳过，避免基于截断内容误扣费/误镜像。
+	if svcName == "vod" && readErr == nil {
 		observeTencentVodTask(c, ch, action, body, resp.StatusCode, respBytes)
 	}
 }

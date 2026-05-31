@@ -10,9 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// billAndMirrorTencentVodCreate 在 CreateAigcVideoTask 成功后：扣费 + 写消费日志 + 插入视频记录。
+// billAndMirrorTencentVodCreate 在 CreateAigcVideoTask 成功后：插入视频记录 + 扣费 + 写消费日志。
+// 顺序为「去重 → 插任务 → 扣费」：先插任务保证失败退还总有落点；插任务失败则跳过扣费，避免孤儿扣费。
 // 任何子步骤失败只 SysLog，绝不影响已成功的透传响应。
 func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody []byte, taskId string) {
+	// 去重：同一 TaskId 已处理过（重试/重复观察）则跳过，避免重复扣费/重复任务行。
+	if _, exist, _ := model.GetByOnlyTaskId(taskId); exist {
+		return
+	}
+
 	p, _ := parseTencentVodCreatePayload(reqBody) // 解析失败时 p 为零值，computeTencentVodCredits 走兜底
 	credits := computeTencentVodCredits(p)
 	quota := tencentVodQuota(credits)
@@ -22,39 +28,7 @@ func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody []
 	tokenId := c.GetInt("token_id")
 	tokenKey := c.GetString("token_key")
 
-	// 1. 真扣余额 + 用量统计
-	if quota > 0 {
-		if err := model.DecreaseUserQuota(userId, quota, true); err != nil {
-			common.SysLog(fmt.Sprintf("tencent_vod bill: DecreaseUserQuota failed user=%d quota=%d: %s", userId, quota, err.Error()))
-		}
-		if err := model.DecreaseTokenQuota(tokenId, tokenKey, quota); err != nil {
-			common.SysLog(fmt.Sprintf("tencent_vod bill: DecreaseTokenQuota failed token=%d quota=%d: %s", tokenId, quota, err.Error()))
-		}
-		model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
-		model.UpdateChannelUsedQuota(ch.Id, quota)
-	}
-
-	// 2. 消费日志
-	model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
-		ChannelId: ch.Id,
-		ModelName: display,
-		TokenName: c.GetString("token_name"),
-		Quota:     quota,
-		Content:   fmt.Sprintf("腾讯VOD视频任务 %s %ds/%s, TaskId=%s", display, p.Duration, p.Resolution, taskId),
-		TokenId:   tokenId,
-		Group:     c.GetString("group"),
-		Other: map[string]interface{}{
-			"task_id":       taskId,
-			"model_name":    p.ModelName,
-			"model_version": p.ModelVersion,
-			"duration":      p.Duration,
-			"resolution":    p.Resolution,
-			"audio":         p.Audio,
-			"credits":       credits,
-		},
-	})
-
-	// 3. 视频记录（被动镜像，初始 QUEUED）
+	// 1. 视频记录（被动镜像，初始 QUEUED）。先插，保证失败退还有落点。
 	now := time.Now().Unix()
 	task := &model.Task{
 		TaskID:     taskId,
@@ -80,8 +54,42 @@ func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody []
 		},
 	}
 	if err := task.Insert(); err != nil {
-		common.SysLog(fmt.Sprintf("tencent_vod mirror: insert task %s failed: %s", taskId, err.Error()))
+		// 插入失败则不扣费，避免「扣了费但没有任务行可退」的孤儿扣费。
+		common.SysLog(fmt.Sprintf("tencent_vod mirror: insert task %s failed, skip billing to avoid orphan charge: %s", taskId, err.Error()))
+		return
 	}
+
+	// 2. 真扣余额 + 用量统计
+	if quota > 0 {
+		if err := model.DecreaseUserQuota(userId, quota, true); err != nil {
+			common.SysLog(fmt.Sprintf("tencent_vod bill: DecreaseUserQuota failed user=%d quota=%d: %s", userId, quota, err.Error()))
+		}
+		if err := model.DecreaseTokenQuota(tokenId, tokenKey, quota); err != nil {
+			common.SysLog(fmt.Sprintf("tencent_vod bill: DecreaseTokenQuota failed token=%d quota=%d: %s", tokenId, quota, err.Error()))
+		}
+		model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
+		model.UpdateChannelUsedQuota(ch.Id, quota)
+	}
+
+	// 3. 消费日志
+	model.RecordConsumeLog(c, userId, model.RecordConsumeLogParams{
+		ChannelId: ch.Id,
+		ModelName: display,
+		TokenName: c.GetString("token_name"),
+		Quota:     quota,
+		Content:   fmt.Sprintf("腾讯VOD视频任务 %s %ds/%s, TaskId=%s", display, p.Duration, p.Resolution, taskId),
+		TokenId:   tokenId,
+		Group:     c.GetString("group"),
+		Other: map[string]interface{}{
+			"task_id":       taskId,
+			"model_name":    p.ModelName,
+			"model_version": p.ModelVersion,
+			"duration":      p.Duration,
+			"resolution":    p.Resolution,
+			"audio":         p.Audio,
+			"credits":       credits,
+		},
+	})
 }
 
 // mirrorTencentVodPoll 观察到 DescribeTaskDetail 透传时，被动把状态镜像进对应 model.Task。
