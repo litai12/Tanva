@@ -19,10 +19,12 @@
 
 ## 目标
 
-让经 `/proxy/tencent/vod` 创建的 Vidu/Seedance 任务：
+让经 `/proxy/tencent/vod` 创建的 Vidu/Seedance 任务，**和现在 new-api 原生 Seedance 一样**同时产出两样东西：
 
-1. 在 new-api 留**消费日志**（进入消费视图/统计）。
-2. **真实扣减** apikey（token）+ user 的额度，并更新用量统计与渠道用量。
+1. **调用日志**（消费记录）：在 new-api 消费视图/统计里能看到，并**真实扣减** apikey（token）+ user 的额度，更新用量统计与渠道用量。
+2. **视频记录**（`model.Task` 行）：在「视频/任务」视图里能看到这条任务，并随生命周期推进（排队 → 处理中 → 成功/失败、带结果 URL）。
+
+> 现状对比：原生 Seedance 走 new-api 的任务子系统（`relay/relay_task.go` + `service/task_polling.go`），自动产出这两样。经 `/proxy/tencent/vod` 的 Vidu/Seedance 两样都没有。本设计补齐。
 
 ## 关键约束与决策（已与用户确认）
 
@@ -31,13 +33,16 @@
 - **换算固定**：本站人民币:美元 = 1:1，`QuotaPerUnit = 500000`（$1 = 500000 quota），后端定价 100 积分 = 1 元。
   因此 **`quota = 积分 × 5000`**（500000 ÷ 100）。
 - **真扣余额**：与标准 relay 一致，`DecreaseUserQuota` + `DecreaseTokenQuota`，并更新用量统计。
-- 渠道：复用名为 `tencent` 的渠道（`getChannelByName("tencent")`），`ch.Id` 作日志的 `channel_id`。
+- 渠道：复用名为 `tencent` 的渠道（`getChannelByName("tencent")`），`ch.Id` 作日志/任务的 `channel_id`。
+- **视频记录 = 被动镜像（new-api 不抢轮询）**：后端始终是任务生命周期/轮询/OSS 的拥有者。创建（`CreateAigcVideoTask`）和轮询（`DescribeTaskDetail`）**都经过 `/proxy/tencent/vod`**，所以 new-api 只需在透传时**旁路观察**，把状态镜像进一条 `model.Task` 行即可——无需在 new-api 实现 Tencent 任务适配器、无需重复轮询、后端零改动。
+  （对比放弃的方案 Y：把 Vidu/Seedance 改成 new-api 原生任务通道，需后端改调 new-api 任务接口并交出自有 OSS/轮询管线，与「video→native video-provider.service（own keys）」现状冲突，过渡期不做。）
 
 ## 范围
 
-- ✅ 仅改动 new-api（Go）。后端无需传价格（方案A）。
-- ✅ 只对**任务创建**计费：`X-TC-Action == CreateAigcVideoTask` 且上游成功返回 `TaskId`。
-- ❌ 轮询 `DescribeTaskDetail` 永不计费。
+- ✅ 仅改动 new-api（Go）。后端无需改动（方案A 不依赖后端传价；创建/轮询本就经过 proxy）。
+- ✅ 只对**任务创建**计费 + 插入视频记录：`X-TC-Action == CreateAigcVideoTask` 且上游成功返回 `TaskId`。
+- ✅ 轮询 `DescribeTaskDetail` 只用来**被动镜像**视频记录状态，**永不计费**。
+- ❌ 不在 new-api 实现 Tencent 任务适配器、不让 new-api 自身轮询这些任务（后端仍是唯一轮询/OSS 拥有者）。
 - ❌ 不引入实时汇率、不改 `QuotaPerUnit`、不动后端 credits 体系。
 
 ## 架构
@@ -112,6 +117,43 @@ quota   = round(credits × 5000)
 
 所有记账动作放在转发**返回之后**（或对客户端响应无影响的前提下），任一记账步骤报错只 `SysLog`，**不影响**已成功的透传响应。
 
+### 视频记录：被动镜像 `model.Task`
+
+复用 new-api 现成的 `model.Task` 表（即原生 Seedance「视频记录」用的同一张表），由 proxy 旁路维护。
+
+**新增平台常量**：`constant/task.go` 加 `TaskPlatformTencentVod TaskPlatform = "tencent_vod"`。
+
+**创建时（`CreateAigcVideoTask` 成功 + 有 TaskId）** —— 与计费同一处，插入一行 `model.Task`：
+
+| 字段 | 值 |
+|------|----|
+| `TaskID` | 上游返回的 TaskId |
+| `Platform` | `tencent_vod` |
+| `UserId` / `ChannelId` / `Group` | 取自 context / `ch.Id` |
+| `Quota` | 与消费日志同一 quota |
+| `Action` | 规范化模型名，如 `vidu-q3` / `seedance-2.0-pro` |
+| `Status` | `QUEUED`；`Progress` = `0%` |
+| `SubmitTime` / `CreatedAt` | 当前时间 |
+| `Properties` | `{UpstreamModelName, Resolution, Duration, AspectRatio}` |
+| `Data` | 初始可空，成功后写结果 URL |
+
+**轮询时（观察到 `DescribeTaskDetail` 透传）** —— 这是被动镜像的关键：
+
+1. 从**请求 body** 取 `TaskId`，`model.GetByOnlyTaskId(taskId)` 找到镜像行（platform=tencent_vod；非本平台/找不到则跳过）。
+2. 从**上游响应**解析 `Status`（兼容 `Status`/`TaskStatus`/`TaskDetail.Status`/`AigcVideoTask.Status` 等多路径，与后端 `extractStatus` 一致）+ 结果视频 URL。
+3. 规范化状态并更新该行（CAS/幂等，重复 poll 安全）：
+
+   | 上游状态（小写归一） | TaskStatus | Progress | 备注 |
+   |---|---|---|---|
+   | finish/finished/success/succeed/.../done | `SUCCESS` | `100%` | 写 `FinishTime` + 结果 URL 到 `Data` |
+   | failed/fail/error/cancel/exception/timeout | `FAILURE` | `100%` | 写 `FailReason` |
+   | 其余（处理中/空） | `IN_PROGRESS` | `50%` | 终态前一直处理中 |
+
+   因为后端会一直轮到终态，**终态那次 poll 也经过 proxy**，所以 new-api 能观察到 success/fail 并据此收尾——不依赖自身轮询。
+
+**关键：把 `tencent_vod` 排除出 new-api 自身的任务轮询器**。`service/task_polling.go` 的 `TaskPollingLoop` 会捞所有未完成任务按平台分发，default 分支走 `UpdateVideoTasks` → `GetTaskAdaptorFunc(platform)`，而 `tencent_vod` 没有注册适配器 → 会每轮报 `video adaptor not found` 且任务永不收尾。
+解决：在 `model.GetAllUnFinishSyncTasks` 查询里加 `platform != 'tencent_vod'`（new-api 不是这些任务的轮询者，统一由 proxy 被动镜像驱动）。`sweepTimedOutTasks` 的超时清理可保留（超时仍可置 FAILURE，作兜底），或一并排除——实现计划里二选一确认。
+
 ### 幂等
 
 - 每个 HTTP 请求至多触发一次扣费（一次成功 create 响应 → 一次扣费），天然不会因「同一响应」重复扣。
@@ -124,13 +166,19 @@ quota   = round(credits × 5000)
 ```
 backend → POST /proxy/tencent/vod (TokenAuth: 注入 userId/tokenId/...)
         → proxyTencent: TC3 签名 → 转发腾讯 → 读回 (status, respBody)
-        → billTencentVodTaskIfNeeded:
-             action==CreateAigcVideoTask && 2xx && TaskId 非空 ?
-               是 → 解析 reqBody 定价 → quota=credits×5000
-                  → Decrease(User,Token)Quota + UpdateUsed(User,Channel)
-                  → RecordConsumeLog
-               否 → 跳过
+        → observeTencentVodTask:
+            ├─ action==CreateAigcVideoTask && 2xx && TaskId 非空 ?
+            │    是 → 解析 reqBody 定价 → quota=credits×5000
+            │       → 【调用日志】Decrease(User,Token)Quota + UpdateUsed(User,Channel) + RecordConsumeLog
+            │       → 【视频记录】INSERT model.Task(platform=tencent_vod, status=QUEUED, ...)
+            │    否 → 跳过
+            └─ action==DescribeTaskDetail ?
+                 是 → 取 reqBody.TaskId → GetByOnlyTaskId → 解析 respBody.Status/URL
+                    → 【视频记录】UPDATE model.Task 状态/进度/结果（被动镜像，不扣费）
+                 否 → 跳过
         → 原样写回客户端响应
+
+new-api TaskPollingLoop（自身轮询器）：跳过 platform=tencent_vod（不抢轮询）
 ```
 
 ## 错误处理
@@ -148,14 +196,22 @@ backend → POST /proxy/tencent/vod (TokenAuth: 注入 userId/tokenId/...)
   - 各 ModelName/ModelVersion/Duration/Resolution → quota 计算符合价格表。
   - 未知模型 → 兜底价 + 告警。
 - 定价纯函数 `computeTencentVodQuota(reqBody)` 抽出，独立表驱动单测覆盖矩阵。
-- 手测：真实跑一个 vidu-q3 任务，确认 new-api 日志出现该消费记录、apikey 余额减少、渠道用量增加。
+- 视频记录镜像单测：
+  - 创建成功 → 插入 `model.Task`（platform/status/quota/properties 正确）。
+  - `DescribeTaskDetail` 返回 processing/success/failed → 对应行更新为 IN_PROGRESS / SUCCESS(+URL) / FAILURE(+FailReason)。
+  - TaskId 找不到对应镜像行 → 安全跳过。
+  - `GetAllUnFinishSyncTasks` 不返回 tencent_vod 行（轮询器不抢）。
+- 手测：真实跑一个 vidu-q3 任务，确认 (1) new-api 消费日志出现该记录、apikey 余额减少、渠道用量增加；(2)「视频/任务」视图出现该任务并最终变为成功、带视频结果。
 
 ## 影响文件（预估）
 
-- `new-api/controller/tencent_proxy.go`（改透传为「读回 body → 计费 → 写回」，新增计费调用）
+- `new-api/controller/tencent_proxy.go`（改透传为「读回 reqBody/respBody → 观察记账 → 写回」，新增 `observeTencentVodTask`：创建时计费+插任务、轮询时镜像任务）
 - `new-api/controller/tencent_vod_pricing.go`（新增：价格表 + `computeTencentVodQuota` 纯函数）
+- `new-api/controller/tencent_vod_task.go`（新增：插入/更新 `model.Task` 镜像 + 状态映射，可与上文合并）
+- `new-api/constant/task.go`（新增 `TaskPlatformTencentVod`）
+- `new-api/model/task.go`（`GetAllUnFinishSyncTasks` 加 `platform != 'tencent_vod'` 排除）
 - `new-api/controller/tencent_proxy_test.go`（新增单测）
-- 后端：**无需改动**（方案A 不依赖后端传价）。
+- 后端：**无需改动**（方案A 不依赖后端传价；创建/轮询本就经过 proxy）。
 
 ## 非目标 / 后续
 
