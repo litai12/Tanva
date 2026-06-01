@@ -5344,14 +5344,11 @@ export class AiController {
 
   @Post('volc-enhance-video')
   async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto, @Req() req: any) {
-    const apiKey = (
-      process.env.VOLC_MEDIAKIT_API_KEY ||
-      process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
-      process.env.VOLC_ENHANCE_API_KEY ||
-      ''
-    ).trim();
+    // 单轨：画质增强只走 new-api 网关（task channel volc-mediakit, type 66）。
+    // MediaKit 真实 key 由 new-api 渠道面板持有；后端只持网关 token。计费仍由后端扣积分。
+    const apiKey = (process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || '').trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 NEW_API_KEY）');
     }
 
     const videoUrl = String(dto.videoUrl || '').trim();
@@ -5370,21 +5367,27 @@ export class AiController {
     }
 
     const apiBaseUrl = (
-      process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
+      process.env.NEW_API_BASE_URL || 'http://localhost:4458'
     ).replace(/\/+$/, '');
-    const submitUrl = `${apiBaseUrl}/api/v1/tools/enhance-video`;
+    const submitUrl = `${apiBaseUrl}/v1/videos`;
     const userId = this.getUserId(req);
     const serviceType: ServiceType = 'volc-enhance-video';
     const billingModel = dto.toolVersion || 'standard';
 
-    const payload: Record<string, any> = {
+    // new-api task 请求：源视频 + enhance 专有参数走 metadata，
+    // 由 new-api 的 volcmediakit 适配器读取并转成 MediaKit /api/v1/tools/enhance-video 入参。
+    const metadata: Record<string, any> = {
       video_url: videoUrl,
       tool_version: billingModel,
     };
-    if (dto.scene) payload.scene = dto.scene;
-    if (dto.resolution) payload.resolution = dto.resolution;
-    if (typeof dto.resolutionLimit === 'number') payload.resolution_limit = dto.resolutionLimit;
-    if (typeof dto.fps === 'number') payload.fps = dto.fps;
+    if (dto.scene) metadata.scene = dto.scene;
+    if (dto.resolution) metadata.resolution = dto.resolution;
+    if (typeof dto.resolutionLimit === 'number') metadata.resolution_limit = dto.resolutionLimit;
+    if (typeof dto.fps === 'number') metadata.fps = dto.fps;
+    const payload: Record<string, any> = {
+      model: 'volc-enhance-video',
+      metadata,
+    };
 
     const creditRequestParams: Record<string, any> = {
       toolVersion: billingModel,
@@ -5500,14 +5503,9 @@ export class AiController {
 
   @Get('volc-enhance-video/:taskId')
   async queryVolcEnhanceVideoTask(@Param('taskId') taskId: string) {
-    const apiKey = (
-      process.env.VOLC_MEDIAKIT_API_KEY ||
-      process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
-      process.env.VOLC_ENHANCE_API_KEY ||
-      ''
-    ).trim();
+    const apiKey = (process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || '').trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 NEW_API_KEY）');
     }
 
     const normalizedTaskId = String(taskId || '').trim();
@@ -5516,9 +5514,10 @@ export class AiController {
     }
 
     const apiBaseUrl = (
-      process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
+      process.env.NEW_API_BASE_URL || 'http://localhost:4458'
     ).replace(/\/+$/, '');
-    const queryUrl = `${apiBaseUrl}/api/v1/tasks/${encodeURIComponent(normalizedTaskId)}`;
+    // OpenAI Sora 风格查询；new-api volcmediakit 适配器经 ConvertToOpenAIVideo 返回 status + metadata.url。
+    const queryUrl = `${apiBaseUrl}/v1/videos/${encodeURIComponent(normalizedTaskId)}`;
 
     try {
       const response = await fetch(queryUrl, {
@@ -5557,6 +5556,8 @@ export class AiController {
           .find((value) => value.length > 0) || '';
 
       const videoUrl =
+        data?.metadata?.url ||
+        data?.data?.metadata?.url ||
         data?.result?.video_url ||
         data?.result?.url ||
         data?.video_url ||

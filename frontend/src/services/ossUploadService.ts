@@ -196,6 +196,11 @@ function isLikelyImageUpload(data: Blob | File, options: OssUploadOptions): bool
   return type.startsWith("image/");
 }
 
+function isLikelyVideoUpload(data: Blob | File, options: OssUploadOptions): boolean {
+  const type = String(options.contentType || (data as File).type || "").toLowerCase();
+  return type.startsWith("video/");
+}
+
 async function verifyUploadedAssetReadable(
   key: string | undefined,
   url: string | undefined,
@@ -291,6 +296,63 @@ async function uploadImageViaBackend(
   }
 }
 
+async function uploadVideoViaBackend(
+  data: Blob | File,
+  options: OssUploadOptions
+): Promise<OssUploadResult> {
+  // 视频走后端中转上传（POST /api/uploads/video），由服务端写入 OSS。
+  // 浏览器不直连 TOS 桶，从根本上绕开「直传 POST 无 CORS → Failed to fetch」。
+  const API_BASE = getApiBaseUrl();
+  const fileName = options.fileName || "upload-video.mp4";
+  const file = data instanceof File
+    ? data
+    : new File([data], fileName, {
+        type: options.contentType || (data as File).type || "video/mp4",
+      });
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+
+  try {
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/uploads/video`,
+      {
+        method: "POST",
+        body: formData,
+        headers,
+        auth: options.authToken ? "omit" : "auto",
+        credentials: options.authToken ? "omit" : "include",
+      },
+      // 视频可达 500MB，上传耗时远超默认 60s，给足超时窗口。
+      10 * 60_000
+    );
+    const dataJson = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        success: false,
+        error:
+          dataJson?.message ||
+          dataJson?.error ||
+          `Backend video upload failed: ${res.status}`,
+      };
+    }
+
+    const url = typeof dataJson?.url === "string" ? dataJson.url : "";
+    const key = typeof dataJson?.key === "string" ? dataJson.key : "";
+    if (!url) {
+      return { success: false, error: "Backend video upload returned empty url" };
+    }
+    return { success: true, url, key: key || undefined, size: data.size };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error?.message || "Backend video upload failed",
+    };
+  }
+}
+
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   const ext = inferExtension(fileName, undefined) || extensionHint || "";
   const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -360,6 +422,16 @@ export async function uploadToOSS(
       return {
         success: false,
         error: backendUpload.error || "Backend image upload failed",
+      };
+    }
+
+    // 视频必须走后端中转：浏览器直传 TOS 桶的 POST 没有 CORS，会直接 Failed to fetch。
+    if (isLikelyVideoUpload(data, options)) {
+      const backendUpload = await uploadVideoViaBackend(data, { ...options, dir });
+      if (backendUpload.success && backendUpload.url) return backendUpload;
+      return {
+        success: false,
+        error: backendUpload.error || "Backend video upload failed",
       };
     }
 
