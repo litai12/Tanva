@@ -40,6 +40,8 @@ func SetVideoRouter(router *gin.Engine) {
 	{
 		characterTaskRouter.POST("/characters_tasks", controller.ProxyApimartCharacterCreate)
 		characterTaskRouter.GET("/characters_tasks/:task_id", controller.ProxyApimartCharacterFetch)
+		characterTaskRouter.POST("/volc/enhance-video", controller.ProxyVolcEnhanceVideoCreate)
+		characterTaskRouter.GET("/volc/enhance-video/:task_id", controller.ProxyVolcEnhanceVideoFetch)
 	}
 
 	klingV1Router := router.Group("/kling/v1")

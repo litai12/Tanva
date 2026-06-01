@@ -55,6 +55,18 @@ function inferExtFromMime(mimeType?: string): string {
   return 'png';
 }
 
+function inferVideoExtFromMime(mimeType?: string): string {
+  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (value === 'video/mp4') return 'mp4';
+  if (value === 'video/webm') return 'webm';
+  if (value === 'video/quicktime') return 'mov';
+  if (value === 'video/x-msvideo') return 'avi';
+  if (value === 'video/mpeg') return 'mpeg';
+  if (value === 'video/3gpp') return '3gp';
+  if (value === 'video/x-flv') return 'flv';
+  return 'mp4';
+}
+
 function extractMultipartField(
   fields: Record<string, unknown> | undefined,
   key: string
@@ -184,6 +196,7 @@ export class UploadsController {
   @ApiConsumes('multipart/form-data')
   async uploadVideo(@Req() req: FastifyRequest) {
     const file = await this.readSingleMultipartFile(req, MAX_VIDEO_SIZE);
+    const form = file.fields;
 
     if (!SUPPORTED_VIDEO_TYPES.includes(file.mimeType)) {
       throw new BadRequestException(
@@ -191,8 +204,19 @@ export class UploadsController {
       );
     }
 
-    const ext = file.originalName.split('.').pop() || 'mp4';
-    const key = `videos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const dir = normalizeUploadDir(extractMultipartField(form, 'dir'), 'videos/');
+    const explicitKey = (extractMultipartField(form, 'key') || '').trim().replace(/^\/+/, '');
+    const declaredFileName = extractMultipartField(form, 'fileName');
+    const safeFileName = sanitizeFileName(
+      declaredFileName || file.originalName || `video.${inferVideoExtFromMime(file.mimeType)}`
+    );
+    const key = (() => {
+      if (explicitKey) return explicitKey;
+      const ext = safeFileName.includes('.')
+        ? safeFileName.split('.').pop() || inferVideoExtFromMime(file.mimeType)
+        : inferVideoExtFromMime(file.mimeType);
+      return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
+    })();
 
     const stream = Readable.from(file.buffer);
     const result = await this.oss.putStream(key, stream, {

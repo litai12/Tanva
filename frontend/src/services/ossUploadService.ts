@@ -81,6 +81,13 @@ function isBackendImageRelayEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function isBackendVideoRelayEnabled(): boolean {
+  const raw = String((import.meta.env.VITE_VIDEO_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -298,7 +305,8 @@ async function uploadImageViaBackend(
 
 async function uploadVideoViaBackend(
   data: Blob | File,
-  options: OssUploadOptions
+  options: OssUploadOptions,
+  fallbackKey?: string,
 ): Promise<OssUploadResult> {
   // 视频走后端中转上传（POST /api/uploads/video），由服务端写入 OSS。
   // 浏览器不直连 TOS 桶，从根本上绕开「直传 POST 无 CORS → Failed to fetch」。
@@ -311,6 +319,9 @@ async function uploadVideoViaBackend(
       });
   const formData = new FormData();
   formData.append("file", file);
+  if (options.dir) formData.append("dir", options.dir);
+  if (fileName) formData.append("fileName", fileName);
+  if (fallbackKey) formData.append("key", fallbackKey);
 
   const headers: Record<string, string> = {};
   if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
@@ -390,10 +401,25 @@ export async function uploadToOSS(
     }
     return backendUpload;
   };
+  const tryBackendVideoFallback = async (
+    dir: string,
+    fallbackKey?: string
+  ): Promise<OssUploadResult | null> => {
+    if (!isLikelyVideoUpload(data, options)) return null;
+    const backendUpload = await uploadVideoViaBackend(data, { ...options, dir }, fallbackKey);
+    if (!backendUpload.success || !backendUpload.url) {
+      return {
+        success: false,
+        error: backendUpload.error || "Backend video upload fallback failed",
+      };
+    }
+    return backendUpload;
+  };
 
   try {
     const dir = normalizeDir(options.dir, options.projectId);
     const isImage = isLikelyImageUpload(data, options);
+    const isVideo = isLikelyVideoUpload(data, options);
 
     if (isImage && isBackendImageRelayEnabled()) {
       const extension = inferExtension(
@@ -426,9 +452,29 @@ export async function uploadToOSS(
     }
 
     // 视频必须走后端中转：浏览器直传 TOS 桶的 POST 没有 CORS，会直接 Failed to fetch。
-    if (isLikelyVideoUpload(data, options)) {
-      const backendUpload = await uploadVideoViaBackend(data, { ...options, dir });
-      if (backendUpload.success && backendUpload.url) return backendUpload;
+    if (isVideo && isBackendVideoRelayEnabled()) {
+      const extension = inferExtension(
+        options.fileName,
+        options.contentType || (data as File).type
+      );
+      const preferredKey = (() => {
+        const forced = typeof options.key === "string" ? options.key.trim() : "";
+        if (forced) return forced.replace(/^\/+/, "");
+        return buildKey(dir, options.fileName, extension);
+      })();
+      const backendUpload = await uploadVideoViaBackend(data, { ...options, dir }, preferredKey);
+      if (backendUpload.success && backendUpload.url) {
+        const backendReadable = await verifyUploadedAssetReadable(
+          backendUpload.key,
+          backendUpload.url,
+          options.authToken
+        );
+        if (backendReadable) return backendUpload;
+        return {
+          success: false,
+          error: "Backend video upload succeeded but asset is still not readable",
+        };
+      }
       return {
         success: false,
         error: backendUpload.error || "Backend video upload failed",
@@ -496,6 +542,8 @@ export async function uploadToOSS(
       );
       const fallback = await tryBackendImageFallback(dir, key);
       if (fallback) return fallback;
+      const videoFallback = await tryBackendVideoFallback(dir, key);
+      if (videoFallback) return videoFallback;
       throw directError;
     }
 
@@ -535,6 +583,8 @@ export async function uploadToOSS(
       })();
       const fallback = await tryBackendImageFallback(dir, fallbackKey);
       if (fallback) return fallback;
+      const videoFallback = await tryBackendVideoFallback(dir, fallbackKey);
+      if (videoFallback) return videoFallback;
     } catch {
       // keep original error
     }

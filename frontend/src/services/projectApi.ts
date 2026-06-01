@@ -44,15 +44,42 @@ const base =
     : "http://localhost:4000";
 
 async function json<T>(res: Response): Promise<T> {
+  const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+  const rawText = await res.text();
+  const looksLikeHtml =
+    rawText.trim().startsWith("<!doctype html") ||
+    rawText.trim().startsWith("<html") ||
+    contentType.includes("text/html");
+
+  const tryParseJson = () => {
+    try {
+      return JSON.parse(rawText);
+    } catch {
+      return null;
+    }
+  };
+
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
-    try {
-      const d = await res.json();
-      msg = d?.message || d?.error || msg;
-    } catch {}
+    const parsed = tryParseJson() as any;
+    if (parsed && typeof parsed === "object") {
+      msg = parsed?.message || parsed?.error || msg;
+    } else if (looksLikeHtml) {
+      msg = `API returned HTML instead of JSON (HTTP ${res.status}). Check VITE_API_BASE_URL or /api gateway routing.`;
+    }
     throw new Error(msg);
   }
-  return res.json();
+
+  const parsed = tryParseJson();
+  if (parsed !== null) return parsed as T;
+
+  if (looksLikeHtml) {
+    throw new Error(
+      "API returned HTML instead of JSON (HTTP 200). Check VITE_API_BASE_URL or /api gateway routing."
+    );
+  }
+
+  throw new Error("Invalid JSON response from API.");
 }
 
 type ProjectContentResponse = {
