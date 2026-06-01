@@ -5345,13 +5345,12 @@ export class AiController {
   @Post('volc-enhance-video')
   async createVolcEnhanceVideoTask(@Body() dto: VolcEnhanceVideoDto, @Req() req: any) {
     const apiKey = (
-      process.env.VOLC_MEDIAKIT_API_KEY ||
-      process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
-      process.env.VOLC_ENHANCE_API_KEY ||
+      process.env.NEW_API_KEY ||
+      process.env.NEW_API_TOKEN ||
       ''
     ).trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 NEW_API_KEY）');
     }
 
     const videoUrl = String(dto.videoUrl || '').trim();
@@ -5369,10 +5368,8 @@ export class AiController {
       throw new BadRequestException('resolution 与 resolutionLimit 互斥，不能同时传入');
     }
 
-    const apiBaseUrl = (
-      process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
-    ).replace(/\/+$/, '');
-    const submitUrl = `${apiBaseUrl}/api/v1/tools/enhance-video`;
+    const apiBaseUrl = (process.env.NEW_API_BASE_URL || 'http://localhost:4458').replace(/\/+$/, '');
+    const submitUrl = `${apiBaseUrl}/v1/volc/enhance-video`;
     const userId = this.getUserId(req);
     const serviceType: ServiceType = 'volc-enhance-video';
     const billingModel = dto.toolVersion || 'standard';
@@ -5501,13 +5498,12 @@ export class AiController {
   @Get('volc-enhance-video/:taskId')
   async queryVolcEnhanceVideoTask(@Param('taskId') taskId: string) {
     const apiKey = (
-      process.env.VOLC_MEDIAKIT_API_KEY ||
-      process.env.VOLC_ENHANCE_VIDEO_API_KEY ||
-      process.env.VOLC_ENHANCE_API_KEY ||
+      process.env.NEW_API_KEY ||
+      process.env.NEW_API_TOKEN ||
       ''
     ).trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 VOLC_MEDIAKIT_API_KEY）');
+      throw new ServiceUnavailableException('视频画质增强服务未配置（缺少 NEW_API_KEY）');
     }
 
     const normalizedTaskId = String(taskId || '').trim();
@@ -5515,10 +5511,8 @@ export class AiController {
       throw new BadRequestException('taskId 不能为空');
     }
 
-    const apiBaseUrl = (
-      process.env.VOLC_MEDIAKIT_API_BASE_URL || 'https://mediakit.cn-beijing.volces.com'
-    ).replace(/\/+$/, '');
-    const queryUrl = `${apiBaseUrl}/api/v1/tasks/${encodeURIComponent(normalizedTaskId)}`;
+    const apiBaseUrl = (process.env.NEW_API_BASE_URL || 'http://localhost:4458').replace(/\/+$/, '');
+    const queryUrl = `${apiBaseUrl}/v1/volc/enhance-video/${encodeURIComponent(normalizedTaskId)}`;
 
     try {
       const response = await fetch(queryUrl, {
