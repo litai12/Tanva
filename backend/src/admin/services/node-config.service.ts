@@ -1011,7 +1011,6 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 40 },
         }),
       },
-      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
       {
         nodeKey: 'gptImage2',
         nameZh: 'GPT-Image-2',
@@ -1759,7 +1758,6 @@ export class NodeConfigService {
           defaultData: { creditsPerCall: 40 },
         }),
       },
-      { nodeKey: 'midjourney', nameZh: 'Midjourney', nameEn: 'Midjourney', category: 'image', sortOrder: 15, creditsPerCall: 50, serviceType: 'midjourney-imagine', priceYuan: 0.5, description: 'Midjourney生图' },
       {
         nodeKey: 'gptImage2',
         nameZh: 'GPT-Image-2',

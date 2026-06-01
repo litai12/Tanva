@@ -4395,7 +4395,9 @@ function FlowInner() {
     const base = hasBackendConfigs
       ? [...sortedNodeConfigs]
       : [...fallbackConfigs];
-    const merged = [...base];
+    // 普通 Midjourney(走147,nodeKey="midjourney")已下线：即使后端/DB 仍返回该节点配置，
+    // 也不在画布节点面板显示（V7/Niji 的 nodeKey 为 midjourneyV7/niji7，不受影响）。
+    const merged = base.filter((item) => item.nodeKey !== "midjourney");
 
     if (hasBackendConfigs) {
       const existingNodeKeys = new Set(
