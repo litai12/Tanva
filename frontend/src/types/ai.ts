@@ -77,21 +77,6 @@ export interface AIProviderOptions {
   [key: string]: unknown;
 }
 
-export interface MidjourneyActionRequest {
-  taskId: string;
-  customId: string;
-  state?: string;
-  notifyHook?: string;
-  chooseSameChannel?: string | boolean;
-  accountFilter?: MidjourneyAccountFilter;
-}
-
-export interface MidjourneyModalRequest {
-  taskId: string;
-  prompt?: string;
-  maskBase64?: string;
-}
-
 export type SupportedAIProvider =
   | 'gemini'
   | 'gemini-pro'

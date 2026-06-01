@@ -55,21 +55,6 @@ export interface MidjourneyButtonInfo {
   disabled?: boolean;
 }
 
-export interface MidjourneyActionRequest {
-  taskId: string;
-  customId: string;
-  state?: string;
-  notifyHook?: string;
-  chooseSameChannel?: string | boolean;
-  accountFilter?: MidjourneyAccountFilter;
-}
-
-export interface MidjourneyModalRequest {
-  taskId: string;
-  prompt?: string;
-  maskBase64?: string;
-}
-
 export type BananaImageRoute = 'normal' | 'stable' | 'ultra';
 
 export interface BananaProviderOptions {

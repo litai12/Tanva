@@ -9,7 +9,6 @@ type ImageNodeType =
   | "seedream5"
   | "nano2"
   | "gptImage2"
-  | "midjourney"
   | "midjourneyV7"
   | "niji7";
 
@@ -112,7 +111,6 @@ const resolveManagedModelKey = (
   if (explicit) return explicit;
   if (nodeType === "seedream5") return "seedream5";
   if (
-    nodeType === "midjourney" ||
     nodeType === "midjourneyV7" ||
     nodeType === "niji7"
   ) {
@@ -218,7 +216,6 @@ export const useImageNodeCreditsPreview = ({
     }
 
     if (
-      nodeType === "midjourney" ||
       nodeType === "midjourneyV7" ||
       nodeType === "niji7"
     ) {

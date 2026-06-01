@@ -2115,7 +2115,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "generate", label: "图片生成节点", category: "image" },
     { value: "generatePro", label: "自定义图片节点", category: "image" },
     { value: "seedream5", label: "Seedream 5 节点", category: "image" },
-    { value: "midjourney", label: "Midjourney 节点", category: "image" },
+    { value: "midjourney", label: "Midjourney V7 / Niji 节点", category: "image" },
     { value: "analysis", label: "Image Chat", category: "image" },
   ],
   video: [
@@ -4281,7 +4281,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "gemini-2.5-image-analyze": ["gemini-2.5-flash-image-preview"],
   "gemini-3.1-image-analyze": ["gemini-3.1-flash-image-preview"],
   "seedream5": ["doubao-seedream-5-0-260128"],
-  "midjourney": ["midjourney-fast"],
+  "midjourney": ["midjourney-v7", "midjourney-niji-7"],
   "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
   "wan-2.6-r2v": ["wan2.6-r2v"],
   "happyhorse-1.0-r2v": ["happyhorse-1.0-r2v"],

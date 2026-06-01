@@ -22,78 +22,6 @@ import { flowImagePreviewWell, flowLetterboxBackground } from './flowNodeDarkThe
 import RunCreditBadge from './RunCreditBadge';
 import { useImageNodeCreditsPreview } from '../hooks/useImageNodeCreditsPreview';
 
-type MidjourneyMode = 'FAST' | 'RELAX';
-type AdvancedMidjourneyType = 'midjourneyV7' | 'niji7';
-
-type MidjourneyButtonInfo = {
-  customId: string;
-  emoji?: string;
-  label?: string;
-  type?: number;
-  style?: number;
-};
-
-/**
- * 分组规则：优先与历史「label 以 U/V 开头」一致（用 U/V+数字 避免误判 Upscale 等）；
- * 再兼容少数中转返回的 upscale_1 / variation_2。
- * 展示文案统一为 U1–U4、V1–V4 纯文字（不用 emoji）。
- */
-type MjActionButtonGroup = 'upscale' | 'variation' | 'other';
-
-function classifyMidjourneyActionButton(btn: MidjourneyButtonInfo): {
-  group: MjActionButtonGroup;
-  displayLabel: string;
-  sortKey: number;
-} {
-  const raw = (btn.label ?? '').trim();
-  const lower = raw.toLowerCase();
-
-  const legacyU = raw.match(/^U\s*(\d+)/i);
-  if (legacyU) {
-    const n = parseInt(legacyU[1], 10);
-    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
-  }
-  const legacyV = raw.match(/^V\s*(\d+)/i);
-  if (legacyV) {
-    const n = parseInt(legacyV[1], 10);
-    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
-  }
-
-  const upscaleNum = lower.match(/upscale[_\s-]*(\d+)/);
-  if (upscaleNum) {
-    const n = parseInt(upscaleNum[1], 10);
-    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
-  }
-  const upWord = lower.match(/upscal(?:e|ing)\s*#?\s*(\d+)/);
-  if (upWord) {
-    const n = parseInt(upWord[1], 10);
-    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
-  }
-
-  const variationNum = lower.match(/variation[_\s-]*(\d+)/);
-  if (variationNum) {
-    const n = parseInt(variationNum[1], 10);
-    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
-  }
-
-  const zhUp = raw.match(/放大\s*(\d+)/);
-  if (zhUp) {
-    const n = parseInt(zhUp[1], 10);
-    return { group: 'upscale', displayLabel: `U${n}`, sortKey: n };
-  }
-  const zhVar = raw.match(/变体\s*(\d+)/);
-  if (zhVar) {
-    const n = parseInt(zhVar[1], 10);
-    return { group: 'variation', displayLabel: `V${n}`, sortKey: n };
-  }
-
-  return {
-    group: 'other',
-    displayLabel: raw || '•',
-    sortKey: 999,
-  };
-}
-
 type Props = {
   id: string;
   type?: string;
@@ -105,16 +33,10 @@ type Props = {
     imageUrls?: string[]; // V7/Niji7 多图支持
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
-    mode?: MidjourneyMode;
     presetPrompt?: string;
     creditsPerCall?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
-    // Midjourney 特有的元数据
-    taskId?: string;
-    /** 147 action 可选参数，与轮询任务 state 一致 */
-    mjApiState?: string;
-    buttons?: MidjourneyButtonInfo[];
     imageUrl?: string;
     promptEn?: string;
     lastHistoryId?: string;
@@ -168,18 +90,14 @@ const buildImageSrc = (value?: string): string | undefined => {
   return toRenderableImageSrc(trimmed) || undefined;
 };
 
-const isAdvancedMidjourneyType = (type?: string): type is AdvancedMidjourneyType =>
-  type === 'midjourneyV7' || type === 'niji7';
-
 function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const { lt } = useLocaleText();
-  const isAdvanced = isAdvancedMidjourneyType(type);
   const isNiji = type === 'niji7';
   const accentColor = isNiji ? '#ec4899' : '#8b5cf6';
   const accentSoft = isNiji ? '#fdf2f8' : '#faf5ff';
   const accentBorder = isNiji ? '#f9a8d4' : '#e9d5ff';
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
-  const title = isAdvanced ? (isNiji ? 'Niji 7' : 'Midjourney V7') : 'Midjourney';
+  const title = isNiji ? 'Niji 7' : 'Midjourney V7';
   const { status, error } = data;
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -193,7 +111,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
-  const [actionLoading, setActionLoading] = React.useState<string | null>(null);
   const [showHelp, setShowHelp] = React.useState(false);
   const [showAdvancedControls, setShowAdvancedControls] = React.useState(false);
   const advancedImageOutputHandlePositions = ['28%', '42%', '58%', '72%'] as const;
@@ -244,9 +161,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     const edges = state.edges || [];
     return edges.filter((edge) => edge.target === id && edge.targetHandle === 'img').length;
   });
-  const aspectRatioValue = isAdvanced ? (data.aspectRatio ?? '1:1') : (data.aspectRatio ?? '');
+  const aspectRatioValue = data.aspectRatio ?? '1:1';
   const { credits: backendCredits } = useImageNodeCreditsPreview({
-    nodeType: isAdvanced ? (type as 'midjourneyV7' | 'niji7') : 'midjourney',
+    nodeType: type === 'niji7' ? 'niji7' : 'midjourneyV7',
     aiProvider: 'midjourney',
     aspectRatio: aspectRatioValue || undefined,
     referenceImageCount: imageInputCount,
@@ -327,37 +244,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
-  // 处理 Midjourney 按钮操作（U1-U4, V1-V4 等）
-  const handleButtonAction = React.useCallback(
-    async (button: MidjourneyButtonInfo) => {
-      if (!data.taskId || actionLoading) return;
-
-      setActionLoading(button.customId);
-
-      try {
-        window.dispatchEvent(
-          new CustomEvent('flow:midjourneyAction', {
-            detail: {
-              nodeId: id,
-              taskId: data.taskId,
-              customId: button.customId,
-              label: button.label,
-              state:
-                typeof data.mjApiState === 'string' && data.mjApiState.trim()
-                  ? data.mjApiState.trim()
-                  : undefined,
-            },
-          })
-        );
-      } catch (err) {
-        console.error('Midjourney action failed:', err);
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [id, data.taskId, data.mjApiState, actionLoading]
-  );
-
   // 当节点数据更新时同步最新历史图�?id（历史写入在 FlowOverlay 中统一处理，避�?onlyRenderVisibleElements 时丢失）
   React.useEffect(() => {
     if (status === 'succeeded' && data.lastHistoryId) {
@@ -385,178 +271,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
-
-  // 渲染 Midjourney 操作按钮（兼容 U1 / upscale_1 等多种上游 label）
-  const renderActionButtons = () => {
-    if (!data.buttons || data.buttons.length === 0) return null;
-
-    const withMeta = data.buttons.map((b) => ({
-      btn: b,
-      ...classifyMidjourneyActionButton(b),
-    }));
-    const upscaleButtons = withMeta
-      .filter((x) => x.group === 'upscale')
-      .sort((a, b) => a.sortKey - b.sortKey)
-      .map((x) => x);
-    const variationButtons = withMeta
-      .filter((x) => x.group === 'variation')
-      .sort((a, b) => a.sortKey - b.sortKey)
-      .map((x) => x);
-    const otherButtons = withMeta.filter((x) => x.group === 'other');
-
-    const actionPanelBg = isDarkTheme ? '#161616' : accentSoft;
-    const actionPanelBorder = isDarkTheme ? '#2f2f2f' : accentBorder;
-    const uvLabelColor = isDarkTheme ? '#a1a1aa' : '#9ca3af';
-    const accentHoverBg = isDarkTheme
-      ? (isNiji ? 'rgba(236,72,153,0.12)' : 'rgba(139,92,246,0.14)')
-      : accentSoft;
-
-    const buttonStyle: React.CSSProperties = isDarkTheme
-      ? {
-          fontSize: 11,
-          height: 26,
-          borderRadius: 6,
-          border: '1px solid #404040',
-          background: '#252525',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#e5e7eb',
-          fontWeight: 500,
-        }
-      : {
-          fontSize: 11,
-          height: 26,
-          borderRadius: 6,
-          border: '1px solid #e5e7eb',
-          background: '#fff',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#4b5563',
-          fontWeight: 500,
-        };
-
-    const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.currentTarget.style.borderColor = accentColor;
-      e.currentTarget.style.color = accentColor;
-      e.currentTarget.style.background = accentHoverBg;
-      e.currentTarget.style.transform = 'translateY(-1px)';
-      e.currentTarget.style.boxShadow = `0 2px 4px ${accentColor}1a`;
-    };
-
-    const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.currentTarget.style.borderColor = isDarkTheme ? '#404040' : '#e5e7eb';
-      e.currentTarget.style.color = isDarkTheme ? '#e5e7eb' : '#4b5563';
-      e.currentTarget.style.background = isDarkTheme ? '#252525' : '#fff';
-      e.currentTarget.style.transform = 'none';
-      e.currentTarget.style.boxShadow = 'none';
-    };
-
-    return (
-      <div
-        className="nodrag"
-        style={{
-          marginTop: 10,
-          padding: '10px 12px',
-          background: actionPanelBg,
-          borderRadius: 8,
-          border: `1px solid ${actionPanelBorder}`,
-        }}
-      >
-        <div style={{ fontSize: 11, color: accentColor, marginBottom: 8, fontWeight: 600 }}>
-          {lt('Midjourney 操作', 'Midjourney actions')}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {upscaleButtons.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: uvLabelColor, fontWeight: 600 }}>U</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                {upscaleButtons.map(({ btn, displayLabel }) => (
-                  <button
-                    key={btn.customId}
-                    onClick={() => handleButtonAction(btn)}
-                    disabled={!!actionLoading}
-                    style={{
-                      ...buttonStyle,
-                      opacity: actionLoading === btn.customId ? 0.6 : 1,
-                    }}
-                    onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
-                    onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                    title={btn.label || displayLabel}
-                  >
-                    {displayLabel}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {variationButtons.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: uvLabelColor, fontWeight: 600 }}>V</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                {variationButtons.map(({ btn, displayLabel }) => (
-                  <button
-                    key={btn.customId}
-                    onClick={() => handleButtonAction(btn)}
-                    disabled={!!actionLoading}
-                    style={{
-                      ...buttonStyle,
-                      opacity: actionLoading === btn.customId ? 0.6 : 1,
-                    }}
-                    onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
-                    onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                    title={btn.label || displayLabel}
-                  >
-                    {displayLabel}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {otherButtons.length > 0 && (
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 6,
-              marginTop: 2,
-              paddingTop: 8,
-              borderTop: `1px dashed ${isDarkTheme ? '#404040' : accentBorder}`,
-              justifyContent: 'center'
-            }}>
-              {otherButtons.map(({ btn, displayLabel }) => (
-                <button
-                  key={btn.customId}
-                  onClick={() => handleButtonAction(btn)}
-                  disabled={!!actionLoading}
-                  style={{
-                    ...buttonStyle,
-                    width: 'auto',
-                    minWidth: 32,
-                    padding: '0 10px',
-                    opacity: actionLoading === btn.customId ? 0.6 : 1,
-                  }}
-                  onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
-                  onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
-                  title={btn.label || displayLabel}
-                >
-                  {btn.emoji || btn.label || displayLabel}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   const commonInputStyle: React.CSSProperties = {
     width: '100%',
@@ -1028,8 +742,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             {error}
           </div>
         )}
-
-        {renderActionButtons()}
       </>
     );
   };
@@ -1037,7 +749,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   return (
     <div
       style={{
-        width: isAdvanced ? 300 : 280,
+        width: 300,
         padding: 10,
         background: '#fff',
         border: `1px solid ${borderColor}`,
@@ -1047,203 +759,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         position: 'relative',
       }}
     >
-      {isAdvanced ? renderAdvancedContent() : (
-        <>
-      {/* 标题�?*/}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 8,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Sparkles size={16} color="#8b5cf6" />
-          <span style={{ fontWeight: 600, color: '#7c3aed' }}>Midjourney</span>
-          <RunCreditBadge credits={resolvedRunCredits} inline />
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            onClick={onRun}
-            disabled={status === 'running'}
-            style={{
-              fontSize: 12,
-              padding: '4px 10px',
-              background: status === 'running' ? '#e5e7eb' : '#8b5cf6',
-              color: '#fff',
-              borderRadius: 6,
-              border: 'none',
-              cursor: status === 'running' ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {status === 'running' ? 'Running...' : 'Run'}
-          </button>
-          <button
-            onClick={onSend}
-            disabled={!(data.imageData || data.imageUrl)}
-            title={!(data.imageData || data.imageUrl) ? lt('无可发送的图像', 'No image to send') : lt('发送到画布', 'Send to canvas')}
-            style={{
-              fontSize: 12,
-              padding: '4px 8px',
-              background: !(data.imageData || data.imageUrl) ? '#e5e7eb' : '#8b5cf6',
-              color: '#fff',
-              borderRadius: 6,
-              border: 'none',
-              cursor: !(data.imageData || data.imageUrl) ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <SendIcon size={14} strokeWidth={2} />
-          </button>
-        </div>
-      </div>
+      {renderAdvancedContent()}
 
-      {/* 预设提示�?*/}
-      <div style={{ marginBottom: 8 }}>
-        <label
-          style={{
-            display: 'block',
-            fontSize: 11,
-            color: '#6b7280',
-            marginBottom: 2,
-          }}
-        >
-          {lt('预设提示词', 'Preset prompt')}
-        </label>
-        <input
-          value={presetPromptValue}
-          onChange={(event) => updatePresetPrompt(event.target.value)}
-          placeholder={lt("生成时自动拼接在提示词前", "Auto-prepended before the prompt during generation")}
-          style={{
-            width: '100%',
-            fontSize: 12,
-            padding: '4px 6px',
-            borderRadius: 6,
-            border: '1px solid #e5e7eb',
-            outline: 'none',
-            background: '#fff',
-          }}
-          onPointerDownCapture={stopNodeDrag}
-          onPointerDown={stopNodeDrag}
-          onMouseDownCapture={stopNodeDrag}
-          onMouseDown={stopNodeDrag}
-        />
-      </div>
-
-      {/* 尺寸选择 */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          marginBottom: 8,
-        }}
-      >
-        <label
-          className="nodrag nopan"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            fontSize: 11,
-            color: '#6b7280',
-          }}
-        >
-          {lt('尺寸', 'Aspect')}
-          <select
-            value={aspectRatioValue}
-            onChange={(e) => updateAspectRatio(e.target.value)}
-            onPointerDown={stopNodeDrag}
-            onPointerDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onClick={stopNodeDrag}
-            onClickCapture={stopNodeDrag}
-            className="nodrag nopan"
-            style={{
-              fontSize: 11,
-              padding: '2px 4px',
-              borderRadius: 6,
-              border: '1px solid #e5e7eb',
-              background: '#fff',
-              color: '#111827',
-            }}
-          >
-            {aspectOptions.map((opt) => (
-              <option key={opt.value || 'auto'} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {/* 图片预览区域 */}
-      <div
-        onDoubleClick={() => fullSrc && setPreview(true)}
-        style={{
-          width: '100%',
-          height: 180,
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          ...flowImagePreviewWell(isDarkTheme, {
-            background: '#faf5ff',
-            border: '1px solid #e9d5ff',
-          }),
-        }}
-        title={displaySrc ? lt('双击预览', 'Double click to preview') : undefined}
-      >
-        {displaySrc ? (
-          <SmartImage
-            src={displaySrc}
-            alt=""
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              background: flowLetterboxBackground(isDarkTheme),
-            }}
-          />
-        ) : (
-          <div style={{ textAlign: 'center' }}>
-            <Sparkles size={24} color="#c4b5fd" />
-            <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 4 }}>{lt('等待生成', 'Waiting for generation')}</div>
-          </div>
-        )}
-      </div>
-
-      <GenerationProgressBar
-        status={status}
-        simulateDurationMs={60 * 1000}
-        startedAt={data.progressStartedAt}
-        runKey={id}
-      />
-
-      {/* 错误信息 */}
-      {status === 'failed' && error && (
-        <div
-          style={{
-            fontSize: 11,
-            color: '#ef4444',
-            marginTop: 4,
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {/* Midjourney 操作按钮 */}
-      {renderActionButtons()}
-
-      {/* 连接�?- MJ 只支持文生图，无 image 输入 */}
-        </>
-      )}
-
-      {isAdvanced ? (
-        <>
+      {/* 连接桩 - V7/Niji7 */}
+      <>
           <Handle
             type="target"
             position={Position.Left}
@@ -1327,48 +846,9 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               </div>
             ) : null
           )}
-        </>
-      ) : (
-        <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="text"
-        style={{ top: '50%' }}
-        onMouseEnter={() => setHover('prompt-in')}
-        onMouseLeave={() => setHover(null)}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="img"
-        style={{ top: '50%' }}
-        onMouseEnter={() => setHover('img-out')}
-        onMouseLeave={() => setHover(null)}
-      />
-
-      {/* 连接点提�?*/}
-      {hover === 'prompt-in' && (
-        <div
-          className="flow-tooltip"
-          style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}
-        >
-          prompt
-        </div>
-      )}
-      {hover === 'img-out' && (
-        <div
-          className="flow-tooltip"
-          style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}
-        >
-          image
-        </div>
-      )}
+      </>
 
       {/* 图片预览模态框 */}
-        </>
-      )}
-
       <ImagePreviewModal
         isOpen={preview}
         imageSrc={

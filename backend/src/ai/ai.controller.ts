@@ -32,8 +32,6 @@ import {
   BlendImagesDto,
   AnalyzeImageDto,
   TextChatDto,
-  MidjourneyActionDto,
-  MidjourneyModalDto,
   Convert2Dto3DDto,
   ExpandImageDto,
 } from './dto/image-generation.dto';
@@ -45,7 +43,6 @@ import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dt
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
-import { MidjourneyProvider } from './providers/midjourney.provider';
 import { UsersService } from '../users/users.service';
 import { CreditsService } from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
@@ -140,7 +137,6 @@ export class AiController {
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
-    midjourney: 'midjourney-fast',
     nano2: 'gemini-3.1-flash-image-preview',
     seedream5: 'doubao-seedream-5-0-260128',
   };
@@ -3898,67 +3894,6 @@ export class AiController {
       });
       throw error;
     }
-  }
-
-  @Post('midjourney/action')
-  async midjourneyAction(@Body() dto: MidjourneyActionDto, @Req() req: any): Promise<ImageGenerationResult> {
-    return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
-      const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
-      if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
-      }
-
-      const result = await provider.triggerAction({
-        taskId: dto.taskId,
-        customId: dto.customId,
-        state: dto.state,
-        notifyHook: dto.notifyHook,
-        chooseSameChannel: dto.chooseSameChannel,
-        accountFilter: dto.accountFilter,
-      });
-
-      if (result.success && result.data) {
-        const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-        return {
-          imageData: watermarked,
-          textResponse: result.data.textResponse || '',
-          metadata: result.data.metadata,
-        };
-      }
-
-      throw new ServiceUnavailableException(
-        result.error?.message || 'Failed to execute Midjourney action.'
-      );
-    }, 0, 1);
-  }
-
-  @Post('midjourney/modal')
-  async midjourneyModal(@Body() dto: MidjourneyModalDto, @Req() req: any): Promise<ImageGenerationResult> {
-    return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
-      const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
-      if (!(provider instanceof MidjourneyProvider)) {
-        throw new ServiceUnavailableException('MJ 服务暂不可用，请检查账号配置');
-      }
-
-      const result = await provider.executeModal({
-        taskId: dto.taskId,
-        prompt: dto.prompt,
-        maskBase64: dto.maskBase64,
-      });
-
-      if (result.success && result.data) {
-        const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-        return {
-          imageData: watermarked,
-          textResponse: result.data.textResponse || '',
-          metadata: result.data.metadata,
-        };
-      }
-
-      throw new ServiceUnavailableException(
-        result.error?.message || 'Failed to execute Midjourney modal action.'
-      );
-    }, 0, 1);
   }
 
   @Post('analyze-image')

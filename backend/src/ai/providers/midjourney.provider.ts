@@ -10,9 +10,7 @@ import {
   ImageEditRequest,
   ImageGenerationRequest,
   ImageResult,
-  MidjourneyActionRequest,
   MidjourneyButtonInfo,
-  MidjourneyModalRequest,
   MidjourneyProviderOptions,
   PaperJSGenerateRequest,
   ProviderOptionsPayload,
@@ -56,22 +54,20 @@ type MidjourneySubmitResponse = {
   properties?: Record<string, any>;
 };
 
-type MidjourneyAuthMode = 'legacy' | 'youchuan';
+// V7/Niji 唯一支持的鉴权模式：悠船(youchuan)。普通 MJ(147 legacy) 已下线。
+type MidjourneyAuthMode = 'youchuan';
 
 @Injectable()
 export class MidjourneyProvider implements IAIProvider {
   private readonly logger = new Logger(MidjourneyProvider.name);
-  private readonly apiBaseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
-  private readonly defaultMode: 'FAST' | 'RELAX' = 'FAST';
   private authMode: MidjourneyAuthMode | null = null;
-  private apiKey: string | null = null;
   private youchuanAppId: string | null = null;
   private youchuanSecretKey: string | null = null;
-  // 当 MIDJOURNEY_VIA_NEW_API=1 时，legacy(/mj/*) 与 youchuan(/v1/tob/*) 两类上游
-  // 都改走 new-api 网关：base_url 指向 new-api，鉴权用 Bearer NEW_API_KEY，
-  // 上游真实密钥(mj-api-secret / x-youchuan-app+secret)由 new-api 渠道面板持有。
+  // 当 MIDJOURNEY_VIA_NEW_API=1 时，youchuan(/v1/tob/*) 上游改走 new-api 网关：
+  // base_url 指向 new-api，鉴权用 Bearer NEW_API_KEY，
+  // 上游真实密钥(x-youchuan-app+secret)由 new-api 渠道面板持有。
   private viaNewApi = false;
   private newApiBaseUrl = '';
   private newApiKey = '';
@@ -80,13 +76,6 @@ export class MidjourneyProvider implements IAIProvider {
     private readonly config: ConfigService,
     private readonly ossService: OssService,
   ) {
-    const hasYouchuanConfig = Boolean(
-      this.config.get<string>('YOUCHUAN_APP_ID') && this.config.get<string>('YOUCHUAN_SECRET_KEY')
-    );
-    const midjourneyBaseUrl = this.config.get<string>('MIDJOURNEY_API_BASE_URL')?.trim() ?? null;
-    const youchuanBaseUrl = this.config.get<string>('YOUCHUAN_API_BASE_URL')?.trim() ?? null;
-
-    this.apiBaseUrl = midjourneyBaseUrl ?? youchuanBaseUrl ?? 'https://ali.youchuan.cn';
     this.pollIntervalMs = Number(
       this.config.get<number>('MIDJOURNEY_POLL_INTERVAL_MS') ?? 4000
     );
@@ -98,7 +87,6 @@ export class MidjourneyProvider implements IAIProvider {
   async initialize(): Promise<void> {
     this.youchuanAppId = this.config.get<string>('YOUCHUAN_APP_ID')?.trim() ?? null;
     this.youchuanSecretKey = this.config.get<string>('YOUCHUAN_SECRET_KEY')?.trim() ?? null;
-    this.apiKey = this.config.get<string>('MIDJOURNEY_API_KEY') ?? null;
 
     this.viaNewApi =
       String(this.config.get<string>('MIDJOURNEY_VIA_NEW_API') ?? '')
@@ -117,20 +105,11 @@ export class MidjourneyProvider implements IAIProvider {
           'MIDJOURNEY_VIA_NEW_API=1 但缺少 NEW_API_KEY，Midjourney 请求无法通过 new-api 网关鉴权。'
         );
       }
-      // 经 new-api 时上游真实密钥由网关持有，本地不再强依赖 MIDJOURNEY_API_KEY /
-      // YOUCHUAN_* 是否配置。每个请求仍按模型在 legacy/youchuan 之间选路（决定
-      // base path 与 payload 形态），只是 base_url 与鉴权头改指向 new-api。
-      // authMode 仅作 ensureConfigured() 的兜底默认；实际选路由 resolveRequestMode 决定。
-      this.authMode = 'legacy';
+      // 经 new-api 时上游真实密钥由网关持有，本地不再强依赖 YOUCHUAN_* 是否配置。
+      this.authMode = 'youchuan';
       this.logger.log(
-        `Midjourney provider: V7/Niji(youchuan) 经 new-api 网关 ${this.newApiBaseUrl}/youchuan/v1/tob/*；普通 MJ(legacy) 仍直连原生上游 ${this.apiBaseUrl}。`
+        `Midjourney provider: V7/Niji(youchuan) 经 new-api 网关 ${this.newApiBaseUrl}/youchuan/v1/tob/*。`
       );
-      return;
-    }
-
-    if (this.apiKey) {
-      this.authMode = 'legacy';
-      this.logger.log(`Midjourney provider initialised with legacy 147 credentials (endpoint: ${this.apiBaseUrl}).`);
       return;
     }
 
@@ -141,20 +120,16 @@ export class MidjourneyProvider implements IAIProvider {
     }
 
     this.logger.warn(
-      'Midjourney credentials not configured. Set YOUCHUAN_APP_ID/YOUCHUAN_SECRET_KEY or MIDJOURNEY_API_KEY.'
+      'Midjourney credentials not configured. Set YOUCHUAN_APP_ID/YOUCHUAN_SECRET_KEY.'
     );
   }
 
   private ensureConfigured(): MidjourneyAuthMode {
     if (this.viaNewApi && this.newApiKey) {
-      return this.authMode ?? 'legacy';
+      return 'youchuan';
     }
 
     if (this.authMode === 'youchuan' && this.youchuanAppId && this.youchuanSecretKey) {
-      return this.authMode;
-    }
-
-    if (this.authMode === 'legacy' && this.apiKey) {
       return this.authMode;
     }
 
@@ -163,58 +138,37 @@ export class MidjourneyProvider implements IAIProvider {
     );
   }
 
-  private isYouchuanMode(): boolean {
-    return this.ensureConfigured() === 'youchuan';
-  }
-
   private hasYouchuanCredentials(): boolean {
     return Boolean(this.youchuanAppId && this.youchuanSecretKey);
   }
 
-  private shouldUseYouchuanModel(model?: string): boolean {
+  // 仅允许 V7/Niji 两个显式模型；其余(缺失/普通 MJ 旧名)一律拒绝。
+  private isSupportedModel(model?: string): boolean {
     const normalized = (model ?? '').trim().toLowerCase();
-    // mj_imagine 等老模型名称走 legacy (147 API)
-    if (normalized === 'mj_imagine' || normalized.startsWith('mj_')) {
-      return false;
-    }
-    return (
-      normalized === 'midjourney-v7' ||
-      normalized === 'midjourney-niji-7' ||
-      normalized === 'niji-7'
-    );
+    return normalized === 'midjourney-v7' || normalized === 'midjourney-niji-7';
   }
 
   private resolveRequestMode(model?: string): MidjourneyAuthMode {
-    if (this.shouldUseYouchuanModel(model)) {
-      // 经 new-api 时优创真实密钥由网关持有，本地无需 YOUCHUAN_* 凭据，
-      // 但必须有 NEW_API_KEY 才能向网关鉴权——缺失则快速失败，避免发出空 Bearer。
-      if (this.viaNewApi) {
-        if (!this.newApiKey) {
-          throw new ServiceUnavailableException(
-            'V7/Niji 7 已切换到 new-api 网关（MIDJOURNEY_VIA_NEW_API=1），但后端缺少 NEW_API_KEY，无法向网关鉴权。'
-          );
-        }
-      } else if (!this.hasYouchuanCredentials()) {
+    // 经 new-api 时优创真实密钥由网关持有，本地无需 YOUCHUAN_* 凭据，
+    // 但必须有 NEW_API_KEY 才能向网关鉴权——缺失则快速失败，避免发出空 Bearer。
+    if (this.viaNewApi) {
+      if (!this.newApiKey) {
         throw new ServiceUnavailableException(
-          'V7/Niji 7 模式需要配置 Youchuan 账号，但后端未配置（YOUCHUAN_APP_ID / YOUCHUAN_SECRET_KEY），请切换到 147 AI 账号或联系管理员配置。'
+          'V7/Niji 7 已切换到 new-api 网关（MIDJOURNEY_VIA_NEW_API=1），但后端缺少 NEW_API_KEY，无法向网关鉴权。'
         );
       }
-      return 'youchuan';
+    } else if (!this.hasYouchuanCredentials()) {
+      throw new ServiceUnavailableException(
+        'V7/Niji 7 模式需要配置 Youchuan 账号，但后端未配置（YOUCHUAN_APP_ID / YOUCHUAN_SECRET_KEY），请联系管理员配置。'
+      );
     }
-
-    if (this.apiKey) {
-      return 'legacy';
-    }
-
-    return this.ensureConfigured();
+    return 'youchuan';
   }
 
-  private buildRequestHeaders(mode: MidjourneyAuthMode): Record<string, string> {
+  private buildRequestHeaders(_mode: MidjourneyAuthMode): Record<string, string> {
     // 经 new-api 的 youchuan(V7/Niji) 透传：用 Bearer NEW_API_KEY 向网关鉴权；
     // 上游优创密钥(x-youchuan-app/secret)由 new-api 的 /youchuan 渠道注入。
-    // 说明：legacy(普通 MJ) 不走 new-api —— new-api 的 MJ relay 靠 webhook 回填
-    // 任务进度，而本 provider 是轮询模型，经标准 relay 会卡在 pending。
-    if (this.viaNewApi && mode === 'youchuan') {
+    if (this.viaNewApi) {
       return {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -222,39 +176,24 @@ export class MidjourneyProvider implements IAIProvider {
       };
     }
 
-    if (mode === 'youchuan') {
-      return {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-youchuan-app': this.youchuanAppId as string,
-        'x-youchuan-secret': this.youchuanSecretKey as string,
-      };
-    }
-
     return {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: this.apiKey as string,
+      'x-youchuan-app': this.youchuanAppId as string,
+      'x-youchuan-secret': this.youchuanSecretKey as string,
     };
   }
 
-  private buildUrl(path: string, requestMode?: MidjourneyAuthMode): string {
+  private buildUrl(path: string, _requestMode?: MidjourneyAuthMode): string {
     if (path.startsWith('http')) {
       return path;
     }
 
-    // 根据 requestMode 使用不同的 base URL
-    let baseUrl: string;
-    if (this.viaNewApi && requestMode === 'youchuan') {
-      // V7/Niji 经 new-api 的 /youchuan 透传(拼出 /youchuan/v1/tob/*)。
-      baseUrl = `${this.newApiBaseUrl}/youchuan`;
-    } else if (requestMode === 'youchuan') {
-      baseUrl =
-        this.config.get<string>('YOUCHUAN_API_BASE_URL')?.trim() ?? 'https://ali.youchuan.cn';
-    } else {
-      // legacy(普通 MJ) 始终直连原生上游，不经 new-api(见 buildRequestHeaders 注释)。
-      baseUrl = this.apiBaseUrl;
-    }
+    // V7/Niji 经 new-api 的 /youchuan 透传(拼出 /youchuan/v1/tob/*)，
+    // 否则直连优创 base url。
+    const baseUrl = this.viaNewApi
+      ? `${this.newApiBaseUrl}/youchuan`
+      : this.config.get<string>('YOUCHUAN_API_BASE_URL')?.trim() ?? 'https://ali.youchuan.cn';
 
     return `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
   }
@@ -316,14 +255,6 @@ export class MidjourneyProvider implements IAIProvider {
         data?.comment ||
         response.statusText;
       throw new Error(`MJ 图片生成失败：${errorDesc}`);
-    }
-
-    // 检查 API 返回的业务错误码
-    if (mode === 'legacy' && data?.code && data.code !== 1 && data.code !== 22) {
-      // code 1 = 成功, code 22 = 排队中
-      const errorMsg = data.description || data.message || '未知 API 错误';
-      this.logger.error(`[Midjourney] ${operation} API error: code=${data.code}, ${errorMsg}`);
-      throw new Error(`MJ 图片生成失败：${errorMsg}`);
     }
 
     return data as T;
@@ -597,24 +528,6 @@ export class MidjourneyProvider implements IAIProvider {
     return 'image/png';
   }
 
-  private ensureDataUrl(image: string): string {
-    const trimmed = image.trim();
-    if (trimmed.startsWith('data:image/')) {
-      return trimmed;
-    }
-
-    // 如果是 URL，抛出错误提示需要使用异步方法
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      throw new Error(
-        `图片为 URL 格式，请使用异步方法：${trimmed.slice(0, 80)}...`
-      );
-    }
-
-    const base64 = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
-    const mimeType = this.inferMimeTypeFromBase64(base64);
-    return `data:${mimeType};base64,${base64}`;
-  }
-
   private async ensureDataUrlAsync(image: string): Promise<string> {
     const trimmed = image.trim();
     if (trimmed.startsWith('data:image/')) {
@@ -640,57 +553,6 @@ export class MidjourneyProvider implements IAIProvider {
     const base64 = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
     const mimeType = this.inferMimeTypeFromBase64(base64);
     return `data:${mimeType};base64,${base64}`;
-  }
-
-  private extractMidjourneyOptions(
-    providerOptions?: ProviderOptionsPayload
-  ): MidjourneyProviderOptions | undefined {
-    return providerOptions?.midjourney;
-  }
-
-  private buildAccountFilter(options?: MidjourneyProviderOptions) {
-    if (!options?.accountFilter) {
-      return undefined;
-    }
-
-    const filter = options.accountFilter;
-    if (
-      !filter.channelId &&
-      !filter.instanceId &&
-      !filter.modes &&
-      !filter.remark &&
-      typeof filter.remix === 'undefined'
-    ) {
-      return undefined;
-    }
-
-    return filter;
-  }
-
-  private aspectRatioToDimensions(
-    aspectRatio?: string
-  ): 'SQUARE' | 'PORTRAIT' | 'LANDSCAPE' | undefined {
-    if (!aspectRatio) {
-      return undefined;
-    }
-
-    switch (aspectRatio) {
-      case '1:1':
-        return 'SQUARE';
-      case '2:3':
-      case '3:4':
-      case '4:5':
-      case '9:16':
-        return 'PORTRAIT';
-      case '3:2':
-      case '4:3':
-      case '5:4':
-      case '16:9':
-      case '21:9':
-        return 'LANDSCAPE';
-      default:
-        return undefined;
-    }
   }
 
   private extractImageUrl(task: MidjourneyTaskResponse): string | null {
@@ -875,163 +737,6 @@ export class MidjourneyProvider implements IAIProvider {
     }
 
     return { text };
-  }
-
-  private async buildImaginePayload(
-    request: ImageGenerationRequest,
-    requestMode: MidjourneyAuthMode
-  ): Promise<Record<string, any>> {
-    if (requestMode === 'youchuan') {
-      return this.buildYouchuanDiffusionPayload(
-        request.prompt ?? '',
-        Array.isArray(request.imageUrls) ? request.imageUrls : []
-      );
-    }
-
-    const options = this.extractMidjourneyOptions(request.providerOptions);
-    // Midjourney 只支持纯文生图，不支持图片输入
-    const promptParts: string[] = [];
-    const base64Array: string[] = [];
-    const imageInputs = Array.isArray(request.imageUrls) ? request.imageUrls : [];
-
-    for (const input of imageInputs) {
-      if (typeof input !== 'string') continue;
-      const trimmed = input.trim();
-      if (!trimmed) continue;
-      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-        promptParts.push(trimmed);
-        continue;
-      }
-      base64Array.push(trimmed);
-    }
-
-    promptParts.push(request.prompt.replace(/\r?\n/g, ' ').trim());
-
-    const payload: Record<string, any> = {
-      prompt: promptParts.filter(Boolean).join(' ').trim(),
-      mode: options?.mode ?? this.defaultMode,
-      // 147 API 需要指定模型名称
-      model: request.model ?? 'mj_imagine',
-    };
-
-    if (base64Array.length > 0) {
-      payload.base64Array = base64Array;
-    }
-
-    if (options?.botType) payload.botType = options.botType;
-    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-    if (options?.state) payload.state = options.state;
-    const accountFilter = this.buildAccountFilter(options);
-    if (accountFilter) payload.accountFilter = accountFilter;
-
-    return payload;
-  }
-
-  private async buildBlendPayload(request: ImageBlendRequest): Promise<Record<string, any>> {
-    const options = this.extractMidjourneyOptions(request.providerOptions);
-    const base64Array = await Promise.all(
-      request.sourceImages.map((img) => this.ensureDataUrlAsync(img))
-    );
-    const payload: Record<string, any> = {
-      base64Array,
-      dimensions: options?.dimensions ?? this.aspectRatioToDimensions(request.aspectRatio) ?? 'SQUARE',
-    };
-
-    if (options?.botType) payload.botType = options.botType;
-    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-    if (options?.state) payload.state = options.state;
-    const accountFilter = this.buildAccountFilter(options);
-    if (accountFilter) payload.accountFilter = accountFilter;
-
-    return payload;
-  }
-
-  private async buildEditPayload(request: ImageEditRequest): Promise<Record<string, any>> {
-    const options = this.extractMidjourneyOptions(request.providerOptions);
-    const sourceImage = request.sourceImage.trim();
-
-    // 将图片转换为 data URL 格式
-    const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
-
-    const payload: Record<string, any> = {
-      action: 'EDITS',
-      prompt: request.prompt,
-      base64Array: [imageDataUrl],
-    };
-
-    if (options?.botType) payload.botType = options.botType;
-    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-    if (options?.state) payload.state = options.state;
-    if (options?.remix !== undefined) payload.remix = options.remix;
-    const accountFilter = this.buildAccountFilter(options);
-    if (accountFilter) payload.accountFilter = accountFilter;
-
-    return payload;
-  }
-
-  /**
-   * 构建用于 /mj/submit/imagine 接口的图生图请求
-   * 如果是 URL，直接在 prompt 中引用；如果是 base64，使用 base64Array
-   */
-  private async buildEditPayloadForImagine(request: ImageEditRequest): Promise<Record<string, any>> {
-    const options = this.extractMidjourneyOptions(request.providerOptions);
-    const sourceImage = request.sourceImage.trim();
-    const isUrl = sourceImage.startsWith('http://') || sourceImage.startsWith('https://');
-
-    const payload: Record<string, any> = {
-      mode: options?.mode ?? this.defaultMode,
-    };
-
-    if (isUrl) {
-      // URL 格式：在 prompt 前添加图片 URL
-      payload.prompt = `${sourceImage} ${request.prompt}`;
-    } else {
-      // base64 格式：使用 base64Array
-      const imageDataUrl = await this.ensureDataUrlAsync(sourceImage);
-      payload.prompt = request.prompt;
-      payload.base64Array = [imageDataUrl];
-    }
-
-    if (options?.botType) payload.botType = options.botType;
-    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-    if (options?.state) payload.state = options.state;
-    const accountFilter = this.buildAccountFilter(options);
-    if (accountFilter) payload.accountFilter = accountFilter;
-
-    return payload;
-  }
-
-  private async buildDescribePayload(request: ImageAnalysisRequest): Promise<Record<string, any>> {
-    const options = this.extractMidjourneyOptions(request.providerOptions);
-    const sourceInputs = Array.from(
-      new Set(
-        [
-          ...(Array.isArray(request.sourceImages) ? request.sourceImages : []),
-          request.sourceImage,
-        ]
-          .map((value) => (typeof value === 'string' ? value.trim() : ''))
-          .filter((value) => value.length > 0),
-      ),
-    );
-    if (!sourceInputs.length) {
-      throw new Error('Midjourney describe requires one source image.');
-    }
-    if (sourceInputs.length > 1) {
-      throw new Error('Midjourney describe currently supports only one source image.');
-    }
-
-    const payload: Record<string, any> = {
-      base64: await this.ensureDataUrlAsync(sourceInputs[0]),
-      dimensions: options?.dimensions ?? 'SQUARE',
-    };
-
-    if (options?.botType) payload.botType = options.botType;
-    if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-    if (options?.state) payload.state = options.state;
-    const accountFilter = this.buildAccountFilter(options);
-    if (accountFilter) payload.accountFilter = accountFilter;
-
-    return payload;
   }
 
   private buildSuccessImageResponse(
@@ -1230,19 +935,38 @@ export class MidjourneyProvider implements IAIProvider {
     }
   }
 
+  // 仅允许显式的 V7/Niji 模型；缺失或普通 MJ 旧名返回干净错误响应。
+  private rejectUnsupportedModel(model?: string): AIProviderResponse<ImageResult> | null {
+    if (this.isSupportedModel(model)) {
+      return null;
+    }
+    return {
+      success: false,
+      error: {
+        code: 'MIDJOURNEY_IMAGE_ERROR',
+        message: '普通 Midjourney 已下线，请使用 Midjourney V7 或 Niji 7。',
+      },
+    };
+  }
+
   async generateImage(request: ImageGenerationRequest): Promise<AIProviderResponse<ImageResult>> {
+    const rejected = this.rejectUnsupportedModel(request.model);
+    if (rejected) return rejected;
     if (this.viaNewApi) {
       return this.runManagedImage(
-        request.model ?? 'midjourney-fast',
+        request.model as string,
         request.prompt ?? '',
         Array.isArray(request.imageUrls) ? request.imageUrls : []
       );
     }
     try {
       const requestMode = this.resolveRequestMode(request.model);
-      const payload = await this.buildImaginePayload(request, requestMode);
+      const payload = await this.buildYouchuanDiffusionPayload(
+        request.prompt ?? '',
+        Array.isArray(request.imageUrls) ? request.imageUrls : []
+      );
       const taskId = await this.submitTask(
-        requestMode === 'youchuan' ? '/v1/tob/diffusion' : '/mj/submit/imagine',
+        '/v1/tob/diffusion',
         payload,
         'generateImage',
         requestMode
@@ -1280,9 +1004,11 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
+    const rejected = this.rejectUnsupportedModel(request.model);
+    if (rejected) return rejected;
     if (this.viaNewApi) {
       return this.runManagedImage(
-        request.model ?? 'midjourney-fast',
+        request.model as string,
         request.prompt ?? '',
         request.sourceImage ? [request.sourceImage] : []
       );
@@ -1290,41 +1016,15 @@ export class MidjourneyProvider implements IAIProvider {
     try {
       const requestMode = this.resolveRequestMode(request.model);
 
-      if (requestMode === 'youchuan') {
-        const payload = await this.buildYouchuanDiffusionPayload(request.prompt ?? '', [
-          request.sourceImage,
-        ]);
-        const taskId = await this.submitTask(
-          '/v1/tob/diffusion',
-          payload,
-          'editImage',
-          requestMode
-        );
-        const task = await this.pollTask(taskId, 'editImage', requestMode);
-        const imageUrl = this.extractImageUrl(task);
-        const ossUrl = await this.uploadImageToOSS(imageUrl);
-        const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
-
-        return this.buildSuccessImageResponse(task, imageData, ossUrl);
-      }
-
-      // 使用 /mj/submit/imagine 接口 + base64Array 实现图生图
-      const options = this.extractMidjourneyOptions(request.providerOptions);
-      const imageDataUrl = await this.ensureDataUrlAsync(request.sourceImage.trim());
-
-      const payload: Record<string, any> = {
-        prompt: request.prompt,
-        mode: options?.mode ?? this.defaultMode,
-        base64Array: [imageDataUrl],
-      };
-
-      if (options?.botType) payload.botType = options.botType;
-      if (options?.notifyHook) payload.notifyHook = options.notifyHook;
-      if (options?.state) payload.state = options.state;
-      const accountFilter = this.buildAccountFilter(options);
-      if (accountFilter) payload.accountFilter = accountFilter;
-
-      const taskId = await this.submitTask('/mj/submit/imagine', payload, 'editImage', requestMode);
+      const payload = await this.buildYouchuanDiffusionPayload(request.prompt ?? '', [
+        request.sourceImage,
+      ]);
+      const taskId = await this.submitTask(
+        '/v1/tob/diffusion',
+        payload,
+        'editImage',
+        requestMode
+      );
       const task = await this.pollTask(taskId, 'editImage', requestMode);
       const imageUrl = this.extractImageUrl(task);
       const ossUrl = await this.uploadImageToOSS(imageUrl);
@@ -1344,46 +1044,34 @@ export class MidjourneyProvider implements IAIProvider {
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
+    const rejected = this.rejectUnsupportedModel(request.model);
+    if (rejected) return rejected;
+    if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
+      return {
+        success: false,
+        error: { code: 'MIDJOURNEY_IMAGE_ERROR', message: 'MJ Blend 至少需要两张图片进行融合。' },
+      };
+    }
     if (this.viaNewApi) {
-      if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
-        return {
-          success: false,
-          error: { code: 'MIDJOURNEY_IMAGE_ERROR', message: 'MJ Blend 至少需要两张图片进行融合。' },
-        };
-      }
       return this.runManagedImage(
-        request.model ?? 'midjourney-fast',
+        request.model as string,
         request.prompt ?? '',
         request.sourceImages
       );
     }
     try {
       const requestMode = this.resolveRequestMode(request.model);
-      if (!Array.isArray(request.sourceImages) || request.sourceImages.length < 2) {
-        throw new Error('MJ Blend 至少需要两张图片进行融合。');
-      }
 
-      if (requestMode === 'youchuan') {
-        const payload = await this.buildYouchuanDiffusionPayload(
-          request.prompt ?? '',
-          request.sourceImages
-        );
-        const taskId = await this.submitTask(
-          '/v1/tob/diffusion',
-          payload,
-          'blendImages',
-          requestMode
-        );
-        const task = await this.pollTask(taskId, 'blendImages', requestMode);
-        const imageUrl = this.extractImageUrl(task);
-        const ossUrl = await this.uploadImageToOSS(imageUrl);
-        const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
-
-        return this.buildSuccessImageResponse(task, imageData, ossUrl);
-      }
-
-      const payload = await this.buildBlendPayload(request);
-      const taskId = await this.submitTask('/mj/submit/blend', payload, 'blendImages', requestMode);
+      const payload = await this.buildYouchuanDiffusionPayload(
+        request.prompt ?? '',
+        request.sourceImages
+      );
+      const taskId = await this.submitTask(
+        '/v1/tob/diffusion',
+        payload,
+        'blendImages',
+        requestMode
+      );
       const task = await this.pollTask(taskId, 'blendImages', requestMode);
       const imageUrl = this.extractImageUrl(task);
       const ossUrl = await this.uploadImageToOSS(imageUrl);
@@ -1402,50 +1090,15 @@ export class MidjourneyProvider implements IAIProvider {
     }
   }
 
-  async analyzeImage(request: ImageAnalysisRequest): Promise<AIProviderResponse<AnalysisResult>> {
-    try {
-      const requestMode = this.resolveRequestMode(request.model);
-      if (requestMode === 'youchuan') {
-        throw new Error('MJ Describe（图生文）当前账号模式暂不支持，请切换到 147 AI 账号。');
-      }
-
-      const payload = await this.buildDescribePayload(request);
-      const taskId = await this.submitTask(
-        '/mj/submit/describe',
-        payload,
-        'describeImage',
-        requestMode
-      );
-      const task = await this.pollTask(taskId, 'describeImage', requestMode);
-
-      const describeResult =
-        task.properties?.describePrompts ??
-        task.properties?.result ??
-        task.properties?.finalPrompt ??
-        task.description ??
-        task.promptEn ??
-        'Describe task completed.';
-
-      const text =
-        Array.isArray(describeResult) ? describeResult.join('\n') : String(describeResult);
-
-      return {
-        success: true,
-        data: {
-          text,
-          tags: task.properties?.tags,
-        },
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: {
-          code: 'MIDJOURNEY_DESCRIBE_ERROR',
-          message,
-        },
-      };
-    }
+  async analyzeImage(_request: ImageAnalysisRequest): Promise<AIProviderResponse<AnalysisResult>> {
+    // MJ Describe（图生文）依赖已下线的普通 MJ(/mj/submit/describe) 链路，V7/Niji 不支持。
+    return {
+      success: false,
+      error: {
+        code: 'MIDJOURNEY_DESCRIBE_ERROR',
+        message: 'MJ Describe（图生文）已下线，请使用 Midjourney V7 或 Niji 7 的生图能力。',
+      },
+    };
   }
 
   async generateText(_request: TextChatRequest): Promise<AIProviderResponse<TextResult>> {
@@ -1527,8 +1180,7 @@ export class MidjourneyProvider implements IAIProvider {
   isAvailable(): boolean {
     return Boolean(
       (this.viaNewApi && this.newApiKey) ||
-      (this.authMode === 'youchuan' && this.youchuanAppId && this.youchuanSecretKey) ||
-      (this.authMode === 'legacy' && this.apiKey)
+      (this.authMode === 'youchuan' && this.youchuanAppId && this.youchuanSecretKey)
     );
   }
 
@@ -1536,81 +1188,7 @@ export class MidjourneyProvider implements IAIProvider {
     return {
       name: 'midjourney',
       version: '1.0.0',
-      supportedModels: ['midjourney-fast', 'midjourney-relax'],
+      supportedModels: ['midjourney-v7', 'midjourney-niji-7'],
     };
-  }
-  async triggerAction(
-    request: MidjourneyActionRequest
-  ): Promise<AIProviderResponse<ImageResult>> {
-    try {
-      if (this.isYouchuanMode()) {
-        throw new Error('MJ 操作按钮当前账号模式暂不支持，请切换到 147 AI 账号。');
-      }
-
-      const payload = {
-        taskId: request.taskId,
-        customId: request.customId,
-        state: request.state,
-        notifyHook: request.notifyHook,
-        chooseSameChannel: request.chooseSameChannel,
-        accountFilter: request.accountFilter,
-      };
-
-      const newTaskId = await this.submitTask('/mj/submit/action', payload, 'action');
-      const task = await this.pollTask(newTaskId, 'action');
-      const imageUrl = this.extractImageUrl(task);
-      const ossUrl = await this.uploadImageToOSS(imageUrl);
-      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
-
-      return this.buildSuccessImageResponse(task, imageData, ossUrl, {
-        parentTaskId: request.taskId,
-        actionCustomId: request.customId,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: {
-          code: 'MIDJOURNEY_ACTION_ERROR',
-          message,
-        },
-      };
-    }
-  }
-
-  async executeModal(
-    request: MidjourneyModalRequest
-  ): Promise<AIProviderResponse<ImageResult>> {
-    try {
-      if (this.isYouchuanMode()) {
-        throw new Error('MJ 自定义 Modal 当前账号模式暂不支持，请切换到 147 AI 账号。');
-      }
-
-      const payload = {
-        taskId: request.taskId,
-        prompt: request.prompt,
-        maskBase64: request.maskBase64,
-      };
-
-      const newTaskId = await this.submitTask('/mj/submit/modal', payload, 'modal');
-      const task = await this.pollTask(newTaskId, 'modal');
-      const imageUrl = this.extractImageUrl(task);
-      const ossUrl = await this.uploadImageToOSS(imageUrl);
-      const imageData = ossUrl ? null : await this.downloadImageAsBase64(imageUrl);
-
-      return this.buildSuccessImageResponse(task, imageData, ossUrl, {
-        parentTaskId: request.taskId,
-        modalPrompt: request.prompt,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        error: {
-          code: 'MIDJOURNEY_MODAL_ERROR',
-          message,
-        },
-      };
-    }
   }
 }

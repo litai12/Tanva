@@ -506,46 +506,6 @@ export class TextChatDto {
   thinkingLevel?: 'high' | 'low';
 }
 
-export class MidjourneyActionDto {
-  @IsString()
-  @IsNotEmpty()
-  taskId!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  customId!: string;
-
-  @IsOptional()
-  @IsString()
-  state?: string;
-
-  @IsOptional()
-  @IsString()
-  notifyHook?: string;
-
-  @IsOptional()
-  @IsString()
-  chooseSameChannel?: string;
-
-  @IsOptional()
-  @IsObject()
-  accountFilter?: Record<string, any>;
-}
-
-export class MidjourneyModalDto {
-  @IsString()
-  @IsNotEmpty()
-  taskId!: string;
-
-  @IsOptional()
-  @IsString()
-  prompt?: string;
-
-  @IsOptional()
-  @IsString()
-  maskBase64?: string;
-}
-
 export class Convert2Dto3DDto {
   @IsOptional()
   @IsString()

@@ -166,7 +166,6 @@ import {
   generateWan26R2VViaAPI,
   generateHappyhorseVideoViaAPI,
   generateWan27I2VViaAPI,
-  midjourneyActionViaAPI,
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
@@ -989,7 +988,6 @@ const rawNodeTypes = {
   seedance20Video: Seedance20VideoNode,
   seedVideo: SeedVideoNode,
   storyboardSplit: StoryboardSplitNode,
-  midjourney: MidjourneyNode,
   midjourneyV7: MidjourneyNode,
   niji7: MidjourneyNode,
   nano2: Nano2Node,
@@ -1200,7 +1198,6 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "viewAngle",
   "generatePro",
   "generatePro4",
-  "midjourney",
   "midjourneyV7",
   "niji7",
   "nano2",
@@ -1458,7 +1455,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "textPrompt", targetHandle: "text" },
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
-    { nodeType: "midjourney", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
@@ -1517,7 +1513,6 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", sourceHandle: "img" },
     { nodeType: "generateRef", sourceHandle: "img" },
     { nodeType: "viewAngle", sourceHandle: "img" },
-    { nodeType: "midjourney", sourceHandle: "img" },
     { nodeType: "midjourneyV7", sourceHandle: "img" },
     { nodeType: "niji7", sourceHandle: "img" },
     { nodeType: "seedream5", sourceHandle: "img" },
@@ -1598,7 +1593,6 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   generateRef: "20-40",
   viewAngle: 30, // 视角变换节点 - 基于参考图编辑
   generate4: 80, // 四图生成节点 - 4次 × 20积分
-  midjourney: 50, // Midjourney生成 - midjourney-imagine
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
   nano2: 20, // Nano Banana 2 生图
@@ -1653,7 +1647,6 @@ const NODE_PALETTE_ITEMS = [
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
   { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
-  { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
   { key: "gptImage2", zh: "GPT-Image-2", en: "GPT-Image-2", category: "image" },
   { key: "analysis", zh: "Image Chat", en: "Image Chat", category: "image" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
@@ -1768,7 +1761,6 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   generate4: "image",
   generatePro: "image",
   generatePro4: "image",
-  midjourney: "image",
   midjourneyV7: "image",
   niji7: "image",
   nano2: "image",
@@ -1855,7 +1847,6 @@ const FLOW_NODE_DEFAULT_SIZE = {
   seedance20Video: { w: 280, h: 260 },
   seedVideo: { w: 280, h: 260 },
   storyboardSplit: { w: 320, h: 400 },
-  midjourney: { w: 280, h: 320 },
   midjourneyV7: { w: 300, h: 760 },
   niji7: { w: 300, h: 700 },
   nano2: { w: 260, h: 200 },
@@ -2175,7 +2166,6 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   camera: ["img"],
   imageGrid: ["img"],
   imageCompress: ["img"],
-  midjourney: ["img"],
   midjourneyV7: ["img"],
   niji7: ["img"],
   nano2: ["img"],
@@ -2226,7 +2216,6 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   imageGrid: ["images"],
   imageSplit: ["img"],
   imageCompress: ["img"],
-  midjourney: ["text"],
   midjourneyV7: ["img", "omniImage", "text"],
   niji7: ["img", "omniImage", "text"],
   nano2: ["img", "text"],
@@ -2483,7 +2472,6 @@ const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
   "generatePro",
   "generatePro4",
   "analysis",
-  "midjourney",
   "midjourneyV7",
   "niji7",
   "nano2",
@@ -9789,14 +9777,6 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
-          : type === "midjourney"
-          ? {
-              status: "idle" as const,
-              mode: "FAST",
-              presetPrompt: "",
-              boxW: size.w,
-              boxH: size.h,
-            }
           : type === "midjourneyV7" || type === "niji7"
           ? {
               status: "idle" as const,
@@ -10814,7 +10794,6 @@ function FlowInner() {
           "imageGrid",
           "imageSplit",
           "imageCompress",
-          "midjourney",
           "midjourneyV7",
           "niji7",
           "nano2",
@@ -11166,13 +11145,6 @@ function FlowInner() {
         }
         if (targetHandle === "img") {
           return isImageSource(sourceNode, sourceHandle);
-        }
-        return false;
-      }
-      // Midjourney 节点连接验证 - 仅支持文本输入
-      if (targetNode.type === "midjourney") {
-        if (targetHandle === "text") {
-          return canSourceProvideText(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -11612,10 +11584,6 @@ function FlowInner() {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
-      // Midjourney 节点连接容量控制 - 只支持文本输入
-      if (targetNode?.type === "midjourney") {
-        if (params.targetHandle === "text") return true; // 新线会替换旧线
-      }
       // Seedream5 节点连接容量控制
       if (targetNode?.type === "seedream5") {
         if (params.targetHandle === "prompt") return true; // 新线会替换旧线
@@ -11800,7 +11768,6 @@ function FlowInner() {
           "happyhorseR2V",
           "wan27Video",
           "storyboardSplit",
-          "midjourney",
           "midjourneyV7",
           "niji7",
           "klingVideo",
@@ -13983,219 +13950,6 @@ function FlowInner() {
       );
   }, [rf, setNodes]);
 
-  // 监听 Midjourney Action 事件（U1-U4, V1-V4 等按钮操作）
-  React.useEffect(() => {
-    const handler = async (event: Event) => {
-      const detail = (event as CustomEvent).detail as {
-        nodeId: string;
-        taskId: string;
-        customId: string;
-        label?: string;
-        state?: string;
-      };
-      if (!detail?.nodeId || !detail?.taskId || !detail?.customId) return;
-
-      const node = rf.getNode(detail.nodeId);
-      if (
-        !node ||
-        !["midjourney", "midjourneyV7", "niji7"].includes(node.type || "")
-      ) {
-        return;
-      }
-
-      // 设置节点为运行状态
-      setNodes((ns) =>
-        ns.map((n) =>
-          n.id === detail.nodeId
-            ? {
-                ...n,
-                data: { ...n.data, status: "running", error: undefined },
-              }
-            : n
-        )
-      );
-
-      try {
-        const result = await midjourneyActionViaAPI({
-          taskId: detail.taskId,
-          customId: detail.customId,
-          actionLabel: detail.label,
-          state: detail.state,
-        });
-
-        if (!result.success || !result.data) {
-          const msg = result.error?.message || "Midjourney 操作失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === detail.nodeId
-                ? {
-                    ...n,
-                    data: { ...n.data, status: "failed", error: msg },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        const imgBase64 = result.data.imageData;
-        const metadata = result.data.metadata || {};
-        const midjourneyMeta = metadata.midjourney || {};
-        const midjourneyImageUrl = midjourneyMeta.imageUrl || metadata.imageUrl;
-        const normalizedMidjourneyUrl =
-          typeof midjourneyImageUrl === "string"
-            ? midjourneyImageUrl.trim()
-            : "";
-        const rawHasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-        const rawPreviewSource = rawHasRemoteUrl
-          ? normalizedMidjourneyUrl
-          : imgBase64;
-
-        let previewSource = rawPreviewSource;
-        try {
-          if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
-            previewSource = await uploadImageToStableUrl(
-              rawPreviewSource.trim(),
-              `flow_${node.type || "midjourney"}_${detail.nodeId}_${Date.now()}.png`,
-              { reuploadUnstableRemote: true }
-            );
-          }
-        } catch (persistErr) {
-          console.warn(
-            "[Flow] Midjourney action: failed to persist preview to stable storage",
-            persistErr
-          );
-          previewSource = rawPreviewSource;
-        }
-
-        const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
-          ? midjourneyMeta.imageUrls
-          : Array.isArray(metadata.imageUrls)
-          ? metadata.imageUrls
-          : [];
-        const midjourneyImageUrls: string[] = [];
-        for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
-          const item = rawImageUrls[idx];
-          if (typeof item !== "string" || !item.trim()) continue;
-          const trimmed = item.trim();
-          try {
-            midjourneyImageUrls.push(
-              await uploadImageToStableUrl(
-                trimmed,
-                `flow_${node.type || "midjourney"}_${detail.nodeId}_${idx}_${Date.now()}.png`,
-                { reuploadUnstableRemote: true }
-              )
-            );
-          } catch (persistErr) {
-            console.warn(
-              "[Flow] Midjourney action: failed to persist imageUrls item",
-              persistErr
-            );
-            midjourneyImageUrls.push(trimmed);
-          }
-        }
-
-        const hasRemoteUrl =
-          typeof previewSource === "string" &&
-          previewSource.trim().length > 0 &&
-          !isDataImageUrl(previewSource) &&
-          !isBlobUrl(previewSource);
-        const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
-
-        const historyId = previewSource
-          ? `${detail.nodeId}-${Date.now()}`
-          : undefined;
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === detail.nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "succeeded",
-                    imageData: hasRemoteUrl ? undefined : previewSource,
-                    error: undefined,
-                    taskId: midjourneyMeta.taskId || detail.taskId,
-                    mjApiState:
-                      typeof midjourneyMeta.state === "string"
-                        ? midjourneyMeta.state
-                        : undefined,
-                    buttons: midjourneyMeta.buttons,
-                    imageUrl: hasRemoteUrl
-                      ? stableRemoteUrl
-                      : undefined,
-                    imageUrls: midjourneyImageUrls.length > 0
-                      ? midjourneyImageUrls
-                      : hasRemoteUrl && stableRemoteUrl
-                      ? [stableRemoteUrl]
-                      : undefined,
-                    promptEn: midjourneyMeta.promptEn,
-                    lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
-                  },
-                }
-              : n
-          )
-        );
-
-        if (historyId) {
-          const projectId = useProjectContentStore.getState().projectId;
-          void recordImageHistoryEntry({
-            id: historyId,
-            base64: hasRemoteUrl ? undefined : previewSource,
-            remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
-            title: `${node.type === "niji7" ? "Niji 7" : node.type === "midjourneyV7" ? "Midjourney V7" : "Midjourney"} ${
-              detail.label || "Action"
-            } ${new Date().toLocaleTimeString()}`,
-            nodeId: detail.nodeId,
-            nodeType: node.type || "midjourney",
-            fileName: `flow_${node.type || "midjourney"}_${historyId}.png`,
-            projectId,
-            keepThumbnail: false,
-          })
-            .then(({ remoteUrl }) => {
-              if (!remoteUrl) return;
-              if (hasRemoteUrl) return;
-              setNodes((ns) =>
-                ns.map((n) => {
-                  if (n.id !== detail.nodeId) return n;
-                  if ((n.data as any)?.imageData !== previewSource) return n;
-                  return {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      imageUrl: remoteUrl,
-                      imageData: undefined,
-                      thumbnail: undefined,
-                    },
-                  };
-                })
-              );
-            })
-            .catch(() => {});
-        }      } catch (error) {
-        const msg =
-          error instanceof Error ? error.message : "Midjourney 操作失败";
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === detail.nodeId
-              ? {
-                  ...n,
-                  data: { ...n.data, status: "failed", error: msg },
-                }
-              : n
-          )
-        );
-      }
-    };
-
-    window.addEventListener("flow:midjourneyAction", handler as EventListener);
-    return () =>
-      window.removeEventListener(
-        "flow:midjourneyAction",
-        handler as EventListener
-      );
-  }, [rf, setNodes]);
 
   const happyhorsePollingRef = React.useRef<Set<string>>(new Set());
   const pollHappyhorseTask = React.useCallback(
@@ -19728,290 +19482,6 @@ function FlowInner() {
         return;
       }
 
-      // Midjourney 节点处理逻辑
-      if (node.type === "midjourney") {
-        const { text: promptText, hasEdge: hasText } =
-          getTextPromptForNode(nodeId);
-        if (!hasText) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "缺少 TextPrompt 输入",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-        if (!promptText) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: { ...n.data, status: "failed", error: "提示词为空" },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        // 获取预设提示词
-        const presetPrompt =
-          typeof (node.data as any)?.presetPrompt === "string"
-            ? (node.data as any).presetPrompt.trim()
-            : "";
-        const finalPrompt = presetPrompt
-          ? `${presetPrompt} ${promptText}`
-          : promptText;
-
-        // 获取模式和宽高比
-        const mjMode = (node.data as any)?.mode || "FAST";
-        const mjAspectRatio = (node.data as any)?.aspectRatio;
-
-        // Midjourney 只支持纯文生图，不支持图片输入
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: { ...n.data, status: "running", error: undefined },
-                }
-              : n
-          )
-        );
-
-        try {
-          // 文生图 (Imagine)
-          const mjResult = await generateImageViaAPI({
-            prompt: finalPrompt,
-            outputFormat: "png",
-            aiProvider: "midjourney",
-            model: "midjourney-fast",
-            aspectRatio: mjAspectRatio,
-            providerOptions: {
-              midjourney: { mode: mjMode },
-            },
-          });
-
-          if (!mjResult.success || !mjResult.data) {
-            const msg = mjResult.error?.message || "Midjourney 生成失败";
-            setNodes((ns) =>
-              ns.map((n) =>
-                n.id === nodeId
-                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                  : n
-              )
-            );
-            return;
-          }
-
-          const mjImgBase64 = mjResult.data.imageData;
-          const mjMetadata = mjResult.data.metadata || {};
-          const midjourneyMeta = mjMetadata.midjourney || {};
-          const midjourneyImageUrl =
-            midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const rawMidjourneyImageUrl =
-            typeof midjourneyImageUrl === "string"
-              ? midjourneyImageUrl.trim()
-              : "";
-          const rawPreviewSource =
-            rawMidjourneyImageUrl.length > 0 ? rawMidjourneyImageUrl : mjImgBase64;
-
-          let previewSource = rawPreviewSource;
-          try {
-            if (typeof rawPreviewSource === "string" && rawPreviewSource.trim()) {
-              previewSource = await uploadImageToStableUrl(
-                rawPreviewSource.trim(),
-                `flow_midjourney_${nodeId}_${Date.now()}.png`,
-                { reuploadUnstableRemote: true }
-              );
-            }
-          } catch (persistErr) {
-            console.warn(
-              "[Flow] Midjourney: failed to persist preview to stable storage",
-              persistErr
-            );
-            previewSource = rawPreviewSource;
-          }
-
-          const hasRemoteUrl =
-            typeof previewSource === "string" &&
-            previewSource.trim().length > 0 &&
-            !isDataImageUrl(previewSource) &&
-            !isBlobUrl(previewSource);
-          const stableRemoteUrl = hasRemoteUrl ? previewSource : undefined;
-
-          const rawImageUrls = Array.isArray(midjourneyMeta.imageUrls)
-            ? midjourneyMeta.imageUrls
-            : Array.isArray(mjMetadata.imageUrls)
-            ? mjMetadata.imageUrls
-            : [];
-          const stableMidjourneyImageUrls: string[] = [];
-          for (let idx = 0; idx < rawImageUrls.length; idx += 1) {
-            const item = rawImageUrls[idx];
-            if (typeof item !== "string" || !item.trim()) continue;
-            const trimmed = item.trim();
-            try {
-              stableMidjourneyImageUrls.push(
-                await uploadImageToStableUrl(
-                  trimmed,
-                  `flow_midjourney_${nodeId}_${idx}_${Date.now()}.png`,
-                  { reuploadUnstableRemote: true }
-                )
-              );
-            } catch (persistErr) {
-              console.warn(
-                "[Flow] Midjourney: failed to persist imageUrls item",
-                persistErr
-              );
-              stableMidjourneyImageUrls.push(trimmed);
-            }
-          }
-
-          const historyId = previewSource
-            ? `${nodeId}-${Date.now()}`
-            : undefined;
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      imageData: hasRemoteUrl ? undefined : previewSource,
-                      error: undefined,
-                      taskId: midjourneyMeta.taskId,
-                      mjApiState:
-                        typeof midjourneyMeta.state === "string"
-                          ? midjourneyMeta.state
-                          : undefined,
-                      buttons: midjourneyMeta.buttons,
-                      imageUrl: hasRemoteUrl
-                        ? stableRemoteUrl
-                        : undefined,
-                      imageUrls: stableMidjourneyImageUrls.length > 0
-                        ? stableMidjourneyImageUrls
-                        : undefined,
-                      promptEn: midjourneyMeta.promptEn,
-                      lastHistoryId:
-                        historyId ?? (n.data as any)?.lastHistoryId,
-                    },
-                  }
-                : n
-            )
-          );
-
-          if (historyId) {
-            const projectId = useProjectContentStore.getState().projectId;
-            const actionLabel = "Imagine";
-            void recordImageHistoryEntry({
-              id: historyId,
-              base64: hasRemoteUrl ? undefined : previewSource,
-              remoteUrl: hasRemoteUrl ? stableRemoteUrl : undefined,
-              title: `Midjourney ${actionLabel} ${new Date().toLocaleTimeString()}`,
-              nodeId,
-              nodeType: "midjourney",
-              fileName: `flow_midjourney_${historyId}.png`,
-              projectId,
-              keepThumbnail: false,
-              metadata: {
-                ...mjMetadata,
-                model: "midjourney-fast",
-                aiProvider: "midjourney",
-                provider: "midjourney",
-              },
-            })
-              .then(({ remoteUrl }) => {
-                if (!remoteUrl) return;
-                if (hasRemoteUrl) return;
-                const outs = rf.getEdges().filter((e) => e.source === nodeId);
-                setNodes((ns) =>
-                  ns.map((n) => {
-                    if (n.id === nodeId) {
-                      if ((n.data as any)?.imageData !== previewSource) return n;
-                      return {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          imageUrl: remoteUrl,
-                          imageData: undefined,
-                          thumbnail: undefined,
-                        },
-                      };
-                    }
-                    if (
-                      outs.some((e) => e.target === n.id) &&
-                      n.type === "image"
-                    ) {
-                      if ((n.data as any)?.imageData !== previewSource) return n;
-                      return {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          imageUrl: remoteUrl,
-                          imageData: undefined,
-                          thumbnail: undefined,
-                        },
-                      };
-                    }
-                    return n;
-                  })
-                );
-              })
-              .catch(() => {});
-          }
-
-          if (previewSource) {
-            // 更新下游节点
-            const mjOuts = rf.getEdges().filter((e) => e.source === nodeId);
-            if (mjOuts.length) {
-              setNodes((ns) =>
-                ns.map((n) => {
-                  const hits = mjOuts.filter((e) => e.target === n.id);
-                  if (!hits.length) return n;
-                  if (n.type === "image")
-                    return {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        ...(hasRemoteUrl
-                          ? {
-                              imageUrl: normalizedMidjourneyUrl,
-                              imageData: undefined,
-                            }
-                          : { imageData: previewSource }),
-                        thumbnail: undefined,
-                      },
-                    };
-                  return n;
-                })
-              );
-            }
-          }
-        } catch (error) {
-          const msg =
-            error instanceof Error ? error.message : "Midjourney 生成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
       // Nano2 节点处理逻辑
       if (node.type === "midjourneyV7" || node.type === "niji7") {
         const { text: promptText } = getTextPromptForNode(nodeId);
@@ -23546,7 +23016,6 @@ function FlowInner() {
           n.type === "generatePro" ||
           n.type === "generatePro4" ||
           n.type === "analysis" ||
-          n.type === "midjourney" ||
           n.type === "midjourneyV7" ||
           n.type === "niji7" ||
           n.type === "nano2" ||

@@ -13,7 +13,6 @@ import { fetchWithAuth } from "@/services/authFetch";
 import {
   analyzeImageViaAPI,
   generateTextResponseViaAPI,
-  midjourneyActionViaAPI,
   generateVideoViaAPI,
   generateVideoAsyncAPI,
   querySora2VideoTaskViaAPI,
@@ -644,7 +643,6 @@ export const SORA2_VIDEO_MODELS = {
 export type Sora2VideoQuality = keyof typeof SORA2_VIDEO_MODELS;
 export const DEFAULT_SORA2_VIDEO_QUALITY: Sora2VideoQuality = "sd";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
-const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
 const RUNNINGHUB_PRIMARY_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_PRIMARY_NODE_ID ?? "112";
 const RUNNINGHUB_REFERENCE_NODE_ID =
@@ -1131,9 +1129,6 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === "runninghub") {
     return RUNNINGHUB_IMAGE_MODEL;
   }
-  if (provider === "midjourney") {
-    return MIDJOURNEY_IMAGE_MODEL;
-  }
   if (provider === "banana-2.5") {
     return BANANA_25_IMAGE_MODEL;
   }
@@ -1178,14 +1173,6 @@ type ProcessMetrics = {
   lastStepTime: number;
   traceId: string;
   messageId?: string;
-};
-
-type MidjourneyActionOptions = {
-  parentMessageId: string;
-  taskId: string;
-  customId: string;
-  buttonLabel?: string;
-  displayPrompt?: string;
 };
 
 const getTimestamp = () =>
@@ -2679,7 +2666,7 @@ interface AIChatState {
   videoDurationSeconds: AIChatVideoDurationSeconds | null; // 视频时长（秒）
   manualAIMode: ManualAIMode;
   autoSelectedTool: AvailableTool | null; // Auto 模式最近一次选择的工具
-  aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
+  aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果)
   bananaImageRoute: BananaImageRoute;
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
@@ -2751,7 +2738,6 @@ interface AIChatState {
   addImageForBlending: (imageData: string) => void;
   removeImageFromBlending: (index: number) => void;
   clearImagesForBlending: () => void;
-  executeMidjourneyAction: (options: MidjourneyActionOptions) => Promise<void>;
 
   // 图像分析功能
   analyzeImage: (
@@ -6030,156 +6016,6 @@ export const useAIChatStore = create<AIChatState>()(
 
         clearImagesForBlending: () => {
           set({ sourceImagesForBlending: [] });
-        },
-
-        executeMidjourneyAction: async ({
-          parentMessageId,
-          taskId,
-          customId,
-          buttonLabel,
-          displayPrompt,
-        }: MidjourneyActionOptions) => {
-          const state = get();
-          const actionLabel = buttonLabel || "Midjourney 操作";
-          const parentMessage = state.messages.find(
-            (msg) => msg.id === parentMessageId
-          );
-          const prompt =
-            displayPrompt ||
-            (parentMessage?.metadata?.midjourney?.prompt as
-              | string
-              | undefined) ||
-            parentMessage?.content ||
-            actionLabel;
-
-          const placeholderMessage: Omit<ChatMessage, "id" | "timestamp"> = {
-            type: "ai",
-            content: `正在执行 ${actionLabel}...`,
-            generationStatus: {
-              isGenerating: true,
-              progress: 0,
-              error: null,
-              stage: "准备中",
-            },
-            expectsImageOutput: true,
-            provider: "midjourney",
-          };
-
-          const aiMessage = state.addMessage(placeholderMessage);
-          generatingImageCount += 1;
-
-          try {
-            const result = await midjourneyActionViaAPI({
-              taskId,
-              customId,
-              actionLabel,
-              displayPrompt: prompt,
-            });
-
-            if (result.success && result.data) {
-              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
-              const inlineImageData = result.data.imageData;
-              const messageContent =
-                result.data.textResponse ||
-                (result.data.hasImage
-                  ? `已生成图像: ${prompt}`
-                  : `无法生成图像: ${prompt}`);
-
-              set((state) => ({
-                messages: optimizeMessagesMemory(
-                  state.messages.map((msg) =>
-                    msg.id === aiMessage.id
-                      ? {
-                          ...msg,
-                          content: messageContent,
-                          imageData: imageRemoteUrl ? undefined : inlineImageData,
-                          thumbnail: imageRemoteUrl ? imageRemoteUrl : msg.thumbnail,
-                          imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
-                          metadata: result.data?.metadata,
-                          provider: "midjourney",
-                          generationStatus: {
-                            isGenerating: false,
-                            progress: 100,
-                            error: null,
-                          },
-                        }
-                      : msg
-                  )
-                ),
-              }));
-
-              const context = contextManager.getCurrentContext();
-              if (context) {
-                const messageRef = context.messages.find(
-                  (m) => m.id === aiMessage.id
-                );
-                if (messageRef) {
-                  messageRef.content = messageContent;
-                  messageRef.imageData = imageRemoteUrl
-                    ? undefined
-                    : inlineImageData;
-                  // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
-                  if (imageRemoteUrl) {
-                    messageRef.thumbnail = imageRemoteUrl;
-                  }
-                  messageRef.imageRemoteUrl =
-                    imageRemoteUrl || messageRef.imageRemoteUrl;
-                  messageRef.metadata = result.data?.metadata;
-                  messageRef.provider = "midjourney";
-                  messageRef.generationStatus = {
-                    isGenerating: false,
-                    progress: 100,
-                    error: null,
-                  };
-                }
-              }
-
-              let uploadedAssets:
-                | { remoteUrl?: string; thumbnail?: string }
-                | undefined;
-              if (inlineImageData || imageRemoteUrl) {
-                uploadedAssets = await registerMessageImageHistory({
-                  aiMessageId: aiMessage.id,
-                  prompt,
-                  result: result.data,
-                  operationType: "generate",
-                  aiProvider: "midjourney",
-                  skipPreview: true,
-                });
-              }
-
-              if (uploadedAssets?.remoteUrl) {
-                result.data.metadata = {
-                  ...result.data.metadata,
-                  imageUrl: uploadedAssets.remoteUrl,
-                };
-                result.data.imageData = undefined;
-              }
-
-              set({ lastGeneratedImage: result.data });
-
-              await get().refreshSessions();
-            } else {
-              const errorMessage =
-                result.error?.message || "Midjourney 操作失败";
-              get().updateMessageStatus(aiMessage.id, {
-                isGenerating: false,
-                progress: 0,
-                error: errorMessage,
-              });
-            }
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : "Midjourney 操作失败";
-            get().updateMessageStatus(aiMessage.id, {
-              isGenerating: false,
-              progress: 0,
-              error: errorMessage,
-            });
-            console.error("❌ Midjourney action异常:", error);
-          } finally {
-            generatingImageCount = Math.max(0, generatingImageCount - 1);
-          }
         },
 
         // 图像分析功能（支持并行）

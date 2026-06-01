@@ -15,8 +15,6 @@ import type {
   AITextChatResult,
   AIServiceResponse,
   SupportedAIProvider,
-  MidjourneyActionRequest,
-  MidjourneyModalRequest,
 } from "@/types/ai";
 import { fetchWithAuth } from "./authFetch";
 import { logger } from "@/utils/logger";
@@ -31,7 +29,6 @@ const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
-const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 const SEEDREAM_PROVIDER_CACHE_TTL_MS = 30_000;
 
@@ -414,7 +411,6 @@ const resolveDefaultModel = (
     return BANANA_31_IMAGE_MODEL;
   }
   if (provider === "runninghub") return RUNNINGHUB_IMAGE_MODEL;
-  if (provider === "midjourney") return MIDJOURNEY_IMAGE_MODEL;
   if (provider === "seedream5") return SEEDREAM5_IMAGE_MODEL;
   return DEFAULT_IMAGE_MODEL;
 };
@@ -1451,153 +1447,6 @@ export async function blendImagesViaAPI(
       },
     }
   );
-}
-
-type MidjourneyActionParams = MidjourneyActionRequest & {
-  displayPrompt?: string;
-  actionLabel?: string;
-};
-
-export async function midjourneyActionViaAPI(
-  params: MidjourneyActionParams
-): Promise<AIServiceResponse<AIImageResult>> {
-  const startedAt = getTimestamp();
-  const { displayPrompt, actionLabel, ...payload } = params;
-
-  try {
-    const response = await fetchWithAuth(
-      `${API_BASE_URL}/ai/midjourney/action`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      logApiTiming("midjourney-action", startedAt, {
-        success: false,
-        status: response.status,
-        action: actionLabel,
-      });
-      return {
-        success: false,
-        error: {
-          code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
-          timestamp: new Date(),
-        },
-      };
-    }
-
-    const data = await response.json();
-    const mapped = mapBackendImageResult({
-      data,
-      prompt: displayPrompt || actionLabel || "Midjourney 操作",
-      model: MIDJOURNEY_IMAGE_MODEL,
-    });
-
-    mapped.metadata = {
-      ...(mapped.metadata ?? {}),
-      actionLabel,
-    };
-
-    logApiTiming("midjourney-action", startedAt, {
-      success: true,
-      action: actionLabel,
-    });
-
-    return {
-      success: true,
-      data: mapped,
-    };
-  } catch (error) {
-    logApiTiming("midjourney-action", startedAt, {
-      success: false,
-      action: actionLabel,
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    return {
-      success: false,
-      error: {
-        code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
-        timestamp: new Date(),
-      },
-    };
-  }
-}
-
-type MidjourneyModalParams = MidjourneyModalRequest & {
-  displayPrompt?: string;
-};
-
-export async function midjourneyModalViaAPI(
-  params: MidjourneyModalParams
-): Promise<AIServiceResponse<AIImageResult>> {
-  const startedAt = getTimestamp();
-  const { displayPrompt, ...payload } = params;
-
-  try {
-    const response = await fetchWithAuth(
-      `${API_BASE_URL}/ai/midjourney/modal`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      logApiTiming("midjourney-modal", startedAt, {
-        success: false,
-        status: response.status,
-      });
-      return {
-        success: false,
-        error: {
-          code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
-          timestamp: new Date(),
-        },
-      };
-    }
-
-    const data = await response.json();
-    const mapped = mapBackendImageResult({
-      data,
-      prompt: displayPrompt || "Midjourney 调整",
-      model: MIDJOURNEY_IMAGE_MODEL,
-    });
-
-    logApiTiming("midjourney-modal", startedAt, {
-      success: true,
-    });
-
-    return {
-      success: true,
-      data: mapped,
-    };
-  } catch (error) {
-    logApiTiming("midjourney-modal", startedAt, {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-    return {
-      success: false,
-      error: {
-        code: "NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "Network error",
-        timestamp: new Date(),
-      },
-    };
-  }
 }
 
 /**

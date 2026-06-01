@@ -62,7 +62,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
   AIStreamProgressEvent,
-  MidjourneyButtonInfo,
   MidjourneyMetadata,
   SupportedAIProvider,
 } from "@/types/ai";
@@ -152,74 +151,6 @@ const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <rect x='3' y='5' width='10' height='6' rx='1' />
   </svg>
 );
-
-type MidjourneyActionButtonsProps = {
-  buttons: MidjourneyButtonInfo[];
-  onAction: (button: MidjourneyButtonInfo) => Promise<void>;
-};
-
-const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({
-  buttons,
-  onAction,
-}) => {
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-  const actionableButtons = useMemo(() => {
-    const soloSuffix = /::SOLO$/i;
-    return buttons.filter((btn) => {
-      const customId = btn?.customId?.trim();
-      if (!customId) return false;
-      if (soloSuffix.test(customId)) {
-        // Midjourney 会附带一个 Solo reroll 占位按钮，界面上不需要展示
-        return false;
-      }
-      return Boolean(btn.label?.trim() || customId);
-    });
-  }, [buttons]);
-
-  if (actionableButtons.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className='pt-2 mt-2 border-t border-slate-200'>
-      <div className='mb-2 text-xs text-slate-500'>Midjourney 操作</div>
-      <div className='flex flex-wrap gap-2'>
-        {actionableButtons.map((button) => {
-          const isLoading = loadingId === button.customId;
-          return (
-            <button
-              key={button.customId}
-              className={cn(
-                "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1",
-                button.disabled
-                  ? "bg-transparent text-slate-400 border-slate-200 cursor-not-allowed opacity-60"
-                  : "bg-transparent text-gray-700 border-gray-200 hover:bg-gray-50/50",
-                isLoading && "cursor-wait"
-              )}
-              disabled={button.disabled || isLoading}
-              onClick={async () => {
-                if (!button.customId) return;
-                setLoadingId(button.customId);
-                try {
-                  await onAction(button);
-                } finally {
-                  setLoadingId(null);
-                }
-              }}
-              title={button.label || button.customId}
-            >
-              {isLoading ? (
-                <Loader2 className='h-3.5 w-3.5 animate-spin text-slate-500' />
-              ) : (
-                <span>{button.label || button.customId}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
 
 const HISTORY_DEFAULT_MIN_HEIGHT = 320;
 
@@ -318,7 +249,6 @@ const AIChatDialog: React.FC = () => {
     autoModeMultiplier,
     setAutoModeMultiplier,
     sendShortcut,
-    executeMidjourneyAction,
     expandedPanelStyle,
     chatTheme,
     // 直接调用的图像处理方法（用于重新发送）
@@ -5069,36 +4999,6 @@ const AIChatDialog: React.FC = () => {
                                                     );
                                                   })()}
                                                 </div>
-                                                {midjourneyMeta?.buttons
-                                                  ?.length &&
-                                                  midjourneyMeta.taskId && (
-                                                    <MidjourneyActionButtons
-                                                      buttons={
-                                                        midjourneyMeta.buttons as MidjourneyButtonInfo[]
-                                                      }
-                                                      onAction={async (
-                                                        button
-                                                      ) => {
-                                                        if (!button.customId)
-                                                          return;
-                                                        await executeMidjourneyAction(
-                                                          {
-                                                            parentMessageId:
-                                                              message.id,
-                                                            taskId:
-                                                              midjourneyMeta.taskId,
-                                                            customId:
-                                                              button.customId,
-                                                            buttonLabel:
-                                                              button.label,
-                                                            displayPrompt:
-                                                              midjourneyMeta.prompt ||
-                                                              message.content,
-                                                          }
-                                                        );
-                                                      }}
-                                                    />
-                                                  )}
                                               </>
                                             ) : (
                                               <div className='flex items-start gap-3'>
