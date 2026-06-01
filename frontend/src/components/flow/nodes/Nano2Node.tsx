@@ -69,7 +69,6 @@ type CreditNodeType =
   | "seedream5"
   | "nano2"
   | "gptImage2"
-  | "midjourney"
   | "midjourneyV7"
   | "niji7";
 
@@ -165,7 +164,6 @@ const normalizeCreditNodeType = (value: string): CreditNodeType => {
     case "seedream5":
     case "nano2":
     case "gptImage2":
-    case "midjourney":
     case "midjourneyV7":
     case "niji7":
       return value;
