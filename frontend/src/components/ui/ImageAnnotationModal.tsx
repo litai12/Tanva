@@ -25,7 +25,13 @@ import {
 } from "./tooltip";
 import { cn } from "@/lib/utils";
 import { canvasToBlob } from "@/utils/imageConcurrency";
-import { resolveImageToBlob } from "@/utils/imageSource";
+import {
+  isLikelyManagedAssetUrl,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  resolveImageToBlob,
+} from "@/utils/imageSource";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
 type AnnotationTool = "brush" | "arrow" | "rect" | "circle" | "text";
@@ -362,17 +368,129 @@ const createLoadedImageFromBlob = async (
   };
 };
 
+const MANAGED_ASSET_KEY_RE = /^(projects|uploads|templates|videos|ai)\//i;
+
+// 直连 TOS 灰度开关：默认关闭。开启前提是 TOS 桶已配好 CORS（allow origin 覆盖
+// 生产/staging/dev、method GET、expose ETag），否则会发生「direct 被 CORS 拦 → 回退 proxy」
+// 的双请求。配好 CORS 后设 VITE_DIRECT_ASSET_LOAD=1 即可启用。
+const DIRECT_ASSET_LOAD_ENABLED =
+  String(import.meta.env.VITE_DIRECT_ASSET_LOAD ?? "").trim() === "1";
+
+/**
+ * 方案A：让浏览器直连 TOS（预签名 URL）加载标注底图，绕过后端字节转发。
+ * 仅对「受管 key / 受管 host 的远程 URL」启用；data:/blob:/外部 URL 一律返回 null 走回退。
+ */
+const buildDirectAssetUrl = (sourceRef: string): string | null => {
+  if (!DIRECT_ASSET_LOAD_ENABLED) return null;
+  const normalized = normalizePersistableImageRef(sourceRef);
+  const trimmed = typeof normalized === "string" ? normalized.trim() : "";
+  if (!trimmed) return null;
+
+  let key: string | null = null;
+  const bareKey = trimmed.replace(/^\/+/, "");
+  if (MANAGED_ASSET_KEY_RE.test(bareKey) && !/[?#]/.test(bareKey)) {
+    key = bareKey;
+  } else if (isRemoteUrl(trimmed) && isLikelyManagedAssetUrl(trimmed)) {
+    try {
+      const parsedUrl = new URL(trimmed);
+      // 带变体参数（x-oss-process / 裁剪缩放等）的远程 URL 不能丢参数直连原图，
+      // 否则标注加载的不是「所见」的资源 → 一律回退 proxy 以保留完整 URL。
+      if (parsedUrl.search) return null;
+      const pathKey = parsedUrl.pathname.replace(/^\/+/, "");
+      if (MANAGED_ASSET_KEY_RE.test(pathKey)) key = pathKey;
+    } catch {
+      // ignore
+    }
+  }
+  if (!key) return null;
+
+  return proxifyRemoteAssetUrl(
+    `/api/assets/proxy?key=${encodeURIComponent(key)}&direct=1`,
+    { forceProxy: true }
+  );
+};
+
+/**
+ * 用 crossOrigin=anonymous 直接加载图片。onload 后再用 1x1 getImageData 探测是否
+ * origin-clean（TOS 未配 CORS 时图片虽能 onload 但 canvas 会被污染），任一环节失败返回 null 以触发回退。
+ */
+const DIRECT_LOAD_TIMEOUT_MS = 10_000;
+
+const loadCleanImageFromUrl = (src: string): Promise<LoadedCanvasImage | null> =>
+  new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.decoding = "async";
+
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (result: LoadedCanvasImage | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      // 失败时主动中断半开的加载，避免泄漏 pending 请求。
+      if (!result) {
+        try {
+          image.src = "";
+        } catch {
+          // ignore
+        }
+      }
+      resolve(result);
+    };
+
+    // 直连卡住/半开时必须超时回退，否则弹窗会永久 loading（直连不像 fetch 有超时）。
+    timer = setTimeout(() => finish(null), DIRECT_LOAD_TIMEOUT_MS);
+
+    image.onload = () => {
+      try {
+        const probe = document.createElement("canvas");
+        probe.width = 1;
+        probe.height = 1;
+        const probeCtx = probe.getContext("2d");
+        if (!probeCtx) {
+          finish(null);
+          return;
+        }
+        probeCtx.drawImage(image, 0, 0, 1, 1);
+        // 抛 SecurityError 说明被污染（CORS 未生效）→ 回退
+        probeCtx.getImageData(0, 0, 1, 1);
+      } catch {
+        finish(null);
+        return;
+      }
+      finish({
+        source: image,
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+        dispose: () => {},
+      });
+    };
+    image.onerror = () => finish(null);
+    image.src = src;
+  });
+
 const loadAnnotationImage = async (
   imageSrc: string,
   crop?: ImageAnnotationCrop | null
 ): Promise<LoadedCanvasImage> => {
   const sourceRef = crop?.baseRef || imageSrc;
-  const blob = await resolveImageToBlob(sourceRef, { preferProxy: true });
-  if (!blob) {
-    throw new Error("Unable to read image");
-  }
 
-  const loaded = await createLoadedImageFromBlob(blob);
+  // 优先直连 TOS；失败（未配 CORS / 非受管 / 签名不可用）自动回退到 proxy 字节流。
+  let loaded: LoadedCanvasImage | null = null;
+  const directUrl = buildDirectAssetUrl(sourceRef);
+  if (directUrl) {
+    loaded = await loadCleanImageFromUrl(directUrl);
+  }
+  if (!loaded) {
+    const blob = await resolveImageToBlob(sourceRef, { preferProxy: true });
+    if (!blob) {
+      throw new Error("Unable to read image");
+    }
+    loaded = await createLoadedImageFromBlob(blob);
+  }
   if (!crop?.rect) return loaded;
 
   const w = Math.max(1, Math.round(crop.rect.width));

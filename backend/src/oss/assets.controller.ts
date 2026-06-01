@@ -21,7 +21,10 @@ export class AssetsController {
 
   private normalizeManagedAssetKey(raw?: string | null): string | null {
     const value = typeof raw === 'string' ? raw.trim().replace(/^\/+/, '') : '';
-    if (!value) return null;
+    // Reject query/fragment chars: object keys never contain them, and allowing
+    // them would let `projects/a.png?Signature=fake` masquerade as a presigned
+    // URL once signUrl() fail-opens to publicUrl() (see isPresignedUrl).
+    if (!value || /[?#]/.test(value)) return null;
     return MANAGED_ASSET_KEY_REGEX.test(value) ? value : null;
   }
 
@@ -93,10 +96,24 @@ export class AssetsController {
   }
 
   private isAllowedHost(hostname: string): boolean {
+    const target = String(hostname || '').toLowerCase();
+    if (!target) return false;
     const allowed = this.oss.allowedPublicHosts();
-    return allowed.some((host) =>
-      hostname === host || hostname.endsWith(`.${host}`) || hostname.endsWith(host),
-    );
+    return allowed.some((host) => {
+      const h = String(host || '').toLowerCase();
+      // Exact host or proper dot-delimited subdomain only — avoid suffix
+      // bypasses like `evilaliyuncs.com` matching `aliyuncs.com`.
+      return !!h && (target === h || target.endsWith(`.${h}`));
+    });
+  }
+
+  // signUrl() is fail-open: it returns the (unsigned) public URL when OSS is
+  // disabled or signing fails. For the direct-redirect path we must be
+  // fail-closed — only treat the result as usable when it actually carries a
+  // presigned signature, otherwise fall back to streaming the bytes.
+  private isPresignedUrl(url?: string | null): boolean {
+    if (typeof url !== 'string' || !url) return false;
+    return /[?&](?:X-Tos-Signature|X-Amz-Signature|Signature|OSSAccessKeyId)=/i.test(url);
   }
 
   private setProxyCorsHeaders(reply: FastifyReply): void {
@@ -129,11 +146,18 @@ export class AssetsController {
   @ApiOperation({ summary: 'Proxy public OSS assets to avoid browser CORS' })
   @ApiQuery({ name: 'url', required: false, description: 'Full remote URL (must be an allowed OSS/CDN host)' })
   @ApiQuery({ name: 'key', required: false, description: 'OSS object key (alternative to url)' })
+  @ApiQuery({
+    name: 'direct',
+    required: false,
+    description:
+      'When "1"/"true", redirect (302) managed keys to a short-lived presigned URL so the browser fetches bytes directly from storage (used by crossOrigin canvas loaders). Falls back to byte streaming when signing is unavailable.',
+  })
   async proxy(
     @Res() reply: FastifyReply,
     @Req() req: FastifyRequest,
     @Query('url') url?: string,
     @Query('key') key?: string,
+    @Query('direct') direct?: string,
   ) {
     const abortController = new AbortController();
     let abortedByClient = false;
@@ -197,6 +221,31 @@ export class AssetsController {
     const directManagedKey =
       this.normalizeManagedAssetKey(key) ||
       this.extractManagedAssetKey(url);
+
+    // Direct-redirect path: hand the data plane to storage (presigned URL) so
+    // the browser fetches bytes directly. Used by crossOrigin canvas loaders
+    // (e.g. the image annotation editor) to offload proxy bandwidth.
+    const directRaw = typeof direct === 'string' ? direct.trim().toLowerCase() : '';
+    const wantDirect = directRaw === '1' || directRaw === 'true';
+    if (wantDirect && directManagedKey) {
+      const signed = this.oss.signUrl(directManagedKey, 300);
+      if (this.isPresignedUrl(signed)) {
+        let signedHost = '';
+        try {
+          signedHost = new URL(signed).hostname;
+        } catch {
+          signedHost = '';
+        }
+        if (signedHost && this.isAllowedHost(signedHost)) {
+          this.setProxyCorsHeaders(reply);
+          // Short-lived signature — never cache the redirect target.
+          reply.header('cache-control', 'no-store');
+          reply.status(302).header('location', signed).send();
+          return;
+        }
+      }
+      // fail-closed: signing unavailable → fall through to byte streaming below.
+    }
 
     if (directManagedKey && !range) {
       try {
