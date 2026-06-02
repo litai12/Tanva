@@ -8,7 +8,16 @@ import { getTextModelForProvider, useAIChatStore } from '@/stores/aiChatStore';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
-import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from '@/utils/imageSource';
+import {
+  resolveImageToBlob,
+  resolveImageToDataUrl,
+  toRenderableImageSrc,
+  isRemoteUrl,
+  isAssetKeyRef,
+  isDataImageUrl,
+  normalizePersistableImageRef,
+} from '@/utils/imageSource';
+import { resolvePublicAssetUrlFromKey } from '@/utils/assetProxy';
 import { useLocaleText } from '@/utils/localeText';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import RunCreditBadge from './RunCreditBadge';
@@ -76,6 +85,37 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return toRenderableImageSrc(trimmed) || undefined;
+};
+
+// 内联 data:image 的最小有效 base64 长度，用于拒绝 /w== 这类退化数据。
+const MIN_DATA_URL_PAYLOAD = 64;
+
+// 是否为“可用”的内联图片 dataURL（拦截 data:image/jpeg;base64,/w== 这类退化值）。
+const isUsableDataImageUrl = (value?: string | null): boolean => {
+  if (!isDataImageUrl(value)) return false;
+  const str = String(value);
+  const comma = str.indexOf(',');
+  if (comma < 0) return false;
+  const payload = str.slice(comma + 1).replace(/\s+/g, '');
+  return payload.length >= MIN_DATA_URL_PAYLOAD;
+};
+
+// 将引用解析为“可被上游直接抓取的公网 URL”。
+// 命中则直接发 URL（不再下载+base64，规避代理坏图/体积）；否则返回 null（交给 base64 链路）。
+const resolveSendableRemoteUrl = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // 运行时引用（IndexedDB）无法被上游抓取，必须走 base64
+  if (parseFlowImageAssetRef(trimmed)) return null;
+  // 还原 /api/assets/proxy?key=/url= 包装，拿到真实引用
+  const normalized = normalizePersistableImageRef(trimmed);
+  if (isRemoteUrl(normalized)) return normalized;
+  if (isAssetKeyRef(normalized)) {
+    const publicUrl = resolvePublicAssetUrlFromKey(normalized.replace(/^\/+/, ''));
+    return publicUrl || null;
+  }
+  return null;
 };
 
 type CropInfo = {
@@ -819,14 +859,25 @@ Use an empty string or empty array when a field cannot be determined.`
       // 标记正在分析
       setIsAnalyzing(true);
 
-      const resolveFirstCandidateDataUrl = async (
+      // 解析为“可发送给上游”的引用：优先公网 URL（直发，不下载），
+      // 否则直连(CORS) 下载为 base64；全程拒绝 /w== 这类退化 dataURL。
+      const resolveFirstCandidateRef = async (
         ...candidates: unknown[]
       ): Promise<string | null> => {
         for (const candidate of candidates) {
           const value = typeof candidate === 'string' ? candidate.trim() : '';
           if (!value) continue;
-          const resolved = await resolveImageToDataUrl(value, { preferProxy: true });
-          if (resolved) return resolved;
+          // 1) 公网 URL：直接发，由上游抓取
+          const remoteUrl = resolveSendableRemoteUrl(value);
+          if (remoteUrl) return remoteUrl;
+          // 2) 已是可用的内联 dataURL
+          if (isUsableDataImageUrl(value)) return value;
+          // 3) blob:/flow-asset/相对路径 等：直连下载为 base64（已配置 CORS，跳过代理）
+          const resolved = await resolveImageToDataUrl(value, {
+            preferProxy: false,
+            disableProxy: true,
+          });
+          if (resolved && isUsableDataImageUrl(resolved)) return resolved;
         }
         return null;
       };
@@ -848,7 +899,10 @@ Use an empty string or empty array when a field cannot be determined.`
         const outW = Math.max(1, Math.floor(w * outputScale));
         const outH = Math.max(1, Math.floor(h * outputScale));
 
-        const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
+        const blob = await resolveImageToBlob(baseRef, {
+          preferProxy: false,
+          disableProxy: true,
+        });
         if (!blob) return null;
 
         const makeCanvas = (cw: number, ch: number): any => {
@@ -935,7 +989,7 @@ Use an empty string or empty array when a field cannot be determined.`
         }
       };
 
-      const resolveNodeImageToDataUrl = async (
+      const resolveNodeImageRef = async (
         node: Node,
         sourceHandle?: string | null,
         visited: Set<string> = new Set()
@@ -970,7 +1024,7 @@ Use an empty string or empty array when a field cannot be determined.`
           }
           const legacy = Array.isArray(d.splitImages) ? d.splitImages : [];
           const legacyValue = legacy?.[idx]?.imageData;
-          const legacyResolved = await resolveFirstCandidateDataUrl(legacyValue);
+          const legacyResolved = await resolveFirstCandidateRef(legacyValue);
           if (legacyResolved) return legacyResolved;
           return null;
         }
@@ -1015,7 +1069,7 @@ Use an empty string or empty array when a field cannot be determined.`
           if (upstream) {
             const src = rf.getNode(upstream.source);
             if (src) {
-              return await resolveNodeImageToDataUrl(src as any, (upstream as any).sourceHandle, visited);
+              return await resolveNodeImageRef(src as any, (upstream as any).sourceHandle, visited);
             }
           }
         }
@@ -1030,7 +1084,7 @@ Use an empty string or empty array when a field cannot be determined.`
           const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
           const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
           const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
-          return await resolveFirstCandidateDataUrl(
+          return await resolveFirstCandidateRef(
             urls[idx],
             imgs[idx],
             thumbs[idx],
@@ -1039,7 +1093,7 @@ Use an empty string or empty array when a field cannot be determined.`
           );
         }
 
-        return await resolveFirstCandidateDataUrl(
+        return await resolveFirstCandidateRef(
           d.imageData,
           d.imageUrl,
           d.outputImage,
@@ -1061,7 +1115,7 @@ Use an empty string or empty array when a field cannot be determined.`
             edges.map(async (edge) => {
               const srcNode = rf.getNode(edge.source);
               if (!srcNode) return '';
-              const dataUrl = await resolveNodeImageToDataUrl(
+              const dataUrl = await resolveNodeImageRef(
                 srcNode as any,
                 (edge as any).sourceHandle,
                 new Set()
@@ -1073,7 +1127,7 @@ Use an empty string or empty array when a field cannot be determined.`
           if (normalized.length) return normalized;
         }
 
-        const dataUrl = await resolveFirstCandidateDataUrl(data.imageData, data.imageUrl);
+        const dataUrl = await resolveFirstCandidateRef(data.imageData, data.imageUrl);
         if (!dataUrl) throw new Error(lt('图片加载失败', 'Image load failed'));
         return [dataUrl];
       };

@@ -25,6 +25,10 @@ export const isValidImageMimeType = (mimeType?: string | null): boolean => {
   return lower.startsWith("image/") || lower === "application/pdf";
 };
 
+// 最小有效图片字节数：拦截“悬空 key / 坏代理返回的 1 字节 0xFF”这类退化响应，
+// 避免被 blobToDataUrl 转成 data:image/jpeg;base64,/w== 并持久化进节点。
+export const MIN_VALID_IMAGE_BLOB_BYTES = 16;
+
 /**
  * 验证 Blob 是否为有效的图片格式，无效则抛出错误
  */
@@ -32,6 +36,11 @@ export const assertValidImageBlob = (blob: Blob, context?: string): void => {
   if (blob.type && !isValidImageMimeType(blob.type)) {
     const ctx = context ? ` (${context})` : "";
     throw new Error(`无效的图片格式${ctx}: ${blob.type}`);
+  }
+  // 即便 MIME 是 image/*，过小的内容也判为损坏（如 /w== 的 1 字节体）
+  if (typeof blob.size === "number" && blob.size < MIN_VALID_IMAGE_BLOB_BYTES) {
+    const ctx = context ? ` (${context})` : "";
+    throw new Error(`图片数据过小，疑似损坏${ctx}: ${blob.size} bytes`);
   }
 };
 

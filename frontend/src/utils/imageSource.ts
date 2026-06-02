@@ -16,6 +16,9 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
+// 最小有效图片字节数：用于拦截“200 + Content-Type: image/* 但内容是 1 字节占位/错误体”的退化响应
+// （例如代理对悬空 key 返回的 0xFF 单字节，会被 base64 成 data:image/jpeg;base64,/w==，上游判为非法图片）。
+const MIN_VALID_IMAGE_BYTES = 16;
 const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 8_000;
 const WEAK_NETWORK_IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const DEFAULT_IMAGE_FETCH_RETRIES = 1;
@@ -489,11 +492,14 @@ export const toRenderableImageSrc = (value?: string | null): string | null => {
  */
 export const resolveImageToDataUrl = async (
   value?: string | null,
-  options?: { preferProxy?: boolean }
+  options?: { preferProxy?: boolean; disableProxy?: boolean }
 ): Promise<string | null> => {
   if (!value || typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+
+  // disableProxy：跳过 /api/assets/proxy 候选，仅直连 OSS/CDN（要求已配置 CORS）。
+  const disableProxy = options?.disableProxy ?? false;
 
   console.log(`[resolveImageToDataUrl] 输入: ${trimmed.slice(0, 80)}...`);
 
@@ -530,32 +536,34 @@ export const resolveImageToDataUrl = async (
   };
   if (isRemoteUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] 远程 URL`);
-        try {
-      if (isLikelyManagedAssetUrl(trimmed)) {
-        const parsed = new URL(trimmed);
-        const pathKey = parsed.pathname.replace(/^\/+/, "");
-        if (isAssetKeyRef(pathKey)) {
-          addCandidate(
-            proxifyRemoteAssetUrl(
-              `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
-              { forceProxy: true }
-            )
-          );
-        }
-      }
-    } catch {
-      // ignore
-    }
-    const preferProxy = options?.preferProxy ?? true;
-    if (preferProxy) {
+    if (!disableProxy) {
       try {
-        addCandidate(proxifyRemoteAssetUrl(trimmed));
-      } catch {}
-      // 即使全局关闭了渲染代理，分析/上传链路仍应优先尝试后端代理，避免浏览器端 CORS 不稳定。
-      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        if (isLikelyManagedAssetUrl(trimmed)) {
+          const parsed = new URL(trimmed);
+          const pathKey = parsed.pathname.replace(/^\/+/, "");
+          if (isAssetKeyRef(pathKey)) {
+            addCandidate(
+              proxifyRemoteAssetUrl(
+                `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
+                { forceProxy: true }
+              )
+            );
+          }
+        }
+      } catch {
+        // ignore
+      }
+      const preferProxy = options?.preferProxy ?? true;
+      if (preferProxy) {
         try {
-          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+          addCandidate(proxifyRemoteAssetUrl(trimmed));
         } catch {}
+        // 即使全局关闭了渲染代理，分析/上传链路仍应优先尝试后端代理，避免浏览器端 CORS 不稳定。
+        if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+          try {
+            addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+          } catch {}
+        }
       }
     }
     addCandidate(trimmed);
@@ -571,22 +579,26 @@ export const resolveImageToDataUrl = async (
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    addCandidate(
-      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
-        forceProxy: true,
-      })
-    );
+    if (!disableProxy) {
+      addCandidate(
+        proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+          forceProxy: true,
+        })
+      );
+    }
     // 优先直接使用环境配置的公共 OSS/CDN URL，缺失时走代理
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       addCandidate(`${directBase}${withoutLeading}`);
     }
     // 兜底：走代理
-    addCandidate(
-      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
-        forceProxy: true,
-      })
-    );
+    if (!disableProxy) {
+      addCandidate(
+        proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+          forceProxy: true,
+        })
+      );
+    }
   } else if (
     trimmed.startsWith("/") ||
     trimmed.startsWith("./") ||
@@ -630,6 +642,13 @@ export const resolveImageToDataUrl = async (
         );
         continue;
       }
+      // 拦截退化响应（如悬空 key 时代理返回的 1 字节 0xFF），避免生成 /w== 这类非法图片
+      if (blob.size < MIN_VALID_IMAGE_BYTES) {
+        console.warn(
+          `[resolveImageToDataUrl] 跳过过小的图片响应: ${blob.size} bytes, url: ${url}`
+        );
+        continue;
+      }
       const dataUrl = await blobToDataUrl(blob);
       console.log(`[resolveImageToDataUrl] 转换成功: ${dataUrl.slice(0, 50)}...`);
       return normalizePossiblyDuplicatedDataUrl(dataUrl);
@@ -648,10 +667,13 @@ export const resolveImageToDataUrl = async (
  */
 export const resolveImageToBlob = async (
   value: string,
-  options?: { preferProxy?: boolean }
+  options?: { preferProxy?: boolean; disableProxy?: boolean }
 ): Promise<Blob | null> => {
   const trimmed = typeof value === "string" ? value.trim() : "";
   if (!trimmed) return null;
+
+  // disableProxy：跳过 /api/assets/proxy 候选，仅直连 OSS/CDN（要求已配置 CORS）。
+  const disableProxy = options?.disableProxy ?? false;
 
   const flowAssetId = parseFlowImageAssetRef(trimmed);
   if (flowAssetId) {
@@ -669,31 +691,33 @@ export const resolveImageToBlob = async (
     if (!candidates.includes(normalized)) candidates.push(normalized);
   };
   if (isRemoteUrl(trimmed)) {
-    try {
-      if (isLikelyManagedAssetUrl(trimmed)) {
-        const parsed = new URL(trimmed);
-        const pathKey = parsed.pathname.replace(/^\/+/, "");
-        if (isAssetKeyRef(pathKey)) {
-          addCandidate(
-            proxifyRemoteAssetUrl(
-              `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
-              { forceProxy: true }
-            )
-          );
-        }
-      }
-    } catch {
-      // ignore
-    }
-    const preferProxy = options?.preferProxy ?? true;
-    if (preferProxy) {
+    if (!disableProxy) {
       try {
-        addCandidate(proxifyRemoteAssetUrl(trimmed));
-      } catch {}
-      if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+        if (isLikelyManagedAssetUrl(trimmed)) {
+          const parsed = new URL(trimmed);
+          const pathKey = parsed.pathname.replace(/^\/+/, "");
+          if (isAssetKeyRef(pathKey)) {
+            addCandidate(
+              proxifyRemoteAssetUrl(
+                `/api/assets/proxy?key=${encodeURIComponent(pathKey)}`,
+                { forceProxy: true }
+              )
+            );
+          }
+        }
+      } catch {
+        // ignore
+      }
+      const preferProxy = options?.preferProxy ?? true;
+      if (preferProxy) {
         try {
-          addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+          addCandidate(proxifyRemoteAssetUrl(trimmed));
         } catch {}
+        if (isLikelyBackendAllowedRemoteUrl(trimmed)) {
+          try {
+            addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+          } catch {}
+        }
       }
     }
     addCandidate(trimmed);
@@ -706,14 +730,18 @@ export const resolveImageToBlob = async (
     if (normalized && normalized !== trimmed) {
       return await resolveImageToBlob(normalized, options);
     }
-    addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+    if (!disableProxy) {
+      addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
+    }
   } else if (isAssetKeyRef(trimmed)) {
     const withoutLeading = trimmed.replace(/^\/+/, "");
-    addCandidate(
-      proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
-        forceProxy: true,
-      })
-    );
+    if (!disableProxy) {
+      addCandidate(
+        proxifyRemoteAssetUrl(`/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`, {
+          forceProxy: true,
+        })
+      );
+    }
     const directBase = getOssBaseUrl();
     if (directBase && !shouldAvoidSameOriginDirectBase(directBase)) {
       addCandidate(`${directBase}${withoutLeading}`);
@@ -749,6 +777,13 @@ export const resolveImageToBlob = async (
       if (blob.type && !blob.type.startsWith("image/")) {
         console.warn(
           `[resolveImageToBlob] 跳过非图片类型: ${blob.type}, url: ${url}`
+        );
+        continue;
+      }
+      // 拦截退化响应（如悬空 key 时代理返回的极小占位体），避免污染裁剪/上传链路
+      if (blob.size < MIN_VALID_IMAGE_BYTES) {
+        console.warn(
+          `[resolveImageToBlob] 跳过过小的图片响应: ${blob.size} bytes, url: ${url}`
         );
         continue;
       }

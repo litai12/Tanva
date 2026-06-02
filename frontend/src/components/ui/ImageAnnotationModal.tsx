@@ -31,7 +31,7 @@ import {
   normalizePersistableImageRef,
   resolveImageToBlob,
 } from "@/utils/imageSource";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { proxifyRemoteAssetUrl, resolvePublicAssetUrlFromKey } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
 
 type AnnotationTool = "brush" | "arrow" | "rect" | "circle" | "text";
@@ -404,6 +404,11 @@ const buildDirectAssetUrl = (sourceRef: string): string | null => {
   }
   if (!key) return null;
 
+  // 首选：直连公网 TOS（VITE_ASSET_PUBLIC_BASE_URL，已配 CORS），完全绕开 /api/assets/proxy。
+  const publicUrl = resolvePublicAssetUrlFromKey(key);
+  if (publicUrl) return publicUrl;
+
+  // 兜底：经代理签发 300s 预签名后 302 直跳 TOS（私有桶/未配公共 base 时仍走 storage 数据面）。
   return proxifyRemoteAssetUrl(
     `/api/assets/proxy?key=${encodeURIComponent(key)}&direct=1`,
     { forceProxy: true }
