@@ -864,6 +864,42 @@ export class MidjourneyProvider implements IAIProvider {
     return String(taskId);
   }
 
+  // 从 new-api task 响应里收集所有图片 URL（V7/Niji 四宫格可能是多张）。
+  // 覆盖下划线/驼峰、数组/嵌套等常见变体，复用 flattenUrlCandidate 递归取 url。
+  private extractNewApiImageUrls(task: any): string[] {
+    const candidates = [
+      task?.result_url,
+      task?.resultUrl,
+      task?.url,
+      task?.result_urls,
+      task?.resultUrls,
+      task?.urls,
+      task?.image_url,
+      task?.imageUrl,
+      task?.image_urls,
+      task?.imageUrls,
+      task?.images,
+      task?.output,
+      task?.outputs,
+      task?.data?.result_url,
+      task?.data?.result_urls,
+      task?.data?.urls,
+      task?.data?.images,
+      task?.data?.imageUrls,
+      task?.data?.output,
+      task?.result?.urls,
+      task?.result?.images,
+      task?.result?.imageUrls,
+    ];
+    const urls = new Set<string>();
+    for (const candidate of candidates) {
+      for (const url of this.flattenUrlCandidate(candidate)) {
+        urls.add(url);
+      }
+    }
+    return Array.from(urls);
+  }
+
   // 轮询 new-api task；返回合成的 MidjourneyTaskResponse 复用既有 OSS/响应逻辑。
   private async pollNewApiImageTask(taskId: string): Promise<MidjourneyTaskResponse> {
     for (let attempt = 1; attempt <= this.maxPollAttempts; attempt += 1) {
@@ -887,15 +923,20 @@ export class MidjourneyProvider implements IAIProvider {
       }
       const task = data?.data ?? data;
       const status = String(task?.status ?? '').toUpperCase();
-      const resultUrl = task?.result_url || task?.resultUrl || task?.url;
+      // 之前只取单个 result_url，会把四宫格(多张)压成一张；改为收集所有图片字段，恢复多图。
+      const imageUrls = this.extractNewApiImageUrls(task);
       if (status === 'SUCCESS' || status === 'SUCCEEDED') {
-        if (!resultUrl) continue; // 状态成功但 URL 尚未就绪，继续轮询
+        if (imageUrls.length === 0) continue; // 状态成功但 URL 尚未就绪，继续轮询
+        // 诊断日志：确认 new-api 对 MJ 出图究竟回几张及字段结构（定位四宫格是否在上游就被压成单图）。
+        this.logger.log(
+          `[Midjourney] new-api task ${taskId} success: images=${imageUrls.length}; raw=${JSON.stringify(task).slice(0, 600)}`
+        );
         return {
           id: taskId,
           action: 'diffusion',
           status: 'SUCCESS',
-          imageUrl: resultUrl,
-          imageUrls: [resultUrl],
+          imageUrl: imageUrls[0],
+          imageUrls,
         };
       }
       if (status === 'FAILURE' || status === 'FAILED') {
