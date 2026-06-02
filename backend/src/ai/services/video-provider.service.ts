@@ -850,7 +850,9 @@ export class VideoProviderService {
       return this.generateManagedSeedance(options);
     }
 
-    const apiKey = this.apiKeys[provider];
+    // wan2.7 never reaches the legacy/managed path (it always routes to new-api),
+    // so it has no legacy apiKeys entry — guard the index access.
+    const apiKey = this.apiKeys[provider as keyof typeof this.apiKeys];
 
     if (!apiKey || apiKey.includes("xxx")) {
       throw new ServiceUnavailableException(`${provider} API Key 未配置`);
@@ -877,7 +879,7 @@ export class VideoProviderService {
    * 查询任务状态
    */
   async queryTask(
-    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao",
+    provider: "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7",
     taskId: string
   ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string; error?: string; inputTokens?: number; outputTokens?: number }> {
     if (taskId.startsWith(this.newApiTaskPrefix)) {
@@ -961,6 +963,15 @@ export class VideoProviderService {
       ...(options.referenceVideo ? [options.referenceVideo] : []),
     ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 
+    // wan2.7-videoedit requires the source video via metadata.video_url (the
+    // new-api apimart adaptor reads it from metadata, not the top-level
+    // reference_videos field which TaskSubmitReq does not parse).
+    const isWanVideoEdit = model === "wan2.7-videoedit";
+    const metadata =
+      isWanVideoEdit && referenceVideos[0]
+        ? { video_url: referenceVideos[0] }
+        : undefined;
+
     const payload = this.stripUndefined({
       model,
       prompt: options.prompt || "",
@@ -970,6 +981,7 @@ export class VideoProviderService {
       image: referenceImages[0],
       images: referenceImages.length > 0 ? referenceImages : undefined,
       reference_videos: referenceVideos.length > 0 ? referenceVideos : undefined,
+      metadata,
       audio_urls: options.audioUrls?.length ? options.audioUrls : undefined,
       mode: options.mode,
       sound: options.sound,
@@ -1115,9 +1127,17 @@ export class VideoProviderService {
     )
       .trim()
       .toLowerCase();
+    // Seedance Fast + 1.5-pro route through the ark-doubao-video channel
+    // (direct official VolcEngine) using snapshot ids — NOT the apimart
+    // reseller. Fast/lite/mini share the doubao-seedance-2-0-fast upstream.
+    // Order matters: these must be checked before the generic 2.0 branch.
     if (explicit.includes("seedance-2.0-fast") || explicit.includes("seed-2.0-lite") || explicit.includes("seed-2.0-mini")) {
-      return "doubao-seedance-2.0-fast";
+      return "doubao-seedance-2-0-fast-260128";
     }
+    if (explicit.includes("seedance-1.5") || explicit.includes("seed-1.5") || explicit.includes("1.5-pro")) {
+      return "doubao-seedance-1-5-pro-251215";
+    }
+    // Seedance 2.0 (non-fast) stays on apimart (unchanged, working).
     if (explicit.includes("seedance") || options.provider === "doubao") {
       return "doubao-seedance-2.0";
     }
@@ -1134,7 +1154,14 @@ export class VideoProviderService {
       return explicit.includes("2-6") || explicit.includes("2.6") ? "kling-v2-6" : "kling-v3";
     }
     if (options.provider === "vidu" || options.provider === "viduq3-pro") {
-      return "vidu-q3";
+      const viduVariant = String(
+        options.viduModelVariant || options.viduModel || explicit,
+      )
+        .trim()
+        .toLowerCase();
+      // Q2 family keeps the Vidu Q2 upstream (vidu-q2 → viduq2); everything
+      // else (q3 / q3-pro / q3-turbo / q3-mix) resolves to Vidu Q3.
+      return viduVariant.startsWith("q2") ? "vidu-q2" : "vidu-q3";
     }
     return explicit || "kling-v3";
   }
@@ -1922,7 +1949,7 @@ export class VideoProviderService {
     const duration =
       typeof options.duration === "number" && Number.isFinite(options.duration)
         ? resolvedModelVersion === "1.5-pro"
-          ? Math.max(3, Math.min(10, Math.round(options.duration)))
+          ? Math.max(4, Math.min(12, Math.round(options.duration)))
           : Math.max(4, Math.min(15, Math.round(options.duration)))
         : 5;
 

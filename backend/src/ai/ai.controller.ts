@@ -1395,6 +1395,12 @@ export class AiController {
       return 'kling-2.6-video';
     }
 
+    // wan2.7 (video-edit via new-api) reuses the existing DashScope wan2.7
+    // billing bucket so credit pricing stays consistent.
+    if (dto.provider === 'wan2.7') {
+      return 'wan27-video';
+    }
+
     return `${dto.provider}-video` as ServiceType;
   }
 

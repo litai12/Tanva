@@ -1242,7 +1242,7 @@ const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
 const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
 const SEEDANCE20_REFERENCE_AUDIO_MAX = 3;
-const SEEDANCE15_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const SEEDANCE15_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
@@ -15230,6 +15230,16 @@ function FlowInner() {
             seed = parsedSeed;
           }
 
+          // 画幅比例（可选）。仅在“含输入视频的视频编辑模式”下生效：
+          // 此时走 new-api wan2.7-videoedit（支持 size=比例）；
+          // 纯图生视频(first_frame) DashScope i2v 比例跟随首帧，无法指定。
+          const WAN27_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
+          const wanAspectRatioRaw = String((node.data as any)?.aspectRatio || "").trim();
+          const wanAspectRatio = WAN27_RATIOS.includes(wanAspectRatioRaw)
+            ? wanAspectRatioRaw
+            : undefined;
+          const useNewApiVideoEdit = Boolean(firstClipUrl) && Boolean(wanAspectRatio);
+
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -15244,40 +15254,82 @@ function FlowInner() {
           // Prompt Extend 默开启，水印默认关闭（不暴露给前端UI）
           const generationStartedAt = Date.now();
 
-          const result = await generateWan27I2VViaAPI({
-            prompt: promptTextNormalized || undefined,
-            media,
-            parameters: {
-              resolution,
-              duration,
-              prompt_extend: true,
-              watermark: false,
-              ...(typeof seed === "number" ? { seed } : {}),
-            },
-          });
+          let taskId: string | undefined;
+          let wanApiUsageId: string | undefined;
+          let videoUrl: string | undefined;
+          let pollWanTask: (
+            id: string
+          ) => Promise<{ status: string; videoUrl?: string }>;
 
-          const wanApiUsageId =
-            typeof (result as any)?.apiUsageId === "string" &&
-            (result as any).apiUsageId.trim().length > 0
-              ? (result as any).apiUsageId.trim()
-              : undefined;
-
-          if (!result?.success) {
-            throw new Error(result?.error?.message || "任务提交失败");
+          if (useNewApiVideoEdit) {
+            // 视频编辑模式：new-api wan2.7-videoedit，支持画幅比例。
+            const providerResult = await generateVideoByProvider({
+              provider: "wan2.7",
+              // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
+              // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
+              managedModelKey: "wan-2.7",
+              prompt: promptTextNormalized || undefined,
+              referenceVideos: [firstClipUrl as string],
+              aspectRatio: wanAspectRatio,
+              resolution: resolution === "1080P" ? "1080p" : "720p",
+              // wan2.7-videoedit upstream caps duration at 10s (i2v allows up to 15).
+              duration: Math.min(10, Math.max(2, duration)),
+            });
+            taskId = providerResult.taskId;
+            wanApiUsageId =
+              typeof providerResult.apiUsageId === "string" &&
+              providerResult.apiUsageId.trim().length > 0
+                ? providerResult.apiUsageId.trim()
+                : undefined;
+            videoUrl = providerResult.videoUrl;
+            pollWanTask = async (id) => {
+              const q = await queryVideoTask("wan2.7", id);
+              return {
+                status: String(q.status || "").toLowerCase(),
+                videoUrl: q.videoUrl,
+              };
+            };
+          } else {
+            const result = await generateWan27I2VViaAPI({
+              prompt: promptTextNormalized || undefined,
+              media,
+              parameters: {
+                resolution,
+                duration,
+                prompt_extend: true,
+                watermark: false,
+                ...(typeof seed === "number" ? { seed } : {}),
+              },
+            });
+            wanApiUsageId =
+              typeof (result as any)?.apiUsageId === "string" &&
+              (result as any).apiUsageId.trim().length > 0
+                ? (result as any).apiUsageId.trim()
+                : undefined;
+            if (!result?.success) {
+              throw new Error(result?.error?.message || "任务提交失败");
+            }
+            taskId =
+              result.data?.taskId ||
+              result.data?.task_id ||
+              result.data?.output?.task_id;
+            videoUrl =
+              result.data?.videoUrl ||
+              result.data?.video_url ||
+              result.data?.output?.video_url;
+            pollWanTask = async (id) => {
+              const q = await queryDashscopeTask(id);
+              if (!q.success) return { status: "pending" };
+              return {
+                status: String(q.status || "").toLowerCase(),
+                videoUrl: q.videoUrl,
+              };
+            };
           }
 
-          const taskId =
-            result.data?.taskId ||
-            result.data?.task_id ||
-            result.data?.output?.task_id;
           if (!taskId) {
             throw new Error("未返回任务ID");
           }
-
-          let videoUrl =
-            result.data?.videoUrl ||
-            result.data?.video_url ||
-            result.data?.output?.video_url;
 
           if (!videoUrl) {
             const pollInterval = 5000;
@@ -15285,9 +15337,7 @@ function FlowInner() {
 
             for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
               await new Promise((r) => setTimeout(r, pollInterval));
-              const queryResult = await queryDashscopeTask(taskId);
-              if (!queryResult.success) continue;
-
+              const queryResult = await pollWanTask(taskId);
               const status = String(queryResult.status || "").toLowerCase();
               if (status === "succeeded" || status === "success") {
                 videoUrl = queryResult.videoUrl;
@@ -18288,8 +18338,8 @@ function FlowInner() {
           } else if (
             provider === "doubao" &&
             !isSeedance20Request &&
-            clipDuration >= 3 &&
-            clipDuration <= 10
+            clipDuration >= 4 &&
+            clipDuration <= 12
           ) {
             durationForAPI = clipDuration;
           }

@@ -42,6 +42,38 @@ func isWan27VideoEditModel(name string) bool {
 	return wan27VideoEditModels[base]
 }
 
+// aspectRatioToken resolves a ratio token (e.g. "16:9") for the request.
+// Prefers the explicit aspect_ratio; otherwise derives it from a "WxH" size
+// string (the hono-api gateway emits pixel sizes like "1920x1080"). Returns
+// "" when no ratio can be determined.
+func aspectRatioToken(req *relaycommon.TaskSubmitReq) string {
+	if r := strings.TrimSpace(req.AspectRatio); r != "" {
+		return r
+	}
+	if md := req.Metadata; md != nil {
+		if v, ok := md["aspect_ratio"].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	switch strings.TrimSpace(strings.ToLower(req.Size)) {
+	case "1920x1080", "1280x720", "1664x936", "832x468":
+		return "16:9"
+	case "1080x1920", "720x1280", "936x1664", "468x832":
+		return "9:16"
+	case "1024x1024", "512x512", "960x960":
+		return "1:1"
+	case "1664x1248", "1248x936":
+		return "4:3"
+	case "1248x1664", "936x1248":
+		return "3:4"
+	}
+	// Already a ratio token (e.g. "16:9") passes through unchanged.
+	if strings.Contains(req.Size, ":") {
+		return strings.TrimSpace(req.Size)
+	}
+	return ""
+}
+
 // VideoListItem is one entry in the kling-v3-omni video_list parameter.
 // refer_type: "base" (default). keep_original_sound: "yes"/"no" (default "no").
 type VideoListItem struct {
@@ -182,6 +214,18 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 			}
 		}
 	}
+	// Forward the top-level `mode` (e.g. kling-v2-6 std/pro). normalizeTaskSubmitReq
+	// copies resolution/aspect_ratio into metadata but not mode, and the generic
+	// payload struct has no Mode field, so surface it via Extras (set after the
+	// metadata loop above so it is not clobbered by the Extras reassignment).
+	if m := strings.TrimSpace(req.Mode); m != "" {
+		if p.Extras == nil {
+			p.Extras = map[string]any{}
+		}
+		if _, exists := p.Extras["mode"]; !exists {
+			p.Extras["mode"] = m
+		}
+	}
 	p.ImageUrls = uniqueStrings(p.ImageUrls)
 	return p, nil
 }
@@ -191,12 +235,17 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 // (an array of strings; only the first element is used upstream).
 // Doc: https://docs.apimart.ai/cn/api-reference/videos/wan2.7-videoedit/generation
 func buildWan27VideoEditPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) {
+	// wan2.7-videoedit uses `size` as the aspect-ratio token (16:9/9:16/1:1/
+	// 4:3/3:4), NOT a WxH pixel string. The hono-api gateway sends WxH in
+	// `size` plus a ratio in `aspect_ratio`, so resolve the ratio token here.
 	p := &SubmitPayload{
-		Model:      req.Model,
-		Prompt:     req.Prompt,
-		Size:       req.Size,
-		Duration:   req.Duration,
-		Resolution: req.Resolution,
+		Model:    req.Model,
+		Prompt:   req.Prompt,
+		Size:     aspectRatioToken(req),
+		Duration: req.Duration,
+		// wan2.7-videoedit upstream expects uppercase resolution (720P/1080P);
+		// the hono-api gateway normalizes to lowercase.
+		Resolution: strings.ToUpper(strings.TrimSpace(req.Resolution)),
 	}
 
 	// Collect image URLs from standard fields.

@@ -31,6 +31,7 @@ type Props = {
     onRun?: (id: string) => void;
     creditsPerCall?: number;
     resolution?: "720P" | "1080P" | string;
+    aspectRatio?: string;
     duration?: number;
     seed?: number | string;
     audioUrl?: string;
@@ -52,6 +53,7 @@ const zh = {
   drivingAudio: "\u9a71\u52a8\u97f3\u9891\uff08driving_audio\uff0c\u53ef\u9009\uff09",
   outputVideo: "\u751f\u6210\u89c6\u9891\u8f93\u51fa",
   resolution: "\u5206\u8fa8\u7387",
+  aspectRatio: "\u753b\u5e45\u6bd4\u4f8b",
   duration: "\u65f6\u957f",
   seed: "Seed\uff08\u53ef\u9009\uff09",
   seedHint: "\u4f8b\u5982 123456\uff0c\u8303\u56f4 0-2147483647",
@@ -158,6 +160,9 @@ function Wan27VideoNode({ id, data, selected }: Props) {
   const resolution = resolutionRaw === "720P" || resolutionRaw === "1080P" ? resolutionRaw : "1080P";
   const rawDuration = typeof data.duration === "number" && Number.isFinite(data.duration) ? Math.round(data.duration) : 5;
   const duration = rawDuration >= 2 && rawDuration <= 15 ? rawDuration : 5;
+  const WAN27_RATIO_OPTIONS = ["", "16:9", "9:16", "1:1", "4:3", "3:4"] as const;
+  const aspectRatioRaw = typeof data.aspectRatio === "string" ? data.aspectRatio.trim() : "";
+  const aspectRatio = (WAN27_RATIO_OPTIONS as readonly string[]).includes(aspectRatioRaw) ? aspectRatioRaw : "";
   const seedInput = data.seed === undefined || data.seed === null ? "" : String(data.seed).trim();
   const previewRequestParams = React.useMemo(
     () => ({
@@ -440,6 +445,24 @@ function Wan27VideoNode({ id, data, selected }: Props) {
             <select value={duration} onChange={(e) => updateNodeData({ duration: Number(e.target.value) })} style={styles.input}>{DURATION_OPTIONS.map((v) => <option key={v} value={v}>{v}s</option>)}</select>
           </label>
         </div>
+
+        <label style={{ fontSize: 12, color: "#475569" }}>
+          <div style={{ marginBottom: 4 }}>{lt(zh.aspectRatio, "Aspect ratio")}</div>
+          <NodeSelect
+            value={aspectRatio}
+            options={[
+              { value: "", label: lt("自动（图生视频跟随首帧）", "Auto (i2v follows first frame)") },
+              { value: "16:9", label: "16:9" },
+              { value: "9:16", label: "9:16" },
+              { value: "1:1", label: "1:1" },
+              { value: "4:3", label: "4:3" },
+              { value: "3:4", label: "3:4" },
+            ]}
+            onChange={(value) => updateNodeData({ aspectRatio: value })}
+            menuLabel={lt(zh.aspectRatio, "Aspect ratio")}
+            title={lt("画幅比例（仅含输入视频的视频编辑模式生效）", "Aspect ratio (applies in video-edit mode with a video input)")}
+          />
+        </label>
 
         <label style={{ fontSize: 12, color: "#475569" }}>
           <div style={{ marginBottom: 4 }}>{lt(zh.seed, "Seed (optional)")}</div>

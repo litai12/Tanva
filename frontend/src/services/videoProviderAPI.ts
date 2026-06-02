@@ -5,7 +5,7 @@
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
+export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7";
 
 const buildIdempotencyKey = (scope: string): string => {
   try {

@@ -43,6 +43,7 @@ type ViduModel = ViduModelValue;
 type SeedanceModel =
   | "seedance-1.5-pro"
   | "seedance-2.0"
+  | "seedance-2.0-fast"
   | "seed-2.0-pro"
   | "seed-2.0-lite"
   | "seed-2.0-mini";
@@ -289,11 +290,13 @@ const normalizeSeedanceModelValue = (value: unknown): SeedanceModel => {
     return "seed-2.0-mini";
   }
   if (
-    normalized === "seedance-2.0" ||
-    normalized === "2.0" ||
     normalized === "seedance-2.0-fast" ||
+    normalized === "seed-2.0-fast" ||
     normalized === "2.0-fast"
   ) {
+    return "seedance-2.0-fast";
+  }
+  if (normalized === "seedance-2.0" || normalized === "2.0") {
     return "seedance-2.0";
   }
   return "seedance-1.5-pro";
@@ -315,6 +318,9 @@ const getSeedance20SupportedModes = (model: SeedanceModel): Seedance20Mode[] =>
 const getSeedance20ResolutionList = (model: SeedanceModel): string[] => {
   if (model === "seed-2.0-lite") return [...SEED20_LITE_DOC_RESOLUTIONS];
   if (model === "seed-2.0-mini") return [...SEED20_MINI_DOC_RESOLUTIONS];
+  // Seedance 2.0 Fast shares the doubao-seedance-2-0-fast upstream (480P/720P,
+  // no 1080P) — same as Lite/Mini.
+  if (model === "seedance-2.0-fast") return [...SEED20_LITE_DOC_RESOLUTIONS];
   return [...SEEDANCE20_DOC_RESOLUTIONS];
 };
 
@@ -1149,9 +1155,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ];
     }
     if (provider === "viduq3-pro" || isViduQ3FamilyModel(viduModel)) {
+      // viduq3 upstream min is 3s (only viduq3-mix allows 1–2s).
       return [
-        { label: lt("1秒", "1s"), value: 1 },
-        { label: lt("2秒", "2s"), value: 2 },
         { label: lt("3秒", "3s"), value: 3 },
         { label: lt("4秒", "4s"), value: 4 },
         { label: lt("5秒", "5s"), value: 5 },
@@ -1171,7 +1176,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (provider === "doubao") {
       const values = isSeedance20Model
         ? [...SEEDANCE20_DOC_DURATIONS]
-        : [3, 4, 5, 6, 7, 8, 9, 10];
+        // Seedance 1.5-pro: 4–12s per VolcEngine / apimart spec.
+        : [4, 5, 6, 7, 8, 9, 10, 11, 12];
       return values.map((value) => ({ label: lt(`${value}秒`, `${value}s`), value }));
     }
     return [];
@@ -1195,9 +1201,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ];
     }
     if (provider === "doubao") {
-      const ratios = isSeedance20Model
-        ? [...SEEDANCE20_DOC_ASPECT_RATIOS]
-        : ["16:9", "9:16", "1:1"];
+      // Seedance 1.5-pro supports the same 6 ratios as 2.0 (incl 21:9/4:3/3:4).
+      const ratios = [...SEEDANCE20_DOC_ASPECT_RATIOS];
       return ratios.map((value) => ({ label: value, value }));
     }
     return getAspectOptions();
@@ -1220,6 +1225,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => [
       { label: "Seedance 1.5-Pro", value: "seedance-1.5-pro" as const },
       { label: "Seedance 2.0", value: "seedance-2.0" as const },
+      { label: "Seedance 2.0 Fast", value: "seedance-2.0-fast" as const },
     ],
     []
   );
@@ -1271,6 +1277,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         normalized.has("seedance-2.0-fast")
       ) {
         normalized.add("seedance-2.0");
+        normalized.add("seedance-2.0-fast");
         normalized.add("seed-2.0-pro");
         normalized.add("seed-2.0-lite");
         normalized.add("seed-2.0-mini");
@@ -1313,8 +1320,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, [data.resolution, filteredSeedanceModelOptions, id, isSeedanceModel, seedanceModel]);
   React.useEffect(() => {
     if (!seedance20RestrictedForCurrentUser || !isSeedance20Model) return;
+    // Forced fallback to Seedance 1.5-pro: clamp to its 4–12s range.
     const nextDuration =
-      clipDuration && clipDuration >= 3 && clipDuration <= 10 ? clipDuration : 5;
+      clipDuration && clipDuration >= 4 && clipDuration <= 12 ? clipDuration : 5;
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: {
@@ -1359,7 +1367,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const legacySeedanceResolutionOptions = React.useMemo(() => {
     if (provider !== "doubao" || isVodManagedNode) return [];
-    return isSeedance20Model ? seedance20ResolutionList : ["720P"];
+    // Seedance 1.5-pro (via new-api ark) supports 480P/720P/1080P, same as 2.0.
+    return isSeedance20Model ? seedance20ResolutionList : ["480P", "720P", "1080P"];
   }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
@@ -1726,13 +1735,17 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               clipDuration <= (value === "seed-2.0-mini" ? 10 : 15)
             ? clipDuration
             : 5
-          : clipDuration && clipDuration >= 3 && clipDuration <= 10
+          : // Seedance 1.5-pro: 4–12s.
+          clipDuration && clipDuration >= 4 && clipDuration <= 12
           ? clipDuration
           : 5;
       const currentResolution =
         typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
+      // Fast/Lite/Mini share the doubao-seedance-2-0-fast upstream (no 1080P).
       const nextResolution =
-        (value === "seed-2.0-lite" || value === "seed-2.0-mini") &&
+        (value === "seed-2.0-lite" ||
+          value === "seed-2.0-mini" ||
+          value === "seedance-2.0-fast") &&
         currentResolution === "1080P"
           ? "720P"
           : undefined;

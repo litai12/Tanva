@@ -141,6 +141,14 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "480p", cnyPerSecond: 0.8760},
 		{resolution: "720p", cnyPerSecond: 1.8834},
 	},
+	// Seedance 1.5-pro via ark-doubao-video direct (VolcEngine snapshot id).
+	// NOTE: rates mirror the Seedance 2.0 base for now — operator should verify
+	// against the actual VolcEngine 1.5-pro price list.
+	"doubao-seedance-1-5-pro-251215": {
+		{resolution: "480p", cnyPerSecond: 1.0000},
+		{resolution: "720p", cnyPerSecond: 1.2000},
+		{resolution: "1080p", cnyPerSecond: 3.0000},
+	},
 	// Wan family follows Tanva DashScope pricing.
 	"wan2.7-videoedit": {
 		{resolution: "720p", cnyPerSecond: 0.8000},
@@ -259,6 +267,15 @@ var linearVideoPricingRules = map[string][]linearVideoPricingRule{
 		{resolution: "q3-pro-offpeak-540p", cnyPerSecond: 0.1570},
 		{resolution: "q3-pro-offpeak-720p", cnyPerSecond: 0.3910},
 		{resolution: "q3-pro-offpeak-1080p", cnyPerSecond: 0.4690},
+	},
+	// Vidu Q2 (apimart viduq2). Rates mirror Vidu Q3 turbo/standard tiers —
+	// operator should verify against the actual Vidu Q2 price list.
+	"vidu-q2": {
+		{resolution: "turbo-540p", cnyPerSecond: 0.2500},
+		{resolution: "turbo-720p", cnyPerSecond: 0.3750},
+		{resolution: "turbo-1080p", cnyPerSecond: 0.5000},
+		{resolution: "q3-720p", cnyPerSecond: 0.9375},
+		{resolution: "q3-1080p", cnyPerSecond: 1.0000},
 	},
 	// kling motion-control: APIMart retail price × 7.3 × 1.2 (USD → CNY).
 	// No resolution param upstream — `mode` (std|pro) is what differs in price.

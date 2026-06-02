@@ -60,6 +60,8 @@ var canonicalModelAliasMap = map[string]string{
 	"vidu-q3-pro":                           "vidu-q3",
 	"viduq3-pro":                            "vidu-q3",
 	"viduq3":                                "vidu-q3",
+	"vidu-q2-apimart":                       "vidu-q2",
+	"viduq2":                                "vidu-q2",
 	"doubao-seedance-2.0-apimart":           "doubao-seedance-2.0",
 	"doubao-seedance-2.0-fast-apimart":      "doubao-seedance-2.0-fast",
 	"doubao-seedance-2.0-face-apimart":      "doubao-seedance-2.0-face",
@@ -69,6 +71,9 @@ var canonicalModelAliasMap = map[string]string{
 	// both are candidates for the same request and can serve as each other's fallback.
 	"doubao-seedance-2-0-260128":      "doubao-seedance-2.0",
 	"doubao-seedance-2-0-fast-260128": "doubao-seedance-2.0-fast",
+	// Seedance 1.5-pro (ark-doubao-video direct, VolcEngine snapshot id).
+	"doubao-seedance-1-5-pro":     "doubao-seedance-1-5-pro-251215",
+	"doubao-seedance-1.5-pro":     "doubao-seedance-1-5-pro-251215",
 	// Doubao Seedream 5.0 (image) — ARK date-suffixed names → canonical
 	"doubao-seedream-5-0-260128":      "doubao-seedream-5-0",
 	"doubao-seedream-5-0-lite-260128": "doubao-seedream-5-0-lite",
