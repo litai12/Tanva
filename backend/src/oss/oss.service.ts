@@ -264,7 +264,9 @@ export class OssService {
     } as const;
 
     const policy = Buffer.from(JSON.stringify(policyText)).toString('base64');
-    const kDate = this.hmacSha256(Buffer.from(`TOS4${secret}`), short);
+    // 火山 TOS 的 TOS4-HMAC-SHA256 派生 signingKey 时 SecretKey 直接使用、不加前缀，
+    // 不同于 AWS S3 V4 的 "AWS4"+SecretKey。之前误加 `TOS4` 前缀导致 SignatureDoesNotMatch。
+    const kDate = this.hmacSha256(secret, short);
     const kRegion = this.hmacSha256(kDate, region);
     const kService = this.hmacSha256(kRegion, 'tos');
     const kSigning = this.hmacSha256(kService, 'request');

@@ -34,7 +34,7 @@ const shouldLogHeavyPayloadRequests = (): boolean =>
 
 const isHeavyPayloadPath = (path: string): boolean =>
   /^\/api\/projects\/[^/]+\/content(?:[/?#]|$)/.test(path) ||
-  /^\/api\/uploads\/(?:image|video|transfer-video)(?:[/?#]|$)/.test(path);
+  /^\/api\/uploads\/(?:image|video|audio|transfer-video)(?:[/?#]|$)/.test(path);
 
 const shouldEmitRequestTelemetry = (path: string, statusCode: number): boolean => {
   if (path.startsWith('/api/telemetry/')) return false;

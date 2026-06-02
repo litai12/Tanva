@@ -24,6 +24,26 @@ const SUPPORTED_VIDEO_TYPES = [
 
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
 const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32MB
+const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB（与前端 AudioNode 一致）
+const SUPPORTED_AUDIO_TYPES = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/aac',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/ogg',
+  'audio/opus',
+  'audio/flac',
+  'audio/x-flac',
+  'audio/webm',
+  'audio/amr',
+  'audio/aiff',
+  'audio/x-aiff',
+  'audio/x-ms-wma',
+];
 const SUPPORTED_IMAGE_TYPES = [
   'image/png',
   'image/jpeg',
@@ -65,6 +85,22 @@ function inferVideoExtFromMime(mimeType?: string): string {
   if (value === 'video/3gpp') return '3gp';
   if (value === 'video/x-flv') return 'flv';
   return 'mp4';
+}
+
+function inferAudioExtFromMime(mimeType?: string): string {
+  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (value === 'audio/mpeg' || value === 'audio/mp3') return 'mp3';
+  if (value === 'audio/wav' || value === 'audio/x-wav' || value === 'audio/wave') return 'wav';
+  if (value === 'audio/aac') return 'aac';
+  if (value === 'audio/mp4' || value === 'audio/x-m4a') return 'm4a';
+  if (value === 'audio/ogg') return 'ogg';
+  if (value === 'audio/opus') return 'opus';
+  if (value === 'audio/flac' || value === 'audio/x-flac') return 'flac';
+  if (value === 'audio/webm') return 'weba';
+  if (value === 'audio/amr') return 'amr';
+  if (value === 'audio/aiff' || value === 'audio/x-aiff') return 'aiff';
+  if (value === 'audio/x-ms-wma') return 'wma';
+  return 'mp3';
 }
 
 function extractMultipartField(
@@ -221,6 +257,44 @@ export class UploadsController {
     const stream = Readable.from(file.buffer);
     const result = await this.oss.putStream(key, stream, {
       headers: { 'Content-Type': file.mimeType },
+    });
+    return { url: result.url, key: result.key };
+  }
+
+  @Post('audio')
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  @ApiConsumes('multipart/form-data')
+  async uploadAudio(@Req() req: FastifyRequest) {
+    // 音频走后端中转上传，由服务端写入 OSS。
+    // 浏览器不直连 TOS 桶，从根本上绕开「直传 POST 无 CORS → Failed to fetch」。
+    const file = await this.readSingleMultipartFile(req, MAX_AUDIO_SIZE);
+    const form = file.fields;
+
+    const mimeType = String(file.mimeType || '').toLowerCase();
+    if (!SUPPORTED_AUDIO_TYPES.includes(mimeType)) {
+      throw new BadRequestException(
+        `Unsupported audio format: ${file.mimeType}. Supported: ${SUPPORTED_AUDIO_TYPES.join(', ')}`
+      );
+    }
+
+    const dir = normalizeUploadDir(extractMultipartField(form, 'dir'), 'uploads/audios/');
+    const explicitKey = (extractMultipartField(form, 'key') || '').trim().replace(/^\/+/, '');
+    const declaredFileName = extractMultipartField(form, 'fileName');
+    const safeFileName = sanitizeFileName(
+      declaredFileName || file.originalName || `audio.${inferAudioExtFromMime(mimeType)}`
+    );
+    const key = (() => {
+      if (explicitKey) return explicitKey;
+      const ext = safeFileName.includes('.')
+        ? safeFileName.split('.').pop() || inferAudioExtFromMime(mimeType)
+        : inferAudioExtFromMime(mimeType);
+      return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
+    })();
+
+    const stream = Readable.from(file.buffer);
+    const result = await this.oss.putStream(key, stream, {
+      headers: { 'Content-Type': mimeType || 'audio/mpeg' },
     });
     return { url: result.url, key: result.key };
   }

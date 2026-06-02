@@ -88,6 +88,13 @@ function isBackendVideoRelayEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function isBackendAudioRelayEnabled(): boolean {
+  const raw = String((import.meta.env.VITE_AUDIO_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -206,6 +213,18 @@ function isLikelyImageUpload(data: Blob | File, options: OssUploadOptions): bool
 function isLikelyVideoUpload(data: Blob | File, options: OssUploadOptions): boolean {
   const type = String(options.contentType || (data as File).type || "").toLowerCase();
   return type.startsWith("video/");
+}
+
+const AUDIO_EXTENSION_PATTERN =
+  /\.(mp3|wav|aac|m4a|ogg|opus|flac|weba|webm|amr|aiff|aif|wma)$/i;
+
+function isLikelyAudioUpload(data: Blob | File, options: OssUploadOptions): boolean {
+  const type = String(options.contentType || (data as File).type || "").toLowerCase();
+  if (type.startsWith("audio/")) return true;
+  // contentType 可能因文件无类型而退化成 application/octet-stream（来自 readAsDataURL），
+  // 此时退而用文件名后缀判定，避免误走「直传 TOS → CORS Failed to fetch」。
+  const name = String(options.fileName || (data as File).name || "");
+  return AUDIO_EXTENSION_PATTERN.test(name);
 }
 
 async function verifyUploadedAssetReadable(
@@ -364,6 +383,96 @@ async function uploadVideoViaBackend(
   }
 }
 
+const AUDIO_EXT_TO_MIME: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  aac: "audio/aac",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  opus: "audio/opus",
+  flac: "audio/flac",
+  weba: "audio/webm",
+  webm: "audio/webm",
+  amr: "audio/amr",
+  aiff: "audio/aiff",
+  aif: "audio/aiff",
+  wma: "audio/x-ms-wma",
+};
+
+function resolveAudioContentType(
+  data: Blob | File,
+  options: OssUploadOptions
+): string {
+  const declared = String(options.contentType || (data as File).type || "").toLowerCase();
+  if (declared.startsWith("audio/")) return declared;
+  // contentType 退化（如 application/octet-stream）时，用文件名后缀还原出真实音频 MIME，
+  // 否则后端 SUPPORTED_AUDIO_TYPES 校验会 400。
+  const name = String(options.fileName || (data as File).name || "");
+  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  const ext = m ? m[1] : "";
+  return AUDIO_EXT_TO_MIME[ext] || "audio/mpeg";
+}
+
+async function uploadAudioViaBackend(
+  data: Blob | File,
+  options: OssUploadOptions,
+  fallbackKey?: string,
+): Promise<OssUploadResult> {
+  // 音频走后端中转上传（POST /api/uploads/audio），由服务端写入 OSS。
+  // 浏览器不直连 TOS 桶，从根本上绕开「直传 POST 无 CORS → Failed to fetch」。
+  const API_BASE = getApiBaseUrl();
+  const fileName = options.fileName || (data as File).name || "upload-audio.mp3";
+  const audioType = resolveAudioContentType(data, options);
+  const file = data instanceof File && (data.type || "").toLowerCase().startsWith("audio/")
+    ? data
+    : new File([data], fileName, { type: audioType });
+  const formData = new FormData();
+  formData.append("file", file);
+  if (options.dir) formData.append("dir", options.dir);
+  if (fileName) formData.append("fileName", fileName);
+  if (fallbackKey) formData.append("key", fallbackKey);
+
+  const headers: Record<string, string> = {};
+  if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+
+  try {
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/uploads/audio`,
+      {
+        method: "POST",
+        body: formData,
+        headers,
+        auth: options.authToken ? "omit" : "auto",
+        credentials: options.authToken ? "omit" : "include",
+      },
+      // 音频最大 100MB，给足超时窗口。
+      10 * 60_000
+    );
+    const dataJson = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        success: false,
+        error:
+          dataJson?.message ||
+          dataJson?.error ||
+          `Backend audio upload failed: ${res.status}`,
+      };
+    }
+
+    const url = typeof dataJson?.url === "string" ? dataJson.url : "";
+    const key = typeof dataJson?.key === "string" ? dataJson.key : "";
+    if (!url) {
+      return { success: false, error: "Backend audio upload returned empty url" };
+    }
+    return { success: true, url, key: key || undefined, size: data.size };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error?.message || "Backend audio upload failed",
+    };
+  }
+}
+
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   const ext = inferExtension(fileName, undefined) || extensionHint || "";
   const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -415,11 +524,26 @@ export async function uploadToOSS(
     }
     return backendUpload;
   };
+  const tryBackendAudioFallback = async (
+    dir: string,
+    fallbackKey?: string
+  ): Promise<OssUploadResult | null> => {
+    if (!isLikelyAudioUpload(data, options)) return null;
+    const backendUpload = await uploadAudioViaBackend(data, { ...options, dir }, fallbackKey);
+    if (!backendUpload.success || !backendUpload.url) {
+      return {
+        success: false,
+        error: backendUpload.error || "Backend audio upload fallback failed",
+      };
+    }
+    return backendUpload;
+  };
 
   try {
     const dir = normalizeDir(options.dir, options.projectId);
     const isImage = isLikelyImageUpload(data, options);
     const isVideo = isLikelyVideoUpload(data, options);
+    const isAudio = isLikelyAudioUpload(data, options);
 
     if (isImage && isBackendImageRelayEnabled()) {
       const extension = inferExtension(
@@ -478,6 +602,36 @@ export async function uploadToOSS(
       return {
         success: false,
         error: backendUpload.error || "Backend video upload failed",
+      };
+    }
+
+    // 音频必须走后端中转：浏览器直传 TOS 桶的 POST 没有 CORS，会直接 Failed to fetch。
+    if (isAudio && isBackendAudioRelayEnabled()) {
+      const extension = inferExtension(
+        options.fileName,
+        options.contentType || (data as File).type
+      );
+      const preferredKey = (() => {
+        const forced = typeof options.key === "string" ? options.key.trim() : "";
+        if (forced) return forced.replace(/^\/+/, "");
+        return buildKey(dir, options.fileName, extension);
+      })();
+      const backendUpload = await uploadAudioViaBackend(data, { ...options, dir }, preferredKey);
+      if (backendUpload.success && backendUpload.url) {
+        const backendReadable = await verifyUploadedAssetReadable(
+          backendUpload.key,
+          backendUpload.url,
+          options.authToken
+        );
+        if (backendReadable) return backendUpload;
+        return {
+          success: false,
+          error: "Backend audio upload succeeded but asset is still not readable",
+        };
+      }
+      return {
+        success: false,
+        error: backendUpload.error || "Backend audio upload failed",
       };
     }
 
@@ -585,6 +739,8 @@ export async function uploadToOSS(
       if (fallback) return fallback;
       const videoFallback = await tryBackendVideoFallback(dir, fallbackKey);
       if (videoFallback) return videoFallback;
+      const audioFallback = await tryBackendAudioFallback(dir, fallbackKey);
+      if (audioFallback) return audioFallback;
     } catch {
       // keep original error
     }
