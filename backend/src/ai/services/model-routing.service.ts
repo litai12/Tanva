@@ -643,10 +643,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Vidu Q2',
       taskType: 'video',
       enabled: true,
-      // Default to the new-api (/v1/videos, apimart) route so requests are
-      // logged/billed in the new-api dashboard, not the unlogged tencent_vod
-      // passthrough.
-      defaultVendor: 'vidu_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'vidu_api',
@@ -676,8 +673,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Vidu Q3',
       taskType: 'video',
       enabled: true,
-      // Default to the new-api (/v1/videos, apimart) route — see Vidu Q2 note.
-      defaultVendor: 'vidu_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'vidu_api',
@@ -736,9 +732,7 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
       modelName: 'Seedance 1.5',
       taskType: 'video',
       enabled: true,
-      // Default to the new-api route (createNewApiVideoTask → ark-doubao-video)
-      // so it's logged in new-api, not the unlogged tencent_vod passthrough.
-      defaultVendor: 'seedance_api',
+      defaultVendor: 'tencent_vod',
       vendors: [
         {
           vendorKey: 'seedance_api',

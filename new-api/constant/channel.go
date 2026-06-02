@@ -64,6 +64,7 @@ const (
 	ChannelTypeYouchuan       = 64 // 悠船 Midjourney V7 / Niji 7 (task adaptor)
 	ChannelTypeMjProxy        = 65 // 标准 midjourney-proxy(如 147AI) 普通 MJ (task adaptor)
 	ChannelTypeVolcMediaKit   = 66 // 火山引擎 AI MediaKit 画质增强/超分 (task adaptor)
+	ChannelTypeTencentVod     = 67 // 腾讯VOD AIGC 视频 (task adaptor, proxies to Tanva backend)
 
 )
 
@@ -200,6 +201,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeYouchuan:       "Youchuan",
 	ChannelTypeMjProxy:        "MJProxy",
 	ChannelTypeVolcMediaKit:   "VolcMediaKit",
+	ChannelTypeTencentVod:     "Tencent VOD",
 }
 
 func GetChannelTypeName(channelType int) string {

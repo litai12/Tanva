@@ -764,12 +764,33 @@ export class VideoProviderService {
     return this.createNewApiVideoTask(options);
   }
 
+  // Video models that have proper new-api channels (apimart / ark / tencent-vod).
+  // These ALWAYS go through new-api /v1/videos so new-api's distributor decides
+  // the upstream (apimart vs ark vs the tencent-vod channel) — the backend no
+  // longer makes the vod-vs-apimart choice, and every request is logged/billed
+  // in new-api. The legacy /proxy/tencent/vod passthrough is reached only via
+  // the new-api tencent-vod channel proxying back to /internal/tencent-vod.
+  private static readonly NEW_API_VIDEO_MODEL_KEYS = new Set<string>([
+    "vidu-q2",
+    "vidu-q3",
+    "kling-2.6",
+    "kling-3.0",
+    "kling-o3",
+    "seedance-1.5",
+    "seedance-2.0",
+  ]);
+
   /** 依据托管分组配置判断该视频请求是否应走腾讯 VOD（尊享）路由。 */
   private async shouldRouteVideoToManagedTencent(
     options: VideoProviderRequestDto
   ): Promise<boolean> {
     const modelKey = this.resolveManagedVideoModelKey(options);
     if (!modelKey) return false;
+    // Models with new-api channels never take the backend's tencent_vod
+    // diversion — new-api decides their upstream (see set above).
+    if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
+      return false;
+    }
     try {
       const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
         modelKey,
@@ -873,6 +894,93 @@ export class VideoProviderService {
       default:
         throw new Error(`不支持的供应商: ${provider}`);
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tencent VOD via new-api: the new-api `tencent-vod` channel proxies create/
+  // poll here so Tencent VOD becomes a first-class new-api channel (logged +
+  // billed, distributor-selectable alongside apimart) without re-porting the
+  // TC3 signing + per-model request building to Go.
+  // Scope: Vidu + Kling only (Seedance uses asset:// refs Tencent can't take).
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Build a VideoProviderRequestDto for the Tencent path from the unified
+   * /v1/videos payload forwarded by the new-api tencent-vod adaptor. */
+  private buildDtoFromUnifiedForTencent(input: {
+    model?: string;
+    prompt?: string;
+    images?: string[];
+    duration?: number;
+    size?: string;
+    resolution?: string;
+    aspect_ratio?: string;
+    mode?: string;
+  }): VideoProviderRequestDto {
+    const model = String(input.model || "").trim().toLowerCase();
+    const referenceImages = Array.isArray(input.images)
+      ? input.images.filter((u) => typeof u === "string" && u.trim().length > 0)
+      : undefined;
+    const base = {
+      prompt: input.prompt,
+      referenceImages,
+      duration:
+        typeof input.duration === "number" && Number.isFinite(input.duration)
+          ? input.duration
+          : undefined,
+      aspectRatio: (input.aspect_ratio || "").trim() || undefined,
+      resolution: (input.resolution || "").trim() || undefined,
+      mode: (input.mode === "pro" ? "pro" : input.mode === "std" ? "std" : undefined) as
+        | "std"
+        | "pro"
+        | undefined,
+      // The new-api distributor already chose the tencent-vod channel, so force
+      // the tencent_vod vendor — generateManaged* re-resolves the route via
+      // executeManagedRouteWithFallback and would otherwise honor the config
+      // default (which may not be tencent).
+      vendorKey: "tencent_vod",
+    };
+    switch (model) {
+      case "vidu-q2":
+        return { ...base, provider: "vidu", viduModel: "q2" } as VideoProviderRequestDto;
+      case "vidu-q3":
+        return { ...base, provider: "viduq3-pro", viduModel: "q3" } as VideoProviderRequestDto;
+      case "kling-v2-6":
+        return { ...base, provider: "kling", klingModel: "kling-v2-6" } as VideoProviderRequestDto;
+      case "kling-v3":
+        return { ...base, provider: "kling", klingModel: "kling-v3-0" } as VideoProviderRequestDto;
+      case "kling-v3-omni":
+        return { ...base, provider: "kling-o3", klingModel: "kling-o3" } as VideoProviderRequestDto;
+      default:
+        throw new BadRequestException(`tencent-vod 暂不支持模型: ${input.model}`);
+    }
+  }
+
+  /** Create a Tencent VOD video task (called by the new-api tencent-vod adaptor). */
+  async createViaTencentVod(input: {
+    model?: string;
+    prompt?: string;
+    images?: string[];
+    duration?: number;
+    size?: string;
+    resolution?: string;
+    aspect_ratio?: string;
+    mode?: string;
+  }): Promise<{ taskId: string; status: string }> {
+    const dto = this.buildDtoFromUnifiedForTencent(input);
+    const result = await this.generateVideoLegacy(dto);
+    return { taskId: result.taskId, status: result.status };
+  }
+
+  /** Poll a Tencent VOD video task (called by the new-api tencent-vod adaptor).
+   * Routes via queryTask so BOTH prefixed managed ids (Vidu / Kling 2.6 / 3.0 /
+   * Seedance) AND the UNPREFIXED kling-o3 (Omni) id are handled — the latter
+   * needs the provider === "kling-o3" branch in queryTask. The provider arg is
+   * only consulted for unprefixed ids, so passing "kling-o3" is safe for all. */
+  async queryViaTencentVod(
+    taskId: string,
+  ): Promise<{ status: string; url?: string; reason?: string }> {
+    const r = await this.queryTask("kling-o3", taskId);
+    return { status: r.status, url: r.videoUrl, reason: r.error };
   }
 
   /**
@@ -1127,19 +1235,19 @@ export class VideoProviderService {
     )
       .trim()
       .toLowerCase();
-    // Seedance Fast + 1.5-pro route through the ark-doubao-video channel
-    // (direct official VolcEngine) using snapshot ids — NOT the apimart
-    // reseller. Fast/lite/mini share the doubao-seedance-2-0-fast upstream.
-    // Order matters: these must be checked before the generic 2.0 branch.
+    // ALL Seedance models route through the ark-doubao-video channel (direct
+    // official VolcEngine) using snapshot ids — NOT the apimart reseller.
+    // Fast/lite/mini share the doubao-seedance-2-0-fast upstream.
+    // Order matters: fast/lite/mini and 1.5 must be checked before the
+    // generic 2.0 branch (pro / 2.0 → standard 2.0 snapshot).
     if (explicit.includes("seedance-2.0-fast") || explicit.includes("seed-2.0-lite") || explicit.includes("seed-2.0-mini")) {
       return "doubao-seedance-2-0-fast-260128";
     }
     if (explicit.includes("seedance-1.5") || explicit.includes("seed-1.5") || explicit.includes("1.5-pro")) {
       return "doubao-seedance-1-5-pro-251215";
     }
-    // Seedance 2.0 (non-fast) stays on apimart (unchanged, working).
-    if (explicit.includes("seedance") || options.provider === "doubao") {
-      return "doubao-seedance-2.0";
+    if (explicit.includes("seedance") || explicit.includes("seed-2.0") || options.provider === "doubao") {
+      return "doubao-seedance-2-0-260128";
     }
     if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
       return "wan2.7-videoedit";

@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { ImageGenerationService } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
+import { InternalTencentVodController } from './internal-tencent-vod.controller';
 import { GeminiProProvider } from './providers/gemini-pro.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
@@ -80,7 +81,7 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     GenerationTaskService,
     ApiKeyOrJwtGuard,
   ],
-  controllers: [AiController],
+  controllers: [AiController, InternalTencentVodController],
   exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, GenerationTaskService],
 })
 export class AiModule {}
