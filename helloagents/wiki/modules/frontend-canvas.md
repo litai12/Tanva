@@ -91,6 +91,7 @@
 ## 视口性能
 - `GlobalZoomCapture` 的触控板/手势缩放只通过 RAF 批量提交 `setViewport`，避免同一帧内同步写入多次 canvas store。
 - `ProjectAutosaveManager` 同步 canvas `zoom/pan` 到项目内容时使用 160ms 防抖，并跳过与内容快照或上次同步值相同的视角，避免缩放/平移期间把高频视角变化转成项目内容更新。
+- 图片拖动期间，`CanvasImageLayer` 通过 `tanva:image-drag-preview` 事件直接对 DOM 图片做 `translate3d` 预览；`useInteractionController` 只在鼠标松开时一次性提交 `imageInstances`，避免多图场景每帧触发 React 图片列表更新。
 
 ## 历史视频上画布
 - 库面板全局历史/项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。

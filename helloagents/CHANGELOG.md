@@ -21,7 +21,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Canvas/Image Drag Performance: image dragging now uses a DOM-layer preview during pointer move and commits `imageInstances` once on mouseup, reducing high-frequency React list updates when many images are on the canvas.
 - Workspace Header: project quick-switch dropdown now reads a local most-recently-opened project list (`tanva_recent_project_ids`) and shows the latest 5 opened projects, while backfilling from the full project list when history is short.
+- Flow/Performance: MiniMap now unmounts during canvas pan, canvas zoom, canvas object movement, and Flow node drag, then restores shortly after interaction idle, reducing overview SVG redraw cost on high-frequency viewport updates.
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 - Flow/Seedream: `Seedream` 节点新增豆包通道专属 `4.5/5.0` 模型切换；观猹通道固定 5.0 且隐藏模型下拉。后端 `seedream5` 链路支持读取 `modelVersion`/`model` 并在豆包通道映射到 `doubao-seedream-4-5-251128` 或 `doubao-seedream-5-0-260128`。
 - Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.

@@ -8944,6 +8944,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectToolHandlePathSelect,
   ]);
 
+  const canvasPreviewImages = useMemo(
+    () =>
+      imageTool.imageInstances.map((img) => ({
+        id: img.id,
+        url: img.imageData?.url,
+        src: img.imageData?.src,
+        key: img.imageData?.key,
+        remoteUrl: img.imageData?.remoteUrl,
+        localDataUrl: img.imageData?.localDataUrl,
+        fileName: img.imageData?.fileName,
+        pendingUpload: img.imageData?.pendingUpload,
+        width: img.imageData?.width,
+        height: img.imageData?.height,
+        locked: img.locked ?? img.imageData?.locked,
+      })),
+    [imageTool.imageInstances]
+  );
+
+  const selectedImageIdSet = useMemo(
+    () => new Set(imageTool.selectedImageIds),
+    [imageTool.selectedImageIds]
+  );
   return (
     <>
       {/* 图片上传组件 */}
@@ -8984,55 +9006,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         projectId={projectId}
       />
 
-      {/* AI 生图进行中指示器 — React 层，不依赖 Paper.js，切换节点不会消失 */}
-      {quickImageUpload.pendingCount > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 24,
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "rgba(17, 24, 39, 0.85)",
-            color: "#f9fafb",
-            fontSize: 13,
-            fontWeight: 500,
-            padding: "7px 14px",
-            borderRadius: 20,
-            backdropFilter: "blur(8px)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-            zIndex: 9999,
-            pointerEvents: "none",
-            userSelect: "none",
-          }}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
-          >
-            <line x1="12" y1="2" x2="12" y2="6" />
-            <line x1="12" y1="18" x2="12" y2="22" />
-            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-            <line x1="2" y1="12" x2="6" y2="12" />
-            <line x1="18" y1="12" x2="22" y2="12" />
-            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-          </svg>
-          AI 生成中{quickImageUpload.pendingCount > 1 ? `（${quickImageUpload.pendingCount}）` : ""}
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
-
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent
         onModel3DUploaded={model3DTool.handleModel3DUploaded}
@@ -9052,20 +9025,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       <CanvasImageLayer imageInstances={imageTool.imageInstances} />
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
-        // 构建所有画布图片数据，用于预览时显示
-        const allCanvasImagesData = imageTool.imageInstances.map((img) => ({
-          id: img.id,
-          url: img.imageData?.url,
-          src: img.imageData?.src,
-          key: img.imageData?.key,
-          remoteUrl: img.imageData?.remoteUrl,
-          localDataUrl: img.imageData?.localDataUrl,
-          fileName: img.imageData?.fileName,
-          pendingUpload: img.imageData?.pendingUpload,
-          width: img.imageData?.width,
-          height: img.imageData?.height,
-          locked: img.locked ?? img.imageData?.locked,
-        }));
         return (
           <ImageContainer
             key={image.id}
@@ -9083,11 +9042,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               locked: image.locked ?? image.imageData?.locked,
             }}
             bounds={image.bounds}
-            isSelected={imageTool.selectedImageIds.includes(image.id)}
+            isSelected={selectedImageIdSet.has(image.id)}
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-            allCanvasImages={allCanvasImagesData}
+            allCanvasImages={canvasPreviewImages}
             onSelect={() => imageTool.handleImageSelect(image.id)}
             onMove={(newPosition) =>
               imageTool.handleImageMove(image.id, newPosition)

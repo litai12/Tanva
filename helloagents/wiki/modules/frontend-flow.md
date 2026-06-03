@@ -6,6 +6,7 @@
 # 鍓嶇妯″潡锛欶low锛坒rontend-flow锟? 
 
 ## 2026-05-14 Update
+- MiniMap now unmounts while the canvas is panning/zooming, canvas objects are moving, or a Flow node is being dragged, then restores shortly after interaction idle, reducing ReactFlow overview SVG work during high-frequency viewport updates.
 - `Seed3D` 鑺傜偣鐜板湪浼氭牴鎹ā鍨?URL 鍚庣紑鍖哄垎鈥滃彲鍦ㄧ嚎棰勮鈥濅笌鈥滀粎鍙笅杞解€濓細
   - `.glb/.gltf` 缁х画璧板唴宓?Three.js 棰勮锛?  - `.zip` 涓庡叾浠栭潪棰勮鏍煎紡浼氭樉绀烘槑纭彁绀猴紙鍙笅杞戒絾涓嶅彲鍐呭祵棰勮锛夈€?- `Seed3D` 涓嬭浇鏂囦欢鍚嶆敼涓烘寜鐪熷疄璧勬簮鍚庣紑鐢熸垚锛屼笉鍐嶅浐瀹氫繚瀛樹负 `.glb`锛堥伩鍏?ZIP 缁撴灉涓嬭浇鍚庢墿灞曞悕閿欒锛夈€?- `Seed3D` 棰勮鍔犺浇澶辫触淇℃伅鏀逛负鎼哄甫鍏蜂綋閿欒鍘熷洜锛屽苟鍦ㄩ潪棰勮鏍煎紡鏃剁鐢?`Send`锛岄伩鍏嶁€滄ā鍨嬩笉鍙浣嗕粛鍙彂閫佲€濈殑璇浜や簰銆?- Flow `seedanceModel` 褰掍竴鍖栬ˉ榻?`seed-2.0-pro / seed-2.0-lite / seed-2.0-mini`锛屼笉鍐嶆妸 `pro/mini` 璇洖閫€涓?`seedance-1.5-pro`銆?- `seedVideo/seedance20Video` 杩愯璇锋眰浼氭寜鑺傜偣瀹為檯妯″瀷鍊奸€忎紶 `seedanceModel`锛岄伩鍏嶅嚭鐜扳€淯I 閫?2.0 Pro锛屽悗绔疄闄呮彁浜?1.5 Pro鈥濄€?
 ## 2026-05-12 Update

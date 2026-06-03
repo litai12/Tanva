@@ -7305,8 +7305,11 @@ function FlowInner() {
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
   const [isCanvasZooming, setIsCanvasZooming] = React.useState(false);
+  const [isCanvasPanning, setIsCanvasPanning] = React.useState(false);
+  const [isCanvasObjectMoving, setIsCanvasObjectMoving] = React.useState(false);
   const flowLowDetailModeRef = React.useRef(false);
   const canvasZoomIdleTimerRef = React.useRef<number | null>(null);
+  const canvasPanIdleTimerRef = React.useRef<number | null>(null);
   const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
   const canvasPanRef = React.useRef({
     panX: useCanvasStore.getState().panX,
@@ -7315,6 +7318,7 @@ function FlowInner() {
   const zoomFpsActiveUntilRef = React.useRef(0);
   const canvasPanFpsActiveUntilRef = React.useRef(0);
   const isCanvasZoomingRef = React.useRef(false);
+  const isCanvasPanningRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
     () =>
       nodes.some((node) => {
@@ -7412,6 +7416,12 @@ function FlowInner() {
         canvasZoomIdleTimerRef.current = null;
       }
     };
+    const clearCanvasPanIdleTimer = () => {
+      if (canvasPanIdleTimerRef.current !== null) {
+        window.clearTimeout(canvasPanIdleTimerRef.current);
+        canvasPanIdleTimerRef.current = null;
+      }
+    };
 
     const markCanvasZooming = (nextZoomRaw: number) => {
       const nextZoom =
@@ -7468,6 +7478,18 @@ function FlowInner() {
           : Date.now();
       canvasPanFpsActiveUntilRef.current = now + 700;
       canvasPanRef.current = { panX: nextPanX, panY: nextPanY };
+      if (!isCanvasPanningRef.current) {
+        isCanvasPanningRef.current = true;
+        setIsCanvasPanning(true);
+      }
+      clearCanvasPanIdleTimer();
+      canvasPanIdleTimerRef.current = window.setTimeout(() => {
+        canvasPanIdleTimerRef.current = null;
+        if (isCanvasPanningRef.current) {
+          isCanvasPanningRef.current = false;
+          setIsCanvasPanning(false);
+        }
+      }, 180);
     };
 
     const initialCanvasState = useCanvasStore.getState();
@@ -7495,9 +7517,34 @@ function FlowInner() {
       unsubscribePanX();
       unsubscribePanY();
       clearCanvasZoomIdleTimer();
+      clearCanvasPanIdleTimer();
       isCanvasZoomingRef.current = false;
+      isCanvasPanningRef.current = false;
       setIsCanvasZooming(false);
+      setIsCanvasPanning(false);
     };
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof document === "undefined" || typeof MutationObserver === "undefined") {
+      return;
+    }
+    const syncCanvasObjectMoving = () => {
+      const classList = document.body.classList;
+      setIsCanvasObjectMoving(
+        classList.contains("tanva-image-dragging") ||
+          classList.contains("tanva-selection-dragging") ||
+          classList.contains("tanva-canvas-dragging")
+      );
+    };
+
+    syncCanvasObjectMoving();
+    const observer = new MutationObserver(syncCanvasObjectMoving);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
   }, []);
 
   const effectiveFlowLowDetailMode =
@@ -7510,6 +7557,10 @@ function FlowInner() {
     }),
     [effectiveFlowLowDetailMode]
   );
+  const isFlowViewportInteracting =
+    isCanvasZooming || isCanvasPanning || isNodeDragging || isCanvasObjectMoving;
+  const shouldRenderMiniMap =
+    !effectiveFlowLowDetailMode && !isFlowViewportInteracting;
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -23841,6 +23892,11 @@ function FlowInner() {
             低缩放已隐藏连线与 MiniMap（节点 UI 保留）
           </span>
         )}
+        {!effectiveFlowLowDetailMode && isFlowViewportInteracting && (
+          <span style={{ fontSize: 12, color: "#4b5563" }}>
+            移动/缩放中已临时隐藏 MiniMap
+          </span>
+        )}
         <label
           style={{
             display: "flex",
@@ -24818,7 +24874,7 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {!effectiveFlowLowDetailMode && (
+        {shouldRenderMiniMap && (
           <>
             {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
             <MiniMap pannable={false} zoomable={false} />
