@@ -13,7 +13,7 @@ function getStableVideoTimestamp(url: string, version: number): number {
   }
   return ts;
 }
-import { Handle, Position, useReactFlow, useStore } from "reactflow";
+import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
 import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
@@ -658,6 +658,35 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   //    std 也支持首尾帧，故放开 image-2 句柄。
   const canUseKlingImage2Input =
     isUnifiedKlingNode && (klingModel === "kling-v2-6" ? isProMode : true);
+
+  // 动态显隐句柄(如切到 pro 才出现的 image-2)后，必须通知 React Flow 重算句柄坐标，
+  // 否则连到新句柄的连线会画到旧/零坐标——在 Edge 上表现为“专业模式 image-2 连线不显示”
+  // (Chrome 靠偶发重绘侥幸正常)。signature 变化即触发 updateNodeInternals。
+  const updateNodeInternals = useUpdateNodeInternals();
+  const visibleHandleSignature = React.useMemo(
+    () =>
+      [
+        canUseKlingImage2Input ? "k2" : "",
+        isViduNode ? "vidu" : "",
+        isSeedanceModel ? (seedanceModeSpec?.visibleHandles || []).join(",") : "",
+        isUnifiedKlingNode &&
+        klingModel !== "kling-v2-6" &&
+        klingModel !== "kling-v3-0"
+          ? "audio"
+          : "",
+      ].join("|"),
+    [
+      canUseKlingImage2Input,
+      isViduNode,
+      isSeedanceModel,
+      seedanceModeSpec,
+      isUnifiedKlingNode,
+      klingModel,
+    ]
+  );
+  React.useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, visibleHandleSignature, updateNodeInternals]);
   const previewVideoMode = isViduNode
     ? viduRequestSemantics?.videoMode
     : isSeedanceModel
@@ -3070,12 +3099,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       {isUnifiedKlingNode && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-            {lt("模式", "Mode")}
+            {lt("模式 / 分辨率", "Mode / Resolution")}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
+            {/* APIMart Kling 无独立分辨率字段，画质由 mode 决定：标准=720P、专业=1080P。
+                故模式选择即分辨率选择，按钮标注对应分辨率。 */}
             {[
-              { label: lt("标准", "Standard"), value: "std" },
-              { label: lt("专业", "Pro"), value: "pro" },
+              { label: lt("标准 720P", "Std 720P"), value: "std" },
+              { label: lt("专业 1080P", "Pro 1080P"), value: "pro" },
             ].map((opt) => {
               const isActive = (((data as any).mode || "std") === opt.value);
               return (
