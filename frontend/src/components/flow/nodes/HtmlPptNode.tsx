@@ -85,6 +85,10 @@ type Props = {
 const HTML_PPT_SIZE_VERSION = 2;
 const HTML_PPT_DEFAULT_WIDTH = 980;
 const HTML_PPT_DEFAULT_HEIGHT = 720;
+const HTML_PPT_DESIGN_WIDTH_16_9 = 1280;
+const HTML_PPT_DESIGN_HEIGHT_16_9 = 720;
+const HTML_PPT_DESIGN_WIDTH_4_3 = 1024;
+const HTML_PPT_DESIGN_HEIGHT_4_3 = 768;
 const MAX_SLIDES = 24;
 const MAX_CODE_LENGTH = 120_000;
 const MAX_IMAGE_INPUTS = 6;
@@ -135,8 +139,13 @@ const normalizeDeck = (raw?: Partial<HtmlPptDeck>): HtmlPptDeck => {
 const getRatioParts = (aspectRatio: HtmlPptDeck["aspectRatio"]) =>
   aspectRatio === "4:3" ? { w: 4, h: 3 } : { w: 16, h: 9 };
 
+const getDesignSize = (aspectRatio: HtmlPptDeck["aspectRatio"]) =>
+  aspectRatio === "4:3"
+    ? { width: HTML_PPT_DESIGN_WIDTH_4_3, height: HTML_PPT_DESIGN_HEIGHT_4_3 }
+    : { width: HTML_PPT_DESIGN_WIDTH_16_9, height: HTML_PPT_DESIGN_HEIGHT_16_9 };
+
 const baseSlideRuntimeCss = (deck: HtmlPptDeck) => {
-  const ratio = getRatioParts(deck.aspectRatio);
+  const design = getDesignSize(deck.aspectRatio);
   return `
 html,
 body {
@@ -159,10 +168,12 @@ body {
 }
 .slide-root {
   position: relative;
-  width: min(100vw, calc(100vh * ${ratio.w} / ${ratio.h}));
-  aspect-ratio: ${ratio.w} / ${ratio.h};
+  width: ${design.width}px;
+  height: ${design.height}px;
+  aspect-ratio: auto;
   overflow: hidden;
   box-sizing: border-box;
+  flex: 0 0 auto;
 }
 .slide-root *,
 .slide-root *::before,
@@ -176,12 +187,26 @@ body {
 `.trim();
 };
 
-const buildSlideSrcDoc = (deck: HtmlPptDeck, slide: HtmlPptSlide): string => {
+const buildSlideSrcDoc = (
+  deck: HtmlPptDeck,
+  slide: HtmlPptSlide,
+  renderScale = 1
+): string => {
   const origin = typeof window !== "undefined" ? `${window.location.origin}/` : "/";
+  const design = getDesignSize(deck.aspectRatio);
+  const safeScale = Number.isFinite(renderScale)
+    ? Math.max(0.1, Math.min(2, renderScale))
+    : 1;
   const css = [
     baseSlideRuntimeCss(deck),
     deck.themeCss || "",
     slide.css || "",
+    `.slide-stage > .slide-root {
+  width: ${design.width}px !important;
+  height: ${design.height}px !important;
+  transform: scale(${safeScale}) !important;
+  transform-origin: center center !important;
+}`,
   ].join("\n\n");
 
   return `<!doctype html>
@@ -204,11 +229,15 @@ const buildSlideSrcDoc = (deck: HtmlPptDeck, slide: HtmlPptSlide): string => {
 
 const buildFullDeckHtml = (deck: HtmlPptDeck, title: string): string => {
   const ratio = getRatioParts(deck.aspectRatio);
+  const design = getDesignSize(deck.aspectRatio);
   const slides = deck.slides
     .map(
-      (slide, index) => `<section class="slide-root" data-slide-index="${index}">
+      (slide, index) => `<article class="slide-page" data-slide-index="${index}">
+  <section class="slide-root" data-slide-index="${index}">
 ${slide.html || ""}
-</section>`
+  </section>
+  <div class="slide-page-label">${index + 1} / ${deck.slides.length}</div>
+</article>`
     )
     .join("\n");
   const slideCss = deck.slides
@@ -223,38 +252,145 @@ ${slide.html || ""}
   <title>${escapeHtml(title || "HTML PPT")}</title>
   <style>
 ${escapeStyleContent(baseSlideRuntimeCss(deck))}
-body { background: #111827; }
-.deck-export { width: 100vw; height: 100vh; display: grid; place-items: center; }
-.slide-root { display: none; }
-.slide-root.is-active { display: block; width: min(100vw, calc(100vh * ${ratio.w} / ${ratio.h})); }
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.deck-export {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  padding: 32px 0 56px;
+  box-sizing: border-box;
+  scroll-snap-type: y proximity;
+}
+.slide-page {
+  --slide-scale: 1;
+  width: calc(${design.width}px * var(--slide-scale));
+  height: calc(${design.height}px * var(--slide-scale));
+  position: relative;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+.slide-root {
+  display: block;
+  width: ${design.width}px;
+  height: ${design.height}px;
+  aspect-ratio: auto;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 4px;
+  position: relative;
+  background: #ffffff;
+  transform: scale(var(--slide-scale));
+  transform-origin: top left;
+}
+.slide-page.is-active .slide-root {
+  outline: 2px solid rgba(37, 99, 235, 0.55);
+  outline-offset: 6px;
+}
+.slide-page-label {
+  position: absolute;
+  top: calc(14px * var(--slide-scale));
+  right: calc(14px * var(--slide-scale));
+  z-index: 3;
+  padding: calc(4px * var(--slide-scale)) calc(8px * var(--slide-scale));
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  font-size: calc(12px * var(--slide-scale));
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
 .deck-counter { position: fixed; right: 18px; bottom: 14px; color: #cbd5e1; font: 12px/1.2 ui-sans-serif, system-ui; }
 @media print {
   body { background: #fff; }
-  .deck-export { display: block; width: auto; height: auto; }
+  .deck-export { display: block; width: auto; min-height: auto; padding: 0; }
   .deck-counter { display: none; }
-  .slide-root { display: block !important; width: 100vw; height: auto; page-break-after: always; }
+  .slide-page {
+    width: 100vw;
+    height: calc(100vw * ${ratio.h} / ${ratio.w});
+    page-break-after: always;
+    break-after: page;
+  }
+  .slide-root {
+    display: block !important;
+    transform: scale(calc(100vw / ${design.width}px));
+    box-shadow: none;
+    border-radius: 0;
+    outline: none;
+  }
+  .slide-page-label { display: none; }
 }
 ${escapeStyleContent(deck.themeCss || "")}
 ${escapeStyleContent(slideCss)}
+.deck-export .slide-root {
+  width: ${design.width}px !important;
+  height: ${design.height}px !important;
+  transform: scale(var(--slide-scale)) !important;
+  transform-origin: top left !important;
+}
+@media print {
+  .slide-page {
+    width: ${design.width}px !important;
+    height: ${design.height}px !important;
+  }
+  .deck-export .slide-root {
+    transform: none !important;
+  }
+}
   </style>
 </head>
 <body>
   <main class="deck-export">${slides}</main>
   <div class="deck-counter" id="deckCounter"></div>
   <script>
+    const pages = Array.from(document.querySelectorAll(".slide-page"));
     const slides = Array.from(document.querySelectorAll(".slide-root"));
     let index = 0;
-    function show(next) {
-      index = Math.max(0, Math.min(slides.length - 1, next));
-      slides.forEach((slide, i) => slide.classList.toggle("is-active", i === index));
-      const counter = document.getElementById("deckCounter");
-      if (counter) counter.textContent = (index + 1) + " / " + slides.length;
+    function applySlideScale() {
+      const availableWidth = Math.max(320, window.innerWidth - 64);
+      const availableHeight = Math.max(240, window.innerHeight - 64);
+      const scale = Math.max(0.2, Math.min(availableWidth / ${design.width}, availableHeight / ${design.height}));
+      pages.forEach((page) => page.style.setProperty("--slide-scale", String(scale)));
     }
+    function setActive(next) {
+      index = Math.max(0, Math.min(pages.length - 1, next));
+      pages.forEach((page, i) => page.classList.toggle("is-active", i === index));
+      const counter = document.getElementById("deckCounter");
+      if (counter) counter.textContent = (index + 1) + " / " + pages.length;
+    }
+    function show(next) {
+      setActive(next);
+      pages[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    const observer = new IntersectionObserver((entries) => {
+      let best = null;
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        if (!best || entry.intersectionRatio > best.intersectionRatio) best = entry;
+      }
+      if (!best) return;
+      const next = pages.indexOf(best.target);
+      if (next >= 0 && next !== index) {
+        setActive(next);
+      }
+    }, { threshold: [0.45, 0.6, 0.75] });
+    pages.forEach((page) => observer.observe(page));
+    window.addEventListener("resize", applySlideScale);
     window.addEventListener("keydown", (event) => {
       if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") show(index + 1);
       if (event.key === "ArrowLeft" || event.key === "PageUp") show(index - 1);
     });
-    show(0);
+    applySlideScale();
+    setActive(0);
   </script>
 </body>
 </html>`;
@@ -691,6 +827,8 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const [isRunning, setIsRunning] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
   const [statusText, setStatusText] = React.useState("");
+  const previewFrameRef = React.useRef<HTMLDivElement | null>(null);
+  const [previewFrameSize, setPreviewFrameSize] = React.useState({ width: 0, height: 0 });
   const title = data.title || "HTML PPT";
   const editScope = data.editScope === "deck" ? "deck" : "slide";
   const width = data.boxW || HTML_PPT_DEFAULT_WIDTH;
@@ -1090,9 +1228,35 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   );
   const status = isRunning ? "running" : data.status || "idle";
   const isBusy = status === "running";
+  React.useEffect(() => {
+    const element = previewFrameRef.current;
+    if (!element) return;
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      setPreviewFrameSize((current) => {
+        const nextWidth = Math.round(rect.width);
+        const nextHeight = Math.round(rect.height);
+        if (current.width === nextWidth && current.height === nextHeight) return current;
+        return { width: nextWidth, height: nextHeight };
+      });
+    };
+    updateSize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [viewMode, deck.aspectRatio]);
+  const previewScale = React.useMemo(() => {
+    const design = getDesignSize(deck.aspectRatio);
+    if (previewFrameSize.width <= 0 || previewFrameSize.height <= 0) return 0.5;
+    return Math.max(
+      0.1,
+      Math.min(previewFrameSize.width / design.width, previewFrameSize.height / design.height)
+    );
+  }, [deck.aspectRatio, previewFrameSize.height, previewFrameSize.width]);
   const previewSrcDoc = React.useMemo(
-    () => buildSlideSrcDoc(deck, currentSlide),
-    [currentSlide, deck]
+    () => buildSlideSrcDoc(deck, currentSlide, previewScale),
+    [currentSlide, deck, previewScale]
   );
   const palette = isDarkTheme
     ? {
@@ -1477,6 +1641,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
           {viewMode === "preview" ? (
             <div
+              ref={previewFrameRef}
               style={{
                 background: "#111827",
                 borderRadius: 8,
@@ -1819,6 +1984,8 @@ function SlideThumbnail({
   const baseHeight = deck.aspectRatio === "4:3" ? 480 : 360;
   const thumbWidth = 148;
   const scale = thumbWidth / baseWidth;
+  const design = getDesignSize(deck.aspectRatio);
+  const iframeScale = Math.min(baseWidth / design.width, baseHeight / design.height);
 
   return (
     <button
@@ -1860,7 +2027,7 @@ function SlideThumbnail({
             sandbox=""
             referrerPolicy="no-referrer"
             loading="lazy"
-            srcDoc={buildSlideSrcDoc(deck, slide)}
+            srcDoc={buildSlideSrcDoc(deck, slide, iframeScale)}
             style={{
               width: baseWidth,
               height: baseHeight,
