@@ -16,6 +16,8 @@
     --foreground: 222.2 84% 4.9%;
     --muted: 210 40% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
+    --tanva-campaign-notice-height: 46px;
+    --tanva-campaign-notice-half-height: 23px;
   }
 
   .dark {
@@ -51,6 +53,27 @@ html, body, #root {
   /* Prevent browser back/forward navigation on horizontal trackpad swipe.
      Child elements with overflow:auto/scroll are unaffected. */
   overscroll-behavior: none;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --tanva-campaign-notice-height: 58px;
+    --tanva-campaign-notice-half-height: 29px;
+  }
+}
+
+.tanva-campaign-shell .tanva-header-shell {
+  top: calc(var(--tanva-campaign-notice-height) + 1rem);
+}
+
+.tanva-campaign-shell .tanva-layer-panel,
+.tanva-campaign-shell .tanva-library-panel {
+  top: var(--tanva-campaign-notice-height);
+  height: calc(100vh - var(--tanva-campaign-notice-height));
+}
+
+.tanva-campaign-shell .tanva-toolbar-shell {
+  top: calc(50vh + var(--tanva-campaign-notice-half-height));
 }
 
 /* ==================== 自定义光标系统 ==================== */

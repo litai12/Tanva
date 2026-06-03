@@ -64,6 +64,7 @@ export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
 export interface LoginNoticeView {
   enabled: boolean;
   content: string;
+  contentHtml: string;
   updatedAt: string | null;
 }
 
@@ -130,9 +131,25 @@ export class AdminService {
     return null;
   }
 
-  private parseLoginNoticeValue(value: string | null | undefined): { enabled: boolean; content: string } {
+  private extractLoginNoticeTextFromHtml(value: string): string {
+    return value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li)>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private parseLoginNoticeValue(value: string | null | undefined): { enabled: boolean; content: string; contentHtml: string } {
     if (!value) {
-      return { enabled: false, content: '' };
+      return { enabled: false, content: '', contentHtml: '' };
     }
 
     try {
@@ -140,9 +157,11 @@ export class AdminService {
       const objectValue = this.asJsonObject(parsed);
       if (objectValue) {
         const content = typeof objectValue.content === 'string' ? objectValue.content : '';
+        const contentHtml = typeof objectValue.contentHtml === 'string' ? objectValue.contentHtml : '';
         return {
           enabled: objectValue.enabled === true,
-          content,
+          content: content || this.extractLoginNoticeTextFromHtml(contentHtml),
+          contentHtml,
         };
       }
     } catch {
@@ -152,6 +171,7 @@ export class AdminService {
     return {
       enabled: true,
       content: value,
+      contentHtml: '',
     };
   }
 
@@ -1040,6 +1060,7 @@ export class AdminService {
     return {
       enabled: parsed.enabled && content.length > 0,
       content: parsed.content,
+      contentHtml: parsed.contentHtml,
       updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
     };
   }

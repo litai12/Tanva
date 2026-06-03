@@ -29,8 +29,8 @@
 
 ## 近期接口变更（摘要）
 - `GET /api/settings/login-notice`：
-  - 公开读取登录后用户提醒弹窗配置，返回 `{ enabled, content, updatedAt }`。
-  - 管理端对应系统设置 key 为 `login_notice`，值为 JSON 字符串 `{ enabled, content }`。
+  - 公开读取登录后用户提醒弹窗配置，返回 `{ enabled, content, contentHtml, updatedAt }`。
+  - 管理端对应系统设置 key 为 `login_notice`，值为 JSON 字符串 `{ enabled, content, contentHtml }`；`contentHtml` 为受限富文本，`content` 为兼容用纯文本。
 - `POST /api/ai/analyze-image`：
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。

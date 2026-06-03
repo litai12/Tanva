@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getStoredLastAuthAt } from "@/services/authApi";
 import { getLoginNotice, type LoginNotice } from "@/services/loginNoticeApi";
 import { useAuthStore } from "@/stores/authStore";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  plainTextToLoginNoticeHtml,
+  sanitizeLoginNoticeHtml,
+} from "@/utils/loginNoticeRichText";
 
 const DISMISSED_KEY_PREFIX = "tanva:login-notice:dismissed";
 
@@ -34,6 +38,12 @@ export default function LoginNoticeModal() {
   const [notice, setNotice] = useState<LoginNotice | null>(null);
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+  const noticeHtml = useMemo(() => {
+    if (!notice) return "";
+    return sanitizeLoginNoticeHtml(
+      notice.contentHtml || plainTextToLoginNoticeHtml(notice.content)
+    );
+  }, [notice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,9 +117,10 @@ export default function LoginNoticeModal() {
         </div>
 
         <div className='relative z-10 max-h-[56vh] overflow-y-auto px-6 py-6'>
-          <div className='whitespace-pre-wrap break-words text-sm font-medium leading-7 text-slate-700'>
-            {notice.content}
-          </div>
+          <div
+            className='break-words text-sm font-medium leading-7 text-slate-700 [&_li]:ml-5 [&_li]:list-disc [&_ol>li]:list-decimal [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ol]:my-3'
+            dangerouslySetInnerHTML={{ __html: noticeHtml }}
+          />
         </div>
 
         <div className='relative z-10 flex justify-center border-t border-slate-200/60 bg-white/35 px-6 py-5'>

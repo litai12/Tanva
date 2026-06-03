@@ -5,9 +5,15 @@ import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
+import {
+  LOGIN_NOTICE_MAX_TEXT_LENGTH,
+  loginNoticeHtmlToText,
+  plainTextToLoginNoticeHtml,
+  sanitizeLoginNoticeHtml,
+} from "@/utils/loginNoticeRichText";
 import {
   getDashboardStats,
   getUsers,
@@ -8725,22 +8731,34 @@ function ModelManagementTab() {
 
 const parseLoginNoticeSetting = (setting?: SystemSetting | null) => {
   if (!setting?.value) {
-    return { enabled: false, content: "" };
+    return { enabled: false, content: "", contentHtml: "" };
   }
 
   try {
     const parsed = JSON.parse(setting.value);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const content = typeof parsed.content === "string" ? parsed.content : "";
+      const contentHtml =
+        typeof parsed.contentHtml === "string"
+          ? sanitizeLoginNoticeHtml(parsed.contentHtml)
+          : content
+            ? plainTextToLoginNoticeHtml(content)
+            : "";
       return {
         enabled: parsed.enabled === true,
-        content: typeof parsed.content === "string" ? parsed.content : "",
+        content,
+        contentHtml,
       };
     }
   } catch {
-    return { enabled: true, content: setting.value };
+    return {
+      enabled: true,
+      content: setting.value,
+      contentHtml: plainTextToLoginNoticeHtml(setting.value),
+    };
   }
 
-  return { enabled: false, content: "" };
+  return { enabled: false, content: "", contentHtml: "" };
 };
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -8748,11 +8766,12 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 function LoginNoticeSettingsTab() {
   const [enabled, setEnabled] = useState(false);
-  const [content, setContent] = useState("");
+  const [contentHtml, setContentHtml] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const plainContent = loginNoticeHtmlToText(contentHtml);
 
   const loadNotice = useCallback(async () => {
     setLoading(true);
@@ -8761,11 +8780,11 @@ function LoginNoticeSettingsTab() {
       const setting = await getSetting(LOGIN_NOTICE_SETTING_KEY);
       const parsed = parseLoginNoticeSetting(setting);
       setEnabled(parsed.enabled);
-      setContent(parsed.content);
+      setContentHtml(parsed.contentHtml || plainTextToLoginNoticeHtml(parsed.content));
       setLastUpdatedAt(setting.updatedAt);
     } catch {
       setEnabled(false);
-      setContent("");
+      setContentHtml("");
       setLastUpdatedAt(null);
     } finally {
       setLoading(false);
@@ -8777,9 +8796,14 @@ function LoginNoticeSettingsTab() {
   }, [loadNotice]);
 
   const handleSave = async () => {
-    const normalizedContent = content.trim();
+    const sanitizedContentHtml = sanitizeLoginNoticeHtml(contentHtml);
+    const normalizedContent = loginNoticeHtmlToText(sanitizedContentHtml);
     if (enabled && normalizedContent.length === 0) {
-      setStatusText("开启提醒时，提醒文字不能为空");
+      setStatusText("开启提醒时，提醒内容不能为空");
+      return;
+    }
+    if (normalizedContent.length > LOGIN_NOTICE_MAX_TEXT_LENGTH) {
+      setStatusText(`提醒内容不能超过 ${LOGIN_NOTICE_MAX_TEXT_LENGTH} 个字符`);
       return;
     }
 
@@ -8791,7 +8815,8 @@ function LoginNoticeSettingsTab() {
         value: JSON.stringify(
           {
             enabled,
-            content,
+            content: normalizedContent,
+            contentHtml: sanitizedContentHtml,
           },
           null,
           2
@@ -8833,21 +8858,18 @@ function LoginNoticeSettingsTab() {
         </div>
 
         <div className='mt-6 space-y-2'>
-          <label className='block text-sm font-medium text-gray-700'>提醒文字</label>
-          <Textarea
-            value={content}
-            onChange={(event) => {
-              setContent(event.target.value);
+          <label className='block text-sm font-medium text-gray-700'>提醒内容</label>
+          <LoginNoticeRichTextEditor
+            value={contentHtml}
+            onChange={(nextHtml) => {
+              setContentHtml(nextHtml);
               if (statusText) setStatusText("");
             }}
-            rows={8}
-            maxLength={2000}
-            placeholder='请输入用户登录后需要看到的提醒内容'
-            className='min-h-[180px] resize-y bg-white'
+            disabled={saving}
           />
-          <div className='flex justify-between text-xs text-gray-400'>
-            <span>支持换行，前端会按纯文本展示。</span>
-            <span>{content.length}/2000</span>
+          <div className='text-xs text-gray-400'>
+            前台会按富文本样式展示，同时保留纯文本内容用于兼容旧客户端。
+            当前纯文本长度：{plainContent.length}/{LOGIN_NOTICE_MAX_TEXT_LENGTH}
           </div>
         </div>
 

@@ -11,6 +11,14 @@
 ## AI 对话框右键菜单
 - 对话框内容区使用浏览器默认右键菜单。
 
+## 活动通知栏
+- 组件：`frontend/src/components/layout/CampaignNoticeBar.tsx`
+- 配置：`frontend/src/components/layout/campaignNoticeConfig.ts`
+- 入口：首页 `/` 与工作区 `/app` 顶部均挂载活动通知栏；父级使用正常文档流/flex 布局让页面内容整体下移，不遮挡主内容。
+- 倒计时：当前活动截止时间为北京时间 `2026-06-06 00:00:00`；到期后组件自动隐藏。
+- 关闭行为：点击右侧关闭按钮只隐藏当前 React 页面实例，不写入 localStorage/sessionStorage；刷新页面后会重新显示。
+- 画布避让：`frontend/src/index.css` 中的 `.tanva-campaign-shell` 会在通知栏存在时调整工作区固定顶栏、工具栏和左右侧栏位置。
+
 ## AI 对话框图片模式可用性
 - 手动模式会根据当前图片数量自动禁用不支持选项，并在不兼容时回退到 Auto。
 - 发送按钮在模式不支持当前图片数量时禁用并提示原因。
@@ -38,8 +46,8 @@
 
 ## 登录提醒弹窗
 - 组件：`frontend/src/components/auth/LoginNoticeModal.tsx`
-- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content }`）。
-- 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。
+- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content, contentHtml }`）。后台编辑器支持受限富文本：字体、字号、颜色、背景色、加粗、斜体、下划线；保存时同时保留纯文本 `content` 兼容旧客户端。
+- 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。前端渲染 `contentHtml` 前会通过白名单清洗，仅允许安全标签和样式。
 - 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
 
 ## 我的积分（`/my-credits`）

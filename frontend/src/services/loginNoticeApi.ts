@@ -1,4 +1,8 @@
 import { fetchWithAuth } from "./authFetch";
+import {
+  loginNoticeHtmlToText,
+  sanitizeLoginNoticeHtml,
+} from "@/utils/loginNoticeRichText";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
@@ -13,6 +17,7 @@ const buildUrl = (path: string) => {
 export interface LoginNotice {
   enabled: boolean;
   content: string;
+  contentHtml: string;
   updatedAt: string | null;
 }
 
@@ -28,9 +33,16 @@ export async function getLoginNotice(): Promise<LoginNotice> {
   }
 
   const data = await response.json().catch(() => ({}));
+  const contentHtml =
+    typeof data?.contentHtml === "string" ? sanitizeLoginNoticeHtml(data.contentHtml) : "";
+  const content =
+    typeof data?.content === "string" && data.content.trim()
+      ? data.content
+      : loginNoticeHtmlToText(contentHtml);
   return {
     enabled: data?.enabled === true,
-    content: typeof data?.content === "string" ? data.content : "",
+    content,
+    contentHtml,
     updatedAt: typeof data?.updatedAt === "string" ? data.updatedAt : null,
   };
 }
