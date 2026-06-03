@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- Flow/HTML PPT: added an HTML PPT node with multi-slide HTML/CSS editing, sandboxed preview/export, text-handle prompt input, and Ultra-powered current-slide rewrite while blocking non-persistable inline/local image refs.
 - Flow/Prompt Mentions: Prompt nodes can now use `@` to reference images from the current workflow, current project library, and personal 2D asset library. Selected references are stored as structured `mentions` and merged into Generate/Generate4/GeneratePro/GeneratePro4 runtime reference images without persisting inline image data.
 - Flow/Prompt Mentions: selected `@` image references now render as inline image chips inside Prompt nodes, and Backspace/Delete removes the whole reference token atomically while syncing `data.mentions`.
 - Workspace Settings: added an AI image input target preference (`canvas`/`node`). In node-first mode, external image paste, drag/drop, and picker uploads create Flow Image nodes via `flow:createImageNode`; canvas-first keeps the previous direct canvas insertion behavior.
@@ -42,6 +43,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
 - Flow/Prompt Mentions: mention chips now reserve the same layout width as their underlying `@` token, keeping textarea caret hit-testing aligned with the visible text after a chip.
 - Flow/Prompt Mentions: after selecting an `@` image reference, continuing to type after the inserted token no longer reopens the image/source picker; the picker only opens for a newly typed unresolved `@`.
 - Flow/Zoom Performance: Prompt node titles now carry the shared `.tanva-flow-node-title` marker, so 80+ node pan/zoom soft-detail mode keeps the Prompt title visible while hiding only the visible connection-handle dots.

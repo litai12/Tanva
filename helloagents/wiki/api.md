@@ -35,3 +35,4 @@
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。
   - 两者同时传入时会合并去重后统一参与分析。
+  - PDF 输入复用该接口：`data:application/pdf`、PDF URL 或 PDF base64 头会按文件内容发送给 new-api/Gemini，并使用文档理解适合的文本模型。

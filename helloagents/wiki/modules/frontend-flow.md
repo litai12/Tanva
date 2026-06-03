@@ -1,3 +1,8 @@
+## 2026-06-03 HTML PPT Node
+- Flow now has an `htmlPpt` node for multi-slide HTML/CSS presentations. The node stores a deck of slide fragments, supports preview/code modes, slide add/duplicate/delete/revert controls, and exports the whole deck as a standalone HTML file.
+- The node accepts upstream `text` input as edit context and can call the text model route from its Ultra button to rewrite only the currently selected slide.
+- Slide previews render inside an inert sandboxed iframe with scripts disabled. Manual and AI-generated slide code is validated to reject scripts, event handlers, `javascript:`, iframes/objects/embeds/base tags, and `data:`/`blob:`/base64 image references so design JSON persists only remote URLs/paths.
+
 ## 2026-06-03 Prompt Mention Image Sources
 - `TextPromptNode` 的 `@` 菜单现在支持三类图片来源：当前工作流参考图、当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片。
 - Prompt 节点会把选择结果保存到结构化 `data.mentions`，文本里仍插入可读 token（如 `@图1` / `@项目图1` / `@资产1`）。已选引用在输入区渲染为带图片图标的 chip；Backspace/Delete 命中 chip 时按整个 token 删除，并同步清理对应 mention，避免隐藏引用残留。

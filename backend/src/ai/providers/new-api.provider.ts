@@ -138,17 +138,21 @@ export class NewApiProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest,
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    const imageUrls = [
-      ...(request.sourceImage ? [request.sourceImage] : []),
-      ...(request.sourceImages || []),
-    ].map((item) => this.toImageReference(item));
+    const fileReferences = Array.from(
+      new Set(
+        [
+          ...(request.sourceImage ? [request.sourceImage] : []),
+          ...(request.sourceImages || []),
+        ]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0),
+      ),
+    );
+    const hasPdf = fileReferences.some((item) => this.isPdfReference(item));
 
     const content: Array<Record<string, unknown>> = [
-      { type: 'text', text: request.prompt || '请分析这张图片。' },
-      ...imageUrls.map((url) => ({
-        type: 'image_url',
-        image_url: { url },
-      })),
+      { type: 'text', text: request.prompt || (hasPdf ? '请分析这个 PDF 文件。' : '请分析这张图片。') },
+      ...fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
     ];
 
     const result = await this.chat(
@@ -619,6 +623,37 @@ export class NewApiProvider implements IAIProvider {
     if (!trimmed) return trimmed;
     if (/^(https?:|data:|blob:)/i.test(trimmed)) return trimmed;
     return `data:image/png;base64,${trimmed.replace(/^data:image\/[^;]+;base64,/i, '')}`;
+  }
+
+  private isPdfReference(value: string): boolean {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return false;
+    if (/^data:application\/pdf(?:;[^,]*)?,/i.test(trimmed)) return true;
+    if (/^https?:\/\/.+\.pdf(?:[?#].*)?$/i.test(trimmed)) return true;
+    return /^JVBERi/i.test(trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''));
+  }
+
+  private toPdfFileReference(value: string): string {
+    const trimmed = String(value || '').trim();
+    if (/^(https?:|data:application\/pdf)/i.test(trimmed)) return trimmed;
+    return `data:application/pdf;base64,${trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '')}`;
+  }
+
+  private toAnalysisContentPart(value: string, index: number): Record<string, unknown> {
+    if (this.isPdfReference(value)) {
+      return {
+        type: 'file',
+        file: {
+          filename: `document-${index + 1}.pdf`,
+          file_data: this.toPdfFileReference(value),
+        },
+      };
+    }
+
+    return {
+      type: 'image_url',
+      image_url: { url: this.toImageReference(value) },
+    };
   }
 
   private normalizeResolution(value: unknown): string | undefined {

@@ -6,6 +6,7 @@ import type {
 } from "@/types/context";
 import { isPersistableImageRef, requiresManagedImageUpload } from "@/utils/imageSource";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
+import { containsNonPersistableHtmlPptAsset } from "@/utils/htmlPptSafety";
 
 export function getNonRemoteImageAssetIds(
   content: ProjectContentSnapshot | null | undefined
@@ -141,8 +142,12 @@ export function getNonPersistableFlowImageNodeIds(
     }
   };
 
-  for (const node of nodes as Array<{ id?: string; data?: unknown }>) {
+  for (const node of nodes as Array<{ id?: string; type?: string; data?: unknown }>) {
     const nodeId = typeof node?.id === "string" && node.id ? node.id : "unknown";
+    if (node?.type === "htmlPpt" && containsNonPersistableHtmlPptAsset(node?.data)) {
+      invalid.add(nodeId);
+      continue;
+    }
     if (hasUploadingImagePayload(node?.data)) {
       invalid.add(nodeId);
       continue;

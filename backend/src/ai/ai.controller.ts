@@ -1864,6 +1864,39 @@ export class AiController {
     return this.providerDefaultAnalyzeModels.gemini;
   }
 
+  private isPdfAnalysisSource(value: string): boolean {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return false;
+    if (/^data:application\/pdf(?:;[^,]*)?,/i.test(trimmed)) return true;
+    if (/^https?:\/\/.+\.pdf(?:[?#].*)?$/i.test(trimmed)) return true;
+    return /^JVBERi/i.test(trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, ''));
+  }
+
+  private isImageAnalyzeModel(model: string): boolean {
+    const normalized = model.trim().toLowerCase();
+    return normalized.includes('image-preview') || normalized.includes('-image');
+  }
+
+  private resolvePdfAnalyzeModel(providerName: string | null, requestedModel?: string): string {
+    const model = requestedModel?.trim();
+    if (model?.length && !this.isImageAnalyzeModel(model)) {
+      this.logger.debug(`[${providerName || 'default'}] Using requested PDF analyze model: ${model}`);
+      return model;
+    }
+
+    const providerKey = providerName || 'gemini';
+    const fallback =
+      this.providerDefaultTextModels[providerKey] ||
+      this.providerDefaultAnalyzeModels[providerKey] ||
+      this.providerDefaultTextModels.gemini;
+    if (model?.length) {
+      this.logger.debug(
+        `[${providerName || 'default'}] Replacing image analyze model ${model} with PDF-capable model ${fallback}`,
+      );
+    }
+    return fallback;
+  }
+
   private resolveGeminiVideoModel(requestedModel?: string): string {
     const trimmed = requestedModel?.trim();
     if (trimmed && /^gemini-/i.test(trimmed)) {
@@ -3905,7 +3938,6 @@ export class AiController {
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveAnalyzeModel(providerName, dto.model);
     const normalizedImages = Array.from(
       new Set(
         [
@@ -3920,6 +3952,10 @@ export class AiController {
       throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
     }
     const primarySourceImage = normalizedImages[0];
+    const hasPdf = normalizedImages.some((item) => this.isPdfAnalysisSource(item));
+    const model = hasPdf
+      ? this.resolvePdfAnalyzeModel(providerName, dto.model)
+      : this.resolveAnalyzeModel(providerName, dto.model);
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = null;
@@ -3955,7 +3991,7 @@ export class AiController {
             text,
           };
         }
-        throw new Error(result.error?.message || 'Failed to analyze image');
+        throw new ServiceUnavailableException(result.error?.message || 'Failed to analyze image');
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
