@@ -22,6 +22,14 @@
 ## 离开保护（上传中/待上传）
 - 编辑器（`/app`）内若存在上传中/待上传图片（含 Flow 内联图片引用），在离开页面/切换项目/退出登录/浏览器前进后退时会弹出确认提示，避免误操作导致图片丢失或无法保存到云端。
 
+## 项目打开缓存
+- `ProjectAutosaveManager` 打开项目时优先读取 IndexedDB 项目内容缓存（`tanva_project_cache`），命中后先从本地内容水合画布/Flow/AI 会话，再后台校验远端项目元信息。
+- 缓存校验中会设置 `projectContentStore.cacheValidationPending`，自动保存和手动保存都应暂停，避免用户基于旧缓存修改时覆盖远端新版本。
+- 切换项目的 Paper 清空、内容替换与反序列化前会让出一帧给浏览器提交 UI，减少项目下拉/标题刷新被同步 Paper 工作阻塞的体感卡顿。
+- 顶部项目下拉选择项目时应允许菜单立即关闭，并用下一轮 macrotask 调用 `projectStore.open()`；项目内容本地缓存只能跳过远端内容请求，不能消除 Paper `importJSON`、Raster runtime rebuild 或 ReactFlow hydrate 的主线程成本。
+- `paperSaveService.deserializePaperProject()` 支持在项目切换路径已提前 `clearProject()` 成功时跳过内部重复 `project.clear()`；`projectLoadDebug` 会记录 Paper runtime rebuild 输入和耗时，便于定位切换卡顿瓶颈。
+- `/app` 会在项目切换后显示轻量全屏项目加载层，直到 Flow overlay 完成首次 hydrate 后的 paint 并经过一次 idle/稳定窗口后写入 `projectContentStore.projectViewReady = true`；加载失败时不继续遮挡画布。
+
 ## 路由约定（节选）
 - 公开：`/`、`/auth/login`、`/auth/register`、`/oss`
 - 登录页新增观猹 OAuth 入口（位于登录按钮下方），点击后跳转后端 `/api/auth/watcha/authorize`，由后端回调 `/api/auth/watcha/callback` 完成登录与回跳。
@@ -97,3 +105,4 @@
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`
 - 交互：切换左侧设置分组时，右侧内容滚动区域会回到顶部（不保留上一次分组的滚动位置）。
 - 保存状态提示（如“有未保存更改”）放在设置首页用户信息区显示，不再在画布顶部常驻显示。
+- AI 设置里的“图片输入方式”写入 `aiChatStore.imageInputTarget`：`canvas` 为默认行为，外部图片粘贴/拖拽/上传直接上画布；`node` 会把这些外部图片输入转成 Flow Image 节点。显式“发送到画布”的内部按钮仍按按钮语义走画布链路。

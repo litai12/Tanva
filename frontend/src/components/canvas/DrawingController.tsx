@@ -81,6 +81,7 @@ import {
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import { blobToDataUrl, canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import { projectLoadDebug } from "@/utils/projectLoadDebug";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -642,6 +643,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setSourceImageForEditing,
     setPreciseEditContext,
     showDialog: showAIDialog,
+    imageInputTarget,
   } = useAIChatStore();
   const projectId = useProjectContentStore((s) => s.projectId);
   const projectAssets = useProjectContentStore((s) => s.content?.assets);
@@ -1084,6 +1086,78 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     projectId,
   });
   const uploadImageToCanvas = quickImageUpload.handleQuickImageUploaded;
+  const createFlowImageNode = useCallback(
+    (detail: {
+      imageData?: string;
+      imageUrl?: string;
+      label?: string;
+      imageName?: string;
+      screenPosition?: { x: number; y: number };
+    }) => {
+      window.dispatchEvent(
+        new CustomEvent("flow:createImageNode", {
+          detail,
+        })
+      );
+    },
+    []
+  );
+  const uploadFileToFlowImageNode = useCallback(
+    async (file: File, screenPosition?: { x: number; y: number }) => {
+      const uploadDir = projectId
+        ? `projects/${projectId}/images/`
+        : "uploads/images/";
+      const uploadResult = await imageUploadService.uploadImageFile(file, {
+        projectId,
+        dir: uploadDir,
+        fileName: file.name,
+      });
+
+      if (uploadResult.success && uploadResult.asset?.url) {
+        createFlowImageNode({
+          imageUrl: uploadResult.asset.url,
+          imageName: uploadResult.asset.fileName || file.name,
+          label: uploadResult.asset.fileName || file.name || "Image",
+          screenPosition,
+        });
+        return;
+      }
+
+      const localPreview = await fileToDataUrl(file);
+      createFlowImageNode({
+        imageData: localPreview,
+        imageName: file.name,
+        label: file.name || "Image",
+        screenPosition,
+      });
+    },
+    [createFlowImageNode, projectId]
+  );
+  const routeExternalImageFile = useCallback(
+    async (file: File, screenPosition?: { x: number; y: number }) => {
+      if (imageInputTarget !== "node") return false;
+      await uploadFileToFlowImageNode(file, screenPosition);
+      return true;
+    },
+    [imageInputTarget, uploadFileToFlowImageNode]
+  );
+  const routeExternalImageUrl = useCallback(
+    (
+      imageUrl: string,
+      imageName?: string,
+      screenPosition?: { x: number; y: number }
+    ) => {
+      if (imageInputTarget !== "node") return false;
+      createFlowImageNode({
+        imageUrl,
+        imageName,
+        label: imageName || "Image",
+        screenPosition,
+      });
+      return true;
+    },
+    [createFlowImageNode, imageInputTarget]
+  );
   // ========== 监听drawMode变化，处理快速上传 ==========
   useEffect(() => {
     // 只在drawMode变化时触发，避免重复触发
@@ -1314,6 +1388,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
               // 阻止默认粘贴（避免在页面其它位置插入）
               e.preventDefault();
+              if (await routeExternalImageFile(file)) return;
               try {
                 const uploadDir = projectId
                   ? `projects/${projectId}/images/`
@@ -1374,6 +1449,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             e.preventDefault();
             try {
               const payload = await fetchImagePayload(text);
+              if (routeExternalImageUrl(payload)) return;
               await uploadImageToCanvas?.(payload, undefined);
             } catch (err) {
               console.error("粘贴URL处理失败:", err);
@@ -1401,7 +1477,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [projectId, uploadImageToCanvas]);
+  }, [projectId, routeExternalImageFile, routeExternalImageUrl, uploadImageToCanvas]);
 
   const fetchSvgText = useCallback(
     async (url: string): Promise<string | null> => {
@@ -1593,6 +1669,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               event.preventDefault();
               event.stopPropagation();
               logger.upload("🖼️ 从资源库拖拽 2D 图片:", parsed);
+              if (
+                routeExternalImageUrl(
+                  parsed.url,
+                  parsed.fileName || parsed.name,
+                  { x: event.clientX, y: event.clientY }
+                )
+              ) {
+                return;
+              }
               await uploadImageToCanvas?.(
                 parsed.url,
                 parsed.fileName || parsed.name,
@@ -1627,6 +1712,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           event.preventDefault();
           event.stopPropagation();
           const file = imageFiles[0];
+          if (
+            await routeExternalImageFile(file, {
+              x: event.clientX,
+              y: event.clientY,
+            })
+          ) {
+            return;
+          }
           try {
             const uploadDir = projectId
               ? `projects/${projectId}/images/`
@@ -1716,6 +1809,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         event.stopPropagation();
         try {
           const payload = await fetchImagePayload(text);
+          if (
+            routeExternalImageUrl(payload, undefined, {
+              x: event.clientX,
+              y: event.clientY,
+            })
+          ) {
+            return;
+          }
           await uploadImageToCanvas?.(
             payload,
             undefined,
@@ -1735,7 +1836,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [canvasRef, insertSvgAssetToCanvas, projectId, uploadImageToCanvas]);
+  }, [
+    canvasRef,
+    insertSvgAssetToCanvas,
+    projectId,
+    routeExternalImageFile,
+    routeExternalImageUrl,
+    uploadImageToCanvas,
+  ]);
 
   useEffect(() => {
     const handleInsertSvg = (event: CustomEvent) => {
@@ -7365,6 +7473,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
+  const handleExportSelectedFlowNodesJson = useCallback(() => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:export-selected-template-request")
+      );
+    } catch (error) {
+      console.error("触发导出选中节点 JSON 失败:", error);
+      showToast("导出失败，请重试", "error");
+    }
+  }, [showToast]);
+
   const handleImportCanvasJson = useCallback(() => {
     try {
       window.dispatchEvent(new CustomEvent("flow:import-template-request"));
@@ -7429,6 +7548,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           closeContextMenu();
         },
       },
+      ...(isCanvasContext
+        ? [
+            {
+              label: "导出选中节点 JSON",
+              icon: <FileJson className='w-4 h-4' />,
+              onClick: () => {
+                handleExportSelectedFlowNodesJson();
+                closeContextMenu();
+              },
+            },
+          ]
+        : []),
       {
         label: "导入画布 JSON",
         icon: <FileInput className='w-4 h-4' />,
@@ -7542,6 +7673,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleCanvasCopy,
     handleCanvasPaste,
     handleExportCanvasJson,
+    handleExportSelectedFlowNodesJson,
     handleImportCanvasJson,
     handleCreateFlowNodeGroup,
     handleStartFlowBatchOutputConnect,
@@ -7859,10 +7991,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 从已反序列化的 Paper 项目重建图片、文字和3D模型实例
   useEffect(() => {
     const rebuildFromPaper = () => {
-      try {
-        if (!paper || !paper.project) return;
+      const activeProjectId =
+        projectId ?? useProjectContentStore.getState().projectId;
+      const runRebuild = () => {
+        try {
+          if (!paper || !paper.project) return;
 
-        logger.drawing("🔄 rebuildFromPaper 开始执行...");
+          logger.drawing("🔄 rebuildFromPaper 开始执行...");
 
         const isRasterContentReady = (raster: any): boolean => {
           if (!raster) return false;
@@ -7890,6 +8025,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const rasterCount = allRasters?.length || 0;
         const loadedCount = allRasters?.filter((r: any) => isRasterContentReady(r))?.length || 0;
         console.log(`🔍 [rebuildFromPaper] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
+        if (activeProjectId) {
+          projectLoadDebug.mark(activeProjectId, "Paper runtime rebuild input", {
+            layers: paper.project.layers?.length || 0,
+            rasterCount,
+            loadedCount,
+            pendingRasterCount: rasterCount - loadedCount,
+          });
+        }
 
         // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
         const ensureRasterRebuildOnLoad = (
@@ -8782,9 +8925,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             `✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`
           );
         }
-      } catch (e) {
-        console.warn("从Paper重建实例失败:", e);
+        } catch (e) {
+          console.warn("从Paper重建实例失败:", e);
+        }
+      };
+
+      if (activeProjectId) {
+        projectLoadDebug.measureSync(
+          activeProjectId,
+          "Paper runtime rebuild from imported project",
+          runRebuild
+        );
+        return;
       }
+      runRebuild();
     };
 
     let rafId: number | null = null;
@@ -8843,6 +8997,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     dcSetModel3DInstances,
     dcSetSelectedImageIds,
     dcSetSelectedModel3DIds,
+    projectId,
   ]);
 
   useEffect(() => {
@@ -8944,6 +9099,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectToolHandlePathSelect,
   ]);
 
+  const canvasPreviewImages = useMemo(
+    () =>
+      imageTool.imageInstances.map((img) => ({
+        id: img.id,
+        url: img.imageData?.url,
+        src: img.imageData?.src,
+        key: img.imageData?.key,
+        remoteUrl: img.imageData?.remoteUrl,
+        localDataUrl: img.imageData?.localDataUrl,
+        fileName: img.imageData?.fileName,
+        pendingUpload: img.imageData?.pendingUpload,
+        width: img.imageData?.width,
+        height: img.imageData?.height,
+        locked: img.locked ?? img.imageData?.locked,
+      })),
+    [imageTool.imageInstances]
+  );
+
+  const selectedImageIdSet = useMemo(
+    () => new Set(imageTool.selectedImageIds),
+    [imageTool.selectedImageIds]
+  );
   return (
     <>
       {/* 图片上传组件 */}
@@ -8969,6 +9146,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         trigger={imageTool.triggerImageUpload}
         onTriggerHandled={imageTool.handleUploadTriggerHandled}
         projectId={projectId}
+        target={imageInputTarget}
+        onNodeImageRouteStart={() => {
+          const ph = imageTool.currentPlaceholderRef.current;
+          const placeholderId =
+            typeof ph?.data?.placeholderId === "string"
+              ? ph.data.placeholderId
+              : undefined;
+          if (placeholderId && imageTool.deletePlaceholder?.(placeholderId)) {
+            return;
+          }
+          if (ph) {
+            try {
+              ph.remove();
+            } catch {}
+            imageTool.currentPlaceholderRef.current = null;
+          }
+        }}
       />
 
       {/* 快速图片上传组件（居中） */}
@@ -8982,56 +9176,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         trigger={quickImageUpload.triggerQuickUpload}
         onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
         projectId={projectId}
+        target={imageInputTarget}
       />
-
-      {/* AI 生图进行中指示器 — React 层，不依赖 Paper.js，切换节点不会消失 */}
-      {quickImageUpload.pendingCount > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 24,
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "rgba(17, 24, 39, 0.85)",
-            color: "#f9fafb",
-            fontSize: 13,
-            fontWeight: 500,
-            padding: "7px 14px",
-            borderRadius: 20,
-            backdropFilter: "blur(8px)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-            zIndex: 9999,
-            pointerEvents: "none",
-            userSelect: "none",
-          }}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
-          >
-            <line x1="12" y1="2" x2="12" y2="6" />
-            <line x1="12" y1="18" x2="12" y2="22" />
-            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-            <line x1="2" y1="12" x2="6" y2="12" />
-            <line x1="18" y1="12" x2="22" y2="12" />
-            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-          </svg>
-          AI 生成中{quickImageUpload.pendingCount > 1 ? `（${quickImageUpload.pendingCount}）` : ""}
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
 
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent
@@ -9052,20 +9198,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       <CanvasImageLayer imageInstances={imageTool.imageInstances} />
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
-        // 构建所有画布图片数据，用于预览时显示
-        const allCanvasImagesData = imageTool.imageInstances.map((img) => ({
-          id: img.id,
-          url: img.imageData?.url,
-          src: img.imageData?.src,
-          key: img.imageData?.key,
-          remoteUrl: img.imageData?.remoteUrl,
-          localDataUrl: img.imageData?.localDataUrl,
-          fileName: img.imageData?.fileName,
-          pendingUpload: img.imageData?.pendingUpload,
-          width: img.imageData?.width,
-          height: img.imageData?.height,
-          locked: img.locked ?? img.imageData?.locked,
-        }));
         return (
           <ImageContainer
             key={image.id}
@@ -9083,11 +9215,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               locked: image.locked ?? image.imageData?.locked,
             }}
             bounds={image.bounds}
-            isSelected={imageTool.selectedImageIds.includes(image.id)}
+            isSelected={selectedImageIdSet.has(image.id)}
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-            allCanvasImages={allCanvasImagesData}
+            allCanvasImages={canvasPreviewImages}
             onSelect={() => imageTool.handleImageSelect(image.id)}
             onMove={(newPosition) =>
               imageTool.handleImageMove(image.id, newPosition)

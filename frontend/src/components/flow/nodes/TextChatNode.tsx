@@ -618,6 +618,7 @@ Rules:
             {isEditingTitle ? (
               <input
                 ref={titleInputRef}
+                className='tanva-flow-node-title'
                 value={titleDraft}
                 onChange={(event) => setTitleDraft(event.target.value)}
                 onBlur={() => commitTitle(titleDraft)}
@@ -647,6 +648,7 @@ Rules:
               />
             ) : (
               <div
+                className='tanva-flow-node-title'
                 onDoubleClick={startTitleEditing}
                 title={lt('双击编辑标题', 'Double click to edit title')}
                 style={{

@@ -147,6 +147,13 @@ interface UseImageToolProps {
   eventHandlers?: ImageToolEventHandlers;
 }
 
+interface ImageMoveOptions {
+  commitState?: boolean;
+  emitEvents?: boolean;
+  syncGroupBlocks?: boolean;
+  updatePaperView?: boolean;
+}
+
 export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImageToolProps) => {
   const { ensureDrawingLayer, zoom } = context;
 
@@ -1073,7 +1080,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
   const handleImagesMove = useCallback((
     moves: Array<{ id: string; position: { x: number; y: number } }>,
-    skipPaperUpdate = false
+    skipPaperUpdate = false,
+    options?: ImageMoveOptions
   ) => {
     const validMoves = Array.isArray(moves)
       ? moves.filter((m): m is { id: string; position: { x: number; y: number } } => {
@@ -1083,6 +1091,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       : [];
     if (validMoves.length === 0) return;
 
+    const commitState = options?.commitState ?? true;
+    const emitEvents = options?.emitEvents ?? commitState;
+    const syncGroupBlocks = options?.syncGroupBlocks ?? true;
+    const updatePaperView = options?.updatePaperView ?? true;
     const positionsById = new Map<string, { x: number; y: number }>();
     validMoves.forEach(({ id, position }) => positionsById.set(id, position));
 
@@ -1090,28 +1102,41 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       validMoves.forEach(({ id, position }) => {
         try { applyPaperMoveToImage(id, position); } catch {}
       });
-      try { syncImageGroupBlocksForImageIds(validMoves.map((m) => m.id)); } catch {}
-      try { paper.view.update(); } catch {}
+      if (syncGroupBlocks) {
+        try { syncImageGroupBlocksForImageIds(validMoves.map((m) => m.id)); } catch {}
+      }
+      if (updatePaperView) {
+        try { paper.view.update(); } catch {}
+      }
     }
 
-    setImageInstances((prev) =>
-      prev.map((img) => {
-        const pos = positionsById.get(img.id);
-        if (!pos) return img;
-        const cur = img.bounds;
-        if (cur.x === pos.x && cur.y === pos.y) return img;
-        return { ...img, bounds: { ...cur, x: pos.x, y: pos.y } };
-      })
-    );
+    if (commitState) {
+      setImageInstances((prev) =>
+        prev.map((img) => {
+          const pos = positionsById.get(img.id);
+          if (!pos) return img;
+          const cur = img.bounds;
+          if (cur.x === pos.x && cur.y === pos.y) return img;
+          return { ...img, bounds: { ...cur, x: pos.x, y: pos.y } };
+        })
+      );
+    }
 
-    validMoves.forEach(({ id, position }) => {
-      eventHandlers.onImageMove?.(id, position);
-    });
+    if (emitEvents) {
+      validMoves.forEach(({ id, position }) => {
+        eventHandlers.onImageMove?.(id, position);
+      });
+    }
   }, [applyPaperMoveToImage, eventHandlers.onImageMove, isImageLocked]);
 
   // ========== 图片移动 ==========
-  const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
-    handleImagesMove([{ id: imageId, position: newPosition }], skipPaperUpdate);
+  const handleImageMove = useCallback((
+    imageId: string,
+    newPosition: { x: number; y: number },
+    skipPaperUpdate = false,
+    options?: ImageMoveOptions
+  ) => {
+    handleImagesMove([{ id: imageId, position: newPosition }], skipPaperUpdate, options);
   }, [handleImagesMove]);
 
   // ========== 批量切换图片可见性（用于拖拽到库时隐藏克隆副本） ==========

@@ -62,10 +62,19 @@ interface ViewportBounds {
 }
 
 const SHOW_ALL: ViewportBounds = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity }
+const IMAGE_DRAG_PREVIEW_EVENT = 'tanva:image-drag-preview'
+
+type ImageDragPreviewMove = {
+  id: string
+  position: { x: number; y: number }
+}
 
 const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const imgRefs = React.useRef<Map<string, HTMLImageElement>>(new Map())
+  const boundsByIdRef = React.useRef<Map<string, { x: number; y: number }>>(new Map())
+  const previewPositionsRef = React.useRef<Map<string, { x: number; y: number }>>(new Map())
   const [viewportBounds, setViewportBounds] = React.useState<ViewportBounds>(SHOW_ALL)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const idleRef = React.useRef<number | null>(null)
@@ -85,6 +94,77 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
   const confirmedSrcsRef = React.useRef<Map<string, string>>(new Map())
   const pendingPreloadsRef = React.useRef<Map<string, string>>(new Map())
   const [, forceUpdate] = React.useReducer(n => n + 1, 0)
+
+  React.useLayoutEffect(() => {
+    const nextBounds = new Map<string, { x: number; y: number }>()
+    imageInstances.forEach((img) => {
+      nextBounds.set(img.id, { x: img.bounds.x, y: img.bounds.y })
+    })
+    boundsByIdRef.current = nextBounds
+
+    previewPositionsRef.current.forEach((preview, id) => {
+      const committed = nextBounds.get(id)
+      if (
+        !committed ||
+        (Math.abs(committed.x - preview.x) < 0.01 &&
+          Math.abs(committed.y - preview.y) < 0.01)
+      ) {
+        const el = imgRefs.current.get(id)
+        if (el) {
+          el.style.transform = ''
+          el.style.willChange = ''
+        }
+        previewPositionsRef.current.delete(id)
+      }
+    })
+  }, [imageInstances])
+
+  React.useEffect(() => {
+    const clearPreview = (ids?: string[]) => {
+      const targetIds = ids && ids.length > 0 ? ids : Array.from(previewPositionsRef.current.keys())
+      targetIds.forEach((id) => {
+        const el = imgRefs.current.get(id)
+        if (el) {
+          el.style.transform = ''
+          el.style.willChange = ''
+        }
+        previewPositionsRef.current.delete(id)
+      })
+    }
+
+    const handlePreview = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {}
+      const ids = Array.isArray(detail.ids)
+        ? detail.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+        : undefined
+
+      if (detail.clear) {
+        clearPreview(ids)
+        return
+      }
+
+      const moves = Array.isArray(detail.moves) ? (detail.moves as ImageDragPreviewMove[]) : []
+      moves.forEach((move) => {
+        if (!move?.id || !move.position) return
+        const el = imgRefs.current.get(move.id)
+        const base = boundsByIdRef.current.get(move.id)
+        if (!el || !base) return
+        const dx = move.position.x - base.x
+        const dy = move.position.y - base.y
+        previewPositionsRef.current.set(move.id, move.position)
+        el.style.willChange = 'transform'
+        el.style.transform =
+          Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01
+            ? `translate3d(${dx}px, ${dy}px, 0)`
+            : ''
+      })
+    }
+
+    window.addEventListener(IMAGE_DRAG_PREVIEW_EVENT, handlePreview as EventListener)
+    return () => {
+      window.removeEventListener(IMAGE_DRAG_PREVIEW_EVENT, handlePreview as EventListener)
+    }
+  }, [])
 
   React.useEffect(() => {
     const confirmed = confirmedSrcsRef.current
@@ -256,6 +336,13 @@ const CanvasImageLayer: React.FC<Props> = ({ imageInstances }) => {
           return (
             <img
               key={img.id}
+              ref={(node) => {
+                if (node) {
+                  imgRefs.current.set(img.id, node)
+                } else {
+                  imgRefs.current.delete(img.id)
+                }
+              }}
               src={displaySrc}
               onError={() => {
                 if (

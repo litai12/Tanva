@@ -178,6 +178,28 @@ const EMPTY_INPUT_CONNECTION_SNAPSHOT: InputConnectionSnapshot = {
   connectedFrameImage: undefined,
 };
 
+const areImageCropRectsEqual = (a?: any, b?: any): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+};
+
+const areImageCropInfosEqual = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.baseRef === b.baseRef &&
+    a.sourceWidth === b.sourceWidth &&
+    a.sourceHeight === b.sourceHeight &&
+    areImageCropRectsEqual(a.rect, b.rect)
+  );
+};
+
 const isPrimaryImageInputHandle = (handle?: string | null): boolean =>
   handle === "img" || handle === "image" || !handle;
 
@@ -841,7 +863,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       },
       [id]
     ),
-    shallow
+    areImageCropInfosEqual
   );
 
   const cropInfo = nodeCropInfo || imageSplitCropInfo;
@@ -2096,7 +2118,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          gap: 8,
           marginBottom: 6,
+          minWidth: 0,
         }}
       >
         {isEditingNodeLabel ? (
@@ -2128,20 +2152,32 @@ function ImageNodeInner({ id, data, selected }: Props) {
               borderRadius: 6,
               padding: "2px 6px",
               outline: "none",
-              minWidth: 80,
+              flex: "1 1 80px",
+              minWidth: 0,
               maxWidth: 160,
             }}
           />
         ) : (
           <div
+            className='tanva-flow-node-title'
             onDoubleClick={startNodeLabelEditing}
-            title={lt("双击编辑标题", "Double click to edit title")}
-            style={{ fontWeight: 600, cursor: "text", userSelect: "none" }}
+            title={nodeLabel}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontWeight: 600,
+              cursor: "text",
+              userSelect: "none",
+            }}
           >
             {nodeLabel}
           </div>
         )}
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
           {(() => {
             const reviewTitle =
               isReviewExpired ? "审核已过期，点击重新审核"

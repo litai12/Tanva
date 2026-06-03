@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useState,
   useEffect,
+  useLayoutEffect,
 } from "react";
 import paper from "paper";
 import { useCanvasStore } from "@/stores";
@@ -69,6 +70,7 @@ const TEXT_EDIT_BANANA_PROVIDER_OPTIONS = {
   banana: { imageRoute: TEXT_EDIT_BANANA_ROUTE },
   bananaImageRoute: TEXT_EDIT_BANANA_ROUTE,
 } as const;
+const IMAGE_DRAG_PREVIEW_EVENT = "tanva:image-drag-preview";
 
 type TextReplacementItem = {
   id: string;
@@ -128,6 +130,10 @@ const PALETTE_MIN_DISPLAY_WIDTH_PX = 14;
 type Bounds = { x: number; y: number; width: number; height: number };
 type CropRect = { x: number; y: number; width: number; height: number };
 type CropHandle = "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
+type ImageDragPreviewMove = {
+  id: string;
+  position: { x: number; y: number };
+};
 const IMAGE_BOUNDS_EPSILON = 0.001;
 
 const boundsAlmostEqual = (
@@ -627,6 +633,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   showIndividualTools = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayPreviewPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const overlayBaseTransformRef = useRef("translate3d(0px, 0px, 0)");
   const enableVisibilityToggle = false; // Temporarily hide layer visibility control
 
   // 获取AI聊天状态
@@ -1030,7 +1038,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 实时同步Paper.js状态 - 只在选中时启用，使用节流减少更新频率
   useEffect(() => {
     // 只在选中时才需要实时同步
-    if (!isSelected) return;
+    if (!isSelected || isBodyDragging || isCanvasDragging) return;
 
     let animationFrame: number | null = null;
     let isRunning = true;
@@ -1086,10 +1094,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         cancelAnimationFrame(animationFrame);
       }
     };
-  }, [isSelected, getRealTimePaperBounds, setRealTimeBoundsIfChanged]);
+  }, [
+    isSelected,
+    isBodyDragging,
+    isCanvasDragging,
+    getRealTimePaperBounds,
+    setRealTimeBoundsIfChanged,
+  ]);
 
   // 同步Props bounds变化
-  useEffect(() => {
+  useLayoutEffect(() => {
     setRealTimeBoundsIfChanged(bounds);
   }, [bounds, setRealTimeBoundsIfChanged]);
 
@@ -1182,6 +1196,33 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
+
+  const overlayBaseTransform = useMemo(
+    () => `translate3d(${screenBounds.x}px, ${screenBounds.y}px, 0)`,
+    [screenBounds.x, screenBounds.y]
+  );
+
+  useLayoutEffect(() => {
+    overlayBaseTransformRef.current = overlayBaseTransform;
+    const previewPosition = overlayPreviewPositionRef.current;
+    if (
+      previewPosition &&
+      Math.abs(bounds.x - previewPosition.x) < 0.01 &&
+      Math.abs(bounds.y - previewPosition.y) < 0.01
+    ) {
+      const el = containerRef.current;
+      if (el) {
+        try {
+          const dpr = window.devicePixelRatio || 1;
+          const topLeft = paper.view.projectToView(new paper.Point(bounds.x, bounds.y));
+          el.style.transform = `translate3d(${topLeft.x / dpr}px, ${topLeft.y / dpr}px, 0)`;
+        } catch {
+          el.style.transform = overlayBaseTransform;
+        }
+      }
+      overlayPreviewPositionRef.current = null;
+    }
+  }, [bounds.x, bounds.y, overlayBaseTransform]);
 
   const worldPerScreenX =
     screenBounds.width > 0 && realTimeBounds.width > 0
@@ -3465,6 +3506,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [releaseExpandOperationLock, setDrawMode]);
 
   const basePreviewSrc = useMemo(() => {
+    if (!showPreview) return "";
     const fromEdit = getImageDataForEditing?.(imageData.id);
     return (
       resolvePreviewImageSrcForCanvas({
@@ -3483,9 +3525,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.src,
     imageData.key,
     imageData.localDataUrl,
+    showPreview,
   ]);
 
   const previewCollection = useMemo<ImageItem[]>(() => {
+    if (!showPreview) return [];
     const mapBySrc = new Map<string, ImageItem>();
 
     // 1. 首先添加画布上所有图片（优先级最高）
@@ -3537,6 +3581,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.src,
     imageData.key,
     imageData.localDataUrl,
+    showPreview,
   ]);
 
   const activePreviewId = previewImageId ?? imageData.id;
@@ -3812,6 +3857,61 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       isCropping ||
       (isImageLocked && isHoveringLockedImage));
 
+  useEffect(() => {
+    if (!shouldRenderCanvasOverlay || typeof window === "undefined") return;
+
+    const clearPreview = () => {
+      const el = containerRef.current;
+      if (el) {
+        el.style.transform = overlayBaseTransformRef.current;
+      }
+      overlayPreviewPositionRef.current = null;
+    };
+
+    const handlePreview = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail || {};
+      const ids = Array.isArray(detail.ids)
+        ? detail.ids.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+        : undefined;
+
+      if (detail.clear) {
+        if (!ids || ids.includes(imageData.id)) {
+          clearPreview();
+        }
+        return;
+      }
+
+      const positionsById = detail.positionsById;
+      let position: { x: number; y: number } | undefined;
+      if (positionsById instanceof Map) {
+        position = positionsById.get(imageData.id);
+      } else {
+        const moves = Array.isArray(detail.moves) ? (detail.moves as ImageDragPreviewMove[]) : [];
+        position = moves.find((move) => move?.id === imageData.id)?.position;
+      }
+      if (!position) return;
+
+      const el = containerRef.current;
+      if (!el || !paper.view) return;
+
+      try {
+        const dpr = window.devicePixelRatio || 1;
+        const topLeft = paper.view.projectToView(new paper.Point(position.x, position.y));
+        const x = topLeft.x / dpr;
+        const y = topLeft.y / dpr;
+        overlayPreviewPositionRef.current = position;
+        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      } catch {
+        clearPreview();
+      }
+    };
+
+    window.addEventListener(IMAGE_DRAG_PREVIEW_EVENT, handlePreview as EventListener);
+    return () => {
+      window.removeEventListener(IMAGE_DRAG_PREVIEW_EVENT, handlePreview as EventListener);
+    };
+  }, [imageData.id, shouldRenderCanvasOverlay]);
+
   if (!shouldRenderCanvasOverlay) {
     return showPreview ? previewModal : null;
   }
@@ -3822,11 +3922,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       style={{
         position: "absolute",
         left: 0,
-        top: 0,
-        width: screenBounds.width,
-        height: screenBounds.height,
-        transform: `translate3d(${screenBounds.x}px, ${screenBounds.y}px, 0)`,
-        willChange: "transform",
+	        top: 0,
+	        width: screenBounds.width,
+	        height: screenBounds.height,
+	        transform: overlayBaseTransform,
+	        willChange: "transform",
         zIndex: 10 + layerIndex * 2 + (isSelected ? 1 : 0), // 大幅降低z-index，确保在对话框下方
         cursor: "default",
         userSelect: "none",

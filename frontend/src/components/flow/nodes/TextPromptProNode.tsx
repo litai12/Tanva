@@ -30,11 +30,13 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
     const store = useCanvasStore.getState();
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
+  const isPromptEditable = selected === true;
 
   const boxWidth = data.boxWidth || DEFAULT_BOX_WIDTH;
   const boxHeight = data.boxHeight || DEFAULT_BOX_HEIGHT;
@@ -108,6 +110,14 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    if (isPromptEditable) return;
+    if (textareaRef.current && document.activeElement === textareaRef.current) {
+      textareaRef.current.blur();
+    }
+    promptInputs.composingIndexesRef.current.clear();
+  }, [isPromptEditable, promptInputs.composingIndexesRef]);
 
   React.useEffect(() => {
     const handleEdgesChange = () => refreshExternalPrompts();
@@ -211,7 +221,7 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
     zIndex: 20,
   };
 
-  useNodeInternalsSync(id, nodeRootRef, [boxWidth, boxHeight, externalPrompts.length, selected]);
+  useNodeInternalsSync(id, nodeRootRef, [boxWidth, boxHeight, externalPrompts.length, isPromptEditable]);
 
   return (
     <div
@@ -325,8 +335,11 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
             const promptInput = promptInputs.bind(0);
             return (
           <textarea
-            className="nodrag nopan nowheel"
+            ref={textareaRef}
+            className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
             value={promptInput.value}
+            readOnly={!isPromptEditable}
+            tabIndex={isPromptEditable ? 0 : -1}
             onChange={promptInput.onChange}
             onCompositionStart={promptInput.onCompositionStart}
             onCompositionEnd={promptInput.onCompositionEnd}
@@ -342,17 +355,22 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
               background: 'transparent',
               resize: 'none',
               color: '#374151',
+              pointerEvents: isPromptEditable ? 'auto' : 'none',
+              cursor: isPromptEditable ? 'text' : 'default',
             }}
             onWheelCapture={(event) => {
+              if (!isPromptEditable) return;
               if (shouldPassWheelToCanvas(event)) return;
               event.stopPropagation();
               (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
             }}
             onPointerDownCapture={(event) => {
+              if (!isPromptEditable) return;
               event.stopPropagation();
               (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
             }}
             onMouseDownCapture={(event) => {
+              if (!isPromptEditable) return;
               event.stopPropagation();
               (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
             }}

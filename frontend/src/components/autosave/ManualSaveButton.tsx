@@ -7,6 +7,8 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
 import { useTranslation } from 'react-i18next';
+import { setProjectCache } from '@/services/projectCacheStore';
+import { useAuthStore } from '@/stores/authStore';
 
 export default function ManualSaveButton() {
   const { i18n } = useTranslation();
@@ -18,10 +20,16 @@ export default function ManualSaveButton() {
   const markSaved = useProjectContentStore((state) => state.markSaved);
   const setError = useProjectContentStore((state) => state.setError);
   const setWarning = useProjectContentStore((state) => state.setWarning);
+  const cacheValidationPending = useProjectContentStore((state) => state.cacheValidationPending);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
 
   const handleSave = useCallback(async () => {
     const storeBefore = useProjectContentStore.getState();
     if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) {
+      return;
+    }
+    if (storeBefore.cacheValidationPending) {
+      setWarning(lt('本地缓存正在校验远端版本，校验完成前暂不保存。', 'Local cache is validating the remote version; saving is paused until validation completes.'));
       return;
     }
 
@@ -58,6 +66,14 @@ export default function ManualSaveButton() {
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString());
       void refreshProjectThumbnail(currentProjectId, { force: true });
+      setProjectCache({
+        projectId: currentProjectId,
+        userId,
+        content: contentForCloudSave,
+        version: result.version,
+        updatedAt: result.updatedAt ?? new Date().toISOString(),
+        cachedAt: new Date().toISOString(),
+      }).catch(() => {});
 
       try {
         saveMonitor.push(currentProjectId, 'manual_save_success', {
@@ -89,13 +105,13 @@ export default function ManualSaveButton() {
     } finally {
       setManualSaving(false);
     }
-  }, [lt, markSaved, setError, setManualSaving, setWarning]);
+  }, [lt, markSaved, setError, setManualSaving, setWarning, userId]);
 
   return (
     <button
       type="button"
       onClick={handleSave}
-      disabled={!projectId || manualSaving}
+      disabled={!projectId || manualSaving || cacheValidationPending}
       className="rounded border border-sky-500 bg-sky-50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
     >
       {manualSaving ? lt('保存中…', 'Saving...') : lt('保存', 'Save')}

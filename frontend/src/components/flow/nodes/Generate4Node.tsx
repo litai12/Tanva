@@ -886,7 +886,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontWeight: 600 }}>Multi Generate</div>
+          <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>Multi Generate</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

@@ -14,6 +14,7 @@ import { AppLoadingIndicator } from '@/components/AppLoadingIndicator';
 import { useTranslation } from 'react-i18next';
 import { TeamInviteConfirmModal } from '@/components/team/TeamInviteConfirmModal';
 import { useTeamRealtime } from '@/hooks/useTeamRealtime';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 const PENDING_INVITE_KEY = 'tanva_pending_team_invite';
 
@@ -60,7 +61,7 @@ const MobileWarning: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   useTeamRealtime();
   const [isMobile, setIsMobile] = useState<boolean>(() => isMobileDevice());
   const [showPromptDemo, setShowPromptDemo] = useState<boolean>(() => {
@@ -87,6 +88,8 @@ const App: React.FC = () => {
 
   // 获取认证状态用于显示加载指示器
   const { user, loading: authLoading } = useAuthStore();
+  const projectViewReady = useProjectContentStore((state) => state.projectViewReady);
+  const projectLoadError = useProjectContentStore((state) => state.lastError);
 
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const prevUserRef = useRef<typeof user>(undefined);
@@ -114,7 +117,6 @@ const App: React.FC = () => {
     } else {
       localStorage.setItem(PENDING_INVITE_KEY, code);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 登录后处理待加入的邀请
@@ -187,6 +189,17 @@ const App: React.FC = () => {
     // 否则使用 URL 参数
     return paramProjectId;
   }, [paramProjectId, currentProjectId]);
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
+  const projectLoadingMessage = t('app.projectLoading', {
+    defaultValue: isZh ? '加载中...' : 'Loading...',
+  });
+  const showProjectLoading = Boolean(
+    projectId &&
+    user &&
+    !authLoading &&
+    !projectViewReady &&
+    !projectLoadError
+  );
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -219,6 +232,13 @@ const App: React.FC = () => {
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
+      {showProjectLoading && (
+        <AppLoadingIndicator
+          message={projectLoadingMessage}
+          variant="minimal"
+          style={{ zIndex: 1500 }}
+        />
+      )}
       <LoginModal />
 
       {pendingInviteCode && (

@@ -52,6 +52,7 @@ import {
   Moon,
   Users,
   Share2,
+  Image as ImageIcon,
 } from "lucide-react";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
@@ -265,6 +266,8 @@ const FloatingHeader: React.FC = () => {
     setBananaImageRoute,
     sendShortcut,
     setSendShortcut,
+    imageInputTarget,
+    setImageInputTarget,
     expandedPanelStyle,
     setExpandedPanelStyle,
     chatTheme,
@@ -287,10 +290,23 @@ const FloatingHeader: React.FC = () => {
     open,
   } = useProjectStore();
   // Header 下拉中的快速切换与新建，直接复用项目管理的函数
-  const handleQuickSwitch = (projectId: string) => {
-    if (!projectId || projectId === currentProject?.id) return;
-    open(projectId);
-  };
+  const pendingQuickSwitchTimerRef = useRef<number | null>(null);
+  const handleQuickSwitch = useCallback((targetProjectId: string) => {
+    if (!targetProjectId || targetProjectId === currentProject?.id) return;
+    if (pendingQuickSwitchTimerRef.current !== null) {
+      window.clearTimeout(pendingQuickSwitchTimerRef.current);
+    }
+    pendingQuickSwitchTimerRef.current = window.setTimeout(() => {
+      pendingQuickSwitchTimerRef.current = null;
+      open(targetProjectId);
+    }, 0);
+  }, [currentProject?.id, open]);
+
+  useEffect(() => () => {
+    if (pendingQuickSwitchTimerRef.current !== null) {
+      window.clearTimeout(pendingQuickSwitchTimerRef.current);
+    }
+  }, []);
   const quickCreateInFlightRef = useRef(false);
   const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
   const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
@@ -1216,6 +1232,30 @@ const FloatingHeader: React.FC = () => {
       description: t("workspace.settings.aiTab.wheel.directDesc"),
     },
   ];
+  const imageInputTargetOptions = [
+    {
+      value: "canvas" as const,
+      label: t("workspace.settings.aiTab.imageInputTarget.canvasLabel"),
+      description: t("workspace.settings.aiTab.imageInputTarget.canvasDesc"),
+      Icon: Square,
+      colorClass: "text-teal-600 dark:text-teal-400",
+      activeClass:
+        "border-teal-500 bg-teal-50 shadow-sm dark:border-teal-400 dark:bg-teal-900/30",
+      inactiveClass:
+        "border-slate-200 bg-white hover:border-teal-300 hover:bg-teal-50/40 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-teal-500 dark:hover:bg-teal-900/20",
+    },
+    {
+      value: "node" as const,
+      label: t("workspace.settings.aiTab.imageInputTarget.nodeLabel"),
+      description: t("workspace.settings.aiTab.imageInputTarget.nodeDesc"),
+      Icon: ImageIcon,
+      colorClass: "text-fuchsia-600 dark:text-fuchsia-400",
+      activeClass:
+        "border-fuchsia-500 bg-fuchsia-50 shadow-sm dark:border-fuchsia-400 dark:bg-fuchsia-900/30",
+      inactiveClass:
+        "border-slate-200 bg-white hover:border-fuchsia-300 hover:bg-fuchsia-50/40 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-fuchsia-500 dark:hover:bg-fuchsia-900/20",
+    },
+  ];
   const renderSettingsContent = () => {
     switch (activeSettingsSection) {
       case "workspace":
@@ -1682,6 +1722,48 @@ const FloatingHeader: React.FC = () => {
                           {option.label}
                         </div>
                         {active && <Check className='w-4 h-4 text-indigo-600 dark:text-indigo-400' />}
+                      </div>
+                      <div className='mt-1 text-xs text-slate-500 dark:text-slate-400'>
+                        {option.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className='p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur dark:border-slate-700 dark:bg-slate-800/90'>
+              <div className='flex items-start gap-2 mb-3'>
+                <ImageIcon className='w-4 h-4 text-fuchsia-600 dark:text-fuchsia-400' />
+                <div>
+                  <div className='text-sm font-medium text-slate-700 dark:text-slate-200'>
+                    {t("workspace.settings.aiTab.imageInputTarget.title")}
+                  </div>
+                  <div className='text-xs text-slate-500 dark:text-slate-400'>
+                    {t("workspace.settings.aiTab.imageInputTarget.desc")}
+                  </div>
+                </div>
+              </div>
+              <div className='grid gap-2 sm:grid-cols-2'>
+                {imageInputTargetOptions.map((option) => {
+                  const active = imageInputTarget === option.value;
+                  const Icon = option.Icon;
+                  return (
+                    <button
+                      key={option.value}
+                      type='button'
+                      onClick={() => setImageInputTarget(option.value)}
+                      className={cn(
+                        "w-full rounded-xl border px-3 py-3 text-left transition-all",
+                        active ? option.activeClass : option.inactiveClass
+                      )}
+                    >
+                      <div className='flex items-center justify-between gap-2'>
+                        <div className='flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-100'>
+                          <Icon className={cn("h-4 w-4 shrink-0", option.colorClass)} />
+                          <span>{option.label}</span>
+                        </div>
+                        {active && <Check className={cn("h-4 w-4 shrink-0", option.colorClass)} />}
                       </div>
                       <div className='mt-1 text-xs text-slate-500 dark:text-slate-400'>
                         {option.description}
@@ -2263,8 +2345,7 @@ const FloatingHeader: React.FC = () => {
                       dropdownProjects.map((project) => (
                         <DropdownMenuItem
                           key={project.id}
-                          onClick={(event) => {
-                            event.preventDefault();
+                          onClick={() => {
                             handleQuickSwitch(project.id);
                           }}
                           className={cn(
@@ -2294,8 +2375,7 @@ const FloatingHeader: React.FC = () => {
                     style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
                   />
                   <DropdownMenuItem
-                    onClick={(event) => {
-                      event.preventDefault();
+                    onClick={() => {
                       openModal();
                     }}
                     className={cn(
@@ -2309,8 +2389,7 @@ const FloatingHeader: React.FC = () => {
                     {t("workspace.header.openManageFile")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={(event) => {
-                      event.preventDefault();
+                    onClick={() => {
                       void handleQuickCreateProject();
                     }}
                     disabled={isQuickCreatingProject}

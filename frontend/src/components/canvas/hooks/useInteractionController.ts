@@ -117,8 +117,27 @@ interface ImageTool {
   imageResizeState: ImageResizeState;
   setImageDragState: (state: ImageDragState) => void;
   setImageResizeState: (state: ImageResizeState) => void;
-  handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
-  handleImagesMove?: (moves: Array<{ id: string; position: { x: number; y: number } }>, skipPaperUpdate?: boolean) => void;
+  handleImageMove: (
+    id: string,
+    position: { x: number; y: number },
+    skipPaperUpdate?: boolean,
+    options?: {
+      commitState?: boolean;
+      emitEvents?: boolean;
+      syncGroupBlocks?: boolean;
+      updatePaperView?: boolean;
+    }
+  ) => void;
+  handleImagesMove?: (
+    moves: Array<{ id: string; position: { x: number; y: number } }>,
+    skipPaperUpdate?: boolean,
+    options?: {
+      commitState?: boolean;
+      emitEvents?: boolean;
+      syncGroupBlocks?: boolean;
+      updatePaperView?: boolean;
+    }
+  ) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
   createImageFromSnapshot?: (
@@ -180,6 +199,10 @@ interface SpacePanDragState {
   startScreen: { x: number; y: number };
   startPan: { x: number; y: number };
 }
+
+type ImageDragMove = { id: string; position: { x: number; y: number } };
+
+const IMAGE_DRAG_PREVIEW_EVENT = 'tanva:image-drag-preview';
 
 const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
   if (!item) return true;
@@ -333,6 +356,116 @@ export const useInteractionController = ({
     const target = images.find((img: any) => String(img.id) === String(imageId));
     return Boolean(target?.locked || target?.imageData?.locked);
   }, []);
+
+  const dispatchImageDragPreview = useCallback((moves: ImageDragMove[] | null, clearIds?: string[]) => {
+    if (typeof window === 'undefined') return;
+    if (!moves || moves.length === 0) {
+      window.dispatchEvent(new CustomEvent(IMAGE_DRAG_PREVIEW_EVENT, {
+        detail: { clear: true, ids: clearIds },
+      }));
+      return;
+    }
+    const positionsById = new Map(moves.map((move) => [move.id, move.position]));
+    window.dispatchEvent(new CustomEvent(IMAGE_DRAG_PREVIEW_EVENT, {
+      detail: { moves, positionsById },
+    }));
+  }, []);
+
+  const calculateImageDragMoves = useCallback((
+    latestImageTool: ImageTool,
+    deltaX: number,
+    deltaY: number
+  ): { moves: ImageDragMove[]; alignments: any[]; groupIds: string[] } => {
+    const dragState = latestImageTool.imageDragState;
+    const groupIds = (dragState.groupImageIds?.length
+      ? dragState.groupImageIds
+      : [dragState.dragImageId]).filter((id) => Boolean(id) && !isLockedImage(id as string)) as string[];
+    if (groupIds.length === 0) {
+      return { moves: [], alignments: [], groupIds };
+    }
+
+    const groupStart = dragState.groupStartBounds || {};
+    const instanceById = new Map(
+      (latestImageTool.imageInstances || []).map((img: any) => [String(img.id), img])
+    );
+    const latestSnapAlignment = snapAlignmentRef.current;
+    const isGroupDrag = groupIds.length > 1;
+    let snapDeltaX = 0;
+    let snapDeltaY = 0;
+    let groupAlignments: any[] = [];
+
+    if (isGroupDrag && latestSnapAlignment?.snapEnabled) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      groupIds.forEach((id) => {
+        const imageInstance = instanceById.get(id);
+        if (!imageInstance) return;
+        const start = groupStart[id] || dragState.imageDragStartBounds;
+        if (!start) return;
+        const newX = start.x + deltaX;
+        const newY = start.y + deltaY;
+        minX = Math.min(minX, newX);
+        minY = Math.min(minY, newY);
+        maxX = Math.max(maxX, newX + imageInstance.bounds.width);
+        maxY = Math.max(maxY, newY + imageInstance.bounds.height);
+      });
+
+      if (minX !== Infinity) {
+        const groupBounds = {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+        };
+        const result = latestSnapAlignment.calculateSnappedPosition(
+          `group-${groupIds[0]}`,
+          { x: groupBounds.x, y: groupBounds.y },
+          { width: groupBounds.width, height: groupBounds.height }
+        );
+        snapDeltaX = result.position.x - groupBounds.x;
+        snapDeltaY = result.position.y - groupBounds.y;
+        groupAlignments = result.alignments;
+      }
+    }
+
+    const moves: ImageDragMove[] = [];
+    groupIds.forEach((id) => {
+      const start = groupStart[id] || dragState.imageDragStartBounds;
+      if (!start) return;
+
+      const rawPosition = {
+        x: start.x + deltaX,
+        y: start.y + deltaY,
+      };
+      let finalPosition = rawPosition;
+
+      if (latestSnapAlignment?.snapEnabled) {
+        if (isGroupDrag) {
+          finalPosition = {
+            x: rawPosition.x + snapDeltaX,
+            y: rawPosition.y + snapDeltaY,
+          };
+        } else {
+          const imageInstance = instanceById.get(id);
+          if (imageInstance) {
+            const result = latestSnapAlignment.calculateSnappedPosition(
+              id,
+              rawPosition,
+              { width: imageInstance.bounds.width, height: imageInstance.bounds.height }
+            );
+            finalPosition = result.position;
+            groupAlignments = result.alignments;
+          }
+        }
+      }
+
+      moves.push({ id, position: finalPosition });
+    });
+
+    return { moves, alignments: groupAlignments, groupIds };
+  }, [isLockedImage]);
 
   const collectSelectedPaths = useCallback(() => {
     const latestSelectionTool = selectionToolRef.current;
@@ -1538,7 +1671,6 @@ export const useInteractionController = ({
           altDragGroupSnapshotsRef.current = [];
           return;
         }
-        const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
         // Alt+拖拽时检测是否在库区域，添加高亮效果
         if (isAltPressedRef.current || event.altKey) {
@@ -1610,111 +1742,36 @@ export const useInteractionController = ({
             return;
           }
 
-          // 普通拖拽：移动原图（支持对齐吸附）
-          const latestSnapAlignment = snapAlignmentRef.current;
-          const isGroupDrag = groupIds.length > 1;
-
-          // 计算组的整体边界（用于组拖拽时的对齐检测）
-          let groupBounds: { x: number; y: number; width: number; height: number } | null = null;
-          let snapDeltaX = 0;
-          let snapDeltaY = 0;
-          let groupAlignments: any[] = [];
-
-          if (isGroupDrag && latestSnapAlignment?.snapEnabled) {
-            // 计算组的整体边界
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            groupIds.forEach((id) => {
-              const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
-              if (imageInstance) {
-                const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
-                if (start) {
-                  const newX = start.x + deltaX;
-                  const newY = start.y + deltaY;
-                  minX = Math.min(minX, newX);
-                  minY = Math.min(minY, newY);
-                  maxX = Math.max(maxX, newX + imageInstance.bounds.width);
-                  maxY = Math.max(maxY, newY + imageInstance.bounds.height);
-                }
-              }
-            });
-
-            if (minX !== Infinity) {
-              groupBounds = {
-                x: minX,
-                y: minY,
-                width: maxX - minX,
-                height: maxY - minY,
-              };
-
-              // 对组的整体边界进行对齐检测
-              const result = latestSnapAlignment.calculateSnappedPosition(
-                `group-${groupIds[0]}`, // 使用虚拟 ID
-                { x: groupBounds.x, y: groupBounds.y },
-                { width: groupBounds.width, height: groupBounds.height }
-              );
-
-              // 计算吸附偏移量
-              snapDeltaX = result.position.x - groupBounds.x;
-              snapDeltaY = result.position.y - groupBounds.y;
-              groupAlignments = result.alignments;
-            }
-          }
-
-          // 移动所有图片
-          const moves: Array<{ id: string; position: { x: number; y: number } }> = [];
-          groupIds.forEach((id) => {
-            const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
-            if (!start) {
-              return;
-            }
-
-            // 计算原始位置
-            const rawPosition = {
-              x: start.x + deltaX,
-              y: start.y + deltaY,
-            };
-
-            let finalPosition = rawPosition;
-
-            if (latestSnapAlignment?.snapEnabled) {
-              if (isGroupDrag) {
-                // 组拖拽：所有图片应用相同的吸附偏移量
-                finalPosition = {
-                  x: rawPosition.x + snapDeltaX,
-                  y: rawPosition.y + snapDeltaY,
-                };
-              } else {
-                // 单图拖拽：单独计算对齐
-                const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
-                if (imageInstance) {
-                  const result = latestSnapAlignment.calculateSnappedPosition(
-                    id,
-                    rawPosition,
-                    { width: imageInstance.bounds.width, height: imageInstance.bounds.height }
-                  );
-                  finalPosition = result.position;
-                  groupAlignments = result.alignments;
-                }
-              }
-            }
-
-            moves.push({ id, position: finalPosition });
-          });
+          const { moves, alignments } = calculateImageDragMoves(latestImageTool, deltaX, deltaY);
 
           if (moves.length > 0) {
+            dispatchImageDragPreview(moves);
             if (moves.length > 1 && typeof latestImageTool.handleImagesMove === 'function') {
-              try { latestImageTool.handleImagesMove(moves, false); } catch {}
+              try {
+                latestImageTool.handleImagesMove(moves, false, {
+                  commitState: false,
+                  emitEvents: false,
+                  syncGroupBlocks: true,
+                  updatePaperView: true,
+                });
+              } catch {}
             } else {
               moves.forEach(({ id, position }) => {
-                latestImageTool.handleImageMove(id, position, false);
+                latestImageTool.handleImageMove(id, position, false, {
+                  commitState: false,
+                  emitEvents: false,
+                  syncGroupBlocks: true,
+                  updatePaperView: true,
+                });
               });
             }
           }
 
           // 更新对齐线显示
+          const latestSnapAlignment = snapAlignmentRef.current;
           if (latestSnapAlignment) {
-            if (groupAlignments.length > 0) {
-              latestSnapAlignment.updateAlignments(groupAlignments);
+            if (alignments.length > 0) {
+              latestSnapAlignment.updateAlignments(alignments);
             } else {
               latestSnapAlignment.updateAlignments([]);
             }
@@ -1795,6 +1852,8 @@ export const useInteractionController = ({
     updateLibraryDropHover,
     updateCursorStyle,
     handleImageResize,
+    calculateImageDragMoves,
+    dispatchImageDragPreview,
     isLockedImage,
   ]);
 
@@ -1993,6 +2052,10 @@ export const useInteractionController = ({
         const didMove = imageDragMovedRef.current;
         const wasAltClone = altDragClonedRef.current;
         const wasAltDrag = isAltPressedRef.current || event.altKey;
+        const currentPoint = clientToProject(canvas, event.clientX, event.clientY);
+        const dragStartPoint = latestImageTool.imageDragState.imageDragStartPoint;
+        const finalDeltaX = dragStartPoint ? currentPoint.x - dragStartPoint.x : 0;
+        const finalDeltaY = dragStartPoint ? currentPoint.y - dragStartPoint.y : 0;
         imageDragMovedRef.current = false;
         altDragClonedRef.current = false; // 重置 Alt 拖拽克隆标记
 
@@ -2162,6 +2225,34 @@ export const useInteractionController = ({
         altDragCloneIdsRef.current = [];
         altDragGroupSnapshotsRef.current = [];
 
+        if (didMove && !wasAltClone) {
+          const { moves } = calculateImageDragMoves(latestImageTool, finalDeltaX, finalDeltaY);
+          if (moves.length > 0) {
+            dispatchImageDragPreview(moves);
+            if (moves.length > 1 && typeof latestImageTool.handleImagesMove === 'function') {
+              try {
+                latestImageTool.handleImagesMove(moves, false, {
+                  commitState: true,
+                  emitEvents: true,
+                  syncGroupBlocks: true,
+                  updatePaperView: true,
+                });
+              } catch {}
+            } else {
+              moves.forEach(({ id, position }) => {
+                try {
+                  latestImageTool.handleImageMove(id, position, false, {
+                    commitState: true,
+                    emitEvents: true,
+                    syncGroupBlocks: true,
+                    updatePaperView: true,
+                  });
+                } catch {}
+              });
+            }
+          }
+        }
+
         latestImageTool.setImageDragState({
           isImageDragging: false,
           dragImageId: null,
@@ -2265,7 +2356,15 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = false;
-  }, [canvasRef, isLockedImage, resetGroupPathDrag, stopSpacePan]);
+  }, [
+    canvasRef,
+    calculateImageDragMoves,
+    clearLibraryDropHover,
+    dispatchImageDragPreview,
+    isLockedImage,
+    resetGroupPathDrag,
+    stopSpacePan,
+  ]);
 
   // ========== 事件监听器绑定 ==========
   useEffect(() => {

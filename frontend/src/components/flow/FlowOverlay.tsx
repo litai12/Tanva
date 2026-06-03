@@ -145,6 +145,7 @@ import {
   requiresManagedImageUpload,
   resolveImageToBlob,
   resolveImageToDataUrl,
+  toRenderableImageSrc,
 } from "@/utils/imageSource";
 import {
   blobToDataUrl,
@@ -210,8 +211,15 @@ import {
   type FlowRenderMode,
 } from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
+import { normalizePromptImageMentions } from "./types";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import {
+  projectLoadDebug,
+  projectLoadNow,
+  waitForProjectLoadInteractive,
+  waitForProjectLoadPaint,
+} from "@/utils/projectLoadDebug";
 import {
   resolveFlowImageReferenceLimit,
   resolveFlowModelProvider,
@@ -307,10 +315,18 @@ const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
-const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
-const FLOW_LOW_DETAIL_NODE_THRESHOLD = 150;
-const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.06;
-const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.10;
+const FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD = 80;
+// 低缩放硬降级先默认关闭：它会牺牲节点可读性，当前只保留代码兜底。
+const FLOW_LOW_DETAIL_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
+const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.22;
+const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.30;
+const FLOW_INTERACTION_SOFT_DETAIL_NODE_THRESHOLD = 80;
+const FLOW_IMAGE_PREWARM_NODE_THRESHOLD = 32;
+const FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER = 2.4;
+const FLOW_IMAGE_PREWARM_MAX_CANDIDATES = 36;
+const FLOW_IMAGE_PREWARM_CONCURRENCY = 3;
+const FLOW_IMAGE_PREWARM_CACHE_LIMIT = 600;
+const FLOW_IMAGE_PREWARM_SCHEDULE_MS = 140;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -594,6 +610,34 @@ const collectPreviewImagesFromNode = (node?: RFNode | null): string[] => {
   });
 
   return out;
+};
+
+const normalizeFlowPrewarmImageSrc = (raw?: string | null): string | null => {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) ||
+    isBlobUrl(trimmed) ||
+    isDataImageUrl(trimmed) ||
+    /^data:/i.test(trimmed)
+  ) {
+    return null;
+  }
+
+  const src = toRenderableImageSrc(trimmed);
+  if (!src) return null;
+  const normalized = src.trim();
+  if (
+    !normalized ||
+    normalized.startsWith(FLOW_IMAGE_ASSET_PREFIX) ||
+    isBlobUrl(normalized) ||
+    isDataImageUrl(normalized) ||
+    /^data:/i.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
 };
 
 const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
@@ -1006,9 +1050,6 @@ const rawNodeTypes = {
   minimaxMusic: MinimaxMusicNode,
   tencentSpeech: TencentSpeechNode,
 };
-
-/** 节点内通过 data.error 字段展示错误 */
-const nodeTypes = rawNodeTypes;
 
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
@@ -1867,6 +1908,9 @@ const FLOW_NODE_DEFAULT_SIZE = {
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
+
+/** 节点内通过 data.error 字段展示错误 */
+const nodeTypes = rawNodeTypes;
 
 type ScreenPoint = { x: number; y: number };
 
@@ -4210,9 +4254,21 @@ function FlowInner() {
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
   const nodesRef = React.useRef<RFNode[]>([]);
   const edgesRef = React.useRef<Edge[]>([]);
+  const flowHydratePaintTokenRef = React.useRef(0);
+  const flowHydratePaintPendingRef = React.useRef<null | {
+    token: number;
+    projectId: string;
+    startedAt: number;
+    paintWaitStartedAt: number;
+    inputNodes: number;
+    inputEdges: number;
+    paintScheduled?: boolean;
+  }>(null);
+  const nodeDraggingRef = React.useRef(false);
   const lastSelectedFlowNodeIdsRef = React.useRef<string[]>([]);
   React.useEffect(() => {
     nodesRef.current = nodes as RFNode[];
+    if (nodeDraggingRef.current) return;
     const selectedIds = (nodes as RFNode[])
       .filter((node) => node?.selected)
       .map((node) => String(node.id))
@@ -4225,13 +4281,21 @@ function FlowInner() {
     edgesRef.current = edges as Edge[];
   }, [edges]);
 
+  const flowViewportAnchorKeyRef = React.useRef("");
   const flowViewportAnchorKey = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return flowViewportAnchorKeyRef.current;
+    }
+
     const selectedNode =
       (nodes as RFNode[]).find((node) => node?.selected) ||
       (nodes as RFNode[]).find((node) =>
         lastSelectedFlowNodeIdsRef.current.includes(String(node?.id || ""))
       );
-    if (!selectedNode) return "";
+    if (!selectedNode) {
+      flowViewportAnchorKeyRef.current = "";
+      return "";
+    }
     const absolutePosition = (selectedNode as {
       positionAbsolute?: { x?: unknown; y?: unknown };
     }).positionAbsolute;
@@ -4245,7 +4309,9 @@ function FlowInner() {
         : selectedNode.position?.y;
     const x = typeof rawX === "number" && Number.isFinite(rawX) ? rawX : 0;
     const y = typeof rawY === "number" && Number.isFinite(rawY) ? rawY : 0;
-    return `${selectedNode.id}:${x}:${y}`;
+    const key = `${selectedNode.id}:${x}:${y}`;
+    flowViewportAnchorKeyRef.current = key;
+    return key;
   }, [nodes]);
 
   const getFlowViewportAnchor = React.useCallback((): FlowViewportAnchor | null => {
@@ -4832,6 +4898,8 @@ function FlowInner() {
   // 而是跟随节点的存在性生命周期。删除动作侧已即时取消，这里只兜非删除动作的移除。
   const prevNodeIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
+    if (nodeDraggingRef.current) return;
+
     const curr = new Set<string>();
     for (const n of nodes) curr.add(String(n.id));
     const removed: string[] = [];
@@ -6173,10 +6241,275 @@ function FlowInner() {
   const updateProjectPartial = useProjectContentStore((s) => s.updatePartial);
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
-  const nodeDraggingRef = React.useRef(false);
   const draggingGroupNodeRef = React.useRef(false);
   const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
+  const imagePrewarmDoneRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmDoneOrderRef = React.useRef<string[]>([]);
+  const imagePrewarmInFlightRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmQueuedRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmQueueRef = React.useRef<string[]>([]);
+  const imagePrewarmActiveImagesRef =
+    React.useRef<Map<string, HTMLImageElement>>(new Map());
+  const imagePrewarmTimerRef = React.useRef<number | null>(null);
+  const imagePrewarmDisposedRef = React.useRef(false);
+
+  const trimFlowImagePrewarmCache = React.useCallback(() => {
+    const done = imagePrewarmDoneRef.current;
+    const order = imagePrewarmDoneOrderRef.current;
+    while (order.length > FLOW_IMAGE_PREWARM_CACHE_LIMIT) {
+      const expired = order.shift();
+      if (expired) done.delete(expired);
+    }
+  }, []);
+
+  const pumpFlowImagePrewarmQueue = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (imagePrewarmDisposedRef.current) return;
+
+    const inFlight = imagePrewarmInFlightRef.current;
+    const queue = imagePrewarmQueueRef.current;
+    const queued = imagePrewarmQueuedRef.current;
+    const done = imagePrewarmDoneRef.current;
+    const activeImages = imagePrewarmActiveImagesRef.current;
+
+    while (
+      inFlight.size < FLOW_IMAGE_PREWARM_CONCURRENCY &&
+      queue.length > 0
+    ) {
+      const src = queue.shift();
+      if (!src) continue;
+      queued.delete(src);
+      if (done.has(src) || inFlight.has(src)) continue;
+
+      inFlight.add(src);
+      const img = new Image();
+      activeImages.set(src, img);
+      try {
+        img.decoding = "async";
+      } catch {}
+      try {
+        img.loading = "eager";
+      } catch {}
+
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        img.onload = null;
+        img.onerror = null;
+        activeImages.delete(src);
+        inFlight.delete(src);
+        if (!done.has(src)) {
+          done.add(src);
+          imagePrewarmDoneOrderRef.current.push(src);
+          trimFlowImagePrewarmCache();
+        }
+        if (!imagePrewarmDisposedRef.current) {
+          pumpFlowImagePrewarmQueue();
+        }
+      };
+
+      img.onerror = finish;
+      try {
+        img.src = src;
+        if (typeof img.decode === "function") {
+          img.decode().then(finish, finish);
+        } else {
+          img.onload = finish;
+          if (img.complete) finish();
+        }
+      } catch {
+        finish();
+      }
+    }
+  }, [trimFlowImagePrewarmCache]);
+
+  const replaceFlowImagePrewarmQueue = React.useCallback(
+    (srcs: string[]) => {
+      const done = imagePrewarmDoneRef.current;
+      const inFlight = imagePrewarmInFlightRef.current;
+      const nextQueue: string[] = [];
+      const nextQueued = new Set<string>();
+
+      for (const src of srcs) {
+        if (!src || done.has(src) || inFlight.has(src) || nextQueued.has(src)) {
+          continue;
+        }
+        nextQueued.add(src);
+        nextQueue.push(src);
+        if (nextQueue.length >= FLOW_IMAGE_PREWARM_MAX_CANDIDATES) break;
+      }
+
+      imagePrewarmQueuedRef.current = nextQueued;
+      imagePrewarmQueueRef.current = nextQueue;
+      pumpFlowImagePrewarmQueue();
+    },
+    [pumpFlowImagePrewarmQueue]
+  );
+
+  const runFlowImagePrewarmScan = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    const container = containerRef.current;
+    if (!container) return;
+    const currentNodes = nodesRef.current || [];
+    if (currentNodes.length < FLOW_IMAGE_PREWARM_NODE_THRESHOLD) {
+      replaceFlowImagePrewarmQueue([]);
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const width = Number(rect.width);
+    const height = Number(rect.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return;
+    }
+
+    let viewport: { x: number; y: number; zoom: number } | null = null;
+    try {
+      const rawViewport = rfRef.current.getViewport?.();
+      const zoom = Number(rawViewport?.zoom);
+      if (
+        rawViewport &&
+        Number.isFinite(Number(rawViewport.x)) &&
+        Number.isFinite(Number(rawViewport.y)) &&
+        Number.isFinite(zoom) &&
+        zoom > 0
+      ) {
+        viewport = {
+          x: Number(rawViewport.x),
+          y: Number(rawViewport.y),
+          zoom,
+        };
+      }
+    } catch {}
+    if (!viewport) return;
+
+    const visibleFlowWidth = width / viewport.zoom;
+    const visibleFlowHeight = height / viewport.zoom;
+    const centerX = (width / 2 - viewport.x) / viewport.zoom;
+    const centerY = (height / 2 - viewport.y) / viewport.zoom;
+    const halfW =
+      (visibleFlowWidth * FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER) / 2;
+    const halfH =
+      (visibleFlowHeight * FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER) / 2;
+    const minX = centerX - halfW;
+    const maxX = centerX + halfW;
+    const minY = centerY - halfH;
+    const maxY = centerY + halfH;
+    const candidatesBySrc = new Map<
+      string,
+      { src: string; distanceSq: number }
+    >();
+
+    for (const node of currentNodes) {
+      const nodeWithRuntimePosition = node as RFNode & {
+        hidden?: boolean;
+        positionAbsolute?: { x?: unknown; y?: unknown };
+      };
+      if (!node || nodeWithRuntimePosition.hidden || isGroupNode(node)) {
+        continue;
+      }
+      const absolutePosition = nodeWithRuntimePosition.positionAbsolute;
+      const hasAbsolutePosition =
+        Number.isFinite(Number(absolutePosition?.x)) &&
+        Number.isFinite(Number(absolutePosition?.y));
+      const pos = hasAbsolutePosition ? absolutePosition : node.position;
+      const x = Number(pos?.x);
+      const y = Number(pos?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const { width: nodeW, height: nodeH } = getNodeRenderSize(node);
+      if (x + nodeW < minX || x > maxX || y + nodeH < minY || y > maxY) {
+        continue;
+      }
+
+      let src: string | null = null;
+      const previews = collectPreviewImagesFromNode(node);
+      for (const preview of previews) {
+        src = normalizeFlowPrewarmImageSrc(preview);
+        if (src) break;
+      }
+      if (!src) continue;
+
+      const nodeCenterX = x + nodeW / 2;
+      const nodeCenterY = y + nodeH / 2;
+      const dx = nodeCenterX - centerX;
+      const dy = nodeCenterY - centerY;
+      const distanceSq = dx * dx + dy * dy;
+      const prev = candidatesBySrc.get(src);
+      if (!prev || distanceSq < prev.distanceSq) {
+        candidatesBySrc.set(src, { src, distanceSq });
+      }
+    }
+
+    const candidates = Array.from(candidatesBySrc.values())
+      .sort((a, b) => a.distanceSq - b.distanceSq)
+      .slice(0, FLOW_IMAGE_PREWARM_MAX_CANDIDATES)
+      .map((item) => item.src);
+    replaceFlowImagePrewarmQueue(candidates);
+  }, [replaceFlowImagePrewarmQueue]);
+
+  const scheduleFlowImagePrewarmScan = React.useCallback(
+    (delay = FLOW_IMAGE_PREWARM_SCHEDULE_MS) => {
+      if (typeof window === "undefined") return;
+      if (imagePrewarmTimerRef.current !== null) return;
+      imagePrewarmTimerRef.current = window.setTimeout(() => {
+        imagePrewarmTimerRef.current = null;
+        runFlowImagePrewarmScan();
+      }, Math.max(0, delay));
+    },
+    [runFlowImagePrewarmScan]
+  );
+
+  React.useEffect(() => {
+    imagePrewarmDisposedRef.current = false;
+    scheduleFlowImagePrewarmScan(60);
+
+    const schedule = () => scheduleFlowImagePrewarmScan();
+    const unsubscribeZoom = useCanvasStore.subscribe(
+      (state) => state.zoom,
+      schedule
+    );
+    const unsubscribePanX = useCanvasStore.subscribe(
+      (state) => state.panX,
+      schedule
+    );
+    const unsubscribePanY = useCanvasStore.subscribe(
+      (state) => state.panY,
+      schedule
+    );
+
+    return () => {
+      unsubscribeZoom();
+      unsubscribePanX();
+      unsubscribePanY();
+    };
+  }, [scheduleFlowImagePrewarmScan]);
+
+  React.useEffect(() => {
+    scheduleFlowImagePrewarmScan(80);
+  }, [nodes.length, projectId, scheduleFlowImagePrewarmScan]);
+
+  React.useEffect(() => {
+    const queued = imagePrewarmQueuedRef.current;
+    const inFlight = imagePrewarmInFlightRef.current;
+    const activeImages = imagePrewarmActiveImagesRef.current;
+    return () => {
+      imagePrewarmDisposedRef.current = true;
+      if (imagePrewarmTimerRef.current !== null) {
+        window.clearTimeout(imagePrewarmTimerRef.current);
+        imagePrewarmTimerRef.current = null;
+      }
+      imagePrewarmQueueRef.current = [];
+      queued.clear();
+      inFlight.clear();
+      activeImages.forEach((img) => {
+        img.onload = null;
+        img.onerror = null;
+      });
+      activeImages.clear();
+    };
+  }, []);
 
   React.useEffect(() => {
     if (isNodeDragging) {
@@ -7076,6 +7409,17 @@ function FlowInner() {
       );
       if (clipboardService.getZone() !== "flow" && !fromFlowOverlay) return;
       const clipboardData = event.clipboardData;
+      const items = clipboardData?.items;
+      const hasFileOrImage = items
+        ? Array.from(items).some(
+            (item) =>
+              item &&
+              (item.kind === "file" ||
+                (typeof item.type === "string" &&
+                  item.type.startsWith("image/")))
+          )
+        : false;
+      if (hasFileOrImage) return;
 
       // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
       const rawFlowData =
@@ -7110,7 +7454,7 @@ function FlowInner() {
       )
         return;
 
-      // 优先粘贴 Flow 内部剪贴板数据；避免被系统 image/file 项拦截
+      // 优先粘贴 Flow 内部剪贴板数据。
       {
         const handled = handlePasteFlow({ preserveLinkedEdges });
         if (handled) {
@@ -7119,18 +7463,6 @@ function FlowInner() {
           return;
         }
       }
-
-      const items = clipboardData?.items;
-      const hasFileOrImage = items
-        ? Array.from(items).some(
-            (item) =>
-              item &&
-              (item.kind === "file" ||
-                (typeof item.type === "string" &&
-                  item.type.startsWith("image/")))
-          )
-        : false;
-      if (hasFileOrImage) return;
 
       const handled = handlePasteFlow({ preserveLinkedEdges });
       if (handled) {
@@ -7148,8 +7480,13 @@ function FlowInner() {
     if (prevProjectIdRef.current && prevProjectIdRef.current !== projectId) {
       setNodes([]);
       setEdges([]);
+      flowHydratePaintTokenRef.current += 1;
+      flowHydratePaintPendingRef.current = null;
       hasHydratedFlowRef.current = false;
       lastSyncedJSONRef.current = null;
+      projectLoadDebug.mark(projectId, "flow cleared previous project", {
+        previousProjectId: prevProjectIdRef.current,
+      });
     }
     prevProjectIdRef.current = projectId ?? null;
   }, [projectId, setNodes, setEdges]);
@@ -7158,13 +7495,45 @@ function FlowInner() {
   React.useEffect(() => {
     if (!projectId || !hydrated) return;
     if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
+    const isInitialFlowHydrate = !hasHydratedFlowRef.current;
+    const effectStartedAt = projectLoadNow();
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
+    const queueInitialFlowPaintReady = () => {
+      if (!isInitialFlowHydrate) return;
+      const token = flowHydratePaintTokenRef.current + 1;
+      flowHydratePaintTokenRef.current = token;
+      flowHydratePaintPendingRef.current = {
+        token,
+        projectId,
+        startedAt: effectStartedAt,
+        paintWaitStartedAt: projectLoadNow(),
+        inputNodes: ns.length,
+        inputEdges: es.length,
+      };
+    };
+    queueInitialFlowPaintReady();
+    const incomingSignatureStartedAt = projectLoadNow();
     const incomingSignature = getFlowSnapshotSignature(ns, es);
+    const incomingSignatureMs = projectLoadNow() - incomingSignatureStartedAt;
+    const localSignatureStartedAt = projectLoadNow();
+    const localNodesSnapshot = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
+    const localEdgesSnapshot = rfEdgesToTplEdges(edgesRef.current as any);
     const localSignature = getFlowSnapshotSignature(
-      rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true }),
-      rfEdgesToTplEdges(edgesRef.current as any)
+      localNodesSnapshot,
+      localEdgesSnapshot
     );
+    const localSignatureMs = projectLoadNow() - localSignatureStartedAt;
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow hydrate compare", {
+        incomingNodes: ns.length,
+        incomingEdges: es.length,
+        localNodes: nodesRef.current.length,
+        localEdges: edgesRef.current.length,
+        incomingSignatureMs: Number(incomingSignatureMs.toFixed(1)),
+        localSignatureMs: Number(localSignatureMs.toFixed(1)),
+      });
+    }
     if (
       incomingSignature &&
       localSignature &&
@@ -7172,10 +7541,33 @@ function FlowInner() {
     ) {
       lastSyncedJSONRef.current = incomingSignature;
       hasHydratedFlowRef.current = true;
+      if (isInitialFlowHydrate) {
+        projectLoadDebug.mark(projectId, "flow hydrate skipped same signature", {
+          incomingNodes: ns.length,
+          incomingEdges: es.length,
+          durationMs: Number((projectLoadNow() - effectStartedAt).toFixed(1)),
+        });
+      }
       return;
     }
     hydratingFromStoreRef.current = true;
+    const convertNodesStartedAt = projectLoadNow();
     const nextNodes = tplNodesToRfNodes(ns);
+    const convertNodesMs = projectLoadNow() - convertNodesStartedAt;
+    const convertEdgesStartedAt = projectLoadNow();
+    const nextEdges = tplEdgesToRfEdges(es);
+    const convertEdgesMs = projectLoadNow() - convertEdgesStartedAt;
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow template converted", {
+        incomingNodes: ns.length,
+        incomingEdges: es.length,
+        nextNodes: nextNodes.length,
+        nextEdges: nextEdges.length,
+        convertNodesMs: Number(convertNodesMs.toFixed(1)),
+        convertEdgesMs: Number(convertEdgesMs.toFixed(1)),
+      });
+    }
+    const setStateStartedAt = projectLoadNow();
     setNodes((prev) => {
       const prevMap = new Map(
         (prev as RFNode[]).map((node) => [node.id, node])
@@ -7193,7 +7585,17 @@ function FlowInner() {
         } as RFNode;
       });
     });
-    setEdges(tplEdgesToRfEdges(es));
+    setEdges(nextEdges);
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow setNodes/setEdges scheduled", {
+        inputNodes: ns.length,
+        inputEdges: es.length,
+        nextNodes: nextNodes.length,
+        nextEdges: nextEdges.length,
+        setStateScheduleMs: Number((projectLoadNow() - setStateStartedAt).toFixed(1)),
+        durationMs: Number((projectLoadNow() - effectStartedAt).toFixed(1)),
+      });
+    }
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
     lastSyncedJSONRef.current = incomingSignature;
     hasHydratedFlowRef.current = true;
@@ -7298,15 +7700,18 @@ function FlowInner() {
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
-  const isLargeGraphForMiniMapImageOverlay =
-    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD;
+  const shouldHideMiniMapDuringViewportInteraction =
+    nodes.length > FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
   const [isFlowLowDetailMode, setIsFlowLowDetailMode] = React.useState(false);
   const [isCanvasZooming, setIsCanvasZooming] = React.useState(false);
+  const [isCanvasPanning, setIsCanvasPanning] = React.useState(false);
+  const [isCanvasObjectMoving, setIsCanvasObjectMoving] = React.useState(false);
   const flowLowDetailModeRef = React.useRef(false);
   const canvasZoomIdleTimerRef = React.useRef<number | null>(null);
+  const canvasPanIdleTimerRef = React.useRef<number | null>(null);
   const canvasZoomRef = React.useRef(useCanvasStore.getState().zoom);
   const canvasPanRef = React.useRef({
     panX: useCanvasStore.getState().panX,
@@ -7315,15 +7720,24 @@ function FlowInner() {
   const zoomFpsActiveUntilRef = React.useRef(0);
   const canvasPanFpsActiveUntilRef = React.useRef(0);
   const isCanvasZoomingRef = React.useRef(false);
+  const isCanvasPanningRef = React.useRef(false);
+  const hasRunningFlowNodeRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
-    () =>
-      nodes.some((node) => {
+    () => {
+      if (nodeDraggingRef.current) {
+        return hasRunningFlowNodeRef.current;
+      }
+
+      const next = nodes.some((node) => {
         const data = (node as any)?.data;
         if (!data || typeof data !== "object") return false;
         const status =
           typeof data.status === "string" ? data.status.toLowerCase() : "";
         return status === "running" || data.groupRunning === true;
-      }),
+      });
+      hasRunningFlowNodeRef.current = next;
+      return next;
+    },
     [nodes]
   );
 
@@ -7412,6 +7826,12 @@ function FlowInner() {
         canvasZoomIdleTimerRef.current = null;
       }
     };
+    const clearCanvasPanIdleTimer = () => {
+      if (canvasPanIdleTimerRef.current !== null) {
+        window.clearTimeout(canvasPanIdleTimerRef.current);
+        canvasPanIdleTimerRef.current = null;
+      }
+    };
 
     const markCanvasZooming = (nextZoomRaw: number) => {
       const nextZoom =
@@ -7468,6 +7888,18 @@ function FlowInner() {
           : Date.now();
       canvasPanFpsActiveUntilRef.current = now + 700;
       canvasPanRef.current = { panX: nextPanX, panY: nextPanY };
+      if (!isCanvasPanningRef.current) {
+        isCanvasPanningRef.current = true;
+        setIsCanvasPanning(true);
+      }
+      clearCanvasPanIdleTimer();
+      canvasPanIdleTimerRef.current = window.setTimeout(() => {
+        canvasPanIdleTimerRef.current = null;
+        if (isCanvasPanningRef.current) {
+          isCanvasPanningRef.current = false;
+          setIsCanvasPanning(false);
+        }
+      }, 180);
     };
 
     const initialCanvasState = useCanvasStore.getState();
@@ -7495,14 +7927,48 @@ function FlowInner() {
       unsubscribePanX();
       unsubscribePanY();
       clearCanvasZoomIdleTimer();
+      clearCanvasPanIdleTimer();
       isCanvasZoomingRef.current = false;
+      isCanvasPanningRef.current = false;
       setIsCanvasZooming(false);
+      setIsCanvasPanning(false);
     };
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof document === "undefined" || typeof MutationObserver === "undefined") {
+      return;
+    }
+    const syncCanvasObjectMoving = () => {
+      const classList = document.body.classList;
+      setIsCanvasObjectMoving(
+        classList.contains("tanva-image-dragging") ||
+          classList.contains("tanva-selection-dragging") ||
+          classList.contains("tanva-canvas-dragging")
+      );
+    };
+
+    syncCanvasObjectMoving();
+    const observer = new MutationObserver(syncCanvasObjectMoving);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
   }, []);
 
   const effectiveFlowLowDetailMode =
     isFlowLowDetailMode &&
     !hasRunningFlowNode;
+  const isFlowViewportInteracting =
+    isCanvasZooming || isCanvasPanning || isNodeDragging || isCanvasObjectMoving;
+  const isFlowSoftDetailInteraction =
+    isCanvasZooming || isCanvasPanning || isCanvasObjectMoving || isNodeDragging;
+  const effectiveFlowInteractionSoftDetailMode =
+    !hasRunningFlowNode &&
+    !effectiveFlowLowDetailMode &&
+    nodes.length >= FLOW_INTERACTION_SOFT_DETAIL_NODE_THRESHOLD &&
+    isFlowSoftDetailInteraction;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
@@ -7510,6 +7976,12 @@ function FlowInner() {
     }),
     [effectiveFlowLowDetailMode]
   );
+  const shouldRenderMiniMap =
+    !effectiveFlowLowDetailMode &&
+    !(
+      shouldHideMiniMapDuringViewportInteraction &&
+      isFlowViewportInteracting
+    );
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -8298,17 +8770,36 @@ function FlowInner() {
     ]
   );
 
-  const exportFlow = React.useCallback(async () => {
+  const exportFlowTemplate = React.useCallback(async (
+    nodesToExport: RFNode[],
+    edgesToExport: Edge[],
+    options?: {
+      namePrefix?: string;
+      downloadPrefix?: string;
+      emptyMessage?: string;
+    }
+  ) => {
     if (isExporting) return;
+    if (!nodesToExport.length) {
+      const message = options?.emptyMessage || "没有可导出的节点";
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type: "error" },
+        })
+      );
+      return;
+    }
     setIsExporting(true);
 
     try {
       const templateId = `tpl_${Date.now()}`;
-      const templateName = `导出模板_${new Date().toLocaleString()}`;
+      const templateName = `${
+        options?.namePrefix || "导出模板"
+      }_${new Date().toLocaleString()}`;
 
       // 处理节点数据：模板导出仅保留稳定的 imageUrl / imageUrls（避免 base64 过大）
       const processedNodes = await Promise.all(
-        nodes.map(async (n) => {
+        nodesToExport.map(async (n) => {
           const data = cleanNodeData(n.data);
           const nodeType = String(n.type || "");
 
@@ -8475,7 +8966,7 @@ function FlowInner() {
         id: templateId,
         name: templateName,
         nodes: processedNodes,
-        edges: edges.map((e) => ({
+        edges: edgesToExport.map((e) => ({
           id: e.id,
           source: e.source,
           target: e.target,
@@ -8491,7 +8982,9 @@ function FlowInner() {
       const a = document.createElement("a");
       const blobUrl = URL.createObjectURL(blob);
       a.href = blobUrl;
-      a.download = `tanva-template-${Date.now()}.json`;
+      a.download = `${
+        options?.downloadPrefix || "tanva-template"
+      }-${Date.now()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
     } catch (err) {
@@ -8501,8 +8994,6 @@ function FlowInner() {
       setIsExporting(false);
     }
   }, [
-    nodes,
-    edges,
     cleanNodeData,
     getHistoryRemoteUrlForNode,
     isExporting,
@@ -8511,6 +9002,49 @@ function FlowInner() {
     normalizeStableRemoteUrl,
     uploadImageToStableUrl,
   ]);
+
+  const exportFlow = React.useCallback(async () => {
+    await exportFlowTemplate(nodes as RFNode[], edges, {
+      namePrefix: "导出模板",
+      downloadPrefix: "tanva-template",
+    });
+  }, [edges, exportFlowTemplate, nodes]);
+
+  const exportSelectedFlowNodes = React.useCallback(async () => {
+    const allNodes =
+      nodesRef.current.length > 0
+        ? nodesRef.current
+        : ((rf.getNodes?.() || []) as RFNode[]);
+    const selectedNodes = allNodes.filter((n: any) => n.selected);
+    const nodesToExport = expandFlowSelectionWithGroupChildren(
+      allNodes,
+      selectedNodes as RFNode[]
+    );
+
+    if (!nodesToExport.length) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先选中要导出的 Flow 节点", type: "error" },
+        })
+      );
+      return;
+    }
+
+    const idSet = new Set(nodesToExport.map((node) => String(node.id)));
+    const allEdges =
+      edgesRef.current.length > 0
+        ? edgesRef.current
+        : ((rf.getEdges?.() || []) as Edge[]);
+    const internalEdges = allEdges.filter(
+      (edge: any) =>
+        idSet.has(String(edge.source)) && idSet.has(String(edge.target))
+    );
+
+    await exportFlowTemplate(nodesToExport, internalEdges, {
+      namePrefix: "选中节点",
+      downloadPrefix: "tanva-selected-nodes",
+    });
+  }, [exportFlowTemplate, rf]);
 
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const handleImportClick = React.useCallback(() => {
@@ -8650,6 +9184,22 @@ function FlowInner() {
       );
     };
   }, [exportFlow]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      void exportSelectedFlowNodes();
+    };
+    window.addEventListener(
+      "flow:export-selected-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:export-selected-template-request",
+        handler as EventListener
+      );
+    };
+  }, [exportSelectedFlowNodes]);
 
   React.useEffect(() => {
     const handler = () => {
@@ -13846,6 +14396,7 @@ function FlowInner() {
         imageUrl?: string;
         label?: string;
         imageName?: string;
+        screenPosition?: { x?: number; y?: number };
       };
       const imageUrlForNode =
         typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
@@ -13854,12 +14405,27 @@ function FlowInner() {
       if (!imageUrlForNode && !imageDataForNode) return;
       const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
+      const detailScreenPosition =
+        detail?.screenPosition &&
+        Number.isFinite(detail.screenPosition.x) &&
+        Number.isFinite(detail.screenPosition.y)
+          ? {
+              x: Number(detail.screenPosition.x),
+              y: Number(detail.screenPosition.y),
+            }
+          : null;
       const screenPosition = {
-        x: (rect?.width || window.innerWidth) / 2 + (Math.random() * 120 - 60),
+        x:
+          detailScreenPosition?.x ??
+          (rect?.left || 0) +
+            (rect?.width || window.innerWidth) / 2 +
+            (Math.random() * 120 - 60),
         y:
-          (rect?.height || window.innerHeight) / 2 +
-          60 +
-          (Math.random() * 80 - 40),
+          detailScreenPosition?.y ??
+          (rect?.top || 0) +
+            (rect?.height || window.innerHeight) / 2 +
+            60 +
+            (Math.random() * 80 - 40),
       };
       const position = rf.screenToFlowPosition(screenPosition);
       const id = `img_${Date.now()}`;
@@ -14927,6 +15493,81 @@ function FlowInner() {
         }
 
         return { texts, hasEdge: true };
+      };
+
+      const resolvePromptMentionImagesForNode = async (
+        targetId: string,
+        limit: number
+      ): Promise<string[]> => {
+        if (limit <= 0) return [];
+        const textEdges = currentEdges.filter(
+          (e) => e.target === targetId && e.targetHandle === "text"
+        );
+        if (!textEdges.length) return [];
+
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const edge of textEdges) {
+          const promptNode = rf.getNode(edge.source);
+          if (!promptNode) continue;
+          const promptText =
+            resolveTextFromSourceNode(promptNode, edge.sourceHandle)?.trim() ||
+            "";
+          const mentions = normalizePromptImageMentions(
+            (promptNode.data as any)?.mentions
+          );
+          if (!mentions.length) continue;
+
+          for (const mention of mentions) {
+            if (mention.mediaType !== "image") continue;
+            if (mention.token && (!promptText || !promptText.includes(mention.token))) {
+              continue;
+            }
+
+            let resolved: string | null = null;
+            if (mention.source === "flow") {
+              const sourceNodeId = mention.ref?.nodeId;
+              const sourceNode = sourceNodeId ? rf.getNode(sourceNodeId) : null;
+              if (sourceNode) {
+                resolved = await resolveNodeImageToDataUrl(
+                  sourceNode as any,
+                  mention.ref?.handle,
+                  new Set()
+                );
+              }
+            } else {
+              const directRef =
+                typeof mention.ref?.url === "string" && mention.ref.url.trim()
+                  ? mention.ref.url.trim()
+                  : typeof mention.ref?.key === "string" && mention.ref.key.trim()
+                  ? mention.ref.key.trim()
+                  : "";
+              resolved =
+                (directRef && !isRemoteUrl(directRef)
+                  ? resolvePublicAssetUrlFromKey(directRef) || directRef
+                  : directRef) || null;
+            }
+
+            const normalized = typeof resolved === "string" ? resolved.trim() : "";
+            if (!normalized || seen.has(normalized)) continue;
+            seen.add(normalized);
+            out.push(normalized);
+            if (out.length >= limit) return out;
+          }
+        }
+        return out;
+      };
+
+      const dedupeImageRefs = (values: string[]): string[] => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const value of values) {
+          const trimmed = typeof value === "string" ? value.trim() : "";
+          if (!trimmed || seen.has(trimmed)) continue;
+          seen.add(trimmed);
+          out.push(trimmed);
+        }
+        return out;
       };
 
       // Wan2.6 节点处理逻辑
@@ -20638,6 +21279,30 @@ function FlowInner() {
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
+      if (
+        node.type === "generate" ||
+        node.type === "generate4" ||
+        node.type === "generatePro" ||
+        node.type === "generatePro4"
+      ) {
+        const remainingMentionSlots = Math.max(
+          0,
+          maxFlowReferenceImages - imageDatas.length
+        );
+        if (remainingMentionSlots > 0) {
+          const mentionImageDatas = await resolvePromptMentionImagesForNode(
+            nodeId,
+            remainingMentionSlots
+          );
+          if (mentionImageDatas.length > 0) {
+            imageDatas = dedupeImageRefs([
+              ...imageDatas,
+              ...mentionImageDatas,
+            ]).slice(0, maxFlowReferenceImages);
+          }
+        }
+      }
+
       // 运行时图片输入归一化（优先走 sourceImageUrl，避免大体积 sourceImage 触发上游 500）：
       // - 仅当已是后端可直连的 HTTPS 资源时直传；
       // - 其余（代理 URL、key、data/blob/flow-asset、裸 base64）统一先上传 OSS，失败即中断。
@@ -22867,7 +23532,12 @@ function FlowInner() {
     map: Map<string, string>;
   }>({ signature: "", map: new Map() });
 
+  const collapsedGroupsSignatureRef = React.useRef("");
   const collapsedGroupsSignature = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return collapsedGroupsSignatureRef.current;
+    }
+
     const parts: string[] = [];
     nodes.forEach((node) => {
       if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
@@ -22878,7 +23548,9 @@ function FlowInner() {
       parts.push(`${groupId}:${childIds.join(",")}`);
     });
     parts.sort();
-    return parts.join("|");
+    const signature = parts.join("|");
+    collapsedGroupsSignatureRef.current = signature;
+    return signature;
   }, [nodes]);
 
   const collapsedChildToGroupId = React.useMemo(() => {
@@ -22911,7 +23583,12 @@ function FlowInner() {
     [collapsedChildToGroupId]
   );
 
+  const groupPreviewImagesCacheRef = React.useRef<Map<string, string[]>>(new Map());
   const groupPreviewImagesByGroupId = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return groupPreviewImagesCacheRef.current;
+    }
+
     const nodeById = new Map(nodes.map((node) => [node.id, node as RFNode]));
     const previews = new Map<string, string[]>();
 
@@ -22937,6 +23614,7 @@ function FlowInner() {
       previews.set(String(node.id), images);
     });
 
+    groupPreviewImagesCacheRef.current = previews;
     return previews;
   }, [nodes]);
 
@@ -23162,8 +23840,12 @@ function FlowInner() {
   );
 
   const nodesForRender = React.useMemo(
-    () =>
-      nodesWithHandlers.map((node) => {
+    () => {
+      if (collapsedChildNodeIds.size === 0) {
+        return nodesWithHandlers;
+      }
+
+      return nodesWithHandlers.map((node) => {
         if (!collapsedChildNodeIds.has(node.id)) return node;
         return {
           ...node,
@@ -23172,7 +23854,8 @@ function FlowInner() {
           draggable: false,
           selectable: false,
         };
-      }),
+      });
+    },
     [nodesWithHandlers, collapsedChildNodeIds]
   );
 
@@ -23271,6 +23954,65 @@ function FlowInner() {
     () => edgesForRender,
     [edgesForRender]
   );
+
+  React.useEffect(() => {
+    const pending = flowHydratePaintPendingRef.current;
+    if (!pending || pending.paintScheduled) return;
+    if (!projectId || pending.projectId !== projectId || !hydrated) return;
+    const hasExpectedFlowState =
+      nodesRef.current.length >= pending.inputNodes &&
+      edgesRef.current.length >= pending.inputEdges;
+    if (!hasExpectedFlowState) return;
+
+    pending.paintScheduled = true;
+    pending.paintWaitStartedAt = projectLoadNow();
+    const token = pending.token;
+
+    void (async () => {
+      await waitForProjectLoadPaint();
+      const latest = flowHydratePaintPendingRef.current;
+      if (!latest || latest.token !== token || latest.projectId !== projectId) {
+        return;
+      }
+
+      projectLoadDebug.mark(projectId, "flow first paint after hydrate", {
+        inputNodes: latest.inputNodes,
+        inputEdges: latest.inputEdges,
+        rfNodes: nodesRef.current.length,
+        rfEdges: edgesRef.current.length,
+        renderNodes: nodesForRender.length,
+        renderEdges: edgesForInteraction.length,
+        onlyRenderVisibleElements: effectiveOnlyRenderVisibleElements,
+        durationMs: Number((projectLoadNow() - latest.startedAt).toFixed(1)),
+        paintWaitMs: Number((projectLoadNow() - latest.paintWaitStartedAt).toFixed(1)),
+      });
+      await waitForProjectLoadInteractive();
+      const readyLatest = flowHydratePaintPendingRef.current;
+      if (!readyLatest || readyLatest.token !== token || readyLatest.projectId !== projectId) {
+        return;
+      }
+      projectLoadDebug.mark(projectId, "flow interactive after hydrate", {
+        inputNodes: readyLatest.inputNodes,
+        inputEdges: readyLatest.inputEdges,
+        rfNodes: nodesRef.current.length,
+        rfEdges: edgesRef.current.length,
+        renderNodes: nodesForRender.length,
+        renderEdges: edgesForInteraction.length,
+        durationMs: Number((projectLoadNow() - readyLatest.startedAt).toFixed(1)),
+      });
+      const contentStore = useProjectContentStore.getState();
+      if (contentStore.projectId === projectId) {
+        contentStore.setProjectViewReady(true);
+      }
+      flowHydratePaintPendingRef.current = null;
+    })();
+  }, [
+    projectId,
+    hydrated,
+    nodesForRender,
+    edgesForInteraction,
+    effectiveOnlyRenderVisibleElements,
+  ]);
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -23831,16 +24573,23 @@ function FlowInner() {
             大图模式已自动关闭吸附对齐
           </span>
         )}
-        {isLargeGraphForMiniMapImageOverlay && (
-          <span style={{ fontSize: 12, color: "#6b7280" }}>
-            大图模式已自动关闭 MiniMap 图片层
-          </span>
-        )}
         {effectiveFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
-            低缩放已隐藏连线与 MiniMap（节点 UI 保留）
+            低缩放已隐藏连线与 MiniMap，并使用轻量节点
           </span>
         )}
+        {effectiveFlowInteractionSoftDetailMode && (
+          <span style={{ fontSize: 12, color: "#4b5563" }}>
+            大图交互中已隐藏连接句柄圆点
+          </span>
+        )}
+        {!effectiveFlowLowDetailMode &&
+          shouldHideMiniMapDuringViewportInteraction &&
+          isFlowViewportInteracting && (
+            <span style={{ fontSize: 12, color: "#4b5563" }}>
+              超过 80 节点，移动/缩放中已临时隐藏 MiniMap
+            </span>
+          )}
         <label
           style={{
             display: "flex",
@@ -24578,6 +25327,10 @@ function FlowInner() {
           isFlowEdgeEraserActive ? "eraser-mode" : ""
         } ${
           effectiveFlowLowDetailMode ? "low-detail-mode" : ""
+        } ${
+          effectiveFlowInteractionSoftDetailMode
+            ? "interaction-soft-detail-mode"
+            : ""
         }`}
         onDoubleClick={handleContainerDoubleClick}
         onPointerDownCapture={() => clipboardService.setActiveZone("flow")}
@@ -24818,12 +25571,11 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {!effectiveFlowLowDetailMode && (
+        {shouldRenderMiniMap && (
           <>
             {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
             <MiniMap pannable={false} zoomable={false} />
-            {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
-            {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
+            <MiniMapImageOverlay />
           </>
         )}
       </ReactFlow>

@@ -49,11 +49,15 @@ type ProjectContentState = {
   lastError: string | null;
   lastWarning: string | null;
   hydrated: boolean;
+  cacheValidationPending: boolean;
+  projectViewReady: boolean;
   setProject: (projectId: string | null) => void;
   hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null) => void;
   updatePartial: (partial: Partial<ProjectContentSnapshot>, options?: UpdateOptions) => void;
   setSaving: (saving: boolean) => void;
   setManualSaving: (saving: boolean) => void;
+  setCacheValidationPending: (pending: boolean) => void;
+  setProjectViewReady: (ready: boolean) => void;
   markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
   setError: (error: string | null) => void;
   setWarning: (warning: string | null) => void;
@@ -61,7 +65,7 @@ type ProjectContentState = {
 };
 
 const createInitialState = (): Omit<ProjectContentState,
-  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
+  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'setCacheValidationPending' | 'setProjectViewReady' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
   projectId: null,
   content: null,
   version: 1,
@@ -74,6 +78,8 @@ const createInitialState = (): Omit<ProjectContentState,
   lastError: null,
   lastWarning: null,
   hydrated: false,
+  cacheValidationPending: false,
+  projectViewReady: false,
 });
 
 export const useProjectContentStore = create<ProjectContentState>((set) => ({
@@ -98,6 +104,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       lastError: null,
       lastWarning: null,
       hydrated: true,
+      projectViewReady: false,
     }));
   },
   updatePartial: (partial, options) => {
@@ -149,6 +156,8 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
   },
   setSaving: (saving) => set({ saving }),
   setManualSaving: (manualSaving) => set({ manualSaving }),
+  setCacheValidationPending: (cacheValidationPending) => set({ cacheValidationPending }),
+  setProjectViewReady: (projectViewReady) => set({ projectViewReady }),
   markSaved: (version, savedAt, savedAtCounter?: number) => {
     set((state) => {
       // 如果提供了 savedAtCounter，检查保存期间是否有新修改

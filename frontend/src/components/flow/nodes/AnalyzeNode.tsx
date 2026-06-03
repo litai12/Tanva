@@ -129,6 +129,65 @@ type ConnectedInput = { kind: 'crop'; crop: CropInfo } | { kind: 'base'; baseRef
 type ConnectedInputPreview = { id: string; baseRef: string; crop?: CropInfo };
 const MAX_INPUT_PREVIEWS = 6;
 
+const areRectValuesEqual = (
+  a?: { x: number; y: number; width: number; height: number },
+  b?: { x: number; y: number; width: number; height: number }
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+};
+
+const areCropInfosEqual = (a?: CropInfo, b?: CropInfo): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.baseRef === b.baseRef &&
+    a.sourceWidth === b.sourceWidth &&
+    a.sourceHeight === b.sourceHeight &&
+    areRectValuesEqual(a.rect, b.rect)
+  );
+};
+
+const areConnectedInputPreviewsEqual = (
+  a: ConnectedInputPreview[],
+  b: ConnectedInputPreview[]
+): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.baseRef !== right.baseRef ||
+      !areCropInfosEqual(left.crop, right.crop)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const areEdgesEqual = (a: Edge[], b: Edge[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.source !== right.source ||
+      left.target !== right.target ||
+      left.sourceHandle !== right.sourceHandle ||
+      left.targetHandle !== right.targetHandle
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 function InputImageCropThumb({
   src,
   crop,
@@ -344,7 +403,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
             (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
         ),
       [id]
-    )
+    ),
+    areEdgesEqual
   );
   const connectedInputPreviews = useStore(
     React.useCallback(
@@ -538,7 +598,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         return out.slice(0, MAX_INPUT_PREVIEWS);
       },
       [id]
-    )
+    ),
+    areConnectedInputPreviewsEqual
   );
 
   const fallbackRaw = React.useMemo(() => (data.imageData || data.imageUrl)?.trim() || '', [data.imageData, data.imageUrl]);
@@ -1244,7 +1305,7 @@ Use an empty string or empty array when a field cannot be determined.`
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontWeight: 600, color: shell.color }}>Image Chat</div>
+          <div className='tanva-flow-node-title' style={{ fontWeight: 600, color: shell.color }}>Image Chat</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

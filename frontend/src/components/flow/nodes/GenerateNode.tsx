@@ -86,6 +86,43 @@ const buildImageSrc = (value?: string): string | undefined => {
 
 const EMPTY_CONNECTED_INPUT_IMAGES: ConnectedInputImage[] = [];
 
+const areConnectedCropsEqual = (
+  a?: ConnectedInputImage["crop"],
+  b?: ConnectedInputImage["crop"]
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.sourceWidth === b.sourceWidth &&
+    a.sourceHeight === b.sourceHeight
+  );
+};
+
+const areConnectedInputImagesEqual = (
+  a: ConnectedInputImage[],
+  b: ConnectedInputImage[]
+): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.imageData !== right.imageData ||
+      left.thumbnailData !== right.thumbnailData ||
+      !areConnectedCropsEqual(left.crop, right.crop)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 type OrderedInputEdge = {
   edge: ReactFlowState["edges"][number];
   index: number;
@@ -539,6 +576,8 @@ function GenerateNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
+  const presetPromptInputRef = React.useRef<HTMLInputElement | null>(null);
+  const isPresetPromptEditable = selected === true;
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -613,7 +652,8 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         return out;
       },
       [id, maxInputPreviews]
-    )
+    ),
+    areConnectedInputImagesEqual
   );
 
   const updateAspectRatio = React.useCallback(
@@ -765,6 +805,16 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
+  React.useEffect(() => {
+    if (isPresetPromptEditable) return;
+    if (
+      presetPromptInputRef.current &&
+      document.activeElement === presetPromptInputRef.current
+    ) {
+      presetPromptInputRef.current.blur();
+    }
+  }, [isPresetPromptEditable]);
+
   const updateImageSize = React.useCallback(
     (size: string) => {
       window.dispatchEvent(
@@ -859,7 +909,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontWeight: 600 }}>Generate</div>
+          <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>Generate</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -1013,7 +1063,10 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           {lt("预设提示词", "Preset prompt")}
         </label>
         <input
+          ref={presetPromptInputRef}
           value={presetPromptValue}
+          readOnly={!isPresetPromptEditable}
+          tabIndex={isPresetPromptEditable ? 0 : -1}
           onChange={(event) => updatePresetPrompt(event.target.value)}
           placeholder={lt('生成时自动拼接在提示词前', 'Auto-prepended before the prompt during generation')}
           style={{
@@ -1024,6 +1077,8 @@ function GenerateNodeInner({ id, data, selected }: Props) {
             border: "1px solid #e5e7eb",
             outline: "none",
             background: "#fff",
+            pointerEvents: isPresetPromptEditable ? "auto" : "none",
+            cursor: isPresetPromptEditable ? "text" : "default",
           }}
           onPointerDownCapture={stopNodeDrag}
           onPointerDown={stopNodeDrag}

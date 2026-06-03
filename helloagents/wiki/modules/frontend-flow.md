@@ -1,4 +1,31 @@
+## 2026-06-03 Prompt Mention Image Sources
+- `TextPromptNode` 的 `@` 菜单现在支持三类图片来源：当前工作流参考图、当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片。
+- Prompt 节点会把选择结果保存到结构化 `data.mentions`，文本里仍插入可读 token（如 `@图1` / `@项目图1` / `@资产1`）。已选引用在输入区渲染为带图片图标的 chip；Backspace/Delete 命中 chip 时按整个 token 删除，并同步清理对应 mention，避免隐藏引用残留。
+- `FlowOverlay` 在运行 `generate` / `generate4` / `generatePro` / `generatePro4` 时，会从连接的 Prompt 节点读取仍存在于文本中的 image mentions，并与图片输入边合并、去重、按模型参考图上限截断；项目库/个人库只保存并传递远程 URL/路径引用，不把 inline 图片写入设计 JSON。
+
+## 2026-06-03 Image Input Target Preference
+- `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.
+- Workspace AI settings can route external image paste, drag/drop, and picker upload into Flow Image nodes (`imageInputTarget = "node"`). Canvas-first remains the default and keeps direct canvas insertion.
+
+## 2026-06-03 Dense Flow MiniMap Interaction Hide
+- Project opening now treats Flow's first post-hydrate paint plus an idle/stabilization window as the workspace-ready signal. `FlowOverlay` queues a paint check after initial Flow hydrate, emits project-load debug timing, and sets `projectContentStore.projectViewReady` so `/app` can keep the full-screen loading overlay visible through dense graph first render and immediate post-paint settling.
+- MiniMap stays visible while idle. Flow graphs with more than 80 nodes temporarily unmount MiniMap only during pan/zoom/object movement or node drag, then restore after the interaction becomes idle.
+- Dense Flow node dragging now also enters interaction soft-detail mode. During that mode the real nodes, controls, edges, and resize affordances remain rendered, while only the visible connection-handle dots are hidden.
+- Image-preview-heavy nodes (`Generate`, `GeneratePro`, `Analyze`, `Image`) now use stable selector equality for connected image/crop previews, reducing unrelated rerenders from position-only Flow store updates during node drag.
+- Single-node drag skips position-only derived scans for selected viewport anchors, node-removal polling cleanup, collapsed-group signatures, group preview images, and running-node detection. When no group is collapsed, `nodesForRender` reuses `nodesWithHandlers` instead of mapping every node per drag frame.
+
+## 2026-06-03 Flow Soft Detail Prompt Title
+- `TextPromptNode` title now uses the shared `.tanva-flow-node-title` marker, so dense-graph pan/zoom soft-detail mode keeps the Prompt node title visible while hiding only the visible connection-handle dots.
+
+## 2026-06-03 Flow Selection JSON Export
+- Blank-canvas context menu now exposes `导出选中节点 JSON`, dispatching `flow:export-selected-template-request` to export the currently selected Flow nodes plus only their internal edges. The export path reuses the existing Flow template serialization/image-cleanup rules, so imported partial graphs stay compatible with the current JSON import flow.
+
+## 2026-06-03 Prompt Focus Guard
+- Prompt and Prompt Pro textareas are interactive only after their node is selected. In the unselected preview state, the textarea drops `nodrag/nopan`, disables pointer/focus entry, blurs any stale focus, and lets canvas/node drag gestures pass through instead of being swallowed by the editor.
+- Generate node preset-prompt input follows the same selected-only editing rule: unselected nodes render the input as a pointer-transparent preview and blur stale focus; selected nodes restore normal text editing and node-drag suppression.
+
 ## 2026-05-14 Seed3D ZIP Preview Follow-up
+- Flow zoom performance: `flow-settings` v4 defaults `onlyRenderVisibleElements` to `false` again to avoid ReactFlow node remount spikes when panning/zooming into dense graphs. Automatic low-zoom hard degradation is disabled for readability; dense pan/zoom/node-drag interactions use a CSS soft-detail state that keeps real nodes, text, inputs, media previews, controls, resize affordances, and edges mounted while hiding only the visible connection-handle dots. Flow also uses bounded viewport-near remote image prewarming instead of eager-loading every canvas image, so nodes approaching the viewport are more likely to have completed image decode/texture upload without creating full-graph network and memory pressure.
 - Seed3D now attempts inline preview for .zip outputs by extracting the archive client-side and loading the first previewable glb/gltf model.
 - Seed3D Send remains disabled until the preview renderer has actually loaded a model, preventing blank sends.
 - Seed3D download file naming now follows detected blob type / URL extension (for example .zip, .glb, .gltf) instead of always forcing .glb.
@@ -6,6 +33,7 @@
 # 鍓嶇妯″潡锛欶low锛坒rontend-flow锟? 
 
 ## 2026-05-14 Update
+- MiniMap now unmounts while the canvas is panning/zooming, canvas objects are moving, or a Flow node is being dragged, then restores shortly after interaction idle, reducing ReactFlow overview SVG work during high-frequency viewport updates.
 - `Seed3D` 鑺傜偣鐜板湪浼氭牴鎹ā鍨?URL 鍚庣紑鍖哄垎鈥滃彲鍦ㄧ嚎棰勮鈥濅笌鈥滀粎鍙笅杞解€濓細
   - `.glb/.gltf` 缁х画璧板唴宓?Three.js 棰勮锛?  - `.zip` 涓庡叾浠栭潪棰勮鏍煎紡浼氭樉绀烘槑纭彁绀猴紙鍙笅杞戒絾涓嶅彲鍐呭祵棰勮锛夈€?- `Seed3D` 涓嬭浇鏂囦欢鍚嶆敼涓烘寜鐪熷疄璧勬簮鍚庣紑鐢熸垚锛屼笉鍐嶅浐瀹氫繚瀛樹负 `.glb`锛堥伩鍏?ZIP 缁撴灉涓嬭浇鍚庢墿灞曞悕閿欒锛夈€?- `Seed3D` 棰勮鍔犺浇澶辫触淇℃伅鏀逛负鎼哄甫鍏蜂綋閿欒鍘熷洜锛屽苟鍦ㄩ潪棰勮鏍煎紡鏃剁鐢?`Send`锛岄伩鍏嶁€滄ā鍨嬩笉鍙浣嗕粛鍙彂閫佲€濈殑璇浜や簰銆?- Flow `seedanceModel` 褰掍竴鍖栬ˉ榻?`seed-2.0-pro / seed-2.0-lite / seed-2.0-mini`锛屼笉鍐嶆妸 `pro/mini` 璇洖閫€涓?`seedance-1.5-pro`銆?- `seedVideo/seedance20Video` 杩愯璇锋眰浼氭寜鑺傜偣瀹為檯妯″瀷鍊奸€忎紶 `seedanceModel`锛岄伩鍏嶅嚭鐜扳€淯I 閫?2.0 Pro锛屽悗绔疄闄呮彁浜?1.5 Pro鈥濄€?
 ## 2026-05-12 Update

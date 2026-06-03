@@ -3,10 +3,11 @@ import type { SiblingImage } from '../hooks/usePromptSiblingImages';
 
 type Props = {
   images: SiblingImage[];
-  onInsert: (text: string) => void;
+  onInsert?: (text: string) => void;
+  onImageSelect?: (image: SiblingImage) => void;
 };
 
-export default function PromptImageStrip({ images, onInsert }: Props) {
+export default function PromptImageStrip({ images, onInsert, onImageSelect }: Props) {
   if (images.length === 0) return null;
 
   return (
@@ -21,7 +22,11 @@ export default function PromptImageStrip({ images, onInsert }: Props) {
           onMouseDownCapture={(e) => { e.stopPropagation(); }}
           onClick={(e) => {
             e.stopPropagation();
-            onInsert(`@图${img.index}`);
+            if (onImageSelect) {
+              onImageSelect(img);
+              return;
+            }
+            onInsert?.(`@图${img.index}`);
           }}
         >
           <img

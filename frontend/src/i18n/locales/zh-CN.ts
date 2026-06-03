@@ -321,6 +321,14 @@ const zhCN = {
           directLabel: "反转模式",
           directDesc: "滚轮缩放，Ctrl/Cmd + 滚轮上下移动",
         },
+        imageInputTarget: {
+          title: "图片输入方式",
+          desc: "控制复制、拖拽和上传图片时的默认去向。",
+          canvasLabel: "画布优先",
+          canvasDesc: "外部图片直接放到画布中。",
+          nodeLabel: "节点优先",
+          nodeDesc: "外部图片自动创建 Image 节点。",
+        },
         provider: {
           title: "AI 提供商",
           banana: "Pro版（Nano Banana Pro+Gemini 3.0）",

@@ -1,22 +1,216 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import { Image as ImageIcon } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
 import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
+import { useProjectContentStore } from '@/stores/projectContentStore';
+import {
+  globalImageHistoryApi,
+  type GlobalImageHistoryItem,
+} from '@/services/globalImageHistoryApi';
+import { getGlobalHistoryMediaType } from '@/components/global-history/historyMedia';
+import { personalLibraryApi } from '@/services/personalLibraryApi';
+import {
+  usePersonalLibraryStore,
+  type PersonalImageAsset,
+} from '@/stores/personalLibraryStore';
+import {
+  normalizePromptImageMentions,
+  type PromptImageMention,
+  type PromptMentionSource,
+} from '../types';
 
 type Props = {
   id: string;
-  data: { text?: string; boxW?: number; boxH?: number; title?: string };
+  data: {
+    text?: string;
+    mentions?: PromptImageMention[];
+    boxW?: number;
+    boxH?: number;
+    title?: string;
+  };
   selected?: boolean;
 };
 
 const DEFAULT_TITLE = 'Prompt';
 const MIN_NODE_WIDTH = 180;
 const MIN_NODE_HEIGHT = 120;
+type MentionTab = 'flow' | 'project-library' | 'personal-library';
+
+type MentionCandidate = {
+  id: string;
+  source: PromptMentionSource;
+  title: string;
+  subtitle?: string;
+  previewUrl: string;
+  tokenHint: string;
+  flowImage?: SiblingImage;
+  ref: PromptImageMention['ref'];
+};
+
+type MentionTokenRange = {
+  start: number;
+  end: number;
+  mention: PromptImageMention;
+};
+
+const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
+
+const isPromptMentionTokenBoundary = (text: string, token: string, startIndex: number): boolean => {
+  const lastTokenChar = token.charAt(token.length - 1);
+  const nextChar = text.charAt(startIndex + token.length);
+  return !(/\d/.test(lastTokenChar) && /\d/.test(nextChar));
+};
+
+const hasPromptMentionToken = (text: string, token: string): boolean => {
+  let index = text.indexOf(token);
+  while (index >= 0) {
+    if (isPromptMentionTokenBoundary(text, token, index)) return true;
+    index = text.indexOf(token, index + token.length);
+  }
+  return false;
+};
+
+const sanitizePromptMentionsForText = (
+  text: string,
+  mentions: PromptImageMention[]
+): PromptImageMention[] => {
+  if (!mentions.length) return [];
+  return mentions.filter((mention) => {
+    const token = typeof mention.token === 'string' ? mention.token.trim() : '';
+    return token.startsWith('@') && hasPromptMentionToken(text, token);
+  });
+};
+
+const arePromptMentionsEqual = (
+  left: PromptImageMention[],
+  right: PromptImageMention[]
+): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.id !== b.id ||
+      a.token !== b.token ||
+      a.label !== b.label ||
+      a.source !== b.source ||
+      a.ref.nodeId !== b.ref.nodeId ||
+      a.ref.handle !== b.ref.handle ||
+      a.ref.historyId !== b.ref.historyId ||
+      a.ref.assetId !== b.ref.assetId ||
+      a.ref.url !== b.ref.url
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const isUsableRemoteImageRef = (value?: string | null): value is string => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  return trimmed.startsWith('/') || trimmed.startsWith('projects/') || trimmed.startsWith('uploads/');
+};
+
+const getMentionTabLabel = (tab: MentionTab, lt: (zh: string, en: string) => string): string => {
+  if (tab === 'flow') return lt('工作流', 'Workflow');
+  if (tab === 'project-library') return lt('项目库', 'Project');
+  return lt('资产库', 'Assets');
+};
+
+const isResolvedMentionAt = (
+  text: string,
+  atIndex: number,
+  mentions: PromptImageMention[]
+): boolean => {
+  if (atIndex < 0 || mentions.length === 0) return false;
+  return mentions.some((mention) => {
+    const token = typeof mention.token === 'string' ? mention.token.trim() : '';
+    if (!token || !token.startsWith('@')) return false;
+    return text.startsWith(token, atIndex) && isPromptMentionTokenBoundary(text, token, atIndex);
+  });
+};
+
+const getPromptMentionTokenRanges = (
+  text: string,
+  mentions: PromptImageMention[]
+): MentionTokenRange[] => {
+  if (!text || mentions.length === 0) return [];
+  const usableMentions = mentions
+    .map((mention) => ({
+      mention,
+      token: typeof mention.token === 'string' ? mention.token.trim() : '',
+    }))
+    .filter((item) => item.token.startsWith('@'))
+    .sort((a, b) => b.token.length - a.token.length);
+  if (usableMentions.length === 0) return [];
+
+  const ranges: MentionTokenRange[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const match = usableMentions.find(
+      (item) =>
+        text.startsWith(item.token, index) &&
+        isPromptMentionTokenBoundary(text, item.token, index)
+    );
+    if (!match) {
+      index += 1;
+      continue;
+    }
+    ranges.push({
+      start: index,
+      end: index + match.token.length,
+      mention: match.mention,
+    });
+    index += match.token.length;
+  }
+  return ranges;
+};
+
+const getMentionDeletionRange = (
+  text: string,
+  mentions: PromptImageMention[],
+  selectionStart: number,
+  selectionEnd: number,
+  key: 'Backspace' | 'Delete'
+): { start: number; end: number } | null => {
+  const ranges = getPromptMentionTokenRanges(text, mentions);
+  if (ranges.length === 0) return null;
+
+  if (selectionStart !== selectionEnd) {
+    const affected = ranges.filter((range) => range.start < selectionEnd && range.end > selectionStart);
+    if (affected.length === 0) return null;
+    return {
+      start: Math.min(selectionStart, ...affected.map((range) => range.start)),
+      end: Math.max(selectionEnd, ...affected.map((range) => range.end)),
+    };
+  }
+
+  const cursor = selectionStart;
+  const range =
+    key === 'Backspace'
+      ? ranges.find((item) => item.start < cursor && cursor <= item.end)
+      : ranges.find((item) => item.start <= cursor && cursor < item.end);
+  return range ? { start: range.start, end: range.end } : null;
+};
+
+const getMentionRangeContainingCursor = (
+  text: string,
+  mentions: PromptImageMention[],
+  cursor: number
+): MentionTokenRange | null =>
+  getPromptMentionTokenRanges(text, mentions).find(
+    (range) => range.start < cursor && cursor < range.end
+  ) ?? null;
 
 function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
@@ -43,6 +237,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const mentionOverlayInnerRef = React.useRef<HTMLDivElement>(null);
   const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
@@ -51,7 +246,20 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     query: string;
     selectedIdx: number;
   } | null>(null);
+  const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('flow');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
+  const [mentions, setMentions] = React.useState<PromptImageMention[]>(
+    () => normalizePromptImageMentions(data.mentions)
+  );
+  const mentionsRef = React.useRef<PromptImageMention[]>(mentions);
+  const projectId = useProjectContentStore((state) => state.projectId);
+  const personalAssets = usePersonalLibraryStore((state) => state.assets);
+  const mergePersonalAssets = usePersonalLibraryStore((state) => state.mergeAssets);
+  const [projectLibraryItems, setProjectLibraryItems] = React.useState<GlobalImageHistoryItem[]>([]);
+  const [projectLibraryLoading, setProjectLibraryLoading] = React.useState(false);
+  const [personalLibraryLoading, setPersonalLibraryLoading] = React.useState(false);
+  const projectLibraryLoadedForRef = React.useRef<string | null>(null);
+  const personalLibraryLoadedRef = React.useRef(false);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
@@ -59,22 +267,159 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
-  const mentionImages = React.useMemo(() => {
-    if (!atMention || siblingImages.length === 0) return [];
-    const q = atMention.query.toLowerCase();
-    if (!q) return siblingImages;
-    return siblingImages.filter(img => String(img.index).includes(q) || `图${img.index}`.includes(q));
-  }, [atMention, siblingImages]);
+  const isPromptEditable = selected === true;
+  React.useEffect(() => {
+    mentionsRef.current = mentions;
+  }, [mentions]);
 
-  const detectAtMention = React.useCallback((text: string, cursorPos: number) => {
-    if (siblingImages.length === 0) return null;
+  React.useEffect(() => {
+    const normalized = normalizePromptImageMentions(data.mentions);
+    setMentions((prev) => (arePromptMentionsEqual(prev, normalized) ? prev : normalized));
+  }, [data.mentions]);
+
+  const flowMentionCandidates = React.useMemo<MentionCandidate[]>(
+    () =>
+      siblingImages.map((img) => ({
+        id: `flow:${img.nodeId}:${img.index}`,
+        source: 'flow' as const,
+        title: `图${img.index}`,
+        subtitle: lt('当前工作流', 'Current workflow'),
+        previewUrl: img.url,
+        tokenHint: `@图${img.index}`,
+        flowImage: img,
+        ref: { nodeId: img.nodeId },
+      })),
+    [lt, siblingImages]
+  );
+
+  const projectMentionCandidates = React.useMemo<MentionCandidate[]>(
+    () =>
+      projectLibraryItems
+        .filter((item) => getGlobalHistoryMediaType(item) === 'image')
+        .map((item, index) => {
+          const title =
+            typeof item.prompt === 'string' && item.prompt.trim().length
+              ? item.prompt.trim()
+              : lt(`项目图片 ${index + 1}`, `Project image ${index + 1}`);
+          return {
+            id: `project-library:${item.id}`,
+            source: 'project-library' as const,
+            title,
+            subtitle: item.sourceProjectName || lt('项目库', 'Project library'),
+            previewUrl: item.imageUrl,
+            tokenHint: `@项目图${index + 1}`,
+            ref: {
+              historyId: item.id,
+              url: item.imageUrl,
+            },
+          };
+        })
+        .filter((item) => isUsableRemoteImageRef(item.ref.url)),
+    [lt, projectLibraryItems]
+  );
+
+  const personalMentionCandidates = React.useMemo<MentionCandidate[]>(
+    () =>
+      personalAssets
+        .filter((asset): asset is PersonalImageAsset => asset.type === '2d' && isUsableRemoteImageRef(asset.url))
+        .map((asset, index) => ({
+          id: `personal-library:${asset.id}`,
+          source: 'personal-library' as const,
+          title: asset.name || asset.fileName || lt(`资产图片 ${index + 1}`, `Asset image ${index + 1}`),
+          subtitle: asset.fileName || lt('个人资产库', 'Personal assets'),
+          previewUrl: asset.thumbnail || asset.url,
+          tokenHint: `@资产${index + 1}`,
+          ref: {
+            assetId: asset.id,
+            url: asset.url,
+          },
+        })),
+    [lt, personalAssets]
+  );
+
+  const candidateGroups = React.useMemo<Record<MentionTab, MentionCandidate[]>>(
+    () => ({
+      flow: flowMentionCandidates,
+      'project-library': projectMentionCandidates,
+      'personal-library': personalMentionCandidates,
+    }),
+    [flowMentionCandidates, personalMentionCandidates, projectMentionCandidates]
+  );
+
+  const filterMentionCandidates = React.useCallback((
+    candidates: MentionCandidate[],
+    query: string
+  ): MentionCandidate[] => {
+    const q = query.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter((candidate) => {
+      const haystack = [
+        candidate.title,
+        candidate.subtitle,
+        candidate.tokenHint,
+        candidate.ref.assetId,
+        candidate.ref.historyId,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, []);
+
+  const activeMentionCandidates = React.useMemo(
+    () =>
+      !isPromptEditable || !atMention
+        ? []
+        : filterMentionCandidates(candidateGroups[activeMentionTab], atMention.query),
+    [activeMentionTab, atMention, candidateGroups, filterMentionCandidates, isPromptEditable]
+  );
+  const mentionTokenRanges = React.useMemo(
+    () => getPromptMentionTokenRanges(value, mentions),
+    [mentions, value]
+  );
+  const shouldRenderMentionOverlay = mentionTokenRanges.length > 0;
+  const mentionOverlayNodes = React.useMemo(() => {
+    if (mentionTokenRanges.length === 0) return [value];
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    mentionTokenRanges.forEach((range, index) => {
+      if (range.start > cursor) {
+        nodes.push(value.slice(cursor, range.start));
+      }
+      nodes.push(
+        <span
+          key={`${range.mention.id}-${range.start}-${index}`}
+          className="tanva-prompt-mention-token"
+        >
+          <span className="tanva-prompt-mention-token-text">{range.mention.token}</span>
+          <span className="tanva-prompt-mention-chip">
+            <ImageIcon size={9} strokeWidth={2.4} aria-hidden="true" />
+            <span>{range.mention.label || range.mention.token.replace(/^@/, '')}</span>
+          </span>
+        </span>
+      );
+      cursor = range.end;
+    });
+    if (cursor < value.length) {
+      nodes.push(value.slice(cursor));
+    }
+    return nodes.length ? nodes : [value];
+  }, [mentionTokenRanges, value]);
+
+  const detectAtMention = React.useCallback((
+    text: string,
+    cursorPos: number,
+    activeMentions: PromptImageMention[] = mentionsRef.current
+  ) => {
     const before = text.slice(0, cursorPos);
     const atIdx = before.lastIndexOf('@');
     if (atIdx < 0) return null;
+    if (isResolvedMentionAt(text, atIdx, activeMentions)) return null;
     const afterAt = before.slice(atIdx + 1);
     if (/[\s\n]/.test(afterAt)) return null;
     return { startIndex: atIdx, query: afterAt };
-  }, [siblingImages.length]);
+  }, []);
 
   const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
   const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
@@ -82,13 +427,15 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
+    setMentions([]);
     const currentDataText = typeof data.text === 'string' ? data.text : '';
-    if (currentDataText !== incoming) {
+    const hasMentions = normalizePromptImageMentions(data.mentions).length > 0;
+    if (currentDataText !== incoming || hasMentions) {
       window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { text: incoming } }
+        detail: { id, patch: { text: incoming, mentions: [] } }
       }));
     }
-  }, [data.text, id]);
+  }, [data.mentions, data.text, id]);
 
   const syncFromSource = React.useCallback((
     sourceId: string,
@@ -178,6 +525,69 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   }, [isEditingTitle]);
 
   React.useEffect(() => {
+    if (isPromptEditable) return;
+    if (textareaRef.current && document.activeElement === textareaRef.current) {
+      textareaRef.current.blur();
+    }
+    isComposingRef.current = false;
+    setAtMention(null);
+  }, [isPromptEditable]);
+
+  React.useEffect(() => {
+    projectLibraryLoadedForRef.current = null;
+    setProjectLibraryItems([]);
+  }, [projectId]);
+
+  const loadProjectLibraryImages = React.useCallback(() => {
+    const currentProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+    if (!currentProjectId) return;
+    if (projectLibraryLoadedForRef.current === currentProjectId) return;
+    if (projectLibraryLoading) return;
+    setProjectLibraryLoading(true);
+    void globalImageHistoryApi
+      .list({ limit: 30, sourceProjectId: currentProjectId })
+      .then((result) => {
+        const items = Array.isArray(result.items) ? result.items : [];
+        setProjectLibraryItems(items.filter((item) => getGlobalHistoryMediaType(item) === 'image'));
+        projectLibraryLoadedForRef.current = currentProjectId;
+      })
+      .catch((error) => {
+        console.warn('[TextPromptNode] 拉取项目库图片失败:', error);
+      })
+      .finally(() => setProjectLibraryLoading(false));
+  }, [projectId, projectLibraryLoading]);
+
+  const loadPersonalLibraryImages = React.useCallback(() => {
+    if (personalLibraryLoadedRef.current) return;
+    if (personalLibraryLoading) return;
+    setPersonalLibraryLoading(true);
+    void personalLibraryApi
+      .list('2d')
+      .then((assets) => {
+        if (Array.isArray(assets) && assets.length) {
+          mergePersonalAssets(assets);
+        }
+        personalLibraryLoadedRef.current = true;
+      })
+      .catch((error) => {
+        console.warn('[TextPromptNode] 拉取个人库图片失败:', error);
+      })
+      .finally(() => setPersonalLibraryLoading(false));
+  }, [mergePersonalAssets, personalLibraryLoading]);
+
+  React.useEffect(() => {
+    if (!atMention || !isPromptEditable) return;
+    loadProjectLibraryImages();
+    loadPersonalLibraryImages();
+  }, [atMention, isPromptEditable, loadPersonalLibraryImages, loadProjectLibraryImages]);
+
+  React.useEffect(() => {
+    if (!atMention) return;
+    setActiveMentionTab(flowMentionCandidates.length > 0 ? 'flow' : 'project-library');
+    setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
+  }, [atMention?.startIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
     edgesRef.current = edges;
     const texts = collectIncomingTexts(edges);
     setIncomingTexts(texts);
@@ -239,32 +649,156 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setTitleDraft(title);
   }, [title]);
 
-  const commitValue = React.useCallback((next: string) => {
+  const commitValue = React.useCallback((next: string, nextMentions?: PromptImageMention[]) => {
     // write through to node data via DOM event (handled in FlowOverlay)
-    const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: next } } });
+    const sanitizedMentions = sanitizePromptMentionsForText(
+      next,
+      nextMentions ?? mentionsRef.current
+    );
+    const ev = new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { text: next, mentions: sanitizedMentions } }
+    });
     window.dispatchEvent(ev);
   }, [id]);
 
-  const handleMentionSelect = React.useCallback((img: SiblingImage) => {
+  const getReusableMention = React.useCallback((candidate: MentionCandidate): PromptImageMention | null => {
+    return mentionsRef.current.find((mention) => mention.id === candidate.id) ?? null;
+  }, []);
+
+  const buildUniqueToken = React.useCallback((prefix: string, currentText: string): string => {
+    const existingTokens = new Set(mentionsRef.current.map((mention) => mention.token));
+    for (let i = 1; i < 1000; i += 1) {
+      const token = `@${prefix}${i}`;
+      if (!currentText.includes(token) && !existingTokens.has(token)) return token;
+    }
+    return `@${prefix}${Date.now()}`;
+  }, []);
+
+  const createMentionFromCandidate = React.useCallback((
+    candidate: MentionCandidate,
+    currentText: string
+  ): PromptImageMention => {
+    const reusable = getReusableMention(candidate);
+    if (reusable) return reusable;
+
+    const token =
+      candidate.source === 'flow'
+        ? candidate.tokenHint
+        : buildUniqueToken(candidate.source === 'project-library' ? '项目图' : '资产', currentText);
+
+    return {
+      id: candidate.id,
+      token,
+      label: token.replace(/^@/, ''),
+      source: candidate.source,
+      mediaType: 'image',
+      ref: candidate.ref,
+    };
+  }, [buildUniqueToken, getReusableMention]);
+
+  const upsertMention = React.useCallback((
+    list: PromptImageMention[],
+    mention: PromptImageMention
+  ): PromptImageMention[] => {
+    const existingIdx = list.findIndex((item) => item.id === mention.id);
+    if (existingIdx >= 0) {
+      const next = list.slice();
+      next[existingIdx] = mention;
+      return next;
+    }
+    return [...list, mention];
+  }, []);
+
+  const insertMentionCandidate = React.useCallback((
+    candidate: MentionCandidate,
+    range?: { start: number; end: number }
+  ) => {
     const el = textareaRef.current;
-    if (!el || !atMention) return;
-    const cursorPos = el.selectionStart ?? value.length;
-    const before = value.slice(0, atMention.startIndex);
-    const after = value.slice(cursorPos);
-    const inserted = `@图${img.index}`;
+    if (!el) return;
+    const selectionStart = range?.start ?? (el.selectionStart ?? value.length);
+    const selectionEnd = range?.end ?? (el.selectionEnd ?? value.length);
+    const mention = createMentionFromCandidate(candidate, value);
+    const before = value.slice(0, selectionStart);
+    const after = value.slice(selectionEnd);
+    const inserted = mention.token;
     const next = before + inserted + after;
+    const nextMentions = sanitizePromptMentionsForText(
+      next,
+      upsertMention(mentionsRef.current, mention)
+    );
+    mentionsRef.current = nextMentions;
+    setMentions(nextMentions);
     setValue(next);
-    commitValue(next);
+    commitValue(next, nextMentions);
     setAtMention(null);
     requestAnimationFrame(() => {
       el.focus();
-      const newCursor = atMention.startIndex + inserted.length;
+      const newCursor = selectionStart + inserted.length;
       el.setSelectionRange(newCursor, newCursor);
     });
-  }, [atMention, commitValue, value]);
+  }, [commitValue, createMentionFromCandidate, upsertMention, value]);
+
+  const handleMentionSelect = React.useCallback((candidate: MentionCandidate) => {
+    const el = textareaRef.current;
+    if (!el || !atMention) return;
+    const cursorPos = el.selectionStart ?? value.length;
+    insertMentionCandidate(candidate, {
+      start: atMention.startIndex,
+      end: cursorPos,
+    });
+  }, [atMention, insertMentionCandidate, value.length]);
+
+  const handleFlowStripSelect = React.useCallback((img: SiblingImage) => {
+    const candidate = flowMentionCandidates.find((item) => {
+      const flowImage = item.flowImage;
+      if (!flowImage) return false;
+      return flowImage.nodeId === img.nodeId && flowImage.index === img.index;
+    });
+    if (!candidate) return;
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? value.length;
+    insertMentionCandidate(candidate, { start, end });
+  }, [flowMentionCandidates, insertMentionCandidate, value.length]);
+
+  const deleteTextRange = React.useCallback((start: number, end: number) => {
+    const el = textareaRef.current;
+    const safeStart = Math.max(0, Math.min(start, value.length));
+    const safeEnd = Math.max(safeStart, Math.min(end, value.length));
+    const next = value.slice(0, safeStart) + value.slice(safeEnd);
+    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    mentionsRef.current = nextMentions;
+    setMentions(nextMentions);
+    setValue(next);
+    commitValue(next, nextMentions);
+    setAtMention(null);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(safeStart, safeStart);
+    });
+  }, [commitValue, value]);
+
+  const handleAtomicMentionDelete = React.useCallback((
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ): boolean => {
+    if (event.key !== 'Backspace' && event.key !== 'Delete') return false;
+    const el = event.currentTarget;
+    const range = getMentionDeletionRange(
+      value,
+      mentionsRef.current,
+      el.selectionStart ?? 0,
+      el.selectionEnd ?? 0,
+      event.key
+    );
+    if (!range) return false;
+    event.preventDefault();
+    deleteTextRange(range.start, range.end);
+    return true;
+  }, [deleteTextRange, value]);
 
   const handleMentionKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!atMention || mentionImages.length === 0) return;
+    if (handleAtomicMentionDelete(event)) return;
+    if (!atMention) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       setAtMention(null);
@@ -272,7 +806,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.min(prev.selectedIdx + 1, mentionImages.length - 1) } : null);
+      setAtMention(prev => prev ? { ...prev, selectedIdx: Math.min(prev.selectedIdx + 1, Math.max(0, activeMentionCandidates.length - 1)) } : null);
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -281,13 +815,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       return;
     }
     if (event.key === 'Enter' || event.key === 'Tab') {
-      const img = mentionImages[atMention.selectedIdx];
-      if (img) {
+      const candidate = activeMentionCandidates[atMention.selectedIdx];
+      if (candidate) {
         event.preventDefault();
-        handleMentionSelect(img);
+        handleMentionSelect(candidate);
       }
     }
-  }, [atMention, handleMentionSelect, mentionImages]);
+  }, [activeMentionCandidates, atMention, handleAtomicMentionDelete, handleMentionSelect]);
 
   const handleInsert = React.useCallback((text: string) => {
     if (isComposingRef.current) return;
@@ -296,8 +830,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
     const next = value.slice(0, start) + text + value.slice(end);
+    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    mentionsRef.current = nextMentions;
+    setMentions(nextMentions);
     setValue(next);
-    commitValue(next);
+    commitValue(next, nextMentions);
     // Restore focus and move cursor after inserted text
     requestAnimationFrame(() => {
       el.focus();
@@ -309,11 +846,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const next = event.target.value;
     const cursorPos = event.target.selectionStart ?? next.length;
     const nativeEvent = event.nativeEvent as InputEvent & { isComposing?: boolean };
+    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    if (!arePromptMentionsEqual(mentionsRef.current, nextMentions)) {
+      mentionsRef.current = nextMentions;
+      setMentions(nextMentions);
+    }
     setValue(next);
     if (!isComposingRef.current && !nativeEvent.isComposing) {
-      commitValue(next);
+      commitValue(next, nextMentions);
     }
-    const mention = detectAtMention(next, cursorPos);
+    const mention = detectAtMention(next, cursorPos, nextMentions);
     if (mention) {
       setAtMention(prev => ({
         ...mention,
@@ -331,16 +873,37 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
     isComposingRef.current = false;
     const next = event.currentTarget.value;
+    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    mentionsRef.current = nextMentions;
+    setMentions(nextMentions);
     setValue(next);
-    commitValue(next);
+    commitValue(next, nextMentions);
   }, [commitValue]);
 
   const handleTextareaSelect = React.useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
     const cursorPos = el.selectionStart ?? 0;
-    const mention = detectAtMention(el.value, cursorPos);
+    const selectionEnd = el.selectionEnd ?? cursorPos;
+    if (cursorPos === selectionEnd) {
+      const range = getMentionRangeContainingCursor(el.value, mentionsRef.current, cursorPos);
+      if (range) {
+        requestAnimationFrame(() => {
+          textareaRef.current?.setSelectionRange(range.end, range.end);
+        });
+        setAtMention(null);
+        return;
+      }
+    }
+    const mention = detectAtMention(el.value, cursorPos, mentionsRef.current);
     if (!mention) setAtMention(null);
   }, [detectAtMention]);
+
+  const handleTextareaScroll = React.useCallback((event: React.UIEvent<HTMLTextAreaElement>) => {
+    const inner = mentionOverlayInnerRef.current;
+    if (!inner) return;
+    const el = event.currentTarget;
+    inner.style.transform = `translate(${-el.scrollLeft}px, ${-el.scrollTop}px)`;
+  }, []);
 
   React.useEffect(() => {
     if (atMention && textareaRef.current) {
@@ -361,6 +924,20 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [atMention]);
+
+  React.useEffect(() => {
+    if (!atMention) return;
+    if (activeMentionCandidates.length === 0) return;
+    if (atMention.selectedIdx < activeMentionCandidates.length) return;
+    setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
+  }, [activeMentionCandidates.length, atMention]);
+
+  React.useEffect(() => {
+    const textarea = textareaRef.current;
+    const inner = mentionOverlayInnerRef.current;
+    if (!textarea || !inner) return;
+    inner.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;
+  }, [shouldRenderMentionOverlay, value]);
 
   const commitResize = React.useCallback((width: number, height: number, x: number, y: number) => {
     const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
@@ -468,7 +1045,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   useNodeInternalsSync(
     id,
     nodeRootRef,
-    [data.boxW, data.boxH, isEditingTitle],
+    [data.boxW, data.boxH, isEditingTitle, isPromptEditable],
     { disabled: isResizing }
   );
 
@@ -476,6 +1053,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const renderedBoxH = isResizing && resizePreview ? resizePreview.height : (data.boxH || 180);
   const renderedOffsetX = isResizing && resizePreview ? resizePreview.offsetX : 0;
   const renderedOffsetY = isResizing && resizePreview ? resizePreview.offsetY : 0;
+  const activeMentionLoading =
+    activeMentionTab === 'project-library'
+      ? projectLibraryLoading
+      : activeMentionTab === 'personal-library'
+      ? personalLibraryLoading
+      : false;
 
   return (
     <div ref={nodeRootRef} style={{
@@ -510,6 +1093,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         {isEditingTitle ? (
           <input
             ref={titleInputRef}
+            className="tanva-flow-node-title"
             value={titleDraft}
             onChange={(event) => setTitleDraft(event.target.value)}
             onBlur={() => commitTitle(titleDraft)}
@@ -534,6 +1118,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <span
+            className="tanva-flow-node-title"
             onDoubleClick={startTitleEditing}
             title={lt("双击编辑标题", "Double-click to edit title")}
             style={{ cursor: 'text', userSelect: 'none' }}
@@ -563,58 +1148,119 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           </div>
         )}
       </div>
-      <textarea
-        ref={textareaRef}
-        className="nodrag nopan nowheel"
-        value={value}
-        onChange={handleValueChange}
-        onKeyDown={handleMentionKeyDown}
-        onSelect={handleTextareaSelect}
-        onCompositionStart={handleCompositionStart}
-        onCompositionEnd={handleCompositionEnd}
-        onWheelCapture={(event) => {
-          if (shouldPassWheelToCanvas(event)) return;
-          event.stopPropagation();
-          if (event.nativeEvent?.stopImmediatePropagation) {
-            event.nativeEvent.stopImmediatePropagation();
-          }
-        }}
-        onPointerDownCapture={(event) => {
-          event.stopPropagation();
-          if (event.nativeEvent?.stopImmediatePropagation) {
-            event.nativeEvent.stopImmediatePropagation();
-          }
-        }}
-        onMouseDownCapture={(event) => {
-          event.stopPropagation();
-        }}
-        placeholder={lt("输入提示词", "Enter prompt")}
+      <div
         style={{
+          position: 'relative',
           width: '100%',
           flex: 1,
-          resize: 'none',
           maxHeight: '100%',
           minHeight: 60,
-          overflowY: 'auto',
-          fontSize: 12,
           border: '1px solid #e5e7eb',
           borderRadius: 6,
-          padding: 6,
-          outline: 'none',
-          pointerEvents: 'auto',
           background: 'rgba(255,255,255,0.92)',
-          cursor: 'text'
+          overflow: 'hidden',
         }}
-      />
-      <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
-      {atMention && dropdownPos && mentionImages.length > 0 && createPortal(
+      >
+        {shouldRenderMentionOverlay && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          >
+            <div
+              ref={mentionOverlayInnerRef}
+              style={{
+                boxSizing: 'border-box',
+                minHeight: '100%',
+                width: '100%',
+                padding: 6,
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: '#1f2937',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+                fontFamily: 'inherit',
+              }}
+            >
+              {mentionOverlayNodes}
+            </div>
+          </div>
+        )}
+        <textarea
+          ref={textareaRef}
+          className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
+          value={value}
+          readOnly={!isPromptEditable}
+          tabIndex={isPromptEditable ? 0 : -1}
+          onChange={handleValueChange}
+          onKeyDown={handleMentionKeyDown}
+          onSelect={handleTextareaSelect}
+          onScroll={handleTextareaScroll}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          onWheelCapture={(event) => {
+            if (!isPromptEditable) return;
+            if (shouldPassWheelToCanvas(event)) return;
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onPointerDownCapture={(event) => {
+            if (!isPromptEditable) return;
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onMouseDownCapture={(event) => {
+            if (!isPromptEditable) return;
+            event.stopPropagation();
+          }}
+          placeholder={lt("输入提示词", "Enter prompt")}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            resize: 'none',
+            maxHeight: '100%',
+            minHeight: 0,
+            overflowY: 'auto',
+            fontSize: 12,
+            lineHeight: 1.45,
+            border: 'none',
+            borderRadius: 6,
+            padding: 6,
+            outline: 'none',
+            pointerEvents: isPromptEditable ? 'auto' : 'none',
+            background: 'transparent',
+            color: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
+            caretColor: '#111827',
+            fontFamily: 'inherit',
+            cursor: isPromptEditable ? 'text' : 'default',
+            zIndex: 2,
+          }}
+        />
+      </div>
+      {isPromptEditable && (
+        <PromptImageStrip images={siblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
+      )}
+      {atMention && dropdownPos && createPortal(
         <div
           className="nodrag nopan"
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
           style={{
             position: 'fixed',
             top: dropdownPos.top,
             left: dropdownPos.left,
-            minWidth: Math.min(dropdownPos.width, 280),
+            width: Math.max(Math.min(dropdownPos.width, 320), 260),
             zIndex: 10000,
             background: '#fff',
             border: '1px solid #e5e7eb',
@@ -622,37 +1268,101 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             boxShadow: '0 4px 20px rgba(0,0,0,0.14)',
             padding: 6,
             display: 'flex',
-            flexWrap: 'wrap',
+            flexDirection: 'column',
             gap: 6,
           }}
         >
-          {mentionImages.map((img, idx) => (
-            <button
-              key={`${img.nodeId}::${img.index}`}
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); handleMentionSelect(img); }}
-              style={{
-                padding: 4,
-                borderRadius: 6,
-                border: `2px solid ${idx === atMention.selectedIdx ? '#2563eb' : 'transparent'}`,
-                background: idx === atMention.selectedIdx ? '#eff6ff' : '#f9fafb',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-              }}
-            >
-              <img
-                src={img.url}
-                alt={`图${img.index}`}
-                style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 4, display: 'block' }}
-                draggable={false}
-              />
-              <span style={{ fontSize: 11, color: '#374151', lineHeight: 1 }}>@图{img.index}</span>
-            </button>
-          ))}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {MENTION_TABS.map((tab) => {
+              const isActive = tab === activeMentionTab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMentionTab(tab);
+                    setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    border: `1px solid ${isActive ? '#2563eb' : '#e5e7eb'}`,
+                    background: isActive ? '#eff6ff' : '#fff',
+                    color: isActive ? '#1d4ed8' : '#374151',
+                    borderRadius: 6,
+                    padding: '4px 6px',
+                    fontSize: 11,
+                    fontWeight: isActive ? 600 : 500,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {getMentionTabLabel(tab, lt)}
+                  {candidateGroups[tab].length > 0 ? ` ${candidateGroups[tab].length}` : ''}
+                </button>
+              );
+            })}
+          </div>
+          {activeMentionLoading ? (
+            <div style={{ padding: '16px 8px', textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+              {lt('加载中...', 'Loading...')}
+            </div>
+          ) : activeMentionCandidates.length === 0 ? (
+            <div style={{ padding: '16px 8px', textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
+              {lt('暂无可引用图片', 'No images to reference')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+              {activeMentionCandidates.map((candidate, idx) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleMentionSelect(candidate); }}
+                  style={{
+                    padding: 4,
+                    borderRadius: 6,
+                    border: `2px solid ${idx === atMention.selectedIdx ? '#2563eb' : 'transparent'}`,
+                    background: idx === atMention.selectedIdx ? '#eff6ff' : '#f9fafb',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'stretch',
+                    gap: 3,
+                    minWidth: 0,
+                  }}
+                  title={candidate.title}
+                >
+                  <img
+                    src={candidate.previewUrl}
+                    alt={candidate.title}
+                    style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 4, display: 'block', background: '#f3f4f6' }}
+                    draggable={false}
+                  />
+                  <span style={{
+                    fontSize: 11,
+                    color: '#374151',
+                    lineHeight: 1.15,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {candidate.tokenHint}
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    color: '#6b7280',
+                    lineHeight: 1.15,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {candidate.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>,
         document.body
       )}
