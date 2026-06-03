@@ -1393,6 +1393,10 @@ export class VideoProviderService {
           keep_original_sound: keepOriginalSound,
         },
       ];
+      // APIMart omni 规则：refer_type=feature 时 image_urls 仅允许首帧；base 不定义
+      // 首尾帧。统一只保留首帧做参考，避免与 video_list 冲突。
+      image = referenceImages[0];
+      images = referenceImages[0] ? [referenceImages[0]] : undefined;
     }
 
     return { image, images, metadata };

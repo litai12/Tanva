@@ -19164,11 +19164,20 @@ function FlowInner() {
                     : referenceImageUrls.length === 1
                     ? "image"
                     : "text",
-                  // 声音：尊重用户开关，不再因 pro 模式强制开启(避免“扣有声却无声”)。
-                  // 普通线路由后端按 APIMart 约束(v2-6 需 pro+单图、omni 与视频互斥)做 fail-closed。
+                  // 声音：按 APIMart 各模型真实约束发"有效声音"，避免"扣有声却无声"。
+                  //  - omni(kling-o3): audio 与 video_list 互斥 → 连了参考视频则无声。
+                  //  - v2-6: audio 仅 pro 模式且单图可用(与尾帧互斥) → 否则无声。
+                  //  - v3: 文档无约束(此处 kling-v3-0 实际走 omni，见上)。
+                  // 后端按发出的 sound 计费，故这里发有效值即保证计费一致。
                   sound:
-                    provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
-                      ? normalizedKlingSound
+                    provider === "kling-o3"
+                      ? referenceVideoUrl
+                        ? "off"
+                        : normalizedKlingSound
+                      : provider === "kling-2.6" || provider === "kling"
+                      ? rawNodeData.mode === "pro" && referenceImageUrls.length <= 1
+                        ? normalizedKlingSound
+                        : "off"
                       : undefined,
                   referenceVideo: referenceVideoUrl,
                   referenceVideoType: rawNodeData.referenceVideoType,

@@ -675,7 +675,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       {
         value: 'banana',
         label: 'Pro',
-        description: lt('Nano Banana Pro+Gemini 3.0', 'Nano Banana Pro+Gemini 3.0'),
+        description: lt('Nano Banana Pro+Gemini 3.5', 'Nano Banana Pro+Gemini 3.5'),
       },
       {
         value: 'banana-3.1',

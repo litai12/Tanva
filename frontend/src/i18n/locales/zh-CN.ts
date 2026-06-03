@@ -331,7 +331,7 @@ const zhCN = {
         },
         provider: {
           title: "AI 提供商",
-          banana: "Pro版（Nano Banana Pro+Gemini 3.0）",
+          banana: "Pro版（Nano Banana Pro+Gemini 3.5）",
           bananaDesc: "质量最佳",
           banana31: "Ultra版（Nano Banana 2/Gemini 3.1）",
           banana31Desc: "性价比优选",
@@ -512,7 +512,7 @@ const zhCN = {
     },
     provider: {
       fastDesc: "Nano Banana/Gemini 2.5",
-      proDesc: "Nano Banana Pro+Gemini 3.0",
+      proDesc: "Nano Banana Pro+Gemini 3.5",
       ultraDesc: "Nano Banana 2/Gemini 3.1",
     },
     manualMode: {

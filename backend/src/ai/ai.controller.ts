@@ -143,7 +143,7 @@ export class AiController {
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3-flash-preview',
+    banana: 'gemini-3.5-flash', // Pro 对话档改用 gemini-3.5-flash（仅对话能力）
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro-preview',
     runninghub: 'gemini-3.1-pro',

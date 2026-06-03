@@ -631,7 +631,8 @@ const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
 const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
-const BANANA_PRO_TEXT_MODEL = "gemini-3-flash-preview";
+// banana(Pro)对话档文本模型改用 gemini-3.5-flash（仅对话能力）。界面展示不变。
+const BANANA_PRO_TEXT_MODEL = "gemini-3.5-flash";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
 const BANANA_31_TEXT_MODEL = "gemini-3.1-pro-preview";

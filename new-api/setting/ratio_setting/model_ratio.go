@@ -192,6 +192,7 @@ var defaultModelRatio = map[string]float64{
 	"gemini-2.5-flash-lite-preview-thinking-*":  0.05,
 	"gemini-2.5-flash-lite-preview-06-17":       0.05,
 	"gemini-2.5-flash":                          0.15,
+	"gemini-3.5-flash":                          0.6,  // APIMart 输入 $1.2/M ÷ 2（仅对话）
 	"gemini-2.5-flash-image-preview":            0.15, // 参考 gemini-2.5-flash
 	"gemini-robotics-er-1.5-preview":            0.15,
 	"gemini-embedding-001":                      0.075,
@@ -403,11 +404,12 @@ var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
 
 var defaultCompletionRatio = map[string]float64{
-	"gpt-4-gizmo-*":  2,
-	"gpt-4o-gizmo-*": 3,
-	"gpt-4-all":      2,
-	"gpt-image-1":    8,
-	"gpt-4o-image":   8, // 参考 gpt-image-1
+	"gpt-4-gizmo-*":    2,
+	"gpt-4o-gizmo-*":   3,
+	"gpt-4-all":        2,
+	"gpt-image-1":      8,
+	"gpt-4o-image":     8, // 参考 gpt-image-1
+	"gemini-3.5-flash": 6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
 	// Doubao Seed 2.0 completion ratio = output/input
 	"doubao-seed-2-0-pro-260428":  5,
 	"doubao-seed-2.0-pro":         5,
