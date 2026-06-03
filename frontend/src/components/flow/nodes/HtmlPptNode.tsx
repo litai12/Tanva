@@ -17,12 +17,24 @@ import {
   FilePlus2,
   Loader2,
   Monitor,
+  Palette,
   RotateCcw,
   Trash2,
 } from "lucide-react";
+import type {
+  AIImageGenerateRequest,
+  AIImageResult,
+  AIProviderOptions,
+  BananaImageRoute,
+} from "@/types/ai";
+import { generateImageViaAPI } from "@/services/aiBackendAPI";
 import { aiImageService } from "@/services/aiImageService";
 import { imageUploadService } from "@/services/imageUploadService";
-import { getTextModelForProvider, useAIChatStore } from "@/stores/aiChatStore";
+import {
+  getImageModelForProvider,
+  getTextModelForProvider,
+  useAIChatStore,
+} from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import {
   resolveFlowModelProvider,
@@ -39,6 +51,19 @@ import {
   type HtmlPptSlide,
   type HtmlPptSlideTemplateKey,
 } from "@/utils/htmlPptDeck";
+import {
+  HTML_PPT_STYLE_PRESETS,
+  findHtmlPptStylePreset,
+  getHtmlPptStylePreset,
+  type HtmlPptStylePresetKey,
+} from "@/utils/htmlPptStylePresets";
+import {
+  HTML_PPT_BOLD_TEMPLATES,
+  findHtmlPptBoldTemplate,
+  getHtmlPptBoldTemplate,
+  type HtmlPptBoldTemplate,
+  type HtmlPptBoldTemplateSlug,
+} from "@/utils/htmlPptBoldTemplates";
 import { resolveImageToDataUrl } from "@/utils/imageSource";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import RunCreditBadge from "./RunCreditBadge";
@@ -78,6 +103,8 @@ type Props = {
     boxH?: number;
     sizeVersion?: number;
     editScope?: "slide" | "deck";
+    stylePresetKey?: HtmlPptStylePresetKey;
+    boldTemplateSlug?: HtmlPptBoldTemplateSlug;
   };
   selected?: boolean;
 };
@@ -85,10 +112,10 @@ type Props = {
 const HTML_PPT_SIZE_VERSION = 2;
 const HTML_PPT_DEFAULT_WIDTH = 980;
 const HTML_PPT_DEFAULT_HEIGHT = 720;
-const HTML_PPT_DESIGN_WIDTH_16_9 = 1280;
-const HTML_PPT_DESIGN_HEIGHT_16_9 = 720;
-const HTML_PPT_DESIGN_WIDTH_4_3 = 1024;
-const HTML_PPT_DESIGN_HEIGHT_4_3 = 768;
+const HTML_PPT_DESIGN_WIDTH_16_9 = 1920;
+const HTML_PPT_DESIGN_HEIGHT_16_9 = 1080;
+const HTML_PPT_DESIGN_WIDTH_4_3 = 1440;
+const HTML_PPT_DESIGN_HEIGHT_4_3 = 1080;
 const MAX_SLIDES = 24;
 const MAX_CODE_LENGTH = 120_000;
 const MAX_IMAGE_INPUTS = 6;
@@ -195,7 +222,7 @@ const buildSlideSrcDoc = (
   const origin = typeof window !== "undefined" ? `${window.location.origin}/` : "/";
   const design = getDesignSize(deck.aspectRatio);
   const safeScale = Number.isFinite(renderScale)
-    ? Math.max(0.1, Math.min(2, renderScale))
+    ? Math.max(0.02, Math.min(2, renderScale))
     : 1;
   const css = [
     baseSlideRuntimeCss(deck),
@@ -331,6 +358,15 @@ body {
 }
 ${escapeStyleContent(deck.themeCss || "")}
 ${escapeStyleContent(slideCss)}
+html,
+body {
+  margin: 0 !important;
+  width: 100% !important;
+  min-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  background: #0f172a !important;
+}
 .deck-export .slide-root {
   width: ${design.width}px !important;
   height: ${design.height}px !important;
@@ -404,12 +440,15 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   native.stopImmediatePropagation?.();
 };
 
-const extractJsonPayload = (text: string): Record<string, unknown> => {
+const extractJsonPayload = (
+  text: string,
+  errorMessage = "Ultra did not return a JSON patch."
+): Record<string, unknown> => {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
   if (start < 0 || end <= start) {
-    throw new Error("Ultra did not return a JSON patch.");
+    throw new Error(errorMessage);
   }
   return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
 };
@@ -436,7 +475,119 @@ type PreparedIncomingImage = IncomingImageRef & {
   visionRef: string;
   embeddableUrl?: string;
   uploaded?: boolean;
+  generatedAsset?: {
+    role: HtmlPptGeneratedAssetRole;
+    reason?: string;
+    prompt: string;
+  };
 };
+
+type HtmlPptGeneratedAssetRole =
+  | "cover_hero"
+  | "section_visual"
+  | "background"
+  | "diagram"
+  | "icon_set"
+  | "comparison"
+  | "other";
+
+type HtmlPptGeneratedAssetRequest = {
+  role: HtmlPptGeneratedAssetRole;
+  target: "slide" | "deck";
+  targetSlideId?: string;
+  targetSlideTitle?: string;
+  prompt: string;
+  aspectRatio?: AIImageGenerateRequest["aspectRatio"];
+  style?: string;
+};
+
+type HtmlPptGeneratedAssetPlan = {
+  shouldGenerateImages: boolean;
+  reason?: string;
+  assets: HtmlPptGeneratedAssetRequest[];
+};
+
+type HtmlPptAutoAssetIntent = {
+  shouldPlan: boolean;
+  explicit: boolean;
+};
+
+type HtmlPptAiStyleGuide = {
+  label: string;
+  description: string;
+  tags: string[];
+  colors: {
+    background: string;
+    text: string;
+    accent: string;
+    secondary: string;
+  };
+  themeCss: string;
+  promptGuidance: string;
+  imagePrompt: string;
+  previewSlide: Pick<HtmlPptSlide, "title" | "html" | "css">;
+  previewSlides?: Array<Pick<HtmlPptSlide, "title" | "html" | "css">>;
+};
+
+type HtmlPptStylePreviewItem = Pick<
+  HtmlPptAiStyleGuide,
+  "label" | "description" | "colors" | "themeCss" | "previewSlide" | "previewSlides"
+> & {
+  id: string;
+};
+
+const HTML_PPT_GENERATED_ASSET_LIMIT = 1;
+
+const HTML_PPT_ASPECT_RATIOS = new Set<NonNullable<AIImageGenerateRequest["aspectRatio"]>>([
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+  "2:1",
+  "1:2",
+  "9:21",
+  "4:1",
+  "1:4",
+  "8:1",
+  "1:8",
+]);
+
+const HTML_PPT_GENERATED_ASSET_ROLES = new Set<HtmlPptGeneratedAssetRole>([
+  "cover_hero",
+  "section_visual",
+  "background",
+  "diagram",
+  "icon_set",
+  "comparison",
+  "other",
+]);
+
+const AUTO_ASSET_NEGATIVE_PATTERNS = [
+  /不要(?:生成|生)(?:图|图片|视觉素材)/i,
+  /不需要(?:生成|生)(?:图|图片|视觉素材)/i,
+  /无需(?:生成|生)(?:图|图片|视觉素材)/i,
+  /只(?:改|修改|调整)(?:文字|文案|排版|布局|样式)/i,
+  /\bno\s+(?:image|images|visual|visuals)\b/i,
+  /\btext\s+only\b/i,
+] as const;
+
+const AUTO_ASSET_EXPLICIT_PATTERNS = [
+  /(?:先)?(?:调用|用).*(?:生图|图片生成|生成图片)/i,
+  /(?:生成|生|画|绘制|创建|补一张|配一张).{0,12}(?:图|图片|视觉素材|主视觉|背景|插画|海报)/i,
+  /(?:主视觉|封面图|背景图|配图|插画|海报|场景图|视觉素材)/i,
+  /\b(?:generate|create|make|draw)\s+(?:an?\s+)?(?:image|visual|illustration|hero|background)\b/i,
+] as const;
+
+const AUTO_ASSET_CANDIDATE_PATTERNS = [
+  /(?:封面|首页|开场|发布会|品牌|产品|提案|pitch|keynote|deck|ppt|演示文稿)/i,
+  /(?:高级|未来|科技|概念|氛围|视觉|场景|广告|campaign|launch|hero|visual)/i,
+] as const;
 
 const normalizeString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -445,6 +596,296 @@ const normalizeString = (value: unknown): string | undefined => {
 };
 
 const isHttpImageRef = (value: string): boolean => /^https?:\/\//i.test(value.trim());
+
+const getBananaImageRouteOption = (
+  bananaImageRoute?: string | null
+): BananaImageRoute =>
+  bananaImageRoute === "stable" ? "stable" : "normal";
+
+const buildBananaProviderOptions = (
+  bananaImageRoute?: string | null
+): AIProviderOptions => {
+  const route = getBananaImageRouteOption(bananaImageRoute);
+  return {
+    banana: {
+      imageRoute: route,
+    },
+    bananaImageRoute: route,
+  };
+};
+
+const boldTemplateToStyleGuide = (
+  template: HtmlPptBoldTemplate
+): HtmlPptAiStyleGuide => ({
+  label: template.name,
+  description: template.tagline,
+  tags: [...template.mood, ...template.tone].slice(0, 8),
+  colors: {
+    background: template.colors.background,
+    text: template.colors.text,
+    accent: template.colors.accent,
+    secondary: template.colors.secondary,
+  },
+  themeCss: template.themeCss,
+  promptGuidance: template.promptGuidance,
+  imagePrompt: template.imagePrompt,
+  previewSlide: template.previewSlide,
+  previewSlides: template.previewSlides,
+});
+
+const getAutoAssetIntent = (
+  instruction: string,
+  incomingImageCount: number
+): HtmlPptAutoAssetIntent => {
+  const source = instruction.trim();
+  if (!source) return { shouldPlan: false, explicit: false };
+  if (AUTO_ASSET_NEGATIVE_PATTERNS.some((pattern) => pattern.test(source))) {
+    return { shouldPlan: false, explicit: false };
+  }
+
+  const explicit = AUTO_ASSET_EXPLICIT_PATTERNS.some((pattern) => pattern.test(source));
+  if (explicit) return { shouldPlan: true, explicit: true };
+  if (incomingImageCount > 0) return { shouldPlan: false, explicit: false };
+
+  const candidateScore = AUTO_ASSET_CANDIDATE_PATTERNS.reduce(
+    (score, pattern) => score + (pattern.test(source) ? 1 : 0),
+    0
+  );
+  return { shouldPlan: candidateScore >= 2, explicit: false };
+};
+
+const normalizeGeneratedAssetRole = (value: unknown): HtmlPptGeneratedAssetRole => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (HTML_PPT_GENERATED_ASSET_ROLES.has(normalized as HtmlPptGeneratedAssetRole)) {
+      return normalized as HtmlPptGeneratedAssetRole;
+    }
+  }
+  return "other";
+};
+
+const normalizeGeneratedAssetAspectRatio = (
+  value: unknown,
+  fallback: HtmlPptDeck["aspectRatio"]
+): AIImageGenerateRequest["aspectRatio"] => {
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (HTML_PPT_ASPECT_RATIOS.has(normalized as NonNullable<AIImageGenerateRequest["aspectRatio"]>)) {
+      return normalized as AIImageGenerateRequest["aspectRatio"];
+    }
+  }
+  return fallback;
+};
+
+const buildDeckOutlineForAssetPlan = (deck: HtmlPptDeck): string =>
+  deck.slides.map((slide, index) => `${index + 1}. ${slide.id}: ${slide.title}`).join("\n");
+
+const buildStylePresetPromptSection = (
+  stylePreset?: HtmlPptAiStyleGuide | null
+): string => {
+  if (!stylePreset) return "";
+  return `风格预设:
+- 名称: ${stylePreset.label}
+- 用途: ${stylePreset.description}
+- 标签: ${stylePreset.tags.join(", ")}
+- 视觉规则: ${stylePreset.promptGuidance}
+- 已选 preset 的 themeCss 已写入当前 deck；除非用户明确要求换风格，否则不要删除或改写这套视觉语言。
+- 优先使用清晰的语义 class（如 ppt-kicker、ppt-lede、ppt-stat-row），并保证每页在固定 PPT 画布内不溢出。`;
+};
+
+const buildGeneratedAssetPlanPrompt = ({
+  instruction,
+  deck,
+  currentSlide,
+  editScope,
+  incomingContext,
+  preparedImages,
+  stylePreset,
+}: {
+  instruction: string;
+  deck: HtmlPptDeck;
+  currentSlide: HtmlPptSlide;
+  editScope: "slide" | "deck";
+  incomingContext: string;
+  preparedImages: PreparedIncomingImage[];
+  stylePreset?: HtmlPptAiStyleGuide | null;
+}): string => `你是 Tanva HTML PPT 的视觉素材规划器。你只判断是否需要先生成一张图片素材，再交给下一步 HTML PPT 排版模型使用。请只返回合法 JSON，不要使用 Markdown，不要解释。
+
+返回 JSON schema:
+{
+  "shouldGenerateImages": true,
+  "reason": "一句话说明为什么需要或不需要生图",
+  "assets": [
+    {
+      "role": "cover_hero | section_visual | background | diagram | icon_set | comparison | other",
+      "target": "slide | deck",
+      "targetSlideId": "可选，目标页 id",
+      "targetSlideTitle": "可选，目标页标题",
+      "prompt": "给生图模型的完整视觉提示词",
+      "aspectRatio": "${deck.aspectRatio}",
+      "style": "可选风格"
+    }
+  ]
+}
+
+判断规则:
+- 只有当用户明确需要生成/补充图片、主视觉、背景图、插画、场景图、海报或概念视觉，或缺少该素材会明显影响 PPT 成品时，shouldGenerateImages 才能为 true。
+- 如果用户只是要求改文字、调排版、改样式、总结内容、拆页、换比例，返回 false。
+- 如果已有上游图片足够完成用户意图，返回 false；除非用户明确要求基于上游图再生成一张新视觉。
+- 最多规划 ${HTML_PPT_GENERATED_ASSET_LIMIT} 张图。
+- 生图 prompt 不要要求图片内出现可读文字、标题、logo、水印或 UI 字；PPT 文案会由 HTML/CSS 叠加。
+- 生成图应适合 ${deck.aspectRatio} PPT 页面排版，留出标题和正文叠加空间。
+- 精确流程图、表格、数据图、文字图标优先交给 HTML/CSS 绘制，不要生图。
+
+当前编辑范围: ${editScope === "deck" ? "整套 deck" : "当前页"}
+当前页: ${currentSlide.id}: ${currentSlide.title}
+页面目录:
+${buildDeckOutlineForAssetPlan(deck)}
+
+${buildStylePresetPromptSection(stylePreset)}
+
+已有上游图片数量: ${preparedImages.length}
+${incomingContext ? `上游图文上下文:\n${incomingContext}\n\n` : ""}用户要求:
+${instruction}`;
+
+const normalizeGeneratedAssetPlan = (
+  parsed: Record<string, unknown>,
+  deck: HtmlPptDeck
+): HtmlPptGeneratedAssetPlan => {
+  const shouldGenerateImages = parsed.shouldGenerateImages === true;
+  const rawAssets = Array.isArray(parsed.assets) ? parsed.assets : [];
+  const assets = rawAssets
+    .filter((asset): asset is Record<string, unknown> => Boolean(asset && typeof asset === "object"))
+    .map((asset): HtmlPptGeneratedAssetRequest | null => {
+      const prompt = normalizeString(asset.prompt);
+      if (!prompt) return null;
+      const rawTarget = normalizeString(asset.target);
+      const target = rawTarget === "deck" ? "deck" : "slide";
+      return {
+        role: normalizeGeneratedAssetRole(asset.role),
+        target,
+        targetSlideId: normalizeString(asset.targetSlideId),
+        targetSlideTitle: normalizeString(asset.targetSlideTitle),
+        prompt,
+        aspectRatio: normalizeGeneratedAssetAspectRatio(asset.aspectRatio, deck.aspectRatio),
+        style: normalizeString(asset.style),
+      };
+    })
+    .filter((asset): asset is HtmlPptGeneratedAssetRequest => Boolean(asset))
+    .slice(0, HTML_PPT_GENERATED_ASSET_LIMIT);
+
+  return {
+    shouldGenerateImages: shouldGenerateImages && assets.length > 0,
+    reason: normalizeString(parsed.reason),
+    assets,
+  };
+};
+
+const buildFallbackGeneratedAssetPlan = (
+  instruction: string,
+  deck: HtmlPptDeck,
+  currentSlide: HtmlPptSlide,
+  editScope: "slide" | "deck"
+): HtmlPptGeneratedAssetPlan => ({
+  shouldGenerateImages: true,
+  reason: "用户明确要求生成视觉素材。",
+  assets: [
+    {
+      role: /封面|首页|主视觉|hero/i.test(instruction) ? "cover_hero" : "section_visual",
+      target: editScope,
+      targetSlideId: editScope === "slide" ? currentSlide.id : undefined,
+      targetSlideTitle: editScope === "slide" ? currentSlide.title : undefined,
+      aspectRatio: deck.aspectRatio,
+      prompt: [
+        `Create a presentation-ready visual asset for this user intent: ${instruction}`,
+        `Aspect ratio ${deck.aspectRatio}.`,
+        "No readable text, captions, logos, watermarks, UI screenshots, or typography inside the image.",
+        "Leave clean negative space for HTML title and copy overlays.",
+        "Polished, commercially usable, high-resolution composition.",
+      ].join(" "),
+    },
+  ],
+});
+
+const buildGeneratedImagePrompt = (
+  asset: HtmlPptGeneratedAssetRequest,
+  instruction: string,
+  deck: HtmlPptDeck,
+  referenceImageCount: number,
+  stylePreset?: HtmlPptAiStyleGuide | null
+): string => [
+  "Generate one visual asset for an HTML PPT slide.",
+  `User intent: ${instruction}`,
+  `Asset role: ${asset.role}.`,
+  asset.targetSlideTitle ? `Target slide: ${asset.targetSlideTitle}.` : "",
+  `Deck aspect ratio: ${deck.aspectRatio}.`,
+  asset.style ? `Style direction: ${asset.style}.` : "",
+  stylePreset
+    ? `Presentation style preset: ${stylePreset.label}. ${stylePreset.imagePrompt}`
+    : "",
+  referenceImageCount > 0
+    ? "Use the provided reference image(s) only to understand subject, style, product, or composition intent."
+    : "",
+  `Visual prompt: ${asset.prompt}`,
+  "Critical constraints: no readable text, no typography, no captions, no logos, no watermarks, no UI text. The PPT text will be overlaid in HTML/CSS. Leave usable negative space for title and body copy.",
+]
+  .filter(Boolean)
+  .join("\n");
+
+const resolveGeneratedImageUrl = async (
+  result: AIImageResult,
+  projectId?: string | null
+): Promise<string> => {
+  const metadataImageUrl =
+    result.metadata && typeof result.metadata.imageUrl === "string"
+      ? result.metadata.imageUrl.trim()
+      : "";
+  const directUrl = normalizeString(result.imageUrl) || normalizeString(metadataImageUrl);
+  if (directUrl && isHttpImageRef(directUrl)) return directUrl;
+
+  const imageData = normalizeString(result.imageData);
+  if (!imageData) {
+    throw new Error("Image generation finished but did not return an image URL.");
+  }
+
+  const uploadDir = projectId
+    ? `projects/${projectId}/flow/html-ppt/generated/`
+    : "uploads/flow/html-ppt/generated/";
+  const uploadResult = await imageUploadService.uploadImageSource(imageData, {
+    projectId: projectId ?? undefined,
+    dir: uploadDir,
+    fileName: `html-ppt-generated-${Date.now()}.png`,
+    maxFileSize: 32 * 1024 * 1024,
+  });
+  const uploadedUrl = uploadResult.success ? uploadResult.asset?.url?.trim() : "";
+  if (!uploadedUrl) {
+    throw new Error(uploadResult.error || "Generated image upload failed.");
+  }
+  return uploadedUrl;
+};
+
+const createGeneratedPreparedImage = ({
+  asset,
+  url,
+  reason,
+}: {
+  asset: HtmlPptGeneratedAssetRequest;
+  url: string;
+  reason?: string;
+}): PreparedIncomingImage => ({
+  id: `html-ppt-generated-${Date.now()}`,
+  raw: url,
+  sourceTitle: `AI generated ${asset.role.replace(/_/g, " ")}`,
+  visionRef: url,
+  embeddableUrl: url,
+  uploaded: true,
+  generatedAsset: {
+    role: asset.role,
+    reason,
+    prompt: asset.prompt,
+  },
+});
+
 
 const imageHandleIndex = (handle?: string | null): number | null => {
   if (!handle) return null;
@@ -535,8 +976,13 @@ const buildIncomingImageContext = (images: PreparedIncomingImage[]): string => {
   const lines = images.map((image, index) => {
     const label = `Image ${index + 1}`;
     const source = image.sourceTitle ? ` from ${image.sourceTitle}` : "";
+    const generatedDetail = image.generatedAsset
+      ? `；这是系统按用户意图先生成的视觉素材，角色=${image.generatedAsset.role}${
+          image.generatedAsset.reason ? `，原因=${image.generatedAsset.reason}` : ""
+        }，必须实际排入目标 PPT 页面`
+      : "";
     if (image.embeddableUrl) {
-      return `${label}${source}: 必须作为可用视觉素材纳入版式；HTML 中用该远程 URL 引用: ${image.embeddableUrl}`;
+      return `${label}${source}: 必须作为可用视觉素材纳入版式${generatedDetail}；HTML 中用该远程 URL 引用: ${image.embeddableUrl}`;
     }
     return `${label}${source}: 仅作为本次视觉理解输入，不要把运行时 data/blob/base64 写入 HTML。`;
   });
@@ -589,6 +1035,146 @@ const prepareImageRefsForAi = async (
   return prepared;
 };
 
+const HTML_DOCUMENT_MARKER_PATTERN = /<(?:!doctype|html|head|body|style)\b/i;
+const ACTIVE_HTML_TAGS = ["script", "iframe", "object", "embed", "base"] as const;
+
+const stripActiveHtmlElements = (value: string): string => {
+  let next = value;
+  ACTIVE_HTML_TAGS.forEach((tag) => {
+    next = next
+      .replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, "gi"), "")
+      .replace(new RegExp(`<${tag}\\b[^>]*>`, "gi"), "");
+  });
+  return next;
+};
+
+const extractStyleBlocks = (value: string): string[] =>
+  Array.from(value.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
+    .map((match) => match[1]?.trim())
+    .filter((item): item is string => Boolean(item));
+
+const stripStyleBlocks = (value: string): string =>
+  value.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+
+const removeUnsafeHtmlNodes = (root: ParentNode) => {
+  ACTIVE_HTML_TAGS.forEach((tag) => {
+    root.querySelectorAll(tag).forEach((node) => node.remove());
+  });
+  root.querySelectorAll("style").forEach((node) => node.remove());
+};
+
+const readElementTitle = (element: Element, fallback: string): string => {
+  const explicit =
+    normalizeString(element.getAttribute("data-title")) ||
+    normalizeString(element.getAttribute("aria-label"));
+  if (explicit) return explicit.slice(0, 80);
+  const heading = element.querySelector("h1,h2,h3");
+  const text = normalizeString(heading?.textContent);
+  return text ? text.slice(0, 80) : fallback;
+};
+
+const fallbackExtractHtmlBody = (value: string): string => {
+  const withoutDoctype = value.replace(/<!doctype[^>]*>/gi, "");
+  const bodyMatch = withoutDoctype.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const source = bodyMatch?.[1] || withoutDoctype;
+  return stripActiveHtmlElements(stripStyleBlocks(source))
+    .replace(/<\/?(?:html|head|body|main)\b[^>]*>/gi, "")
+    .trim();
+};
+
+const convertHtmlDocumentToSlideParts = (
+  rawHtml: string,
+  rawCss?: string
+): { html: string; css: string } => {
+  const html = rawHtml.trim();
+  const css = normalizeString(rawCss) || "";
+  if (!HTML_DOCUMENT_MARKER_PATTERN.test(html)) {
+    return { html: rawHtml, css };
+  }
+
+  const styleCss = extractStyleBlocks(html).join("\n\n");
+  let fragment = "";
+  if (typeof DOMParser !== "undefined") {
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      removeUnsafeHtmlNodes(doc);
+      const root =
+        doc.querySelector(".slide-root") ||
+        doc.querySelector(".slide-page") ||
+        doc.querySelector("main") ||
+        doc.body;
+      if (root) {
+        removeUnsafeHtmlNodes(root);
+        fragment =
+          root.classList.contains("slide-root") && root instanceof HTMLElement
+            ? root.innerHTML
+            : root.querySelector(".slide-root")?.innerHTML || root.innerHTML;
+      }
+    } catch {
+      fragment = "";
+    }
+  }
+  if (!fragment) {
+    fragment = fallbackExtractHtmlBody(html);
+  }
+
+  return {
+    html: stripActiveHtmlElements(stripStyleBlocks(fragment)).trim() || rawHtml,
+    css: [styleCss, css].filter((item) => item.trim().length > 0).join("\n\n"),
+  };
+};
+
+const convertHtmlDocumentToDeck = (
+  rawHtml: string,
+  currentDeck: HtmlPptDeck
+): { slides: HtmlPptSlide[]; themeCss: string } | null => {
+  const html = rawHtml.trim();
+  if (!HTML_DOCUMENT_MARKER_PATTERN.test(html) || typeof DOMParser === "undefined") {
+    return null;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const themeCss = extractStyleBlocks(html).join("\n\n");
+    removeUnsafeHtmlNodes(doc);
+    const candidates = Array.from(
+      doc.querySelectorAll(".slide-root, .slide-page, article.slide, section.slide")
+    );
+    const slideElements = candidates.length
+      ? candidates.filter((element, index, list) => {
+          if (element.classList.contains("slide-root")) return true;
+          return !element.querySelector(".slide-root") || list.length === 1;
+        })
+      : doc.body
+      ? [doc.body]
+      : [];
+    const seen = new Set<Element>();
+    const slides: HtmlPptSlide[] = [];
+
+    slideElements.slice(0, MAX_SLIDES).forEach((element, index) => {
+      const root = element.classList.contains("slide-root")
+        ? element
+        : element.querySelector(".slide-root") || element;
+      if (!root || seen.has(root)) return;
+      seen.add(root);
+      removeUnsafeHtmlNodes(root);
+      const fallback = currentDeck.slides[index] || createHtmlPptSlide(index + 1);
+      const slide: HtmlPptSlide = {
+        id: fallback.id || createHtmlPptId("slide"),
+        title: readElementTitle(root, fallback.title || `Slide ${index + 1}`),
+        html: stripActiveHtmlElements(stripStyleBlocks(root.innerHTML)).trim(),
+        css: "",
+        notes: fallback.notes,
+      };
+      if (slide.html) slides.push(slide);
+    });
+
+    return slides.length ? { slides, themeCss } : null;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeAiSlidePatch = (
   parsed: Record<string, unknown>,
   currentSlideId: string
@@ -612,6 +1198,12 @@ const normalizeAiSlidePatch = (
 
   if (!next.title && !next.html && !next.css && !next.notes) {
     throw new Error("Ultra JSON patch did not include title, html, css, or notes.");
+  }
+
+  if (next.html !== undefined) {
+    const converted = convertHtmlDocumentToSlideParts(next.html, next.css);
+    next.html = converted.html;
+    next.css = converted.css;
   }
 
   if (next.html !== undefined) assertSafeHtmlPptCode(next.html, "Slide HTML");
@@ -640,6 +1232,33 @@ const normalizeAiDeckPatch = (
     : undefined;
 
   if (!rawSlides?.length) {
+    const rawDeckHtml =
+      pickString(deckRecord, ["html", "deckHtml", "document", "fullHtml"]) ||
+      pickString(parsed, ["html", "deckHtml", "document", "fullHtml"]);
+    const convertedDeck = rawDeckHtml
+      ? convertHtmlDocumentToDeck(rawDeckHtml, currentDeck)
+      : null;
+    if (convertedDeck) {
+      const themeCss = convertedDeck.themeCss || currentDeck.themeCss;
+      assertSafeHtmlPptCode(themeCss, "Deck theme CSS");
+      convertedDeck.slides.forEach((slide) => {
+        assertSafeHtmlPptCode(slide.html, "Slide HTML");
+        assertSafeHtmlPptCode(slide.css, "Slide CSS");
+      });
+      const totalLength = convertedDeck.slides.reduce(
+        (sum, slide) => sum + slide.html.length + slide.css.length + (slide.notes || "").length,
+        themeCss.length
+      );
+      if (totalLength > MAX_CODE_LENGTH * 2) {
+        throw new Error("Deck patch is too large.");
+      }
+      return {
+        version: 1,
+        aspectRatio: currentDeck.aspectRatio,
+        themeCss,
+        slides: convertedDeck.slides.slice(0, MAX_SLIDES),
+      };
+    }
     throw new Error("Ultra JSON patch did not include deck slides.");
   }
 
@@ -663,6 +1282,9 @@ const normalizeAiDeckPatch = (
       css: typeof record.css === "string" ? record.css : fallback.css,
       notes: typeof record.notes === "string" ? record.notes : fallback.notes,
     };
+    const converted = convertHtmlDocumentToSlideParts(slide.html, slide.css);
+    slide.html = converted.html;
+    slide.css = converted.css;
     assertSafeHtmlPptCode(slide.html, "Slide HTML");
     assertSafeHtmlPptCode(slide.css, "Slide CSS");
     return slide;
@@ -708,7 +1330,8 @@ const buildAiPrompt = (
   instruction: string,
   deck: HtmlPptDeck,
   slide: HtmlPptSlide,
-  incomingContext: string
+  incomingContext: string,
+  stylePreset?: HtmlPptAiStyleGuide | null
 ): string => {
   const outline = deck.slides
     .map((item, index) => `${index + 1}. ${item.id}: ${item.title}`)
@@ -747,6 +1370,8 @@ ${slide.html}
 css:
 ${slide.css}
 
+${buildStylePresetPromptSection(stylePreset)}
+
 ${incomingContext ? `上游输入:\n${incomingContext}\n\n` : ""}用户要求:
 ${instruction}`;
 };
@@ -754,7 +1379,8 @@ ${instruction}`;
 const buildAiDeckPrompt = (
   instruction: string,
   deck: HtmlPptDeck,
-  incomingContext: string
+  incomingContext: string,
+  stylePreset?: HtmlPptAiStyleGuide | null
 ): string => {
   const payload = JSON.stringify(
     {
@@ -803,6 +1429,8 @@ const buildAiDeckPrompt = (
 当前 deck:
 ${payload}
 
+${buildStylePresetPromptSection(stylePreset)}
+
 ${incomingContext ? `上游输入:\n${incomingContext}\n\n` : ""}用户要求:
 ${instruction}`;
 };
@@ -819,10 +1447,24 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === "black");
   const deck = React.useMemo(() => normalizeDeck(data.deck), [data.deck]);
+  const activeStylePreset = React.useMemo(
+    () => findHtmlPptStylePreset(data.stylePresetKey),
+    [data.stylePresetKey]
+  );
+  const activeBoldTemplate = React.useMemo(
+    () => findHtmlPptBoldTemplate(data.boldTemplateSlug),
+    [data.boldTemplateSlug]
+  );
+  const activeStyleGuide = React.useMemo<HtmlPptAiStyleGuide | null>(() => {
+    if (activeBoldTemplate) return boldTemplateToStyleGuide(activeBoldTemplate);
+    return activeStylePreset;
+  }, [activeBoldTemplate, activeStylePreset]);
   const currentSlide =
     deck.slides.find((slide) => slide.id === data.currentSlideId) || deck.slides[0];
   const currentIndex = Math.max(0, deck.slides.findIndex((slide) => slide.id === currentSlide.id));
   const [viewMode, setViewMode] = React.useState<"preview" | "code">("preview");
+  const [stylePreviewOpen, setStylePreviewOpen] = React.useState(false);
+  const [styleLibraryView, setStyleLibraryView] = React.useState<"presets" | "bold">("presets");
   const [promptDraft, setPromptDraft] = React.useState(data.promptDraft || "");
   const [isRunning, setIsRunning] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -839,6 +1481,10 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   );
   const textModel = React.useMemo(
     () => getTextModelForProvider(effectiveProvider),
+    [effectiveProvider]
+  );
+  const imageModel = React.useMemo(
+    () => getImageModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -986,6 +1632,75 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     [commitDeck, currentSlide.id, deck]
   );
 
+  const applyStylePreset = React.useCallback(
+    (key: HtmlPptStylePresetKey) => {
+      const preset = getHtmlPptStylePreset(key);
+      commitDeck(
+        { ...deck, themeCss: preset.themeCss },
+        currentSlide.id,
+        {
+          historyLabel: "apply-style-preset",
+          patch: {
+            stylePresetKey: preset.key,
+            boldTemplateSlug: undefined,
+            status: "idle",
+            error: undefined,
+          },
+        }
+      );
+      setStatusText(lt("已应用风格预设", "Style preset applied"));
+    },
+    [commitDeck, currentSlide.id, deck, lt]
+  );
+
+  const applyBoldTemplate = React.useCallback(
+    (slug: HtmlPptBoldTemplateSlug) => {
+      const template = getHtmlPptBoldTemplate(slug);
+      const starterSlides = template.starterSlides.slice(0, MAX_SLIDES).map((slide, index) => ({
+        id: createHtmlPptId("slide"),
+        title: slide.title || `${template.name} ${index + 1}`,
+        html: slide.html,
+        css: slide.css,
+        notes: slide.notes,
+      }));
+      assertSafeHtmlPptCode(template.themeCss, "Deck theme CSS");
+      starterSlides.forEach((slide) => {
+        assertSafeHtmlPptCode(slide.html, "Slide HTML");
+        assertSafeHtmlPptCode(slide.css, "Slide CSS");
+      });
+      const nextDeck: HtmlPptDeck = starterSlides.length
+        ? {
+            version: 1,
+            aspectRatio: "16:9",
+            themeCss: template.themeCss,
+            slides: starterSlides,
+          }
+        : { ...deck, themeCss: template.themeCss };
+      const nextSlideId = nextDeck.slides[0]?.id || currentSlide.id;
+      commitDeck(
+        nextDeck,
+        nextSlideId,
+        {
+          historyLabel: starterSlides.length
+            ? "apply-bold-template-starter"
+            : "apply-bold-template",
+          patch: {
+            boldTemplateSlug: template.slug,
+            stylePresetKey: undefined,
+            status: "idle",
+            error: undefined,
+          },
+        }
+      );
+      setStatusText(
+        starterSlides.length
+          ? lt("已应用真实 HTML 模板", "HTML template starter applied")
+          : lt("已应用 Bold 模板", "Bold template applied")
+      );
+    },
+    [commitDeck, currentSlide.id, deck, lt]
+  );
+
   const addSlide = React.useCallback((template: HtmlPptSlideTemplateKey = "content") => {
     if (deck.slides.length >= MAX_SLIDES) return;
     const nextSlide = createHtmlPptSlide(deck.slides.length + 1, template);
@@ -1068,29 +1783,143 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       if (latestIncomingImageRefs.length > 0 && preparedImages.length === 0) {
         throw new Error(lt("图片素材准备失败，无法用于 PPT 排版", "Image asset preparation failed"));
       }
-      const incomingImageContext = buildIncomingImageContext(preparedImages);
-      const incomingContext = [incomingTextContext, incomingImageContext]
+      let allPreparedImages = preparedImages;
+      let incomingImageContext = buildIncomingImageContext(allPreparedImages);
+      let incomingContext = [incomingTextContext, incomingImageContext]
         .filter((item) => item.trim().length > 0)
         .join("\n\n")
         .trim();
-      const imageUrls = preparedImages.map((image) => image.visionRef);
-      setStatusText("");
+      const autoAssetIntent = getAutoAssetIntent(finalInstruction, preparedImages.length);
+      if (autoAssetIntent.shouldPlan) {
+        setStatusText(lt("正在判断是否需要生成视觉素材", "Planning visual asset"));
+        let assetPlan: HtmlPptGeneratedAssetPlan | null = null;
+        try {
+          const planResult = await aiImageService.generateTextResponse({
+            prompt: buildGeneratedAssetPlanPrompt({
+              instruction: finalInstruction,
+              deck,
+              currentSlide,
+              editScope,
+              incomingContext,
+              preparedImages,
+              stylePreset: activeStyleGuide,
+            }),
+            imageUrls: preparedImages.length
+              ? preparedImages.map((image) => image.visionRef).slice(0, MAX_IMAGE_INPUTS)
+              : undefined,
+            aiProvider: effectiveProvider,
+            model: textModel,
+            enableWebSearch: false,
+            billingTag: "text_chat",
+            providerOptions: buildBananaProviderOptions(bananaImageRoute),
+          });
+
+          if (planResult.success && planResult.data?.text) {
+            const parsedPlan = extractJsonPayload(
+              planResult.data.text,
+              "Ultra did not return a visual asset plan."
+            );
+            assetPlan = normalizeGeneratedAssetPlan(parsedPlan, deck);
+          } else if (autoAssetIntent.explicit) {
+            assetPlan = buildFallbackGeneratedAssetPlan(
+              finalInstruction,
+              deck,
+              currentSlide,
+              editScope
+            );
+          } else {
+            console.warn("HTML PPT visual asset planning skipped:", planResult.error);
+          }
+        } catch (error) {
+          if (autoAssetIntent.explicit) {
+            assetPlan = buildFallbackGeneratedAssetPlan(
+              finalInstruction,
+              deck,
+              currentSlide,
+              editScope
+            );
+          } else {
+            console.warn("HTML PPT visual asset planning failed:", error);
+          }
+        }
+
+        if ((!assetPlan || !assetPlan.shouldGenerateImages) && autoAssetIntent.explicit) {
+          assetPlan = buildFallbackGeneratedAssetPlan(
+            finalInstruction,
+            deck,
+            currentSlide,
+            editScope
+          );
+        }
+
+        const asset = assetPlan?.shouldGenerateImages ? assetPlan.assets[0] : null;
+        if (asset) {
+          const referenceImageUrls = preparedImages
+            .map((image) => image.visionRef)
+            .filter(isHttpImageRef)
+            .slice(0, MAX_IMAGE_INPUTS);
+          setStatusText(lt("正在生成视觉素材", "Generating visual asset"));
+          const imageResult = await generateImageViaAPI({
+            prompt: buildGeneratedImagePrompt(
+              asset,
+              finalInstruction,
+              deck,
+              referenceImageUrls.length,
+              activeStyleGuide
+            ),
+            aiProvider: effectiveProvider,
+            model: imageModel,
+            aspectRatio: asset.aspectRatio || deck.aspectRatio,
+            imageSize: "2K",
+            outputFormat: "png",
+            imageOnly: true,
+            enableWebSearch: false,
+            imageUrls: referenceImageUrls.length ? referenceImageUrls : undefined,
+            providerOptions: buildBananaProviderOptions(bananaImageRoute),
+            nodeId: id,
+            nodeConfigKey: "html-ppt-auto-visual",
+            nodeConfigNameZh: "HTML PPT 自动视觉素材",
+            nodeConfigNameEn: "HTML PPT auto visual asset",
+            billingTitleSource: "node",
+          });
+          if (!imageResult.success || !imageResult.data) {
+            throw new Error(
+              imageResult.error?.message ||
+                lt("视觉素材生成失败", "Visual asset generation failed")
+            );
+          }
+
+          setStatusText(lt("正在上传生成素材", "Uploading visual asset"));
+          const generatedUrl = await resolveGeneratedImageUrl(imageResult.data, projectId);
+          const generatedImage = createGeneratedPreparedImage({
+            asset,
+            url: generatedUrl,
+            reason: assetPlan?.reason,
+          });
+          allPreparedImages = [generatedImage, ...preparedImages];
+          incomingImageContext = buildIncomingImageContext(allPreparedImages);
+          incomingContext = [incomingTextContext, incomingImageContext]
+            .filter((item) => item.trim().length > 0)
+            .join("\n\n")
+            .trim();
+        }
+      }
+
+      const imageUrls = allPreparedImages
+        .map((image) => image.visionRef)
+        .slice(0, MAX_IMAGE_INPUTS);
+      setStatusText(lt("正在生成 PPT", "Generating PPT"));
       const result = await aiImageService.generateTextResponse({
         prompt:
           editScope === "deck"
-            ? buildAiDeckPrompt(finalInstruction, deck, incomingContext)
-            : buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext),
+            ? buildAiDeckPrompt(finalInstruction, deck, incomingContext, activeStyleGuide)
+            : buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext, activeStyleGuide),
         imageUrls: imageUrls.length ? imageUrls : undefined,
         aiProvider: effectiveProvider,
         model: textModel,
         enableWebSearch: false,
         billingTag: "text_chat",
-        providerOptions: {
-          banana: {
-            imageRoute: bananaImageRoute === "stable" ? "stable" : "normal",
-          },
-          bananaImageRoute: bananaImageRoute === "stable" ? "stable" : "normal",
-        },
+        providerOptions: buildBananaProviderOptions(bananaImageRoute),
       });
 
       if (!result.success || !result.data?.text) {
@@ -1140,12 +1969,15 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       setIsRunning(false);
     }
   }, [
+    activeStyleGuide,
     bananaImageRoute,
     commitDeck,
     currentSlide,
     deck,
     editScope,
     effectiveProvider,
+    id,
+    imageModel,
     lt,
     promptDraft,
     projectId,
@@ -1492,6 +2324,15 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             type="button"
+            onClick={() => setStylePreviewOpen((value) => !value)}
+            title={lt("风格预览", "Style previews")}
+            style={toolButtonStyle(palette, stylePreviewOpen)}
+          >
+            <Palette size={14} />
+            Style
+          </button>
+          <button
+            type="button"
             onClick={() => setSlideByIndex(currentIndex + 1)}
             disabled={currentIndex >= deck.slides.length - 1}
             title={lt("下一页", "Next slide")}
@@ -1587,6 +2428,128 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
+
+      {stylePreviewOpen && (
+        <div
+          className="nodrag nopan nowheel"
+          onPointerDownCapture={stopFlowPan}
+          onWheelCapture={stopFlowPan}
+          style={{
+            border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
+            borderRadius: 8,
+            background: palette.panel,
+            padding: 8,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: palette.text, fontSize: 12, fontWeight: 800 }}>
+                Style previews
+              </div>
+              <div
+                style={{
+                  color: palette.muted,
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {activeStyleGuide
+                  ? `${activeStyleGuide.label} selected`
+                  : lt("选择一个预设后，后续 RUN 会按该视觉语言生成", "Select a preset to guide later runs")}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "inline-flex",
+                height: 28,
+                borderRadius: 7,
+                overflow: "hidden",
+                border: "1px solid rgba(148,163,184,0.35)",
+                flexShrink: 0,
+              }}
+            >
+              {(["presets", "bold"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setStyleLibraryView(view)}
+                  style={{
+                    width: view === "bold" ? 68 : 62,
+                    border: "none",
+                    borderRight: view === "presets" ? "1px solid rgba(148,163,184,0.35)" : "none",
+                    background: styleLibraryView === view ? palette.button : palette.inputBg,
+                    color: styleLibraryView === view ? "#fff" : palette.text,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  {view === "bold" ? "Bold 34" : "Presets"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 8,
+              maxHeight: styleLibraryView === "bold" ? 620 : undefined,
+              overflowY: styleLibraryView === "bold" ? "auto" : undefined,
+              paddingRight: styleLibraryView === "bold" ? 2 : undefined,
+            }}
+          >
+            {styleLibraryView === "presets"
+              ? HTML_PPT_STYLE_PRESETS.map((preset) => (
+                  <StylePreviewTile
+                    key={preset.key}
+                    item={{
+                      id: preset.key,
+                      label: preset.label,
+                      description: preset.description,
+                      colors: preset.colors,
+                      themeCss: preset.themeCss,
+                      previewSlide: preset.previewSlide,
+                    }}
+                    aspectRatio={deck.aspectRatio}
+                    active={activeStylePreset?.key === preset.key}
+                    palette={palette}
+                    isDarkTheme={isDarkTheme}
+                    onClick={() => applyStylePreset(preset.key)}
+                  />
+                ))
+              : HTML_PPT_BOLD_TEMPLATES.map((template) => (
+                  <StylePreviewTile
+                    key={template.slug}
+                    item={{
+                      id: template.slug,
+                      label: template.name,
+                      description: template.tagline,
+                      colors: template.colors,
+                      themeCss: template.themeCss,
+                      previewSlide: template.previewSlide,
+                      previewSlides: template.previewSlides,
+                    }}
+                    aspectRatio="16:9"
+                    active={activeBoldTemplate?.slug === template.slug}
+                    palette={palette}
+                    isDarkTheme={isDarkTheme}
+                    onClick={() => applyBoldTemplate(template.slug)}
+                  />
+                ))}
+          </div>
+        </div>
+      )}
 
       <div
         style={{
@@ -2061,6 +3024,143 @@ function SlideThumbnail({
         >
           {slide.title}
         </span>
+      </div>
+    </button>
+  );
+}
+
+function StylePreviewTile({
+  item,
+  aspectRatio,
+  active,
+  palette,
+  isDarkTheme,
+  onClick,
+}: {
+  item: HtmlPptStylePreviewItem;
+  aspectRatio: HtmlPptDeck["aspectRatio"];
+  active: boolean;
+  palette: { panel: string; inputBg: string; text: string; muted: string };
+  isDarkTheme: boolean;
+  onClick: () => void;
+}) {
+  const previewSlides = React.useMemo(
+    () => (item.previewSlides?.length ? item.previewSlides : [item.previewSlide]).slice(0, 3),
+    [item.previewSlide, item.previewSlides]
+  );
+  const previewScale = React.useMemo(() => {
+    const design = getDesignSize(aspectRatio);
+    const targetWidth = previewSlides.length > 1 ? 94 : 210;
+    return Math.min(0.24, Math.max(0.02, targetWidth / design.width));
+  }, [aspectRatio, previewSlides.length]);
+  const previewSrcDocs = React.useMemo(
+    () =>
+      previewSlides.map((slide, index) => {
+        const previewDeck: HtmlPptDeck = {
+          version: 1,
+          aspectRatio,
+          themeCss: item.themeCss,
+          slides: [
+            {
+              id: `style-preview-${item.id}-${index + 1}`,
+              title: slide.title,
+              html: slide.html,
+              css: slide.css,
+            },
+          ],
+        };
+        return buildSlideSrcDoc(previewDeck, previewDeck.slides[0], previewScale);
+      }),
+    [aspectRatio, item.id, item.themeCss, previewScale, previewSlides]
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={item.description}
+      style={{
+        minWidth: 0,
+        border: `1px solid ${active ? item.colors.accent : isDarkTheme ? "#3a3a3a" : "#dbe3ef"}`,
+        borderRadius: 8,
+        background: active
+          ? isDarkTheme
+            ? "rgba(255,255,255,0.08)"
+            : "#ffffff"
+          : palette.inputBg,
+        color: palette.text,
+        padding: 7,
+        textAlign: "left",
+        cursor: "pointer",
+        boxShadow: active ? `0 0 0 1px ${item.colors.accent}` : "none",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          height: previewSrcDocs.length > 1 ? 104 : 86,
+          display: "grid",
+          gridTemplateColumns: `repeat(${previewSrcDocs.length}, minmax(0, 1fr))`,
+          gap: previewSrcDocs.length > 1 ? 5 : 0,
+          borderRadius: 6,
+          overflow: "hidden",
+          background: "#111827",
+          border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
+        }}
+      >
+        {previewSrcDocs.map((srcDoc, index) => (
+          <iframe
+            key={`${item.id}-${index}`}
+            title={`${item.label} preview ${index + 1}`}
+            sandbox=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            srcDoc={srcDoc}
+            style={{
+              width: "100%",
+              height: "100%",
+              border: "none",
+              display: "block",
+              pointerEvents: "none",
+              background: "#111827",
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+        <span
+          style={{
+            width: 9,
+            height: 9,
+            borderRadius: 999,
+            background: item.colors.accent,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            fontSize: 11,
+            fontWeight: 800,
+          }}
+        >
+          {item.label}
+        </span>
+      </div>
+      <div
+        style={{
+          color: active ? item.colors.accent : palette.muted,
+          fontSize: 10,
+          lineHeight: 1.25,
+          marginTop: 3,
+          minHeight: 25,
+          overflow: "hidden",
+        }}
+      >
+        {item.description}
       </div>
     </button>
   );
