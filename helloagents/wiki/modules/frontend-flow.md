@@ -1,7 +1,13 @@
-## 2026-06-03 Dense Flow MiniMap Hide
-- Flow graphs with 80+ nodes now skip MiniMap rendering entirely. Smaller graphs keep the previous behavior: MiniMap unmounts only during pan/zoom/object movement or node drag, then restores after the interaction becomes idle.
+## 2026-06-03 Image Input Target Preference
+- `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.
+- Workspace AI settings can route external image paste, drag/drop, and picker upload into Flow Image nodes (`imageInputTarget = "node"`). Canvas-first remains the default and keeps direct canvas insertion.
+
+## 2026-06-03 Dense Flow MiniMap Interaction Hide
+- Project opening now treats Flow's first post-hydrate paint plus an idle/stabilization window as the workspace-ready signal. `FlowOverlay` queues a paint check after initial Flow hydrate, emits project-load debug timing, and sets `projectContentStore.projectViewReady` so `/app` can keep the full-screen loading overlay visible through dense graph first render and immediate post-paint settling.
+- MiniMap stays visible while idle. Flow graphs with more than 80 nodes temporarily unmount MiniMap only during pan/zoom/object movement or node drag, then restore after the interaction becomes idle.
 - Dense Flow node dragging now also enters interaction soft-detail mode. During that mode the real nodes, controls, edges, and resize affordances remain rendered, while only the visible connection-handle dots are hidden.
 - Image-preview-heavy nodes (`Generate`, `GeneratePro`, `Analyze`, `Image`) now use stable selector equality for connected image/crop previews, reducing unrelated rerenders from position-only Flow store updates during node drag.
+- Single-node drag skips position-only derived scans for selected viewport anchors, node-removal polling cleanup, collapsed-group signatures, group preview images, and running-node detection. When no group is collapsed, `nodesForRender` reuses `nodesWithHandlers` instead of mapping every node per drag frame.
 
 ## 2026-06-03 Flow Soft Detail Prompt Title
 - `TextPromptNode` title now uses the shared `.tanva-flow-node-title` marker, so dense-graph pan/zoom soft-detail mode keeps the Prompt node title visible while hiding only the visible connection-handle dots.

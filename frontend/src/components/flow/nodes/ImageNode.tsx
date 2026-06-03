@@ -2118,7 +2118,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          gap: 8,
           marginBottom: 6,
+          minWidth: 0,
         }}
       >
         {isEditingNodeLabel ? (
@@ -2150,7 +2152,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
               borderRadius: 6,
               padding: "2px 6px",
               outline: "none",
-              minWidth: 80,
+              flex: "1 1 80px",
+              minWidth: 0,
               maxWidth: 160,
             }}
           />
@@ -2158,13 +2161,23 @@ function ImageNodeInner({ id, data, selected }: Props) {
           <div
             className='tanva-flow-node-title'
             onDoubleClick={startNodeLabelEditing}
-            title={lt("双击编辑标题", "Double click to edit title")}
-            style={{ fontWeight: 600, cursor: "text", userSelect: "none" }}
+            title={nodeLabel}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontWeight: 600,
+              cursor: "text",
+              userSelect: "none",
+            }}
           >
             {nodeLabel}
           </div>
         )}
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
           {(() => {
             const reviewTitle =
               isReviewExpired ? "审核已过期，点击重新审核"

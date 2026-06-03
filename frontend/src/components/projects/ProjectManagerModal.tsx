@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { projectApi, type Project } from '@/services/projectApi';
 import type { ProjectContentSnapshot } from '@/types/project';
 import { useTeamStore } from '@/stores/teamStore';
+import { getProjectCache, isCacheValid, setProjectCache } from '@/services/projectCacheStore';
+import { useAuthStore } from '@/stores/authStore';
 
 function formatDate(iso: string, locale?: string) {
   try {
@@ -269,7 +271,8 @@ export default function ProjectManagerModal() {
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const locale = isZh ? 'zh-CN' : 'en-US';
-  const { modalOpen, closeModal, projects: personalProjects, create, open, rename, remove, loading: personalLoading, load, error: personalError } = useProjectStore();
+  const { modalOpen, closeModal, projects: personalProjects, create, open, rename, remove, load, error: personalError } = useProjectStore();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const teams = useTeamStore((s) => s.teams);
   const nonPersonalTeams = useMemo(() => teams.filter((t) => !t.isPersonal), [teams]);
   const guardLeave = usePendingUploadLeaveGuard();
@@ -277,25 +280,20 @@ export default function ProjectManagerModal() {
   // 'personal' | teamId
   const [contextId, setContextId] = useState<string>('personal');
   const [teamProjects, setTeamProjects] = useState<Project[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
   const [teamError, setTeamError] = useState('');
   const [cloningToTeam, setCloningToTeam] = useState<string | null>(null);
   const [shareMenuProjectId, setShareMenuProjectId] = useState<string | null>(null);
 
   const isPersonal = contextId === 'personal';
   const projects = isPersonal ? personalProjects : teamProjects;
-  const loading = isPersonal ? personalLoading : teamLoading;
   const error = isPersonal ? personalError : teamError;
   const loadTeamProjects = useCallback(async (teamId: string) => {
-    setTeamLoading(true);
     setTeamError('');
     try {
       const list = await projectApi.listByTeam(teamId);
       setTeamProjects(list);
-    } catch (e: any) {
-      setTeamError(e?.message || '加载失败');
-    } finally {
-      setTeamLoading(false);
+    } catch (e) {
+      setTeamError(e instanceof Error ? e.message : '加载失败');
     }
   }, []);
 
@@ -373,13 +371,35 @@ export default function ProjectManagerModal() {
     if (!modalOpen || paginatedProjects.length === 0) return;
 
     for (const project of paginatedProjects) {
-      const cached = previewCache[project.id];
-      const hasFreshCache = cached?.version === project.contentVersion;
-      if (hasFreshCache || previewRequestsRef.current.has(project.id)) continue;
+      const previewEntry = previewCache[project.id];
+      const hasFreshPreview = previewEntry?.version === project.contentVersion;
+      if (hasFreshPreview || previewRequestsRef.current.has(project.id)) continue;
 
       previewRequestsRef.current.add(project.id);
-      void projectApi
-        .getContent(project.id)
+      void (async () => {
+        const projectCache = userId
+          ? await getProjectCache(project.id, { userId })
+          : null;
+        if (projectCache && isCacheValid(projectCache, {
+          contentVersion: project.contentVersion,
+          updatedAt: project.updatedAt,
+        })) {
+          return { content: projectCache.content, version: projectCache.version, updatedAt: projectCache.updatedAt };
+        }
+
+        const data = await projectApi.getContent(project.id);
+        if (data.content) {
+          setProjectCache({
+            projectId: project.id,
+            userId,
+            content: data.content,
+            version: data.version,
+            updatedAt: data.updatedAt ?? new Date().toISOString(),
+            cachedAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+        return data;
+      })()
         .then(({ content }) => {
           const images = extractProjectPreviewImages(content);
           setPreviewCache((prev) => ({
@@ -404,7 +424,7 @@ export default function ProjectManagerModal() {
           previewRequestsRef.current.delete(project.id);
         });
     }
-  }, [modalOpen, paginatedProjects, previewCache]);
+  }, [modalOpen, paginatedProjects, previewCache, userId]);
 
   const selectedCount = selectionMode ? selectedIds.size : 0;
   const isSelectAll = selectionMode && projects.length > 0 && projects.every((p) => selectedIds.has(p.id));
@@ -444,8 +464,8 @@ export default function ProjectManagerModal() {
     try {
       await projectApi.cloneToTeam(projectId, teamId);
       alert(lt('已克隆至团队项目', 'Cloned to team projects'));
-    } catch (e: any) {
-      alert(lt('分享失败：', 'Share failed: ') + e?.message);
+    } catch (e) {
+      alert(lt('分享失败：', 'Share failed: ') + (e instanceof Error ? e.message : ''));
     } finally {
       setCloningToTeam(null);
     }

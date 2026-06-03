@@ -554,6 +554,7 @@ let legacyMigrationInProgress = false;
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
 export type SendShortcut = "enter" | "mod-enter";
 export type ChatTheme = "white" | "black";
+export type ImageInputTarget = "canvas" | "node";
 
 const toISOString = (
   value: Date | string | number | null | undefined
@@ -2670,6 +2671,7 @@ interface AIChatState {
   bananaImageRoute: BananaImageRoute;
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
+  imageInputTarget: ImageInputTarget;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
 
@@ -2849,6 +2851,7 @@ interface AIChatState {
   setBananaImageRoute: (route: BananaImageRoute) => void;
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
   setSendShortcut: (shortcut: SendShortcut) => void;
+  setImageInputTarget: (target: ImageInputTarget) => void;
   setExpandedPanelStyle: (style: "transparent" | "solid") => void; // 设置展开模式面板样式
   setChatTheme: (theme: ChatTheme) => void;
 
@@ -3219,6 +3222,7 @@ export const useAIChatStore = create<AIChatState>()(
         bananaImageRoute: "normal",
         autoModeMultiplier: 1,
         sendShortcut: "enter",
+        imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
 
@@ -8604,6 +8608,10 @@ export const useAIChatStore = create<AIChatState>()(
           const next = shortcut === "enter" ? "enter" : "mod-enter";
           set({ sendShortcut: next });
         },
+        setImageInputTarget: (target) => {
+          const next: ImageInputTarget = target === "node" ? "node" : "canvas";
+          set({ imageInputTarget: next });
+        },
         setExpandedPanelStyle: (style) => {
           const next = style === "solid" ? "solid" : "transparent";
           set({ expandedPanelStyle: next });
@@ -8726,11 +8734,12 @@ export const useAIChatStore = create<AIChatState>()(
           "vector",
         ];
         const validSendShortcuts = ["enter", "mod-enter"];
+        const validImageInputTargets = ["canvas", "node"];
         const validExpandedStyles = ["transparent", "solid"];
         const validChatThemes = ["white", "black"];
         const validVideoRatios = ["16:9", "9:16"];
         const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
-        const validBananaImageRoutes = ["normal", "stable"];
+        const validBananaImageRoutes = ["normal", "stable", "ultra"];
 
         return {
           ...state,
@@ -8751,6 +8760,11 @@ export const useAIChatStore = create<AIChatState>()(
           sendShortcut: validSendShortcuts.includes(String(state.sendShortcut))
             ? (state.sendShortcut as AIChatState["sendShortcut"])
             : "enter",
+          imageInputTarget: validImageInputTargets.includes(
+            String(state.imageInputTarget)
+          )
+            ? (state.imageInputTarget as AIChatState["imageInputTarget"])
+            : "canvas",
           expandedPanelStyle: validExpandedStyles.includes(String(state.expandedPanelStyle))
             ? (state.expandedPanelStyle as AIChatState["expandedPanelStyle"])
             : "transparent",
@@ -8777,6 +8791,7 @@ export const useAIChatStore = create<AIChatState>()(
         videoDurationSeconds: state.videoDurationSeconds,
         autoModeMultiplier: state.autoModeMultiplier,
         sendShortcut: state.sendShortcut,
+        imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
       }),

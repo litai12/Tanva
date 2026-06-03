@@ -214,6 +214,12 @@ import { resolveTextFromSourceNode } from "./utils/textSource";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
 import {
+  projectLoadDebug,
+  projectLoadNow,
+  waitForProjectLoadInteractive,
+  waitForProjectLoadPaint,
+} from "@/utils/projectLoadDebug";
+import {
   resolveFlowImageReferenceLimit,
   resolveFlowModelProvider,
 } from "@/utils/flowModelProvider";
@@ -308,7 +314,7 @@ const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
-const FLOW_AUTO_HIDE_MINIMAP_NODE_THRESHOLD = 80;
+const FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD = 80;
 // 低缩放硬降级先默认关闭：它会牺牲节点可读性，当前只保留代码兜底。
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.22;
@@ -4247,9 +4253,21 @@ function FlowInner() {
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
   const nodesRef = React.useRef<RFNode[]>([]);
   const edgesRef = React.useRef<Edge[]>([]);
+  const flowHydratePaintTokenRef = React.useRef(0);
+  const flowHydratePaintPendingRef = React.useRef<null | {
+    token: number;
+    projectId: string;
+    startedAt: number;
+    paintWaitStartedAt: number;
+    inputNodes: number;
+    inputEdges: number;
+    paintScheduled?: boolean;
+  }>(null);
+  const nodeDraggingRef = React.useRef(false);
   const lastSelectedFlowNodeIdsRef = React.useRef<string[]>([]);
   React.useEffect(() => {
     nodesRef.current = nodes as RFNode[];
+    if (nodeDraggingRef.current) return;
     const selectedIds = (nodes as RFNode[])
       .filter((node) => node?.selected)
       .map((node) => String(node.id))
@@ -4262,13 +4280,21 @@ function FlowInner() {
     edgesRef.current = edges as Edge[];
   }, [edges]);
 
+  const flowViewportAnchorKeyRef = React.useRef("");
   const flowViewportAnchorKey = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return flowViewportAnchorKeyRef.current;
+    }
+
     const selectedNode =
       (nodes as RFNode[]).find((node) => node?.selected) ||
       (nodes as RFNode[]).find((node) =>
         lastSelectedFlowNodeIdsRef.current.includes(String(node?.id || ""))
       );
-    if (!selectedNode) return "";
+    if (!selectedNode) {
+      flowViewportAnchorKeyRef.current = "";
+      return "";
+    }
     const absolutePosition = (selectedNode as {
       positionAbsolute?: { x?: unknown; y?: unknown };
     }).positionAbsolute;
@@ -4282,7 +4308,9 @@ function FlowInner() {
         : selectedNode.position?.y;
     const x = typeof rawX === "number" && Number.isFinite(rawX) ? rawX : 0;
     const y = typeof rawY === "number" && Number.isFinite(rawY) ? rawY : 0;
-    return `${selectedNode.id}:${x}:${y}`;
+    const key = `${selectedNode.id}:${x}:${y}`;
+    flowViewportAnchorKeyRef.current = key;
+    return key;
   }, [nodes]);
 
   const getFlowViewportAnchor = React.useCallback((): FlowViewportAnchor | null => {
@@ -4869,6 +4897,8 @@ function FlowInner() {
   // 而是跟随节点的存在性生命周期。删除动作侧已即时取消，这里只兜非删除动作的移除。
   const prevNodeIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
+    if (nodeDraggingRef.current) return;
+
     const curr = new Set<string>();
     for (const n of nodes) curr.add(String(n.id));
     const removed: string[] = [];
@@ -6210,7 +6240,6 @@ function FlowInner() {
   const updateProjectPartial = useProjectContentStore((s) => s.updatePartial);
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
-  const nodeDraggingRef = React.useRef(false);
   const draggingGroupNodeRef = React.useRef(false);
   const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
@@ -7379,6 +7408,17 @@ function FlowInner() {
       );
       if (clipboardService.getZone() !== "flow" && !fromFlowOverlay) return;
       const clipboardData = event.clipboardData;
+      const items = clipboardData?.items;
+      const hasFileOrImage = items
+        ? Array.from(items).some(
+            (item) =>
+              item &&
+              (item.kind === "file" ||
+                (typeof item.type === "string" &&
+                  item.type.startsWith("image/")))
+          )
+        : false;
+      if (hasFileOrImage) return;
 
       // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
       const rawFlowData =
@@ -7413,7 +7453,7 @@ function FlowInner() {
       )
         return;
 
-      // 优先粘贴 Flow 内部剪贴板数据；避免被系统 image/file 项拦截
+      // 优先粘贴 Flow 内部剪贴板数据。
       {
         const handled = handlePasteFlow({ preserveLinkedEdges });
         if (handled) {
@@ -7422,18 +7462,6 @@ function FlowInner() {
           return;
         }
       }
-
-      const items = clipboardData?.items;
-      const hasFileOrImage = items
-        ? Array.from(items).some(
-            (item) =>
-              item &&
-              (item.kind === "file" ||
-                (typeof item.type === "string" &&
-                  item.type.startsWith("image/")))
-          )
-        : false;
-      if (hasFileOrImage) return;
 
       const handled = handlePasteFlow({ preserveLinkedEdges });
       if (handled) {
@@ -7451,8 +7479,13 @@ function FlowInner() {
     if (prevProjectIdRef.current && prevProjectIdRef.current !== projectId) {
       setNodes([]);
       setEdges([]);
+      flowHydratePaintTokenRef.current += 1;
+      flowHydratePaintPendingRef.current = null;
       hasHydratedFlowRef.current = false;
       lastSyncedJSONRef.current = null;
+      projectLoadDebug.mark(projectId, "flow cleared previous project", {
+        previousProjectId: prevProjectIdRef.current,
+      });
     }
     prevProjectIdRef.current = projectId ?? null;
   }, [projectId, setNodes, setEdges]);
@@ -7461,13 +7494,45 @@ function FlowInner() {
   React.useEffect(() => {
     if (!projectId || !hydrated) return;
     if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
+    const isInitialFlowHydrate = !hasHydratedFlowRef.current;
+    const effectStartedAt = projectLoadNow();
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
+    const queueInitialFlowPaintReady = () => {
+      if (!isInitialFlowHydrate) return;
+      const token = flowHydratePaintTokenRef.current + 1;
+      flowHydratePaintTokenRef.current = token;
+      flowHydratePaintPendingRef.current = {
+        token,
+        projectId,
+        startedAt: effectStartedAt,
+        paintWaitStartedAt: projectLoadNow(),
+        inputNodes: ns.length,
+        inputEdges: es.length,
+      };
+    };
+    queueInitialFlowPaintReady();
+    const incomingSignatureStartedAt = projectLoadNow();
     const incomingSignature = getFlowSnapshotSignature(ns, es);
+    const incomingSignatureMs = projectLoadNow() - incomingSignatureStartedAt;
+    const localSignatureStartedAt = projectLoadNow();
+    const localNodesSnapshot = rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true });
+    const localEdgesSnapshot = rfEdgesToTplEdges(edgesRef.current as any);
     const localSignature = getFlowSnapshotSignature(
-      rfNodesToTplNodes(nodesRef.current as any, { preserveRunningState: true }),
-      rfEdgesToTplEdges(edgesRef.current as any)
+      localNodesSnapshot,
+      localEdgesSnapshot
     );
+    const localSignatureMs = projectLoadNow() - localSignatureStartedAt;
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow hydrate compare", {
+        incomingNodes: ns.length,
+        incomingEdges: es.length,
+        localNodes: nodesRef.current.length,
+        localEdges: edgesRef.current.length,
+        incomingSignatureMs: Number(incomingSignatureMs.toFixed(1)),
+        localSignatureMs: Number(localSignatureMs.toFixed(1)),
+      });
+    }
     if (
       incomingSignature &&
       localSignature &&
@@ -7475,10 +7540,33 @@ function FlowInner() {
     ) {
       lastSyncedJSONRef.current = incomingSignature;
       hasHydratedFlowRef.current = true;
+      if (isInitialFlowHydrate) {
+        projectLoadDebug.mark(projectId, "flow hydrate skipped same signature", {
+          incomingNodes: ns.length,
+          incomingEdges: es.length,
+          durationMs: Number((projectLoadNow() - effectStartedAt).toFixed(1)),
+        });
+      }
       return;
     }
     hydratingFromStoreRef.current = true;
+    const convertNodesStartedAt = projectLoadNow();
     const nextNodes = tplNodesToRfNodes(ns);
+    const convertNodesMs = projectLoadNow() - convertNodesStartedAt;
+    const convertEdgesStartedAt = projectLoadNow();
+    const nextEdges = tplEdgesToRfEdges(es);
+    const convertEdgesMs = projectLoadNow() - convertEdgesStartedAt;
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow template converted", {
+        incomingNodes: ns.length,
+        incomingEdges: es.length,
+        nextNodes: nextNodes.length,
+        nextEdges: nextEdges.length,
+        convertNodesMs: Number(convertNodesMs.toFixed(1)),
+        convertEdgesMs: Number(convertEdgesMs.toFixed(1)),
+      });
+    }
+    const setStateStartedAt = projectLoadNow();
     setNodes((prev) => {
       const prevMap = new Map(
         (prev as RFNode[]).map((node) => [node.id, node])
@@ -7496,7 +7584,17 @@ function FlowInner() {
         } as RFNode;
       });
     });
-    setEdges(tplEdgesToRfEdges(es));
+    setEdges(nextEdges);
+    if (isInitialFlowHydrate) {
+      projectLoadDebug.mark(projectId, "flow setNodes/setEdges scheduled", {
+        inputNodes: ns.length,
+        inputEdges: es.length,
+        nextNodes: nextNodes.length,
+        nextEdges: nextEdges.length,
+        setStateScheduleMs: Number((projectLoadNow() - setStateStartedAt).toFixed(1)),
+        durationMs: Number((projectLoadNow() - effectStartedAt).toFixed(1)),
+      });
+    }
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
     lastSyncedJSONRef.current = incomingSignature;
     hasHydratedFlowRef.current = true;
@@ -7601,8 +7699,8 @@ function FlowInner() {
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
-  const isLargeGraphForMiniMap =
-    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_NODE_THRESHOLD;
+  const shouldHideMiniMapDuringViewportInteraction =
+    nodes.length > FLOW_MINIMAP_INTERACTION_HIDE_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
@@ -7622,15 +7720,23 @@ function FlowInner() {
   const canvasPanFpsActiveUntilRef = React.useRef(0);
   const isCanvasZoomingRef = React.useRef(false);
   const isCanvasPanningRef = React.useRef(false);
+  const hasRunningFlowNodeRef = React.useRef(false);
   const hasRunningFlowNode = React.useMemo(
-    () =>
-      nodes.some((node) => {
+    () => {
+      if (nodeDraggingRef.current) {
+        return hasRunningFlowNodeRef.current;
+      }
+
+      const next = nodes.some((node) => {
         const data = (node as any)?.data;
         if (!data || typeof data !== "object") return false;
         const status =
           typeof data.status === "string" ? data.status.toLowerCase() : "";
         return status === "running" || data.groupRunning === true;
-      }),
+      });
+      hasRunningFlowNodeRef.current = next;
+      return next;
+    },
     [nodes]
   );
 
@@ -7871,8 +7977,10 @@ function FlowInner() {
   );
   const shouldRenderMiniMap =
     !effectiveFlowLowDetailMode &&
-    !isLargeGraphForMiniMap &&
-    !isFlowViewportInteracting;
+    !(
+      shouldHideMiniMapDuringViewportInteraction &&
+      isFlowViewportInteracting
+    );
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -14287,6 +14395,7 @@ function FlowInner() {
         imageUrl?: string;
         label?: string;
         imageName?: string;
+        screenPosition?: { x?: number; y?: number };
       };
       const imageUrlForNode =
         typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
@@ -14295,12 +14404,27 @@ function FlowInner() {
       if (!imageUrlForNode && !imageDataForNode) return;
       const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
+      const detailScreenPosition =
+        detail?.screenPosition &&
+        Number.isFinite(detail.screenPosition.x) &&
+        Number.isFinite(detail.screenPosition.y)
+          ? {
+              x: Number(detail.screenPosition.x),
+              y: Number(detail.screenPosition.y),
+            }
+          : null;
       const screenPosition = {
-        x: (rect?.width || window.innerWidth) / 2 + (Math.random() * 120 - 60),
+        x:
+          detailScreenPosition?.x ??
+          (rect?.left || 0) +
+            (rect?.width || window.innerWidth) / 2 +
+            (Math.random() * 120 - 60),
         y:
-          (rect?.height || window.innerHeight) / 2 +
-          60 +
-          (Math.random() * 80 - 40),
+          detailScreenPosition?.y ??
+          (rect?.top || 0) +
+            (rect?.height || window.innerHeight) / 2 +
+            60 +
+            (Math.random() * 80 - 40),
       };
       const position = rf.screenToFlowPosition(screenPosition);
       const id = `img_${Date.now()}`;
@@ -23308,7 +23432,12 @@ function FlowInner() {
     map: Map<string, string>;
   }>({ signature: "", map: new Map() });
 
+  const collapsedGroupsSignatureRef = React.useRef("");
   const collapsedGroupsSignature = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return collapsedGroupsSignatureRef.current;
+    }
+
     const parts: string[] = [];
     nodes.forEach((node) => {
       if (!isGroupNode(node as RFNode) || !isGroupCollapsed(node as RFNode)) {
@@ -23319,7 +23448,9 @@ function FlowInner() {
       parts.push(`${groupId}:${childIds.join(",")}`);
     });
     parts.sort();
-    return parts.join("|");
+    const signature = parts.join("|");
+    collapsedGroupsSignatureRef.current = signature;
+    return signature;
   }, [nodes]);
 
   const collapsedChildToGroupId = React.useMemo(() => {
@@ -23352,7 +23483,12 @@ function FlowInner() {
     [collapsedChildToGroupId]
   );
 
+  const groupPreviewImagesCacheRef = React.useRef<Map<string, string[]>>(new Map());
   const groupPreviewImagesByGroupId = React.useMemo(() => {
+    if (nodeDraggingRef.current) {
+      return groupPreviewImagesCacheRef.current;
+    }
+
     const nodeById = new Map(nodes.map((node) => [node.id, node as RFNode]));
     const previews = new Map<string, string[]>();
 
@@ -23378,6 +23514,7 @@ function FlowInner() {
       previews.set(String(node.id), images);
     });
 
+    groupPreviewImagesCacheRef.current = previews;
     return previews;
   }, [nodes]);
 
@@ -23603,8 +23740,12 @@ function FlowInner() {
   );
 
   const nodesForRender = React.useMemo(
-    () =>
-      nodesWithHandlers.map((node) => {
+    () => {
+      if (collapsedChildNodeIds.size === 0) {
+        return nodesWithHandlers;
+      }
+
+      return nodesWithHandlers.map((node) => {
         if (!collapsedChildNodeIds.has(node.id)) return node;
         return {
           ...node,
@@ -23613,7 +23754,8 @@ function FlowInner() {
           draggable: false,
           selectable: false,
         };
-      }),
+      });
+    },
     [nodesWithHandlers, collapsedChildNodeIds]
   );
 
@@ -23712,6 +23854,65 @@ function FlowInner() {
     () => edgesForRender,
     [edgesForRender]
   );
+
+  React.useEffect(() => {
+    const pending = flowHydratePaintPendingRef.current;
+    if (!pending || pending.paintScheduled) return;
+    if (!projectId || pending.projectId !== projectId || !hydrated) return;
+    const hasExpectedFlowState =
+      nodesRef.current.length >= pending.inputNodes &&
+      edgesRef.current.length >= pending.inputEdges;
+    if (!hasExpectedFlowState) return;
+
+    pending.paintScheduled = true;
+    pending.paintWaitStartedAt = projectLoadNow();
+    const token = pending.token;
+
+    void (async () => {
+      await waitForProjectLoadPaint();
+      const latest = flowHydratePaintPendingRef.current;
+      if (!latest || latest.token !== token || latest.projectId !== projectId) {
+        return;
+      }
+
+      projectLoadDebug.mark(projectId, "flow first paint after hydrate", {
+        inputNodes: latest.inputNodes,
+        inputEdges: latest.inputEdges,
+        rfNodes: nodesRef.current.length,
+        rfEdges: edgesRef.current.length,
+        renderNodes: nodesForRender.length,
+        renderEdges: edgesForInteraction.length,
+        onlyRenderVisibleElements: effectiveOnlyRenderVisibleElements,
+        durationMs: Number((projectLoadNow() - latest.startedAt).toFixed(1)),
+        paintWaitMs: Number((projectLoadNow() - latest.paintWaitStartedAt).toFixed(1)),
+      });
+      await waitForProjectLoadInteractive();
+      const readyLatest = flowHydratePaintPendingRef.current;
+      if (!readyLatest || readyLatest.token !== token || readyLatest.projectId !== projectId) {
+        return;
+      }
+      projectLoadDebug.mark(projectId, "flow interactive after hydrate", {
+        inputNodes: readyLatest.inputNodes,
+        inputEdges: readyLatest.inputEdges,
+        rfNodes: nodesRef.current.length,
+        rfEdges: edgesRef.current.length,
+        renderNodes: nodesForRender.length,
+        renderEdges: edgesForInteraction.length,
+        durationMs: Number((projectLoadNow() - readyLatest.startedAt).toFixed(1)),
+      });
+      const contentStore = useProjectContentStore.getState();
+      if (contentStore.projectId === projectId) {
+        contentStore.setProjectViewReady(true);
+      }
+      flowHydratePaintPendingRef.current = null;
+    })();
+  }, [
+    projectId,
+    hydrated,
+    nodesForRender,
+    edgesForInteraction,
+    effectiveOnlyRenderVisibleElements,
+  ]);
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -24272,11 +24473,6 @@ function FlowInner() {
             大图模式已自动关闭吸附对齐
           </span>
         )}
-        {!effectiveFlowLowDetailMode && isLargeGraphForMiniMap && (
-          <span style={{ fontSize: 12, color: "#4b5563" }}>
-            80+ 节点已自动隐藏 MiniMap
-          </span>
-        )}
         {effectiveFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
             低缩放已隐藏连线与 MiniMap，并使用轻量节点
@@ -24288,13 +24484,12 @@ function FlowInner() {
           </span>
         )}
         {!effectiveFlowLowDetailMode &&
-          !isLargeGraphForMiniMap &&
-          !effectiveFlowInteractionSoftDetailMode &&
+          shouldHideMiniMapDuringViewportInteraction &&
           isFlowViewportInteracting && (
-          <span style={{ fontSize: 12, color: "#4b5563" }}>
-            移动/缩放中已临时隐藏 MiniMap
-          </span>
-        )}
+            <span style={{ fontSize: 12, color: "#4b5563" }}>
+              超过 80 节点，移动/缩放中已临时隐藏 MiniMap
+            </span>
+          )}
         <label
           style={{
             display: "flex",

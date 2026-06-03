@@ -24,6 +24,10 @@ import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcur
 import { fetchWithAuth } from '@/services/authFetch';
 import { isActivePaperEraserTrail } from '@/utils/paperEraserTrail';
 
+type DeserializePaperProjectOptions = {
+  skipProjectClear?: boolean;
+};
+
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
   // 优化：增加保存延迟和间隔，减少内存峰值
@@ -1462,7 +1466,7 @@ class PaperSaveService {
   /**
    * 从JSON字符串恢复Paper.js项目
    */
-  deserializePaperProject(jsonString: string): boolean {
+  deserializePaperProject(jsonString: string, options?: DeserializePaperProjectOptions): boolean {
     try {
       console.log('[deserializePaperProject] 开始，isPaperProjectReady:', this.isPaperProjectReady());
 
@@ -1479,7 +1483,10 @@ class PaperSaveService {
       console.log('[deserializePaperProject] JSON 长度:', jsonString.length);
 
       // Paper.js 的 Project#importJSON 默认是"追加"到当前项目，而不是替换。
-      try { (paper.project as any).clear(); } catch {}
+      // 项目切换路径已提前 clearProject() 并清理运行时实例，可跳过这里的重复清空。
+      if (!options?.skipProjectClear) {
+        try { (paper.project as any).clear(); } catch {}
+      }
 
       // 【关键】在 importJSON 之前预处理 JSON，将 OSS URL 替换为代理 URL
       const processedJson = this.preprocessJsonForProxy(jsonString);
@@ -1610,9 +1617,9 @@ class PaperSaveService {
    * 清空当前 Paper 项目（保留系统层，如 grid/background/scalebar，但清理其子元素）
    * 用于切换到“新建空项目”或在加载新项目前的画布重置
    */
-  clearProject() {
+  clearProject(): boolean {
     try {
-      if (!this.isPaperProjectReady()) return;
+      if (!this.isPaperProjectReady()) return false;
 
       const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
       const layers = (paper.project.layers || []).slice();
@@ -1629,8 +1636,10 @@ class PaperSaveService {
       // 更新视图并广播
       try { (paper.view as any)?.update?.(); } catch {}
       try { window.dispatchEvent(new CustomEvent('paper-project-cleared')); } catch {}
+      return true;
     } catch (e) {
       console.warn('清空 Paper 项目失败:', e);
+      return false;
     }
   }
 

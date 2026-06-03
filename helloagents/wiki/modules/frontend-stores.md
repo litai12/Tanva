@@ -14,7 +14,9 @@
 - AI 图片工具链路（融合/编辑）在源图为远程 URL 时仅对白名单 host 直传 `sourceImageUrls/sourceImageUrl`；非白名单远程图会先尝试在前端读取并上传 OSS，再传可持久化 URL，避免后端 `imageUrl host not allowed`。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
 - `projectContentStore.updatePartial(..., { markDirty: false })` 会跳过无变化快照；项目 autosave 管理器同步 canvas `zoom/pan` 时使用 160ms 防抖和同值过滤，避免缩放/平移期间把高频视角变化转成 React 内容状态更新。
-- `projectStore` 维护本地 `recentProjectIds`（localStorage: `tanva_recent_project_ids`，最多 5 个），在项目加载、创建、打开、删除时同步，用于工作区顶部项目下拉展示最近打开项目；项目管理弹窗仍读取完整 `projects` 列表。
+- `projectContentStore.cacheValidationPending` 表示项目内容来自本地缓存且远端版本仍在校验；该状态下自动保存与手动保存都应暂停，直到远端校验通过或云端内容完成刷新。
+- `projectContentStore.projectViewReady` 表示当前项目内容已完成首屏 Flow paint 并经过一次 idle/稳定窗口；项目切换或内容 hydrate 会重置为 `false`，由 `FlowOverlay` 确认后置回 `true`，用于控制 `/app` 全屏项目加载层。
+- `projectStore` 维护本地 `recentProjectIds`（localStorage: `tanva_recent_project_ids`，最多 5 个），在项目加载、创建、打开、删除时同步，用于工作区顶部项目下拉展示最近打开项目；项目管理弹窗仍读取完整 `projects` 列表。顶部快速切换应让下拉先关闭，再异步调用 `open(projectId)`，避免项目加载副作用阻塞菜单关闭反馈。
 
 ## 2026-04 theme note
 - `aiChatStore` now persists `chatTheme: "white" | "black"` for workspace visual style selection.

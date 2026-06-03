@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
 import { flowSaveService } from '@/services/flowSaveService';
@@ -6,11 +6,13 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
+import { useAuthStore } from '@/stores/authStore';
 import {
   getNonRemoteImageAssetIds,
   getNonPersistableFlowImageNodeIds,
   sanitizeProjectContentForCloudSave,
 } from '@/utils/projectContentValidation';
+import type { ProjectContentSnapshot } from '@/types/project';
 
 const AUTOSAVE_INTERVAL = 60 * 1000;
 const DEBOUNCE_DELAY = 5 * 1000;
@@ -21,13 +23,14 @@ const MAX_LOCAL_SNAPSHOT_LENGTH = 2 * 1024 * 1024;
 
 export function useProjectAutosave(projectId: string | null) {
   const content = useProjectContentStore((state) => state.content);
-  const version = useProjectContentStore((state) => state.version);
   const dirty = useProjectContentStore((state) => state.dirty);
   const dirtyCounter = useProjectContentStore((state) => state.dirtyCounter);
+  const cacheValidationPending = useProjectContentStore((state) => state.cacheValidationPending);
   const setSaving = useProjectContentStore((state) => state.setSaving);
   const markSaved = useProjectContentStore((state) => state.markSaved);
   const setError = useProjectContentStore((state) => state.setError);
   const setWarning = useProjectContentStore((state) => state.setWarning);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
 
   const intervalTimerRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -58,13 +61,18 @@ export function useProjectAutosave(projectId: string | null) {
     []
   );
 
-  const performSave = async (
+  const performSave = useCallback(async (
     currentProjectId: string,
-    currentContent: any,
+    currentContent: ProjectContentSnapshot,
     currentVersion: number,
     savedAtCounter: number,
     attempt = 1
   ) => {
+    if (useProjectContentStore.getState().cacheValidationPending) {
+      setWarning('本地缓存正在校验远端版本，校验完成前已暂停自动保存。');
+      return;
+    }
+
     if (attempt === 1 && lastPersistedAtRef.current > 0) {
       const elapsed = Date.now() - lastPersistedAtRef.current;
       if (elapsed < MIN_SAVE_INTERVAL_MS) {
@@ -75,7 +83,7 @@ export function useProjectAutosave(projectId: string | null) {
         minIntervalTimerRef.current = window.setTimeout(() => {
           minIntervalTimerRef.current = null;
           const store = useProjectContentStore.getState();
-          if (store.projectId === currentProjectId && store.dirty && !store.saving && store.content) {
+          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
             void performSave(currentProjectId, store.content, store.version, store.dirtyCounter, 1);
           }
         }, waitMs);
@@ -152,14 +160,14 @@ export function useProjectAutosave(projectId: string | null) {
           version: result.version,
           updatedAt: result.updatedAt,
           paperJsonLen:
-            (contentToSave as any)?.meta?.paperJsonLen ||
-            (contentToSave as any)?.paperJson?.length ||
+            contentToSave.meta?.paperJsonLen ||
+            contentToSave.paperJson?.length ||
             0,
-          layerCount: (contentToSave as any)?.layers?.length || 0,
+          layerCount: contentToSave.layers?.length || 0,
           attempt,
         });
 
-        const paperJson = (contentToSave as any)?.paperJson as string | undefined;
+        const paperJson = contentToSave.paperJson;
         if (paperJson && paperJson.length > 0) {
           if (paperJson.length <= MAX_LOCAL_SNAPSHOT_LENGTH) {
             const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
@@ -182,7 +190,8 @@ export function useProjectAutosave(projectId: string | null) {
 
       setProjectCache({
         projectId: currentProjectId,
-        content: contentToSave,
+        userId,
+        content: contentForCloudSave,
         version: result.version,
         updatedAt: result.updatedAt ?? new Date().toISOString(),
         cachedAt: new Date().toISOString(),
@@ -190,10 +199,10 @@ export function useProjectAutosave(projectId: string | null) {
 
       lastPersistedAtRef.current = Date.now();
       console.log(`autosave success (${attempt}/${MAX_RETRY_ATTEMPTS})`);
-    } catch (err: any) {
+    } catch (err) {
       console.warn(`autosave failed (${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
 
-      const rawMessage = err?.message || '';
+      const rawMessage = err instanceof Error ? err.message : '';
       const errorMessage =
         rawMessage.includes('413') || rawMessage.toLowerCase().includes('too large')
           ? 'Content is too large to save. Please simplify and try again.'
@@ -212,7 +221,7 @@ export function useProjectAutosave(projectId: string | null) {
 
         retryTimerRef.current = window.setTimeout(() => {
           const store = useProjectContentStore.getState();
-          if (store.projectId === currentProjectId && store.dirty && !store.saving && store.content) {
+          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
             void performSave(
               currentProjectId,
               store.content,
@@ -229,14 +238,14 @@ export function useProjectAutosave(projectId: string | null) {
       savingLockRef.current = false;
       setSaving(false);
     }
-  };
+  }, [markSaved, setError, setSaving, setWarning, userId]);
 
   useEffect(() => {
     if (!projectId) return undefined;
 
     intervalTimerRef.current = window.setInterval(() => {
       const store = useProjectContentStore.getState();
-      if (store.projectId === projectId && store.dirty && !store.saving && store.content) {
+      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
         void performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, AUTOSAVE_INTERVAL);
@@ -247,10 +256,10 @@ export function useProjectAutosave(projectId: string | null) {
         intervalTimerRef.current = null;
       }
     };
-  }, [projectId]);
+  }, [performSave, projectId]);
 
   useEffect(() => {
-    if (!projectId || !dirty || !content) return undefined;
+    if (!projectId || !dirty || !content || cacheValidationPending) return undefined;
 
     if (debounceTimerRef.current) {
       window.clearTimeout(debounceTimerRef.current);
@@ -258,7 +267,7 @@ export function useProjectAutosave(projectId: string | null) {
 
     debounceTimerRef.current = window.setTimeout(() => {
       const store = useProjectContentStore.getState();
-      if (store.projectId === projectId && store.dirty && !store.saving && store.content) {
+      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
         void performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, DEBOUNCE_DELAY);
@@ -269,5 +278,5 @@ export function useProjectAutosave(projectId: string | null) {
         debounceTimerRef.current = null;
       }
     };
-  }, [projectId, dirty, dirtyCounter, content]);
+  }, [projectId, dirty, dirtyCounter, content, cacheValidationPending, performSave]);
 }

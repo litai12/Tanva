@@ -321,6 +321,14 @@ const enUS = {
           directLabel: "Reversed Mode",
           directDesc: "Wheel zooms, Ctrl/Cmd + wheel pans",
         },
+        imageInputTarget: {
+          title: "Image Input",
+          desc: "Choose where pasted, dropped, and uploaded images go by default.",
+          canvasLabel: "Canvas First",
+          canvasDesc: "Place external images directly onto the canvas.",
+          nodeLabel: "Node First",
+          nodeDesc: "Create an Image node for external images.",
+        },
         provider: {
           title: "AI Provider",
           banana: "Domestic Pro",

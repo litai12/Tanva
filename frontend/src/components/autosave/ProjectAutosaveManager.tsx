@@ -10,15 +10,45 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
+import { getProjectCache, setProjectCache, isCacheValid, isCacheFresh } from '@/services/projectCacheStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
 import { consumeBeforeUnloadPromptSkip } from '@/utils/beforeUnloadGuard';
-import { createEmptyProjectContent } from '@/types/project';
+import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/project';
+import { projectLoadDebug, waitForProjectLoadPaint } from '@/utils/projectLoadDebug';
+import { useAuthStore } from '@/stores/authStore';
 
 const CANVAS_VIEW_SYNC_DELAY_MS = 160;
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
+};
+
+declare global {
+  interface Window {
+    tanvaImageInstances?: unknown[];
+    tanvaModel3DInstances?: unknown[];
+    tanvaTextItems?: unknown[];
+    tanvaPaperRestored?: boolean;
+  }
+}
+
+const clearRuntimeProjectInstances = () => {
+  try { window.tanvaImageInstances = []; } catch {}
+  try { window.tanvaModel3DInstances = []; } catch {}
+  try { window.tanvaTextItems = []; } catch {}
+};
+
+const clearProjectRuntime = (projectId: string, phase = 'Paper clear previous project') => {
+  return projectLoadDebug.measureSync(projectId, phase, () => {
+    let clearedPaper = false;
+    try { clearedPaper = paperSaveService.clearProject(); } catch {}
+    clearRuntimeProjectInstances();
+    return clearedPaper;
+  });
+};
+
+const setRuntimePaperRestored = (restored: boolean) => {
+  try { window.tanvaPaperRestored = restored; } catch {}
 };
 
 const sameCanvasSnapshot = (
@@ -34,16 +64,44 @@ const sameCanvasSnapshot = (
     prev.panY === next.panY
   );
 
+const summarizeProjectContentForLoadDebug = (content: ProjectContentSnapshot | null | undefined) => {
+  const flowNodes = Array.isArray(content?.flow?.nodes) ? content.flow.nodes : [];
+  const flowEdges = Array.isArray(content?.flow?.edges) ? content.flow.edges : [];
+  const layers = Array.isArray(content?.layers) ? content.layers : [];
+  const nodeTypes = flowNodes.reduce<Record<string, number>>((acc, node) => {
+    const type = typeof node?.type === 'string' && node.type.trim() ? node.type.trim() : 'unknown';
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    flowNodes: flowNodes.length,
+    flowEdges: flowEdges.length,
+    nodeTypes,
+    layers: layers.length,
+    paperJsonLen: typeof content?.paperJson === 'string' ? content.paperJson.length : 0,
+    assetImages: Array.isArray(content?.assets?.images) ? content.assets.images.length : 0,
+    assetModels: Array.isArray(content?.assets?.models) ? content.assets.models.length : 0,
+    assetTexts: Array.isArray(content?.assets?.texts) ? content.assets.texts.length : 0,
+    assetVideos: Array.isArray(content?.assets?.videos) ? content.assets.videos.length : 0,
+    aiChatSessions: Array.isArray(content?.aiChatSessions) ? content.aiChatSessions.length : 0,
+  };
+};
+
 export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveManagerProps) {
   const setProject = useProjectContentStore((state) => state.setProject);
   const hydrate = useProjectContentStore((state) => state.hydrate);
   const setError = useProjectContentStore((state) => state.setError);
+  const setWarning = useProjectContentStore((state) => state.setWarning);
+  const setCacheValidationPending = useProjectContentStore((state) => state.setCacheValidationPending);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
 
   const hydrationReadyRef = useRef(false);
 
   useEffect(() => {
     if (!projectId) {
       paperSaveService.cancelPending();
+      setCacheValidationPending(false);
       if (useProjectContentStore.getState().projectId !== null) {
         setProject(null);
       }
@@ -53,169 +111,329 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       // try { useImageHistoryStore.getState().clearHistory(); } catch {}
       // 清空画布与运行时实例
       try { paperSaveService.clearProject(); } catch {}
-      try { (window as any).tanvaImageInstances = []; } catch {}
-      try { (window as any).tanvaModel3DInstances = []; } catch {}
-      try { (window as any).tanvaTextItems = []; } catch {}
+      clearRuntimeProjectInstances();
       return undefined;
     }
 
     let cancelled = false;
+    projectLoadDebug.start(projectId, { source: 'ProjectAutosaveManager' });
     hydrationReadyRef.current = false;
     paperSaveService.cancelPending();
     // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
     try { contextManager.clearImageCache(); } catch {}
     // 不再清空图片历史，避免切换文件导致历史丢失
     // try { useImageHistoryStore.getState().clearHistory(); } catch {}
-    // 立即清空当前画布，避免在新建空项目时残留旧图像
-    try { paperSaveService.clearProject(); } catch {}
-    try { (window as any).tanvaImageInstances = []; } catch {}
-    try { (window as any).tanvaModel3DInstances = []; } catch {}
-    try { (window as any).tanvaTextItems = []; } catch {}
     if (useProjectContentStore.getState().projectId !== projectId) {
-      setProject(projectId);
+      projectLoadDebug.measureSync(projectId, 'content store setProject', () => {
+        setProject(projectId);
+      });
     }
     try { useAIChatStore.getState().resetSessions(); } catch {}
+    projectLoadDebug.mark(projectId, 'runtime cleanup done');
 
     (async () => {
       try {
-        // 等待项目列表加载完成，以便获取 projectMeta 进行缓存验证
-        const waitForProjectMeta = async (timeout = 3000): Promise<ReturnType<typeof useProjectStore.getState>['projects'][number] | null> => {
-          const start = Date.now();
-          while (Date.now() - start < timeout) {
-            if (cancelled) return null;
-            const state = useProjectStore.getState();
-            // 如果不在加载中，且有项目列表，尝试查找
-            if (!state.loading && state.projects.length > 0) {
-              const found = state.projects.find(p => p.id === projectId);
-              if (found) return found;
-              // 列表已加载但找不到该项目，不再等待
-              break;
-            }
-            // 如果正在加载，等待一小段时间后重试
-            if (state.loading) {
-              await new Promise(r => setTimeout(r, 50));
-              continue;
-            }
-            // 列表为空且不在加载，可能还没开始加载，短暂等待
-            await new Promise(r => setTimeout(r, 50));
-          }
-          // 超时或找不到，返回当前状态
-          return useProjectStore.getState().projects.find(p => p.id === projectId) ?? null;
+        await waitForProjectLoadPaint();
+        if (cancelled) return;
+        // 清空旧项目内容放到下一帧执行，避免点击切换时同步阻塞菜单/标题刷新。
+        let paperAlreadyClearedForImport = clearProjectRuntime(projectId);
+
+        type LoadedProjectContent = { content: ProjectContentSnapshot; version: number; updatedAt: string | null };
+        type ProjectMeta = ReturnType<typeof useProjectStore.getState>['projects'][number];
+
+        const findProjectMetaInStore = (): ProjectMeta | null => {
+          const state = useProjectStore.getState();
+          if (state.currentProject?.id === projectId) return state.currentProject;
+          return state.projects.find((p) => p.id === projectId) ?? null;
         };
 
-        // 尝试从本地缓存加载
-        const projectMeta = await waitForProjectMeta();
-        const cached = await getProjectCache(projectId);
+        const resolveProjectMeta = async (): Promise<ProjectMeta | null> => {
+          const local = findProjectMetaInStore();
+          if (local) return local;
+          return projectApi.get(projectId);
+        };
 
-        let data: { content: any; version: number; updatedAt: string | null };
+        const applyLoadedProjectContent = async (
+          data: LoadedProjectContent,
+          options: { source: 'cache' | 'cloud'; replaceExistingPaper?: boolean }
+        ) => {
+          if (cancelled) return null;
+          if (options.replaceExistingPaper) {
+            await waitForProjectLoadPaint();
+            if (cancelled) return null;
+            paperAlreadyClearedForImport = clearProjectRuntime(projectId, 'Paper clear before content replace');
+          }
 
-        if (cached && projectMeta && isCacheValid(cached, {
-          contentVersion: projectMeta.contentVersion,
-          updatedAt: projectMeta.updatedAt
-        })) {
-          // 缓存命中且有效
-          console.log('[ProjectCache] 缓存命中，跳过 OSS 请求');
-          data = { content: cached.content, version: cached.version, updatedAt: cached.updatedAt };
-        } else {
-          // 缓存未命中或过期，从 OSS 加载
-          console.log('[ProjectCache] 缓存未命中，从 OSS 加载', {
-            hasCached: !!cached,
-            hasProjectMeta: !!projectMeta,
-            cacheVersion: cached?.version,
-            metaVersion: projectMeta?.contentVersion,
+          const contentSummary = summarizeProjectContentForLoadDebug(data.content);
+          projectLoadDebug.mark(projectId, `${options.source} content ready`, {
+            version: data.version,
+            updatedAt: data.updatedAt,
+            ...contentSummary,
           });
-          data = await projectApi.getContent(projectId);
 
-          // 写入缓存
-          if (data.content && !cancelled) {
-            setProjectCache({
-              projectId,
-              content: data.content,
-              version: data.version,
-              updatedAt: data.updatedAt ?? new Date().toISOString(),
-              cachedAt: new Date().toISOString(),
-            }).catch(() => {});
-          }
-        }
-
-        if (cancelled) return;
-
-        hydrate(data.content, data.version, data.updatedAt ?? null);
-        try {
-          const chatStore = useAIChatStore.getState();
-          const sessions = data.content?.aiChatSessions ?? [];
-          const activeSessionId = data.content?.aiChatActiveSessionId ?? null;
-          if (sessions.length > 0) {
-            chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
-          } else {
-            chatStore.resetSessions();
-          }
-        } catch (error) {
-          console.error('❌ 同步聊天会话失败:', error);
-        }
-        // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
-        try { contextManager.clearImageCache(); } catch {}
-        // 保留图片历史，便于跨文件查看
-        // try { useImageHistoryStore.getState().clearHistory(); } catch {}
-        saveMonitor.push(projectId, 'hydrate_loaded', {
-          version: data.version,
-          hasPaper: !!(data.content as any)?.paperJson,
-          paperJsonLen: (data.content as any)?.meta?.paperJsonLen || (data.content as any)?.paperJson?.length || 0,
-          layers: (data.content as any)?.layers?.length || 0,
-        });
-
-        // 恢复Paper.js绘制内容（等待 Paper 初始化）
-        if (data.content?.paperJson) {
-          const attempt = async () => {
-            const ok = paperSaveService.deserializePaperProject(data.content!.paperJson!);
-            if (ok) {
-              console.log('✅ Paper.js绘制内容恢复成功');
-              saveMonitor.push(projectId, 'hydrate_success', {
-                paperJsonLen: (data.content as any)?.paperJson?.length || 0,
-              });
-              try { (window as any).tanvaPaperRestored = true; } catch {}
+          projectLoadDebug.measureSync(projectId, 'content store hydrate', () => {
+            hydrate(data.content, data.version, data.updatedAt ?? null);
+          }, contentSummary);
+          projectLoadDebug.measureSync(projectId, 'AI chat hydrate', () => {
+            try {
+              const chatStore = useAIChatStore.getState();
+              const sessions = data.content?.aiChatSessions ?? [];
+              const activeSessionId = data.content?.aiChatActiveSessionId ?? null;
+              if (sessions.length > 0) {
+                chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
+              } else {
+                chatStore.resetSessions();
+              }
+            } catch (error) {
+              console.error('❌ 同步聊天会话失败:', error);
             }
-            return ok;
-          };
+          }, {
+            aiChatSessions: contentSummary.aiChatSessions,
+          });
+          // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
+          try { contextManager.clearImageCache(); } catch {}
+          // 保留图片历史，便于跨文件查看
+          // try { useImageHistoryStore.getState().clearHistory(); } catch {}
+          saveMonitor.push(projectId, 'hydrate_loaded', {
+            version: data.version,
+            source: options.source,
+            hasPaper: !!data.content.paperJson,
+            paperJsonLen: data.content.meta?.paperJsonLen || data.content.paperJson?.length || 0,
+            layers: data.content.layers?.length || 0,
+          });
 
-          // 先尝试一次
-          const restored = await attempt();
-          
-          if (!restored) {
-            // 监听全局 paper-ready 事件再试
-            await new Promise<void>((resolve) => {
-              const handler = async () => {
-                const ok = await attempt();
-                if (ok) {
+          await waitForProjectLoadPaint();
+          if (cancelled) return null;
+
+          // 恢复Paper.js绘制内容（等待 Paper 初始化）
+          if (data.content?.paperJson) {
+            const paperJson = data.content.paperJson;
+            const attempt = async () => {
+              const skipProjectClear = paperAlreadyClearedForImport;
+              paperAlreadyClearedForImport = false;
+              const ok = projectLoadDebug.measureSync(projectId, 'Paper deserialize attempt', () => (
+                paperSaveService.deserializePaperProject(paperJson, { skipProjectClear })
+              ), {
+                paperJsonLen: contentSummary.paperJsonLen,
+                source: options.source,
+                skipProjectClear,
+              });
+              if (ok) {
+                console.log('✅ Paper.js绘制内容恢复成功');
+                saveMonitor.push(projectId, 'hydrate_success', {
+                  source: options.source,
+                  paperJsonLen: paperJson.length,
+                });
+                setRuntimePaperRestored(true);
+              }
+              return ok;
+            };
+
+            // 先尝试一次
+            const restored = await attempt();
+
+            if (!restored) {
+              // 监听全局 paper-ready 事件再试
+              await new Promise<void>((resolve) => {
+                const handler = async () => {
+                  const ok = await attempt();
+                  if (ok) {
+                    window.removeEventListener('paper-ready', handler as EventListener);
+                    resolve();
+                  }
+                };
+                window.addEventListener('paper-ready', handler as EventListener);
+                // 超时兜底
+                setTimeout(() => {
                   window.removeEventListener('paper-ready', handler as EventListener);
-                  resolve();
-                }
-              };
-              window.addEventListener('paper-ready', handler as EventListener);
-              // 超时兜底
-              setTimeout(() => {
-                window.removeEventListener('paper-ready', handler as EventListener);
-                attempt().then(() => resolve());
-              }, 500);
+                  attempt().then(() => resolve());
+                }, 500);
+              });
+            }
+          } else {
+            projectLoadDebug.mark(projectId, 'Paper deserialize skipped', {
+              source: options.source,
+              paperJsonLen: 0,
             });
           }
+
+          // 同步层级与活动层到层store（无论是否有paperJson，都以内容为准刷新UI）
+          projectLoadDebug.measureSync(projectId, 'layer store hydrate', () => {
+            try {
+              useLayerStore.getState().hydrateFromContent(
+                data.content.layers || [],
+                data.content.activeLayerId ?? null,
+              );
+              // 用后端项目信息刷新 header 显示（避免列表尚未包含该项目时显示空/旧名）
+              try { useProjectStore.getState().open(projectId); } catch {}
+            } catch {}
+          }, {
+            layers: contentSummary.layers,
+            source: options.source,
+          });
+
+          hydrationReadyRef.current = true;
+          return contentSummary;
+        };
+
+        const cached = userId
+          ? await projectLoadDebug.measure(
+              projectId,
+              'IndexedDB cache read',
+              () => getProjectCache(projectId, { userId })
+            )
+          : null;
+
+        let appliedCache = false;
+        let cacheDirtyCounter = 0;
+        let cacheSummary: ReturnType<typeof summarizeProjectContentForLoadDebug> | null = null;
+
+        if (cached && isCacheFresh(cached)) {
+          console.log('[ProjectCache] 本地缓存命中，先恢复画布并后台校验远端版本');
+          projectLoadDebug.mark(projectId, 'cache stale-while-revalidate hit', {
+            cacheVersion: cached.version,
+            cacheUpdatedAt: cached.updatedAt,
+          });
+          setCacheValidationPending(true);
+          cacheSummary = await applyLoadedProjectContent(
+            { content: cached.content, version: cached.version, updatedAt: cached.updatedAt },
+            { source: 'cache' }
+          );
+          if (cancelled) return;
+          appliedCache = !!cacheSummary;
+          cacheDirtyCounter = useProjectContentStore.getState().dirtyCounter;
+        } else {
+          setCacheValidationPending(false);
+          projectLoadDebug.mark(projectId, 'cache unavailable for immediate hydrate', {
+            hasCached: !!cached,
+            cacheVersion: cached?.version,
+          });
         }
 
-        // 同步层级与活动层到层store（无论是否有paperJson，都以内容为准刷新UI）
-        try {
-          useLayerStore.getState().hydrateFromContent(
-            (data.content as any).layers || [],
-            (data.content as any).activeLayerId ?? null,
-          );
-          // 用后端项目信息刷新 header 显示（避免列表尚未包含该项目时显示空/旧名）
-          try { useProjectStore.getState().open(projectId); } catch {}
-        } catch {}
+        let shouldFetchContent = !appliedCache;
+        let projectMeta: ProjectMeta | null = null;
 
-        hydrationReadyRef.current = true;
-      } catch (err: any) {
+        if (appliedCache && cached) {
+          try {
+            projectMeta = await projectLoadDebug.measure(
+              projectId,
+              'meta validate',
+              () => resolveProjectMeta()
+            );
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            projectLoadDebug.mark(projectId, 'meta validate failed', { message: msg });
+            if (typeof msg === 'string' && msg.includes('项目不存在')) {
+              throw error;
+            }
+            setWarning('已从本地缓存打开项目；远端版本校验失败，后续保存将按网络状态重试。');
+            setCacheValidationPending(false);
+            projectLoadDebug.end(projectId, {
+              version: cached.version,
+              source: 'cache',
+              validation: 'failed',
+              ...(cacheSummary ?? {}),
+            });
+            return;
+          }
+
+          projectLoadDebug.mark(projectId, 'meta resolved', {
+            hasProjectMeta: !!projectMeta,
+            metaVersion: projectMeta?.contentVersion,
+            metaUpdatedAt: projectMeta?.updatedAt,
+          });
+
+          const cacheValid = !!(projectMeta && isCacheValid(cached, {
+            contentVersion: projectMeta.contentVersion,
+            updatedAt: projectMeta.updatedAt,
+          }));
+
+          if (cacheValid) {
+            console.log('[ProjectCache] 本地缓存版本已通过远端校验');
+            projectLoadDebug.mark(projectId, 'cache validated', {
+              cacheVersion: cached.version,
+              metaVersion: projectMeta?.contentVersion,
+            });
+            setCacheValidationPending(false);
+            projectLoadDebug.end(projectId, {
+              version: cached.version,
+              source: 'cache',
+              validation: 'valid',
+              ...(cacheSummary ?? {}),
+            });
+            return;
+          }
+
+          shouldFetchContent = true;
+          projectLoadDebug.mark(projectId, 'cache stale, fetching cloud content', {
+            cacheVersion: cached.version,
+            metaVersion: projectMeta?.contentVersion,
+          });
+        }
+
+        if (!shouldFetchContent) return;
+
+        const data = await projectLoadDebug.measure(
+          projectId,
+          'getContent request',
+          () => projectApi.getContent(projectId)
+        );
+
+        if (data.content && !cancelled) {
+          projectLoadDebug.mark(projectId, 'IndexedDB cache write scheduled', {
+            version: data.version,
+            updatedAt: data.updatedAt,
+          });
+          setProjectCache({
+            projectId,
+            userId,
+            content: data.content,
+            version: data.version,
+            updatedAt: data.updatedAt ?? new Date().toISOString(),
+            cachedAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+
         if (cancelled) return;
+
+        if (appliedCache && cached) {
+          const store = useProjectContentStore.getState();
+          const hasLocalChangesAfterCache =
+            store.projectId === projectId &&
+            (store.dirty || store.dirtyCounter > cacheDirtyCounter);
+          if (hasLocalChangesAfterCache && data.version > cached.version) {
+            setWarning('远端项目已有更新，且你已基于本地缓存做了修改；为避免覆盖远端版本，自动保存已暂停。请重新打开项目加载最新版本后再修改。');
+            setCacheValidationPending(true);
+            projectLoadDebug.end(projectId, {
+              version: cached.version,
+              source: 'cache',
+              validation: 'conflict',
+              remoteVersion: data.version,
+              ...(cacheSummary ?? {}),
+            });
+            return;
+          }
+        }
+
+        const contentSummary = await applyLoadedProjectContent(
+          data,
+          { source: 'cloud', replaceExistingPaper: appliedCache }
+        );
+        setCacheValidationPending(false);
+        projectLoadDebug.end(projectId, {
+          version: data.version,
+          source: 'cloud',
+          ...(contentSummary ?? {}),
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setCacheValidationPending(false);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        projectLoadDebug.mark(projectId, 'project load error', {
+          message: errorMessage,
+        });
         // 不再用空内容覆盖当前画布，避免“闪一下又消失”
-        const msg = err?.message || '加载项目内容失败';
+        const msg = errorMessage || '加载项目内容失败';
         setError(msg);
 
         const isProjectNotFound = typeof msg === 'string' && msg.includes('项目不存在');
@@ -254,7 +472,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
                     paperJsonLen: paperJson.length,
                   },
                   updatedAt: restoredUpdatedAt,
-                } as any,
+                } as ProjectContentSnapshot,
                 restoredVersion,
                 restoredUpdatedAt
               );
@@ -262,7 +480,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
               const ok = paperSaveService.deserializePaperProject(paperJson);
               if (!ok) return false;
 
-              try { (window as any).tanvaPaperRestored = true; } catch {}
+              setRuntimePaperRestored(true);
               try {
                 useProjectContentStore.getState().setWarning('云端加载失败，已从本地快照恢复画布内容（可能不是最新）');
               } catch {}
@@ -314,9 +532,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     return () => {
       cancelled = true;
       hydrationReadyRef.current = false;
-      try { (window as any).tanvaPaperRestored = false; } catch {}
+      setRuntimePaperRestored(false);
     };
-  }, [projectId, setProject, hydrate, setError]);
+  }, [projectId, setProject, hydrate, setError, setWarning, setCacheValidationPending, userId]);
 
   useEffect(() => {
     if (!projectId) return undefined;

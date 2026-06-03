@@ -13,6 +13,8 @@ interface ImageUploadComponentProps {
   trigger: boolean; // External trigger signal.
   onTriggerHandled: () => void; // Callback after trigger handling.
   projectId?: string | null;
+  target?: 'canvas' | 'node';
+  onNodeImageRouteStart?: () => void;
 }
 
 const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
@@ -21,6 +23,8 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
   trigger,
   onTriggerHandled,
   projectId,
+  target = 'canvas',
+  onNodeImageRouteStart,
 }) => {
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
@@ -40,18 +44,21 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       return;
     }
 
+    let dataUrl: string | null = null;
     let dataUrlReady = false;
 
     try {
       logger.upload('Starting image processing:', file.name);
 
       // Read as data URL first — works everywhere without CORS/auth issues.
-      const dataUrl = await new Promise<string>((resolve, reject) => {
+      dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(file);
       });
+      dataUrlReady = true;
+      const localDataUrl = dataUrl;
 
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
       const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -62,19 +69,59 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
         contentType: file.type,
       });
 
+      if (target === 'node') {
+        onNodeImageRouteStart?.();
+        const result = await imageUploadService.uploadImageFile(file, {
+          projectId,
+          dir: uploadDir,
+          fileName: file.name,
+          key,
+        });
+
+        if (result.success && result.asset?.url) {
+          window.dispatchEvent(
+            new CustomEvent('flow:createImageNode', {
+              detail: {
+                imageUrl: result.asset.url,
+                imageName: result.asset.fileName || file.name,
+                label: result.asset.fileName || file.name || 'Image',
+              },
+            }),
+          );
+          return;
+        }
+
+        window.dispatchEvent(
+          new CustomEvent('flow:createImageNode', {
+            detail: {
+              imageData: localDataUrl,
+              imageName: file.name,
+              label: file.name || 'Image',
+            },
+          }),
+        );
+        onUploadError(
+          result.error ||
+            lt(
+              '图片上传失败，已创建本地预览节点（保存前会继续尝试上传）',
+              'Image upload failed; a local preview node was created and upload will be retried before save.'
+            )
+        );
+        return;
+      }
+
       // 1) Put data URL preview on canvas immediately.
       const localAsset: StoredImageAsset = {
         id: imageId,
         url: key,
         key,
-        src: dataUrl,
+        src: localDataUrl,
         fileName: file.name,
         contentType: file.type,
         pendingUpload: true,
-        localDataUrl: dataUrl,
+        localDataUrl,
       };
       onImageUploaded(localAsset);
-      dataUrlReady = true;
 
       // 2) Upload in background.
       const result = await imageUploadService.uploadImageFile(file, {
@@ -126,7 +173,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
     } finally {
       resetInputValue();
     }
-  }, [lt, onImageUploaded, onUploadError, projectId, resetInputValue]);
+  }, [lt, onImageUploaded, onNodeImageRouteStart, onUploadError, projectId, resetInputValue, target]);
 
   // Handle external trigger.
   React.useEffect(() => {
