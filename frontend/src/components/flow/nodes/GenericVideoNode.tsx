@@ -36,6 +36,8 @@ import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
   resolveManagedRoutePricing,
+  sanitizeVideoManagedRoutes,
+  sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao";
@@ -510,17 +512,27 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     areConnectionStatsEqual
   );
   const provider = data.provider || "kling";
-  const nodeConfigMetadata =
+  const rawNodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
       : {};
+  // Strip the Tencent (tencent_vod) route so vidu/kling follow the token and let
+  // new-api pick the upstream per route — never pin the channel to Tencent here.
+  const nodeConfigMetadata = React.useMemo(
+    () => sanitizeVideoManagedRoutes(rawNodeConfigMetadata),
+    [rawNodeConfigMetadata]
+  );
+  const sanitizedVendorKey = React.useMemo(
+    () => sanitizeVideoVendorKey(data.vendorKey),
+    [data.vendorKey]
+  );
   const managedRoutesMetadata = React.useMemo(
     () => getManagedRoutesMetadata(nodeConfigMetadata),
     [nodeConfigMetadata]
   );
   const selectedManagedRoute = React.useMemo(
-    () => getManagedRouteOption(nodeConfigMetadata, data.vendorKey),
-    [data.vendorKey, nodeConfigMetadata]
+    () => getManagedRouteOption(nodeConfigMetadata, sanitizedVendorKey),
+    [sanitizedVendorKey, nodeConfigMetadata]
   );
   const vodConfig =
     nodeConfigMetadata.vod && typeof nodeConfigMetadata.vod === "object"
@@ -640,28 +652,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const normalizedViduModelVariant = viduRequestSemantics?.viduModelVariant;
   const viduModelForPreview = viduRequestSemantics?.viduModel;
   const isProMode = ((data as any).mode || "std") === "pro";
-  const normalizedVendorKey =
-    typeof data.vendorKey === "string" ? data.vendorKey.trim().toLowerCase() : "";
-  const normalizedPlatformKey =
-    typeof data.platformKey === "string" ? data.platformKey.trim().toLowerCase() : "";
-  const managedDefaultVendorKey = React.useMemo(() => {
-    const fromManagedRoutes =
-      nodeConfigMetadata?.managedRoutes && typeof nodeConfigMetadata.managedRoutes === "object"
-        ? String((nodeConfigMetadata.managedRoutes as Record<string, any>).defaultVendor || "")
-            .trim()
-            .toLowerCase()
-        : "";
-    return fromManagedRoutes;
-  }, [nodeConfigMetadata]);
-  const isTencentKling26Route =
-    klingModel === "kling-v2-6" &&
-    (normalizedVendorKey === "tencent_vod" ||
-      normalizedVendorKey === "tengxun" ||
-      normalizedPlatformKey === "tencent_vod" ||
-      normalizedPlatformKey === "tengxun" ||
-      ((!normalizedVendorKey && !normalizedPlatformKey) &&
-        managedDefaultVendorKey === "tencent_vod"));
-  const canUseKlingImage2Input = isKling26Model && (isProMode || isTencentKling26Route);
+  // 第二张图(首尾帧/尾帧)句柄：
+  //  - Kling v2-6：APIMart 仅在 pro 模式支持首+尾两张图，故沿用 pro-only。
+  //  - Kling v3 / O3(omni)：APIMart 的 image_urls / image_with_roles 不限模式，
+  //    std 也支持首尾帧，故放开 image-2 句柄。
+  const canUseKlingImage2Input =
+    isUnifiedKlingNode && (klingModel === "kling-v2-6" ? isProMode : true);
   const previewVideoMode = isViduNode
     ? viduRequestSemantics?.videoMode
     : isSeedanceModel
@@ -816,8 +812,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (data as any).mode,
   ]);
   const resolvedManagedPricing = React.useMemo(
-    () => resolveManagedRoutePricing(nodeConfigMetadata, data.vendorKey, pricingContext),
-    [data.vendorKey, nodeConfigMetadata, pricingContext]
+    () => resolveManagedRoutePricing(nodeConfigMetadata, sanitizedVendorKey, pricingContext),
+    [sanitizedVendorKey, nodeConfigMetadata, pricingContext]
   );
   const previewRequestParams = React.useMemo(
     () => ({
@@ -825,11 +821,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       aiProvider: data.provider,
       managedModelKey: data.managedModelKey,
       modelKey: data.managedModelKey,
-      vendorKey: data.vendorKey,
-      platformKey: data.platformKey,
+      // Resolved route is already Tencent-free (sanitized) — never preview/send tencent_vod.
+      vendorKey: selectedManagedRoute?.vendorKey ?? sanitizedVendorKey,
+      platformKey: selectedManagedRoute?.platformKey ?? selectedManagedRoute?.vendorKey,
       route: selectedManagedRoute?.route,
       providerChannel:
-        selectedManagedRoute?.platformKey || data.platformKey || data.vendorKey,
+        selectedManagedRoute?.platformKey ?? selectedManagedRoute?.vendorKey,
       routedProvider: selectedManagedRoute?.provider || data.provider,
       klingModel: data.klingModel,
       viduModel: viduModelForPreview,
@@ -867,18 +864,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       data.klingModel,
       data.managedModelKey,
       data.offPeak,
-      data.platformKey,
       data.provider,
       data.resolution,
     data.seedanceModel,
     (data as any).seed2InputTier,
-      data.vendorKey,
+      sanitizedVendorKey,
       data.watermark,
       hasVideoInput,
       imageInputCount,
       normalizedViduModelVariant,
       pricingContext,
       previewVideoMode,
+      selectedManagedRoute?.vendorKey,
       selectedManagedRoute?.platformKey,
       selectedManagedRoute?.provider,
       selectedManagedRoute?.route,
@@ -898,7 +895,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? resolvedManagedPricing.credits
       : typeof data.creditsPerCall === "number" && !managedRoutesMetadata
       ? data.creditsPerCall
-      : getManagedRouteCredits(nodeConfigMetadata, data.vendorKey);
+      : getManagedRouteCredits(nodeConfigMetadata, sanitizedVendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const showRunCredits = hasRunCredits && !isSeed2FamilyNode;
   const vodAspectOptions = React.useMemo(() => {
@@ -1499,14 +1496,22 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [shouldShowAspectSelector]);
 
+  // Sync node data to the resolved (Tencent-free) route. selectedManagedRoute is
+  // resolved against the sanitized metadata + sanitized vendorKey, so this also
+  // self-heals stale nodes whose data still carries a tencent_vod vendor.
   React.useEffect(() => {
     if (!managedRoutesMetadata || managedRoutesMetadata.vendors.length === 0) return;
-    if (selectedManagedRoute) return;
-    const fallbackVendor =
-      managedRoutesMetadata.vendors.find(
-        (item) => item.vendorKey === managedRoutesMetadata.defaultVendor
-      ) || managedRoutesMetadata.vendors[0];
-    if (!fallbackVendor) return;
+    if (!selectedManagedRoute) return;
+    const desiredVendor = selectedManagedRoute.vendorKey;
+    const desiredPlatform =
+      selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey;
+    if (
+      data.vendorKey === desiredVendor &&
+      data.platformKey === desiredPlatform &&
+      data.managedModelKey === managedRoutesMetadata.modelKey
+    ) {
+      return;
+    }
 
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
@@ -1514,17 +1519,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           id,
           patch: {
             managedModelKey: managedRoutesMetadata.modelKey,
-            vendorKey: fallbackVendor.vendorKey,
-            platformKey: fallbackVendor.platformKey || fallbackVendor.vendorKey,
+            vendorKey: desiredVendor,
+            platformKey: desiredPlatform,
             creditsPerCall:
-              typeof fallbackVendor.creditsPerCall === "number"
-                ? fallbackVendor.creditsPerCall
+              typeof selectedManagedRoute.creditsPerCall === "number"
+                ? selectedManagedRoute.creditsPerCall
                 : undefined,
           },
         },
       })
     );
-  }, [id, managedRoutesMetadata, selectedManagedRoute]);
+  }, [
+    id,
+    managedRoutesMetadata,
+    selectedManagedRoute,
+    data.vendorKey,
+    data.platformKey,
+    data.managedModelKey,
+  ]);
 
   React.useEffect(() => {
     if (!(provider === "vidu" || provider === "viduq3-pro")) return;
@@ -2658,21 +2670,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 {lt("1 张图生成视频（有音效）", "1 image -> video (with sound)")}
               </div>
               <div style={{ marginBottom: 3 }}>
-                <strong>
-                  {isTencentKling26Route
-                    ? lt("首尾帧（稳定通道）", "Start-End (Stable route)")
-                    : lt("首尾帧（Pro）", "Start-End (Pro)")}
-                  :
-                </strong>{" "}
-                {isTencentKling26Route
-                  ? lt("2 张图（首帧+尾帧）可直接生成视频（首尾帧将按无声发送）", "2 images (start+end) are supported directly (start-end is sent as no-audio)")
-                  : lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
+                <strong>{lt("首尾帧（Pro）", "Start-End (Pro)")}:</strong>{" "}
+                {lt("2 张图（首帧+尾帧）生成视频（有音效）", "2 images (start+end) -> video (with sound)")}
               </div>
               <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
                 提示：
-                {isTencentKling26Route
-                  ? lt("Kling 2.6：Std/Pro 均支持 1-2 张图，首尾帧按无声规则发送", "Kling 2.6: Std/Pro both support 1-2 images; start-end follows no-audio rule")
-                  : lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
+                {lt("Std 仅支持 1 张图，Pro 支持 1-2 张图（首尾帧）", "Tip: Std mode = 1 image, Pro mode = 1 or 2 images (start-end)")}
               </div>
             </>
           ) : (

@@ -786,19 +786,16 @@ export class VideoProviderService {
   ): Promise<boolean> {
     const modelKey = this.resolveManagedVideoModelKey(options);
     if (!modelKey) return false;
-    // Models with new-api channels default to /v1/videos (apimart). Vidu/Kling
-    // take the legacy Tencent VOD route ONLY when the request explicitly selects
-    // the tencent_vod vendor (尊享线路) — so the 普通 line stays on apimart while
-    // 尊享 goes through /proxy/tencent/vod (which new-api logs + bills). Seedance
-    // stays on apimart unconditionally (asset:// refs Tencent VOD can't consume).
+    // Tencent route removed for managed video models: every model with a new-api
+    // channel ALWAYS goes through /v1/videos so new-api's own distributor picks
+    // the upstream per route (apimart / ark / its tencent-vod channel). The
+    // frontend no longer pins vidu/kling to tencent_vod; this guard also blocks
+    // any stale node data still carrying tencent_vod from forcing the legacy
+    // direct Tencent VOD path here. (Tencent VOD stays reachable only via
+    // new-api's tencent-vod channel calling back into /internal/tencent-vod →
+    // createViaTencentVod, which bypasses this decision entirely.)
     if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
-      const isViduOrKling =
-        modelKey.startsWith("vidu-") || modelKey.startsWith("kling-");
-      const explicitTencent =
-        options.vendorKey === "tencent_vod" || options.platformKey === "tencent_vod";
-      if (!(isViduOrKling && explicitTencent)) {
-        return false;
-      }
+      return false;
     }
     try {
       const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
@@ -854,8 +851,11 @@ export class VideoProviderService {
   ): Promise<VideoGenerationResult> {
     const { provider } = options;
 
+    // 注意：kling-o3 节点前端默认带 klingModel="kling-v3-0"，但 O3(Omni) 与 Kling 3.0
+    // 是不同模型。绝不能因 klingModel==="kling-v3-0" 把 O3 路由到 generateManagedKling30
+    // (会发成 Kling 3.0，导致“选O3后台显示3.0”串台)。O3 一律走 generateManagedKlingO3。
     if (
-      (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") &&
+      (provider === "kling" || provider === "kling-2.6") &&
       options.klingModel === "kling-v3-0"
     ) {
       return this.generateManagedKling30(options);
@@ -1084,10 +1084,19 @@ export class VideoProviderService {
     // new-api apimart adaptor reads it from metadata, not the top-level
     // reference_videos field which TaskSubmitReq does not parse).
     const isWanVideoEdit = model === "wan2.7-videoedit";
-    const metadata =
-      isWanVideoEdit && referenceVideos[0]
-        ? { video_url: referenceVideos[0] }
-        : undefined;
+
+    // Kling 首尾帧/参考视频/声音 must ride in `metadata`: new-api's TaskSubmitReq
+    // drops unknown top-level fields (sound/reference_videos/…), while the apimart
+    // adaptor forwards every non-internal metadata key to the upstream body as-is
+    // (Extras passthrough). So `audio`/`video_list`/`image_with_roles` reach Kling
+    // upstream only via metadata. See APIMart kling-v2-6 / kling-v3 / kling-v3-omni docs.
+    const kling = this.buildKlingApimartParams(options, model, referenceImages, referenceVideos);
+
+    const metadata = {
+      ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
+      ...(kling?.metadata ?? {}),
+    };
+    const hasMetadata = Object.keys(metadata).length > 0;
 
     const payload = this.stripUndefined({
       model,
@@ -1095,13 +1104,27 @@ export class VideoProviderService {
       duration,
       size,
       resolution: this.normalizeResolutionToken(options.resolution),
-      image: referenceImages[0],
-      images: referenceImages.length > 0 ? referenceImages : undefined,
-      reference_videos: referenceVideos.length > 0 ? referenceVideos : undefined,
-      metadata,
+      // For Kling, image/images selection is decided by buildKlingApimartParams
+      // (omni 首尾帧 uses image_with_roles and suppresses image_urls to satisfy the
+      // upstream mutual-exclusion rule).
+      image: kling ? kling.image : referenceImages[0],
+      images: kling
+        ? kling.images
+        : referenceImages.length > 0
+        ? referenceImages
+        : undefined,
+      // Kling reference video now rides in metadata.video_list (see above); the
+      // top-level reference_videos field is dropped by new-api for Kling anyway.
+      reference_videos: kling
+        ? undefined
+        : referenceVideos.length > 0
+        ? referenceVideos
+        : undefined,
+      metadata: hasMetadata ? metadata : undefined,
       audio_urls: options.audioUrls?.length ? options.audioUrls : undefined,
       mode: options.mode,
-      sound: options.sound,
+      // Kling audio is carried as metadata.audio (boolean) by buildKlingApimartParams.
+      sound: kling ? undefined : options.sound,
       aspect_ratio: options.aspectRatio,
       watermark: options.watermark,
       generate_audio: options.generateAudio,
@@ -1286,6 +1309,93 @@ export class VideoProviderService {
       return viduVariant.startsWith("q2") ? "vidu-q2" : "vidu-q3";
     }
     return explicit || "kling-v3";
+  }
+
+  /**
+   * Build the Kling-specific portion of the apimart `/v1/videos` request.
+   *
+   * APIMart's Kling field contract (confirmed against docs.apimart.ai):
+   *  - 首尾帧 (v2-6 / v3): `image_urls[0]` = 首帧, `image_urls[1]` = 尾帧 (≤2). There is
+   *    NO `image_tail` field — the ordered images[] flatten already produces this.
+   *  - 首尾帧 (omni / kling-v3-omni): explicit `image_with_roles=[{url,role}]` with role
+   *    ∈ first_frame|last_frame|reference. Mutually exclusive with `image_urls`, so we
+   *    suppress top-level image/images in that case.
+   *  - 参考视频 (omni): `video_list=[{video_url, refer_type:base|feature, keep_original_sound:yes|no}]`.
+   *  - 声音: boolean `audio` (NOT `sound`). v2-6 requires pro mode + single image; omni is
+   *    mutually exclusive with video_list. There is NO voice/timbre/audio-upload field.
+   *
+   * Returns null for non-Kling models (leaves the generic payload path untouched).
+   */
+  private buildKlingApimartParams(
+    options: VideoProviderRequestDto,
+    model: string,
+    referenceImages: string[],
+    referenceVideos: string[],
+  ): { image?: string; images?: string[]; metadata: Record<string, any> } | null {
+    const isV26 = model === "kling-v2-6";
+    const isV3 = model === "kling-v3";
+    const isOmni = model === "kling-v3-omni";
+    if (!isV26 && !isV3 && !isOmni) return null;
+
+    const mode = String(options.mode || "std").trim().toLowerCase();
+    const wantSound = String(options.sound || "").trim().toLowerCase() === "on";
+    const hasVideo = referenceVideos.length > 0;
+    const videoMode = String(options.videoMode || "").trim().toLowerCase();
+    const frameMode =
+      videoMode === "frame" || videoMode === "start_end" || videoMode === "start-end";
+    const twoImages = referenceImages.length >= 2;
+
+    const metadata: Record<string, any> = {};
+    let image: string | undefined = referenceImages[0];
+    let images: string[] | undefined =
+      referenceImages.length > 0 ? referenceImages : undefined;
+
+    // ── 声音 → boolean `audio`, honoring APIMart's mutual-exclusion rules (fail-closed). ──
+    let audio = wantSound;
+    if (isV26 && audio && (mode !== "pro" || twoImages)) {
+      this.logger.warn(
+        "Kling v2-6 audio 需 pro 模式且仅单图(与尾帧互斥)，本次强制关闭 audio",
+      );
+      audio = false;
+    }
+    if (isOmni && audio && hasVideo) {
+      this.logger.warn(
+        "Kling omni audio 与参考视频(video_list)互斥，本次强制关闭 audio",
+      );
+      audio = false;
+    }
+    metadata.audio = audio;
+
+    // ── omni 首尾帧 → image_with_roles (suppress image_urls to avoid mutual-exclusion). ──
+    if (isOmni && frameMode && twoImages) {
+      metadata.image_with_roles = [
+        { url: referenceImages[0], role: "first_frame" },
+        { url: referenceImages[1], role: "last_frame" },
+      ];
+      image = undefined;
+      images = undefined;
+    }
+
+    // ── omni 参考视频 → video_list (refer_type / keep_original_sound from user choice). ──
+    if (isOmni && hasVideo) {
+      const referType =
+        String(options.referenceVideoType || "").trim().toLowerCase() === "feature"
+          ? "feature"
+          : "base";
+      const keepOriginalSound =
+        String(options.keepOriginalSound || "").trim().toLowerCase() === "yes"
+          ? "yes"
+          : "no";
+      metadata.video_list = [
+        {
+          video_url: referenceVideos[0],
+          refer_type: referType,
+          keep_original_sound: keepOriginalSound,
+        },
+      ];
+    }
+
+    return { image, images, metadata };
   }
 
   private resolveNewApiDuration(options: VideoProviderRequestDto): number {

@@ -89,6 +89,8 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   resolveManagedRoutePricing,
+  sanitizeVideoManagedRoutes,
+  sanitizeVideoVendorKey,
 } from "./managedRoutePricing";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
@@ -3203,14 +3205,13 @@ const resolveStableRouteCredits = (params: {
 
   // 视频节点动态积分
   if (normalizedType && VIDEO_DYNAMIC_CREDIT_NODE_TYPES.has(normalizedType)) {
-    const metadata =
+    // Tencent route removed: price against the sanitized (Tencent-free) route.
+    const metadata = sanitizeVideoManagedRoutes(
       nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
         ? (nodeData.nodeConfigMetadata as Record<string, any>)
-        : undefined;
-    const vendorKey =
-      typeof nodeData?.vendorKey === "string" && nodeData.vendorKey.trim().length > 0
-        ? nodeData.vendorKey.trim()
-        : undefined;
+        : undefined
+    );
+    const vendorKey = sanitizeVideoVendorKey(nodeData?.vendorKey);
     const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
 
@@ -10635,15 +10636,28 @@ function FlowInner() {
         ...(paletteDefaultData || {}),
         ...(paletteConfig
           ? (() => {
-              const metadata =
+              // Strip the Tencent route so new video nodes are never seeded with
+              // tencent_vod — they follow the token and new-api picks the upstream.
+              const metadata = sanitizeVideoManagedRoutes(
                 paletteConfig.metadata && typeof paletteConfig.metadata === "object"
                   ? (paletteConfig.metadata as Record<string, any>)
-                  : undefined;
+                  : undefined
+              );
               const selectedManagedRoute = getManagedRouteOption(
                 metadata,
-                (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
+                sanitizeVideoVendorKey(
+                  (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
+                )
               );
-              if (!selectedManagedRoute) return {};
+              if (!selectedManagedRoute) {
+                // No surviving (non-Tencent) route — make sure the new node never
+                // keeps a stale tencent_vod vendor from paletteDefaultData.
+                return sanitizeVideoVendorKey(
+                  (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
+                )
+                  ? {}
+                  : { vendorKey: undefined, platformKey: undefined };
+              }
               return {
                 managedModelKey: metadata?.managedModelKey,
                 vendorKey: selectedManagedRoute.vendorKey,
@@ -18320,27 +18334,9 @@ function FlowInner() {
           typeof rawNodeData?.nodeConfigKey === "string"
             ? rawNodeData.nodeConfigKey.trim()
             : "";
-        const normalizedVendorForDuration =
-          typeof rawNodeData?.vendorKey === "string"
-            ? rawNodeData.vendorKey.trim().toLowerCase()
-            : "";
-        const normalizedPlatformForDuration =
-          typeof rawNodeData?.platformKey === "string"
-            ? rawNodeData.platformKey.trim().toLowerCase()
-            : "";
-        const isTencentKlingO3RouteForDuration =
-          provider === "kling-o3" &&
-          (normalizedVendorForDuration === "tencent_vod" ||
-            normalizedPlatformForDuration === "tencent_vod" ||
-            (!normalizedVendorForDuration && !normalizedPlatformForDuration));
-        const klingO3DurationRangeMax =
-          provider === "kling-o3"
-            ? hasVideoInput
-              ? 10
-              : isTencentKlingO3RouteForDuration
-              ? 15
-              : 10
-            : 10;
+        // Tencent route removed: kling-o3 always runs via new-api (max 10s); the
+        // Tencent-only 15s storyboard range no longer applies.
+        const klingO3DurationRangeMax = 10;
         const nodeSupportedSeedanceModels = (() => {
           const rawSupported = rawNodeData?.nodeConfigMetadata?.supportedModels;
           if (!Array.isArray(rawSupported)) return new Set<string>();
@@ -18355,12 +18351,6 @@ function FlowInner() {
           nodeSupportedSeedanceModels.has("seed-2.0-lite") ||
           nodeSupportedSeedanceModels.has("seedance-2.0-fast");
         const effectiveConfiguredDurationOptions = (() => {
-          if (provider === "kling-o3" && isTencentKlingO3RouteForDuration) {
-            return Array.from(
-              { length: Math.max(0, klingO3DurationRangeMax - 2) },
-              (_, index) => index + 3
-            );
-          }
           if (!(isSeedanceNode && isSeedance20Request)) {
             return configuredDurationOptions;
           }
@@ -19046,160 +19036,25 @@ function FlowInner() {
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
+          // Tencent route removed: never send tencent_vod for vidu/kling — the
+          // request follows the token and new-api picks the upstream per route.
+          // The Tencent-only kling-o3 分镜/storyboard feature is dropped; legacy
+          // storyboard fields on old nodes are ignored and not sent.
           const managedRoutePayload = {
             managedModelKey:
               typeof rawNodeData.managedModelKey === "string" &&
               rawNodeData.managedModelKey.trim().length > 0
                 ? rawNodeData.managedModelKey.trim()
                 : undefined,
-            vendorKey:
-              typeof rawNodeData.vendorKey === "string" &&
-              rawNodeData.vendorKey.trim().length > 0
-                ? rawNodeData.vendorKey.trim()
-                : undefined,
-            platformKey:
-              typeof rawNodeData.platformKey === "string" &&
-              rawNodeData.platformKey.trim().length > 0
-                ? rawNodeData.platformKey.trim()
-                : undefined,
+            vendorKey: sanitizeVideoVendorKey(rawNodeData.vendorKey),
+            platformKey: sanitizeVideoVendorKey(rawNodeData.platformKey),
           };
-          const normalizedVendorKey = (managedRoutePayload.vendorKey || "").toLowerCase();
-          const normalizedPlatformKey = (managedRoutePayload.platformKey || "").toLowerCase();
-          const isTencentKlingO3Route =
-            provider === "kling-o3" &&
-            (normalizedVendorKey === "tencent_vod" ||
-              normalizedPlatformKey === "tencent_vod" ||
-              (!normalizedVendorKey && !normalizedPlatformKey));
-          const isTencentKling26Route =
-            provider === "kling-2.6" &&
-            (normalizedVendorKey === "tencent_vod" ||
-              normalizedPlatformKey === "tencent_vod");
           const normalizedKlingSound =
             rawNodeData.sound === undefined || rawNodeData.sound === null
               ? undefined
               : rawNodeData.sound === "on" || rawNodeData.sound === true
               ? "on"
               : "off";
-          const rawKlingStoryboardMode = String(rawNodeData.klingStoryboardMode || "")
-            .trim()
-            .toLowerCase();
-          const klingStoryboardMode =
-            rawKlingStoryboardMode === "intelligence" ||
-            rawKlingStoryboardMode === "smart"
-              ? "intelligence"
-              : rawKlingStoryboardMode === "customize" || rawKlingStoryboardMode === "custom"
-              ? "customize"
-              : "single";
-          const normalizeTencentStoryboardShots = (
-            rawShots: unknown
-          ): {
-            script: string;
-            totalDuration?: number;
-            errorKey?: string;
-          } => {
-            if (!Array.isArray(rawShots) || rawShots.length === 0) {
-              return { script: "" };
-            }
-            if (rawShots.length > 6) {
-              return { script: "", errorKey: "too_many" };
-            }
-
-            const normalizedShots: Array<{ index: number; prompt: string; duration: number }> = [];
-            for (let shotIndex = 0; shotIndex < rawShots.length; shotIndex += 1) {
-              const shot = rawShots[shotIndex];
-              if (!shot || typeof shot !== "object") {
-                return { script: "", errorKey: "invalid_item" };
-              }
-              const prompt = String((shot as any).prompt || "").trim();
-              if (!prompt) {
-                return { script: "", errorKey: `missing_prompt_${shotIndex + 1}` };
-              }
-              const durationRaw = Number((shot as any).duration);
-              const duration = Math.round(durationRaw);
-              if (!Number.isFinite(durationRaw) || duration < 1) {
-                return { script: "", errorKey: `invalid_duration_${shotIndex + 1}` };
-              }
-              normalizedShots.push({
-                index: shotIndex + 1,
-                prompt,
-                duration,
-              });
-            }
-
-            return {
-              script: JSON.stringify(normalizedShots),
-              totalDuration: normalizedShots.reduce((sum, shot) => sum + shot.duration, 0),
-            };
-          };
-          const normalizedTencentStoryboard = normalizeTencentStoryboardShots(
-            rawNodeData.klingStoryboardShots
-          );
-          const manualKlingStoryboardScript =
-            typeof rawNodeData.klingStoryboardScript === "string"
-              ? rawNodeData.klingStoryboardScript.trim()
-              : "";
-          const klingStoryboardScript =
-            normalizedTencentStoryboard.script || manualKlingStoryboardScript;
-
-          if (isTencentKlingO3Route && klingStoryboardMode === "intelligence" && !finalPrompt) {
-            failCurrentVideoNode(
-              lt(
-                "智能分镜模式需要提示词输入",
-                "Intelligent storyboard mode requires prompt input"
-              )
-            );
-            return;
-          }
-          if (isTencentKlingO3Route && klingStoryboardMode === "customize" && !klingStoryboardScript) {
-            failCurrentVideoNode(
-              lt(
-                "请先添加分镜并填写每个镜头的描述与时长",
-                "Please add storyboard shots and fill prompt + duration"
-              )
-            );
-            return;
-          }
-          if (
-            isTencentKlingO3Route &&
-            klingStoryboardMode === "customize" &&
-            typeof normalizedTencentStoryboard.errorKey === "string"
-          ) {
-            const key = normalizedTencentStoryboard.errorKey;
-            if (key === "too_many") {
-              failCurrentVideoNode(
-                lt("分镜最多只能添加 6 个镜头", "A maximum of 6 storyboard shots is allowed")
-              );
-            } else if (key.startsWith("missing_prompt_")) {
-              const shotNo = Number(key.replace("missing_prompt_", "")) || 1;
-              failCurrentVideoNode(
-                lt(`请填写镜头 ${shotNo} 的描述`, `Please fill prompt for shot ${shotNo}`)
-              );
-            } else if (key.startsWith("invalid_duration_")) {
-              const shotNo = Number(key.replace("invalid_duration_", "")) || 1;
-              failCurrentVideoNode(
-                lt(`镜头 ${shotNo} 的时长必须大于等于 1 秒`, `Shot ${shotNo} duration must be at least 1 second`)
-              );
-            } else {
-              failCurrentVideoNode(
-                lt("分镜数据格式有误，请重新填写", "Invalid storyboard data format")
-              );
-            }
-            return;
-          }
-          if (
-            isTencentKlingO3Route &&
-            klingStoryboardMode === "customize" &&
-            typeof normalizedTencentStoryboard.totalDuration === "number" &&
-            normalizedTencentStoryboard.totalDuration !== durationForAPI
-          ) {
-            failCurrentVideoNode(
-              lt(
-                `分镜总时长(${normalizedTencentStoryboard.totalDuration}s)需等于节点时长(${durationForAPI}s)`,
-                `Storyboard total (${normalizedTencentStoryboard.totalDuration}s) must equal node duration (${durationForAPI}s)`
-              )
-            );
-            return;
-          }
 
           // Seedance 2.0 family: enrich referenceImages with volcAssetId/Status.
           // Prefer resolvedVolcAssets built by the auto-review pass above (guaranteed active);
@@ -19300,24 +19155,24 @@ function FlowInner() {
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
                   klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
+                  // 让后端区分 首尾帧(frame) / 单图(image) / 参考视频(video) / 文生(text)。
+                  // omni 据此用 image_with_roles 表达首尾帧；v2-6/v3 走 image_urls[0,1]。
+                  videoMode: referenceVideoUrl
+                    ? "video"
+                    : referenceImageUrls.length >= 2
+                    ? "frame"
+                    : referenceImageUrls.length === 1
+                    ? "image"
+                    : "text",
+                  // 声音：尊重用户开关，不再因 pro 模式强制开启(避免“扣有声却无声”)。
+                  // 普通线路由后端按 APIMart 约束(v2-6 需 pro+单图、omni 与视频互斥)做 fail-closed。
                   sound:
                     provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
-                      ? isTencentKling26Route
-                        ? normalizedKlingSound
-                        : rawNodeData.mode === "pro"
-                        ? "on"
-                        : normalizedKlingSound
+                      ? normalizedKlingSound
                       : undefined,
                   referenceVideo: referenceVideoUrl,
                   referenceVideoType: rawNodeData.referenceVideoType,
                   keepOriginalSound: rawNodeData.keepOriginalSound,
-                  klingStoryboardMode: isTencentKlingO3Route
-                    ? klingStoryboardMode
-                    : undefined,
-                  klingStoryboardScript:
-                    isTencentKlingO3Route && klingStoryboardMode === "customize"
-                      ? klingStoryboardScript
-                      : undefined,
                 };
 
           // 调用对应供应商的 API

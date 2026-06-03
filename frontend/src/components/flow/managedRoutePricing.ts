@@ -111,6 +111,66 @@ const asObject = (value: unknown): Record<string, any> | null => {
   return null;
 };
 
+// Tencent VOD route keys. Video models (vidu/kling) must no longer pin the
+// channel to Tencent in the frontend — requests follow the token and let new-api
+// pick the upstream per route. These helpers strip the Tencent route from any
+// admin-configured managed routes so it is never auto-selected, displayed, or
+// sent. (The Tencent VOD upstream is still reachable, but only when new-api's own
+// tencent-vod channel selects it — not because the frontend forced it.)
+const TENCENT_VENDOR_KEYS = new Set(["tencent_vod", "tengxun"]);
+
+export const isTencentVendorKey = (vendorKey?: string | null): boolean => {
+  if (typeof vendorKey !== "string") return false;
+  return TENCENT_VENDOR_KEYS.has(vendorKey.trim().toLowerCase());
+};
+
+/**
+ * Treat a Tencent vendorKey as empty so route resolution falls back to the first
+ * surviving (non-Tencent) vendor / defaultVendor. Returns undefined for empty or
+ * Tencent keys, the trimmed key otherwise.
+ */
+export const sanitizeVideoVendorKey = (
+  vendorKey?: string | null
+): string | undefined => {
+  if (typeof vendorKey !== "string") return undefined;
+  const trimmed = vendorKey.trim();
+  if (!trimmed || isTencentVendorKey(trimmed)) return undefined;
+  return trimmed;
+};
+
+/**
+ * Return a copy of node config metadata with all Tencent (tencent_vod) managed
+ * routes removed. defaultVendor is rewritten to the first surviving vendor when
+ * the configured default was Tencent. Metadata without managedRoutes (or without
+ * any Tencent vendor) is returned unchanged. When every vendor was Tencent the
+ * resulting vendors array is empty, so getManagedRoutesMetadata returns null and
+ * the node falls back to its plain creditsPerCall — and sends no vendor at all.
+ */
+export const sanitizeVideoManagedRoutes = <T extends Record<string, any> | null | undefined>(
+  metadata: T
+): T => {
+  const root = asObject(metadata);
+  const managedRoutes = asObject(root?.managedRoutes);
+  if (!root || !managedRoutes) return metadata;
+  const vendors = Array.isArray(managedRoutes.vendors) ? managedRoutes.vendors : [];
+  const filteredVendors = vendors.filter(
+    (vendor) =>
+      !(vendor && typeof vendor === "object" && isTencentVendorKey((vendor as any).vendorKey))
+  );
+  if (filteredVendors.length === vendors.length) return metadata;
+  const nextDefault = isTencentVendorKey(managedRoutes.defaultVendor)
+    ? (filteredVendors[0] as Record<string, any> | undefined)?.vendorKey
+    : managedRoutes.defaultVendor;
+  return {
+    ...root,
+    managedRoutes: {
+      ...managedRoutes,
+      vendors: filteredVendors,
+      defaultVendor: nextDefault,
+    },
+  } as unknown as T;
+};
+
 export const getManagedRoutesMetadata = (
   metadata?: Record<string, any> | null
 ): ManagedRoutesMetadata | null => {
