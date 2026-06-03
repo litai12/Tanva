@@ -1500,6 +1500,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
+    { nodeType: "htmlPpt", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
   ],
@@ -11783,6 +11784,11 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
+      if (targetNode.type === "htmlPpt") {
+        if (isTextHandle(targetHandle))
+          return canSourceProvideText(sourceNode, sourceHandle);
+        return false;
+      }
       if (targetNode.type === "textPrompt") {
         if (isTextHandle(targetHandle))
           return canSourceProvideText(sourceNode, sourceHandle);
@@ -11992,6 +11998,9 @@ function FlowInner() {
       }
       if (targetNode?.type === "promptOptimize") {
         if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
+      }
+      if (targetNode?.type === "htmlPpt") {
+        if (isTextHandle(params.targetHandle)) return true;
       }
       if (targetNode?.type === "textPrompt") {
         if (isTextHandle(params.targetHandle))
