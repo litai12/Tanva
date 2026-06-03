@@ -59,12 +59,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const isModifierWheel = event.ctrlKey || event.metaKey;
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
+  const isPromptEditable = selected === true;
   const mentionImages = React.useMemo(() => {
-    if (!atMention || siblingImages.length === 0) return [];
+    if (!isPromptEditable || !atMention || siblingImages.length === 0) return [];
     const q = atMention.query.toLowerCase();
     if (!q) return siblingImages;
     return siblingImages.filter(img => String(img.index).includes(q) || `图${img.index}`.includes(q));
-  }, [atMention, siblingImages]);
+  }, [atMention, isPromptEditable, siblingImages]);
 
   const detectAtMention = React.useCallback((text: string, cursorPos: number) => {
     if (siblingImages.length === 0) return null;
@@ -176,6 +177,15 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       titleInputRef.current?.select();
     });
   }, [isEditingTitle]);
+
+  React.useEffect(() => {
+    if (isPromptEditable) return;
+    if (textareaRef.current && document.activeElement === textareaRef.current) {
+      textareaRef.current.blur();
+    }
+    isComposingRef.current = false;
+    setAtMention(null);
+  }, [isPromptEditable]);
 
   React.useEffect(() => {
     edgesRef.current = edges;
@@ -468,7 +478,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   useNodeInternalsSync(
     id,
     nodeRootRef,
-    [data.boxW, data.boxH, isEditingTitle],
+    [data.boxW, data.boxH, isEditingTitle, isPromptEditable],
     { disabled: isResizing }
   );
 
@@ -565,14 +575,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       </div>
       <textarea
         ref={textareaRef}
-        className="nodrag nopan nowheel"
+        className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
         value={value}
+        readOnly={!isPromptEditable}
+        tabIndex={isPromptEditable ? 0 : -1}
         onChange={handleValueChange}
         onKeyDown={handleMentionKeyDown}
         onSelect={handleTextareaSelect}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onWheelCapture={(event) => {
+          if (!isPromptEditable) return;
           if (shouldPassWheelToCanvas(event)) return;
           event.stopPropagation();
           if (event.nativeEvent?.stopImmediatePropagation) {
@@ -580,12 +593,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           }
         }}
         onPointerDownCapture={(event) => {
+          if (!isPromptEditable) return;
           event.stopPropagation();
           if (event.nativeEvent?.stopImmediatePropagation) {
             event.nativeEvent.stopImmediatePropagation();
           }
         }}
         onMouseDownCapture={(event) => {
+          if (!isPromptEditable) return;
           event.stopPropagation();
         }}
         placeholder={lt("输入提示词", "Enter prompt")}
@@ -601,12 +616,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           borderRadius: 6,
           padding: 6,
           outline: 'none',
-          pointerEvents: 'auto',
+          pointerEvents: isPromptEditable ? 'auto' : 'none',
           background: 'rgba(255,255,255,0.92)',
-          cursor: 'text'
+          cursor: isPromptEditable ? 'text' : 'default'
         }}
       />
-      <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
+      {isPromptEditable && (
+        <PromptImageStrip images={siblingImages} onInsert={handleInsert} />
+      )}
       {atMention && dropdownPos && mentionImages.length > 0 && createPortal(
         <div
           className="nodrag nopan"

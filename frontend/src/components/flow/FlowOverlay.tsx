@@ -8659,17 +8659,36 @@ function FlowInner() {
     ]
   );
 
-  const exportFlow = React.useCallback(async () => {
+  const exportFlowTemplate = React.useCallback(async (
+    nodesToExport: RFNode[],
+    edgesToExport: Edge[],
+    options?: {
+      namePrefix?: string;
+      downloadPrefix?: string;
+      emptyMessage?: string;
+    }
+  ) => {
     if (isExporting) return;
+    if (!nodesToExport.length) {
+      const message = options?.emptyMessage || "没有可导出的节点";
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type: "error" },
+        })
+      );
+      return;
+    }
     setIsExporting(true);
 
     try {
       const templateId = `tpl_${Date.now()}`;
-      const templateName = `导出模板_${new Date().toLocaleString()}`;
+      const templateName = `${
+        options?.namePrefix || "导出模板"
+      }_${new Date().toLocaleString()}`;
 
       // 处理节点数据：模板导出仅保留稳定的 imageUrl / imageUrls（避免 base64 过大）
       const processedNodes = await Promise.all(
-        nodes.map(async (n) => {
+        nodesToExport.map(async (n) => {
           const data = cleanNodeData(n.data);
           const nodeType = String(n.type || "");
 
@@ -8836,7 +8855,7 @@ function FlowInner() {
         id: templateId,
         name: templateName,
         nodes: processedNodes,
-        edges: edges.map((e) => ({
+        edges: edgesToExport.map((e) => ({
           id: e.id,
           source: e.source,
           target: e.target,
@@ -8852,7 +8871,9 @@ function FlowInner() {
       const a = document.createElement("a");
       const blobUrl = URL.createObjectURL(blob);
       a.href = blobUrl;
-      a.download = `tanva-template-${Date.now()}.json`;
+      a.download = `${
+        options?.downloadPrefix || "tanva-template"
+      }-${Date.now()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
     } catch (err) {
@@ -8862,8 +8883,6 @@ function FlowInner() {
       setIsExporting(false);
     }
   }, [
-    nodes,
-    edges,
     cleanNodeData,
     getHistoryRemoteUrlForNode,
     isExporting,
@@ -8872,6 +8891,49 @@ function FlowInner() {
     normalizeStableRemoteUrl,
     uploadImageToStableUrl,
   ]);
+
+  const exportFlow = React.useCallback(async () => {
+    await exportFlowTemplate(nodes as RFNode[], edges, {
+      namePrefix: "导出模板",
+      downloadPrefix: "tanva-template",
+    });
+  }, [edges, exportFlowTemplate, nodes]);
+
+  const exportSelectedFlowNodes = React.useCallback(async () => {
+    const allNodes =
+      nodesRef.current.length > 0
+        ? nodesRef.current
+        : ((rf.getNodes?.() || []) as RFNode[]);
+    const selectedNodes = allNodes.filter((n: any) => n.selected);
+    const nodesToExport = expandFlowSelectionWithGroupChildren(
+      allNodes,
+      selectedNodes as RFNode[]
+    );
+
+    if (!nodesToExport.length) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "请先选中要导出的 Flow 节点", type: "error" },
+        })
+      );
+      return;
+    }
+
+    const idSet = new Set(nodesToExport.map((node) => String(node.id)));
+    const allEdges =
+      edgesRef.current.length > 0
+        ? edgesRef.current
+        : ((rf.getEdges?.() || []) as Edge[]);
+    const internalEdges = allEdges.filter(
+      (edge: any) =>
+        idSet.has(String(edge.source)) && idSet.has(String(edge.target))
+    );
+
+    await exportFlowTemplate(nodesToExport, internalEdges, {
+      namePrefix: "选中节点",
+      downloadPrefix: "tanva-selected-nodes",
+    });
+  }, [exportFlowTemplate, rf]);
 
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const handleImportClick = React.useCallback(() => {
@@ -9011,6 +9073,22 @@ function FlowInner() {
       );
     };
   }, [exportFlow]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      void exportSelectedFlowNodes();
+    };
+    window.addEventListener(
+      "flow:export-selected-template-request",
+      handler as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "flow:export-selected-template-request",
+        handler as EventListener
+      );
+    };
+  }, [exportSelectedFlowNodes]);
 
   React.useEffect(() => {
     const handler = () => {

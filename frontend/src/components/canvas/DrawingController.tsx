@@ -7365,6 +7365,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [showToast]);
 
+  const handleExportSelectedFlowNodesJson = useCallback(() => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:export-selected-template-request")
+      );
+    } catch (error) {
+      console.error("触发导出选中节点 JSON 失败:", error);
+      showToast("导出失败，请重试", "error");
+    }
+  }, [showToast]);
+
   const handleImportCanvasJson = useCallback(() => {
     try {
       window.dispatchEvent(new CustomEvent("flow:import-template-request"));
@@ -7429,6 +7440,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           closeContextMenu();
         },
       },
+      ...(isCanvasContext
+        ? [
+            {
+              label: "导出选中节点 JSON",
+              icon: <FileJson className='w-4 h-4' />,
+              onClick: () => {
+                handleExportSelectedFlowNodesJson();
+                closeContextMenu();
+              },
+            },
+          ]
+        : []),
       {
         label: "导入画布 JSON",
         icon: <FileInput className='w-4 h-4' />,
@@ -7542,6 +7565,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleCanvasCopy,
     handleCanvasPaste,
     handleExportCanvasJson,
+    handleExportSelectedFlowNodesJson,
     handleImportCanvasJson,
     handleCreateFlowNodeGroup,
     handleStartFlowBatchOutputConnect,
