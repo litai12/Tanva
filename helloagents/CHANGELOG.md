@@ -34,6 +34,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Zoom Performance: Prompt node titles now carry the shared `.tanva-flow-node-title` marker, so 80+ node pan/zoom soft-detail mode keeps the Prompt title visible while continuing to hide prompt textareas and other non-title controls.
 - Backend/Uploads: replaced Express `FileInterceptor` (multer) usage in `POST /api/uploads/image` and `POST /api/uploads/video` with Fastify-native multipart parsing (`req.file()`), fixing `TypeError: req.on is not a function` under the Fastify adapter.
 - Backend/OSS(TOS): switched server-side `putStream/putBuffer` write path on TOS hosts from `ali-oss` direct auth to presigned `PostObject` upload, fixing `InvalidArgument: Unsupported Authorization Type` during `/api/uploads/image` writes.
 - Backend/OSS(TOS): removed unsigned extra multipart form fields (`Content-Type`/`Cache-Control`) from TOS PostObject relay uploads to prevent policy/signature mismatch (`SignatureDoesNotMatch`).

@@ -1,3 +1,6 @@
+## 2026-06-03 Flow Soft Detail Prompt Title
+- `TextPromptNode` title now uses the shared `.tanva-flow-node-title` marker, so dense-graph pan/zoom soft-detail mode keeps the Prompt node title visible while still hiding prompt textareas, controls, handles, and edges.
+
 ## 2026-06-03 Flow Selection JSON Export
 - Blank-canvas context menu now exposes `导出选中节点 JSON`, dispatching `flow:export-selected-template-request` to export the currently selected Flow nodes plus only their internal edges. The export path reuses the existing Flow template serialization/image-cleanup rules, so imported partial graphs stay compatible with the current JSON import flow.
 
