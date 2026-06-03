@@ -965,7 +965,7 @@ export class CreditsService {
             normalizedRequestParams.managedModelKey.trim().length > 0
           ? normalizedRequestParams.managedModelKey.trim()
           : this.inferManagedModelKeyFromRequestParams(normalizedRequestParams);
-    const vendorKey =
+    const requestedVendorKey =
       typeof normalizedRequestParams?.vendorKey === 'string' &&
       normalizedRequestParams.vendorKey.trim()
         ? normalizedRequestParams.vendorKey.trim()
@@ -973,7 +973,7 @@ export class CreditsService {
             normalizedRequestParams.platformKey.trim()
           ? normalizedRequestParams.platformKey.trim()
           : '';
-    if (!modelKey || !vendorKey) return null;
+    if (!modelKey) return null;
 
     try {
       const setting = await this.prisma.systemSetting.findUnique({
@@ -984,6 +984,19 @@ export class CreditsService {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
+
+      // 腾讯路由已下线：vidu/kling 视频前端不再下发 vendor。计价与路由解耦——请求带
+      // 空 vendor 或陈旧 tencent_vod 时，按该模型 defaultVendor 对应的“已启用”费率表
+      // 计价（当前即 tencent_vod），金额与改动前完全一致、仍按时长动态定价；预览与
+      // 实际扣费同源。若后台改启用普通线(vidu_api/legacy)，会自动改用该线费率。
+      // 仅对“配置了 tencent_vod 选项”的模型生效，图片等模型不受影响。
+      let vendorKey = requestedVendorKey;
+      if (!vendorKey || vendorKey.toLowerCase() === 'tencent_vod') {
+        const fallback = this.pickPricingFallbackVendorKey(parsed, modelKey);
+        if (fallback) vendorKey = fallback;
+      }
+      if (!vendorKey) return null;
+
       const resolved = await resolveManagedModelPricingV2(
         parsed,
         modelKey,
@@ -999,6 +1012,53 @@ export class CreditsService {
       );
       return null;
     }
+  }
+
+  /**
+   * 为“配置了 tencent_vod 选项”的托管模型（vidu/kling 等）选择计价用 vendorKey。
+   * 腾讯路由下线后前端不再下发 vendor，这里按优先级回退到一个“已启用”的费率表：
+   *   1) 已启用的非腾讯 vendor（普通/apimart 线，如 vidu_api / legacy）——若后台启用了它；
+   *   2) defaultVendor 对应 vendor（当前即 tencent_vod，沿用改动前费率）；
+   *   3) 首个已启用 vendor；4) 首个 vendor。
+   * 模型不含 tencent_vod vendor 时返回 null，保持图片等模型计价不变。
+   */
+  private pickPricingFallbackVendorKey(
+    mapping: ManagedPricingMappingLike,
+    modelKey: string,
+  ): string | null {
+    const mk = String(modelKey || '').trim().toLowerCase();
+    if (!mk) return null;
+    const model = Array.isArray(mapping?.models)
+      ? mapping.models.find(
+          (item) =>
+            typeof item?.modelKey === 'string' &&
+            item.modelKey.trim().toLowerCase() === mk,
+        )
+      : undefined;
+    const vendors = Array.isArray(model?.vendors) ? model.vendors : [];
+    const vk = (v: any): string =>
+      typeof v?.vendorKey === 'string' ? v.vendorKey.trim() : '';
+    const isEnabled = (v: any): boolean =>
+      (v as { enabled?: boolean })?.enabled !== false;
+    const hasTencent = vendors.some((v) => vk(v).toLowerCase() === 'tencent_vod');
+    if (!hasTencent) return null;
+
+    const enabledNonTencent = vendors.find(
+      (v) => vk(v) && vk(v).toLowerCase() !== 'tencent_vod' && isEnabled(v),
+    );
+    if (enabledNonTencent) return vk(enabledNonTencent);
+
+    const defaultVendor = String(
+      (model as { defaultVendor?: string })?.defaultVendor || '',
+    ).trim();
+    const byDefault = vendors.find((v) => vk(v) && vk(v) === defaultVendor);
+    if (byDefault) return vk(byDefault);
+
+    const firstEnabled = vendors.find((v) => vk(v) && isEnabled(v));
+    if (firstEnabled) return vk(firstEnabled);
+
+    const first = vendors.find((v) => vk(v));
+    return first ? vk(first) : null;
   }
 
   private normalizeManagedPricingRequestParams(requestParams: any): any {
