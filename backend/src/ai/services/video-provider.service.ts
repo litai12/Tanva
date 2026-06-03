@@ -786,10 +786,19 @@ export class VideoProviderService {
   ): Promise<boolean> {
     const modelKey = this.resolveManagedVideoModelKey(options);
     if (!modelKey) return false;
-    // Models with new-api channels never take the backend's tencent_vod
-    // diversion — new-api decides their upstream (see set above).
+    // Models with new-api channels default to /v1/videos (apimart). Vidu/Kling
+    // take the legacy Tencent VOD route ONLY when the request explicitly selects
+    // the tencent_vod vendor (尊享线路) — so the 普通 line stays on apimart while
+    // 尊享 goes through /proxy/tencent/vod (which new-api logs + bills). Seedance
+    // stays on apimart unconditionally (asset:// refs Tencent VOD can't consume).
     if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
-      return false;
+      const isViduOrKling =
+        modelKey.startsWith("vidu-") || modelKey.startsWith("kling-");
+      const explicitTencent =
+        options.vendorKey === "tencent_vod" || options.platformKey === "tencent_vod";
+      if (!(isViduOrKling && explicitTencent)) {
+        return false;
+      }
     }
     try {
       const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
@@ -1259,7 +1268,12 @@ export class VideoProviderService {
       return "kling-v3-omni";
     }
     if (options.provider === "kling" || options.provider === "kling-2.6") {
-      return explicit.includes("2-6") || explicit.includes("2.6") ? "kling-v2-6" : "kling-v3";
+      // The authoritative version is klingModel (kling-v2-6 / kling-v3-0). The
+      // node's managedModelKey can lag behind its sub-selector (e.g. a "kling-3.0"
+      // node with klingModel switched to kling-v2-6), so don't trust the
+      // managedModelKey-first `explicit` here — mirror the vidu branch below.
+      const klingHint = String(options.klingModel || explicit).trim().toLowerCase();
+      return klingHint.includes("2-6") || klingHint.includes("2.6") ? "kling-v2-6" : "kling-v3";
     }
     if (options.provider === "vidu" || options.provider === "viduq3-pro") {
       const viduVariant = String(
