@@ -632,83 +632,23 @@ input[type="text"],
 
 /* content-visibility: auto 隐式开启 CSS Paint Containment，会裁剪溢出节点边界的下拉菜单/弹窗，已移除 */
 
-/* 移动/缩放软降级：保留真实节点与图片预览，只隐藏高频绘制里最乱的控件/文字/句柄 */
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node {
-  box-shadow: none !important;
-  contain: layout paint style;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node * {
-  transition: none !important;
-  animation: none !important;
-  filter: none !important;
-  backdrop-filter: none !important;
-}
-
+/* 移动/缩放软降级：保留节点、按钮、连线和 resize，只隐藏连接句柄圆点 */
 .tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle *,
+.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle.tanva-beta-handle,
+.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle.tanva-beta-handle.tanva-beta-handle-text,
+.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle.tanva-beta-handle.tanva-beta-handle-image {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
 .tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle::before,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle::after,
-.tanva-flow-overlay.interaction-soft-detail-mode .flow-tooltip,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node-resizer,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node-resizer-handle {
+.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__handle::after {
   opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node {
-  color: transparent !important;
-  text-shadow: none !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node * {
-  color: transparent !important;
-  text-shadow: none !important;
-  caret-color: transparent !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node button,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node input,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node textarea,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node select,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node label,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node svg {
   visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node .tanva-flow-node-title,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node .tanva-flow-node-title * {
-  visibility: visible !important;
-  opacity: 1 !important;
-  color: #111827 !important;
-  text-shadow: none !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode.tanva-flow-theme-mono-dark .react-flow__node .tanva-flow-node-title,
-.tanva-flow-overlay.interaction-soft-detail-mode.tanva-flow-theme-mono-dark .react-flow__node .tanva-flow-node-title * {
-  color: #f8fafc !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node img,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node canvas,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node video,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node picture,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__node source {
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edges,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edge,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edge-path,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edge-text,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edge-label,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edge-labels,
-.tanva-flow-overlay.interaction-soft-detail-mode .react-flow__edgelabel-renderer {
-  visibility: hidden !important;
-  pointer-events: none !important;
+  box-shadow: none !important;
 }
 
 /* 低细节模式：低缩放大图下用轻量占位替代完整节点 UI，避免缩放时批量绘制图片/文字/按钮 */

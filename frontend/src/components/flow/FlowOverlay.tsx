@@ -308,7 +308,7 @@ const FLOW_AUTO_DISABLE_SNAP_NODE_THRESHOLD = 51;
 const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
-const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
+const FLOW_AUTO_HIDE_MINIMAP_NODE_THRESHOLD = 80;
 // 低缩放硬降级先默认关闭：它会牺牲节点可读性，当前只保留代码兜底。
 const FLOW_LOW_DETAIL_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
 const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.22;
@@ -7601,8 +7601,8 @@ function FlowInner() {
   const showFpsOverlay = useFlowStore((s) => s.showFpsOverlay);
   const isLargeGraphForVisibleRendering =
     nodes.length >= FLOW_AUTO_VISIBLE_RENDER_NODE_THRESHOLD;
-  const isLargeGraphForMiniMapImageOverlay =
-    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD;
+  const isLargeGraphForMiniMap =
+    nodes.length >= FLOW_AUTO_HIDE_MINIMAP_NODE_THRESHOLD;
   const effectiveOnlyRenderVisibleElements =
     onlyRenderVisibleElements || isLargeGraphForVisibleRendering;
   const canEnableLowDetailMode = nodes.length >= FLOW_LOW_DETAIL_NODE_THRESHOLD;
@@ -7855,13 +7855,13 @@ function FlowInner() {
     !hasRunningFlowNode;
   const isFlowViewportInteracting =
     isCanvasZooming || isCanvasPanning || isNodeDragging || isCanvasObjectMoving;
-  const isViewportSoftDetailInteraction =
-    isCanvasZooming || isCanvasPanning || isCanvasObjectMoving;
+  const isFlowSoftDetailInteraction =
+    isCanvasZooming || isCanvasPanning || isCanvasObjectMoving || isNodeDragging;
   const effectiveFlowInteractionSoftDetailMode =
     !hasRunningFlowNode &&
     !effectiveFlowLowDetailMode &&
     nodes.length >= FLOW_INTERACTION_SOFT_DETAIL_NODE_THRESHOLD &&
-    isViewportSoftDetailInteraction;
+    isFlowSoftDetailInteraction;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
@@ -7870,7 +7870,9 @@ function FlowInner() {
     [effectiveFlowLowDetailMode]
   );
   const shouldRenderMiniMap =
-    !effectiveFlowLowDetailMode && !isFlowViewportInteracting;
+    !effectiveFlowLowDetailMode &&
+    !isLargeGraphForMiniMap &&
+    !isFlowViewportInteracting;
 
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
@@ -24270,9 +24272,9 @@ function FlowInner() {
             大图模式已自动关闭吸附对齐
           </span>
         )}
-        {isLargeGraphForMiniMapImageOverlay && (
-          <span style={{ fontSize: 12, color: "#6b7280" }}>
-            大图模式已自动关闭 MiniMap 图片层
+        {!effectiveFlowLowDetailMode && isLargeGraphForMiniMap && (
+          <span style={{ fontSize: 12, color: "#4b5563" }}>
+            80+ 节点已自动隐藏 MiniMap
           </span>
         )}
         {effectiveFlowLowDetailMode && (
@@ -24282,10 +24284,11 @@ function FlowInner() {
         )}
         {effectiveFlowInteractionSoftDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
-            大图移动/缩放中已简化节点控件
+            大图交互中已隐藏连接句柄圆点
           </span>
         )}
         {!effectiveFlowLowDetailMode &&
+          !isLargeGraphForMiniMap &&
           !effectiveFlowInteractionSoftDetailMode &&
           isFlowViewportInteracting && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
@@ -25277,8 +25280,7 @@ function FlowInner() {
           <>
             {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
             <MiniMap pannable={false} zoomable={false} />
-            {/* 将画布上的图片以绿色块显示在 MiniMap 内；大图时关闭该叠加层以减负 */}
-            {!isLargeGraphForMiniMapImageOverlay && <MiniMapImageOverlay />}
+            <MiniMapImageOverlay />
           </>
         )}
       </ReactFlow>

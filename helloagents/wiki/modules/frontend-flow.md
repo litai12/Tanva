@@ -1,14 +1,20 @@
+## 2026-06-03 Dense Flow MiniMap Hide
+- Flow graphs with 80+ nodes now skip MiniMap rendering entirely. Smaller graphs keep the previous behavior: MiniMap unmounts only during pan/zoom/object movement or node drag, then restores after the interaction becomes idle.
+- Dense Flow node dragging now also enters interaction soft-detail mode. During that mode the real nodes, controls, edges, and resize affordances remain rendered, while only the visible connection-handle dots are hidden.
+- Image-preview-heavy nodes (`Generate`, `GeneratePro`, `Analyze`, `Image`) now use stable selector equality for connected image/crop previews, reducing unrelated rerenders from position-only Flow store updates during node drag.
+
 ## 2026-06-03 Flow Soft Detail Prompt Title
-- `TextPromptNode` title now uses the shared `.tanva-flow-node-title` marker, so dense-graph pan/zoom soft-detail mode keeps the Prompt node title visible while still hiding prompt textareas, controls, handles, and edges.
+- `TextPromptNode` title now uses the shared `.tanva-flow-node-title` marker, so dense-graph pan/zoom soft-detail mode keeps the Prompt node title visible while hiding only the visible connection-handle dots.
 
 ## 2026-06-03 Flow Selection JSON Export
 - Blank-canvas context menu now exposes `导出选中节点 JSON`, dispatching `flow:export-selected-template-request` to export the currently selected Flow nodes plus only their internal edges. The export path reuses the existing Flow template serialization/image-cleanup rules, so imported partial graphs stay compatible with the current JSON import flow.
 
 ## 2026-06-03 Prompt Focus Guard
 - Prompt and Prompt Pro textareas are interactive only after their node is selected. In the unselected preview state, the textarea drops `nodrag/nopan`, disables pointer/focus entry, blurs any stale focus, and lets canvas/node drag gestures pass through instead of being swallowed by the editor.
+- Generate node preset-prompt input follows the same selected-only editing rule: unselected nodes render the input as a pointer-transparent preview and blur stale focus; selected nodes restore normal text editing and node-drag suppression.
 
 ## 2026-05-14 Seed3D ZIP Preview Follow-up
-- Flow zoom performance: `flow-settings` v4 defaults `onlyRenderVisibleElements` to `false` again to avoid ReactFlow node remount spikes when panning/zooming into dense graphs. Automatic low-zoom hard degradation is disabled for readability; dense pan/zoom interactions use a CSS soft-detail state that keeps real nodes, node titles, and media previews mounted while hiding handles, non-title text, buttons, inputs, and the edge paint layer to reduce paint work without remount spikes. Flow also uses bounded viewport-near remote image prewarming instead of eager-loading every canvas image, so nodes approaching the viewport are more likely to have completed image decode/texture upload without creating full-graph network and memory pressure.
+- Flow zoom performance: `flow-settings` v4 defaults `onlyRenderVisibleElements` to `false` again to avoid ReactFlow node remount spikes when panning/zooming into dense graphs. Automatic low-zoom hard degradation is disabled for readability; dense pan/zoom/node-drag interactions use a CSS soft-detail state that keeps real nodes, text, inputs, media previews, controls, resize affordances, and edges mounted while hiding only the visible connection-handle dots. Flow also uses bounded viewport-near remote image prewarming instead of eager-loading every canvas image, so nodes approaching the viewport are more likely to have completed image decode/texture upload without creating full-graph network and memory pressure.
 - Seed3D now attempts inline preview for .zip outputs by extracting the archive client-side and loading the first previewable glb/gltf model.
 - Seed3D Send remains disabled until the preview renderer has actually loaded a model, preventing blank sends.
 - Seed3D download file naming now follows detected blob type / URL extension (for example .zip, .glb, .gltf) instead of always forcing .glb.

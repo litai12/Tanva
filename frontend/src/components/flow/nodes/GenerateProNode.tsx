@@ -138,6 +138,43 @@ type ConnectedInputImage = {
   };
 };
 
+const areConnectedCropsEqual = (
+  a?: ConnectedInputImage["crop"],
+  b?: ConnectedInputImage["crop"]
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.sourceWidth === b.sourceWidth &&
+    a.sourceHeight === b.sourceHeight
+  );
+};
+
+const areConnectedInputImagesEqual = (
+  a: ConnectedInputImage[],
+  b: ConnectedInputImage[]
+): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.imageData !== right.imageData ||
+      left.thumbnailData !== right.thumbnailData ||
+      !areConnectedCropsEqual(left.crop, right.crop)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const normalizeImageValue = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -754,7 +791,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
         return out;
       },
       [id, maxInputPreviews]
-    )
+    ),
+    areConnectedInputImagesEqual
   );
 
   const refreshExternalPrompts = React.useCallback(
@@ -1292,7 +1330,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             }}
             onPointerDownCapture={stopNodeDrag}
             onMouseDownCapture={stopNodeDrag}
-            className='nodrag nopan'
+            className='nodrag nopan tanva-flow-node-title'
             style={{
               minWidth: 80,
               maxWidth: imageWidth * 0.5,

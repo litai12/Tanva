@@ -520,6 +520,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         {isEditingTitle ? (
           <input
             ref={titleInputRef}
+            className="tanva-flow-node-title"
             value={titleDraft}
             onChange={(event) => setTitleDraft(event.target.value)}
             onBlur={() => commitTitle(titleDraft)}

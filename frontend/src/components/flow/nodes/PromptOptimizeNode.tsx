@@ -316,7 +316,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         justifyContent: 'space-between' 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>Prompt Optimizer</span>
+          <span className='tanva-flow-node-title'>Prompt Optimizer</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button

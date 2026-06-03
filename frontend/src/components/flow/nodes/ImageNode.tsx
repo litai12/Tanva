@@ -178,6 +178,28 @@ const EMPTY_INPUT_CONNECTION_SNAPSHOT: InputConnectionSnapshot = {
   connectedFrameImage: undefined,
 };
 
+const areImageCropRectsEqual = (a?: any, b?: any): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+};
+
+const areImageCropInfosEqual = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.baseRef === b.baseRef &&
+    a.sourceWidth === b.sourceWidth &&
+    a.sourceHeight === b.sourceHeight &&
+    areImageCropRectsEqual(a.rect, b.rect)
+  );
+};
+
 const isPrimaryImageInputHandle = (handle?: string | null): boolean =>
   handle === "img" || handle === "image" || !handle;
 
@@ -841,7 +863,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       },
       [id]
     ),
-    shallow
+    areImageCropInfosEqual
   );
 
   const cropInfo = nodeCropInfo || imageSplitCropInfo;
