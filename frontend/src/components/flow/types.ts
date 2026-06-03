@@ -4,9 +4,62 @@ export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize'
 
 export type TextPromptData = {
   text?: string;
+  mentions?: PromptImageMention[];
   boxW?: number;
   boxH?: number;
   title?: string;
+};
+
+export type PromptMentionSource = 'flow' | 'project-library' | 'personal-library';
+
+export type PromptImageMention = {
+  id: string;
+  token: string;
+  label: string;
+  source: PromptMentionSource;
+  mediaType: 'image';
+  ref: {
+    nodeId?: string;
+    handle?: string | null;
+    historyId?: string;
+    assetId?: string;
+    url?: string;
+    key?: string;
+  };
+};
+
+const isPromptMentionSource = (value: unknown): value is PromptMentionSource =>
+  value === 'flow' || value === 'project-library' || value === 'personal-library';
+
+export const normalizePromptImageMentions = (value: unknown): PromptImageMention[] => {
+  if (!Array.isArray(value)) return [];
+  const out: PromptImageMention[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const id = typeof rec.id === 'string' ? rec.id.trim() : '';
+    const token = typeof rec.token === 'string' ? rec.token.trim() : '';
+    const label = typeof rec.label === 'string' ? rec.label.trim() : token.replace(/^@/, '');
+    if (!id || !token || !label || !isPromptMentionSource(rec.source)) continue;
+    const refRec = rec.ref && typeof rec.ref === 'object' ? rec.ref as Record<string, unknown> : {};
+    const ref = {
+      nodeId: typeof refRec.nodeId === 'string' ? refRec.nodeId.trim() : undefined,
+      handle: typeof refRec.handle === 'string' ? refRec.handle : undefined,
+      historyId: typeof refRec.historyId === 'string' ? refRec.historyId.trim() : undefined,
+      assetId: typeof refRec.assetId === 'string' ? refRec.assetId.trim() : undefined,
+      url: typeof refRec.url === 'string' ? refRec.url.trim() : undefined,
+      key: typeof refRec.key === 'string' ? refRec.key.trim() : undefined,
+    };
+    out.push({
+      id,
+      token,
+      label,
+      source: rec.source,
+      mediaType: 'image',
+      ref,
+    });
+  }
+  return out;
 };
 
 export type ImageData = {

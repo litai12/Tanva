@@ -1,3 +1,8 @@
+## 2026-06-03 Prompt Mention Image Sources
+- `TextPromptNode` 的 `@` 菜单现在支持三类图片来源：当前工作流参考图、当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片。
+- Prompt 节点会把选择结果保存到结构化 `data.mentions`，文本里仍插入可读 token（如 `@图1` / `@项目图1` / `@资产1`）。已选引用在输入区渲染为带图片图标的 chip；Backspace/Delete 命中 chip 时按整个 token 删除，并同步清理对应 mention，避免隐藏引用残留。
+- `FlowOverlay` 在运行 `generate` / `generate4` / `generatePro` / `generatePro4` 时，会从连接的 Prompt 节点读取仍存在于文本中的 image mentions，并与图片输入边合并、去重、按模型参考图上限截断；项目库/个人库只保存并传递远程 URL/路径引用，不把 inline 图片写入设计 JSON。
+
 ## 2026-06-03 Image Input Target Preference
 - `flow:createImageNode` now accepts an optional `screenPosition` from external image inputs so drag/drop-created Image nodes can appear near the drop point; paste/upload without coordinates still falls back to the Flow viewport center.
 - Workspace AI settings can route external image paste, drag/drop, and picker upload into Flow Image nodes (`imageInputTarget = "node"`). Canvas-first remains the default and keeps direct canvas insertion.

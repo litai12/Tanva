@@ -211,6 +211,7 @@ import {
   type FlowRenderMode,
 } from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
+import { normalizePromptImageMentions } from "./types";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
 import {
@@ -15494,6 +15495,81 @@ function FlowInner() {
         return { texts, hasEdge: true };
       };
 
+      const resolvePromptMentionImagesForNode = async (
+        targetId: string,
+        limit: number
+      ): Promise<string[]> => {
+        if (limit <= 0) return [];
+        const textEdges = currentEdges.filter(
+          (e) => e.target === targetId && e.targetHandle === "text"
+        );
+        if (!textEdges.length) return [];
+
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const edge of textEdges) {
+          const promptNode = rf.getNode(edge.source);
+          if (!promptNode) continue;
+          const promptText =
+            resolveTextFromSourceNode(promptNode, edge.sourceHandle)?.trim() ||
+            "";
+          const mentions = normalizePromptImageMentions(
+            (promptNode.data as any)?.mentions
+          );
+          if (!mentions.length) continue;
+
+          for (const mention of mentions) {
+            if (mention.mediaType !== "image") continue;
+            if (mention.token && (!promptText || !promptText.includes(mention.token))) {
+              continue;
+            }
+
+            let resolved: string | null = null;
+            if (mention.source === "flow") {
+              const sourceNodeId = mention.ref?.nodeId;
+              const sourceNode = sourceNodeId ? rf.getNode(sourceNodeId) : null;
+              if (sourceNode) {
+                resolved = await resolveNodeImageToDataUrl(
+                  sourceNode as any,
+                  mention.ref?.handle,
+                  new Set()
+                );
+              }
+            } else {
+              const directRef =
+                typeof mention.ref?.url === "string" && mention.ref.url.trim()
+                  ? mention.ref.url.trim()
+                  : typeof mention.ref?.key === "string" && mention.ref.key.trim()
+                  ? mention.ref.key.trim()
+                  : "";
+              resolved =
+                (directRef && !isRemoteUrl(directRef)
+                  ? resolvePublicAssetUrlFromKey(directRef) || directRef
+                  : directRef) || null;
+            }
+
+            const normalized = typeof resolved === "string" ? resolved.trim() : "";
+            if (!normalized || seen.has(normalized)) continue;
+            seen.add(normalized);
+            out.push(normalized);
+            if (out.length >= limit) return out;
+          }
+        }
+        return out;
+      };
+
+      const dedupeImageRefs = (values: string[]): string[] => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const value of values) {
+          const trimmed = typeof value === "string" ? value.trim() : "";
+          if (!trimmed || seen.has(trimmed)) continue;
+          seen.add(trimmed);
+          out.push(trimmed);
+        }
+        return out;
+      };
+
       // Wan2.6 节点处理逻辑
       const parseMidjourneyList = (value: unknown): string[] => {
         if (typeof value !== "string") return [];
@@ -21201,6 +21277,30 @@ function FlowInner() {
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
           .slice(0, maxFlowReferenceImages);
         imageDatas = await resolveEdgesAsDataUrls(imgEdges);
+      }
+
+      if (
+        node.type === "generate" ||
+        node.type === "generate4" ||
+        node.type === "generatePro" ||
+        node.type === "generatePro4"
+      ) {
+        const remainingMentionSlots = Math.max(
+          0,
+          maxFlowReferenceImages - imageDatas.length
+        );
+        if (remainingMentionSlots > 0) {
+          const mentionImageDatas = await resolvePromptMentionImagesForNode(
+            nodeId,
+            remainingMentionSlots
+          );
+          if (mentionImageDatas.length > 0) {
+            imageDatas = dedupeImageRefs([
+              ...imageDatas,
+              ...mentionImageDatas,
+            ]).slice(0, maxFlowReferenceImages);
+          }
+        }
       }
 
       // 运行时图片输入归一化（优先走 sourceImageUrl，避免大体积 sourceImage 触发上游 500）：
