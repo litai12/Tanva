@@ -202,7 +202,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           justifyContent: "space-between",
         }}
       >
-        <div style={{ fontWeight: 600 }}>Generate Refer</div>
+        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>Generate Refer</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onRun}

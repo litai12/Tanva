@@ -145,6 +145,7 @@ import {
   requiresManagedImageUpload,
   resolveImageToBlob,
   resolveImageToDataUrl,
+  toRenderableImageSrc,
 } from "@/utils/imageSource";
 import {
   blobToDataUrl,
@@ -308,9 +309,17 @@ const FLOW_AUTO_DISABLE_SNAP_EDGE_THRESHOLD = 81;
 const FLOW_RENDER_SNAP_GUIDES_WHILE_DRAGGING = false;
 const FLOW_DISABLE_SNAP_DURING_NODE_DRAG = true;
 const FLOW_AUTO_HIDE_MINIMAP_IMAGE_OVERLAY_NODE_THRESHOLD = 81;
-const FLOW_LOW_DETAIL_NODE_THRESHOLD = 150;
-const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.06;
-const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.10;
+// 低缩放硬降级先默认关闭：它会牺牲节点可读性，当前只保留代码兜底。
+const FLOW_LOW_DETAIL_NODE_THRESHOLD = Number.MAX_SAFE_INTEGER;
+const FLOW_LOW_DETAIL_ENTER_ZOOM = 0.22;
+const FLOW_LOW_DETAIL_EXIT_ZOOM = 0.30;
+const FLOW_INTERACTION_SOFT_DETAIL_NODE_THRESHOLD = 80;
+const FLOW_IMAGE_PREWARM_NODE_THRESHOLD = 32;
+const FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER = 2.4;
+const FLOW_IMAGE_PREWARM_MAX_CANDIDATES = 36;
+const FLOW_IMAGE_PREWARM_CONCURRENCY = 3;
+const FLOW_IMAGE_PREWARM_CACHE_LIMIT = 600;
+const FLOW_IMAGE_PREWARM_SCHEDULE_MS = 140;
 
 const getEdgeHandleKind = (
   handle?: string | null
@@ -594,6 +603,34 @@ const collectPreviewImagesFromNode = (node?: RFNode | null): string[] => {
   });
 
   return out;
+};
+
+const normalizeFlowPrewarmImageSrc = (raw?: string | null): string | null => {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) ||
+    isBlobUrl(trimmed) ||
+    isDataImageUrl(trimmed) ||
+    /^data:/i.test(trimmed)
+  ) {
+    return null;
+  }
+
+  const src = toRenderableImageSrc(trimmed);
+  if (!src) return null;
+  const normalized = src.trim();
+  if (
+    !normalized ||
+    normalized.startsWith(FLOW_IMAGE_ASSET_PREFIX) ||
+    isBlobUrl(normalized) ||
+    isDataImageUrl(normalized) ||
+    /^data:/i.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
 };
 
 const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
@@ -1006,9 +1043,6 @@ const rawNodeTypes = {
   minimaxMusic: MinimaxMusicNode,
   tencentSpeech: TencentSpeechNode,
 };
-
-/** 节点内通过 data.error 字段展示错误 */
-const nodeTypes = rawNodeTypes;
 
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
@@ -1867,6 +1901,9 @@ const FLOW_NODE_DEFAULT_SIZE = {
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
+
+/** 节点内通过 data.error 字段展示错误 */
+const nodeTypes = rawNodeTypes;
 
 type ScreenPoint = { x: number; y: number };
 
@@ -6177,6 +6214,272 @@ function FlowInner() {
   const draggingGroupNodeRef = React.useRef(false);
   const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
+  const imagePrewarmDoneRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmDoneOrderRef = React.useRef<string[]>([]);
+  const imagePrewarmInFlightRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmQueuedRef = React.useRef<Set<string>>(new Set());
+  const imagePrewarmQueueRef = React.useRef<string[]>([]);
+  const imagePrewarmActiveImagesRef =
+    React.useRef<Map<string, HTMLImageElement>>(new Map());
+  const imagePrewarmTimerRef = React.useRef<number | null>(null);
+  const imagePrewarmDisposedRef = React.useRef(false);
+
+  const trimFlowImagePrewarmCache = React.useCallback(() => {
+    const done = imagePrewarmDoneRef.current;
+    const order = imagePrewarmDoneOrderRef.current;
+    while (order.length > FLOW_IMAGE_PREWARM_CACHE_LIMIT) {
+      const expired = order.shift();
+      if (expired) done.delete(expired);
+    }
+  }, []);
+
+  const pumpFlowImagePrewarmQueue = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (imagePrewarmDisposedRef.current) return;
+
+    const inFlight = imagePrewarmInFlightRef.current;
+    const queue = imagePrewarmQueueRef.current;
+    const queued = imagePrewarmQueuedRef.current;
+    const done = imagePrewarmDoneRef.current;
+    const activeImages = imagePrewarmActiveImagesRef.current;
+
+    while (
+      inFlight.size < FLOW_IMAGE_PREWARM_CONCURRENCY &&
+      queue.length > 0
+    ) {
+      const src = queue.shift();
+      if (!src) continue;
+      queued.delete(src);
+      if (done.has(src) || inFlight.has(src)) continue;
+
+      inFlight.add(src);
+      const img = new Image();
+      activeImages.set(src, img);
+      try {
+        img.decoding = "async";
+      } catch {}
+      try {
+        img.loading = "eager";
+      } catch {}
+
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        img.onload = null;
+        img.onerror = null;
+        activeImages.delete(src);
+        inFlight.delete(src);
+        if (!done.has(src)) {
+          done.add(src);
+          imagePrewarmDoneOrderRef.current.push(src);
+          trimFlowImagePrewarmCache();
+        }
+        if (!imagePrewarmDisposedRef.current) {
+          pumpFlowImagePrewarmQueue();
+        }
+      };
+
+      img.onerror = finish;
+      try {
+        img.src = src;
+        if (typeof img.decode === "function") {
+          img.decode().then(finish, finish);
+        } else {
+          img.onload = finish;
+          if (img.complete) finish();
+        }
+      } catch {
+        finish();
+      }
+    }
+  }, [trimFlowImagePrewarmCache]);
+
+  const replaceFlowImagePrewarmQueue = React.useCallback(
+    (srcs: string[]) => {
+      const done = imagePrewarmDoneRef.current;
+      const inFlight = imagePrewarmInFlightRef.current;
+      const nextQueue: string[] = [];
+      const nextQueued = new Set<string>();
+
+      for (const src of srcs) {
+        if (!src || done.has(src) || inFlight.has(src) || nextQueued.has(src)) {
+          continue;
+        }
+        nextQueued.add(src);
+        nextQueue.push(src);
+        if (nextQueue.length >= FLOW_IMAGE_PREWARM_MAX_CANDIDATES) break;
+      }
+
+      imagePrewarmQueuedRef.current = nextQueued;
+      imagePrewarmQueueRef.current = nextQueue;
+      pumpFlowImagePrewarmQueue();
+    },
+    [pumpFlowImagePrewarmQueue]
+  );
+
+  const runFlowImagePrewarmScan = React.useCallback(() => {
+    if (typeof window === "undefined") return;
+    const container = containerRef.current;
+    if (!container) return;
+    const currentNodes = nodesRef.current || [];
+    if (currentNodes.length < FLOW_IMAGE_PREWARM_NODE_THRESHOLD) {
+      replaceFlowImagePrewarmQueue([]);
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const width = Number(rect.width);
+    const height = Number(rect.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return;
+    }
+
+    let viewport: { x: number; y: number; zoom: number } | null = null;
+    try {
+      const rawViewport = rfRef.current.getViewport?.();
+      const zoom = Number(rawViewport?.zoom);
+      if (
+        rawViewport &&
+        Number.isFinite(Number(rawViewport.x)) &&
+        Number.isFinite(Number(rawViewport.y)) &&
+        Number.isFinite(zoom) &&
+        zoom > 0
+      ) {
+        viewport = {
+          x: Number(rawViewport.x),
+          y: Number(rawViewport.y),
+          zoom,
+        };
+      }
+    } catch {}
+    if (!viewport) return;
+
+    const visibleFlowWidth = width / viewport.zoom;
+    const visibleFlowHeight = height / viewport.zoom;
+    const centerX = (width / 2 - viewport.x) / viewport.zoom;
+    const centerY = (height / 2 - viewport.y) / viewport.zoom;
+    const halfW =
+      (visibleFlowWidth * FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER) / 2;
+    const halfH =
+      (visibleFlowHeight * FLOW_IMAGE_PREWARM_OVERSCAN_MULTIPLIER) / 2;
+    const minX = centerX - halfW;
+    const maxX = centerX + halfW;
+    const minY = centerY - halfH;
+    const maxY = centerY + halfH;
+    const candidatesBySrc = new Map<
+      string,
+      { src: string; distanceSq: number }
+    >();
+
+    for (const node of currentNodes) {
+      const nodeWithRuntimePosition = node as RFNode & {
+        hidden?: boolean;
+        positionAbsolute?: { x?: unknown; y?: unknown };
+      };
+      if (!node || nodeWithRuntimePosition.hidden || isGroupNode(node)) {
+        continue;
+      }
+      const absolutePosition = nodeWithRuntimePosition.positionAbsolute;
+      const hasAbsolutePosition =
+        Number.isFinite(Number(absolutePosition?.x)) &&
+        Number.isFinite(Number(absolutePosition?.y));
+      const pos = hasAbsolutePosition ? absolutePosition : node.position;
+      const x = Number(pos?.x);
+      const y = Number(pos?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const { width: nodeW, height: nodeH } = getNodeRenderSize(node);
+      if (x + nodeW < minX || x > maxX || y + nodeH < minY || y > maxY) {
+        continue;
+      }
+
+      let src: string | null = null;
+      const previews = collectPreviewImagesFromNode(node);
+      for (const preview of previews) {
+        src = normalizeFlowPrewarmImageSrc(preview);
+        if (src) break;
+      }
+      if (!src) continue;
+
+      const nodeCenterX = x + nodeW / 2;
+      const nodeCenterY = y + nodeH / 2;
+      const dx = nodeCenterX - centerX;
+      const dy = nodeCenterY - centerY;
+      const distanceSq = dx * dx + dy * dy;
+      const prev = candidatesBySrc.get(src);
+      if (!prev || distanceSq < prev.distanceSq) {
+        candidatesBySrc.set(src, { src, distanceSq });
+      }
+    }
+
+    const candidates = Array.from(candidatesBySrc.values())
+      .sort((a, b) => a.distanceSq - b.distanceSq)
+      .slice(0, FLOW_IMAGE_PREWARM_MAX_CANDIDATES)
+      .map((item) => item.src);
+    replaceFlowImagePrewarmQueue(candidates);
+  }, [replaceFlowImagePrewarmQueue]);
+
+  const scheduleFlowImagePrewarmScan = React.useCallback(
+    (delay = FLOW_IMAGE_PREWARM_SCHEDULE_MS) => {
+      if (typeof window === "undefined") return;
+      if (imagePrewarmTimerRef.current !== null) return;
+      imagePrewarmTimerRef.current = window.setTimeout(() => {
+        imagePrewarmTimerRef.current = null;
+        runFlowImagePrewarmScan();
+      }, Math.max(0, delay));
+    },
+    [runFlowImagePrewarmScan]
+  );
+
+  React.useEffect(() => {
+    imagePrewarmDisposedRef.current = false;
+    scheduleFlowImagePrewarmScan(60);
+
+    const schedule = () => scheduleFlowImagePrewarmScan();
+    const unsubscribeZoom = useCanvasStore.subscribe(
+      (state) => state.zoom,
+      schedule
+    );
+    const unsubscribePanX = useCanvasStore.subscribe(
+      (state) => state.panX,
+      schedule
+    );
+    const unsubscribePanY = useCanvasStore.subscribe(
+      (state) => state.panY,
+      schedule
+    );
+
+    return () => {
+      unsubscribeZoom();
+      unsubscribePanX();
+      unsubscribePanY();
+    };
+  }, [scheduleFlowImagePrewarmScan]);
+
+  React.useEffect(() => {
+    scheduleFlowImagePrewarmScan(80);
+  }, [nodes.length, projectId, scheduleFlowImagePrewarmScan]);
+
+  React.useEffect(() => {
+    const queued = imagePrewarmQueuedRef.current;
+    const inFlight = imagePrewarmInFlightRef.current;
+    const activeImages = imagePrewarmActiveImagesRef.current;
+    return () => {
+      imagePrewarmDisposedRef.current = true;
+      if (imagePrewarmTimerRef.current !== null) {
+        window.clearTimeout(imagePrewarmTimerRef.current);
+        imagePrewarmTimerRef.current = null;
+      }
+      imagePrewarmQueueRef.current = [];
+      queued.clear();
+      inFlight.clear();
+      activeImages.forEach((img) => {
+        img.onload = null;
+        img.onerror = null;
+      });
+      activeImages.clear();
+    };
+  }, []);
 
   React.useEffect(() => {
     if (isNodeDragging) {
@@ -7550,6 +7853,15 @@ function FlowInner() {
   const effectiveFlowLowDetailMode =
     isFlowLowDetailMode &&
     !hasRunningFlowNode;
+  const isFlowViewportInteracting =
+    isCanvasZooming || isCanvasPanning || isNodeDragging || isCanvasObjectMoving;
+  const isViewportSoftDetailInteraction =
+    isCanvasZooming || isCanvasPanning || isCanvasObjectMoving;
+  const effectiveFlowInteractionSoftDetailMode =
+    !hasRunningFlowNode &&
+    !effectiveFlowLowDetailMode &&
+    nodes.length >= FLOW_INTERACTION_SOFT_DETAIL_NODE_THRESHOLD &&
+    isViewportSoftDetailInteraction;
 
   const flowRenderModeValue = React.useMemo<FlowRenderMode>(
     () => ({
@@ -7557,8 +7869,6 @@ function FlowInner() {
     }),
     [effectiveFlowLowDetailMode]
   );
-  const isFlowViewportInteracting =
-    isCanvasZooming || isCanvasPanning || isNodeDragging || isCanvasObjectMoving;
   const shouldRenderMiniMap =
     !effectiveFlowLowDetailMode && !isFlowViewportInteracting;
 
@@ -23889,10 +24199,17 @@ function FlowInner() {
         )}
         {effectiveFlowLowDetailMode && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
-            低缩放已隐藏连线与 MiniMap（节点 UI 保留）
+            低缩放已隐藏连线与 MiniMap，并使用轻量节点
           </span>
         )}
-        {!effectiveFlowLowDetailMode && isFlowViewportInteracting && (
+        {effectiveFlowInteractionSoftDetailMode && (
+          <span style={{ fontSize: 12, color: "#4b5563" }}>
+            大图移动/缩放中已简化节点控件
+          </span>
+        )}
+        {!effectiveFlowLowDetailMode &&
+          !effectiveFlowInteractionSoftDetailMode &&
+          isFlowViewportInteracting && (
           <span style={{ fontSize: 12, color: "#4b5563" }}>
             移动/缩放中已临时隐藏 MiniMap
           </span>
@@ -24634,6 +24951,10 @@ function FlowInner() {
           isFlowEdgeEraserActive ? "eraser-mode" : ""
         } ${
           effectiveFlowLowDetailMode ? "low-detail-mode" : ""
+        } ${
+          effectiveFlowInteractionSoftDetailMode
+            ? "interaction-soft-detail-mode"
+            : ""
         }`}
         onDoubleClick={handleContainerDoubleClick}
         onPointerDownCapture={() => clipboardService.setActiveZone("flow")}

@@ -236,7 +236,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>Seedream</div>
+        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>Seedream</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={() => setShowHelp(!showHelp)}
@@ -592,5 +592,4 @@ function Seedream5Node({ id, data, selected }: Props) {
 }
 
 export default React.memo(Seedream5Node);
-
 

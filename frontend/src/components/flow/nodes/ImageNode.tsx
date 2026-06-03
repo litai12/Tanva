@@ -2134,6 +2134,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <div
+            className='tanva-flow-node-title'
             onDoubleClick={startNodeLabelEditing}
             title={lt("双击编辑标题", "Double click to edit title")}
             style={{ fontWeight: 600, cursor: "text", userSelect: "none" }}

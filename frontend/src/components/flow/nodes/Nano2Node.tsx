@@ -637,7 +637,7 @@ function Nano2NodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600 }}>{lt(titleZh, titleEn)}</div>
+        <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{lt(titleZh, titleEn)}</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onRun}

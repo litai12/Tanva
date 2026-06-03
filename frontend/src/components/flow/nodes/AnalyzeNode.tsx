@@ -1244,7 +1244,7 @@ Use an empty string or empty array when a field cannot be determined.`
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontWeight: 600, color: shell.color }}>Image Chat</div>
+          <div className='tanva-flow-node-title' style={{ fontWeight: 600, color: shell.color }}>Image Chat</div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
