@@ -28,11 +28,13 @@ import {
 import { useLocaleText } from "@/utils/localeText";
 import { assertSafeHtmlPptCode } from "@/utils/htmlPptSafety";
 import {
+  HTML_PPT_SLIDE_TEMPLATE_OPTIONS,
   createDefaultHtmlPptDeck,
   createHtmlPptId,
   createHtmlPptSlide,
   type HtmlPptDeck,
   type HtmlPptSlide,
+  type HtmlPptSlideTemplateKey,
 } from "@/utils/htmlPptDeck";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import RunCreditBadge from "./RunCreditBadge";
@@ -71,11 +73,14 @@ type Props = {
     boxW?: number;
     boxH?: number;
     sizeVersion?: number;
+    editScope?: "slide" | "deck";
   };
   selected?: boolean;
 };
 
-const HTML_PPT_SIZE_VERSION = 1;
+const HTML_PPT_SIZE_VERSION = 2;
+const HTML_PPT_DEFAULT_WIDTH = 980;
+const HTML_PPT_DEFAULT_HEIGHT = 720;
 const MAX_SLIDES = 24;
 const MAX_CODE_LENGTH = 120_000;
 
@@ -315,6 +320,85 @@ const normalizeAiSlidePatch = (
   return next;
 };
 
+const normalizeAiDeckPatch = (
+  parsed: Record<string, unknown>,
+  currentDeck: HtmlPptDeck
+): HtmlPptDeck => {
+  const deckRecord =
+    parsed.deck && typeof parsed.deck === "object"
+      ? (parsed.deck as Record<string, unknown>)
+      : parsed;
+  const rawSlides = Array.isArray(parsed.slides)
+    ? parsed.slides
+    : Array.isArray(deckRecord.slides)
+    ? deckRecord.slides
+    : undefined;
+
+  if (!rawSlides?.length) {
+    throw new Error("Ultra JSON patch did not include deck slides.");
+  }
+
+  const seenSlideIds = new Set<string>();
+  const slides = rawSlides.slice(0, MAX_SLIDES).map((raw, index): HtmlPptSlide => {
+    const fallback = currentDeck.slides[index] || createHtmlPptSlide(index + 1);
+    const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+    const rawId =
+      typeof record.id === "string" && record.id.trim()
+        ? record.id.trim()
+        : fallback.id;
+    const id = seenSlideIds.has(rawId) ? createHtmlPptId("slide") : rawId;
+    seenSlideIds.add(id);
+    const slide: HtmlPptSlide = {
+      id,
+      title:
+        typeof record.title === "string" && record.title.trim()
+          ? record.title.trim()
+          : fallback.title,
+      html: typeof record.html === "string" ? record.html : fallback.html,
+      css: typeof record.css === "string" ? record.css : fallback.css,
+      notes: typeof record.notes === "string" ? record.notes : fallback.notes,
+    };
+    assertSafeHtmlPptCode(slide.html, "Slide HTML");
+    assertSafeHtmlPptCode(slide.css, "Slide CSS");
+    return slide;
+  });
+
+  const rawAspectRatio =
+    typeof deckRecord.aspectRatio === "string"
+      ? deckRecord.aspectRatio
+      : typeof parsed.aspectRatio === "string"
+      ? parsed.aspectRatio
+      : undefined;
+  const aspectRatio =
+    rawAspectRatio === "4:3"
+      ? "4:3"
+      : rawAspectRatio === "16:9"
+      ? "16:9"
+      : currentDeck.aspectRatio;
+  const themeCss =
+    typeof deckRecord.themeCss === "string"
+      ? deckRecord.themeCss
+      : typeof parsed.themeCss === "string"
+      ? parsed.themeCss
+      : currentDeck.themeCss;
+  assertSafeHtmlPptCode(themeCss, "Deck theme CSS");
+
+  const totalLength = slides.reduce(
+    (sum, slide) => sum + slide.html.length + slide.css.length + (slide.notes || "").length,
+    themeCss.length
+  );
+  if (totalLength > MAX_CODE_LENGTH * 2) {
+    throw new Error("Deck patch is too large.");
+  }
+
+  return {
+    version: 1,
+    aspectRatio,
+    themeCss,
+    slides,
+  };
+};
+
 const buildAiPrompt = (
   instruction: string,
   deck: HtmlPptDeck,
@@ -359,6 +443,59 @@ ${incomingContext ? `上游输入:\n${incomingContext}\n\n` : ""}用户要求:
 ${instruction}`;
 };
 
+const buildAiDeckPrompt = (
+  instruction: string,
+  deck: HtmlPptDeck,
+  incomingContext: string
+): string => {
+  const payload = JSON.stringify(
+    {
+      aspectRatio: deck.aspectRatio,
+      themeCss: deck.themeCss,
+      slides: deck.slides.map((slide) => ({
+        id: slide.id,
+        title: slide.title,
+        html: slide.html,
+        css: slide.css,
+        notes: slide.notes || "",
+      })),
+    },
+    null,
+    2
+  );
+
+  return `你是 Tanva 的 HTML PPT deck 编辑器。请根据用户要求调整整套演示文稿，并只返回合法 JSON，不要使用 Markdown，不要解释。
+
+返回 JSON schema:
+{
+  "action": "replace_deck",
+  "aspectRatio": "16:9 或 4:3",
+  "themeCss": "整套共享 CSS",
+  "slides": [
+    {
+      "id": "优先沿用原 slide id；新增页可省略 id",
+      "title": "短标题",
+      "html": "该页 <section> 内部 HTML 片段，不要包含 html/head/body/script/iframe/base/object/embed",
+      "css": "该页 CSS，可使用 .slide-root 作为根容器",
+      "notes": "可选演讲备注"
+    }
+  ]
+}
+
+硬性规则:
+- 最多 ${MAX_SLIDES} 页。
+- 页面必须适合 ${deck.aspectRatio} PPT 展示，视觉风格要统一。
+- 不要输出 <script>、事件属性、iframe、object、embed、base、javascript:。
+- 不要使用 data:、blob:、base64 图片；如需图片，只能使用远程 http(s) URL 或项目路径。
+- 保持 HTML/CSS 自包含，不依赖外部 JS。
+
+当前 deck:
+${payload}
+
+${incomingContext ? `上游输入:\n${incomingContext}\n\n` : ""}用户要求:
+${instruction}`;
+};
+
 function HtmlPptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
@@ -379,8 +516,9 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [statusText, setStatusText] = React.useState("");
   const title = data.title || "HTML PPT";
-  const width = data.boxW || 620;
-  const height = data.boxH || 560;
+  const editScope = data.editScope === "deck" ? "deck" : "slide";
+  const width = data.boxW || HTML_PPT_DEFAULT_WIDTH;
+  const height = data.boxH || HTML_PPT_DEFAULT_HEIGHT;
   const effectiveProvider = React.useMemo<FlowModelProvider>(
     () => resolveFlowModelProvider(data.modelProvider, "banana-3.1"),
     [data.modelProvider]
@@ -406,12 +544,21 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (data.sizeVersion === HTML_PPT_SIZE_VERSION) return;
+    const nextBoxW = Math.max(Number(data.boxW) || 0, HTML_PPT_DEFAULT_WIDTH);
+    const nextBoxH = Math.max(Number(data.boxH) || 0, HTML_PPT_DEFAULT_HEIGHT);
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { sizeVersion: HTML_PPT_SIZE_VERSION } },
+        detail: {
+          id,
+          patch: {
+            sizeVersion: HTML_PPT_SIZE_VERSION,
+            boxW: nextBoxW,
+            boxH: nextBoxH,
+          },
+        },
       })
     );
-  }, [data.sizeVersion, id]);
+  }, [data.boxH, data.boxW, data.sizeVersion, id]);
 
   React.useEffect(() => {
     if (typeof data.modelProvider === "string" && data.modelProvider.trim()) return;
@@ -500,9 +647,21 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     [deck.slides, updateNodeData]
   );
 
-  const addSlide = React.useCallback(() => {
+  const updateAspectRatio = React.useCallback(
+    (aspectRatio: HtmlPptDeck["aspectRatio"]) => {
+      if (deck.aspectRatio === aspectRatio) return;
+      commitDeck(
+        { ...deck, aspectRatio },
+        currentSlide.id,
+        { historyLabel: "change-aspect-ratio" }
+      );
+    },
+    [commitDeck, currentSlide.id, deck]
+  );
+
+  const addSlide = React.useCallback((template: HtmlPptSlideTemplateKey = "content") => {
     if (deck.slides.length >= MAX_SLIDES) return;
-    const nextSlide = createHtmlPptSlide(deck.slides.length + 1);
+    const nextSlide = createHtmlPptSlide(deck.slides.length + 1, template);
     commitDeck(
       { ...deck, slides: [...deck.slides, nextSlide] },
       nextSlide.id,
@@ -570,7 +729,10 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     updateNodeData({ status: "running", error: undefined });
     try {
       const result = await aiImageService.generateTextResponse({
-        prompt: buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext),
+        prompt:
+          editScope === "deck"
+            ? buildAiDeckPrompt(finalInstruction, deck, incomingContext)
+            : buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext),
         aiProvider: effectiveProvider,
         model: textModel,
         enableWebSearch: false,
@@ -588,23 +750,40 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       }
 
       const parsed = extractJsonPayload(result.data.text);
-      const patch = normalizeAiSlidePatch(parsed, currentSlide.id);
-      const nextDeck: HtmlPptDeck = {
-        ...deck,
-        slides: deck.slides.map((slide) =>
-          slide.id === currentSlide.id ? { ...slide, ...patch } : slide
-        ),
-      };
-      commitDeck(nextDeck, currentSlide.id, {
-        historyLabel: "ultra-edit-slide",
-        patch: {
-          status: "succeeded",
-          error: undefined,
-          lastResponse: result.data.text,
-        },
-      });
+      if (editScope === "deck") {
+        const nextDeck = normalizeAiDeckPatch(parsed, deck);
+        const nextSlideId =
+          nextDeck.slides.find((slide) => slide.id === currentSlide.id)?.id ||
+          nextDeck.slides[0]?.id ||
+          currentSlide.id;
+        commitDeck(nextDeck, nextSlideId, {
+          historyLabel: "ultra-edit-deck",
+          patch: {
+            status: "succeeded",
+            error: undefined,
+            lastResponse: result.data.text,
+          },
+        });
+        setStatusText(lt("已更新整套 PPT", "Deck updated"));
+      } else {
+        const patch = normalizeAiSlidePatch(parsed, currentSlide.id);
+        const nextDeck: HtmlPptDeck = {
+          ...deck,
+          slides: deck.slides.map((slide) =>
+            slide.id === currentSlide.id ? { ...slide, ...patch } : slide
+          ),
+        };
+        commitDeck(nextDeck, currentSlide.id, {
+          historyLabel: "ultra-edit-slide",
+          patch: {
+            status: "succeeded",
+            error: undefined,
+            lastResponse: result.data.text,
+          },
+        });
+        setStatusText(lt("已更新当前页", "Slide updated"));
+      }
       setViewMode("preview");
-      setStatusText(lt("已更新当前页", "Slide updated"));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       updateNodeData({ status: "failed", error: message });
@@ -617,6 +796,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     commitDeck,
     currentSlide,
     deck,
+    editScope,
     effectiveProvider,
     lt,
     promptDraft,
@@ -749,7 +929,14 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             <div
@@ -851,231 +1038,12 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             {currentIndex + 1}/{deck.slides.length} · {currentSlide.title}
           </div>
         </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "auto 1fr auto",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <button
-          type="button"
-          className="nodrag nopan"
-          onPointerDownCapture={stopFlowPan}
-          onClick={() => setSlideByIndex(currentIndex - 1)}
-          disabled={currentIndex === 0}
-          title={lt("上一页", "Previous slide")}
-          style={iconButtonStyle(palette, currentIndex === 0)}
-        >
-          <ChevronLeft size={15} />
-        </button>
-        <div
-          className="nodrag nopan nowheel"
-          onPointerDownCapture={stopFlowPan}
-          onWheelCapture={stopFlowPan}
-          style={{
-            display: "flex",
-            gap: 6,
-            overflowX: "auto",
-            paddingBottom: 2,
-          }}
-        >
-          {deck.slides.map((slide, index) => {
-            const active = slide.id === currentSlide.id;
-            return (
-              <button
-                key={slide.id}
-                type="button"
-                onClick={() => updateNodeData({ currentSlideId: slide.id })}
-                style={{
-                  minWidth: 34,
-                  height: 28,
-                  borderRadius: 7,
-                  border: `1px solid ${active ? "#2563eb" : isDarkTheme ? "#3a3a3a" : "#dbe3ef"}`,
-                  background: active ? "#eff6ff" : palette.panel,
-                  color: active ? "#1d4ed8" : palette.muted,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-                title={slide.title}
-              >
-                {index + 1}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          className="nodrag nopan"
-          onPointerDownCapture={stopFlowPan}
-          onClick={() => setSlideByIndex(currentIndex + 1)}
-          disabled={currentIndex >= deck.slides.length - 1}
-          title={lt("下一页", "Next slide")}
-          style={iconButtonStyle(palette, currentIndex >= deck.slides.length - 1)}
-        >
-          <ChevronRight size={15} />
-        </button>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            className="nodrag nopan"
-            onPointerDownCapture={stopFlowPan}
-            onClick={() => setViewMode("preview")}
-            title={lt("预览", "Preview")}
-            style={toolButtonStyle(palette, viewMode === "preview")}
-          >
-            <Monitor size={14} />
-            Preview
-          </button>
-          <button
-            type="button"
-            className="nodrag nopan"
-            onPointerDownCapture={stopFlowPan}
-            onClick={() => setViewMode("code")}
-            title={lt("代码", "Code")}
-            style={toolButtonStyle(palette, viewMode === "code")}
-          >
-            <Code2 size={14} />
-            Code
-          </button>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button type="button" title={lt("添加页", "Add slide")} onClick={addSlide} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, deck.slides.length >= MAX_SLIDES)}>
-            <FilePlus2 size={14} />
-          </button>
-          <button type="button" title={lt("复制页", "Duplicate slide")} onClick={duplicateSlide} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, deck.slides.length >= MAX_SLIDES)}>
-            <Copy size={14} />
-          </button>
-          <button type="button" title={lt("删除页", "Delete slide")} onClick={deleteSlide} disabled={deck.slides.length <= 1} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, deck.slides.length <= 1)}>
-            <Trash2 size={14} />
-          </button>
-          <button type="button" title={lt("撤回", "Revert")} onClick={revertLast} disabled={!data.revisionHistory?.length} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, !data.revisionHistory?.length)}>
-            <RotateCcw size={14} />
-          </button>
-          <button type="button" title={lt("复制 HTML", "Copy HTML")} onClick={copyHtml} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, false)}>
-            <Copy size={14} />
-          </button>
-          <button type="button" title={lt("导出 HTML", "Export HTML")} onClick={exportHtml} className="nodrag nopan" onPointerDownCapture={stopFlowPan} style={iconButtonStyle(palette, false)}>
-            <Download size={14} />
-          </button>
-        </div>
-      </div>
-
-      {viewMode === "preview" ? (
-        <div
-          style={{
-            background: "#111827",
-            borderRadius: 8,
-            border: `1px solid ${isDarkTheme ? "#303030" : "#e5e7eb"}`,
-            overflow: "hidden",
-            aspectRatio: deck.aspectRatio === "4:3" ? "4 / 3" : "16 / 9",
-            minHeight: 210,
-          }}
-        >
-          <iframe
-            title={`${title} - ${currentSlide.title}`}
-            sandbox=""
-            referrerPolicy="no-referrer"
-            srcDoc={previewSrcDoc}
-            style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
-              display: "block",
-              pointerEvents: "none",
-              background: "#111827",
-            }}
-          />
-        </div>
-      ) : (
-        <div
-          className="nodrag nopan nowheel"
-          onPointerDownCapture={stopFlowPan}
-          onWheelCapture={stopFlowPan}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
-            minHeight: 230,
-          }}
-        >
-          <CodeField
-            label="HTML"
-            value={currentSlide.html}
-            palette={palette}
-            onChange={(value) => {
-              try {
-                updateCurrentSlide({ html: value });
-                setStatusText("");
-              } catch (error) {
-                setStatusText(error instanceof Error ? error.message : String(error));
-              }
-            }}
-          />
-          <CodeField
-            label="CSS"
-            value={currentSlide.css}
-            palette={palette}
-            onChange={(value) => {
-              try {
-                updateCurrentSlide({ css: value });
-                setStatusText("");
-              } catch (error) {
-                setStatusText(error instanceof Error ? error.message : String(error));
-              }
-            }}
-          />
-        </div>
-      )}
-
-      <div
-        className="nodrag nopan nowheel"
-        onPointerDownCapture={stopFlowPan}
-        onWheelCapture={stopFlowPan}
-        style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}
-      >
-        <textarea
-          value={promptDraft}
-          disabled={isBusy}
-          onChange={(event) => {
-            const next = event.target.value;
-            setPromptDraft(next);
-            updateNodeData({ promptDraft: next });
-          }}
-          placeholder={lt("描述当前页要怎么改", "Describe how to change this slide")}
-          style={{
-            minHeight: 58,
-            resize: "vertical",
-            borderRadius: 8,
-            border: `1px solid ${isDarkTheme ? "#3d3d3d" : "#d7dce5"}`,
-            background: palette.inputBg,
-            color: palette.text,
-            padding: "9px 10px",
-            fontSize: 12,
-            lineHeight: 1.45,
-            outline: "none",
-            fontFamily: "inherit",
-          }}
-        />
         <button
           type="button"
           onClick={runAiEdit}
           disabled={isBusy}
-          className="run-btn-with-credit"
+          className="nodrag nopan run-btn-with-credit"
+          onPointerDownCapture={stopFlowPan}
           title={
             resolvedRunCredits
               ? `${lt("消耗", "Cost")}: ${resolvedRunCredits} ${lt("积分", "credits")}`
@@ -1083,7 +1051,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           }
           style={{
             minWidth: 64,
-            minHeight: 30,
+            height: 30,
             padding: "0 10px",
             boxSizing: "border-box",
             borderRadius: 6,
@@ -1097,12 +1065,387 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             justifyContent: "center",
             gap: 6,
             cursor: isBusy ? "not-allowed" : "pointer",
+            flexShrink: 0,
           }}
         >
           {isBusy ? <Loader2 size={15} className="animate-spin" /> : null}
           <span className="run-text-trigger">{isBusy ? "Running..." : "Run"}</span>
           {resolvedRunCredits ? <RunCreditBadge credits={resolvedRunCredits} runButton /> : null}
         </button>
+      </div>
+
+      <div
+        className="nodrag nopan"
+        onPointerDownCapture={stopFlowPan}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          minWidth: 0,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+          <button
+            type="button"
+            onClick={() => setSlideByIndex(currentIndex - 1)}
+            disabled={currentIndex === 0}
+            title={lt("上一页", "Previous slide")}
+            style={iconButtonStyle(palette, currentIndex === 0)}
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("preview")}
+            title={lt("预览", "Preview")}
+            style={toolButtonStyle(palette, viewMode === "preview")}
+          >
+            <Monitor size={14} />
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("code")}
+            title={lt("代码", "Code")}
+            style={toolButtonStyle(palette, viewMode === "code")}
+          >
+            <Code2 size={14} />
+            Code
+          </button>
+          <button
+            type="button"
+            onClick={() => setSlideByIndex(currentIndex + 1)}
+            disabled={currentIndex >= deck.slides.length - 1}
+            title={lt("下一页", "Next slide")}
+            style={iconButtonStyle(palette, currentIndex >= deck.slides.length - 1)}
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              height: 30,
+              borderRadius: 7,
+              overflow: "hidden",
+              border: "1px solid rgba(148,163,184,0.35)",
+            }}
+          >
+            {(["16:9", "4:3"] as const).map((ratio) => (
+              <button
+                key={ratio}
+                type="button"
+                onClick={() => updateAspectRatio(ratio)}
+                style={{
+                  width: 42,
+                  border: "none",
+                  borderRight: ratio === "16:9" ? "1px solid rgba(148,163,184,0.35)" : "none",
+                  background: deck.aspectRatio === ratio ? palette.button : palette.panel,
+                  color: deck.aspectRatio === ratio ? "#fff" : palette.text,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {ratio}
+              </button>
+            ))}
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={lt("添加页", "Add slide")}
+                disabled={deck.slides.length >= MAX_SLIDES}
+                style={iconButtonStyle(palette, deck.slides.length >= MAX_SLIDES)}
+              >
+                <FilePlus2 size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={8}
+              className="min-w-[210px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95"
+            >
+              <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400">
+                {lt("添加模板页", "Add template slide")}
+              </DropdownMenuLabel>
+              {HTML_PPT_SLIDE_TEMPLATE_OPTIONS.map((option) => (
+                <DropdownMenuItem
+                  key={option.key}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    addSlide(option.key);
+                  }}
+                  onPointerDownCapture={stopFlowPan}
+                  className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100"
+                >
+                  <div className="flex-1 space-y-0.5">
+                    <div className="font-medium leading-none">{option.label}</div>
+                    <div className="text-[11px] leading-snug text-slate-400 dark:!text-slate-400">
+                      {option.description}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button type="button" title={lt("复制页", "Duplicate slide")} onClick={duplicateSlide} style={iconButtonStyle(palette, deck.slides.length >= MAX_SLIDES)}>
+            <Copy size={14} />
+          </button>
+          <button type="button" title={lt("删除页", "Delete slide")} onClick={deleteSlide} disabled={deck.slides.length <= 1} style={iconButtonStyle(palette, deck.slides.length <= 1)}>
+            <Trash2 size={14} />
+          </button>
+          <button type="button" title={lt("撤回", "Revert")} onClick={revertLast} disabled={!data.revisionHistory?.length} style={iconButtonStyle(palette, !data.revisionHistory?.length)}>
+            <RotateCcw size={14} />
+          </button>
+          <button type="button" title={lt("复制 HTML", "Copy HTML")} onClick={copyHtml} style={iconButtonStyle(palette, false)}>
+            <Copy size={14} />
+          </button>
+          <button type="button" title={lt("导出 HTML", "Export HTML")} onClick={exportHtml} style={iconButtonStyle(palette, false)}>
+            <Download size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "176px minmax(0, 1fr)",
+          gap: 12,
+          minHeight: 300,
+        }}
+      >
+        <div
+          className="nodrag nopan nowheel"
+          onPointerDownCapture={stopFlowPan}
+          onWheelCapture={stopFlowPan}
+          style={{
+            minWidth: 0,
+            border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
+            borderRadius: 8,
+            background: palette.panel,
+            padding: 8,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 6,
+              color: palette.muted,
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            <span>Slides</span>
+            <span>{deck.slides.length}</span>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {deck.slides.map((slide, index) => (
+              <SlideThumbnail
+                key={slide.id}
+                deck={deck}
+                slide={slide}
+                index={index}
+                active={slide.id === currentSlide.id}
+                palette={palette}
+                isDarkTheme={isDarkTheme}
+                onClick={() => updateNodeData({ currentSlideId: slide.id })}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+          {viewMode === "preview" ? (
+            <div
+              style={{
+                background: "#111827",
+                borderRadius: 8,
+                border: `1px solid ${isDarkTheme ? "#303030" : "#e5e7eb"}`,
+                overflow: "hidden",
+                aspectRatio: deck.aspectRatio === "4:3" ? "4 / 3" : "16 / 9",
+                minHeight: 420,
+              }}
+            >
+              <iframe
+                title={`${title} - ${currentSlide.title}`}
+                sandbox=""
+                referrerPolicy="no-referrer"
+                srcDoc={previewSrcDoc}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  display: "block",
+                  pointerEvents: "none",
+                  background: "#111827",
+                }}
+              />
+            </div>
+          ) : (
+            <div
+              className="nodrag nopan nowheel"
+              onPointerDownCapture={stopFlowPan}
+              onWheelCapture={stopFlowPan}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                minHeight: 250,
+              }}
+            >
+              <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={{ color: palette.muted, fontSize: 11, fontWeight: 700 }}>Title</span>
+                <input
+                  value={currentSlide.title}
+                  onChange={(event) => updateCurrentSlide({ title: event.target.value })}
+                  style={{
+                    height: 32,
+                    borderRadius: 8,
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    background: palette.inputBg,
+                    color: palette.text,
+                    padding: "0 10px",
+                    outline: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                />
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <CodeField
+                  label="HTML"
+                  value={currentSlide.html}
+                  palette={palette}
+                  onChange={(value) => {
+                    try {
+                      updateCurrentSlide({ html: value });
+                      setStatusText("");
+                    } catch (error) {
+                      setStatusText(error instanceof Error ? error.message : String(error));
+                    }
+                  }}
+                />
+                <CodeField
+                  label="CSS"
+                  value={currentSlide.css}
+                  palette={palette}
+                  onChange={(value) => {
+                    try {
+                      updateCurrentSlide({ css: value });
+                      setStatusText("");
+                    } catch (error) {
+                      setStatusText(error instanceof Error ? error.message : String(error));
+                    }
+                  }}
+                />
+              </div>
+              <CodeField
+                label="Notes"
+                value={currentSlide.notes || ""}
+                palette={palette}
+                minHeight={64}
+                onChange={(value) => updateCurrentSlide({ notes: value })}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        className="nodrag nopan nowheel"
+        onPointerDownCapture={stopFlowPan}
+        onWheelCapture={stopFlowPan}
+        style={{ display: "block" }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                height: 26,
+                borderRadius: 7,
+                overflow: "hidden",
+                border: "1px solid rgba(148,163,184,0.35)",
+              }}
+            >
+              {(["slide", "deck"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  type="button"
+                  onClick={() => updateNodeData({ editScope: scope })}
+                  disabled={isBusy}
+                  style={{
+                    width: 52,
+                    border: "none",
+                    borderRight: scope === "slide" ? "1px solid rgba(148,163,184,0.35)" : "none",
+                    background: editScope === scope ? palette.button : palette.panel,
+                    color: editScope === scope ? "#fff" : palette.text,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: isBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {scope === "slide" ? "Slide" : "Deck"}
+                </button>
+              ))}
+            </div>
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                textOverflow: "ellipsis",
+                color: palette.muted,
+                fontSize: 11,
+              }}
+            >
+              {editScope === "deck"
+                ? lt("改整套页面", "Rewrite the whole deck")
+                : lt("只改当前页", "Edit current slide only")}
+            </span>
+          </div>
+          <textarea
+            value={promptDraft}
+            disabled={isBusy}
+            onChange={(event) => {
+              const next = event.target.value;
+              setPromptDraft(next);
+              updateNodeData({ promptDraft: next });
+            }}
+            placeholder={
+              editScope === "deck"
+                ? lt("描述整套 PPT 要怎么改", "Describe how to change the full deck")
+                : lt("描述当前页要怎么改", "Describe how to change this slide")
+            }
+            style={{
+              minHeight: 58,
+              resize: "vertical",
+              borderRadius: 8,
+              border: `1px solid ${isDarkTheme ? "#3d3d3d" : "#d7dce5"}`,
+              background: palette.inputBg,
+              color: palette.text,
+              padding: "9px 10px",
+              fontSize: 12,
+              lineHeight: 1.45,
+              outline: "none",
+              fontFamily: "inherit",
+            }}
+          />
+        </div>
       </div>
 
       {(statusText || data.error || incomingTexts.length > 0) && (
@@ -1179,11 +1522,13 @@ function CodeField({
   label,
   value,
   palette,
+  minHeight = 205,
   onChange,
 }: {
   label: string;
   value: string;
   palette: { panel: string; inputBg: string; text: string; muted: string };
+  minHeight?: number;
   onChange: (value: string) => void;
 }) {
   return (
@@ -1195,7 +1540,7 @@ function CodeField({
         spellCheck={false}
         style={{
           flex: 1,
-          minHeight: 205,
+          minHeight,
           resize: "none",
           borderRadius: 8,
           border: "1px solid rgba(148,163,184,0.35)",
@@ -1209,6 +1554,107 @@ function CodeField({
         }}
       />
     </label>
+  );
+}
+
+function SlideThumbnail({
+  deck,
+  slide,
+  index,
+  active,
+  palette,
+  isDarkTheme,
+  onClick,
+}: {
+  deck: HtmlPptDeck;
+  slide: HtmlPptSlide;
+  index: number;
+  active: boolean;
+  palette: { panel: string; inputBg: string; text: string; muted: string };
+  isDarkTheme: boolean;
+  onClick: () => void;
+}) {
+  const baseWidth = 640;
+  const baseHeight = deck.aspectRatio === "4:3" ? 480 : 360;
+  const thumbWidth = 148;
+  const scale = thumbWidth / baseWidth;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={slide.title}
+      style={{
+        width: "100%",
+        border: `1px solid ${active ? "#2563eb" : isDarkTheme ? "#3a3a3a" : "#dbe3ef"}`,
+        borderRadius: 7,
+        background: active ? (isDarkTheme ? "rgba(37,99,235,0.22)" : "#eff6ff") : palette.inputBg,
+        color: active ? (isDarkTheme ? "#bfdbfe" : "#1d4ed8") : palette.text,
+        padding: 5,
+        textAlign: "left",
+        cursor: "pointer",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: thumbWidth,
+          height: Math.round(baseHeight * scale),
+          borderRadius: 5,
+          overflow: "hidden",
+          background: "#111827",
+          border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
+        }}
+      >
+        <div
+          style={{
+            width: baseWidth,
+            height: baseHeight,
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <iframe
+            title={`slide ${index + 1} thumbnail`}
+            sandbox=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            srcDoc={buildSlideSrcDoc(deck, slide)}
+            style={{
+              width: baseWidth,
+              height: baseHeight,
+              border: "none",
+              display: "block",
+              pointerEvents: "none",
+              background: "#111827",
+            }}
+          />
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          marginTop: 5,
+          minWidth: 0,
+          fontSize: 10,
+          fontWeight: 700,
+        }}
+      >
+        <span style={{ color: active ? "inherit" : palette.muted }}>{index + 1}</span>
+        <span
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {slide.title}
+        </span>
+      </div>
+    </button>
   );
 }
 

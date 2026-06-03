@@ -2,6 +2,8 @@
 - Flow now has an `htmlPpt` node for multi-slide HTML/CSS presentations. The node stores a deck of slide fragments, supports preview/code modes, slide add/duplicate/delete/revert controls, and exports the whole deck as a standalone HTML file.
 - The node accepts upstream `text` input as edit context and can call the text model route from its Ultra button to rewrite only the currently selected slide.
 - Slide previews render inside an inert sandboxed iframe with scripts disabled. Manual and AI-generated slide code is validated to reject scripts, event handlers, `javascript:`, iframes/objects/embeds/base tags, and `data:`/`blob:`/base64 image references so design JSON persists only remote URLs/paths.
+- The node now includes a thumbnail slide rail, template insertion menu, `16:9`/`4:3` aspect-ratio switch, title/notes editing in code mode, and a `Slide`/`Deck` AI rewrite scope so Ultra can either patch the current page or return a validated full-deck JSON replacement.
+- The layout uses a wider default size, keeps `Run` in the top-right header, groups all presentation controls into one toolbar row, and gives the slide rail enough width to show thumbnails and titles without an internal scroll frame.
 
 ## 2026-06-03 Prompt Mention Image Sources
 - `TextPromptNode` 的 `@` 菜单现在支持三类图片来源：当前工作流参考图、当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片。
