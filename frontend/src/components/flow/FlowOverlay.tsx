@@ -1509,6 +1509,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
+    { nodeType: "htmlPpt", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
@@ -2252,7 +2253,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   textPrompt: ["text"],
   textPromptPro: ["text"],
   textChat: ["text"],
-  htmlPpt: ["text"],
+  htmlPpt: ["text", "img"],
   textNote: ["text"],
   promptOptimize: ["text"],
   storyboardSplit: ["text"],
@@ -11787,6 +11788,8 @@ function FlowInner() {
       if (targetNode.type === "htmlPpt") {
         if (isTextHandle(targetHandle))
           return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "img")
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "textPrompt") {
@@ -12001,6 +12004,7 @@ function FlowInner() {
       }
       if (targetNode?.type === "htmlPpt") {
         if (isTextHandle(params.targetHandle)) return true;
+        if (params.targetHandle === "img") return incoming.length < 6;
       }
       if (targetNode?.type === "textPrompt") {
         if (isTextHandle(params.targetHandle))

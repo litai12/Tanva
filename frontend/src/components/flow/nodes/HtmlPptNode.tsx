@@ -4,6 +4,7 @@ import {
   Position,
   useReactFlow,
   useStore,
+  type Node,
   type ReactFlowState,
 } from "reactflow";
 import {
@@ -20,7 +21,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { aiImageService } from "@/services/aiImageService";
+import { imageUploadService } from "@/services/imageUploadService";
 import { getTextModelForProvider, useAIChatStore } from "@/stores/aiChatStore";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 import {
   resolveFlowModelProvider,
   type FlowModelProvider,
@@ -36,6 +39,7 @@ import {
   type HtmlPptSlide,
   type HtmlPptSlideTemplateKey,
 } from "@/utils/htmlPptDeck";
+import { resolveImageToDataUrl } from "@/utils/imageSource";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import RunCreditBadge from "./RunCreditBadge";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
@@ -83,6 +87,7 @@ const HTML_PPT_DEFAULT_WIDTH = 980;
 const HTML_PPT_DEFAULT_HEIGHT = 720;
 const MAX_SLIDES = 24;
 const MAX_CODE_LENGTH = 120_000;
+const MAX_IMAGE_INPUTS = 6;
 
 const escapeHtml = (value: string): string =>
   value
@@ -284,6 +289,170 @@ const pickString = (
   return undefined;
 };
 
+type IncomingImageRef = {
+  id: string;
+  raw: string;
+  sourceTitle?: string;
+  embeddableUrl?: string;
+};
+
+type PreparedIncomingImage = IncomingImageRef & {
+  visionRef: string;
+  embeddableUrl?: string;
+  uploaded?: boolean;
+};
+
+const normalizeString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const isHttpImageRef = (value: string): boolean => /^https?:\/\//i.test(value.trim());
+
+const imageHandleIndex = (handle?: string | null): number | null => {
+  if (!handle) return null;
+  const match = handle.trim().toLowerCase().match(/^(?:image|img|frame)-?(\d+)$/);
+  if (!match) return null;
+  const index = Number(match[1]) - 1;
+  return Number.isFinite(index) && index >= 0 ? index : null;
+};
+
+const firstImageValue = (value: unknown): string | undefined => {
+  const direct = normalizeString(value);
+  if (direct) return direct;
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  return (
+    normalizeString(record.imageUrl) ||
+    normalizeString(record.imageData) ||
+    normalizeString(record.outputImage) ||
+    normalizeString(record.thumbnailDataUrl) ||
+    normalizeString(record.thumbnail)
+  );
+};
+
+const collectImageRefsFromSourceNode = (
+  node: Node | null | undefined,
+  sourceHandle?: string | null
+): IncomingImageRef[] => {
+  if (!node) return [];
+  const data = ((node.data || {}) as Record<string, unknown>);
+  const refs: IncomingImageRef[] = [];
+  const seen = new Set<string>();
+  const title =
+    normalizeString(data.title) ||
+    normalizeString(data.name) ||
+    normalizeString(data.prompt) ||
+    node.type ||
+    node.id;
+
+  const push = (value: unknown, suffix: string) => {
+    const raw = firstImageValue(value);
+    if (!raw || seen.has(raw)) return;
+    seen.add(raw);
+    refs.push({
+      id: `${node.id}-${suffix}`,
+      raw,
+      sourceTitle: title,
+      embeddableUrl: isHttpImageRef(raw) ? raw : undefined,
+    });
+  };
+
+  const pushArrayItem = (key: string, index: number) => {
+    const list = Array.isArray(data[key]) ? data[key] : [];
+    push(list[index], `${key}-${index + 1}`);
+  };
+
+  const indexed = imageHandleIndex(sourceHandle);
+  if (indexed !== null) {
+    push(data[`image${indexed + 1}`], `image${indexed + 1}`);
+    push(data[`img${indexed + 1}`], `img${indexed + 1}`);
+    pushArrayItem("imageUrls", indexed);
+    pushArrayItem("images", indexed);
+    pushArrayItem("thumbnails", indexed);
+    pushArrayItem("frames", indexed);
+    return refs;
+  }
+
+  if (sourceHandle === "images" || sourceHandle === "images-range") {
+    ["imageUrls", "images", "frames", "thumbnails"].forEach((key) => {
+      const list = Array.isArray(data[key]) ? data[key] : [];
+      list.slice(0, MAX_IMAGE_INPUTS).forEach((item, index) => push(item, `${key}-${index + 1}`));
+    });
+    return refs;
+  }
+
+  push(data.imageUrl, "imageUrl");
+  push(data.imageData, "imageData");
+  push(data.outputImage, "outputImage");
+  ["imageUrls", "images", "frames", "thumbnails"].forEach((key) => {
+    const list = Array.isArray(data[key]) ? data[key] : [];
+    list.slice(0, MAX_IMAGE_INPUTS).forEach((item, index) => push(item, `${key}-${index + 1}`));
+  });
+
+  return refs;
+};
+
+const buildIncomingImageContext = (images: PreparedIncomingImage[]): string => {
+  if (!images.length) return "";
+  const lines = images.map((image, index) => {
+    const label = `Image ${index + 1}`;
+    const source = image.sourceTitle ? ` from ${image.sourceTitle}` : "";
+    if (image.embeddableUrl) {
+      return `${label}${source}: 必须作为可用视觉素材纳入版式；HTML 中用该远程 URL 引用: ${image.embeddableUrl}`;
+    }
+    return `${label}${source}: 仅作为本次视觉理解输入，不要把运行时 data/blob/base64 写入 HTML。`;
+  });
+  return `上游图片输入:\n${lines.join("\n")}\n\n图片排版要求:\n- 先判断用户语义意图：封面、产品介绍、案例展示、图集、对比、流程、报告摘要等。\n- 根据意图决定每张图片的角色：主视觉、证据图、步骤图、背景图、对比图或缩略图组。\n- 对标注为远程 URL 的图片，不要只描述，应该实际排入 HTML 页面；多图时按语义分组、裁切比例和视觉层级排版。`;
+};
+
+const prepareImageRefsForAi = async (
+  images: IncomingImageRef[],
+  projectId?: string | null
+): Promise<PreparedIncomingImage[]> => {
+  const prepared: PreparedIncomingImage[] = [];
+  const seen = new Set<string>();
+  for (const [index, image] of images.slice(0, MAX_IMAGE_INPUTS).entries()) {
+    const raw = image.raw.trim();
+    if (!raw) continue;
+    if (isHttpImageRef(raw)) {
+      if (seen.has(raw)) continue;
+      seen.add(raw);
+      prepared.push({ ...image, visionRef: raw, embeddableUrl: raw });
+      continue;
+    }
+
+    const uploadDir = projectId
+      ? `projects/${projectId}/flow/html-ppt/images/`
+      : "uploads/flow/html-ppt/images/";
+    const uploadResult = await imageUploadService.uploadImageSource(raw, {
+      projectId: projectId ?? undefined,
+      dir: uploadDir,
+      fileName: `html-ppt-input-${index + 1}-${Date.now()}.png`,
+      maxFileSize: 32 * 1024 * 1024,
+    });
+    const uploadedUrl = uploadResult.success ? uploadResult.asset?.url?.trim() : "";
+    if (uploadedUrl) {
+      if (seen.has(uploadedUrl)) continue;
+      seen.add(uploadedUrl);
+      prepared.push({
+        ...image,
+        visionRef: uploadedUrl,
+        embeddableUrl: uploadedUrl,
+        uploaded: true,
+      });
+      continue;
+    }
+
+    const resolved = await resolveImageToDataUrl(raw, { preferProxy: true });
+    if (!resolved || seen.has(resolved)) continue;
+    seen.add(resolved);
+    prepared.push({ ...image, visionRef: resolved, embeddableUrl: undefined });
+  }
+  return prepared;
+};
+
 const normalizeAiSlidePatch = (
   parsed: Record<string, unknown>,
   currentSlideId: string
@@ -426,6 +595,9 @@ const buildAiPrompt = (
 - 不要使用 data:、blob:、base64 图片；如需图片，只能使用远程 http(s) URL 或项目路径。
 - 保持 HTML/CSS 自包含，不依赖外部 JS。
 - 不要改其它页面。
+- 如果有上游图片，请先理解图片内容、风格、构图和关键信息，再判断用户语义意图，并综合成适合 PPT 的排版与文字。
+- 只要上游图片被标注为远程 URL，默认必须实际排入页面；不要只写图片描述或占位文案，除非用户明确要求不展示图片。
+- 只有标注为可引用的远程 URL 才能写入 <img src>。
 
 PPT 页面目录:
 ${outline}
@@ -488,6 +660,9 @@ const buildAiDeckPrompt = (
 - 不要输出 <script>、事件属性、iframe、object、embed、base、javascript:。
 - 不要使用 data:、blob:、base64 图片；如需图片，只能使用远程 http(s) URL 或项目路径。
 - 保持 HTML/CSS 自包含，不依赖外部 JS。
+- 如果有上游图片，请先理解图片内容、风格、构图和关键信息，再判断用户语义意图，并综合成整套 PPT 的结构、排版与文字。
+- 只要上游图片被标注为远程 URL，默认必须实际排入对应页面；不要只写图片描述或占位文案，除非用户明确要求不展示图片。
+- 只有标注为可引用的远程 URL 才能写入 <img src>。
 
 当前 deck:
 ${payload}
@@ -504,6 +679,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       .map((edge) => `${edge.id}:${edge.source}:${edge.sourceHandle}:${edge.target}:${edge.targetHandle}`)
       .join("|")
   );
+  const projectId = useProjectContentStore((state) => state.projectId);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === "black");
   const deck = React.useMemo(() => normalizeDeck(data.deck), [data.deck]);
@@ -577,10 +753,23 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       .filter((text): text is string => typeof text === "string" && text.trim().length > 0);
   }, [id, rf]);
 
+  const readIncomingImageRefs = React.useCallback(() => {
+    return rf
+      .getEdges()
+      .filter((edge) => edge.target === id && edge.targetHandle === "img")
+      .flatMap((edge) => collectImageRefsFromSourceNode(rf.getNode(edge.source), edge.sourceHandle))
+      .slice(0, MAX_IMAGE_INPUTS);
+  }, [id, rf]);
+
   const incomingTexts = React.useMemo(() => {
     void edgeSignature;
     return readIncomingTexts();
   }, [edgeSignature, readIncomingTexts]);
+
+  const incomingImageRefs = React.useMemo(() => {
+    void edgeSignature;
+    return readIncomingImageRefs();
+  }, [edgeSignature, readIncomingImageRefs]);
 
   const updateNodeData = React.useCallback(
     (patch: Record<string, unknown>) => {
@@ -713,8 +902,14 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const runAiEdit = React.useCallback(async () => {
     const instruction = promptDraft.trim();
     const latestIncomingTexts = readIncomingTexts();
-    const incomingContext = latestIncomingTexts.join("\n\n").trim();
-    const finalInstruction = instruction || incomingContext;
+    const latestIncomingImageRefs = readIncomingImageRefs();
+    const incomingTextContext = latestIncomingTexts.join("\n\n").trim();
+    const finalInstruction =
+      instruction ||
+      incomingTextContext ||
+      (latestIncomingImageRefs.length
+        ? "请根据上游图片进行 PPT 排版、关键信息提炼和文字综合。"
+        : "");
     if (!finalInstruction) {
       setStatusText(lt("请输入修改要求", "Enter an edit request"));
       updateNodeData({
@@ -728,11 +923,26 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     setStatusText("");
     updateNodeData({ status: "running", error: undefined });
     try {
+      if (latestIncomingImageRefs.length > 0) {
+        setStatusText(lt("正在准备图片素材", "Preparing image assets"));
+      }
+      const preparedImages = await prepareImageRefsForAi(latestIncomingImageRefs, projectId);
+      if (latestIncomingImageRefs.length > 0 && preparedImages.length === 0) {
+        throw new Error(lt("图片素材准备失败，无法用于 PPT 排版", "Image asset preparation failed"));
+      }
+      const incomingImageContext = buildIncomingImageContext(preparedImages);
+      const incomingContext = [incomingTextContext, incomingImageContext]
+        .filter((item) => item.trim().length > 0)
+        .join("\n\n")
+        .trim();
+      const imageUrls = preparedImages.map((image) => image.visionRef);
+      setStatusText("");
       const result = await aiImageService.generateTextResponse({
         prompt:
           editScope === "deck"
             ? buildAiDeckPrompt(finalInstruction, deck, incomingContext)
             : buildAiPrompt(finalInstruction, deck, currentSlide, incomingContext),
+        imageUrls: imageUrls.length ? imageUrls : undefined,
         aiProvider: effectiveProvider,
         model: textModel,
         enableWebSearch: false,
@@ -800,6 +1010,8 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     effectiveProvider,
     lt,
     promptDraft,
+    projectId,
+    readIncomingImageRefs,
     readIncomingTexts,
     textModel,
     updateNodeData,
@@ -1448,7 +1660,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {(statusText || data.error || incomingTexts.length > 0) && (
+      {(statusText || data.error || incomingTexts.length > 0 || incomingImageRefs.length > 0) && (
         <div
           style={{
             minHeight: 18,
@@ -1459,9 +1671,25 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             overflow: "hidden",
             textOverflow: "ellipsis",
           }}
-          title={statusText || data.error || incomingTexts.join("\n")}
+          title={
+            statusText ||
+            data.error ||
+            [
+              incomingTexts.join("\n"),
+              incomingImageRefs
+                .map((image, index) => {
+                  const preview = image.embeddableUrl || `${image.raw.slice(0, 96)}${image.raw.length > 96 ? "..." : ""}`;
+                  return `Image ${index + 1}: ${preview}`;
+                })
+                .join("\n"),
+            ]
+              .filter(Boolean)
+              .join("\n\n")
+          }
         >
-          {statusText || data.error || `${lt("上游输入", "Incoming text")}: ${incomingTexts.length}`}
+          {statusText ||
+            data.error ||
+            `${lt("上游输入", "Incoming")}: ${incomingTexts.length} text / ${incomingImageRefs.length} image`}
         </div>
       )}
 
@@ -1469,13 +1697,26 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: "50%" }}
+        style={{ top: "43%" }}
         onMouseEnter={() => setHover("text-in")}
         onMouseLeave={() => setHover(null)}
       />
       {hover === "text-in" && (
-        <div className="flow-tooltip" style={{ left: -8, top: "50%", transform: "translate(-100%, -50%)" }}>
+        <div className="flow-tooltip" style={{ left: -8, top: "43%", transform: "translate(-100%, -50%)" }}>
           prompt
+        </div>
+      )}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="img"
+        style={{ top: "58%" }}
+        onMouseEnter={() => setHover("img-in")}
+        onMouseLeave={() => setHover(null)}
+      />
+      {hover === "img-in" && (
+        <div className="flow-tooltip" style={{ left: -8, top: "58%", transform: "translate(-100%, -50%)" }}>
+          image
         </div>
       )}
     </div>

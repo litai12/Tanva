@@ -174,10 +174,28 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async generateText(request: TextChatRequest): Promise<AIProviderResponse<TextResult>> {
+    const imageReferences = Array.from(
+      new Set(
+        [
+          request.imageUrl,
+          ...(Array.isArray(request.imageUrls) ? request.imageUrls : []),
+        ]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0),
+      ),
+    );
+    const content =
+      imageReferences.length > 0
+        ? [
+            { type: 'text', text: request.prompt },
+            ...imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+          ]
+        : request.prompt;
+
     return this.chat(
       {
         model: request.model || 'gemini-3.1-pro',
-        messages: [{ role: 'user', content: request.prompt }],
+        messages: [{ role: 'user', content }],
         ...(request.enableWebSearch ? { tools: [{ type: 'web_search_preview' }] } : {}),
         ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
       },

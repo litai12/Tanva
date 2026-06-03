@@ -483,6 +483,15 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  imageUrls?: string[];
+
+  @IsOptional()
+  @IsString()
   model?: string;
 
   @IsOptional()
@@ -554,4 +563,3 @@ export class ExpandImageDto {
   @IsString()
   prompt?: string; // 閹绘劗銇氱拠宥忕礉姒涙顓绘稉?閹碘晛娴?
 }
-

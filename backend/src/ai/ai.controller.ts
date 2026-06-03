@@ -4024,6 +4024,16 @@ export class AiController {
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = null;
     const skipCredits = false;
+    const imageUrls = Array.from(
+      new Set(
+        [
+          dto.imageUrl,
+          ...(Array.isArray(dto.imageUrls) ? dto.imageUrls : []),
+        ]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0),
+      ),
+    );
 
     return this.withCredits(req, serviceType, model, async () => {
       if (!customApiKey) {
@@ -4031,6 +4041,7 @@ export class AiController {
         const result = await provider.generateText({
           prompt: dto.prompt,
           model,
+          imageUrls: imageUrls.length ? imageUrls : undefined,
           enableWebSearch: dto.enableWebSearch,
           providerOptions: dto.providerOptions,
         });
@@ -4050,7 +4061,7 @@ export class AiController {
       billingTag,
       model,
       requestedProvider: dto.aiProvider,
-      ...this.buildRequestPromptAndImageParams(dto.prompt),
+      ...this.buildRequestPromptAndImageParams(dto.prompt, imageUrls),
     }, dto.providerOptions));
   }
 

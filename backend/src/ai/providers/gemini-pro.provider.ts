@@ -768,6 +768,43 @@ export class GeminiProProvider implements IAIProvider {
     try {
       const client = this.ensureClient();
       const finalPrompt = request.prompt;
+      const imageReferences = Array.from(
+        new Set(
+          [
+            request.imageUrl,
+            ...(Array.isArray(request.imageUrls) ? request.imageUrls : []),
+          ]
+            .map((item) => (typeof item === 'string' ? item.trim() : ''))
+            .filter((item) => item.length > 0),
+        ),
+      );
+      const remoteImageLines: string[] = [];
+      const imageParts: any[] = [];
+      imageReferences.forEach((item, index) => {
+        if (/^https?:\/\//i.test(item)) {
+          remoteImageLines.push(`${index + 1}. ${item}`);
+          return;
+        }
+        try {
+          const normalized = this.normalizeImageInput(item, `text chat image ${index + 1}`);
+          imageParts.push({
+            inlineData: {
+              mimeType: normalized.mimeType || 'image/png',
+              data: normalized.data,
+            },
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Skipping unsupported text chat image #${index + 1}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      });
+      const promptWithRemoteImages = remoteImageLines.length
+        ? `${finalPrompt}\n\n参考图片 URL:\n${remoteImageLines.join('\n')}`
+        : finalPrompt;
+      const contents = [{ text: promptWithRemoteImages }, ...imageParts];
 
       // 默认使用非流式 API（更稳定），失败后降级到流式 API
       const result = await this.withRetry(
@@ -798,7 +835,7 @@ export class GeminiProProvider implements IAIProvider {
                 // 默认使用非流式 API（更稳定）
                 const response = await client.models.generateContent({
                   model: 'gemini-3-flash-preview',
-                  contents: [{ text: finalPrompt }],
+                  contents,
                   config: apiConfig,
                 });
 
@@ -818,7 +855,7 @@ export class GeminiProProvider implements IAIProvider {
                   try {
                     const stream = await client.models.generateContentStream({
                       model: 'gemini-3-flash-preview',
-                      contents: [{ text: finalPrompt }],
+                      contents,
                       config: apiConfig,
                     });
 
