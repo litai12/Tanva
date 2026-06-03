@@ -1212,7 +1212,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     ) {
       const el = containerRef.current;
       if (el) {
-        el.style.transform = overlayBaseTransform;
+        try {
+          const dpr = window.devicePixelRatio || 1;
+          const topLeft = paper.view.projectToView(new paper.Point(bounds.x, bounds.y));
+          el.style.transform = `translate3d(${topLeft.x / dpr}px, ${topLeft.y / dpr}px, 0)`;
+        } catch {
+          el.style.transform = overlayBaseTransform;
+        }
       }
       overlayPreviewPositionRef.current = null;
     }

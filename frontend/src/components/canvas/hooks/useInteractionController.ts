@@ -2359,6 +2359,8 @@ export const useInteractionController = ({
   }, [
     canvasRef,
     calculateImageDragMoves,
+    clearLibraryDropHover,
+    dispatchImageDragPreview,
     isLockedImage,
     resetGroupPathDrag,
     stopSpacePan,
