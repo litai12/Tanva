@@ -126,6 +126,8 @@ export interface ImageAnalysisRequest {
 export interface TextChatRequest {
   prompt: string;
   model?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
   enableWebSearch?: boolean;
   language?: string;
   thinkingLevel?: 'high' | 'low';

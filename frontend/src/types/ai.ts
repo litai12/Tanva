@@ -302,6 +302,8 @@ export interface AITextChatRequest {
   billingTag?: 'text_chat' | 'prompt_optimize';
   thinkingLevel?: 'high' | 'low'; // 鎬濊€冪骇鍒紙浠?Gemini 3锛?
   context?: string[];
+  imageUrl?: string;
+  imageUrls?: string[];
   enableWebSearch?: boolean; // 鏄惁鍚敤鑱旂綉鎼滅储
 }
 

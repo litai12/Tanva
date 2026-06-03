@@ -51,6 +51,8 @@ import {
 import TextPromptNode from "./nodes/TextPromptNode";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
+import HtmlPptNode from "./nodes/HtmlPptNode";
+import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
 import ImageNode from "./nodes/ImageNode";
 import GenerateNode from "./nodes/GenerateNode";
 import Generate4Node from "./nodes/Generate4Node";
@@ -1002,6 +1004,7 @@ const rawNodeTypes = {
   textPrompt: TextPromptNode,
   textPromptPro: TextPromptProNode,
   textChat: TextChatNode,
+  htmlPpt: HtmlPptNode,
   promptOptimize: PromptOptimizeNode,
   textNote: TextNoteNode,
   image: ImageNode,
@@ -1499,6 +1502,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "text" },
     { nodeType: "generateRef", targetHandle: "text" },
     { nodeType: "promptOptimize", targetHandle: "text" },
+    { nodeType: "htmlPpt", targetHandle: "text" },
     { nodeType: "textChat", targetHandle: "text" },
     { nodeType: "analysis", targetHandle: "text" },
   ],
@@ -1507,6 +1511,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "generate", targetHandle: "img" },
     { nodeType: "generate4", targetHandle: "img" },
     { nodeType: "generatePro", targetHandle: "img" },
+    { nodeType: "htmlPpt", targetHandle: "img" },
     { nodeType: "generateRef", targetHandle: "image2" },
     { nodeType: "viewAngle", targetHandle: "img" },
     { nodeType: "analysis", targetHandle: "img" },
@@ -1626,6 +1631,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
   textPrompt: 0, // 提示词节点 - 不消耗积分
   textChat: 10, // 纯文本交互节点 - gemini-text
+  htmlPpt: 10, // HTML PPT 节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
   promptOptimize: 10, // 提示词优化节点 - gemini-text
   analysis: 10, // Image Chat - gemini-2.5-image-analyze (Fast default)
@@ -1680,6 +1686,7 @@ const NODE_PALETTE_ITEMS = [
   // 输入节点
   { key: "textPrompt", zh: "提示词节点", en: "Prompt Node", category: "input" },
   { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" },
+  { key: "htmlPpt", zh: "HTML PPT节点", en: "HTML PPT Node", category: "input" },
   { key: "textNote", zh: "纯文本节点", en: "Note Node", category: "input" },
   { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer", category: "input" },
   { key: "image", zh: "图片节点", en: "Image Node", category: "input" },
@@ -1791,6 +1798,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   textPrompt: "text",
   textPromptPro: "text",
   textChat: "text",
+  htmlPpt: "text",
   textNote: "text",
   promptOptimize: "text",
   storyboardSplit: "text",
@@ -1860,6 +1868,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   textPromptPro: { w: 420, h: 360 },
   textNote: { w: 220, h: 140 },
   textChat: { w: 320, h: 540 },
+  htmlPpt: { w: 980, h: 720 },
   promptOptimize: { w: 360, h: 300 },
   image: { w: 260, h: 240 },
   imagePro: { w: 320, h: 240 },
@@ -2246,6 +2255,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   textPrompt: ["text"],
   textPromptPro: ["text"],
   textChat: ["text"],
+  htmlPpt: ["text", "img"],
   textNote: ["text"],
   promptOptimize: ["text"],
   storyboardSplit: ["text"],
@@ -2418,6 +2428,10 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   "volc-enhance-video": "volcEnhanceVideo",
   videoenhance: "volcEnhanceVideo",
   "video-enhance": "volcEnhanceVideo",
+  htmlppt: "htmlPpt",
+  "html-ppt": "htmlPpt",
+  ppt: "htmlPpt",
+  presentation: "htmlPpt",
 };
 
 const canonicalizeNodeTypeKey = (value: string): string =>
@@ -10135,6 +10149,18 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "htmlPpt"
+          ? {
+              title: "HTML PPT",
+              status: "idle" as const,
+              deck: createDefaultHtmlPptDeck(),
+              currentSlideId: undefined,
+              promptDraft: "",
+              editScope: "slide" as const,
+              modelProvider: "banana-3.1" as const,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "promptOptimize"
           ? { text: "", expandedText: "", boxW: size.w, boxH: size.h }
           : type === "image"
@@ -11773,6 +11799,13 @@ function FlowInner() {
           return canSourceProvideText(sourceNode, sourceHandle);
         return false;
       }
+      if (targetNode.type === "htmlPpt") {
+        if (isTextHandle(targetHandle))
+          return canSourceProvideText(sourceNode, sourceHandle);
+        if (targetHandle === "img")
+          return isImageSource(sourceNode, sourceHandle);
+        return false;
+      }
       if (targetNode.type === "textPrompt") {
         if (isTextHandle(targetHandle))
           return canSourceProvideText(sourceNode, sourceHandle);
@@ -11982,6 +12015,10 @@ function FlowInner() {
       }
       if (targetNode?.type === "promptOptimize") {
         if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
+      }
+      if (targetNode?.type === "htmlPpt") {
+        if (isTextHandle(params.targetHandle)) return true;
+        if (params.targetHandle === "img") return incoming.length < 6;
       }
       if (targetNode?.type === "textPrompt") {
         if (isTextHandle(params.targetHandle))

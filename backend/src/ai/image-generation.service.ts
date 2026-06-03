@@ -105,6 +105,8 @@ interface AnalyzeImageRequest {
 interface TextChatRequest {
   prompt: string;
   model?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
   enableWebSearch?: boolean;
   customApiKey?: string | null; // 用户自定义 API Key
 }
@@ -1075,6 +1077,43 @@ export class ImageGenerationService {
     const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-3-flash-preview';
     const finalPrompt = `Please respond in Chinese:\n\n${request.prompt}`;
+    const imageReferences = Array.from(
+      new Set(
+        [
+          request.imageUrl,
+          ...(Array.isArray(request.imageUrls) ? request.imageUrls : []),
+        ]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0),
+      ),
+    );
+    const remoteImageLines: string[] = [];
+    const imageParts: any[] = [];
+    imageReferences.forEach((item, index) => {
+      if (/^https?:\/\//i.test(item)) {
+        remoteImageLines.push(`${index + 1}. ${item}`);
+        return;
+      }
+      try {
+        const normalized = this.normalizeImageInput(item, `text chat image ${index + 1}`);
+        imageParts.push({
+          inlineData: {
+            mimeType: normalized.mimeType || 'image/png',
+            data: normalized.data,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Skipping unsupported text chat image #${index + 1}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    });
+    const promptWithRemoteImages = remoteImageLines.length
+      ? `${finalPrompt}\n\n参考图片 URL:\n${remoteImageLines.join('\n')}`
+      : finalPrompt;
+    const contents = [{ text: promptWithRemoteImages }, ...imageParts];
 
     const startTime = Date.now();
 
@@ -1104,7 +1143,7 @@ export class ImageGenerationService {
 
           const stream = await client.models.generateContentStream({
             model,
-            contents: [{ text: finalPrompt }],
+            contents,
             config: apiConfig,
           });
 
