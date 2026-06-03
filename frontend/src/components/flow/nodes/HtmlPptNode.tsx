@@ -52,9 +52,7 @@ import {
   type HtmlPptSlideTemplateKey,
 } from "@/utils/htmlPptDeck";
 import {
-  HTML_PPT_STYLE_PRESETS,
   findHtmlPptStylePreset,
-  getHtmlPptStylePreset,
   type HtmlPptStylePresetKey,
 } from "@/utils/htmlPptStylePresets";
 import {
@@ -116,6 +114,7 @@ const HTML_PPT_DESIGN_WIDTH_16_9 = 1920;
 const HTML_PPT_DESIGN_HEIGHT_16_9 = 1080;
 const HTML_PPT_DESIGN_WIDTH_4_3 = 1440;
 const HTML_PPT_DESIGN_HEIGHT_4_3 = 1080;
+const HTML_PPT_PREVIEW_FIT_INSET = 0.92;
 const MAX_SLIDES = 24;
 const MAX_CODE_LENGTH = 120_000;
 const MAX_IMAGE_INPUTS = 6;
@@ -188,9 +187,8 @@ body {
 .slide-stage {
   width: 100vw;
   height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  overflow: hidden;
   background: #111827;
 }
 .slide-root {
@@ -231,8 +229,11 @@ const buildSlideSrcDoc = (
     `.slide-stage > .slide-root {
   width: ${design.width}px !important;
   height: ${design.height}px !important;
+  position: absolute !important;
+  left: calc(50% - ${(design.width * safeScale) / 2}px) !important;
+  top: calc(50% - ${(design.height * safeScale) / 2}px) !important;
   transform: scale(${safeScale}) !important;
-  transform-origin: center center !important;
+  transform-origin: top left !important;
 }`,
   ].join("\n\n");
 
@@ -1464,7 +1465,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   const currentIndex = Math.max(0, deck.slides.findIndex((slide) => slide.id === currentSlide.id));
   const [viewMode, setViewMode] = React.useState<"preview" | "code">("preview");
   const [stylePreviewOpen, setStylePreviewOpen] = React.useState(false);
-  const [styleLibraryView, setStyleLibraryView] = React.useState<"presets" | "bold">("presets");
   const [promptDraft, setPromptDraft] = React.useState(data.promptDraft || "");
   const [isRunning, setIsRunning] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -1630,27 +1630,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       );
     },
     [commitDeck, currentSlide.id, deck]
-  );
-
-  const applyStylePreset = React.useCallback(
-    (key: HtmlPptStylePresetKey) => {
-      const preset = getHtmlPptStylePreset(key);
-      commitDeck(
-        { ...deck, themeCss: preset.themeCss },
-        currentSlide.id,
-        {
-          historyLabel: "apply-style-preset",
-          patch: {
-            stylePresetKey: preset.key,
-            boldTemplateSlug: undefined,
-            status: "idle",
-            error: undefined,
-          },
-        }
-      );
-      setStatusText(lt("已应用风格预设", "Style preset applied"));
-    },
-    [commitDeck, currentSlide.id, deck, lt]
   );
 
   const applyBoldTemplate = React.useCallback(
@@ -2060,14 +2039,17 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
   );
   const status = isRunning ? "running" : data.status || "idle";
   const isBusy = status === "running";
+  const slideWorkspaceHeight = React.useMemo(
+    () => Math.max(420, Math.min(560, height - 210)),
+    [height]
+  );
   React.useEffect(() => {
     const element = previewFrameRef.current;
     if (!element) return;
     const updateSize = () => {
-      const rect = element.getBoundingClientRect();
       setPreviewFrameSize((current) => {
-        const nextWidth = Math.round(rect.width);
-        const nextHeight = Math.round(rect.height);
+        const nextWidth = Math.round(element.clientWidth);
+        const nextHeight = Math.round(element.clientHeight);
         if (current.width === nextWidth && current.height === nextHeight) return current;
         return { width: nextWidth, height: nextHeight };
       });
@@ -2083,13 +2065,10 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     if (previewFrameSize.width <= 0 || previewFrameSize.height <= 0) return 0.5;
     return Math.max(
       0.1,
-      Math.min(previewFrameSize.width / design.width, previewFrameSize.height / design.height)
+      Math.min(previewFrameSize.width / design.width, previewFrameSize.height / design.height) *
+        HTML_PPT_PREVIEW_FIT_INSET
     );
   }, [deck.aspectRatio, previewFrameSize.height, previewFrameSize.width]);
-  const previewSrcDoc = React.useMemo(
-    () => buildSlideSrcDoc(deck, currentSlide, previewScale),
-    [currentSlide, deck, previewScale]
-  );
   const palette = isDarkTheme
     ? {
         bg: "#151515",
@@ -2452,7 +2431,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ color: palette.text, fontSize: 12, fontWeight: 800 }}>
-                Style previews
+                Beautiful templates
               </div>
               <div
                 style={{
@@ -2465,38 +2444,18 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
               >
                 {activeStyleGuide
                   ? `${activeStyleGuide.label} selected`
-                  : lt("选择一个预设后，后续 RUN 会按该视觉语言生成", "Select a preset to guide later runs")}
+                  : lt("选择 GitHub HTML 模板作为当前 PPT 起点", "Select a GitHub HTML template as the deck starter")}
               </div>
             </div>
             <div
               style={{
-                display: "inline-flex",
-                height: 28,
-                borderRadius: 7,
-                overflow: "hidden",
-                border: "1px solid rgba(148,163,184,0.35)",
                 flexShrink: 0,
+                color: palette.muted,
+                fontSize: 11,
+                fontWeight: 800,
               }}
             >
-              {(["presets", "bold"] as const).map((view) => (
-                <button
-                  key={view}
-                  type="button"
-                  onClick={() => setStyleLibraryView(view)}
-                  style={{
-                    width: view === "bold" ? 68 : 62,
-                    border: "none",
-                    borderRight: view === "presets" ? "1px solid rgba(148,163,184,0.35)" : "none",
-                    background: styleLibraryView === view ? palette.button : palette.inputBg,
-                    color: styleLibraryView === view ? "#fff" : palette.text,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  {view === "bold" ? "Bold 34" : "Presets"}
-                </button>
-              ))}
+              Bold 34
             </div>
           </div>
           <div
@@ -2504,49 +2463,30 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
               display: "grid",
               gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
               gap: 8,
-              maxHeight: styleLibraryView === "bold" ? 620 : undefined,
-              overflowY: styleLibraryView === "bold" ? "auto" : undefined,
-              paddingRight: styleLibraryView === "bold" ? 2 : undefined,
+              maxHeight: 620,
+              overflowY: "auto",
+              paddingRight: 2,
             }}
           >
-            {styleLibraryView === "presets"
-              ? HTML_PPT_STYLE_PRESETS.map((preset) => (
-                  <StylePreviewTile
-                    key={preset.key}
-                    item={{
-                      id: preset.key,
-                      label: preset.label,
-                      description: preset.description,
-                      colors: preset.colors,
-                      themeCss: preset.themeCss,
-                      previewSlide: preset.previewSlide,
-                    }}
-                    aspectRatio={deck.aspectRatio}
-                    active={activeStylePreset?.key === preset.key}
-                    palette={palette}
-                    isDarkTheme={isDarkTheme}
-                    onClick={() => applyStylePreset(preset.key)}
-                  />
-                ))
-              : HTML_PPT_BOLD_TEMPLATES.map((template) => (
-                  <StylePreviewTile
-                    key={template.slug}
-                    item={{
-                      id: template.slug,
-                      label: template.name,
-                      description: template.tagline,
-                      colors: template.colors,
-                      themeCss: template.themeCss,
-                      previewSlide: template.previewSlide,
-                      previewSlides: template.previewSlides,
-                    }}
-                    aspectRatio="16:9"
-                    active={activeBoldTemplate?.slug === template.slug}
-                    palette={palette}
-                    isDarkTheme={isDarkTheme}
-                    onClick={() => applyBoldTemplate(template.slug)}
-                  />
-                ))}
+            {HTML_PPT_BOLD_TEMPLATES.map((template) => (
+              <StylePreviewTile
+                key={template.slug}
+                item={{
+                  id: template.slug,
+                  label: template.name,
+                  description: template.tagline,
+                  colors: template.colors,
+                  themeCss: template.themeCss,
+                  previewSlide: template.previewSlide,
+                  previewSlides: template.previewSlides,
+                }}
+                aspectRatio="16:9"
+                active={activeBoldTemplate?.slug === template.slug}
+                palette={palette}
+                isDarkTheme={isDarkTheme}
+                onClick={() => applyBoldTemplate(template.slug)}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -2556,7 +2496,9 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           display: "grid",
           gridTemplateColumns: "176px minmax(0, 1fr)",
           gap: 12,
-          minHeight: 300,
+          height: slideWorkspaceHeight,
+          minHeight: slideWorkspaceHeight,
+          overflow: "hidden",
         }}
       >
         <div
@@ -2569,6 +2511,11 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             borderRadius: 8,
             background: palette.panel,
             padding: 8,
+            height: "100%",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            boxSizing: "border-box",
           }}
         >
           <div
@@ -2585,7 +2532,18 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             <span>Slides</span>
             <span>{deck.slides.length}</span>
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "grid",
+              alignContent: "start",
+              gap: 6,
+              overflowY: "auto",
+              overflowX: "hidden",
+              paddingRight: 2,
+            }}
+          >
             {deck.slides.map((slide, index) => (
               <SlideThumbnail
                 key={slide.id}
@@ -2601,32 +2559,28 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0, minHeight: 0 }}>
           {viewMode === "preview" ? (
             <div
               ref={previewFrameRef}
               style={{
-                background: "#111827",
+                background: "linear-gradient(135deg, #111827 0%, #020617 100%)",
                 borderRadius: 8,
-                border: `1px solid ${isDarkTheme ? "#303030" : "#e5e7eb"}`,
+                border: `1px solid ${isDarkTheme ? "#303030" : "#d6dde8"}`,
                 overflow: "hidden",
-                aspectRatio: deck.aspectRatio === "4:3" ? "4 / 3" : "16 / 9",
-                minHeight: 420,
+                position: "relative",
+                height: "100%",
+                minHeight: 0,
+                boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.04)",
               }}
             >
-              <iframe
+              <SlideIframePreview
+                deck={deck}
+                slide={currentSlide}
+                scale={previewScale}
                 title={`${title} - ${currentSlide.title}`}
-                sandbox=""
-                referrerPolicy="no-referrer"
-                srcDoc={previewSrcDoc}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  display: "block",
-                  pointerEvents: "none",
-                  background: "#111827",
-                }}
+                borderRadius={4}
+                shadow
               />
             </div>
           ) : (
@@ -2926,6 +2880,71 @@ function CodeField({
   );
 }
 
+function SlideIframePreview({
+  deck,
+  slide,
+  scale,
+  title,
+  borderRadius = 0,
+  shadow = false,
+  loading,
+}: {
+  deck: HtmlPptDeck;
+  slide: HtmlPptSlide;
+  scale: number;
+  title: string;
+  borderRadius?: number;
+  shadow?: boolean;
+  loading?: "eager" | "lazy";
+}) {
+  const design = getDesignSize(deck.aspectRatio);
+  const safeScale = Number.isFinite(scale) ? Math.max(0.02, Math.min(2, scale)) : 0.1;
+  const frameWidth = design.width * safeScale;
+  const frameHeight = design.height * safeScale;
+  const srcDoc = React.useMemo(() => buildSlideSrcDoc(deck, slide, 1), [deck, slide]);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `calc(50% - ${frameWidth / 2}px)`,
+        top: `calc(50% - ${frameHeight / 2}px)`,
+        width: frameWidth,
+        height: frameHeight,
+        overflow: "hidden",
+        borderRadius,
+        background: "#ffffff",
+        boxShadow: shadow ? "0 18px 48px rgba(0,0,0,0.38)" : "none",
+      }}
+    >
+      <div
+        style={{
+          width: design.width,
+          height: design.height,
+          transform: `scale(${safeScale})`,
+          transformOrigin: "top left",
+        }}
+      >
+        <iframe
+          title={title}
+          sandbox=""
+          referrerPolicy="no-referrer"
+          loading={loading}
+          srcDoc={srcDoc}
+          style={{
+            width: design.width,
+            height: design.height,
+            border: "none",
+            display: "block",
+            pointerEvents: "none",
+            background: "#ffffff",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SlideThumbnail({
   deck,
   slide,
@@ -2947,8 +2966,10 @@ function SlideThumbnail({
   const baseHeight = deck.aspectRatio === "4:3" ? 480 : 360;
   const thumbWidth = 148;
   const scale = thumbWidth / baseWidth;
+  const thumbHeight = Math.round(baseHeight * scale);
+  const tileHeight = thumbHeight + 34;
   const design = getDesignSize(deck.aspectRatio);
-  const iframeScale = Math.min(baseWidth / design.width, baseHeight / design.height);
+  const iframeScale = Math.min(thumbWidth / design.width, thumbHeight / design.height);
 
   return (
     <button
@@ -2962,45 +2983,35 @@ function SlideThumbnail({
         background: active ? (isDarkTheme ? "rgba(37,99,235,0.22)" : "#eff6ff") : palette.inputBg,
         color: active ? (isDarkTheme ? "#bfdbfe" : "#1d4ed8") : palette.text,
         padding: 5,
+        height: tileHeight,
+        minHeight: tileHeight,
+        maxHeight: tileHeight,
         textAlign: "left",
         cursor: "pointer",
         boxSizing: "border-box",
+        overflow: "hidden",
       }}
     >
       <div
         style={{
           width: thumbWidth,
-          height: Math.round(baseHeight * scale),
+          height: thumbHeight,
           borderRadius: 5,
           overflow: "hidden",
+          position: "relative",
           background: "#111827",
           border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
+          boxSizing: "border-box",
         }}
       >
-        <div
-          style={{
-            width: baseWidth,
-            height: baseHeight,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
-        >
-          <iframe
-            title={`slide ${index + 1} thumbnail`}
-            sandbox=""
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            srcDoc={buildSlideSrcDoc(deck, slide, iframeScale)}
-            style={{
-              width: baseWidth,
-              height: baseHeight,
-              border: "none",
-              display: "block",
-              pointerEvents: "none",
-              background: "#111827",
-            }}
-          />
-        </div>
+        <SlideIframePreview
+          deck={deck}
+          slide={slide}
+          scale={iframeScale}
+          title={`slide ${index + 1} thumbnail`}
+          borderRadius={4}
+          loading="lazy"
+        />
       </div>
       <div
         style={{
@@ -3009,13 +3020,18 @@ function SlideThumbnail({
           gap: 5,
           marginTop: 5,
           minWidth: 0,
+          height: 18,
+          overflow: "hidden",
           fontSize: 10,
           fontWeight: 700,
+          lineHeight: "14px",
         }}
       >
-        <span style={{ color: active ? "inherit" : palette.muted }}>{index + 1}</span>
+        <span style={{ color: active ? "inherit" : palette.muted, flex: "0 0 auto" }}>{index + 1}</span>
         <span
           style={{
+            display: "block",
+            flex: 1,
             minWidth: 0,
             overflow: "hidden",
             whiteSpace: "nowrap",
@@ -3048,12 +3064,17 @@ function StylePreviewTile({
     () => (item.previewSlides?.length ? item.previewSlides : [item.previewSlide]).slice(0, 3),
     [item.previewSlide, item.previewSlides]
   );
+  const previewStageHeight = previewSlides.length > 1 ? 104 : 86;
   const previewScale = React.useMemo(() => {
     const design = getDesignSize(aspectRatio);
     const targetWidth = previewSlides.length > 1 ? 94 : 210;
-    return Math.min(0.24, Math.max(0.02, targetWidth / design.width));
-  }, [aspectRatio, previewSlides.length]);
-  const previewSrcDocs = React.useMemo(
+    const targetHeight = previewStageHeight - 10;
+    return Math.min(
+      0.24,
+      Math.max(0.02, Math.min(targetWidth / design.width, targetHeight / design.height))
+    );
+  }, [aspectRatio, previewSlides.length, previewStageHeight]);
+  const previewDecks = React.useMemo(
     () =>
       previewSlides.map((slide, index) => {
         const previewDeck: HtmlPptDeck = {
@@ -3069,9 +3090,9 @@ function StylePreviewTile({
             },
           ],
         };
-        return buildSlideSrcDoc(previewDeck, previewDeck.slides[0], previewScale);
+        return previewDeck;
       }),
-    [aspectRatio, item.id, item.themeCss, previewScale, previewSlides]
+    [aspectRatio, item.id, item.themeCss, previewSlides]
   );
 
   return (
@@ -3098,33 +3119,34 @@ function StylePreviewTile({
     >
       <div
         style={{
-          height: previewSrcDocs.length > 1 ? 104 : 86,
+          height: previewStageHeight,
           display: "grid",
-          gridTemplateColumns: `repeat(${previewSrcDocs.length}, minmax(0, 1fr))`,
-          gap: previewSrcDocs.length > 1 ? 5 : 0,
+          gridTemplateColumns: `repeat(${previewDecks.length}, minmax(0, 1fr))`,
+          gap: previewDecks.length > 1 ? 5 : 0,
           borderRadius: 6,
           overflow: "hidden",
           background: "#111827",
           border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
         }}
       >
-        {previewSrcDocs.map((srcDoc, index) => (
-          <iframe
+        {previewDecks.map((previewDeck, index) => (
+          <div
             key={`${item.id}-${index}`}
-            title={`${item.label} preview ${index + 1}`}
-            sandbox=""
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            srcDoc={srcDoc}
             style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
-              display: "block",
-              pointerEvents: "none",
+              position: "relative",
+              minWidth: 0,
+              overflow: "hidden",
               background: "#111827",
             }}
-          />
+          >
+            <SlideIframePreview
+              deck={previewDeck}
+              slide={previewDeck.slides[0]}
+              scale={previewScale}
+              title={`${item.label} preview ${index + 1}`}
+              loading="lazy"
+            />
+          </div>
         ))}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
