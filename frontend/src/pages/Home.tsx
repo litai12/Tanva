@@ -7,6 +7,8 @@ import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { TeamSwitcher } from "@/components/team/TeamSwitcher";
+import CampaignNoticeBar from "@/components/layout/CampaignNoticeBar";
+import { isCampaignNoticeAvailable } from "@/components/layout/campaignNoticeConfig";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
@@ -97,6 +99,9 @@ export default function Home() {
   const authInitRef = useRef(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showCampaignNotice, setShowCampaignNotice] = useState(() =>
+    isCampaignNoticeAvailable()
+  );
   const touchStartY = useRef(0);
   const lastScrollTime = useRef(0);
 
@@ -186,12 +191,19 @@ export default function Home() {
   }, [currentPage, goToPage]);
 
   return (
-    <div
-      ref={containerRef}
-      className='h-screen w-full overflow-hidden bg-gradient-to-b from-white to-sky-50 text-slate-800'
-    >
-      {/* 固定的 Header - 完整横条，向中间收缩 */}
-      <header className='fixed top-4 left-0 right-0 z-50 pointer-events-none flex justify-center'>
+    <div className='h-screen w-full overflow-hidden bg-gradient-to-b from-white to-sky-50 text-slate-800 flex flex-col'>
+      {showCampaignNotice && (
+        <CampaignNoticeBar
+          onClose={() => setShowCampaignNotice(false)}
+          onExpire={() => setShowCampaignNotice(false)}
+        />
+      )}
+      <div
+        ref={containerRef}
+        className='relative min-h-0 flex-1 w-full overflow-hidden'
+      >
+      {/* Header - 完整横条，向中间收缩 */}
+      <header className='absolute top-4 left-0 right-0 z-50 pointer-events-none flex justify-center'>
         <div className='flex items-center justify-between gap-4 px-6 md:px-8 py-3 h-[60px] rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto max-w-4xl w-full mx-4'>
           {/* 左侧：Logo */}
           <div className='flex items-center'>
@@ -310,11 +322,11 @@ export default function Home() {
 
       {/* 三页内容容器 */}
       <div
-        className='transition-transform duration-500 ease-out'
-        style={{ transform: `translateY(-${currentPage * 100}vh)` }}
+        className='h-full transition-transform duration-500 ease-out'
+        style={{ transform: `translateY(-${currentPage * 100}%)` }}
       >
         {/* 第一页 - 主标题 */}
-        <section className='h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden'>
+        <section className='h-full w-full flex flex-col items-center justify-center px-4 relative overflow-hidden'>
           {/* 视频背景 */}
           <video
             autoPlay
@@ -376,7 +388,7 @@ export default function Home() {
         </section>
 
         {/* 第二页 - 功能介绍 */}
-        <section className='h-screen w-full flex flex-col items-center justify-center px-4 bg-gradient-to-b from-sky-50 to-white'>
+        <section className='h-full w-full flex flex-col items-center justify-center px-4 bg-gradient-to-b from-sky-50 to-white'>
           <div className='max-w-4xl mx-auto text-center'>
             <h2 className='text-4xl font-bold mb-12'>{t("home.features.title")}</h2>
             <div className='grid grid-cols-1 md:grid-cols-3 gap-8'>
@@ -448,7 +460,7 @@ export default function Home() {
         </section>
 
         {/* 第三页 - CTA 和 Footer */}
-        <section className='min-h-screen w-full flex flex-col bg-gradient-to-b from-white to-sky-50'>
+        <section className='min-h-full w-full flex flex-col bg-gradient-to-b from-white to-sky-50'>
           <div className='flex-1 flex flex-col items-center justify-center px-4'>
             <div className='mist-card-wrapper w-full sm:w-[800px] mx-auto'>
               <div className='mist-glow'></div>
@@ -478,8 +490,9 @@ export default function Home() {
         </section>
       </div>
 
-      {/* 微信咨询悬浮按钮 - 放在最外层确保始终可见 */}
+      {/* 微信咨询悬浮按钮 */}
       <WeChatFloatingButton />
+      </div>
     </div>
   );
 }

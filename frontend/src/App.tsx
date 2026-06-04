@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next';
 import { TeamInviteConfirmModal } from '@/components/team/TeamInviteConfirmModal';
 import { useTeamRealtime } from '@/hooks/useTeamRealtime';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import CampaignNoticeBar from '@/components/layout/CampaignNoticeBar';
+import { isCampaignNoticeAvailable } from '@/components/layout/campaignNoticeConfig';
 
 const PENDING_INVITE_KEY = 'tanva_pending_team_invite';
 
@@ -81,6 +83,9 @@ const App: React.FC = () => {
     const hash = window.location.hash;
     return search.includes('sora2-test') || hash.includes('sora2-test');
   });
+  const [showCampaignNotice, setShowCampaignNotice] = useState<boolean>(() =>
+    isCampaignNoticeAvailable()
+  );
 
   const [searchParams, setSearchParams] = useSearchParams();
   const paramProjectId = searchParams.get('projectId');
@@ -228,10 +233,22 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="w-screen h-screen">
+    <div
+      className={`w-screen h-screen flex flex-col ${
+        showCampaignNotice ? 'tanva-campaign-shell' : ''
+      }`}
+    >
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
-      <Canvas />
+      {showCampaignNotice && (
+        <CampaignNoticeBar
+          onClose={() => setShowCampaignNotice(false)}
+          onExpire={() => setShowCampaignNotice(false)}
+        />
+      )}
+      <div className="relative min-h-0 flex-1">
+        <Canvas />
+      </div>
       {showProjectLoading && (
         <AppLoadingIndicator
           message={projectLoadingMessage}

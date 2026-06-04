@@ -41,6 +41,8 @@ export type HtmlPptBoldTemplate = {
   slug: HtmlPptBoldTemplateSlug;
   name: string;
   tagline: string;
+  author: string;
+  tags: string[];
   mood: string[];
   tone: string[];
   formality: "low" | "medium-low" | "medium" | "medium-high" | "high";
@@ -79,7 +81,12 @@ type BoldTemplateSeed = Omit<
   | "previewSlides"
   | "previewSlideIndexes"
   | "starterSlides"
+  | "author"
+  | "tags"
 >;
+
+export const HTML_PPT_BOLD_TEMPLATE_AUTHOR = "zarazhangrui";
+export const HTML_PPT_BOLD_TEMPLATE_AUTHOR_TAG = `author:${HTML_PPT_BOLD_TEMPLATE_AUTHOR}`;
 
 const isSerifTemplate = (seed: BoldTemplateSeed): boolean =>
   [...seed.mood, ...seed.tone].some((tag) =>
@@ -418,6 +425,8 @@ const makeTemplate = (seed: BoldTemplateSeed): HtmlPptBoldTemplate => {
       : fallbackPreviewSlides;
   return {
     ...seed,
+    author: HTML_PPT_BOLD_TEMPLATE_AUTHOR,
+    tags: [HTML_PPT_BOLD_TEMPLATE_AUTHOR_TAG, ...seed.mood, ...seed.tone],
     themeCss: beautifulDeck?.themeCss || buildThemeCss(seed),
     promptGuidance: buildPromptGuidance(seed),
     imagePrompt: buildImagePrompt(seed),

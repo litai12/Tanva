@@ -535,6 +535,7 @@ type HtmlPptStylePreviewItem = Pick<
   "label" | "description" | "colors" | "themeCss" | "previewSlide" | "previewSlides"
 > & {
   id: string;
+  author?: string;
 };
 
 const HTML_PPT_GENERATED_ASSET_LIMIT = 1;
@@ -620,7 +621,7 @@ const boldTemplateToStyleGuide = (
 ): HtmlPptAiStyleGuide => ({
   label: template.name,
   description: template.tagline,
-  tags: [...template.mood, ...template.tone].slice(0, 8),
+  tags: template.tags.slice(0, 8),
   colors: {
     background: template.colors.background,
     text: template.colors.text,
@@ -2479,6 +2480,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
                   themeCss: template.themeCss,
                   previewSlide: template.previewSlide,
                   previewSlides: template.previewSlides,
+                  author: template.author,
                 }}
                 aspectRatio="16:9"
                 active={activeBoldTemplate?.slug === template.slug}
@@ -3099,7 +3101,7 @@ function StylePreviewTile({
     <button
       type="button"
       onClick={onClick}
-      title={item.description}
+      title={item.author ? `${item.description}\nAuthor: ${item.author}` : item.description}
       style={{
         minWidth: 0,
         border: `1px solid ${active ? item.colors.accent : isDarkTheme ? "#3a3a3a" : "#dbe3ef"}`,
@@ -3165,12 +3167,34 @@ function StylePreviewTile({
             overflow: "hidden",
             whiteSpace: "nowrap",
             textOverflow: "ellipsis",
+            flex: 1,
             fontSize: 11,
             fontWeight: 800,
           }}
         >
           {item.label}
         </span>
+        {item.author ? (
+          <span
+            style={{
+              flexShrink: 0,
+              marginLeft: "auto",
+              maxWidth: 116,
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+              border: `1px solid ${isDarkTheme ? "#4b5563" : "#d1d5db"}`,
+              borderRadius: 999,
+              padding: "1px 6px",
+              color: active ? item.colors.accent : palette.muted,
+              fontSize: 9,
+              fontWeight: 800,
+              lineHeight: "13px",
+            }}
+          >
+            By {item.author}
+          </span>
+        ) : null}
       </div>
       <div
         style={{

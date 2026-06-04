@@ -64,6 +64,14 @@ export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
 export interface LoginNoticeView {
   enabled: boolean;
   content: string;
+  contentHtml: string;
+  mediaType: 'image' | 'video' | null;
+  mediaUrl: string;
+  posterUrl: string;
+  primaryButtonText: string;
+  primaryButtonUrl: string;
+  secondaryButtonText: string;
+  secondaryButtonUrl: string;
   updatedAt: string | null;
 }
 
@@ -130,9 +138,56 @@ export class AdminService {
     return null;
   }
 
-  private parseLoginNoticeValue(value: string | null | undefined): { enabled: boolean; content: string } {
+  private extractLoginNoticeTextFromHtml(value: string): string {
+    return value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li)>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private sanitizeLoginNoticeUrl(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^(?:javascript|data|blob):/i.test(trimmed)) return '';
+    if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return trimmed;
+    return '';
+  }
+
+  private parseLoginNoticeValue(value: string | null | undefined): {
+    enabled: boolean;
+    content: string;
+    contentHtml: string;
+    mediaType: 'image' | 'video' | null;
+    mediaUrl: string;
+    posterUrl: string;
+    primaryButtonText: string;
+    primaryButtonUrl: string;
+    secondaryButtonText: string;
+    secondaryButtonUrl: string;
+  } {
     if (!value) {
-      return { enabled: false, content: '' };
+      return {
+        enabled: false,
+        content: '',
+        contentHtml: '',
+        mediaType: null,
+        mediaUrl: '',
+        posterUrl: '',
+        primaryButtonText: '',
+        primaryButtonUrl: '',
+        secondaryButtonText: '',
+        secondaryButtonUrl: '',
+      };
     }
 
     try {
@@ -140,9 +195,25 @@ export class AdminService {
       const objectValue = this.asJsonObject(parsed);
       if (objectValue) {
         const content = typeof objectValue.content === 'string' ? objectValue.content : '';
+        const contentHtml = typeof objectValue.contentHtml === 'string' ? objectValue.contentHtml : '';
+        const mediaUrl = this.sanitizeLoginNoticeUrl(objectValue.mediaUrl);
+        const rawMediaType = typeof objectValue.mediaType === 'string' ? objectValue.mediaType : '';
+        const mediaType = mediaUrl
+          ? rawMediaType === 'video'
+            ? 'video'
+            : 'image'
+          : null;
         return {
           enabled: objectValue.enabled === true,
-          content,
+          content: content || this.extractLoginNoticeTextFromHtml(contentHtml),
+          contentHtml,
+          mediaType,
+          mediaUrl,
+          posterUrl: this.sanitizeLoginNoticeUrl(objectValue.posterUrl),
+          primaryButtonText: typeof objectValue.primaryButtonText === 'string' ? objectValue.primaryButtonText : '',
+          primaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.primaryButtonUrl),
+          secondaryButtonText: typeof objectValue.secondaryButtonText === 'string' ? objectValue.secondaryButtonText : '',
+          secondaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.secondaryButtonUrl),
         };
       }
     } catch {
@@ -152,6 +223,14 @@ export class AdminService {
     return {
       enabled: true,
       content: value,
+      contentHtml: '',
+      mediaType: null,
+      mediaUrl: '',
+      posterUrl: '',
+      primaryButtonText: '',
+      primaryButtonUrl: '',
+      secondaryButtonText: '',
+      secondaryButtonUrl: '',
     };
   }
 
@@ -1040,6 +1119,14 @@ export class AdminService {
     return {
       enabled: parsed.enabled && content.length > 0,
       content: parsed.content,
+      contentHtml: parsed.contentHtml,
+      mediaType: parsed.mediaType,
+      mediaUrl: parsed.mediaUrl,
+      posterUrl: parsed.posterUrl,
+      primaryButtonText: parsed.primaryButtonText,
+      primaryButtonUrl: parsed.primaryButtonUrl,
+      secondaryButtonText: parsed.secondaryButtonText,
+      secondaryButtonUrl: parsed.secondaryButtonUrl,
       updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
     };
   }

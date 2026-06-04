@@ -81,6 +81,7 @@ import {
   getBananaRouteSuccessRates,
   type BananaRouteSuccessRatesResponse,
 } from "@/services/bananaRouteStatsApi";
+import { OPEN_WECHAT_QR_PANEL_EVENT } from "@/utils/wechatQrPanel";
 import ReferralRewards from "@/components/ReferralRewards";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MembershipPanel from "@/components/payment/MembershipPanel";
@@ -395,6 +396,8 @@ const FloatingHeader: React.FC = () => {
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isPricingCatalogOpen, setIsPricingCatalogOpen] = useState(false);
   const [isWechatQrOpen, setIsWechatQrOpen] = useState(false);
+  const [isWechatQrPinned, setIsWechatQrPinned] = useState(false);
+  const wechatQrContainerRef = useRef<HTMLDivElement | null>(null);
   const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
   const [teamModalInitialTab, setTeamModalInitialTab] = useState<'members' | 'subscription'>('members');
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
@@ -431,6 +434,42 @@ const FloatingHeader: React.FC = () => {
     };
     fetchQrCodes();
   }, []);
+
+  useEffect(() => {
+    const handleOpenWechatQrPanel = () => {
+      setIsWechatQrOpen(true);
+      setIsWechatQrPinned(true);
+    };
+
+    window.addEventListener(OPEN_WECHAT_QR_PANEL_EVENT, handleOpenWechatQrPanel);
+    return () => {
+      window.removeEventListener(
+        OPEN_WECHAT_QR_PANEL_EVENT,
+        handleOpenWechatQrPanel
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isWechatQrPinned) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        wechatQrContainerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setIsWechatQrOpen(false);
+      setIsWechatQrPinned(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isWechatQrPinned]);
 
   // 清理 Google API Key 反馈计时器
   useEffect(
@@ -2759,9 +2798,14 @@ const FloatingHeader: React.FC = () => {
             </div>
 
             <div
+              ref={wechatQrContainerRef}
               className='relative'
               onMouseEnter={() => setIsWechatQrOpen(true)}
-              onMouseLeave={() => setIsWechatQrOpen(false)}
+              onMouseLeave={() => {
+                if (!isWechatQrPinned) {
+                  setIsWechatQrOpen(false);
+                }
+              }}
             >
               {isWechatQrOpen && (
                 <div className='absolute top-full right-0 mt-2 p-4 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 shadow-2xl z-[100] animate-in fade-in slide-in-from-top-2 duration-200'>
@@ -2805,6 +2849,17 @@ const FloatingHeader: React.FC = () => {
                 size='sm'
                 className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
                 title='WeChat'
+                aria-haspopup='dialog'
+                aria-expanded={isWechatQrOpen}
+                onClick={() => {
+                  if (isWechatQrPinned) {
+                    setIsWechatQrOpen(false);
+                    setIsWechatQrPinned(false);
+                    return;
+                  }
+                  setIsWechatQrOpen(true);
+                  setIsWechatQrPinned(true);
+                }}
               >
                 <MessageCircle className='w-4 h-4' />
               </Button>
