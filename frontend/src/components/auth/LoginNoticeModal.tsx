@@ -32,9 +32,9 @@ const buildApiUrl = (path: string) => {
 const DEFAULT_SEEDANCE_NOTICE: LoginNotice = {
   enabled: true,
   content:
-    "Seedance 2.0 更低价，单条最低约合人民币 0.35 元\n每月满 10000 积分 / 返还 1000 积分\n惊喜直减：6月5日（本周五）全天 10:00-23:59，Seedance2.0 模型限时 3.5 折优惠！\n积分返还：每冲刺 10000 积分，加入社群联系客服，凭积分使用截图获得 1000 积分额外返还，上不封顶！（仅限 Seedance2.0 模型）",
+    "Seedance 2.0 更低价，每秒最低约合人民币 0.35 元\n每月满 10000 积分 / 返还 1000 积分\n惊喜直减：6月5日（本周五）全天 10:00-23:59，Seedance2.0 模型限时 3.5 折优惠！\n积分返还：每冲刺 10000 积分，加入社群联系客服，凭积分使用截图获得 1000 积分额外返还，上不封顶！（仅限 Seedance2.0 模型）",
   contentHtml:
-    '<p><span style="color:#2563eb"><strong>Seedance 2.0</strong></span> <strong>更低价 单条最低约合人民币 <span style="color:#2563eb">0.35</span> 元</strong></p><p><strong>每月满 10000 积分 / 返还 1000 积分</strong></p><p>· <strong>惊喜直减：</strong>6月5日（本周五）全天 <strong>10:00-23:59</strong>，Seedance2.0 模型限时 <strong>3.5 折优惠！</strong></p><p>· <strong>积分返还：</strong>每冲刺 <strong>10000 积分</strong>，加入社群联系客服，凭积分使用截图获得 <strong>1000 积分</strong> 额外返还，上不封顶！（仅限 Seedance2.0 模型）</p>',
+    '<p><span style="color:#2563eb"><strong>Seedance 2.0</strong></span> <strong>更低价 每秒最低约合人民币 <span style="color:#2563eb">0.35</span> 元</strong></p><p><strong>每月满 10000 积分 / 返还 1000 积分</strong></p><p>· <strong>惊喜直减：</strong>6月5日（本周五）全天 <strong>10:00-23:59</strong>，Seedance2.0 模型限时 <strong>3.5 折优惠！</strong></p><p>· <strong>积分返还：</strong>每冲刺 <strong>10000 积分</strong>，加入社群联系客服，凭积分使用截图获得 <strong>1000 积分</strong> 额外返还，上不封顶！（仅限 Seedance2.0 模型）</p>',
   mediaType: null,
   mediaUrl: "",
   posterUrl: "",
@@ -295,7 +295,7 @@ export default function LoginNoticeModal() {
             <div className='max-w-none'>
               <div className='text-[clamp(20px,2.3vw,28px)] font-black leading-[1.36] tracking-normal text-black'>
                 <span className='text-[#2563eb]'>Seedance 2.0</span>
-                <span> 更低价&nbsp; 单条最低约合人民币</span>
+                <span> 更低价&nbsp; 每秒最低约合人民币</span>
                 <span className='text-[#2563eb]'>0.35</span>
                 <span>元</span>
                 <br />

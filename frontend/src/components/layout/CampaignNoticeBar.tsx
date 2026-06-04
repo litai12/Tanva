@@ -117,7 +117,7 @@ export default function CampaignNoticeBar({
           限时3.5折！
         </span>
         <span className="hidden text-sm font-bold text-slate-950 lg:inline">
-          单条最低约合人民币0.35元！
+          每秒最低约合人民币0.35元！
         </span>
         <button
           type="button"
