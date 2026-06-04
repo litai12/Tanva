@@ -68,7 +68,13 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	if rRaw, ok := request.Extra["resolution"]; ok {
 		_ = json.Unmarshal(rRaw, &resolution)
 	}
-	modelVersion := resolveTencentImageVersion(quality, resolution)
+	// 按请求模型名选择腾讯 ModelName/ModelVersion：gemini→GEM，gpt-image-2→OG。
+	// 优先用映射后的上游模型名，回退到客户端请求的 model。
+	reqModel := strings.TrimSpace(info.UpstreamModelName)
+	if reqModel == "" {
+		reqModel = request.Model
+	}
+	modelName, modelVersion := resolveTencentImageModel(reqModel, quality, resolution)
 
 	// Collect reference image URLs
 	var imageURLs []string
@@ -89,7 +95,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	a.imageSecretKey = secretKey
 	a.imageSubAppId = subAppId
 	a.pendingImageReq = &vodCreateImageTaskReq{
-		ModelName:     "OG",
+		ModelName:     modelName,
 		ModelVersion:  modelVersion,
 		SubAppId:      subAppId,
 		EnhancePrompt: "Enabled",
