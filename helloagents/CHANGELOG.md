@@ -62,6 +62,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; Auto with image inputs now follows the first reference image's nearest supported ratio, and explicit ratios pass through for the Fast Generate node instead of being silently cleared.
 - AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
+- Flow/Undo Redo: restoring a same-project history snapshot now preserves the current project view-ready state, so undo/redo no longer triggers the full-screen project loading overlay.
+- Flow/Prompt Mentions: image mention chips now prefer the referenced item name, hide generated numeric token suffixes in the visible badge, tighten chip spacing, and use fixed textarea/overlay line-height to avoid clipped suffix dots and reduce Windows font-metric misalignment.
 - Flow/Prompt Mentions: mention chips now reserve the same layout width as their underlying `@` token, keeping textarea caret hit-testing aligned with the visible text after a chip.
 - Flow/Prompt Mentions: after selecting an `@` image reference, continuing to type after the inserted token no longer reopens the image/source picker; the picker only opens for a newly typed unresolved `@`.
 - Flow/Zoom Performance: Prompt node titles now carry the shared `.tanva-flow-node-title` marker, so 80+ node pan/zoom soft-detail mode keeps the Prompt title visible while hiding only the visible connection-handle dots.

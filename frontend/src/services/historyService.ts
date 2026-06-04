@@ -378,9 +378,8 @@ async function restoreSnapshot(to: Snapshot, opts?: { from?: Snapshot | null; op
       to.content,
       to.version,
       to.savedAt ?? undefined,
-      { resetProjectViewReady: false }
+      { preserveProjectViewReady: true }
     );
-    useProjectContentStore.getState().setProjectViewReady(true);
 
     // 撤销/重做属于“未保存变更”，不应因为 hydrate 被标记为 clean
     try {

@@ -6,7 +6,7 @@ type UpdateOptions = {
 };
 
 type HydrateOptions = {
-  resetProjectViewReady?: boolean;
+  preserveProjectViewReady?: boolean;
 };
 
 const sameCanvasSnapshot = (
@@ -108,9 +108,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       lastError: null,
       lastWarning: null,
       hydrated: true,
-      projectViewReady: options?.resetProjectViewReady === false
-        ? state.projectViewReady
-        : false,
+      projectViewReady: options?.preserveProjectViewReady ? state.projectViewReady : false,
     }));
   },
   updatePartial: (partial, options) => {

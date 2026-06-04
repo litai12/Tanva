@@ -1,7 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
-import { Image as ImageIcon } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
@@ -40,6 +39,7 @@ type Props = {
 const DEFAULT_TITLE = 'Prompt';
 const MIN_NODE_WIDTH = 180;
 const MIN_NODE_HEIGHT = 120;
+const PROMPT_MENTION_LINE_HEIGHT_PX = 17;
 type MentionTab = 'flow' | 'project-library' | 'personal-library';
 
 type MentionCandidate = {
@@ -212,6 +212,65 @@ const getMentionRangeContainingCursor = (
     (range) => range.start < cursor && cursor < range.end
   ) ?? null;
 
+const getPromptMentionChipLabel = (mention: PromptImageMention): string => {
+  const tokenLabel = mention.token.replace(/^@/, '').trim();
+  const rawLabel = (mention.label || tokenLabel).trim();
+  return rawLabel || tokenLabel;
+};
+
+const pickPromptMentionTitle = (...values: unknown[]): string | undefined => {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+};
+
+const normalizePromptMentionTokenLabel = (value: string): string =>
+  value.replace(/\s+/g, ' ').replace(/^@+/, '').trim();
+
+const getPromptMentionTokenHint = (label: string, fallback: string): string => {
+  const normalized = normalizePromptMentionTokenLabel(label) || fallback;
+  return `@${normalized}`;
+};
+
+const getProjectHistoryMentionTitle = (
+  item: GlobalImageHistoryItem,
+  index: number,
+  lt: (zh: string, en: string) => string
+): string => {
+  const metadata = item.metadata ?? {};
+  return pickPromptMentionTitle(
+    metadata.title,
+    metadata.name,
+    metadata.displayName,
+    metadata.fileName,
+    metadata.filename,
+    metadata.imageName,
+    item.prompt,
+    item.sourceProjectName
+  ) ?? lt(`项目图${index + 1}`, `Project image ${index + 1}`);
+};
+
+const getMentionCandidateLookupKeys = (candidate: MentionCandidate): string[] => {
+  const keys = [candidate.id];
+  if (candidate.ref.nodeId) keys.push(`${candidate.source}:node:${candidate.ref.nodeId}`);
+  if (candidate.ref.historyId) keys.push(`${candidate.source}:history:${candidate.ref.historyId}`);
+  if (candidate.ref.assetId) keys.push(`${candidate.source}:asset:${candidate.ref.assetId}`);
+  if (candidate.ref.url) keys.push(`${candidate.source}:url:${candidate.ref.url}`);
+  return keys;
+};
+
+const getPromptMentionLookupKeys = (mention: PromptImageMention): string[] => {
+  const keys = [mention.id];
+  if (mention.ref.nodeId) keys.push(`${mention.source}:node:${mention.ref.nodeId}`);
+  if (mention.ref.historyId) keys.push(`${mention.source}:history:${mention.ref.historyId}`);
+  if (mention.ref.assetId) keys.push(`${mention.source}:asset:${mention.ref.assetId}`);
+  if (mention.ref.url) keys.push(`${mention.source}:url:${mention.ref.url}`);
+  return keys;
+};
+
 function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
@@ -279,16 +338,19 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const flowMentionCandidates = React.useMemo<MentionCandidate[]>(
     () =>
-      siblingImages.map((img) => ({
-        id: `flow:${img.nodeId}:${img.index}`,
-        source: 'flow' as const,
-        title: `图${img.index}`,
-        subtitle: lt('当前工作流', 'Current workflow'),
-        previewUrl: img.url,
-        tokenHint: `@图${img.index}`,
-        flowImage: img,
-        ref: { nodeId: img.nodeId },
-      })),
+      siblingImages.map((img) => {
+        const title = img.title || lt(`图${img.index}`, `Image ${img.index}`);
+        return {
+          id: `flow:${img.nodeId}:${img.index}`,
+          source: 'flow' as const,
+          title,
+          subtitle: lt('当前工作流', 'Current workflow'),
+          previewUrl: img.url,
+          tokenHint: getPromptMentionTokenHint(title, `图${img.index}`),
+          flowImage: img,
+          ref: { nodeId: img.nodeId },
+        };
+      }),
     [lt, siblingImages]
   );
 
@@ -297,17 +359,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       projectLibraryItems
         .filter((item) => getGlobalHistoryMediaType(item) === 'image')
         .map((item, index) => {
-          const title =
-            typeof item.prompt === 'string' && item.prompt.trim().length
-              ? item.prompt.trim()
-              : lt(`项目图片 ${index + 1}`, `Project image ${index + 1}`);
+          const title = getProjectHistoryMentionTitle(item, index, lt);
           return {
             id: `project-library:${item.id}`,
             source: 'project-library' as const,
             title,
             subtitle: item.sourceProjectName || lt('项目库', 'Project library'),
             previewUrl: item.imageUrl,
-            tokenHint: `@项目图${index + 1}`,
+            tokenHint: getPromptMentionTokenHint(title, `项目图${index + 1}`),
             ref: {
               historyId: item.id,
               url: item.imageUrl,
@@ -325,10 +384,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         .map((asset, index) => ({
           id: `personal-library:${asset.id}`,
           source: 'personal-library' as const,
-          title: asset.name || asset.fileName || lt(`资产图片 ${index + 1}`, `Asset image ${index + 1}`),
+          title: asset.name || asset.fileName || lt(`资产${index + 1}`, `Asset ${index + 1}`),
           subtitle: asset.fileName || lt('个人资产库', 'Personal assets'),
           previewUrl: asset.thumbnail || asset.url,
-          tokenHint: `@资产${index + 1}`,
+          tokenHint: getPromptMentionTokenHint(asset.name || asset.fileName || '', `资产${index + 1}`),
           ref: {
             assetId: asset.id,
             url: asset.url,
@@ -345,6 +404,19 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }),
     [flowMentionCandidates, personalMentionCandidates, projectMentionCandidates]
   );
+  const mentionTitleById = React.useMemo(() => {
+    const next = new Map<string, string>();
+    Object.values(candidateGroups).forEach((candidates) => {
+      candidates.forEach((candidate) => {
+        const title = candidate.title.trim();
+        if (!title) return;
+        getMentionCandidateLookupKeys(candidate).forEach((key) => {
+          next.set(key, title);
+        });
+      });
+    });
+    return next;
+  }, [candidateGroups]);
 
   const filterMentionCandidates = React.useCallback((
     candidates: MentionCandidate[],
@@ -387,16 +459,18 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       if (range.start > cursor) {
         nodes.push(value.slice(cursor, range.start));
       }
+      const displayLabel =
+        getPromptMentionLookupKeys(range.mention)
+          .map((key) => mentionTitleById.get(key))
+          .find((label): label is string => Boolean(label)) ||
+        getPromptMentionChipLabel(range.mention);
       nodes.push(
         <span
           key={`${range.mention.id}-${range.start}-${index}`}
           className="tanva-prompt-mention-token"
+          title={displayLabel}
         >
           <span className="tanva-prompt-mention-token-text">{range.mention.token}</span>
-          <span className="tanva-prompt-mention-chip">
-            <ImageIcon size={9} strokeWidth={2.4} aria-hidden="true" />
-            <span>{range.mention.label || range.mention.token.replace(/^@/, '')}</span>
-          </span>
         </span>
       );
       cursor = range.end;
@@ -405,7 +479,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       nodes.push(value.slice(cursor));
     }
     return nodes.length ? nodes : [value];
-  }, [mentionTokenRanges, value]);
+  }, [mentionTitleById, mentionTokenRanges, value]);
 
   const detectAtMention = React.useCallback((
     text: string,
@@ -665,31 +739,36 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return mentionsRef.current.find((mention) => mention.id === candidate.id) ?? null;
   }, []);
 
-  const buildUniqueToken = React.useCallback((prefix: string, currentText: string): string => {
+  const buildUniqueToken = React.useCallback((label: string, currentText: string): string => {
     const existingTokens = new Set(mentionsRef.current.map((mention) => mention.token));
-    for (let i = 1; i < 1000; i += 1) {
-      const token = `@${prefix}${i}`;
+    const normalized = normalizePromptMentionTokenLabel(label) || '图';
+    const baseToken = `@${normalized}`;
+    if (!currentText.includes(baseToken) && !existingTokens.has(baseToken)) {
+      return baseToken;
+    }
+    for (let i = 2; i < 1000; i += 1) {
+      const token = `${baseToken}-${i}`;
       if (!currentText.includes(token) && !existingTokens.has(token)) return token;
     }
-    return `@${prefix}${Date.now()}`;
+    return `${baseToken}-${Date.now()}`;
   }, []);
 
   const createMentionFromCandidate = React.useCallback((
     candidate: MentionCandidate,
     currentText: string
   ): PromptImageMention => {
+    const label = candidate.title.trim();
     const reusable = getReusableMention(candidate);
-    if (reusable) return reusable;
+    if (reusable) {
+      return label && reusable.label !== label ? { ...reusable, label } : reusable;
+    }
 
-    const token =
-      candidate.source === 'flow'
-        ? candidate.tokenHint
-        : buildUniqueToken(candidate.source === 'project-library' ? '项目图' : '资产', currentText);
+    const token = buildUniqueToken(label || candidate.tokenHint.replace(/^@/, ''), currentText);
 
     return {
       id: candidate.id,
       token,
-      label: token.replace(/^@/, ''),
+      label: label || token.replace(/^@/, ''),
       source: candidate.source,
       mediaType: 'image',
       ref: candidate.ref,
@@ -1181,12 +1260,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 width: '100%',
                 padding: 6,
                 fontSize: 12,
-                lineHeight: 1.45,
+                lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
                 color: '#1f2937',
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
                 fontFamily: 'inherit',
+                letterSpacing: 0,
               }}
             >
               {mentionOverlayNodes}
@@ -1238,7 +1318,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             overflowY: 'auto',
             overflowX: 'hidden',
             fontSize: 12,
-            lineHeight: 1.45,
+            lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
             border: 'none',
             borderRadius: 6,
             padding: 6,
@@ -1246,8 +1326,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             pointerEvents: isPromptEditable ? 'auto' : 'none',
             background: 'transparent',
             color: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
+            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
             caretColor: '#111827',
             fontFamily: 'inherit',
+            letterSpacing: 0,
             whiteSpace: 'pre-wrap',
             overflowWrap: 'break-word',
             wordBreak: 'break-word',
