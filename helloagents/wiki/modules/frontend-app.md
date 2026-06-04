@@ -51,7 +51,8 @@
 - 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content, contentHtml, mediaType, mediaUrl, posterUrl, primaryButtonText, primaryButtonUrl, secondaryButtonText, secondaryButtonUrl }`）。后台编辑器支持受限富文本：字体、字号、颜色、背景色、加粗、斜体、下划线；保存时同时保留纯文本 `content` 兼容旧客户端。顶部媒体支持图片或静音循环视频，媒体和封面均通过 OSS 上传或远程 URL 配置。
 - 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。前端渲染 `contentHtml` 前会通过白名单清洗，仅允许安全标签和样式；媒体 URL 会拒绝 `data:`/`blob:`/`javascript:`。
 - 按钮动作：次按钮 URL 填 `/__action__/wechat` 会关闭登录提醒并打开/固定工作区右上角微信二维码浮层；留空且按钮文案包含“社群/微信/WeChat”时也按微信动作处理。内部 URL 使用 React Router 跳转，目标路径与当前路径相同（如已在 `/app`）时只关闭弹窗，不刷新画布。
-- 默认内置活动：`seedance-2-default-2026-06-04` 走前端双页轮播。第一页为 Seedance 2.0 视频，并保留原有媒体比例、文案排版和底部按钮区样式，只额外新增右侧浮动箭头；视频播放结束自动滑到 2026 Tanvas AI 创作公开赛页。公开赛页只显示左箭头，并保留“赛事报名 | 加入赛事交流群”和“获取赛事详细信息”按钮。
+- 默认内置活动：`seedance-2-default-2026-06-04` 走前端双页轮播。第一页为 Seedance 2.0 视频，并保留原有媒体比例、文案排版和底部按钮区样式，只额外新增右侧浮动箭头；视频播放结束自动滑到 2026 Tanvas AI 创作公开赛页。公开赛页只显示左箭头，并保留“赛事报名 | 加入赛事交流群”和“获取赛事详细信息”按钮；“获取赛事详细信息”会新开页面打开公众号文章 `https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g`，不替换当前画板页。
+- 公开赛二维码：管理后台微信咨询二维码设置新增 `contest_registration_qrcode`（赛事报名二维码）。公开赛页“赛事报名 | 加入赛事交流群”按钮触碰或点击时展示两个二维码：赛事报名二维码和 `login_notice_button_qrcode`（进入公告的按钮二维码）；弹窗重新打开、切到公开赛页、触发该按钮时都会重新读取公开二维码接口，避免后台刚上传后前端仍持有旧空状态。
 - 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
 
 ## 我的积分（`/my-credits`）

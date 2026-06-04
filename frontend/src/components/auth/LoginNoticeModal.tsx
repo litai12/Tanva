@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,17 @@ import tanvasAiNoticeImage from "@/assets/TanvasAI.png";
 
 const DISMISSED_KEY_PREFIX = "tanva:login-notice:dismissed";
 const DEFAULT_SEEDANCE_NOTICE_UPDATED_AT = "seedance-2-default-2026-06-04";
+const CONTEST_DETAIL_URL =
+  "https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g";
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "http://localhost:4000";
 type DefaultNoticeSlide = "seedance" | "contest";
+type LoginNoticeQrUrls = {
+  loginNoticeButton: string;
+  wechatGroup: string;
+  contestRegistration: string;
+};
 
 const buildApiUrl = (path: string) => {
   const base = API_BASE.replace(/\/+$/, "");
@@ -88,12 +95,64 @@ const sanitizeNoticeUrl = (value: unknown) => {
   return "";
 };
 
-const getLoginNoticeButtonQrUrl = async () => {
-  const response = await fetch(buildApiUrl("/api/settings/wechat-qrcodes"));
-  if (!response.ok) return "";
+const getLoginNoticeQrUrls = async (): Promise<LoginNoticeQrUrls> => {
+  const response = await fetch(
+    buildApiUrl(`/api/settings/wechat-qrcodes?_t=${Date.now()}`)
+  );
+  if (!response.ok) {
+    return {
+      loginNoticeButton: "",
+      wechatGroup: "",
+      contestRegistration: "",
+    };
+  }
   const data = await response.json().catch(() => ({}));
-  return sanitizeNoticeUrl(data?.loginNoticeButton);
+  return {
+    loginNoticeButton: sanitizeNoticeUrl(data?.loginNoticeButton),
+    wechatGroup: sanitizeNoticeUrl(data?.wechatGroup),
+    contestRegistration: sanitizeNoticeUrl(
+      data?.contestRegistration ||
+        data?.contestRegistrationQrUrl ||
+        data?.contestRegistrationQrCode ||
+        data?.contest_registration_qrcode
+    ),
+  };
 };
+
+function NoticeQrImage({ label, url }: { label: string; url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  if (!url) {
+    return (
+      <div className='flex h-full w-full items-center justify-center rounded-lg bg-slate-100 px-3 text-center text-xs font-semibold leading-relaxed text-slate-400'>
+        未配置
+      </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <div className='flex h-full w-full items-center justify-center rounded-lg bg-slate-100 px-3 text-center text-xs font-semibold leading-relaxed text-slate-400'>
+        图片加载失败
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt=''
+      aria-label={`${label}二维码`}
+      className='block h-full w-full object-contain'
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export default function LoginNoticeModal() {
   const user = useAuthStore((state) => state.user);
@@ -105,6 +164,8 @@ export default function LoginNoticeModal() {
   const [visible, setVisible] = useState(false);
   const [secondaryQrOpen, setSecondaryQrOpen] = useState(false);
   const [noticeButtonQrUrl, setNoticeButtonQrUrl] = useState("");
+  const [wechatGroupQrUrl, setWechatGroupQrUrl] = useState("");
+  const [contestRegistrationQrUrl, setContestRegistrationQrUrl] = useState("");
   const [defaultSlide, setDefaultSlide] =
     useState<DefaultNoticeSlide>("seedance");
   const seedanceVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -118,6 +179,23 @@ export default function LoginNoticeModal() {
   const mediaType = notice?.mediaUrl ? notice.mediaType : "video";
   const isDefaultSeedanceNotice =
     notice?.updatedAt === DEFAULT_SEEDANCE_NOTICE_UPDATED_AT;
+  const applyLoginNoticeQrUrls = useCallback((urls: LoginNoticeQrUrls) => {
+    if (urls.loginNoticeButton) {
+      setNoticeButtonQrUrl(urls.loginNoticeButton);
+    }
+    if (urls.wechatGroup) {
+      setWechatGroupQrUrl(urls.wechatGroup);
+    }
+    if (urls.contestRegistration) {
+      setContestRegistrationQrUrl(urls.contestRegistration);
+    }
+  }, []);
+
+  const refreshLoginNoticeQrUrls = useCallback(async () => {
+    try {
+      applyLoginNoticeQrUrls(await getLoginNoticeQrUrls());
+    } catch {}
+  }, [applyLoginNoticeQrUrls]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,21 +242,12 @@ export default function LoginNoticeModal() {
   }, [location.pathname, user?.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    getLoginNoticeButtonQrUrl()
-      .then((url) => {
-        if (!cancelled && url) {
-          setNoticeButtonQrUrl(url);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refreshLoginNoticeQrUrls();
+  }, [refreshLoginNoticeQrUrls]);
 
   useEffect(() => {
     const handleOpenCampaignNoticeDetail = () => {
+      void refreshLoginNoticeQrUrls();
       setNotice(DEFAULT_SEEDANCE_NOTICE);
       setDismissedKey(null);
       setSecondaryQrOpen(false);
@@ -196,7 +265,7 @@ export default function LoginNoticeModal() {
         handleOpenCampaignNoticeDetail
       );
     };
-  }, []);
+  }, [refreshLoginNoticeQrUrls]);
 
   useEffect(() => {
     if (!visible || !isDefaultSeedanceNotice || defaultSlide !== "seedance") {
@@ -252,6 +321,7 @@ export default function LoginNoticeModal() {
         secondaryText
       )
     ) {
+      void refreshLoginNoticeQrUrls();
       setSecondaryQrOpen(true);
       return;
     }
@@ -268,58 +338,64 @@ export default function LoginNoticeModal() {
     handleAction(notice.secondaryButtonUrl);
   };
   const handleContestDetailAction = () => {
-    markAndHide();
+    handleAction(CONTEST_DETAIL_URL);
   };
   const showSeedanceSlide = () => {
     setSecondaryQrOpen(false);
     setDefaultSlide("seedance");
   };
   const showContestSlide = () => {
+    void refreshLoginNoticeQrUrls();
     setSecondaryQrOpen(false);
     setDefaultSlide("contest");
+  };
+  const openSecondaryQrPopover = () => {
+    void refreshLoginNoticeQrUrls();
+    setSecondaryQrOpen(true);
+  };
+  const openContestQrPopover = () => {
+    void refreshLoginNoticeQrUrls();
+    setSecondaryQrOpen(true);
   };
   const qrPopover = secondaryQrOpen && secondaryButtonQrUrl ? (
     <div className='absolute bottom-full left-1/2 z-[1700] mb-3 w-40 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.22)]'>
       <div className='aspect-square w-full rounded-xl bg-white p-1'>
-        <img
-          src={secondaryButtonQrUrl}
-          alt='加入社群二维码'
-          className='h-full w-full object-contain'
-          draggable={false}
-        />
+        <NoticeQrImage label='加入社群' url={secondaryButtonQrUrl} />
       </div>
       <div className='mt-2 text-center text-xs font-semibold text-slate-700'>
         扫码加入社群
       </div>
     </div>
   ) : null;
-  const communityButton = (
-    label: string,
-    className = ""
-  ) => (
-    <div
-      className={`relative ${className}`}
-      onMouseEnter={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
-      onMouseLeave={() => setSecondaryQrOpen(false)}
-      onFocus={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
-      onBlur={() => setSecondaryQrOpen(false)}
-    >
-      {qrPopover}
-      <Button
-        type='button'
-        onClick={handleSecondaryAction}
-        onPointerDown={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
-        className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-black shadow-none hover:bg-slate-50'
+  const contestGroupQrUrl = noticeButtonQrUrl || wechatGroupQrUrl || "/qrcode-group.png";
+  const contestQrItems = [
+    { label: "赛事报名", url: contestRegistrationQrUrl },
+    { label: "赛事交流群", url: contestGroupQrUrl },
+  ];
+  const contestQrPopover =
+    secondaryQrOpen && contestQrItems.length > 0 ? (
+      <div
+        className='absolute bottom-full left-1/2 z-[1700] mb-3 w-[21rem] -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.22)]'
       >
-        {label}
-      </Button>
-    </div>
-  );
+        <div className='grid grid-cols-2 gap-3'>
+          {contestQrItems.map((item) => (
+            <div key={item.label} className='min-w-0'>
+              <div className='aspect-square w-full rounded-xl bg-white p-1'>
+                <NoticeQrImage label={item.label} url={item.url} />
+              </div>
+              <div className='mt-2 text-center text-xs font-semibold text-slate-700'>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null;
   const closeButton = (
     <button
       type='button'
       onClick={markAndHide}
-      className='absolute right-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-full text-white/65 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60'
+      className='absolute right-3 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/70 focus:outline-none focus:ring-2 focus:ring-white/60'
       aria-label='关闭弹窗'
     >
       <X className='h-5 w-5' />
@@ -374,7 +450,7 @@ export default function LoginNoticeModal() {
                 <button
                   type='button'
                   onClick={showContestSlide}
-                  className='absolute right-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/18 text-white backdrop-blur-sm transition hover:bg-white/28 focus:outline-none focus:ring-2 focus:ring-white/70'
+                  className='absolute right-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/30 text-white backdrop-blur-sm transition hover:bg-white/40 focus:outline-none focus:ring-2 focus:ring-white/70'
                   aria-label='查看 Tanvas AI 创作公开赛'
                 >
                   <ChevronRight className='h-6 w-6' />
@@ -421,16 +497,16 @@ export default function LoginNoticeModal() {
               >
                 <div
                   className='relative'
-                  onMouseEnter={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+                  onMouseEnter={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
                   onMouseLeave={() => setSecondaryQrOpen(false)}
-                  onFocus={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+                  onFocus={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
                   onBlur={() => setSecondaryQrOpen(false)}
                 >
                   {qrPopover}
                   <Button
                     type='button'
                     onClick={handleSecondaryAction}
-                    onPointerDown={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+                    onPointerDown={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
                     className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-black shadow-none hover:bg-slate-50'
                   >
                     {secondaryText}
@@ -460,13 +536,13 @@ export default function LoginNoticeModal() {
                   draggable={false}
                 />
                 <div className='pointer-events-none absolute inset-x-0 bottom-0 h-[54%] bg-gradient-to-t from-black/90 via-black/52 to-transparent' />
-                <div className='pointer-events-none absolute bottom-[7%] left-[5%] right-[5%] text-[clamp(22px,4vw,30px)] font-black leading-tight tracking-normal text-white'>
+                <div className='pointer-events-none absolute bottom-[7%] left-[6%] right-[5%] text-[clamp(25px,2.65vw,35px)] font-black leading-none tracking-normal text-white'>
                   2026 Tanvas AI 全球AI创意自由创作公开赛
                 </div>
                 <button
                   type='button'
                   onClick={showSeedanceSlide}
-                  className='absolute left-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/18 text-white backdrop-blur-sm transition hover:bg-white/28 focus:outline-none focus:ring-2 focus:ring-white/70'
+                  className='absolute left-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/30 text-white backdrop-blur-sm transition hover:bg-white/40 focus:outline-none focus:ring-2 focus:ring-white/70'
                   aria-label='返回 Seedance 2.0 活动'
                 >
                   <ChevronLeft className='h-6 w-6' />
@@ -474,7 +550,7 @@ export default function LoginNoticeModal() {
               </div>
 
               <div className='min-h-0 flex-1 overflow-y-auto bg-white px-[clamp(28px,4.5vw,56px)] pb-4 pt-[clamp(24px,3vw,36px)]'>
-                <div className='text-[clamp(18px,2.3vw,26px)] font-black leading-[1.32] tracking-normal text-black'>
+                <div className='text-[clamp(20px,2.3vw,28px)] font-black leading-[1.36] tracking-normal text-black'>
                   参赛赢百万算力 | 全年会员 | 商业签约 | 丰厚奖金
                 </div>
                 <div className='mt-[clamp(14px,1.8vw,22px)] space-y-2 text-[clamp(11px,1.25vw,14px)] font-medium leading-[1.45] tracking-normal text-[#4b4b4b]'>
@@ -494,7 +570,23 @@ export default function LoginNoticeModal() {
               </div>
 
               <div className='grid shrink-0 gap-[clamp(20px,3vw,38px)] bg-white px-[clamp(28px,4.5vw,56px)] pb-[clamp(24px,3.2vw,36px)] pt-2 sm:grid-cols-2'>
-                {communityButton("赛事报名 | 加入赛事交流群")}
+                <div
+                  className='relative'
+                  onMouseEnter={openContestQrPopover}
+                  onMouseLeave={() => setSecondaryQrOpen(false)}
+                  onFocus={openContestQrPopover}
+                  onBlur={() => setSecondaryQrOpen(false)}
+                >
+                  {contestQrPopover}
+                  <Button
+                    type='button'
+                    onClick={openContestQrPopover}
+                    onPointerDown={openContestQrPopover}
+                    className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-black shadow-none hover:bg-slate-50'
+                  >
+                    赛事报名 | 加入赛事交流群
+                  </Button>
+                </div>
                 <Button
                   type='button'
                   onClick={handleContestDetailAction}
@@ -603,30 +695,16 @@ export default function LoginNoticeModal() {
         >
           <div
             className='relative'
-            onMouseEnter={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+            onMouseEnter={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
             onMouseLeave={() => setSecondaryQrOpen(false)}
-            onFocus={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+            onFocus={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
             onBlur={() => setSecondaryQrOpen(false)}
           >
-            {secondaryQrOpen && secondaryButtonQrUrl ? (
-              <div className='absolute bottom-full left-1/2 z-[1700] mb-3 w-40 -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.22)]'>
-                <div className='aspect-square w-full rounded-xl bg-white p-1'>
-                  <img
-                    src={secondaryButtonQrUrl}
-                    alt='加入社群二维码'
-                    className='h-full w-full object-contain'
-                    draggable={false}
-                  />
-                </div>
-                <div className='mt-2 text-center text-xs font-semibold text-slate-700'>
-                  扫码加入社群
-                </div>
-              </div>
-            ) : null}
+            {qrPopover}
             <Button
               type='button'
               onClick={handleSecondaryAction}
-              onPointerDown={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
+              onPointerDown={() => secondaryButtonQrUrl && openSecondaryQrPopover()}
               className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-black shadow-none hover:bg-slate-50'
             >
               {secondaryText}

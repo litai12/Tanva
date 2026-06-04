@@ -61,6 +61,7 @@ export type CreditChangeSource = 'recharge' | 'admin_add' | 'admin_deduct';
 
 export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
 export const LOGIN_NOTICE_BUTTON_QRCODE_SETTING_KEY = 'login_notice_button_qrcode';
+export const CONTEST_REGISTRATION_QRCODE_SETTING_KEY = 'contest_registration_qrcode';
 
 export interface LoginNoticeView {
   enabled: boolean;
