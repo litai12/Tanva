@@ -60,7 +60,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
-- Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; explicit ratios now pass through for the Fast Generate node instead of being silently cleared.
+- Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; Auto with image inputs now follows the first reference image's nearest supported ratio, and explicit ratios pass through for the Fast Generate node instead of being silently cleared.
 - AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
 - Flow/Prompt Mentions: mention chips now reserve the same layout width as their underlying `@` token, keeping textarea caret hit-testing aligned with the visible text after a chip.
 - Flow/Prompt Mentions: after selecting an `@` image reference, continuing to type after the inserted token no longer reopens the image/source picker; the picker only opens for a newly typed unresolved `@`.
