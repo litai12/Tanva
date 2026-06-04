@@ -14,6 +14,7 @@ import {
   plainTextToLoginNoticeHtml,
   sanitizeLoginNoticeHtml,
 } from "@/utils/loginNoticeRichText";
+import { WECHAT_QR_ACTION_URL } from "@/utils/wechatQrPanel";
 import {
   getDashboardStats,
   getUsers,
@@ -8729,9 +8730,33 @@ function ModelManagementTab() {
   );
 }
 
-const parseLoginNoticeSetting = (setting?: SystemSetting | null) => {
+type LoginNoticeSettingForm = {
+  enabled: boolean;
+  content: string;
+  contentHtml: string;
+  mediaType: "image" | "video";
+  mediaUrl: string;
+  posterUrl: string;
+  primaryButtonText: string;
+  primaryButtonUrl: string;
+  secondaryButtonText: string;
+  secondaryButtonUrl: string;
+};
+
+const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSettingForm => {
   if (!setting?.value) {
-    return { enabled: false, content: "", contentHtml: "" };
+    return {
+      enabled: false,
+      content: "",
+      contentHtml: "",
+      mediaType: "image" as const,
+      mediaUrl: "",
+      posterUrl: "",
+      primaryButtonText: "",
+      primaryButtonUrl: "",
+      secondaryButtonText: "",
+      secondaryButtonUrl: "",
+    };
   }
 
   try {
@@ -8744,10 +8769,21 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null) => {
           : content
             ? plainTextToLoginNoticeHtml(content)
             : "";
+      const mediaUrl = sanitizeLoginNoticeSettingUrl(parsed.mediaUrl);
+      const mediaType = mediaUrl && parsed.mediaType === "video" ? "video" : "image";
       return {
         enabled: parsed.enabled === true,
         content,
         contentHtml,
+        mediaType,
+        mediaUrl,
+        posterUrl: sanitizeLoginNoticeSettingUrl(parsed.posterUrl),
+        primaryButtonText:
+          typeof parsed.primaryButtonText === "string" ? parsed.primaryButtonText : "",
+        primaryButtonUrl: sanitizeLoginNoticeSettingUrl(parsed.primaryButtonUrl),
+        secondaryButtonText:
+          typeof parsed.secondaryButtonText === "string" ? parsed.secondaryButtonText : "",
+        secondaryButtonUrl: sanitizeLoginNoticeSettingUrl(parsed.secondaryButtonUrl),
       };
     }
   } catch {
@@ -8755,10 +8791,37 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null) => {
       enabled: true,
       content: setting.value,
       contentHtml: plainTextToLoginNoticeHtml(setting.value),
+      mediaType: "image" as const,
+      mediaUrl: "",
+      posterUrl: "",
+      primaryButtonText: "",
+      primaryButtonUrl: "",
+      secondaryButtonText: "",
+      secondaryButtonUrl: "",
     };
   }
 
-  return { enabled: false, content: "", contentHtml: "" };
+  return {
+    enabled: false,
+    content: "",
+    contentHtml: "",
+    mediaType: "image" as const,
+    mediaUrl: "",
+    posterUrl: "",
+    primaryButtonText: "",
+    primaryButtonUrl: "",
+    secondaryButtonText: "",
+    secondaryButtonUrl: "",
+  };
+};
+
+const sanitizeLoginNoticeSettingUrl = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^(?:javascript|data|blob):/i.test(trimmed)) return "";
+  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return trimmed;
+  return "";
 };
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -8767,8 +8830,17 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 function LoginNoticeSettingsTab() {
   const [enabled, setEnabled] = useState(false);
   const [contentHtml, setContentHtml] = useState("");
+  const [mediaType, setMediaType] = useState<"image" | "video">("image");
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [posterUrl, setPosterUrl] = useState("");
+  const [primaryButtonText, setPrimaryButtonText] = useState("");
+  const [primaryButtonUrl, setPrimaryButtonUrl] = useState("");
+  const [secondaryButtonText, setSecondaryButtonText] = useState("");
+  const [secondaryButtonUrl, setSecondaryButtonUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const plainContent = loginNoticeHtmlToText(contentHtml);
@@ -8781,10 +8853,24 @@ function LoginNoticeSettingsTab() {
       const parsed = parseLoginNoticeSetting(setting);
       setEnabled(parsed.enabled);
       setContentHtml(parsed.contentHtml || plainTextToLoginNoticeHtml(parsed.content));
+      setMediaType(parsed.mediaType);
+      setMediaUrl(parsed.mediaUrl);
+      setPosterUrl(parsed.posterUrl);
+      setPrimaryButtonText(parsed.primaryButtonText);
+      setPrimaryButtonUrl(parsed.primaryButtonUrl);
+      setSecondaryButtonText(parsed.secondaryButtonText);
+      setSecondaryButtonUrl(parsed.secondaryButtonUrl);
       setLastUpdatedAt(setting.updatedAt);
     } catch {
       setEnabled(false);
       setContentHtml("");
+      setMediaType("image");
+      setMediaUrl("");
+      setPosterUrl("");
+      setPrimaryButtonText("");
+      setPrimaryButtonUrl("");
+      setSecondaryButtonText("");
+      setSecondaryButtonUrl("");
       setLastUpdatedAt(null);
     } finally {
       setLoading(false);
@@ -8795,9 +8881,49 @@ function LoginNoticeSettingsTab() {
     void loadNotice();
   }, [loadNotice]);
 
+  const handleNoticeMediaUpload = async (file: File, target: "media" | "poster") => {
+    const isVideoFile = file.type.startsWith("video/");
+    const isImageFile = file.type.startsWith("image/");
+    if (target === "poster" && !isImageFile) {
+      setStatusText("封面图只能上传图片文件");
+      return;
+    }
+    if (target === "media" && !isVideoFile && !isImageFile) {
+      setStatusText("顶部媒体只能上传图片或视频文件");
+      return;
+    }
+
+    const setUploading = target === "media" ? setUploadingMedia : setUploadingPoster;
+    setUploading(true);
+    setStatusText("");
+    try {
+      const { uploadToOSS } = await import("@/services/ossUploadService");
+      const result = await uploadToOSS(file, {
+        dir: "settings/login-notices/",
+        fileName: file.name,
+      });
+      if (!result.success || !result.url) {
+        throw new Error(result.error || "上传失败");
+      }
+      if (target === "media") {
+        setMediaType(isVideoFile ? "video" : "image");
+        setMediaUrl(result.url);
+      } else {
+        setPosterUrl(result.url);
+      }
+      setStatusText("上传成功");
+    } catch (error) {
+      setStatusText(getErrorMessage(error, "上传失败，请稍后重试"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSave = async () => {
     const sanitizedContentHtml = sanitizeLoginNoticeHtml(contentHtml);
     const normalizedContent = loginNoticeHtmlToText(sanitizedContentHtml);
+    const normalizedMediaUrl = sanitizeLoginNoticeSettingUrl(mediaUrl);
+    const normalizedPosterUrl = sanitizeLoginNoticeSettingUrl(posterUrl);
     if (enabled && normalizedContent.length === 0) {
       setStatusText("开启提醒时，提醒内容不能为空");
       return;
@@ -8817,6 +8943,13 @@ function LoginNoticeSettingsTab() {
             enabled,
             content: normalizedContent,
             contentHtml: sanitizedContentHtml,
+            mediaType: normalizedMediaUrl ? mediaType : null,
+            mediaUrl: normalizedMediaUrl,
+            posterUrl: normalizedPosterUrl,
+            primaryButtonText: primaryButtonText.trim(),
+            primaryButtonUrl: sanitizeLoginNoticeSettingUrl(primaryButtonUrl),
+            secondaryButtonText: secondaryButtonText.trim(),
+            secondaryButtonUrl: sanitizeLoginNoticeSettingUrl(secondaryButtonUrl),
           },
           null,
           2
@@ -8857,6 +8990,150 @@ function LoginNoticeSettingsTab() {
           </label>
         </div>
 
+        <div className='mt-6 rounded-lg border border-gray-200 bg-gray-50/60 p-4'>
+          <div className='flex flex-col gap-4 lg:flex-row'>
+            <div className='flex-1 space-y-4'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700'>顶部媒体</label>
+                <p className='mt-1 text-xs text-gray-400'>
+                  用于弹窗上半部分，支持图片或自动静音循环播放的视频。
+                </p>
+              </div>
+
+              <div className='grid gap-3 sm:grid-cols-[160px_1fr]'>
+                <div className='space-y-2'>
+                  <label className='block text-xs font-medium text-gray-500'>媒体类型</label>
+                  <select
+                    value={mediaType}
+                    onChange={(event) => {
+                      setMediaType(event.target.value === "video" ? "video" : "image");
+                      if (statusText) setStatusText("");
+                    }}
+                    className='h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none'
+                    disabled={saving || uploadingMedia}
+                  >
+                    <option value='image'>图片</option>
+                    <option value='video'>视频</option>
+                  </select>
+                </div>
+                <div className='space-y-2'>
+                  <label className='block text-xs font-medium text-gray-500'>媒体 URL</label>
+                  <Input
+                    value={mediaUrl}
+                    onChange={(event) => {
+                      setMediaUrl(event.target.value);
+                      if (statusText) setStatusText("");
+                    }}
+                    placeholder='https://... 或 /assets/...'
+                    disabled={saving || uploadingMedia}
+                    className='bg-white'
+                  />
+                </div>
+              </div>
+
+              <div className='flex flex-wrap items-center gap-3'>
+                <label
+                  className={`inline-flex h-10 cursor-pointer items-center rounded-lg border px-4 text-sm transition ${
+                    saving || uploadingMedia
+                      ? "border-gray-200 bg-gray-100 text-gray-400"
+                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type='file'
+                    accept='image/*,video/*'
+                    className='hidden'
+                    disabled={saving || uploadingMedia}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleNoticeMediaUpload(file, "media");
+                      event.target.value = "";
+                    }}
+                  />
+                  {uploadingMedia ? "上传中..." : "上传图片/视频"}
+                </label>
+                {mediaUrl ? (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    onClick={() => {
+                      setMediaUrl("");
+                      setPosterUrl("");
+                    }}
+                    disabled={saving || uploadingMedia}
+                  >
+                    移除媒体
+                  </Button>
+                ) : null}
+              </div>
+
+              {mediaType === "video" ? (
+                <div className='grid gap-3 sm:grid-cols-[1fr_auto]'>
+                  <div className='space-y-2'>
+                    <label className='block text-xs font-medium text-gray-500'>视频封面 URL</label>
+                    <Input
+                      value={posterUrl}
+                      onChange={(event) => {
+                        setPosterUrl(event.target.value);
+                        if (statusText) setStatusText("");
+                      }}
+                      placeholder='可选，视频加载前展示'
+                      disabled={saving || uploadingPoster}
+                      className='bg-white'
+                    />
+                  </div>
+                  <label
+                    className={`mt-6 inline-flex h-10 cursor-pointer items-center rounded-lg border px-4 text-sm transition ${
+                      saving || uploadingPoster
+                        ? "border-gray-200 bg-gray-100 text-gray-400"
+                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <input
+                      type='file'
+                      accept='image/*'
+                      className='hidden'
+                      disabled={saving || uploadingPoster}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void handleNoticeMediaUpload(file, "poster");
+                        event.target.value = "";
+                      }}
+                    />
+                    {uploadingPoster ? "上传中..." : "上传封面"}
+                  </label>
+                </div>
+              ) : null}
+            </div>
+
+            <div className='w-full lg:w-[280px]'>
+              <div className='aspect-video overflow-hidden rounded-lg border border-gray-200 bg-white'>
+                {mediaUrl ? (
+                  mediaType === "video" ? (
+                    <video
+                      src={mediaUrl}
+                      poster={posterUrl || undefined}
+                      controls
+                      muted
+                      className='h-full w-full bg-black object-cover'
+                    />
+                  ) : (
+                    <img
+                      src={mediaUrl}
+                      alt='登录提醒顶部媒体预览'
+                      className='h-full w-full object-cover'
+                    />
+                  )
+                ) : (
+                  <div className='flex h-full items-center justify-center text-xs text-gray-400'>
+                    暂无媒体
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className='mt-6 space-y-2'>
           <label className='block text-sm font-medium text-gray-700'>提醒内容</label>
           <LoginNoticeRichTextEditor
@@ -8870,6 +9147,50 @@ function LoginNoticeSettingsTab() {
           <div className='text-xs text-gray-400'>
             前台会按富文本样式展示，同时保留纯文本内容用于兼容旧客户端。
             当前纯文本长度：{plainContent.length}/{LOGIN_NOTICE_MAX_TEXT_LENGTH}
+          </div>
+        </div>
+
+        <div className='mt-6 rounded-lg border border-gray-200 bg-gray-50/60 p-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700'>底部按钮</label>
+            <p className='mt-1 text-xs text-gray-400'>
+              左侧为次按钮，右侧为主按钮；跳转为空时点击后只关闭弹窗。
+            </p>
+          </div>
+          <div className='mt-4 grid gap-4 md:grid-cols-2'>
+            <div className='space-y-3 rounded-lg border border-gray-200 bg-white p-4'>
+              <div className='text-sm font-medium text-gray-700'>次按钮</div>
+              <Input
+                value={secondaryButtonText}
+                onChange={(event) => setSecondaryButtonText(event.target.value)}
+                placeholder='例如：加入社群 获取积分赠礼'
+                disabled={saving}
+              />
+              <Input
+                value={secondaryButtonUrl}
+                onChange={(event) => setSecondaryButtonUrl(event.target.value)}
+                placeholder={`跳转 URL；填 ${WECHAT_QR_ACTION_URL} 打开微信二维码`}
+                disabled={saving}
+              />
+              <p className='text-xs text-gray-400'>
+                留空时只关闭弹窗；社群/微信按钮也会打开右上角二维码浮层。
+              </p>
+            </div>
+            <div className='space-y-3 rounded-lg border border-gray-200 bg-white p-4'>
+              <div className='text-sm font-medium text-gray-700'>主按钮</div>
+              <Input
+                value={primaryButtonText}
+                onChange={(event) => setPrimaryButtonText(event.target.value)}
+                placeholder='例如：开始创作'
+                disabled={saving}
+              />
+              <Input
+                value={primaryButtonUrl}
+                onChange={(event) => setPrimaryButtonUrl(event.target.value)}
+                placeholder='例如：/app（当前已在画布时只关闭弹窗）'
+                disabled={saving}
+              />
+            </div>
           </div>
         </div>
 

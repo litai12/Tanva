@@ -46,8 +46,9 @@
 
 ## 登录提醒弹窗
 - 组件：`frontend/src/components/auth/LoginNoticeModal.tsx`
-- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content, contentHtml }`）。后台编辑器支持受限富文本：字体、字号、颜色、背景色、加粗、斜体、下划线；保存时同时保留纯文本 `content` 兼容旧客户端。
-- 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。前端渲染 `contentHtml` 前会通过白名单清洗，仅允许安全标签和样式。
+- 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content, contentHtml, mediaType, mediaUrl, posterUrl, primaryButtonText, primaryButtonUrl, secondaryButtonText, secondaryButtonUrl }`）。后台编辑器支持受限富文本：字体、字号、颜色、背景色、加粗、斜体、下划线；保存时同时保留纯文本 `content` 兼容旧客户端。顶部媒体支持图片或静音循环视频，媒体和封面均通过 OSS 上传或远程 URL 配置。
+- 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。前端渲染 `contentHtml` 前会通过白名单清洗，仅允许安全标签和样式；媒体 URL 会拒绝 `data:`/`blob:`/`javascript:`。
+- 按钮动作：次按钮 URL 填 `/__action__/wechat` 会关闭登录提醒并打开/固定工作区右上角微信二维码浮层；留空且按钮文案包含“社群/微信/WeChat”时也按微信动作处理。内部 URL 使用 React Router 跳转，目标路径与当前路径相同（如已在 `/app`）时只关闭弹窗，不刷新画布。
 - 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
 
 ## 我的积分（`/my-credits`）

@@ -143,6 +143,29 @@ const sanitizeTextAlign = (value: string | null | undefined) => {
   return ["left", "center", "right"].includes(trimmed) ? trimmed : "";
 };
 
+const sanitizeLineHeight = (value: string | null | undefined) => {
+  const trimmed = (value || "").trim().toLowerCase();
+  if (!trimmed) return "";
+  if (/^(?:1|1\.\d{1,2}|2|2\.\d{1,2})$/.test(trimmed)) return trimmed;
+  const px = trimmed.match(/^(\d{1,2})px$/);
+  if (px) {
+    const size = Number(px[1]);
+    return size >= 12 && size <= 64 ? `${size}px` : "";
+  }
+  return "";
+};
+
+const sanitizeSpacing = (value: string | null | undefined) => {
+  const trimmed = (value || "").trim().toLowerCase();
+  if (!trimmed) return "";
+  const px = trimmed.match(/^(\d{1,2})px$/);
+  if (px) {
+    const size = Number(px[1]);
+    return size >= 0 && size <= 48 ? `${size}px` : "";
+  }
+  return "";
+};
+
 const sanitizeFontFamily = (value: string | null | undefined) => {
   const trimmed = (value || "").trim();
   if (!trimmed) return "";
@@ -179,9 +202,16 @@ const getElementStyles = (element: Element, outputTagName: string) => {
   const fontFamily = sanitizeFontFamily(sourceStyle.fontFamily || element.getAttribute("face"));
   if (fontFamily) styles.push(`font-family: ${fontFamily}`);
 
+  const lineHeight = sanitizeLineHeight(sourceStyle.lineHeight);
+  if (lineHeight) styles.push(`line-height: ${lineHeight}`);
+
   if (outputTagName === "p" || outputTagName === "li") {
     const textAlign = sanitizeTextAlign(sourceStyle.textAlign);
     if (textAlign) styles.push(`text-align: ${textAlign}`);
+    const marginTop = sanitizeSpacing(sourceStyle.marginTop);
+    if (marginTop) styles.push(`margin-top: ${marginTop}`);
+    const marginBottom = sanitizeSpacing(sourceStyle.marginBottom);
+    if (marginBottom) styles.push(`margin-bottom: ${marginBottom}`);
   }
 
   return styles.join("; ");

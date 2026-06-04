@@ -65,6 +65,13 @@ export interface LoginNoticeView {
   enabled: boolean;
   content: string;
   contentHtml: string;
+  mediaType: 'image' | 'video' | null;
+  mediaUrl: string;
+  posterUrl: string;
+  primaryButtonText: string;
+  primaryButtonUrl: string;
+  secondaryButtonText: string;
+  secondaryButtonUrl: string;
   updatedAt: string | null;
 }
 
@@ -147,9 +154,40 @@ export class AdminService {
       .trim();
   }
 
-  private parseLoginNoticeValue(value: string | null | undefined): { enabled: boolean; content: string; contentHtml: string } {
+  private sanitizeLoginNoticeUrl(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^(?:javascript|data|blob):/i.test(trimmed)) return '';
+    if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return trimmed;
+    return '';
+  }
+
+  private parseLoginNoticeValue(value: string | null | undefined): {
+    enabled: boolean;
+    content: string;
+    contentHtml: string;
+    mediaType: 'image' | 'video' | null;
+    mediaUrl: string;
+    posterUrl: string;
+    primaryButtonText: string;
+    primaryButtonUrl: string;
+    secondaryButtonText: string;
+    secondaryButtonUrl: string;
+  } {
     if (!value) {
-      return { enabled: false, content: '', contentHtml: '' };
+      return {
+        enabled: false,
+        content: '',
+        contentHtml: '',
+        mediaType: null,
+        mediaUrl: '',
+        posterUrl: '',
+        primaryButtonText: '',
+        primaryButtonUrl: '',
+        secondaryButtonText: '',
+        secondaryButtonUrl: '',
+      };
     }
 
     try {
@@ -158,10 +196,24 @@ export class AdminService {
       if (objectValue) {
         const content = typeof objectValue.content === 'string' ? objectValue.content : '';
         const contentHtml = typeof objectValue.contentHtml === 'string' ? objectValue.contentHtml : '';
+        const mediaUrl = this.sanitizeLoginNoticeUrl(objectValue.mediaUrl);
+        const rawMediaType = typeof objectValue.mediaType === 'string' ? objectValue.mediaType : '';
+        const mediaType = mediaUrl
+          ? rawMediaType === 'video'
+            ? 'video'
+            : 'image'
+          : null;
         return {
           enabled: objectValue.enabled === true,
           content: content || this.extractLoginNoticeTextFromHtml(contentHtml),
           contentHtml,
+          mediaType,
+          mediaUrl,
+          posterUrl: this.sanitizeLoginNoticeUrl(objectValue.posterUrl),
+          primaryButtonText: typeof objectValue.primaryButtonText === 'string' ? objectValue.primaryButtonText : '',
+          primaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.primaryButtonUrl),
+          secondaryButtonText: typeof objectValue.secondaryButtonText === 'string' ? objectValue.secondaryButtonText : '',
+          secondaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.secondaryButtonUrl),
         };
       }
     } catch {
@@ -172,6 +224,13 @@ export class AdminService {
       enabled: true,
       content: value,
       contentHtml: '',
+      mediaType: null,
+      mediaUrl: '',
+      posterUrl: '',
+      primaryButtonText: '',
+      primaryButtonUrl: '',
+      secondaryButtonText: '',
+      secondaryButtonUrl: '',
     };
   }
 
@@ -1061,6 +1120,13 @@ export class AdminService {
       enabled: parsed.enabled && content.length > 0,
       content: parsed.content,
       contentHtml: parsed.contentHtml,
+      mediaType: parsed.mediaType,
+      mediaUrl: parsed.mediaUrl,
+      posterUrl: parsed.posterUrl,
+      primaryButtonText: parsed.primaryButtonText,
+      primaryButtonUrl: parsed.primaryButtonUrl,
+      secondaryButtonText: parsed.secondaryButtonText,
+      secondaryButtonUrl: parsed.secondaryButtonUrl,
       updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
     };
   }
