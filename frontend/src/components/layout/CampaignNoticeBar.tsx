@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CAMPAIGN_NOTICE_DEADLINE_MS } from "@/components/layout/campaignNoticeConfig";
@@ -78,7 +78,7 @@ export default function CampaignNoticeBar({
   }, [onExpire]);
 
   const ariaLabel = useMemo(() => {
-    return `距离活动开始还有 ${countdown.days} 天 ${countdown.hours} 小时 ${countdown.minutes} 分 ${countdown.seconds} 秒`;
+    return `距活动结束还有 ${countdown.days} 天 ${countdown.hours} 小时 ${countdown.minutes} 分 ${countdown.seconds} 秒`;
   }, [countdown.days, countdown.hours, countdown.minutes, countdown.seconds]);
 
   if (countdown.totalMs <= 0) {
@@ -96,7 +96,7 @@ export default function CampaignNoticeBar({
     >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-center gap-2 pr-10 text-center sm:gap-3">
         <span className="shrink-0 text-sm font-bold text-[#0f6dff]">
-          距活动开始:
+          距活动结束:
         </span>
 
         <div
