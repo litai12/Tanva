@@ -79,6 +79,7 @@ const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
 const DEFAULT_FREE_USER_MONTHLY_VIDEO_LIMIT = 10;
 const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
+const CREDITS_PER_YUAN = 100;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
 const GPT_IMAGE2_CREDITS = 40;
 const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
@@ -3354,19 +3355,19 @@ export class CreditsService {
         typeof evaluator.credits === 'number'
           ? evaluator.credits
           : typeof evaluator.priceYuan === 'number'
-          ? Math.ceil(evaluator.priceYuan * 100)
+          ? Math.ceil(evaluator.priceYuan * CREDITS_PER_YUAN)
           : undefined;
       return credits !== undefined ? `${credits} 积分` : '未配置';
     }
 
     if (evaluator.type === 'linear') {
-      const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * 100);
+      const creditsPerUnit = Math.ceil(evaluator.unitPriceYuan * CREDITS_PER_YUAN);
       return `credits = ${evaluator.unitField} � ${creditsPerUnit}`;
     }
 
     if (evaluator.type === 'base_plus_linear') {
-      const baseCredits = Math.ceil(evaluator.basePriceYuan * 100);
-      const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * 100);
+      const baseCredits = Math.ceil(evaluator.basePriceYuan * CREDITS_PER_YUAN);
+      const extraCreditsPerUnit = Math.ceil(evaluator.extraUnitPriceYuan * CREDITS_PER_YUAN);
       return `credits = ${baseCredits} + max(0, ${evaluator.unitField} - ${evaluator.includedUnits}) � ${extraCreditsPerUnit}`;
     }
 
@@ -3441,7 +3442,7 @@ export class CreditsService {
         credits !== undefined
           ? credits
           : priceYuan !== undefined
-          ? Math.ceil(priceYuan * 100)
+          ? Math.ceil(priceYuan * CREDITS_PER_YUAN)
           : undefined;
       return {
         ruleKey:
@@ -4344,7 +4345,7 @@ export class CreditsService {
       const rawCostYuan =
         (normalizedInputTokens / 1_000_000) * inputRate +
         (normalizedOutputTokens / 1_000_000) * outputRate;
-      const settledCredits = Math.max(0, Math.ceil(rawCostYuan * 1.2 * 100));
+      const settledCredits = Math.max(0, Math.ceil(rawCostYuan * 1.2 * CREDITS_PER_YUAN));
 
       const existingAdjustment = await tx.creditTransaction.findFirst({
         where: {

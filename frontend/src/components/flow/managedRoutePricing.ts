@@ -104,6 +104,8 @@ export interface ManagedRoutesMetadata {
   vendors: ManagedRouteOption[];
 }
 
+const CREDITS_PER_YUAN = 100;
+
 const asObject = (value: unknown): Record<string, any> | null => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, any>;
@@ -300,7 +302,7 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 
 const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined => {
   if (!Number.isFinite(Number(priceYuan))) return undefined;
-  return Math.ceil(Number(priceYuan) * 100);
+  return Math.ceil(Number(priceYuan) * CREDITS_PER_YUAN);
 };
 
 const matchesCondition = (
