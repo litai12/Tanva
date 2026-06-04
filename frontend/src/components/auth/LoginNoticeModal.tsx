@@ -278,7 +278,7 @@ export default function LoginNoticeModal() {
                 <span className='text-[#2563eb]'>0.35</span>
                 <span>元</span>
                 <br />
-                <span>每月满10000积分/返还1000积分</span>
+                <span>每日用满10000积分/返还1000积分</span>
               </div>
               <div className='mt-[clamp(14px,1.8vw,22px)] space-y-2 text-[clamp(13px,1.25vw,16px)] font-normal leading-[1.45] tracking-normal text-[#2f2f2f]'>
                 <p>
