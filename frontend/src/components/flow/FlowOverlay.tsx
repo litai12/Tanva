@@ -1663,7 +1663,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
-  seedance20Video: 600, // Seedance 2.0 视频生成
+  seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
   volcEnhanceVideo: 0, // 视频画质增强

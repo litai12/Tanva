@@ -133,6 +133,11 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "templates",
 ]);
 
+const CREDITS_PER_YUAN = 100;
+const SEEDANCE20_DISCOUNT_RATE = 0.35;
+const applySeedance20Discount = (unitPriceYuan: number): number =>
+  Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+
 const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
 
 const canAccessAdminPanel = (role?: string | null) => {
@@ -538,7 +543,7 @@ const resolvePricingV2DefaultBundle = (
     const priceYuan = normalizeFiniteNumber(evaluator.priceYuan);
     const credits =
       normalizeFiniteNumber(evaluator.credits) ??
-      (priceYuan !== undefined ? Math.ceil(priceYuan * 100) : undefined);
+      (priceYuan !== undefined ? Math.ceil(priceYuan * CREDITS_PER_YUAN) : undefined);
     if (priceYuan === undefined && credits === undefined) return undefined;
     return {
       ...(credits !== undefined ? { credits } : {}),
@@ -552,7 +557,7 @@ const resolvePricingV2DefaultBundle = (
     const unitPriceYuan = normalizeFiniteNumber(evaluator.unitPriceYuan);
     if (!unitField || unitValue === undefined || unitPriceYuan === undefined) return undefined;
     const priceYuan = Number((unitValue * unitPriceYuan).toFixed(3));
-    return { priceYuan, credits: Math.ceil(priceYuan * 100) };
+    return { priceYuan, credits: Math.ceil(priceYuan * CREDITS_PER_YUAN) };
   }
 
   return undefined;
@@ -2032,27 +2037,27 @@ const createSeedance20PricingTemplate = () => ({
     seedance20_fast_480p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 0.806,
+      unitPriceYuan: applySeedance20Discount(0.806),
     },
     seedance20_fast_720p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 0.966,
+      unitPriceYuan: applySeedance20Discount(0.966),
     },
     seedance20_480p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 1.0,
+      unitPriceYuan: applySeedance20Discount(1.0),
     },
     seedance20_720p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 1.2,
+      unitPriceYuan: applySeedance20Discount(1.2),
     },
     seedance20_1080p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 3.0,
+      unitPriceYuan: applySeedance20Discount(3.0),
     },
   },
   displayConfig: {

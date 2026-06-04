@@ -42,6 +42,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Credits: Seedance 2.0 parameter-based pricing now applies a 35% rate across Fast/standard resolution-duration tiers while preserving the product conversion of 100 credits = 1 yuan.
 - Project Load Cache: project content now uses an account-scoped IndexedDB stale-while-revalidate cache. Recently opened projects can hydrate from local content first, then validate `contentVersion/updatedAt` in the background; autosave/manual save pause during validation and cache writes store the same sanitized payload sent to cloud save.
 - Project Switch Performance: the workspace project dropdown now closes before scheduling `projectStore.open()`, Paper import can skip the duplicate internal clear when the switch path has already cleared the project, and project-load debug logs include Paper runtime rebuild timing to distinguish cache/network delay from main-thread Paper/Flow rebuild cost.
 - Canvas/Image Drag Performance: image dragging now uses a DOM-layer preview during pointer move and commits `imageInstances` once on mouseup; selected image overlays follow the same preview event while Paper bounds polling is paused during drag, reducing high-frequency React updates when many images are on the canvas.

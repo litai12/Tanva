@@ -127,6 +127,8 @@ const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P'];
 const SEED20_RESOLUTIONS = ['480P', '720P', '1080P'];
+const SEEDANCE20_DEFAULT_CREDITS = 210;
+const SEEDANCE20_DEFAULT_PRICE_YUAN = 2.1;
 const SEEDANCE20_INPUT_MODES = [
   'text',
   'first_frame',
@@ -1291,9 +1293,9 @@ export class NodeConfigService {
         nameEn: 'Seedance 2.0',
         category: 'video',
         sortOrder: 30,
-        creditsPerCall: 600,
+        creditsPerCall: SEEDANCE20_DEFAULT_CREDITS,
         serviceType: 'doubao-video',
-        priceYuan: 6,
+        priceYuan: SEEDANCE20_DEFAULT_PRICE_YUAN,
         description: 'Seedance 2.0视频生成，走火山方舟模型管理',
         metadata: {
           ...buildVodNodeMetadata(
@@ -1966,9 +1968,9 @@ export class NodeConfigService {
         nameEn: 'Seedance 2.0',
         category: 'video',
         sortOrder: 30,
-        creditsPerCall: 600,
+        creditsPerCall: SEEDANCE20_DEFAULT_CREDITS,
         serviceType: 'doubao-video',
-        priceYuan: 6,
+        priceYuan: SEEDANCE20_DEFAULT_PRICE_YUAN,
         description: 'Seedance 2.0视频生成，走火山方舟模型管理',
         metadata: {
           ...buildVodNodeMetadata(
