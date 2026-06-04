@@ -160,6 +160,33 @@ func resolveTencentImageVersion(quality, resolution string) string {
 	return "image2_low"
 }
 
+// resolveTencentImageModel 把请求的模型名映射到腾讯 VOD AIGC 的 (ModelName, ModelVersion)。
+//   - Gemini / Nano-Banana → "GEM"，版本 2.5 / 3.0 / 3.1
+//   - gpt-image-2 等其它 → "OG"，版本 image2_low/medium/high（按画质/分辨率推算）
+//
+// 历史实现见 banana.provider.ts:resolveTencentImageModel；迁移到 new-api 后曾被写死成 "OG"，
+// 导致尊享(腾讯)路线下所有图都变成 gpt-image-2，gemini 永远拿不到 GEM。
+func resolveTencentImageModel(model, quality, resolution string) (string, string) {
+	m := strings.ToLower(strings.TrimSpace(model))
+	isGemini := strings.Contains(m, "gemini") ||
+		strings.Contains(m, "banana") ||
+		strings.Contains(m, "nano") ||
+		strings.HasPrefix(m, "gem")
+	if isGemini {
+		switch {
+		case strings.Contains(m, "3.1"):
+			return "GEM", "3.1"
+		case strings.Contains(m, "2.5"):
+			return "GEM", "2.5"
+		default:
+			// gemini-3-pro-image-preview 及其它默认 → 3.0
+			return "GEM", "3.0"
+		}
+	}
+	// gpt-image-2 等 → OG，按画质/分辨率推算 image2_* 版本
+	return "OG", resolveTencentImageVersion(quality, resolution)
+}
+
 // ─── File info conversion ─────────────────────────────────────────────────────
 
 func toVodFileInfos(imageUrls []string) []vodImageFileInfo {
