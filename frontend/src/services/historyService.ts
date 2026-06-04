@@ -304,11 +304,6 @@ function getSnapshotMemorySize(snapshot: Snapshot | null | undefined): number {
   return snapshot.content.paperJson?.length ?? 0;
 }
 
-function getPaperJsonLen(snapshot: Snapshot | null | undefined): number {
-  if (!snapshot) return 0;
-  return snapshot.content.paperJson?.length ?? 0;
-}
-
 function trimHistoryByBudget(st: HistoryState): void {
   const computeTotal = () => {
     let total = getSnapshotMemorySize(st.present);
@@ -379,7 +374,13 @@ async function restoreSnapshot(to: Snapshot, opts?: { from?: Snapshot | null; op
   st.restoring = true;
   try {
     // 恢复 store 内容
-    useProjectContentStore.getState().hydrate(to.content, to.version, to.savedAt ?? undefined);
+    useProjectContentStore.getState().hydrate(
+      to.content,
+      to.version,
+      to.savedAt ?? undefined,
+      { resetProjectViewReady: false }
+    );
+    useProjectContentStore.getState().setProjectViewReady(true);
 
     // 撤销/重做属于“未保存变更”，不应因为 hydrate 被标记为 clean
     try {

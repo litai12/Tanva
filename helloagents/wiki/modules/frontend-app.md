@@ -108,6 +108,10 @@
 - 交互：问号按钮改为 hover 展开下拉菜单，不再直接点击跳转。
 - 菜单项：`用户手册`（飞书文档）与 `更新日志`（仓库 `frontend/docs/06-变更日志.md`）。
 
+## 画板撤销/重做
+- 全局快捷键由 `frontend/src/components/KeyboardShortcuts.tsx` 调用 `historyService.undo/redo`。
+- `historyService` 恢复快照时会通过 `projectContentStore.hydrate(..., { resetProjectViewReady: false })` 更新内容，并保持当前工作区 `projectViewReady=true`；撤销/重做不应触发项目切换加载层。
+
 ## 工作区顶部积分入口（`/app`）
 - 组件：`frontend/src/components/layout/FloatingHeader.tsx`
 - 交互：右上角工具区新增“积分”按钮（图标 + 当前余额），点击后新开页进入 `/my-credits`。
