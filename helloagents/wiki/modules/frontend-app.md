@@ -15,8 +15,9 @@
 - 组件：`frontend/src/components/layout/CampaignNoticeBar.tsx`
 - 配置：`frontend/src/components/layout/campaignNoticeConfig.ts`
 - 入口：首页 `/` 与工作区 `/app` 顶部均挂载活动通知栏；父级使用正常文档流/flex 布局让页面内容整体下移，不遮挡主内容。
-- 倒计时：当前活动截止时间为北京时间 `2026-06-06 00:00:00`；到期后组件自动隐藏。
+- 倒计时：当前活动截止时间为北京时间 `2026-06-05 00:00:00`；到期后组件自动隐藏。
 - 关闭行为：点击右侧关闭按钮只隐藏当前 React 页面实例，不写入 localStorage/sessionStorage；刷新页面后会重新显示。
+- 详情入口：通知栏内“了解详情”按钮会触发 `CAMPAIGN_NOTICE_DETAIL_EVENT`，由 `LoginNoticeModal` 重新打开默认 Seedance 活动弹窗；该入口不写入登录提醒关闭记录，用户关闭过登录弹窗后仍可再次查看。
 - 画布避让：`frontend/src/index.css` 中的 `.tanva-campaign-shell` 会在通知栏存在时调整工作区固定顶栏、工具栏和左右侧栏位置。
 
 ## AI 对话框图片模式可用性

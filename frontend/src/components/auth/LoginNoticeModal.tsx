@@ -13,6 +13,7 @@ import {
   openWechatQrPanel,
   shouldOpenWechatQrFromNoticeAction,
 } from "@/utils/wechatQrPanel";
+import { CAMPAIGN_NOTICE_DETAIL_EVENT } from "@/utils/campaignNoticeDetail";
 import seedanceNoticeImage from "@/assets/SD2.0.png";
 import seedanceNoticeVideo from "@/assets/sd2.0.mp4";
 
@@ -168,6 +169,26 @@ export default function LoginNoticeModal() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleOpenCampaignNoticeDetail = () => {
+      setNotice(DEFAULT_SEEDANCE_NOTICE);
+      setDismissedKey(null);
+      setSecondaryQrOpen(false);
+      setVisible(true);
+    };
+
+    window.addEventListener(
+      CAMPAIGN_NOTICE_DETAIL_EVENT,
+      handleOpenCampaignNoticeDetail
+    );
+    return () => {
+      window.removeEventListener(
+        CAMPAIGN_NOTICE_DETAIL_EVENT,
+        handleOpenCampaignNoticeDetail
+      );
+    };
+  }, []);
+
   if (!visible || !notice) return null;
 
   const markAndHide = () => {
@@ -260,9 +281,9 @@ export default function LoginNoticeModal() {
               draggable={false}
             />
           )}
-          <div className='pointer-events-none absolute inset-x-0 bottom-0 h-[42%] bg-gradient-to-t from-black/75 via-black/35 to-transparent' />
+          <div className='pointer-events-none absolute inset-x-0 bottom-0 h-[56%] bg-gradient-to-t from-black/95 via-black/72 via-55% to-transparent' />
           {isDefaultSeedanceNotice ? (
-            <div className='pointer-events-none absolute bottom-[7%] left-[8%] flex items-baseline gap-2 text-[clamp(28px,3.3vw,44px)] font-black leading-none tracking-normal text-white'>
+            <div className='pointer-events-none absolute bottom-[7%] left-[6.5%] flex items-baseline gap-2 text-[clamp(26px,3.05vw,40px)] font-black leading-none tracking-normal text-white'>
               <span>Seedance 2.0</span>
               <span className='text-[#e7ff63]'>限时3.5折!</span>
             </div>
@@ -272,7 +293,7 @@ export default function LoginNoticeModal() {
         {isDefaultSeedanceNotice ? (
           <div className='min-h-0 flex-1 overflow-y-auto bg-white px-[clamp(28px,4.5vw,56px)] pb-4 pt-[clamp(24px,3vw,36px)]'>
             <div className='max-w-none'>
-              <div className='text-[clamp(22px,2.45vw,31px)] font-black leading-[1.36] tracking-normal text-black'>
+              <div className='text-[clamp(20px,2.3vw,28px)] font-black leading-[1.36] tracking-normal text-black'>
                 <span className='text-[#2563eb]'>Seedance 2.0</span>
                 <span> 更低价&nbsp; 单条最低约合人民币</span>
                 <span className='text-[#2563eb]'>0.35</span>
@@ -282,8 +303,8 @@ export default function LoginNoticeModal() {
               </div>
               <div className='mt-[clamp(14px,1.8vw,22px)] space-y-2 text-[clamp(13px,1.25vw,16px)] font-normal leading-[1.45] tracking-normal text-[#2f2f2f]'>
                 <p>
-                  <span>· </span>
-                  <strong className='font-black text-black'>惊喜直减：</strong>
+                  <span>·  </span>
+                  <strong className='font-black text-black'> 惊喜直减：</strong>
                   <span> 6月5日（本周五）全天「</span>
                   <strong className='font-black text-black underline underline-offset-2'>00:00-23:59</strong>
                   <span>」，Seedance2.0 模型限时</span>
@@ -291,8 +312,8 @@ export default function LoginNoticeModal() {
                   <span>优惠！</span>
                 </p>
                 <p>
-                  <span>· </span>
-                  <strong className='font-black text-black'>积分返还：</strong>
+                  <span>·  </span>
+                  <strong className='font-black text-black'> 积分返还：</strong>
                   <span> 每冲刺</span>
                   <strong className='font-black text-black'>10000积分</strong>
                   <span>，加入社群联系客服，凭积分使用截图获得</span>
@@ -342,7 +363,7 @@ export default function LoginNoticeModal() {
               type='button'
               onClick={handleSecondaryAction}
               onPointerDown={() => secondaryButtonQrUrl && setSecondaryQrOpen(true)}
-              className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(15px,1.55vw,20px)] font-black tracking-normal text-black shadow-none hover:bg-slate-50'
+              className='h-[clamp(46px,4.2vw,54px)] w-full rounded-lg border-2 border-black bg-white text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-black shadow-none hover:bg-slate-50'
             >
               {secondaryText}
             </Button>
@@ -351,7 +372,7 @@ export default function LoginNoticeModal() {
             <Button
               type='button'
               onClick={() => handleAction(notice.primaryButtonUrl)}
-              className='h-[clamp(46px,4.2vw,54px)] rounded-lg bg-black text-[clamp(15px,1.55vw,20px)] font-black tracking-normal text-white shadow-none hover:bg-slate-900'
+              className='h-[clamp(46px,4.2vw,54px)] rounded-lg bg-black text-[clamp(14px,1.35vw,18px)] font-normal tracking-normal text-white shadow-none hover:bg-slate-900'
             >
               {primaryText}
             </Button>
