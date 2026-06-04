@@ -119,9 +119,11 @@ export default function LoginNoticeModal() {
     setVisible(false);
     setSecondaryQrOpen(false);
 
+    if (location.pathname !== "/app") return;
     if (!user?.id) return;
 
-    const authAt = getStoredLastAuthAt() || Date.now();
+    const authAt = getStoredLastAuthAt();
+    if (!authAt) return;
     const showResolvedNotice = (resolvedNotice: LoginNotice) => {
       const nextDismissedKey = buildDismissedKey(
         user.id,
@@ -150,7 +152,7 @@ export default function LoginNoticeModal() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [location.pathname, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
