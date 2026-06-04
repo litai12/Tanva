@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Credits: free users now receive the 500-credit free quota only once (`free_starter_quota`); historical `free_monthly_quota` grants count as already claimed, and the scheduler no longer renews this quota every 30 days.
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
@@ -52,11 +53,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 - Flow/Seedream: `Seedream` 节点新增豆包通道专属 `4.5/5.0` 模型切换；观猹通道固定 5.0 且隐藏模型下拉。后端 `seedream5` 链路支持读取 `modelVersion`/`model` 并在豆包通道映射到 `doubao-seedream-4-5-251128` 或 `doubao-seedream-5-0-260128`。
 - Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
+- Membership UI: the standard plan card no longer shows the crown icon or the leading `基础月卡积分：500` benefit line.
 
 ### Updated
+- Membership UI: quota refresh notice now warns that monthly plan quota clears on billing-day refresh, yearly plan quota clears at annual expiration, and separately purchased credits are unaffected.
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; explicit ratios now pass through for the Fast Generate node instead of being silently cleared.
 - AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
 - Flow/Prompt Mentions: mention chips now reserve the same layout width as their underlying `@` token, keeping textarea caret hit-testing aligned with the visible text after a chip.
 - Flow/Prompt Mentions: after selecting an `@` image reference, continuing to type after the inserted token no longer reopens the image/source picker; the picker only opens for a newly typed unresolved `@`.

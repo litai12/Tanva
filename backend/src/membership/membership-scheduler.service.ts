@@ -7,7 +7,7 @@ import { MembershipService } from './membership.service';
 export class MembershipSchedulerService {
   private readonly logger = new Logger(MembershipSchedulerService.name);
   private expiryJobRunning = false;
-  private freeMonthlyQuotaJobRunning = false;
+  private freeStarterQuotaJobRunning = false;
   private giftDecayJobRunning = false;
   private yearlyRefreshJobRunning = false;
   private scheduledChangeJobRunning = false;
@@ -18,24 +18,24 @@ export class MembershipSchedulerService {
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async handleFreeMonthlyQuotaIssue() {
-    if (this.freeMonthlyQuotaJobRunning) {
-      this.logger.warn('跳过免费用户月度额度发放：上一次任务尚未完成');
+  async handleFreeStarterQuotaIssue() {
+    if (this.freeStarterQuotaJobRunning) {
+      this.logger.warn('跳过免费用户一次性额度补发：上一次任务尚未完成');
       return;
     }
 
-    this.freeMonthlyQuotaJobRunning = true;
+    this.freeStarterQuotaJobRunning = true;
     try {
-      const result = await this.creditsService.issueFreeUserMonthlyQuotaCredits();
+      const result = await this.creditsService.issueFreeUserStarterQuotaCredits();
       if (result.affectedUsers > 0 || result.grantedCredits > 0) {
         this.logger.log(
-          `免费用户月度额度发放完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
+          `免费用户一次性额度补发完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
         );
       }
     } catch (error) {
-      this.logger.error('免费用户月度额度发放失败:', error);
+      this.logger.error('免费用户一次性额度补发失败:', error);
     } finally {
-      this.freeMonthlyQuotaJobRunning = false;
+      this.freeStarterQuotaJobRunning = false;
     }
   }
 

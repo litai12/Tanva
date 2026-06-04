@@ -19,8 +19,8 @@ const scheduler = readFileSync(
   'utf8',
 );
 
-assert.match(creditsService, /async issueFreeUserMonthlyQuotaCredits\(/);
-assert.match(creditsService, /businessType:\s*'free_monthly_quota'/);
+assert.match(creditsService, /async issueFreeUserStarterQuotaCredits\(/);
+assert.match(creditsService, /FREE_USER_STARTER_QUOTA_BUSINESS_TYPE/);
 assert.match(creditsService, /freeUserMonthlyQuotaCredits/);
 assert.match(service, /async decayDailyGiftCredits\(/);
 assert.match(service, /businessType:\s*'gift_decay'/);
@@ -29,7 +29,7 @@ assert.match(service, /async issueDailyMembershipGiftCredits\(/);
 assert.match(service, /businessType:\s*'membership_daily_gift'/);
 assert.match(service, /async refreshYearlySubscriptionQuotaLots\(/);
 assert.match(service, /businessType:\s*'membership_refresh'/);
-assert.match(scheduler, /handleFreeMonthlyQuotaIssue/);
+assert.match(scheduler, /handleFreeStarterQuotaIssue/);
 assert.match(scheduler, /handleGiftDecay/);
 assert.match(scheduler, /handleDailyMembershipGiftIssue/);
 assert.match(scheduler, /handleYearlyQuotaRefresh/);

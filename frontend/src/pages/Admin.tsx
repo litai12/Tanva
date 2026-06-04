@@ -10111,7 +10111,7 @@ function VipManagementTab() {
       const imageDailyLimit = DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit;
       const videoDailyLimit = DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit;
       if (!Number.isFinite(monthlyQuotaCredits) || monthlyQuotaCredits < 0) {
-        throw new Error("免费用户月额度必须是大于等于 0 的数字");
+        throw new Error("免费用户一次性额度必须是大于等于 0 的数字");
       }
       if (!Number.isFinite(dailyRewardCredits) || dailyRewardCredits < 0) {
         throw new Error("免费签到积分必须是大于等于 0 的数字");
@@ -10221,7 +10221,7 @@ function VipManagementTab() {
             <div>
               <h3 className='text-lg font-semibold'>会员积分策略</h3>
               <p className='mt-1 text-sm text-gray-500'>
-              这里配置赠送积分衰减、固定积分时效和刷新周期。免费用户月额度、签到积分、连签倍率已收口到“免费用户”套餐内配置。
+              这里配置赠送积分衰减、固定积分时效和刷新周期。免费用户一次性额度、签到积分、连签倍率已收口到“免费用户”套餐内配置。
               </p>
             </div>
             <Button onClick={handleSavePolicy} disabled={savingPolicy}>
@@ -10734,7 +10734,7 @@ function VipManagementTab() {
             <div className='space-y-4'>
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户月额度积分</div>
+                  <div className='mb-1 text-sm text-gray-600'>免费用户一次性额度积分</div>
                   <Input
                     type='number'
                     min='0'

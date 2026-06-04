@@ -66,6 +66,14 @@ const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
 const PRE_DEDUCT_TRANSACTION_TIMEOUT_MS = 30_000;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
+const FREE_USER_LEGACY_QUOTA_BUSINESS_TYPE = 'free_monthly_quota';
+const FREE_USER_STARTER_QUOTA_BUSINESS_TYPE = 'free_starter_quota';
+const FREE_USER_QUOTA_BUSINESS_TYPES = [
+  FREE_USER_LEGACY_QUOTA_BUSINESS_TYPE,
+  FREE_USER_STARTER_QUOTA_BUSINESS_TYPE,
+];
+const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
+const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
@@ -2159,12 +2167,6 @@ export class CreditsService {
     return hydrateCreditConsumePolicyRecord(record);
   }
 
-  private addDays(base: Date, days: number): Date {
-    const next = new Date(base);
-    next.setDate(next.getDate() + days);
-    return next;
-  }
-
   private getDailyRewardBusinessDayAnchor(date: Date): Date {
     const anchor = new Date(date);
     anchor.setMinutes(0, 0, 0);
@@ -2181,23 +2183,6 @@ export class CreditsService {
     const nowAnchor = this.getDailyRewardBusinessDayAnchor(now);
     const lastAnchor = this.getDailyRewardBusinessDayAnchor(last);
     return Math.floor((nowAnchor.getTime() - lastAnchor.getTime()) / (24 * 60 * 60 * 1000));
-  }
-
-  private resolveFreeMonthlyQuotaCycleWindow(
-    anchorAt: Date,
-    now: Date,
-    cycleDays: number,
-  ): { cycleStartAt: Date; cycleEndAt: Date } {
-    const safeCycleDays = Math.max(1, Math.floor(cycleDays));
-    const elapsedMs = Math.max(0, now.getTime() - anchorAt.getTime());
-    const cycleIndex = Math.floor(elapsedMs / (safeCycleDays * 24 * 60 * 60 * 1000));
-    const cycleStartAt = this.addDays(anchorAt, cycleIndex * safeCycleDays);
-    const cycleEndAt = this.addDays(cycleStartAt, safeCycleDays);
-
-    return {
-      cycleStartAt,
-      cycleEndAt,
-    };
   }
 
   private async expireFreeUserMonthlyQuotaLotsForAccount(
@@ -2217,10 +2202,20 @@ export class CreditsService {
         validityType: 'fixed_window',
         remainingAmount: { gt: 0 },
         expiresAt: { lte: params.now },
-        metadata: {
-          path: ['grantedBy'],
-          equals: 'free_user_monthly_quota',
-        },
+        OR: [
+          {
+            metadata: {
+              path: ['grantedBy'],
+              equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
+            },
+          },
+          {
+            metadata: {
+              path: ['grantedBy'],
+              equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
+            },
+          },
+        ],
       },
       orderBy: [{ expiresAt: 'asc' }, { grantedAt: 'asc' }],
     });
@@ -2280,7 +2275,7 @@ export class CreditsService {
           amount: -amountToExpire,
           balanceBefore,
           balanceAfter,
-          description: '免费用户月度额度过期清除',
+          description: '免费用户一次性额度过期清除',
           creditLotId: lot.id,
           businessType: 'free_monthly_quota_expire',
           metadata: {
@@ -2299,14 +2294,13 @@ export class CreditsService {
     return { expiredLots: expiredLotCount, expiredCredits };
   }
 
-  private async grantFreeUserMonthlyQuotaIfNeeded(params: {
+  private async grantFreeUserStarterQuotaIfNeeded(params: {
     userId: string;
     account: {
       id: string;
       balance: number;
       totalEarned: number;
     };
-    userCreatedAt?: Date;
     now?: Date;
   }): Promise<boolean> {
     const now = params.now ?? new Date();
@@ -2315,23 +2309,8 @@ export class CreditsService {
       return false;
     }
 
-    const userCreatedAt =
-      params.userCreatedAt ??
-      (
-        await this.prisma.user.findUnique({
-          where: { id: params.userId },
-          select: { createdAt: true },
-        })
-      )?.createdAt;
-    if (!userCreatedAt) {
-      return false;
-    }
-
-    const { cycleStartAt, cycleEndAt } = this.resolveFreeMonthlyQuotaCycleWindow(
-      userCreatedAt,
-      now,
-      policy.membershipRefreshCycleDays,
-    );
+    const validityDays = Math.max(1, Math.floor(policy.membershipRefreshCycleDays));
+    const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>(
@@ -2363,8 +2342,6 @@ export class CreditsService {
       await this.expireFreeUserMonthlyQuotaLotsForAccount(tx, {
         accountId: account.id,
         now,
-        excludeCurrentCycleStartAt: cycleStartAt,
-        excludeCurrentCycleEndAt: cycleEndAt,
       });
 
       const accountAfterExpiry = await tx.creditAccount.findUniqueOrThrow({
@@ -2379,11 +2356,7 @@ export class CreditsService {
       const existingGrant = await tx.creditTransaction.findFirst({
         where: {
           accountId: accountAfterExpiry.id,
-          businessType: 'free_monthly_quota',
-          createdAt: {
-            gte: cycleStartAt,
-            lt: cycleEndAt,
-          },
+          businessType: { in: FREE_USER_QUOTA_BUSINESS_TYPES },
         },
         select: { id: true },
       });
@@ -2397,15 +2370,13 @@ export class CreditsService {
           amount: policy.freeUserMonthlyQuotaCredits,
           grantedAt: now,
           activeAt: now,
-          expiresAt: cycleEndAt,
-          durationDays: Math.max(
-            1,
-            Math.ceil((cycleEndAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
-          ),
+          expiresAt,
+          durationDays: validityDays,
           metadata: {
-            grantedBy: 'free_user_monthly_quota',
-            cycleStartAt: cycleStartAt.toISOString(),
-            cycleEndAt: cycleEndAt.toISOString(),
+            grantedBy: FREE_USER_STARTER_QUOTA_GRANTED_BY,
+            grantType: 'free_user_starter_quota',
+            validFrom: now.toISOString(),
+            validUntil: expiresAt.toISOString(),
           },
         }),
       });
@@ -2428,12 +2399,12 @@ export class CreditsService {
           amount: policy.freeUserMonthlyQuotaCredits,
           balanceBefore,
           balanceAfter,
-          description: '免费用户月度额度发放',
+          description: '免费用户一次性额度发放',
           creditLotId: lot.id,
-          businessType: 'free_monthly_quota',
+          businessType: FREE_USER_STARTER_QUOTA_BUSINESS_TYPE,
           metadata: {
-            cycleStartAt: cycleStartAt.toISOString(),
-            cycleEndAt: cycleEndAt.toISOString(),
+            validFrom: now.toISOString(),
+            validUntil: expiresAt.toISOString(),
           },
         },
       });
@@ -2454,10 +2425,20 @@ export class CreditsService {
         validityType: 'fixed_window',
         remainingAmount: { gt: 0 },
         expiresAt: { lte: now },
-        metadata: {
-          path: ['grantedBy'],
-          equals: 'free_user_monthly_quota',
-        },
+        OR: [
+          {
+            metadata: {
+              path: ['grantedBy'],
+              equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
+            },
+          },
+          {
+            metadata: {
+              path: ['grantedBy'],
+              equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
+            },
+          },
+        ],
       },
       select: { accountId: true },
       distinct: ['accountId'],
@@ -3142,25 +3123,20 @@ export class CreditsService {
    * ???????????
    * ???????????Double-Checked Locking?????????
    */
-  async getOrCreateAccount(userId: string) {
-    let userCreatedAt: Date | undefined;
-
+  async getOrCreateAccount(userId: string, options?: { skipStarterQuota?: boolean }) {
     // ?????????????????????
     let account = await this.prisma.creditAccount.findUnique({
       where: { userId },
     });
 
     if (account) {
-      userCreatedAt = (
-        await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { createdAt: true },
-        })
-      )?.createdAt;
-      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+      if (options?.skipStarterQuota) {
+        return account;
+      }
+
+      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
         userId,
         account,
-        userCreatedAt,
       });
       if (!granted) {
         return account;
@@ -3184,12 +3160,6 @@ export class CreditsService {
           return existingAccount;
         }
 
-        const user = await tx.user.findUnique({
-          where: { id: userId },
-          select: { createdAt: true },
-        });
-        userCreatedAt = user?.createdAt;
-
         // ???????????????????????????????????
         const newAccount = await tx.creditAccount.create({
           data: {
@@ -3206,10 +3176,13 @@ export class CreditsService {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       });
 
-      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+      if (options?.skipStarterQuota) {
+        return account;
+      }
+
+      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
         userId,
         account,
-        userCreatedAt,
       });
       if (!granted) {
         return account;
@@ -3230,7 +3203,11 @@ export class CreditsService {
           this.logger.error(`P2002???????? userId=${userId}`);
           throw error;
         }
-        const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+        if (options?.skipStarterQuota) {
+          return existingAccount;
+        }
+
+        const granted = await this.grantFreeUserStarterQuotaIfNeeded({
           userId,
           account: existingAccount,
         });
@@ -3246,7 +3223,7 @@ export class CreditsService {
     }
   }
 
-  async issueFreeUserMonthlyQuotaCredits(now = new Date()) {
+  async issueFreeUserStarterQuotaCredits(now = new Date()) {
     const activeSubscriptionUserIds = new Set(
       (
         await this.prisma.userMembershipSubscription.findMany({
@@ -3266,7 +3243,6 @@ export class CreditsService {
       },
       select: {
         id: true,
-        createdAt: true,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -3280,11 +3256,10 @@ export class CreditsService {
         continue;
       }
 
-      const account = await this.getOrCreateAccount(user.id);
-      const granted = await this.grantFreeUserMonthlyQuotaIfNeeded({
+      const account = await this.getOrCreateAccount(user.id, { skipStarterQuota: true });
+      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
         userId: user.id,
         account,
-        userCreatedAt: user.createdAt,
         now,
       });
       if (!granted) {
