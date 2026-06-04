@@ -12,10 +12,12 @@ export class SettingsPublicController {
   async getWeChatQrCodes() {
     const officialAccountSetting = await this.adminService.getSetting('wechat_official_account_qrcode');
     const wechatGroupSetting = await this.adminService.getSetting('wechat_group_qrcode');
+    const loginNoticeButtonSetting = await this.adminService.getSetting('login_notice_button_qrcode');
 
     return {
       officialAccount: officialAccountSetting?.value || null,
       wechatGroup: wechatGroupSetting?.value || null,
+      loginNoticeButton: loginNoticeButtonSetting?.value || null,
     };
   }
 

@@ -25,6 +25,7 @@ export interface LoginNotice {
   primaryButtonUrl: string;
   secondaryButtonText: string;
   secondaryButtonUrl: string;
+  secondaryButtonQrUrl: string;
   updatedAt: string | null;
 }
 
@@ -70,6 +71,7 @@ export async function getLoginNotice(): Promise<LoginNotice> {
     secondaryButtonText:
       typeof data?.secondaryButtonText === "string" ? data.secondaryButtonText.trim() : "",
     secondaryButtonUrl: sanitizeNoticeUrl(data?.secondaryButtonUrl),
+    secondaryButtonQrUrl: sanitizeNoticeUrl(data?.secondaryButtonQrUrl),
     updatedAt: typeof data?.updatedAt === "string" ? data.updatedAt : null,
   };
 }

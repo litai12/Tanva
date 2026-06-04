@@ -15,6 +15,7 @@ import type { FastifyRequest } from 'fastify';
 
 const SUPPORTED_VIDEO_TYPES = [
   'video/mp4',
+  'video/webm',
   'video/quicktime',
   'video/x-msvideo',
   'video/mpeg',
