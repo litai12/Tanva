@@ -195,7 +195,6 @@ export default function Home() {
       {showCampaignNotice && (
         <CampaignNoticeBar
           onClose={() => setShowCampaignNotice(false)}
-          onExpire={() => setShowCampaignNotice(false)}
         />
       )}
       <div

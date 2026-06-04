@@ -305,6 +305,50 @@ const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined
   return Math.ceil(Number(priceYuan) * CREDITS_PER_YUAN);
 };
 
+export const resolveSeedance20DiscountCredits = (
+  pricingContext?: Record<string, any> | null
+): number | undefined => {
+  if (!pricingContext || typeof pricingContext !== "object") return undefined;
+
+  const model = String(pricingContext.seedanceModel || "")
+    .trim()
+    .toLowerCase();
+  const normalizedModel =
+    model === "2.0"
+      ? "seedance-2.0"
+      : model === "2.0-fast"
+      ? "seedance-2.0-fast"
+      : model;
+  if (normalizedModel !== "seedance-2.0" && normalizedModel !== "seedance-2.0-fast") {
+    return undefined;
+  }
+
+  const resolution = String(pricingContext.resolution || "720P")
+    .trim()
+    .toUpperCase();
+  const duration = toFiniteNumber(
+    pricingContext.duration ?? pricingContext.durationSec
+  );
+  if (duration === undefined || duration <= 0) return undefined;
+
+  const unitPriceYuanByResolution =
+    normalizedModel === "seedance-2.0-fast"
+      ? {
+          "480P": 0.2821,
+          "720P": 0.3381,
+        }
+      : {
+          "480P": 0.35,
+          "720P": 0.42,
+          "1080P": 1.05,
+        };
+  const unitPriceYuan =
+    unitPriceYuanByResolution[resolution as keyof typeof unitPriceYuanByResolution];
+  if (unitPriceYuan === undefined) return undefined;
+
+  return toCreditsByPriceYuan(Number((unitPriceYuan * duration).toFixed(3)));
+};
+
 const matchesCondition = (
   context: Record<string, any>,
   condition?: {

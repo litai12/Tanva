@@ -46,6 +46,7 @@ import {
   type ManagedPricingMatchingRule,
   type ResolvedManagedPricing,
 } from '../ai/services/model-pricing-resolver';
+import { normalizeSeedance20DiscountPricing } from '../ai/services/seedance20-pricing';
 
 let IORedis: any;
 try {
@@ -493,7 +494,7 @@ export class CreditsService {
       outputImageCount: params.outputImageCount ?? null,
     });
     const digest = createHash('sha256').update(signature).digest('hex');
-    return `credits:preview:v2:${digest}`;
+    return `credits:preview:v3:${digest}`;
   }
 
   private async getCachedPreviewQuote(
@@ -990,16 +991,27 @@ export class CreditsService {
         select: { value: true },
       });
       const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
-      if (!raw) return null;
-
-      const parsed = JSON.parse(raw) as ManagedPricingMappingLike;
+      const parsed = raw
+        ? normalizeSeedance20DiscountPricing(
+            JSON.parse(raw) as ManagedPricingMappingLike,
+          )
+        : normalizeSeedance20DiscountPricing({
+            models: [{ modelKey: 'seedance-2.0' }],
+          } as ManagedPricingMappingLike);
 
       // 腾讯路由已下线：vidu/kling 视频前端不再下发 vendor。计价与路由解耦——请求带
       // 空 vendor 或陈旧 tencent_vod 时，按该模型 defaultVendor 对应的“已启用”费率表
       // 计价（当前即 tencent_vod），金额与改动前完全一致、仍按时长动态定价；预览与
       // 实际扣费同源。若后台改启用普通线(vidu_api/legacy)，会自动改用该线费率。
       // 仅对“配置了 tencent_vod 选项”的模型生效，图片等模型不受影响。
+      const normalizedModelKey = modelKey.trim().toLowerCase();
       let vendorKey = requestedVendorKey;
+      if (
+        normalizedModelKey === 'seedance-2.0' &&
+        (!vendorKey || vendorKey.toLowerCase() === 'tencent_vod')
+      ) {
+        vendorKey = 'seedance_api';
+      }
       if (!vendorKey || vendorKey.toLowerCase() === 'tencent_vod') {
         const fallback = this.pickPricingFallbackVendorKey(parsed, modelKey);
         if (fallback) vendorKey = fallback;
@@ -3522,9 +3534,11 @@ export class CreditsService {
     const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
     if (!raw) return [];
 
-    const parsed = JSON.parse(raw) as ManagedPricingMappingLike & {
-      models?: ManagedModelConfig[];
-    };
+    const parsed = normalizeSeedance20DiscountPricing(
+      JSON.parse(raw) as ManagedPricingMappingLike & {
+        models?: ManagedModelConfig[];
+      },
+    );
     const normalizedModelKey = typeof modelKey === 'string' ? modelKey.trim() : '';
     const models = Array.isArray(parsed.models) ? (parsed.models as ManagedModelConfig[]) : [];
 

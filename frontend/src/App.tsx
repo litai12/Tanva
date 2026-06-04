@@ -243,7 +243,6 @@ const App: React.FC = () => {
       {showCampaignNotice && (
         <CampaignNoticeBar
           onClose={() => setShowCampaignNotice(false)}
-          onExpire={() => setShowCampaignNotice(false)}
         />
       )}
       <div className="relative min-h-0 flex-1">

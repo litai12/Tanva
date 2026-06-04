@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ManagedPricingBook } from './model-pricing-resolver';
+import {
+  SEEDANCE20_DISCOUNT_CREDITS,
+  SEEDANCE20_DISCOUNT_PRICE_YUAN,
+  createSeedance20DiscountPricingTemplate,
+  normalizeSeedance20DiscountPricing,
+} from './seedance20-pricing';
 
 export const MODEL_PROVIDER_MAPPING_SETTING_KEY = 'model_provider_mapping_v2';
 
@@ -773,6 +779,9 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
           provider: 'doubao',
           modelName: 'Seedance',
           modelVersion: '2.0',
+          creditsPerCall: SEEDANCE20_DISCOUNT_CREDITS,
+          priceYuan: SEEDANCE20_DISCOUNT_PRICE_YUAN,
+          pricing: createSeedance20DiscountPricingTemplate(),
           metadata: DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
         },
       ],
@@ -1238,6 +1247,9 @@ export class ModelRoutingService {
         provider: 'doubao',
         modelName: seedanceVendor.modelName || 'Seedance',
         modelVersion: '2.0',
+        creditsPerCall: SEEDANCE20_DISCOUNT_CREDITS,
+        priceYuan: SEEDANCE20_DISCOUNT_PRICE_YUAN,
+        pricing: createSeedance20DiscountPricingTemplate(),
         metadata: this.mergeMetadataWithFallback(
           DEFAULT_SEEDANCE20_V2_VENDOR_METADATA,
           seedanceVendor.metadata && typeof seedanceVendor.metadata === 'object'
@@ -1255,7 +1267,9 @@ export class ModelRoutingService {
 
     return {
       ...input,
-      models: models.map((model) => (model ? this.ensureModelDefaultVendor(model) : model)),
+      models: normalizeSeedance20DiscountPricing({
+        models: models.map((model) => (model ? this.ensureModelDefaultVendor(model) : model)),
+      }).models,
     };
   }
 
@@ -1274,7 +1288,7 @@ export class ModelRoutingService {
         return this.getDefaultConfig();
       }
 
-      return this.mergeWithDefaultConfig(parsed);
+      return normalizeSeedance20DiscountPricing(this.mergeWithDefaultConfig(parsed));
     } catch (error) {
       this.logger.warn(
         `读取模型路由配置失败，回退默认配置: ${

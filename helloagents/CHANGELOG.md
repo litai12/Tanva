@@ -42,6 +42,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Admin/Auth: default login activity notice now uses a two-slide Seedance 2.0 / 2026 Tanvas AI contest carousel; the Seedance slide preserves its original layout, adds only the right-side floating arrow, auto-advances after the video ends, and the contest slide can return through the left arrow.
 - Credits: Seedance 2.0 parameter-based pricing now applies a 35% rate across Fast/standard resolution-duration tiers while preserving the product conversion of 100 credits = 1 yuan.
 - Project Load Cache: project content now uses an account-scoped IndexedDB stale-while-revalidate cache. Recently opened projects can hydrate from local content first, then validate `contentVersion/updatedAt` in the background; autosave/manual save pause during validation and cache writes store the same sanitized payload sent to cloud save.
 - Project Switch Performance: the workspace project dropdown now closes before scheduling `projectStore.open()`, Paper import can skip the duplicate internal clear when the switch path has already cleared the project, and project-load debug logs include Paper runtime rebuild timing to distinguish cache/network delay from main-thread Paper/Flow rebuild cost.
@@ -61,6 +62,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Frontend Campaign Notice: top activity notice no longer auto-hides after the countdown reaches zero; the close button only hides the current page instance, so refresh shows the notice again.
 - Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; Auto with image inputs now follows the first reference image's nearest supported ratio, and explicit ratios pass through for the Fast Generate node instead of being silently cleared.
 - AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
 - Flow/Undo Redo: restoring a same-project history snapshot now preserves the current project view-ready state, so undo/redo no longer triggers the full-screen project loading overlay.

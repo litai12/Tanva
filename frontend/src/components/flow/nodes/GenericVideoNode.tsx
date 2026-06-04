@@ -36,6 +36,7 @@ import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
   resolveManagedRoutePricing,
+  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
@@ -844,6 +845,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     () => resolveManagedRoutePricing(nodeConfigMetadata, sanitizedVendorKey, pricingContext),
     [sanitizedVendorKey, nodeConfigMetadata, pricingContext]
   );
+  const seedance20DiscountCredits = React.useMemo(
+    () => resolveSeedance20DiscountCredits(pricingContext),
+    [pricingContext]
+  );
   const previewRequestParams = React.useMemo(
     () => ({
       ...pricingContext,
@@ -918,7 +923,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     enabled: true,
   });
   const selectedCredits =
-    typeof backendCredits === "number"
+    typeof seedance20DiscountCredits === "number"
+      ? seedance20DiscountCredits
+      : typeof backendCredits === "number"
       ? backendCredits
       : typeof resolvedManagedPricing?.credits === "number"
       ? resolvedManagedPricing.credits

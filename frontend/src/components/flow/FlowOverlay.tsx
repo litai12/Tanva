@@ -91,6 +91,7 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   resolveManagedRoutePricing,
+  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "./managedRoutePricing";
@@ -3293,6 +3294,7 @@ const resolveStableRouteCredits = (params: {
     const vendorKey = sanitizeVideoVendorKey(nodeData?.vendorKey);
     const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
+    const seedance20DiscountCredits = resolveSeedance20DiscountCredits(pricingContext);
 
     const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
     if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
@@ -3307,6 +3309,13 @@ const resolveStableRouteCredits = (params: {
     // 统一模型管理配置优先于节点原生/旧链路动态价
     if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
       resolvedCredits = managedPricing.credits;
+    }
+
+    if (
+      typeof seedance20DiscountCredits === "number" &&
+      Number.isFinite(seedance20DiscountCredits)
+    ) {
+      resolvedCredits = seedance20DiscountCredits;
     }
   }
 

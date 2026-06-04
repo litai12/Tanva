@@ -15,7 +15,6 @@ type CountdownState = {
 type CampaignNoticeBarProps = {
   className?: string;
   onClose: () => void;
-  onExpire?: () => void;
 };
 
 const getCountdownState = (): CountdownState => {
@@ -58,7 +57,6 @@ const DigitGroup = ({ value, label }: { value: string; label?: string }) => (
 export default function CampaignNoticeBar({
   className,
   onClose,
-  onExpire,
 }: CampaignNoticeBarProps) {
   const [countdown, setCountdown] = useState<CountdownState>(() =>
     getCountdownState()
@@ -70,20 +68,20 @@ export default function CampaignNoticeBar({
       setCountdown(next);
       if (next.totalMs <= 0) {
         window.clearInterval(timer);
-        onExpire?.();
       }
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [onExpire]);
+  }, []);
 
   const ariaLabel = useMemo(() => {
     return `距活动结束还有 ${countdown.days} 天 ${countdown.hours} 小时 ${countdown.minutes} 分 ${countdown.seconds} 秒`;
-  }, [countdown.days, countdown.hours, countdown.minutes, countdown.seconds]);
-
-  if (countdown.totalMs <= 0) {
-    return null;
-  }
+  }, [
+    countdown.days,
+    countdown.hours,
+    countdown.minutes,
+    countdown.seconds,
+  ]);
 
   return (
     <div
