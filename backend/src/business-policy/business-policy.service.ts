@@ -36,7 +36,7 @@ export class BusinessPolicyService {
       rawValue: setting?.value ?? null,
       updatedAt: setting?.updatedAt ?? null,
       updatedBy: setting?.updatedBy ?? null,
-      description: '会员积分策略配置：赠送衰减、固定积分时效、免费月额度、签到奖励、月度刷新周期',
+      description: '会员积分策略配置：赠送衰减、固定积分时效、免费一次性额度、签到奖励、会员刷新周期',
     };
   }
 

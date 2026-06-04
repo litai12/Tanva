@@ -21265,10 +21265,7 @@ function FlowInner() {
         (node.data as any)?.modelProvider,
         aiProvider
       );
-      let effectiveAspectRatio =
-        node.type === "generate" && runProvider === "banana-2.5"
-          ? undefined
-          : aspectRatioValue;
+      let effectiveAspectRatio = aspectRatioValue;
 
       // viewAngle: 从源图检测宽高比以保持输出与源图一致
       if (node.type === "viewAngle" && !effectiveAspectRatio && imageDatas.length > 0) {

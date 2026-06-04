@@ -1176,6 +1176,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               ref={mentionOverlayInnerRef}
               style={{
                 boxSizing: 'border-box',
+                display: 'block',
                 minHeight: '100%',
                 width: '100%',
                 padding: 6,
@@ -1227,12 +1228,15 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           style={{
             position: 'absolute',
             inset: 0,
+            boxSizing: 'border-box',
+            display: 'block',
             width: '100%',
             height: '100%',
             resize: 'none',
             maxHeight: '100%',
             minHeight: 0,
             overflowY: 'auto',
+            overflowX: 'hidden',
             fontSize: 12,
             lineHeight: 1.45,
             border: 'none',
@@ -1244,6 +1248,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             color: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
             caretColor: '#111827',
             fontFamily: 'inherit',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
             cursor: isPromptEditable ? 'text' : 'default',
             zIndex: 2,
           }}

@@ -91,7 +91,7 @@ export class NewApiProvider implements IAIProvider {
       model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: this.resolveImageCount(request),
-      size: request.aspectRatio || '1:1',
+      size: this.resolveImageSizeParam(request.aspectRatio),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: request.imageUrls,
       quality: request.quality,
@@ -112,7 +112,7 @@ export class NewApiProvider implements IAIProvider {
       model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: 1,
-      size: request.aspectRatio || '1:1',
+      size: this.resolveImageSizeParam(request.aspectRatio),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: [this.toImageReference(request.sourceImage)],
       output_format: request.outputFormat,
@@ -126,7 +126,7 @@ export class NewApiProvider implements IAIProvider {
       model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
       prompt: request.prompt,
       n: 1,
-      size: request.aspectRatio || '1:1',
+      size: this.resolveImageSizeParam(request.aspectRatio),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: request.sourceImages.map((item) => this.toImageReference(item)),
       output_format: request.outputFormat,
@@ -677,6 +677,13 @@ export class NewApiProvider implements IAIProvider {
   private normalizeResolution(value: unknown): string | undefined {
     // 前端的 "0.5K" 需转换成 Gemini API 实际枚举 "512"，否则上游返回 invalid argument
     return normalizeGeminiImageSize(value);
+  }
+
+  private resolveImageSizeParam(aspectRatio: unknown): string | undefined {
+    const normalized = typeof aspectRatio === 'string' ? aspectRatio.trim() : '';
+    // Flow 的“自动比例”会传 undefined。这里不要兜底成 1:1，否则会强制方图；
+    // 让 new-api/上游模型在缺省 size 时按自身规则或参考图决定输出比例。
+    return normalized || undefined;
   }
 
   private resolveImageCount(request: ImageGenerationRequest): number {
