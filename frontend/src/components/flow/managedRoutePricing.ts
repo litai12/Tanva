@@ -342,13 +342,13 @@ export const resolveSeedance20DiscountCredits = (
   const unitPriceYuanByResolution =
     normalizedModel === "seedance-2.0-fast"
       ? {
-          "480P": 0.2821,
-          "720P": 0.3381,
+          "480P": 0.806,
+          "720P": 0.966,
         }
       : {
-          "480P": 0.35,
-          "720P": 0.42,
-          "1080P": 1.05,
+          "480P": 1.0,
+          "720P": 1.2,
+          "1080P": 3.0,
         };
   const unitPriceYuan =
     unitPriceYuanByResolution[resolution as keyof typeof unitPriceYuanByResolution];
