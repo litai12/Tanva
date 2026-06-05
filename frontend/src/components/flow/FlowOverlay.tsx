@@ -217,6 +217,12 @@ import {
 } from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
 import { hasPromptMentionTokenInText, normalizePromptImageMentions } from "./types";
+import type { PromptImageMention } from "./types";
+import {
+  IMAGE_INPUT_CAPABLE_TYPES,
+  pickFreeImageInputHandle,
+  type WirePromptMentionDetail,
+} from "./utils/promptMentionWiring";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
 import {
@@ -14692,6 +14698,118 @@ function FlowInner() {
         handler as EventListener
       );
   }, [rf, setNodes]);
+
+  // @ 引用自动接线：建 image 节点 / 建 generate 节点 / 连线
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | WirePromptMentionDetail
+        | undefined;
+      const promptNodeId = detail?.promptNodeId;
+      const mention = detail?.mention as PromptImageMention | undefined;
+      if (!promptNodeId || !mention || mention.mediaType !== 'image') return;
+
+      const nodes = rf.getNodes();
+      const edges = rf.getEdges();
+      const promptNode = nodes.find((n) => n.id === promptNodeId);
+      if (!promptNode) return;
+
+      // Step 1: 解析/创建图片节点
+      const refNodeId =
+        mention.source === 'flow' && mention.ref?.nodeId
+          ? mention.ref.nodeId
+          : null;
+      const reuseNodeId =
+        refNodeId && nodes.some((n) => n.id === refNodeId) ? refNodeId : null;
+      const url =
+        typeof mention.ref?.url === 'string' ? mention.ref.url.trim() : '';
+
+      const px = promptNode.position?.x ?? 0;
+      const py = promptNode.position?.y ?? 0;
+
+      let imageNodeId = reuseNodeId;
+      if (!imageNodeId) {
+        if (!url) return; // 画布无对应节点且无 url，无法承载
+        // 左侧一列垂直错开，避免重叠
+        const colNodes = nodes.filter(
+          (n) => Math.abs((n.position?.x ?? 0) - (px - 360)) < 100,
+        );
+        const world = { x: px - 360, y: py + colNodes.length * 260 };
+        const created = createNodeAtWorldCenter('image', world, {
+          imageUrl: url,
+          label: mention.label || 'Image',
+          imageName: mention.label || undefined,
+        });
+        if (!created) return;
+        imageNodeId = created;
+      }
+
+      // Step 2: 找 Prompt 下游、可接收图片输入的生成节点
+      const downstreamGenIds = new Set<string>();
+      for (const e of edges) {
+        if (e.source !== promptNodeId || e.sourceHandle !== 'text') continue;
+        const target = nodes.find((n) => n.id === e.target);
+        if (target?.type && IMAGE_INPUT_CAPABLE_TYPES.has(target.type)) {
+          downstreamGenIds.add(e.target);
+        }
+      }
+
+      // Step 3: 计算连线
+      const connections: Connection[] = [];
+      if (downstreamGenIds.size > 0) {
+        for (const genId of downstreamGenIds) {
+          if (edges.some((e) => e.source === imageNodeId && e.target === genId)) {
+            continue; // 幂等：已连
+          }
+          const genNode = nodes.find((n) => n.id === genId);
+          const occupied = new Set<string>();
+          for (const e of edges) {
+            if (e.target === genId && e.targetHandle) occupied.add(e.targetHandle);
+          }
+          const handle = pickFreeImageInputHandle(genNode?.type, occupied);
+          if (!handle) continue; // 无空闲图片口，跳过（不覆盖已有图）
+          connections.push({
+            source: imageNodeId,
+            sourceHandle: 'img',
+            target: genId,
+            targetHandle: handle,
+          } as Connection);
+        }
+      } else {
+        // 无下游生成节点：新建 generate 并连 prompt+image
+        const genId = createNodeAtWorldCenter('generate', {
+          x: px + 420,
+          y: py + 120,
+        });
+        if (genId) {
+          connections.push({
+            source: promptNodeId,
+            sourceHandle: 'text',
+            target: genId,
+            targetHandle: 'text',
+          } as Connection);
+          connections.push({
+            source: imageNodeId,
+            sourceHandle: 'img',
+            target: genId,
+            targetHandle: 'img',
+          } as Connection);
+        }
+      }
+
+      if (connections.length === 0) return;
+      // rAF 确保新建节点已进入 state 再连线
+      window.requestAnimationFrame(() => {
+        for (const c of connections) onConnect(c);
+      });
+    };
+    window.addEventListener('flow:wirePromptMention', handler as EventListener);
+    return () =>
+      window.removeEventListener(
+        'flow:wirePromptMention',
+        handler as EventListener,
+      );
+  }, [rf, onConnect, createNodeAtWorldCenter]);
 
 
   const happyhorsePollingRef = React.useRef<Set<string>>(new Set());
