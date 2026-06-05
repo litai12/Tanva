@@ -2398,8 +2398,13 @@ export class AiController {
 
   private async fetchImageBuffer(
     imageUrl: string,
+    options?: { trustedUpstreamResult?: boolean },
   ): Promise<{ buffer: Buffer; contentType: string }> {
-    const parsed = this.parseAndValidateAllowedImageUrl(imageUrl);
+    // 用户输入的源图走域名白名单；上游(new-api/渠道)返回的结果图域名不可预测
+    // (如 osss.upapi.top 镜像域名)，只做 http(s)+内网拦截，下载后转存我们自己的 OSS。
+    const parsed = options?.trustedUpstreamResult
+      ? this.parseUpstreamResultImageUrl(imageUrl)
+      : this.parseAndValidateAllowedImageUrl(imageUrl);
     const candidates = this.buildImageFetchCandidates(parsed);
     const maxBytes = 30 * 1024 * 1024;
     const errors: string[] = [];
@@ -2465,7 +2470,9 @@ export class AiController {
       return { url: sourceImageUrl, sourceImageUrl, uploaded: false };
     }
 
-    const { buffer, contentType } = await this.fetchImageBuffer(sourceImageUrl);
+    const { buffer, contentType } = await this.fetchImageBuffer(sourceImageUrl, {
+      trustedUpstreamResult: true,
+    });
     const watermarked = await this.watermarkBufferIfNeeded(buffer, req);
     const { mimeType, extension } = this.inferImageMimeFromBuffer(watermarked);
     const userTag = userId
@@ -2508,6 +2515,48 @@ export class AiController {
     }
 
     return parsed;
+  }
+
+  /**
+   * 校验「上游(new-api/渠道)返回的结果图 URL」。结果图域名由上游决定且不可预测
+   * (如 osss.upapi.top 这类临时镜像域名)，因此不套用面向用户输入的域名白名单——
+   * 否则会把上游成功的结果图误拦。但仍要求 http(s) 协议并拒绝内网/环回/链路本地
+   * 地址以防 SSRF。下载后由 persistProviderImageUrlToManaged 转存到我们自己的 OSS。
+   */
+  private parseUpstreamResultImageUrl(urlValue: string): URL {
+    let parsed: URL;
+    try {
+      parsed = new URL(urlValue);
+    } catch {
+      throw new BadRequestException('图片 URL 格式无效');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('图片 URL 只支持 http/https 协议');
+    }
+    if (this.isPrivateOrLoopbackHost(parsed.hostname)) {
+      this.logger.warn(`Upstream result image URL points to private host: ${parsed.hostname}`);
+      throw new BadRequestException('图片 URL 指向内网地址，已拒绝');
+    }
+    return parsed;
+  }
+
+  /** 判断主机名是否为内网/环回/链路本地地址（直连 IP 字面量层面的 SSRF 兜底）。 */
+  private isPrivateOrLoopbackHost(hostname: string): boolean {
+    const h = hostname.toLowerCase().replace(/^\[|\]$/g, ''); // 去掉 IPv6 方括号
+    if (!h || h === 'localhost' || h.endsWith('.localhost')) return true;
+    // IPv6 环回 / 链路本地 / 唯一本地地址
+    if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+    // IPv4 字面量
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m) {
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      if (a === 0 || a === 127 || a === 10) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 169 && b === 254) return true; // 链路本地，含 169.254.169.254 云元数据
+      if (a === 172 && b >= 16 && b <= 31) return true;
+    }
+    return false;
   }
 
   private validateImageDataUrl(dataUrl: string): void {

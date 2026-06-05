@@ -1023,11 +1023,30 @@ export class MembershipService {
         },
       });
 
+      // 付费用户（曾支付成功过任何订单，不论积分还是套餐）不参与赠送积分衰减。
+      // 口径与免费用户额度清理任务保持一致（credits.service.ts isPaidUser / 清理任务）。
+      const paidUserIds = new Set(
+        (
+          await tx.paymentOrder.findMany({
+            where: {
+              userId: { in: accounts.map((account) => account.userId) },
+              status: 'paid',
+            },
+            select: { userId: true },
+            distinct: ['userId'],
+          })
+        ).map((order) => order.userId),
+      );
+
       let affectedUsers = 0;
       let decayedCredits = 0;
       let updatedLots = 0;
 
       for (const account of accounts) {
+        if (paidUserIds.has(account.userId)) {
+          continue;
+        }
+
         const snapshot = await tx.membershipEntitlementSnapshot.findUnique({
           where: { userId: account.userId },
         });

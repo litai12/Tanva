@@ -1562,6 +1562,28 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     projectId,
   ]);
 
+  // 解析「上游图像编辑」的源图：优先透传已托管的远程 http(s) URL，拿不到再回退到本地
+  // base64 dataUrl。部分渠道（如 toapis）只接受 http(s) URL、拒收 base64，故凡是把源图
+  // 直接发给 editImage/editImageViaAPI 上游、且不在本地做像素处理的场景，都应走此函数。
+  //
+  // ⚠️ 不要用于：本地像素操作（提取调色板/画布合成/扩图蒙版）、视觉识别(analyzeImage)
+  // 的 base64 输入、以及本地抠图 backgroundRemovalService.removeBackground（只吃 base64）。
+  const resolveEditImageSource =
+    useCallback(async (): Promise<string | null> => {
+      const remoteCandidate = (() => {
+        const candidates = [imageData.remoteUrl, imageData.src, imageData.url];
+        for (const candidate of candidates) {
+          if (typeof candidate !== "string") continue;
+          const trimmed = candidate.trim();
+          if (!trimmed) continue;
+          const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+          if (isRemoteUrl(normalized)) return normalized;
+        }
+        return null;
+      })();
+      return remoteCandidate || (await resolveImageDataUrl());
+    }, [imageData.remoteUrl, imageData.src, imageData.url, resolveImageDataUrl]);
+
   const handleExtractPalette = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -1955,7 +1977,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       setIsApplyingTextEdit(true);
       try {
-        const sourceImage = await resolveImageDataUrl();
+        // 上游图像编辑：优先透传远程 URL（toapis 等只收 URL），回退 base64。
+        const sourceImage = await resolveEditImageSource();
         if (!sourceImage) {
           throw new Error("无法获取原图");
         }
@@ -2027,7 +2050,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       realTimeBounds.width,
       realTimeBounds.x,
       realTimeBounds.y,
-      resolveImageDataUrl,
+      resolveEditImageSource,
       textEditExtraInstruction,
       textReplacementItems,
     ]
@@ -3383,8 +3406,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             })
           );
 
-          // 获取图片数据
-          const baseImage = await resolveImageDataUrl();
+          // 获取图片数据：优先透传已托管的远程 URL（toapis 等渠道只收 http(s) URL，
+          // 不接受 base64），拿不到远程 URL 时再回退到本地 base64。
+          const baseImage = await resolveEditImageSource();
           if (!baseImage) {
             throw new Error("无法获取原图");
           }
@@ -3495,7 +3519,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       execute();
     },
-    [resolveImageDataUrl, imageData.id, isOptimizingHd, realTimeBounds]
+    [resolveEditImageSource, imageData.id, isOptimizingHd, realTimeBounds]
   );
 
   // 处理扩图取消
