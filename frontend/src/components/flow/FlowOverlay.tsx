@@ -18241,7 +18241,7 @@ function FlowInner() {
           return 99;
         };
 
-        const imageEdges = currentEdges
+        const directImageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
             // 有视频输入时，只收集 image / image-2，排除 elementImg
@@ -18261,14 +18261,41 @@ function FlowInner() {
               imageHandlePriority(b.targetHandle);
             if (handleDelta !== 0) return handleDelta;
             return String(a.id || "").localeCompare(String(b.id || ""));
-          })
-          .slice(0, maxImages);
-        const imageCount = imageEdges.length;
-        const hasImage2Edge = imageEdges.some((edge) => edge.targetHandle === "image-2");
+          });
 
         // 获取 prompt
         const { text: promptText, hasEdge: hasText } =
           getTextPromptForNode(nodeId);
+
+        const promptMentionImageResolveLimit =
+          maxImages <= 0
+            ? 0
+            : isSeedanceNode && seedanceModeSpec
+            ? maxImages + 1
+            : maxImages;
+        const promptMentionImageRefsAll =
+          await resolvePromptMentionImagesForNode(
+            nodeId,
+            promptMentionImageResolveLimit
+          );
+        const promptMentionImageRefs = promptMentionImageRefsAll.slice(
+          0,
+          maxImages
+        );
+        const promptMentionImageCountForValidation =
+          promptMentionImageRefsAll.length;
+        const imageEdges = directImageEdges.slice(
+          0,
+          Math.max(0, maxImages - promptMentionImageRefs.length)
+        );
+        const imageCount = Math.min(
+          maxImages,
+          promptMentionImageRefs.length + imageEdges.length
+        );
+        const hasPromptMentionImageInput = promptMentionImageRefs.length > 0;
+        const hasImage2Edge = directImageEdges.some(
+          (edge) => edge.targetHandle === "image-2"
+        );
 
         // Vidu 智能模式判断逻辑：
         // - 0张图必须有prompt (text2video)
@@ -18293,7 +18320,7 @@ function FlowInner() {
         if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
           const seedanceImageCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image"
-          ).length;
+          ).length + promptMentionImageCountForValidation;
           const seedanceImage2Count = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image-2"
           ).length;
@@ -18374,7 +18401,11 @@ function FlowInner() {
             }
           }
         } else if (provider === "vidu" || provider === "viduq3-pro") {
-          if (hasImage2Edge && !imageEdges.some((edge) => edge.targetHandle === "image")) {
+          if (
+            hasImage2Edge &&
+            !hasPromptMentionImageInput &&
+            !imageEdges.some((edge) => edge.targetHandle === "image")
+          ) {
             failCurrentVideoNode("请先连接图1（image）再连接图2（image-2）");
             return;
           }
@@ -18846,18 +18877,77 @@ function FlowInner() {
           }
         }
 
-        const resolvedEdgePairs: Array<{
-          edge: (typeof imageEdges)[number];
+        setNodes((ns) =>
+          ns.map((n) => {
+            if (n.id !== nodeId) return n;
+            const previousData = (n.data as any) || {};
+            return {
+              ...n,
+              data: {
+                ...previousData,
+                status: "running",
+                error: undefined,
+                videoUrl: undefined,
+                thumbnail: undefined,
+                videoVersion: Number(previousData.videoVersion || 0) + 1,
+              },
+            };
+          })
+        );
+
+        const resolvedReferenceInputs: Array<{
+          edge?: Edge;
           dataUrl: string;
+          token?: string;
         }> = [];
+        for (const mention of promptMentionImageRefs) {
+          const dataUrl =
+            typeof mention.image === "string" ? mention.image.trim() : "";
+          if (dataUrl) {
+            resolvedReferenceInputs.push({
+              dataUrl,
+              token: mention.token,
+            });
+          }
+        }
         for (const edge of imageEdges) {
           const [dataUrl] = await resolveEdgesAsDataUrls([edge]);
-          if (dataUrl) resolvedEdgePairs.push({ edge, dataUrl });
+          if (dataUrl) resolvedReferenceInputs.push({ edge, dataUrl });
         }
-        const referenceImages = resolvedEdgePairs.map((p) => p.dataUrl);
-        const referenceImageSourceEdges = resolvedEdgePairs.map((p) => p.edge);
+        const dedupedReferenceInputs: typeof resolvedReferenceInputs = [];
+        const seenReferenceInputs = new Set<string>();
+        for (const item of resolvedReferenceInputs) {
+          const key = item.dataUrl.trim();
+          if (!key || seenReferenceInputs.has(key)) continue;
+          seenReferenceInputs.add(key);
+          dedupedReferenceInputs.push(item);
+          if (dedupedReferenceInputs.length >= maxImages) break;
+        }
+        const referenceImages = dedupedReferenceInputs.map((p) => p.dataUrl);
+        const referenceImageSourceEdges = dedupedReferenceInputs.map((p) => p.edge);
+        if (referenceImages.length > 0 && finalPrompt.trim()) {
+          const mappingText = dedupedReferenceInputs
+            .map((item, index) => {
+              const aliases = [`图${index + 1}`];
+              const token =
+                typeof item.token === "string" ? item.token.trim() : "";
+              if (token) aliases.unshift(token);
+              return `${Array.from(new Set(aliases)).join("/")}=第${
+                index + 1
+              }张参考图`;
+            })
+            .join("；");
+          if (mappingText) {
+            finalPrompt = `${finalPrompt}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用，不要按图片原始编号或视觉猜测重新匹配。`;
+          }
+        }
 
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
+        if (promptMentionImageRefs.length > 0) {
+          console.log(
+            `🎬 [VideoProvider] Prompt @ 参考图数量: ${promptMentionImageRefs.length}`
+          );
+        }
         referenceImages.forEach((img, i) => {
           console.log(`🎬 [VideoProvider] 参考图${i + 1}: ${img?.slice(0, 60)}...`);
         });
