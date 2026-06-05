@@ -31,6 +31,29 @@ export type PromptImageMention = {
 const isPromptMentionSource = (value: unknown): value is PromptMentionSource =>
   value === 'flow' || value === 'project-library' || value === 'personal-library';
 
+const isPromptMentionAsciiTokenPart = (char: string): boolean =>
+  /[A-Za-z0-9_-]/.test(char);
+
+export const isPromptMentionTokenBoundary = (
+  text: string,
+  token: string,
+  startIndex: number
+): boolean => {
+  const nextChar = text.charAt(startIndex + token.length);
+  if (!nextChar) return true;
+  const lastTokenChar = token.charAt(token.length - 1);
+  return !(isPromptMentionAsciiTokenPart(lastTokenChar) && isPromptMentionAsciiTokenPart(nextChar));
+};
+
+export const hasPromptMentionTokenInText = (text: string, token: string): boolean => {
+  let index = text.indexOf(token);
+  while (index >= 0) {
+    if (isPromptMentionTokenBoundary(text, token, index)) return true;
+    index = text.indexOf(token, index + token.length);
+  }
+  return false;
+};
+
 export const normalizePromptImageMentions = (value: unknown): PromptImageMention[] => {
   if (!Array.isArray(value)) return [];
   const out: PromptImageMention[] = [];

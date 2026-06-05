@@ -19,6 +19,8 @@ import {
   type PersonalImageAsset,
 } from '@/stores/personalLibraryStore';
 import {
+  hasPromptMentionTokenInText,
+  isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
   type PromptImageMention,
   type PromptMentionSource,
@@ -62,21 +64,6 @@ type MentionTokenRange = {
 
 const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
 
-const isPromptMentionTokenBoundary = (text: string, token: string, startIndex: number): boolean => {
-  const lastTokenChar = token.charAt(token.length - 1);
-  const nextChar = text.charAt(startIndex + token.length);
-  return !(/\d/.test(lastTokenChar) && /\d/.test(nextChar));
-};
-
-const hasPromptMentionToken = (text: string, token: string): boolean => {
-  let index = text.indexOf(token);
-  while (index >= 0) {
-    if (isPromptMentionTokenBoundary(text, token, index)) return true;
-    index = text.indexOf(token, index + token.length);
-  }
-  return false;
-};
-
 const sanitizePromptMentionsForText = (
   text: string,
   mentions: PromptImageMention[]
@@ -84,7 +71,7 @@ const sanitizePromptMentionsForText = (
   if (!mentions.length) return [];
   return mentions.filter((mention) => {
     const token = typeof mention.token === 'string' ? mention.token.trim() : '';
-    return token.startsWith('@') && hasPromptMentionToken(text, token);
+    return token.startsWith('@') && hasPromptMentionTokenInText(text, token);
   });
 };
 
@@ -360,7 +347,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           title,
           subtitle: lt('当前工作流', 'Current workflow'),
           previewUrl: img.url,
-          tokenHint: getPromptMentionTokenHint(title, `图${img.index}`),
+          tokenHint: getPromptMentionTokenHint('', `图${img.index}`),
           flowImage: img,
           ref: { nodeId: img.nodeId },
         };
@@ -777,7 +764,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       return label && reusable.label !== label ? { ...reusable, label } : reusable;
     }
 
-    const token = buildUniqueToken(label || candidate.tokenHint.replace(/^@/, ''), currentText);
+    const tokenLabel =
+      normalizePromptMentionTokenLabel(candidate.tokenHint.replace(/^@/, '')) ||
+      label ||
+      '图';
+    const token = buildUniqueToken(tokenLabel, currentText);
 
     return {
       id: candidate.id,

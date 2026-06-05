@@ -216,7 +216,7 @@ import {
   type FlowRenderMode,
 } from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
-import { normalizePromptImageMentions } from "./types";
+import { hasPromptMentionTokenInText, normalizePromptImageMentions } from "./types";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
 import {
@@ -15645,7 +15645,7 @@ function FlowInner() {
 
           for (const mention of mentions) {
             if (mention.mediaType !== "image") continue;
-            if (mention.token && (!promptText || !promptText.includes(mention.token))) {
+            if (mention.token && (!promptText || !hasPromptMentionTokenInText(promptText, mention.token))) {
               continue;
             }
 
