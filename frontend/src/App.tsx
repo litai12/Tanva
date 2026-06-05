@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Canvas from '@/pages/Canvas';
 import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
@@ -17,6 +17,7 @@ import { useTeamRealtime } from '@/hooks/useTeamRealtime';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import CampaignNoticeBar from '@/components/layout/CampaignNoticeBar';
 import { isCampaignNoticeAvailable } from '@/components/layout/campaignNoticeConfig';
+import { dispatchCanvasLayoutChanged } from '@/utils/canvasLayoutEvents';
 
 const PENDING_INVITE_KEY = 'tanva_pending_team_invite';
 
@@ -101,6 +102,25 @@ const App: React.FC = () => {
 
   // 记录上一次打开的项目ID，避免重复打开
   const lastOpenedProjectIdRef = useRef<string | null>(null);
+
+  const scheduleCanvasLayoutChanged = useCallback((reason: string) => {
+    if (typeof window === 'undefined') return;
+    const emit = () => {
+      dispatchCanvasLayoutChanged({ reason });
+      try { window.dispatchEvent(new Event('resize')); } catch {}
+    };
+
+    window.requestAnimationFrame(() => {
+      emit();
+      window.requestAnimationFrame(emit);
+    });
+    window.setTimeout(emit, 120);
+  }, []);
+
+  const handleCampaignNoticeClose = useCallback(() => {
+    setShowCampaignNotice(false);
+    scheduleCanvasLayoutChanged('campaign-notice-close');
+  }, [scheduleCanvasLayoutChanged]);
 
   // 初始化 TokenRefreshManager
   useEffect(() => {
@@ -242,7 +262,7 @@ const App: React.FC = () => {
       <ProjectAutosaveManager projectId={projectId} />
       {showCampaignNotice && (
         <CampaignNoticeBar
-          onClose={() => setShowCampaignNotice(false)}
+          onClose={handleCampaignNoticeClose}
         />
       )}
       <div className="relative min-h-0 flex-1">

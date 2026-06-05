@@ -91,6 +91,7 @@
 ## 视口性能
 - `GlobalZoomCapture` 的触控板/手势缩放只通过 RAF 批量提交 `setViewport`，避免同一帧内同步写入多次 canvas store。
 - `ProjectAutosaveManager` 同步 canvas `zoom/pan` 到项目内容时使用 160ms 防抖，并跳过与内容快照或上次同步值相同的视角，避免缩放/平移期间把高频视角变化转成项目内容更新。
+- 布局高度变化（例如顶部活动通知关闭）通过 `tanva:canvas-layout-changed` 触发统一同步：`PaperCanvasManager` 重设 `paper.view.viewSize` 后发出 `tanva:paper-view-resized`，`GridRenderer` 重绘可视网格，`FlowOverlay` 重新应用 Canvas -> ReactFlow viewport。
 - 图片拖动期间，`CanvasImageLayer` 通过 `tanva:image-drag-preview` 事件直接对 DOM 图片做 `translate3d` 预览；选中图片的 React 覆盖层复用同一预览事件，并在拖动期间暂停 Paper bounds 轮询；`useInteractionController` 只在鼠标松开时一次性提交 `imageInstances`，避免多图场景每帧触发 React 图片列表更新。
 
 ## 历史视频上画布

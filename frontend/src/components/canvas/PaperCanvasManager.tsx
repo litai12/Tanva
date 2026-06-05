@@ -2,6 +2,10 @@ import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { useLayerStore } from '@/stores/layerStore';
+import {
+  dispatchPaperViewResized,
+  TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
+} from '@/utils/canvasLayoutEvents';
 
 const patchPaperRasterSetSourceCompat = (() => {
   let patched = false;
@@ -80,6 +84,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     }
 
     let isInitialized = false;
+    let lastViewSize = { width: 0, height: 0 };
     
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
@@ -89,9 +94,19 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         const displayWidth = parent.clientWidth;
         const displayHeight = parent.clientHeight;
         
+        const nextCanvasWidth = Math.max(1, Math.round(displayWidth * pixelRatio));
+        const nextCanvasHeight = Math.max(1, Math.round(displayHeight * pixelRatio));
+        const sizeChanged =
+          nextCanvasWidth !== lastViewSize.width ||
+          nextCanvasHeight !== lastViewSize.height;
+
         // 设置画布的实际尺寸（考虑设备像素比）
-        canvas.width = displayWidth * pixelRatio;
-        canvas.height = displayHeight * pixelRatio;
+        if (canvas.width !== nextCanvasWidth) {
+          canvas.width = nextCanvasWidth;
+        }
+        if (canvas.height !== nextCanvasHeight) {
+          canvas.height = nextCanvasHeight;
+        }
         
         // 设置画布的显示尺寸
         canvas.style.width = displayWidth + 'px';
@@ -101,11 +116,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         // Paper 会基于此尺寸进行变换；事件→视图坐标需自行考虑 devicePixelRatio
         if (paper.view) {
           try {
-            paper.view.viewSize = new paper.Size(canvas.width, canvas.height);
+            paper.view.viewSize = new paper.Size(nextCanvasWidth, nextCanvasHeight);
           } catch {
             try {
-              (paper.view.viewSize as any).width = canvas.width;
-              (paper.view.viewSize as any).height = canvas.height;
+              (paper.view.viewSize as any).width = nextCanvasWidth;
+              (paper.view.viewSize as any).height = nextCanvasHeight;
             } catch {}
           }
         }
@@ -142,6 +157,18 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
           // 应用视口变换
           applyViewTransform();
         }
+
+        try { paper.view?.update(); } catch {}
+
+        if (sizeChanged) {
+          lastViewSize = { width: nextCanvasWidth, height: nextCanvasHeight };
+          dispatchPaperViewResized({
+            width: nextCanvasWidth,
+            height: nextCanvasHeight,
+            displayWidth,
+            displayHeight,
+          });
+        }
       }
     };
 
@@ -168,6 +195,15 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
+    const handleCanvasLayoutChanged = () => {
+      requestAnimationFrame(resizeCanvas);
+      setTimeout(resizeCanvas, 80);
+    };
+    window.addEventListener(
+      TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
+      handleCanvasLayoutChanged as EventListener
+    );
+
     // 监听父元素尺寸变化（更可靠）
     let ro: ResizeObserver | null = null;
     if (canvas.parentElement && 'ResizeObserver' in window) {
@@ -177,6 +213,10 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener(
+        TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
+        handleCanvasLayoutChanged as EventListener
+      );
       if (ro) {
         try { ro.disconnect(); } catch {}
         ro = null;

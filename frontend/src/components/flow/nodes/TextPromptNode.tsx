@@ -19,10 +19,13 @@ import {
   type PersonalImageAsset,
 } from '@/stores/personalLibraryStore';
 import {
+  hasPromptMentionTokenInText,
   normalizePromptImageMentions,
   type PromptImageMention,
   type PromptMentionSource,
 } from '../types';
+import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
+import SmartImage from '@/components/ui/SmartImage';
 
 type Props = {
   id: string;
@@ -59,22 +62,15 @@ type MentionTokenRange = {
   mention: PromptImageMention;
 };
 
+type MentionPreviewItem = {
+  id: string;
+  token: string;
+  label: string;
+  previewUrl: string;
+  isVideo: boolean;
+};
+
 const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
-
-const isPromptMentionTokenBoundary = (text: string, token: string, startIndex: number): boolean => {
-  const lastTokenChar = token.charAt(token.length - 1);
-  const nextChar = text.charAt(startIndex + token.length);
-  return !(/\d/.test(lastTokenChar) && /\d/.test(nextChar));
-};
-
-const hasPromptMentionToken = (text: string, token: string): boolean => {
-  let index = text.indexOf(token);
-  while (index >= 0) {
-    if (isPromptMentionTokenBoundary(text, token, index)) return true;
-    index = text.indexOf(token, index + token.length);
-  }
-  return false;
-};
 
 const sanitizePromptMentionsForText = (
   text: string,
@@ -83,7 +79,7 @@ const sanitizePromptMentionsForText = (
   if (!mentions.length) return [];
   return mentions.filter((mention) => {
     const token = typeof mention.token === 'string' ? mention.token.trim() : '';
-    return token.startsWith('@') && hasPromptMentionToken(text, token);
+    return token.startsWith('@') && hasPromptMentionTokenInText(text, token);
   });
 };
 
@@ -136,7 +132,7 @@ const isResolvedMentionAt = (
   return mentions.some((mention) => {
     const token = typeof mention.token === 'string' ? mention.token.trim() : '';
     if (!token || !token.startsWith('@')) return false;
-    return text.startsWith(token, atIndex) && isPromptMentionTokenBoundary(text, token, atIndex);
+    return text.startsWith(token, atIndex);
   });
 };
 
@@ -158,9 +154,7 @@ const getPromptMentionTokenRanges = (
   let index = 0;
   while (index < text.length) {
     const match = usableMentions.find(
-      (item) =>
-        text.startsWith(item.token, index) &&
-        isPromptMentionTokenBoundary(text, item.token, index)
+      (item) => text.startsWith(item.token, index)
     );
     if (!match) {
       index += 1;
@@ -217,6 +211,15 @@ const getPromptMentionChipLabel = (mention: PromptImageMention): string => {
   const rawLabel = (mention.label || tokenLabel).trim();
   return rawLabel || tokenLabel;
 };
+
+const getPromptMentionDisplayLabel = (
+  mention: PromptImageMention,
+  mentionTitleById: Map<string, string>
+): string =>
+  getPromptMentionLookupKeys(mention)
+    .map((key) => mentionTitleById.get(key))
+    .find((label): label is string => Boolean(label)) ||
+  getPromptMentionChipLabel(mention);
 
 const pickPromptMentionTitle = (...values: unknown[]): string | undefined => {
   for (const value of values) {
@@ -275,6 +278,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
+  const isFlowDark = useFlowNodeDarkTheme();
   const [value, setValue] = React.useState<string>(data.text || '');
   const [hover, setHover] = React.useState<string | null>(null);
   const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
@@ -286,8 +290,20 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     offsetY: number;
   } | null>(null);
   const edgesRef = React.useRef<Edge[]>(edges);
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
-  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const borderColor = selected ? '#2563eb' : isFlowDark ? '#333333' : '#e5e7eb';
+  const boxShadow = selected
+    ? '0 0 0 2px rgba(37,99,235,0.12)'
+    : isFlowDark
+      ? 'none'
+      : '0 1px 2px rgba(0,0,0,0.04)';
+  const nodeBackground = isFlowDark ? '#1c1c1c' : '#fff';
+  const inputBackground = isFlowDark ? '#151515' : 'rgba(255,255,255,0.92)';
+  const inputBorderColor = isFlowDark ? '#3a3a3a' : '#e5e7eb';
+  const promptTextColor = isFlowDark ? '#e5e7eb' : '#1f2937';
+  const promptCaretColor = isFlowDark ? '#f8fafc' : '#111827';
+  const mutedTextColor = isFlowDark ? '#a3a3a3' : '#6b7280';
+  const buttonBackground = isFlowDark ? '#252525' : '#fff';
+  const buttonTextColor = isFlowDark ? '#d1d5db' : '#374151';
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
     : DEFAULT_TITLE;
@@ -346,7 +362,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           title,
           subtitle: lt('当前工作流', 'Current workflow'),
           previewUrl: img.url,
-          tokenHint: getPromptMentionTokenHint(title, `图${img.index}`),
+          tokenHint: getPromptMentionTokenHint('', `图${img.index}`),
           flowImage: img,
           ref: { nodeId: img.nodeId },
         };
@@ -417,6 +433,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     });
     return next;
   }, [candidateGroups]);
+  const mentionCandidateById = React.useMemo(() => {
+    const next = new Map<string, MentionCandidate>();
+    Object.values(candidateGroups).forEach((candidates) => {
+      candidates.forEach((candidate) => {
+        getMentionCandidateLookupKeys(candidate).forEach((key) => {
+          if (!next.has(key)) next.set(key, candidate);
+        });
+      });
+    });
+    return next;
+  }, [candidateGroups]);
 
   const filterMentionCandidates = React.useCallback((
     candidates: MentionCandidate[],
@@ -459,11 +486,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       if (range.start > cursor) {
         nodes.push(value.slice(cursor, range.start));
       }
-      const displayLabel =
-        getPromptMentionLookupKeys(range.mention)
-          .map((key) => mentionTitleById.get(key))
-          .find((label): label is string => Boolean(label)) ||
-        getPromptMentionChipLabel(range.mention);
+      const displayLabel = getPromptMentionDisplayLabel(range.mention, mentionTitleById);
       nodes.push(
         <span
           key={`${range.mention.id}-${range.start}-${index}`}
@@ -480,6 +503,52 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }
     return nodes.length ? nodes : [value];
   }, [mentionTitleById, mentionTokenRanges, value]);
+
+  const mentionPreviewItems = React.useMemo<MentionPreviewItem[]>(() => {
+    if (!mentions.length || !value) return [];
+    const out: MentionPreviewItem[] = [];
+    const seen = new Set<string>();
+
+    for (const mention of mentions) {
+      const token = typeof mention.token === 'string' ? mention.token.trim() : '';
+      if (!token || !hasPromptMentionTokenInText(value, token)) continue;
+      const candidate = getPromptMentionLookupKeys(mention)
+        .map((key) => mentionCandidateById.get(key))
+        .find((item): item is MentionCandidate => Boolean(item));
+      const previewUrl =
+        candidate?.previewUrl ||
+        (mention.source !== 'flow' && typeof mention.ref.url === 'string'
+          ? mention.ref.url.trim()
+          : '');
+      if (!previewUrl) continue;
+      const dedupeKey = `${mention.id}::${token}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      out.push({
+        id: dedupeKey,
+        token,
+        label: candidate?.title.trim() || getPromptMentionDisplayLabel(mention, mentionTitleById),
+        previewUrl,
+        isVideo: candidate?.flowImage?.isVideo === true,
+      });
+    }
+
+    return out;
+  }, [mentionCandidateById, mentionTitleById, mentions, value]);
+
+  const mentionedFlowNodeIds = React.useMemo(() => {
+    const next = new Set<string>();
+    mentions.forEach((mention) => {
+      if (mention.source === 'flow' && mention.ref.nodeId && hasPromptMentionTokenInText(value, mention.token)) {
+        next.add(mention.ref.nodeId);
+      }
+    });
+    return next;
+  }, [mentions, value]);
+  const insertableSiblingImages = React.useMemo(
+    () => siblingImages.filter((img) => !mentionedFlowNodeIds.has(img.nodeId)),
+    [mentionedFlowNodeIds, siblingImages]
+  );
 
   const detectAtMention = React.useCallback((
     text: string,
@@ -763,7 +832,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       return label && reusable.label !== label ? { ...reusable, label } : reusable;
     }
 
-    const token = buildUniqueToken(label || candidate.tokenHint.replace(/^@/, ''), currentText);
+    const tokenLabel =
+      normalizePromptMentionTokenLabel(candidate.tokenHint.replace(/^@/, '')) ||
+      label ||
+      '图';
+    const token = buildUniqueToken(tokenLabel, currentText);
 
     return {
       id: candidate.id,
@@ -839,6 +912,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const end = el?.selectionEnd ?? value.length;
     insertMentionCandidate(candidate, { start, end });
   }, [flowMentionCandidates, insertMentionCandidate, value.length]);
+
+  const handleMentionPreviewSelect = React.useCallback((item: MentionPreviewItem) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const index = value.indexOf(item.token);
+    if (index < 0) return;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(index, index + item.token.length);
+    });
+  }, [value]);
 
   const deleteTextRange = React.useCallback((start: number, end: number) => {
     const el = textareaRef.current;
@@ -1144,10 +1228,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       width: renderedBoxW,
       height: renderedBoxH,
       padding: 8,
-      background: '#fff',
+      background: nodeBackground,
       border: `1px solid ${borderColor}`,
       borderRadius: 8,
       boxShadow,
+      color: promptTextColor,
       transition: isResizing ? 'none' : 'border-color 0.15s ease, box-shadow 0.15s ease',
       transform: isResizing ? `translate(${renderedOffsetX}px, ${renderedOffsetY}px)` : undefined,
       willChange: isResizing ? 'transform, width, height' : undefined,
@@ -1188,11 +1273,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             style={{
               fontWeight: 600,
               fontSize: 13,
-              border: '1px solid #d1d5db',
+              border: `1px solid ${inputBorderColor}`,
               borderRadius: 4,
               padding: '2px 4px',
               outline: 'none',
-              width: '100%'
+              width: '100%',
+              background: buttonBackground,
+              color: promptTextColor,
             }}
           />
         ) : (
@@ -1207,7 +1294,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
         {hasIncoming && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>
+            <span style={{ fontSize: 11, color: mutedTextColor }}>
               {lt(`已拼接 ${incomingCount} 条输入`, `${incomingCount} inputs merged`)}
             </span>
             <button
@@ -1216,9 +1303,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 999,
-                border: '1px solid #e5e7eb',
-                background: '#fff',
-                color: '#374151',
+                border: `1px solid ${inputBorderColor}`,
+                background: buttonBackground,
+                color: buttonTextColor,
                 cursor: 'pointer'
               }}
             >
@@ -1234,9 +1321,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           flex: 1,
           maxHeight: '100%',
           minHeight: 60,
-          border: '1px solid #e5e7eb',
+          border: `1px solid ${inputBorderColor}`,
           borderRadius: 6,
-          background: 'rgba(255,255,255,0.92)',
+          background: inputBackground,
           overflow: 'hidden',
         }}
       >
@@ -1261,7 +1348,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 padding: 6,
                 fontSize: 12,
                 lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
-                color: '#1f2937',
+                color: promptTextColor,
+                WebkitTextFillColor: promptTextColor,
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -1275,7 +1363,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
         <textarea
           ref={textareaRef}
-          className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
+          className={[
+            "tanva-flow-text-input",
+            shouldRenderMentionOverlay ? "tanva-prompt-mentions-textarea" : "",
+            isPromptEditable ? "nodrag nopan nowheel" : "",
+          ].filter(Boolean).join(" ")}
           value={value}
           readOnly={!isPromptEditable}
           tabIndex={isPromptEditable ? 0 : -1}
@@ -1325,9 +1417,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             outline: 'none',
             pointerEvents: isPromptEditable ? 'auto' : 'none',
             background: 'transparent',
-            color: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
-            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
-            caretColor: '#111827',
+            color: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+            caretColor: promptCaretColor,
             fontFamily: 'inherit',
             letterSpacing: 0,
             whiteSpace: 'pre-wrap',
@@ -1338,8 +1430,37 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           }}
         />
       </div>
-      {isPromptEditable && (
-        <PromptImageStrip images={siblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
+      {mentionPreviewItems.length > 0 && (
+        <div className="prompt-mentioned-strip nodrag nopan" aria-label={lt('已引用图片', 'Referenced images')}>
+          {mentionPreviewItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="prompt-mentioned-strip__card"
+              title={item.label}
+              onPointerDownCapture={(e) => { e.stopPropagation(); }}
+              onMouseDownCapture={(e) => { e.stopPropagation(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMentionPreviewSelect(item);
+              }}
+            >
+              <SmartImage
+                src={item.previewUrl}
+                alt={item.label}
+                className="prompt-mentioned-strip__img"
+                draggable={false}
+              />
+              {item.isVideo && (
+                <span className="prompt-mentioned-strip__video-icon" aria-hidden="true">▶</span>
+              )}
+              <span className="prompt-mentioned-strip__label">{item.token.replace(/^@/, '')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {isPromptEditable && insertableSiblingImages.length > 0 && (
+        <PromptImageStrip images={insertableSiblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
       )}
       {atMention && dropdownPos && createPortal(
         <div

@@ -4,6 +4,10 @@ import { useCanvasStore, useUIStore, GridStyle } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { memoryMonitor } from '@/utils/memoryMonitor';
 import { logger } from '@/utils/logger';
+import {
+  TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
+  TANVA_PAPER_VIEW_RESIZED_EVENT,
+} from '@/utils/canvasLayoutEvents';
 
 interface GridRendererProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -695,21 +699,27 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, [isPaperInitialized, showGrid, gridSize]);
 
-  // 监听项目变更（如 importJSON 后）强制重绘网格
+  // 监听项目、布局与 Paper viewSize 变更后强制重绘网格
   // 使用 ref 来获取最新的 createGrid 和 gridSize，避免依赖变化导致事件监听器频繁重建
   useEffect(() => {
     const handler = () => {
       isInitializedRef.current = false;
       // 使用 ref 获取最新值，避免闭包过期
-      setTimeout(() => createGridRef.current(gridSizeRef.current), 0);
+      requestAnimationFrame(() => createGridRef.current(gridSizeRef.current));
+      setTimeout(() => createGridRef.current(gridSizeRef.current), 80);
     };
-    window.addEventListener('paper-project-changed', handler as any);
-    window.addEventListener('paper-ready', handler as any);
-    window.addEventListener('paper-project-cleared', handler as any);
+    const listener = handler as EventListener;
+    window.addEventListener('paper-project-changed', listener);
+    window.addEventListener('paper-ready', listener);
+    window.addEventListener('paper-project-cleared', listener);
+    window.addEventListener(TANVA_CANVAS_LAYOUT_CHANGED_EVENT, listener);
+    window.addEventListener(TANVA_PAPER_VIEW_RESIZED_EVENT, listener);
     return () => {
-      window.removeEventListener('paper-project-changed', handler as any);
-      window.removeEventListener('paper-ready', handler as any);
-      window.removeEventListener('paper-project-cleared', handler as any);
+      window.removeEventListener('paper-project-changed', listener);
+      window.removeEventListener('paper-ready', listener);
+      window.removeEventListener('paper-project-cleared', listener);
+      window.removeEventListener(TANVA_CANVAS_LAYOUT_CHANGED_EVENT, listener);
+      window.removeEventListener(TANVA_PAPER_VIEW_RESIZED_EVENT, listener);
     };
   }, []); // 空依赖数组，事件监听器只绑定一次
 
