@@ -6,6 +6,7 @@ import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { useImeSafeTextList } from '../hooks/useImeSafeTextInput';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
+import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
 
 type Props = {
   id: string;
@@ -28,6 +29,7 @@ const DEFAULT_BOX_HEIGHT = 80;
 function TextPromptProNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
+  const isFlowDark = useFlowNodeDarkTheme();
   const [hover, setHover] = React.useState<string | null>(null);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -37,6 +39,8 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
     return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
   }, []);
   const isPromptEditable = selected === true;
+  const promptTextColor = isFlowDark ? '#e5e7eb' : '#374151';
+  const promptCaretColor = isFlowDark ? '#f8fafc' : '#111827';
 
   const boxWidth = data.boxWidth || DEFAULT_BOX_WIDTH;
   const boxHeight = data.boxHeight || DEFAULT_BOX_HEIGHT;
@@ -336,7 +340,10 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
             return (
           <textarea
             ref={textareaRef}
-            className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
+            className={[
+              "tanva-flow-text-input",
+              isPromptEditable ? "nodrag nopan nowheel" : "",
+            ].filter(Boolean).join(" ")}
             value={promptInput.value}
             readOnly={!isPromptEditable}
             tabIndex={isPromptEditable ? 0 : -1}
@@ -354,7 +361,9 @@ function TextPromptProNodeInner({ id, data, selected }: Props) {
               outline: 'none',
               background: 'transparent',
               resize: 'none',
-              color: '#374151',
+              color: promptTextColor,
+              WebkitTextFillColor: promptTextColor,
+              caretColor: promptCaretColor,
               pointerEvents: isPromptEditable ? 'auto' : 'none',
               cursor: isPromptEditable ? 'text' : 'default',
             }}

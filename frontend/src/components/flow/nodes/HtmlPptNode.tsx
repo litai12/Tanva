@@ -2413,7 +2413,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         <div
           className="nodrag nopan nowheel"
           onPointerDownCapture={stopFlowPan}
-          onWheelCapture={stopFlowPan}
           style={{
             border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
             borderRadius: 8,
@@ -2506,7 +2505,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
         <div
           className="nodrag nopan nowheel"
           onPointerDownCapture={stopFlowPan}
-          onWheelCapture={stopFlowPan}
           style={{
             minWidth: 0,
             border: `1px solid ${isDarkTheme ? "#333333" : "#e5e7eb"}`,
@@ -2589,7 +2587,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
             <div
               className="nodrag nopan nowheel"
               onPointerDownCapture={stopFlowPan}
-              onWheelCapture={stopFlowPan}
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -2658,7 +2655,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       <div
         className="nodrag nopan nowheel"
         onPointerDownCapture={stopFlowPan}
-        onWheelCapture={stopFlowPan}
         style={{ display: "block" }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>

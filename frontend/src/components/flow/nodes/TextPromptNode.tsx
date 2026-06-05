@@ -23,6 +23,7 @@ import {
   type PromptImageMention,
   type PromptMentionSource,
 } from '../types';
+import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
 
 type Props = {
   id: string;
@@ -275,6 +276,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
+  const isFlowDark = useFlowNodeDarkTheme();
   const [value, setValue] = React.useState<string>(data.text || '');
   const [hover, setHover] = React.useState<string | null>(null);
   const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
@@ -286,8 +288,20 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     offsetY: number;
   } | null>(null);
   const edgesRef = React.useRef<Edge[]>(edges);
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
-  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const borderColor = selected ? '#2563eb' : isFlowDark ? '#333333' : '#e5e7eb';
+  const boxShadow = selected
+    ? '0 0 0 2px rgba(37,99,235,0.12)'
+    : isFlowDark
+      ? 'none'
+      : '0 1px 2px rgba(0,0,0,0.04)';
+  const nodeBackground = isFlowDark ? '#1c1c1c' : '#fff';
+  const inputBackground = isFlowDark ? '#151515' : 'rgba(255,255,255,0.92)';
+  const inputBorderColor = isFlowDark ? '#3a3a3a' : '#e5e7eb';
+  const promptTextColor = isFlowDark ? '#e5e7eb' : '#1f2937';
+  const promptCaretColor = isFlowDark ? '#f8fafc' : '#111827';
+  const mutedTextColor = isFlowDark ? '#a3a3a3' : '#6b7280';
+  const buttonBackground = isFlowDark ? '#252525' : '#fff';
+  const buttonTextColor = isFlowDark ? '#d1d5db' : '#374151';
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
     : DEFAULT_TITLE;
@@ -1144,10 +1158,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       width: renderedBoxW,
       height: renderedBoxH,
       padding: 8,
-      background: '#fff',
+      background: nodeBackground,
       border: `1px solid ${borderColor}`,
       borderRadius: 8,
       boxShadow,
+      color: promptTextColor,
       transition: isResizing ? 'none' : 'border-color 0.15s ease, box-shadow 0.15s ease',
       transform: isResizing ? `translate(${renderedOffsetX}px, ${renderedOffsetY}px)` : undefined,
       willChange: isResizing ? 'transform, width, height' : undefined,
@@ -1188,11 +1203,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             style={{
               fontWeight: 600,
               fontSize: 13,
-              border: '1px solid #d1d5db',
+              border: `1px solid ${inputBorderColor}`,
               borderRadius: 4,
               padding: '2px 4px',
               outline: 'none',
-              width: '100%'
+              width: '100%',
+              background: buttonBackground,
+              color: promptTextColor,
             }}
           />
         ) : (
@@ -1207,7 +1224,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
         {hasIncoming && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>
+            <span style={{ fontSize: 11, color: mutedTextColor }}>
               {lt(`已拼接 ${incomingCount} 条输入`, `${incomingCount} inputs merged`)}
             </span>
             <button
@@ -1216,9 +1233,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 999,
-                border: '1px solid #e5e7eb',
-                background: '#fff',
-                color: '#374151',
+                border: `1px solid ${inputBorderColor}`,
+                background: buttonBackground,
+                color: buttonTextColor,
                 cursor: 'pointer'
               }}
             >
@@ -1234,9 +1251,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           flex: 1,
           maxHeight: '100%',
           minHeight: 60,
-          border: '1px solid #e5e7eb',
+          border: `1px solid ${inputBorderColor}`,
           borderRadius: 6,
-          background: 'rgba(255,255,255,0.92)',
+          background: inputBackground,
           overflow: 'hidden',
         }}
       >
@@ -1261,7 +1278,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                 padding: 6,
                 fontSize: 12,
                 lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
-                color: '#1f2937',
+                color: promptTextColor,
+                WebkitTextFillColor: promptTextColor,
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -1275,7 +1293,11 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         )}
         <textarea
           ref={textareaRef}
-          className={isPromptEditable ? "nodrag nopan nowheel" : undefined}
+          className={[
+            "tanva-flow-text-input",
+            shouldRenderMentionOverlay ? "tanva-prompt-mentions-textarea" : "",
+            isPromptEditable ? "nodrag nopan nowheel" : "",
+          ].filter(Boolean).join(" ")}
           value={value}
           readOnly={!isPromptEditable}
           tabIndex={isPromptEditable ? 0 : -1}
@@ -1325,9 +1347,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             outline: 'none',
             pointerEvents: isPromptEditable ? 'auto' : 'none',
             background: 'transparent',
-            color: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
-            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : '#1f2937',
-            caretColor: '#111827',
+            color: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+            WebkitTextFillColor: shouldRenderMentionOverlay ? 'transparent' : promptTextColor,
+            caretColor: promptCaretColor,
             fontFamily: 'inherit',
             letterSpacing: 0,
             whiteSpace: 'pre-wrap',

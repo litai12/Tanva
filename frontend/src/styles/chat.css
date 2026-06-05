@@ -760,16 +760,34 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node .ta
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node input,
-body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node textarea {
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node textarea:not(.tanva-prompt-mentions-textarea) {
   background: var(--tanva-mono-raised) !important;
   border: 1px solid var(--tanva-mono-border) !important;
   color: var(--tanva-mono-text) !important;
+  caret-color: #f8fafc !important;
   border-radius: 4px !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node textarea.tanva-prompt-mentions-textarea {
+  background: transparent !important;
+  border: none !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: #f8fafc !important;
+}
+
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node input,
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node textarea:not(.tanva-prompt-mentions-textarea),
+body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node [contenteditable="true"] {
+  color: var(--tanva-mono-text) !important;
+  -webkit-text-fill-color: var(--tanva-mono-text) !important;
+  caret-color: #f8fafc !important;
 }
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node input::placeholder,
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node textarea::placeholder {
   color: var(--tanva-mono-text-tertiary) !important;
+  -webkit-text-fill-color: var(--tanva-mono-text-tertiary) !important;
   opacity: 1 !important;
 }
 
@@ -2043,4 +2061,5 @@ body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-tex
 
 body.tanva-premium-black-theme .tanva-flow-theme-mono-dark .react-flow__node-textNote .tanva-textnote-editor[contenteditable="true"]:empty:before {
   color: #7a7a7a !important;
+  -webkit-text-fill-color: #7a7a7a !important;
 }

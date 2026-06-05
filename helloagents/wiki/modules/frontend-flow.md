@@ -1,3 +1,6 @@
+## 2026-06-05 HTML PPT Wheel Handling
+- HTML PPT node internals no longer stop wheel propagation ahead of the shared Flow canvas wheel handler. The slide rail, style panel, code editor area, and prompt area now let canvas wheel zoom handling prevent browser page zoom while retaining the existing native-scroll rules for non-zoom wheel gestures.
+
 ## 2026-06-04 Generate Auto Aspect
 - Flow image generation nodes keep the Aspect selector's `Auto` value as an omitted `aspectRatio` during Run. Explicit aspect ratios are still passed through for all Generate tiers, including Fast (`banana-2.5`); Fast no longer silently clears a user-selected ratio.
 - When Auto is used with image inputs, Flow now detects the first input image's natural dimensions and sends the nearest supported aspect ratio, so reference-image generate/edit/blend runs follow the source image shape instead of relying on an upstream square default.
