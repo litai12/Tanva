@@ -22,16 +22,12 @@ import {
   Trash2,
 } from "lucide-react";
 import type {
-  AIImageGenerateRequest,
-  AIImageResult,
   AIProviderOptions,
   BananaImageRoute,
 } from "@/types/ai";
-import { generateImageViaAPI } from "@/services/aiBackendAPI";
 import { aiImageService } from "@/services/aiImageService";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
-  getImageModelForProvider,
   getTextModelForProvider,
   useAIChatStore,
 } from "@/stores/aiChatStore";
@@ -476,41 +472,6 @@ type PreparedIncomingImage = IncomingImageRef & {
   visionRef: string;
   embeddableUrl?: string;
   uploaded?: boolean;
-  generatedAsset?: {
-    role: HtmlPptGeneratedAssetRole;
-    reason?: string;
-    prompt: string;
-  };
-};
-
-type HtmlPptGeneratedAssetRole =
-  | "cover_hero"
-  | "section_visual"
-  | "background"
-  | "diagram"
-  | "icon_set"
-  | "comparison"
-  | "other";
-
-type HtmlPptGeneratedAssetRequest = {
-  role: HtmlPptGeneratedAssetRole;
-  target: "slide" | "deck";
-  targetSlideId?: string;
-  targetSlideTitle?: string;
-  prompt: string;
-  aspectRatio?: AIImageGenerateRequest["aspectRatio"];
-  style?: string;
-};
-
-type HtmlPptGeneratedAssetPlan = {
-  shouldGenerateImages: boolean;
-  reason?: string;
-  assets: HtmlPptGeneratedAssetRequest[];
-};
-
-type HtmlPptAutoAssetIntent = {
-  shouldPlan: boolean;
-  explicit: boolean;
 };
 
 type HtmlPptAiStyleGuide = {
@@ -537,59 +498,6 @@ type HtmlPptStylePreviewItem = Pick<
   id: string;
   author?: string;
 };
-
-const HTML_PPT_GENERATED_ASSET_LIMIT = 1;
-
-const HTML_PPT_ASPECT_RATIOS = new Set<NonNullable<AIImageGenerateRequest["aspectRatio"]>>([
-  "1:1",
-  "2:3",
-  "3:2",
-  "3:4",
-  "4:3",
-  "4:5",
-  "5:4",
-  "9:16",
-  "16:9",
-  "21:9",
-  "2:1",
-  "1:2",
-  "9:21",
-  "4:1",
-  "1:4",
-  "8:1",
-  "1:8",
-]);
-
-const HTML_PPT_GENERATED_ASSET_ROLES = new Set<HtmlPptGeneratedAssetRole>([
-  "cover_hero",
-  "section_visual",
-  "background",
-  "diagram",
-  "icon_set",
-  "comparison",
-  "other",
-]);
-
-const AUTO_ASSET_NEGATIVE_PATTERNS = [
-  /不要(?:生成|生)(?:图|图片|视觉素材)/i,
-  /不需要(?:生成|生)(?:图|图片|视觉素材)/i,
-  /无需(?:生成|生)(?:图|图片|视觉素材)/i,
-  /只(?:改|修改|调整)(?:文字|文案|排版|布局|样式)/i,
-  /\bno\s+(?:image|images|visual|visuals)\b/i,
-  /\btext\s+only\b/i,
-] as const;
-
-const AUTO_ASSET_EXPLICIT_PATTERNS = [
-  /(?:先)?(?:调用|用).*(?:生图|图片生成|生成图片)/i,
-  /(?:生成|生|画|绘制|创建|补一张|配一张).{0,12}(?:图|图片|视觉素材|主视觉|背景|插画|海报)/i,
-  /(?:主视觉|封面图|背景图|配图|插画|海报|场景图|视觉素材)/i,
-  /\b(?:generate|create|make|draw)\s+(?:an?\s+)?(?:image|visual|illustration|hero|background)\b/i,
-] as const;
-
-const AUTO_ASSET_CANDIDATE_PATTERNS = [
-  /(?:封面|首页|开场|发布会|品牌|产品|提案|pitch|keynote|deck|ppt|演示文稿)/i,
-  /(?:高级|未来|科技|概念|氛围|视觉|场景|广告|campaign|launch|hero|visual)/i,
-] as const;
 
 const normalizeString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -635,53 +543,6 @@ const boldTemplateToStyleGuide = (
   previewSlides: template.previewSlides,
 });
 
-const getAutoAssetIntent = (
-  instruction: string,
-  incomingImageCount: number
-): HtmlPptAutoAssetIntent => {
-  const source = instruction.trim();
-  if (!source) return { shouldPlan: false, explicit: false };
-  if (AUTO_ASSET_NEGATIVE_PATTERNS.some((pattern) => pattern.test(source))) {
-    return { shouldPlan: false, explicit: false };
-  }
-
-  const explicit = AUTO_ASSET_EXPLICIT_PATTERNS.some((pattern) => pattern.test(source));
-  if (explicit) return { shouldPlan: true, explicit: true };
-  if (incomingImageCount > 0) return { shouldPlan: false, explicit: false };
-
-  const candidateScore = AUTO_ASSET_CANDIDATE_PATTERNS.reduce(
-    (score, pattern) => score + (pattern.test(source) ? 1 : 0),
-    0
-  );
-  return { shouldPlan: candidateScore >= 2, explicit: false };
-};
-
-const normalizeGeneratedAssetRole = (value: unknown): HtmlPptGeneratedAssetRole => {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (HTML_PPT_GENERATED_ASSET_ROLES.has(normalized as HtmlPptGeneratedAssetRole)) {
-      return normalized as HtmlPptGeneratedAssetRole;
-    }
-  }
-  return "other";
-};
-
-const normalizeGeneratedAssetAspectRatio = (
-  value: unknown,
-  fallback: HtmlPptDeck["aspectRatio"]
-): AIImageGenerateRequest["aspectRatio"] => {
-  if (typeof value === "string") {
-    const normalized = value.trim();
-    if (HTML_PPT_ASPECT_RATIOS.has(normalized as NonNullable<AIImageGenerateRequest["aspectRatio"]>)) {
-      return normalized as AIImageGenerateRequest["aspectRatio"];
-    }
-  }
-  return fallback;
-};
-
-const buildDeckOutlineForAssetPlan = (deck: HtmlPptDeck): string =>
-  deck.slides.map((slide, index) => `${index + 1}. ${slide.id}: ${slide.title}`).join("\n");
-
 const buildStylePresetPromptSection = (
   stylePreset?: HtmlPptAiStyleGuide | null
 ): string => {
@@ -694,199 +555,6 @@ const buildStylePresetPromptSection = (
 - 已选 preset 的 themeCss 已写入当前 deck；除非用户明确要求换风格，否则不要删除或改写这套视觉语言。
 - 优先使用清晰的语义 class（如 ppt-kicker、ppt-lede、ppt-stat-row），并保证每页在固定 PPT 画布内不溢出。`;
 };
-
-const buildGeneratedAssetPlanPrompt = ({
-  instruction,
-  deck,
-  currentSlide,
-  editScope,
-  incomingContext,
-  preparedImages,
-  stylePreset,
-}: {
-  instruction: string;
-  deck: HtmlPptDeck;
-  currentSlide: HtmlPptSlide;
-  editScope: "slide" | "deck";
-  incomingContext: string;
-  preparedImages: PreparedIncomingImage[];
-  stylePreset?: HtmlPptAiStyleGuide | null;
-}): string => `你是 Tanva HTML PPT 的视觉素材规划器。你只判断是否需要先生成一张图片素材，再交给下一步 HTML PPT 排版模型使用。请只返回合法 JSON，不要使用 Markdown，不要解释。
-
-返回 JSON schema:
-{
-  "shouldGenerateImages": true,
-  "reason": "一句话说明为什么需要或不需要生图",
-  "assets": [
-    {
-      "role": "cover_hero | section_visual | background | diagram | icon_set | comparison | other",
-      "target": "slide | deck",
-      "targetSlideId": "可选，目标页 id",
-      "targetSlideTitle": "可选，目标页标题",
-      "prompt": "给生图模型的完整视觉提示词",
-      "aspectRatio": "${deck.aspectRatio}",
-      "style": "可选风格"
-    }
-  ]
-}
-
-判断规则:
-- 只有当用户明确需要生成/补充图片、主视觉、背景图、插画、场景图、海报或概念视觉，或缺少该素材会明显影响 PPT 成品时，shouldGenerateImages 才能为 true。
-- 如果用户只是要求改文字、调排版、改样式、总结内容、拆页、换比例，返回 false。
-- 如果已有上游图片足够完成用户意图，返回 false；除非用户明确要求基于上游图再生成一张新视觉。
-- 最多规划 ${HTML_PPT_GENERATED_ASSET_LIMIT} 张图。
-- 生图 prompt 不要要求图片内出现可读文字、标题、logo、水印或 UI 字；PPT 文案会由 HTML/CSS 叠加。
-- 生成图应适合 ${deck.aspectRatio} PPT 页面排版，留出标题和正文叠加空间。
-- 精确流程图、表格、数据图、文字图标优先交给 HTML/CSS 绘制，不要生图。
-
-当前编辑范围: ${editScope === "deck" ? "整套 deck" : "当前页"}
-当前页: ${currentSlide.id}: ${currentSlide.title}
-页面目录:
-${buildDeckOutlineForAssetPlan(deck)}
-
-${buildStylePresetPromptSection(stylePreset)}
-
-已有上游图片数量: ${preparedImages.length}
-${incomingContext ? `上游图文上下文:\n${incomingContext}\n\n` : ""}用户要求:
-${instruction}`;
-
-const normalizeGeneratedAssetPlan = (
-  parsed: Record<string, unknown>,
-  deck: HtmlPptDeck
-): HtmlPptGeneratedAssetPlan => {
-  const shouldGenerateImages = parsed.shouldGenerateImages === true;
-  const rawAssets = Array.isArray(parsed.assets) ? parsed.assets : [];
-  const assets = rawAssets
-    .filter((asset): asset is Record<string, unknown> => Boolean(asset && typeof asset === "object"))
-    .map((asset): HtmlPptGeneratedAssetRequest | null => {
-      const prompt = normalizeString(asset.prompt);
-      if (!prompt) return null;
-      const rawTarget = normalizeString(asset.target);
-      const target = rawTarget === "deck" ? "deck" : "slide";
-      return {
-        role: normalizeGeneratedAssetRole(asset.role),
-        target,
-        targetSlideId: normalizeString(asset.targetSlideId),
-        targetSlideTitle: normalizeString(asset.targetSlideTitle),
-        prompt,
-        aspectRatio: normalizeGeneratedAssetAspectRatio(asset.aspectRatio, deck.aspectRatio),
-        style: normalizeString(asset.style),
-      };
-    })
-    .filter((asset): asset is HtmlPptGeneratedAssetRequest => Boolean(asset))
-    .slice(0, HTML_PPT_GENERATED_ASSET_LIMIT);
-
-  return {
-    shouldGenerateImages: shouldGenerateImages && assets.length > 0,
-    reason: normalizeString(parsed.reason),
-    assets,
-  };
-};
-
-const buildFallbackGeneratedAssetPlan = (
-  instruction: string,
-  deck: HtmlPptDeck,
-  currentSlide: HtmlPptSlide,
-  editScope: "slide" | "deck"
-): HtmlPptGeneratedAssetPlan => ({
-  shouldGenerateImages: true,
-  reason: "用户明确要求生成视觉素材。",
-  assets: [
-    {
-      role: /封面|首页|主视觉|hero/i.test(instruction) ? "cover_hero" : "section_visual",
-      target: editScope,
-      targetSlideId: editScope === "slide" ? currentSlide.id : undefined,
-      targetSlideTitle: editScope === "slide" ? currentSlide.title : undefined,
-      aspectRatio: deck.aspectRatio,
-      prompt: [
-        `Create a presentation-ready visual asset for this user intent: ${instruction}`,
-        `Aspect ratio ${deck.aspectRatio}.`,
-        "No readable text, captions, logos, watermarks, UI screenshots, or typography inside the image.",
-        "Leave clean negative space for HTML title and copy overlays.",
-        "Polished, commercially usable, high-resolution composition.",
-      ].join(" "),
-    },
-  ],
-});
-
-const buildGeneratedImagePrompt = (
-  asset: HtmlPptGeneratedAssetRequest,
-  instruction: string,
-  deck: HtmlPptDeck,
-  referenceImageCount: number,
-  stylePreset?: HtmlPptAiStyleGuide | null
-): string => [
-  "Generate one visual asset for an HTML PPT slide.",
-  `User intent: ${instruction}`,
-  `Asset role: ${asset.role}.`,
-  asset.targetSlideTitle ? `Target slide: ${asset.targetSlideTitle}.` : "",
-  `Deck aspect ratio: ${deck.aspectRatio}.`,
-  asset.style ? `Style direction: ${asset.style}.` : "",
-  stylePreset
-    ? `Presentation style preset: ${stylePreset.label}. ${stylePreset.imagePrompt}`
-    : "",
-  referenceImageCount > 0
-    ? "Use the provided reference image(s) only to understand subject, style, product, or composition intent."
-    : "",
-  `Visual prompt: ${asset.prompt}`,
-  "Critical constraints: no readable text, no typography, no captions, no logos, no watermarks, no UI text. The PPT text will be overlaid in HTML/CSS. Leave usable negative space for title and body copy.",
-]
-  .filter(Boolean)
-  .join("\n");
-
-const resolveGeneratedImageUrl = async (
-  result: AIImageResult,
-  projectId?: string | null
-): Promise<string> => {
-  const metadataImageUrl =
-    result.metadata && typeof result.metadata.imageUrl === "string"
-      ? result.metadata.imageUrl.trim()
-      : "";
-  const directUrl = normalizeString(result.imageUrl) || normalizeString(metadataImageUrl);
-  if (directUrl && isHttpImageRef(directUrl)) return directUrl;
-
-  const imageData = normalizeString(result.imageData);
-  if (!imageData) {
-    throw new Error("Image generation finished but did not return an image URL.");
-  }
-
-  const uploadDir = projectId
-    ? `projects/${projectId}/flow/html-ppt/generated/`
-    : "uploads/flow/html-ppt/generated/";
-  const uploadResult = await imageUploadService.uploadImageSource(imageData, {
-    projectId: projectId ?? undefined,
-    dir: uploadDir,
-    fileName: `html-ppt-generated-${Date.now()}.png`,
-    maxFileSize: 32 * 1024 * 1024,
-  });
-  const uploadedUrl = uploadResult.success ? uploadResult.asset?.url?.trim() : "";
-  if (!uploadedUrl) {
-    throw new Error(uploadResult.error || "Generated image upload failed.");
-  }
-  return uploadedUrl;
-};
-
-const createGeneratedPreparedImage = ({
-  asset,
-  url,
-  reason,
-}: {
-  asset: HtmlPptGeneratedAssetRequest;
-  url: string;
-  reason?: string;
-}): PreparedIncomingImage => ({
-  id: `html-ppt-generated-${Date.now()}`,
-  raw: url,
-  sourceTitle: `AI generated ${asset.role.replace(/_/g, " ")}`,
-  visionRef: url,
-  embeddableUrl: url,
-  uploaded: true,
-  generatedAsset: {
-    role: asset.role,
-    reason,
-    prompt: asset.prompt,
-  },
-});
 
 
 const imageHandleIndex = (handle?: string | null): number | null => {
@@ -978,13 +646,8 @@ const buildIncomingImageContext = (images: PreparedIncomingImage[]): string => {
   const lines = images.map((image, index) => {
     const label = `Image ${index + 1}`;
     const source = image.sourceTitle ? ` from ${image.sourceTitle}` : "";
-    const generatedDetail = image.generatedAsset
-      ? `；这是系统按用户意图先生成的视觉素材，角色=${image.generatedAsset.role}${
-          image.generatedAsset.reason ? `，原因=${image.generatedAsset.reason}` : ""
-        }，必须实际排入目标 PPT 页面`
-      : "";
     if (image.embeddableUrl) {
-      return `${label}${source}: 必须作为可用视觉素材纳入版式${generatedDetail}；HTML 中用该远程 URL 引用: ${image.embeddableUrl}`;
+      return `${label}${source}: 必须作为可用视觉素材纳入版式；HTML 中用该远程 URL 引用: ${image.embeddableUrl}`;
     }
     return `${label}${source}: 仅作为本次视觉理解输入，不要把运行时 data/blob/base64 写入 HTML。`;
   });
@@ -1484,10 +1147,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
-  const imageModel = React.useMemo(
-    () => getImageModelForProvider(effectiveProvider),
-    [effectiveProvider]
-  );
   const { credits: backendCredits } = useBackendCreditsPreview({
     serviceType: "gemini-text",
     model: textModel,
@@ -1763,129 +1422,13 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
       if (latestIncomingImageRefs.length > 0 && preparedImages.length === 0) {
         throw new Error(lt("图片素材准备失败，无法用于 PPT 排版", "Image asset preparation failed"));
       }
-      let allPreparedImages = preparedImages;
-      let incomingImageContext = buildIncomingImageContext(allPreparedImages);
-      let incomingContext = [incomingTextContext, incomingImageContext]
+      const incomingImageContext = buildIncomingImageContext(preparedImages);
+      const incomingContext = [incomingTextContext, incomingImageContext]
         .filter((item) => item.trim().length > 0)
         .join("\n\n")
         .trim();
-      const autoAssetIntent = getAutoAssetIntent(finalInstruction, preparedImages.length);
-      if (autoAssetIntent.shouldPlan) {
-        setStatusText(lt("正在判断是否需要生成视觉素材", "Planning visual asset"));
-        let assetPlan: HtmlPptGeneratedAssetPlan | null = null;
-        try {
-          const planResult = await aiImageService.generateTextResponse({
-            prompt: buildGeneratedAssetPlanPrompt({
-              instruction: finalInstruction,
-              deck,
-              currentSlide,
-              editScope,
-              incomingContext,
-              preparedImages,
-              stylePreset: activeStyleGuide,
-            }),
-            imageUrls: preparedImages.length
-              ? preparedImages.map((image) => image.visionRef).slice(0, MAX_IMAGE_INPUTS)
-              : undefined,
-            aiProvider: effectiveProvider,
-            model: textModel,
-            enableWebSearch: false,
-            billingTag: "text_chat",
-            providerOptions: buildBananaProviderOptions(bananaImageRoute),
-          });
 
-          if (planResult.success && planResult.data?.text) {
-            const parsedPlan = extractJsonPayload(
-              planResult.data.text,
-              "Ultra did not return a visual asset plan."
-            );
-            assetPlan = normalizeGeneratedAssetPlan(parsedPlan, deck);
-          } else if (autoAssetIntent.explicit) {
-            assetPlan = buildFallbackGeneratedAssetPlan(
-              finalInstruction,
-              deck,
-              currentSlide,
-              editScope
-            );
-          } else {
-            console.warn("HTML PPT visual asset planning skipped:", planResult.error);
-          }
-        } catch (error) {
-          if (autoAssetIntent.explicit) {
-            assetPlan = buildFallbackGeneratedAssetPlan(
-              finalInstruction,
-              deck,
-              currentSlide,
-              editScope
-            );
-          } else {
-            console.warn("HTML PPT visual asset planning failed:", error);
-          }
-        }
-
-        if ((!assetPlan || !assetPlan.shouldGenerateImages) && autoAssetIntent.explicit) {
-          assetPlan = buildFallbackGeneratedAssetPlan(
-            finalInstruction,
-            deck,
-            currentSlide,
-            editScope
-          );
-        }
-
-        const asset = assetPlan?.shouldGenerateImages ? assetPlan.assets[0] : null;
-        if (asset) {
-          const referenceImageUrls = preparedImages
-            .map((image) => image.visionRef)
-            .filter(isHttpImageRef)
-            .slice(0, MAX_IMAGE_INPUTS);
-          setStatusText(lt("正在生成视觉素材", "Generating visual asset"));
-          const imageResult = await generateImageViaAPI({
-            prompt: buildGeneratedImagePrompt(
-              asset,
-              finalInstruction,
-              deck,
-              referenceImageUrls.length,
-              activeStyleGuide
-            ),
-            aiProvider: effectiveProvider,
-            model: imageModel,
-            aspectRatio: asset.aspectRatio || deck.aspectRatio,
-            imageSize: "2K",
-            outputFormat: "png",
-            imageOnly: true,
-            enableWebSearch: false,
-            imageUrls: referenceImageUrls.length ? referenceImageUrls : undefined,
-            providerOptions: buildBananaProviderOptions(bananaImageRoute),
-            nodeId: id,
-            nodeConfigKey: "html-ppt-auto-visual",
-            nodeConfigNameZh: "HTML PPT 自动视觉素材",
-            nodeConfigNameEn: "HTML PPT auto visual asset",
-            billingTitleSource: "node",
-          });
-          if (!imageResult.success || !imageResult.data) {
-            throw new Error(
-              imageResult.error?.message ||
-                lt("视觉素材生成失败", "Visual asset generation failed")
-            );
-          }
-
-          setStatusText(lt("正在上传生成素材", "Uploading visual asset"));
-          const generatedUrl = await resolveGeneratedImageUrl(imageResult.data, projectId);
-          const generatedImage = createGeneratedPreparedImage({
-            asset,
-            url: generatedUrl,
-            reason: assetPlan?.reason,
-          });
-          allPreparedImages = [generatedImage, ...preparedImages];
-          incomingImageContext = buildIncomingImageContext(allPreparedImages);
-          incomingContext = [incomingTextContext, incomingImageContext]
-            .filter((item) => item.trim().length > 0)
-            .join("\n\n")
-            .trim();
-        }
-      }
-
-      const imageUrls = allPreparedImages
+      const imageUrls = preparedImages
         .map((image) => image.visionRef)
         .slice(0, MAX_IMAGE_INPUTS);
       setStatusText(lt("正在生成 PPT", "Generating PPT"));
@@ -1956,8 +1499,6 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     deck,
     editScope,
     effectiveProvider,
-    id,
-    imageModel,
     lt,
     promptDraft,
     projectId,

@@ -1,4 +1,4 @@
-import { fetchWithAuth } from "./authFetch";
+import { fetchWithAuth, type AuthFetchInit } from "./authFetch";
 import type {
   PersonalLibraryAsset,
   PersonalAssetType,
@@ -22,10 +22,13 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const personalLibraryApi = {
-  async list(type?: PersonalAssetType): Promise<PersonalLibraryAsset[]> {
+  async list(
+    type?: PersonalAssetType,
+    init?: AuthFetchInit
+  ): Promise<PersonalLibraryAsset[]> {
     const url = new URL(`${base}/api/personal-library/assets`);
     if (type) url.searchParams.set("type", type);
-    const res = await fetchWithAuth(url.toString());
+    const res = await fetchWithAuth(url.toString(), init);
     return json<PersonalLibraryAsset[]>(res);
   },
   async upsert(asset: PersonalLibraryAsset): Promise<PersonalLibraryAsset> {

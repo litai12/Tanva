@@ -1,5 +1,5 @@
 // API client for global image history endpoints.
-import { fetchWithAuth } from "./authFetch";
+import { fetchWithAuth, type AuthFetchInit } from "./authFetch";
 
 const base =
   import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
@@ -13,7 +13,7 @@ export interface GlobalImageHistoryItem {
   sourceType: string;
   sourceProjectId?: string;
   sourceProjectName?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -23,7 +23,7 @@ export interface CreateGlobalImageHistoryDto {
   sourceType: string;
   sourceProjectId?: string;
   sourceProjectName?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -39,14 +39,17 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const globalImageHistoryApi = {
-  async list(params?: {
-    limit?: number;
-    page?: number;
-    cursor?: string;
-    sourceType?: string;
-    sourceProjectId?: string;
-    search?: string;
-  }): Promise<{
+  async list(
+    params?: {
+      limit?: number;
+      page?: number;
+      cursor?: string;
+      sourceType?: string;
+      sourceProjectId?: string;
+      search?: string;
+    },
+    init?: AuthFetchInit
+  ): Promise<{
     items: GlobalImageHistoryItem[];
     nextCursor?: string;
     hasMore: boolean;
@@ -67,7 +70,7 @@ export const globalImageHistoryApi = {
     }
 
     const url = `${base}/api/global-image-history?${searchParams.toString()}`;
-    const res = await fetchWithAuth(url);
+    const res = await fetchWithAuth(url, init);
     return json(res);
   },
 
