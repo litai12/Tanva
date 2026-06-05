@@ -20,6 +20,7 @@ import {
 } from '@/stores/personalLibraryStore';
 import {
   hasPromptMentionTokenInText,
+  isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
   type PromptImageMention,
   type PromptMentionSource,
@@ -134,7 +135,7 @@ const isResolvedMentionAt = (
   return mentions.some((mention) => {
     const token = typeof mention.token === 'string' ? mention.token.trim() : '';
     if (!token || !token.startsWith('@')) return false;
-    return text.startsWith(token, atIndex);
+    return text.startsWith(token, atIndex) && isPromptMentionTokenBoundary(text, token, atIndex);
   });
 };
 
@@ -156,7 +157,9 @@ const getPromptMentionTokenRanges = (
   let index = 0;
   while (index < text.length) {
     const match = usableMentions.find(
-      (item) => text.startsWith(item.token, index)
+      (item) =>
+        text.startsWith(item.token, index) &&
+        isPromptMentionTokenBoundary(text, item.token, index)
     );
     if (!match) {
       index += 1;
@@ -261,6 +264,7 @@ const getProjectHistoryMentionTitle = (
 const getMentionCandidateLookupKeys = (candidate: MentionCandidate): string[] => {
   const keys = [candidate.id];
   if (candidate.ref.nodeId) keys.push(`${candidate.source}:node:${candidate.ref.nodeId}`);
+  if (candidate.ref.nodeId && candidate.ref.handle) keys.push(`${candidate.source}:node:${candidate.ref.nodeId}:handle:${candidate.ref.handle}`);
   if (candidate.ref.historyId) keys.push(`${candidate.source}:history:${candidate.ref.historyId}`);
   if (candidate.ref.assetId) keys.push(`${candidate.source}:asset:${candidate.ref.assetId}`);
   if (candidate.ref.url) keys.push(`${candidate.source}:url:${candidate.ref.url}`);
@@ -270,11 +274,24 @@ const getMentionCandidateLookupKeys = (candidate: MentionCandidate): string[] =>
 const getPromptMentionLookupKeys = (mention: PromptImageMention): string[] => {
   const keys = [mention.id];
   if (mention.ref.nodeId) keys.push(`${mention.source}:node:${mention.ref.nodeId}`);
+  if (mention.ref.nodeId && mention.ref.handle) keys.push(`${mention.source}:node:${mention.ref.nodeId}:handle:${mention.ref.handle}`);
   if (mention.ref.historyId) keys.push(`${mention.source}:history:${mention.ref.historyId}`);
   if (mention.ref.assetId) keys.push(`${mention.source}:asset:${mention.ref.assetId}`);
   if (mention.ref.url) keys.push(`${mention.source}:url:${mention.ref.url}`);
   return keys;
 };
+
+const sortPromptMentionsByTextOrder = (
+  text: string,
+  mentions: PromptImageMention[]
+): PromptImageMention[] =>
+  mentions
+    .slice()
+    .sort((a, b) => {
+      const ai = text.indexOf(a.token);
+      const bi = text.indexOf(b.token);
+      return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi);
+    });
 
 function TextPromptNodeInner({ id, data, selected }: Props) {
   const { lt } = useLocaleText();
@@ -364,14 +381,14 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       siblingImages.map((img) => {
         const title = img.title || lt(`图${img.index}`, `Image ${img.index}`);
         return {
-          id: `flow:${img.nodeId}:${img.index}`,
+          id: `flow:${img.nodeId}:${img.sourceHandle || 'default'}:${img.index}`,
           source: 'flow' as const,
           title,
           subtitle: lt('当前工作流', 'Current workflow'),
           previewUrl: img.url,
           tokenHint: getPromptMentionTokenHint('', `图${img.index}`),
           flowImage: img,
-          ref: { nodeId: img.nodeId },
+          ref: { nodeId: img.nodeId, handle: img.sourceHandle },
         };
       }),
     [lt, siblingImages]
@@ -480,6 +497,34 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         : filterMentionCandidates(candidateGroups[activeMentionTab], atMention.query),
     [activeMentionTab, atMention, candidateGroups, filterMentionCandidates, isPromptEditable]
   );
+  const syncTypedCandidateMentions = React.useCallback((
+    text: string,
+    baseMentions: PromptImageMention[]
+  ): PromptImageMention[] => {
+    const byToken = new Map<string, PromptImageMention>();
+    sanitizePromptMentionsForText(text, baseMentions).forEach((mention) => {
+      byToken.set(mention.token, mention);
+    });
+
+    Object.values(candidateGroups).forEach((candidates) => {
+      candidates.forEach((candidate) => {
+        const token = typeof candidate.tokenHint === 'string' ? candidate.tokenHint.trim() : '';
+        if (!token.startsWith('@')) return;
+        if (!hasPromptMentionTokenInText(text, token)) return;
+        const label = candidate.title.trim() || token.replace(/^@/, '');
+        byToken.set(token, {
+          id: candidate.id,
+          token,
+          label,
+          source: candidate.source,
+          mediaType: 'image',
+          ref: candidate.ref,
+        });
+      });
+    });
+
+    return sortPromptMentionsByTextOrder(text, Array.from(byToken.values()));
+  }, [candidateGroups]);
   const mentionTokenRanges = React.useMemo(
     () => getPromptMentionTokenRanges(value, mentions),
     [mentions, value]
@@ -543,18 +588,18 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return out;
   }, [mentionCandidateById, mentionTitleById, mentions, value]);
 
-  const mentionedFlowNodeIds = React.useMemo(() => {
+  const mentionedFlowRefs = React.useMemo(() => {
     const next = new Set<string>();
     mentions.forEach((mention) => {
       if (mention.source === 'flow' && mention.ref.nodeId && hasPromptMentionTokenInText(value, mention.token)) {
-        next.add(mention.ref.nodeId);
+        next.add(`${mention.ref.nodeId}:${mention.ref.handle || ''}`);
       }
     });
     return next;
   }, [mentions, value]);
   const insertableSiblingImages = React.useMemo(
-    () => siblingImages.filter((img) => !mentionedFlowNodeIds.has(img.nodeId)),
-    [mentionedFlowNodeIds, siblingImages]
+    () => siblingImages.filter((img) => !mentionedFlowRefs.has(`${img.nodeId}:${img.sourceHandle || ''}`)),
+    [mentionedFlowRefs, siblingImages]
   );
 
   const detectAtMention = React.useCallback((
@@ -830,7 +875,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const commitValue = React.useCallback((next: string, nextMentions?: PromptImageMention[]) => {
     // write through to node data via DOM event (handled in FlowOverlay)
-    const sanitizedMentions = sanitizePromptMentionsForText(
+    const sanitizedMentions = syncTypedCandidateMentions(
       next,
       nextMentions ?? mentionsRef.current
     );
@@ -838,7 +883,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       detail: { id, patch: { text: next, mentions: sanitizedMentions } }
     });
     window.dispatchEvent(ev);
-  }, [id]);
+  }, [id, syncTypedCandidateMentions]);
 
   const getReusableMention = React.useCallback((candidate: MentionCandidate): PromptImageMention | null => {
     return mentionsRef.current.find((mention) => mention.id === candidate.id) ?? null;
@@ -910,7 +955,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const after = value.slice(selectionEnd);
     const inserted = mention.token;
     const next = before + inserted + after;
-    const nextMentions = sanitizePromptMentionsForText(
+    const nextMentions = syncTypedCandidateMentions(
       next,
       upsertMention(mentionsRef.current, mention)
     );
@@ -924,7 +969,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       const newCursor = selectionStart + inserted.length;
       el.setSelectionRange(newCursor, newCursor);
     });
-  }, [commitValue, createMentionFromCandidate, upsertMention, value]);
+  }, [commitValue, createMentionFromCandidate, syncTypedCandidateMentions, upsertMention, value]);
 
   const handleMentionSelect = React.useCallback((candidate: MentionCandidate) => {
     const el = textareaRef.current;
@@ -940,7 +985,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const candidate = flowMentionCandidates.find((item) => {
       const flowImage = item.flowImage;
       if (!flowImage) return false;
-      return flowImage.nodeId === img.nodeId && flowImage.index === img.index;
+      return flowImage.nodeId === img.nodeId &&
+        flowImage.index === img.index &&
+        (flowImage.sourceHandle || '') === (img.sourceHandle || '');
     });
     if (!candidate) return;
     const el = textareaRef.current;
@@ -965,7 +1012,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const safeStart = Math.max(0, Math.min(start, value.length));
     const safeEnd = Math.max(safeStart, Math.min(end, value.length));
     const next = value.slice(0, safeStart) + value.slice(safeEnd);
-    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    const nextMentions = syncTypedCandidateMentions(next, mentionsRef.current);
     mentionsRef.current = nextMentions;
     setMentions(nextMentions);
     setValue(next);
@@ -975,7 +1022,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       el?.focus();
       el?.setSelectionRange(safeStart, safeStart);
     });
-  }, [commitValue, value]);
+  }, [commitValue, syncTypedCandidateMentions, value]);
 
   const handleAtomicMentionDelete = React.useCallback((
     event: React.KeyboardEvent<HTMLTextAreaElement>
@@ -1029,7 +1076,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
     const next = value.slice(0, start) + text + value.slice(end);
-    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    const nextMentions = syncTypedCandidateMentions(next, mentionsRef.current);
     mentionsRef.current = nextMentions;
     setMentions(nextMentions);
     setValue(next);
@@ -1039,13 +1086,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       el.focus();
       el.setSelectionRange(start + text.length, start + text.length);
     });
-  }, [commitValue, value]);
+  }, [commitValue, syncTypedCandidateMentions, value]);
 
   const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
     const cursorPos = event.target.selectionStart ?? next.length;
     const nativeEvent = event.nativeEvent as InputEvent & { isComposing?: boolean };
-    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    const nextMentions = syncTypedCandidateMentions(next, mentionsRef.current);
     if (!arePromptMentionsEqual(mentionsRef.current, nextMentions)) {
       mentionsRef.current = nextMentions;
       setMentions(nextMentions);
@@ -1063,7 +1110,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     } else {
       setAtMention(null);
     }
-  }, [commitValue, detectAtMention]);
+  }, [commitValue, detectAtMention, syncTypedCandidateMentions]);
 
   const handleCompositionStart = React.useCallback(() => {
     isComposingRef.current = true;
@@ -1074,12 +1121,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     isComposingRef.current = false;
     setIsComposing(false);
     const next = event.currentTarget.value;
-    const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
+    const nextMentions = syncTypedCandidateMentions(next, mentionsRef.current);
     mentionsRef.current = nextMentions;
     setMentions(nextMentions);
     setValue(next);
     commitValue(next, nextMentions);
-  }, [commitValue]);
+  }, [commitValue, syncTypedCandidateMentions]);
 
   const handleTextareaSelect = React.useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;

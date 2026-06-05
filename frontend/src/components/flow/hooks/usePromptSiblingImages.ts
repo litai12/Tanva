@@ -6,6 +6,7 @@ export type SiblingImage = {
   url: string;
   isVideo: boolean;
   nodeId: string;
+  sourceHandle?: string | null;
   title?: string;
 };
 
@@ -144,7 +145,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
         //    downstream nodes (e.g. when prompt feeds two generate nodes sharing the same
         //    reference image). Preserve order by edges array position.
         const result: SiblingImage[] = [];
-        const seenSourceIds = new Set<string>();
+        const seenSourceRefs = new Set<string>();
         let idx = 1;
 
         for (let i = 0; i < edges.length; i++) {
@@ -152,7 +153,8 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           if (!downstreamIds.has(edge.target)) continue;
           if (edge.source === nodeId) continue; // skip our own edge
           if (!isImgTargetHandle(edge.targetHandle)) continue; // only image-input handles
-          if (seenSourceIds.has(edge.source)) continue; // deduplicate same source node
+          const sourceRefKey = `${edge.source}:${edge.sourceHandle || ''}`;
+          if (seenSourceRefs.has(sourceRefKey)) continue;
 
           const sourceNode = getNode(edge.source);
           if (!sourceNode) continue;
@@ -160,12 +162,13 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
           const resolved = resolveActiveImageUrl(sourceNode, edge.sourceHandle);
           if (!resolved) continue;
 
-          seenSourceIds.add(edge.source);
+          seenSourceRefs.add(sourceRefKey);
           result.push({
             index: idx++,
             url: resolved.url,
             isVideo: resolved.isVideo,
             nodeId: edge.source,
+            sourceHandle: edge.sourceHandle,
             title: resolveNodeTitle(sourceNode),
           });
         }
