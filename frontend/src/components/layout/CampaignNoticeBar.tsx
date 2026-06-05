@@ -3,6 +3,9 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CAMPAIGN_NOTICE_DEADLINE_MS } from "@/components/layout/campaignNoticeConfig";
 import { openCampaignNoticeDetail } from "@/utils/campaignNoticeDetail";
+import { isSeedance20FreeEnabled } from "@/utils/seedanceFree";
+
+const SEEDANCE20_FREE = isSeedance20FreeEnabled();
 
 type CountdownState = {
   totalMs: number;
@@ -110,12 +113,12 @@ export default function CampaignNoticeBar({
         </div>
 
         <span className="hidden text-sm font-bold text-slate-950 md:inline">
-          疯狂星期五！
+          {SEEDANCE20_FREE ? "限时狂欢！" : "疯狂星期五！"}
           <span className="text-[#0f6dff]">Seedance2.0</span>
-          限时3.5折！
+          {SEEDANCE20_FREE ? "限时免费！" : "限时3.5折！"}
         </span>
         <span className="hidden text-sm font-bold text-slate-950 lg:inline">
-          每秒最低约合人民币0.35元！
+          {SEEDANCE20_FREE ? "生成视频 0 积分！" : "每秒最低约合人民币0.35元！"}
         </span>
         <button
           type="button"

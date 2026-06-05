@@ -5,8 +5,26 @@ export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 2.1;
 
 const SEEDANCE20_DISCOUNT_RATE = 0.35;
 
+/**
+ * 限时免费活动开关。设置环境变量 SEEDANCE20_FREE=1/true/on/yes 时，
+ * seedance-2.0 / seedance-2.0-fast 全分辨率一律按 0 积分计价（预览与实扣同源）。
+ * 关闭/未设置时恢复原 3.5 折定价。逐请求读取，可随进程内 env 实时生效、可逆。
+ */
+export const isSeedance20FreeEnabled = (): boolean => {
+  const raw = String(process.env.SEEDANCE20_FREE ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
+};
+
+export const seedance20EffectiveCredits = (): number =>
+  isSeedance20FreeEnabled() ? 0 : SEEDANCE20_DISCOUNT_CREDITS;
+
+export const seedance20EffectivePriceYuan = (): number =>
+  isSeedance20FreeEnabled() ? 0 : SEEDANCE20_DISCOUNT_PRICE_YUAN;
+
 const applySeedance20Discount = (unitPriceYuan: number): number =>
-  Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+  isSeedance20FreeEnabled()
+    ? 0
+    : Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
 
 export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook => ({
   version: 'v2',
@@ -171,8 +189,8 @@ export const applySeedance20DiscountVendorPricing = <T>(
     provider: current.provider || 'doubao',
     modelName: current.modelName || 'Seedance',
     modelVersion: '2.0',
-    creditsPerCall: SEEDANCE20_DISCOUNT_CREDITS,
-    priceYuan: SEEDANCE20_DISCOUNT_PRICE_YUAN,
+    creditsPerCall: seedance20EffectiveCredits(),
+    priceYuan: seedance20EffectivePriceYuan(),
     pricing: createSeedance20DiscountPricingTemplate(),
   } as T;
 };

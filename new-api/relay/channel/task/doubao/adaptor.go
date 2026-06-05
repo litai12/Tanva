@@ -344,17 +344,33 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		Content: []ContentItem{},
 	}
 
-	// Add images if present
+	// Add images if present.
+	//
+	// Seedance/Doubao i2v: the input image is the FIRST FRAME to animate, not a
+	// subject reference. Labeling it "reference_image" makes Ark infer
+	// task_type=r2v, which models like doubao-seedance-1-5-pro reject
+	// ("the specified task_type r2v does not support model ..."). So the primary
+	// image is first_frame (i2v); any extra images fall back to reference_image.
+	// Genuine reference (r2v) inputs are passed via ReferenceImages below.
 	if req.HasImage() {
-		for _, imgURL := range req.Images {
+		for i, imgURL := range req.Images {
+			role := "reference_image"
+			if i == 0 {
+				role = "first_frame"
+			}
 			r.Content = append(r.Content, ContentItem{
-				Type: "image_url",
-				Role: "reference_image",
-				ImageURL: &MediaURL{
-					URL: imgURL,
-				},
+				Type:     "image_url",
+				Role:     role,
+				ImageURL: &MediaURL{URL: imgURL},
 			})
 		}
+	}
+	for _, imgURL := range req.ReferenceImages {
+		r.Content = append(r.Content, ContentItem{
+			Type:     "image_url",
+			Role:     "reference_image",
+			ImageURL: &MediaURL{URL: imgURL},
+		})
 	}
 
 	metadata := req.Metadata

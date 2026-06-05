@@ -1270,6 +1270,62 @@ function ImageNodeInner({ id, data, selected }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Source image changed (regenerate / replace / rollback / clear) → discard audit state.
+  // The Volc asset (and bio-auth) is strongly bound to the image it was reviewed against,
+  // so a cached "active" volcAssetId from the OLD image must not survive an image swap —
+  // otherwise the next Seedance 2.0 generation would reuse the stale asset:// upstream
+  // while the raw URL points at the NEW image (image mismatch). Centralized here so every
+  // image-write path is covered, rather than clearing at each call site. The previous-url
+  // ref skips the first observed value, so audit state persisted in a saved project survives
+  // load; clearing only happens on an actual change.
+  const prevReviewedImageUrlRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const currentUrl =
+      typeof data.imageUrl === "string" && data.imageUrl.trim() ? data.imageUrl.trim() : "";
+    const prev = prevReviewedImageUrlRef.current;
+    if (prev === null) {
+      prevReviewedImageUrlRef.current = currentUrl;
+      return;
+    }
+    if (currentUrl === prev) return;
+    prevReviewedImageUrlRef.current = currentUrl;
+    // prev === "" means the first image is only now appearing (e.g. async project load
+    // populating imageUrl a tick after mount) — there is no prior image to invalidate,
+    // so keep any audit state that loaded alongside it.
+    if (prev === "") return;
+    const hasAuditState =
+      volcAssetId !== undefined ||
+      volcAssetStatus !== undefined ||
+      volcAssetError !== undefined ||
+      volcReviewDate !== undefined ||
+      bioAuthId !== undefined ||
+      bioAuthStatus !== undefined ||
+      bioAuthError !== undefined ||
+      bioAuthDate !== undefined;
+    if (!hasAuditState) return;
+    patchNode({
+      volcAssetId: undefined,
+      volcAssetStatus: undefined,
+      volcAssetError: undefined,
+      volcReviewDate: undefined,
+      bioAuthId: undefined,
+      bioAuthStatus: undefined,
+      bioAuthError: undefined,
+      bioAuthDate: undefined,
+    });
+  }, [
+    data.imageUrl,
+    volcAssetId,
+    volcAssetStatus,
+    volcAssetError,
+    volcReviewDate,
+    bioAuthId,
+    bioAuthStatus,
+    bioAuthError,
+    bioAuthDate,
+    patchNode,
+  ]);
   // ────────────────────────────────────────────────────────────────────────────
 
   React.useEffect(() => {

@@ -1,3 +1,5 @@
+import { isSeedance20FreeEnabled } from "@/utils/seedanceFree";
+
 export interface ManagedRouteOption {
   vendorKey: string;
   platformKey?: string;
@@ -321,6 +323,12 @@ export const resolveSeedance20DiscountCredits = (
       : model;
   if (normalizedModel !== "seedance-2.0" && normalizedModel !== "seedance-2.0-fast") {
     return undefined;
+  }
+
+  // 限时免费活动：开启时 seedance-2.0 / seedance-2.0-fast 全分辨率均为 0 积分。
+  // 与后端 SEEDANCE20_FREE 同步，实扣以后端为准。
+  if (isSeedance20FreeEnabled()) {
+    return 0;
   }
 
   const resolution = String(pricingContext.resolution || "720P")
