@@ -15791,7 +15791,7 @@ function FlowInner() {
       const resolvePromptMentionImagesForNode = async (
         targetId: string,
         limit: number
-      ): Promise<string[]> => {
+      ): Promise<Array<{ token: string; image: string }>> => {
         if (limit <= 0) return [];
         const textEdges = currentEdges.filter(
           (e) => e.target === targetId && e.targetHandle === "text"
@@ -15811,14 +15811,16 @@ function FlowInner() {
           );
           if (!mentions.length) continue;
 
-          for (const mention of mentions) {
+          const activeMentions = mentions
+            .filter((mention) => {
+              if (mention.mediaType !== "image") return false;
+              const token = typeof mention.token === "string" ? mention.token.trim() : "";
+              return Boolean(token) && hasPromptMentionTokenInText(promptText, token);
+            })
+            .sort((a, b) => promptText.indexOf(a.token) - promptText.indexOf(b.token));
+
+          for (const mention of activeMentions) {
             if (mention.mediaType !== "image") continue;
-            if (
-              mention.token &&
-              (!promptText || !hasPromptMentionTokenInText(promptText, mention.token))
-            ) {
-              continue;
-            }
 
             let resolved: string | null = null;
             if (mention.source === "flow") {
@@ -15847,7 +15849,7 @@ function FlowInner() {
             const normalized = typeof resolved === "string" ? resolved.trim() : "";
             if (!normalized || seen.has(normalized)) continue;
             seen.add(normalized);
-            out.push(normalized);
+            out.push({ token: mention.token, image: normalized });
             if (out.length >= limit) return out;
           }
         }
@@ -21431,20 +21433,20 @@ function FlowInner() {
         node.type === "generatePro" ||
         node.type === "generatePro4"
       ) {
-        const remainingMentionSlots = Math.max(
-          0,
-          maxFlowReferenceImages - imageDatas.length
+        const mentionImageRefs = await resolvePromptMentionImagesForNode(
+          nodeId,
+          maxFlowReferenceImages
         );
-        if (remainingMentionSlots > 0) {
-          const mentionImageDatas = await resolvePromptMentionImagesForNode(
-            nodeId,
-            remainingMentionSlots
-          );
-          if (mentionImageDatas.length > 0) {
-            imageDatas = dedupeImageRefs([
-              ...imageDatas,
-              ...mentionImageDatas,
-            ]).slice(0, maxFlowReferenceImages);
+        if (mentionImageRefs.length > 0) {
+          imageDatas = dedupeImageRefs([
+            ...mentionImageRefs.map((item) => item.image),
+            ...imageDatas,
+          ]).slice(0, maxFlowReferenceImages);
+          const mappingText = mentionImageRefs
+            .map((item, index) => `${item.token}=第${index + 1}张参考图`)
+            .join("；");
+          if (mappingText) {
+            prompt = `${prompt}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用，不要按图片原始编号或视觉猜测重新匹配。`;
           }
         }
       }
