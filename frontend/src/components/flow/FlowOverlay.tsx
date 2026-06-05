@@ -19092,17 +19092,18 @@ function FlowInner() {
           )
         );
 
-        // Seedance 2.0: auto-review all connected reference images before submitting.
-        // For each image URL that doesn't have a valid active volcAssetId, upload it to
-        // the Volc asset library and poll until active (or fail). Results are stored in
-        // resolvedVolcAssets so seedance20ReferenceImages can use them directly without
-        // re-reading stale node state.
+        // Seedance 2.0: re-review ALL connected reference images on EVERY generation.
+        // We always re-upload to the Volc asset library and poll until active (or fail),
+        // and never reuse a cached volcAssetId. A cached id is strongly bound to whatever
+        // image was reviewed earlier; reusing it across an image swap would send a stale
+        // asset:// upstream while the raw URL points at the new image (image mismatch).
+        // A fresh upload guarantees the asset:// reference matches the current image.
+        // Results are stored in resolvedVolcAssets so seedance20ReferenceImages can use
+        // them directly without re-reading stale node state.
         type VolcAssetEntry = { url: string; volcAssetId?: string; volcAssetStatus?: "processing" | "active" | "failed" };
         let resolvedVolcAssets: VolcAssetEntry[] | undefined;
 
         if (isSeedanceNode && isSeedance20Request && referenceImageUrls.length > 0) {
-          const REVIEW_VALID_DAYS = 3;
-
           const assetEntries: VolcAssetEntry[] = [];
           let reviewFailed = false;
 
@@ -19110,24 +19111,6 @@ function FlowInner() {
             const imgUrl = referenceImageUrls[imgIdx];
             const srcEdge = referenceImageSourceEdges[imgIdx];
             const srcNode = srcEdge ? rf.getNode(srcEdge.source) : undefined;
-            const srcData = (srcNode?.data as any) || {};
-
-            const existingAssetId: string | undefined =
-              typeof srcData.volcAssetId === "string" && srcData.volcAssetId.length > 0
-                ? srcData.volcAssetId
-                : undefined;
-            const existingStatus: string | undefined = srcData.volcAssetStatus;
-            const existingReviewDate: string | undefined = srcData.volcReviewDate;
-
-            const isExpired =
-              existingStatus === "active" && existingReviewDate
-                ? Date.now() > new Date(existingReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000
-                : false;
-
-            if (existingAssetId && existingStatus === "active" && !isExpired) {
-              assetEntries.push({ url: imgUrl, volcAssetId: existingAssetId, volcAssetStatus: "active" });
-              continue;
-            }
 
             // Mark source node as processing so its badge updates
             if (srcNode) {
