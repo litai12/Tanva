@@ -43,6 +43,8 @@ const DEFAULT_TITLE = 'Prompt';
 const MIN_NODE_WIDTH = 180;
 const MIN_NODE_HEIGHT = 120;
 const PROMPT_MENTION_LINE_HEIGHT_PX = 17;
+const MENTION_LIBRARY_FETCH_TIMEOUT_MS = 8000;
+const MENTION_LIBRARY_RETRY_COOLDOWN_MS = 30000;
 type MentionTab = 'flow' | 'project-library' | 'personal-library';
 
 type MentionCandidate = {
@@ -316,6 +318,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
+  const [isComposing, setIsComposing] = React.useState(false);
   const [atMention, setAtMention] = React.useState<{
     startIndex: number;
     query: string;
@@ -335,6 +338,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [personalLibraryLoading, setPersonalLibraryLoading] = React.useState(false);
   const projectLibraryLoadedForRef = React.useRef<string | null>(null);
   const personalLibraryLoadedRef = React.useRef(false);
+  const projectLibraryLoadingRef = React.useRef(false);
+  const personalLibraryLoadingRef = React.useRef(false);
+  const projectLibraryFailedAtRef = React.useRef(0);
+  const personalLibraryFailedAtRef = React.useRef(0);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
   const shouldPassWheelToCanvas = React.useCallback((event: React.WheelEvent<HTMLTextAreaElement>) => {
@@ -477,7 +484,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     () => getPromptMentionTokenRanges(value, mentions),
     [mentions, value]
   );
-  const shouldRenderMentionOverlay = mentionTokenRanges.length > 0;
+  const shouldRenderMentionOverlay = mentionTokenRanges.length > 0 && !isComposing;
   const mentionOverlayNodes = React.useMemo(() => {
     if (mentionTokenRanges.length === 0) return [value];
     const nodes: React.ReactNode[] = [];
@@ -673,11 +680,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       textareaRef.current.blur();
     }
     isComposingRef.current = false;
+    setIsComposing(false);
     setAtMention(null);
   }, [isPromptEditable]);
 
   React.useEffect(() => {
     projectLibraryLoadedForRef.current = null;
+    projectLibraryFailedAtRef.current = 0;
     setProjectLibraryItems([]);
   }, [projectId]);
 
@@ -685,38 +694,65 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const currentProjectId = typeof projectId === 'string' ? projectId.trim() : '';
     if (!currentProjectId) return;
     if (projectLibraryLoadedForRef.current === currentProjectId) return;
-    if (projectLibraryLoading) return;
+    if (projectLibraryLoadingRef.current) return;
+    if (
+      projectLibraryFailedAtRef.current > 0 &&
+      Date.now() - projectLibraryFailedAtRef.current < MENTION_LIBRARY_RETRY_COOLDOWN_MS
+    ) {
+      return;
+    }
+    projectLibraryLoadingRef.current = true;
     setProjectLibraryLoading(true);
     void globalImageHistoryApi
-      .list({ limit: 30, sourceProjectId: currentProjectId })
+      .list(
+        { limit: 30, sourceProjectId: currentProjectId },
+        { timeoutMs: MENTION_LIBRARY_FETCH_TIMEOUT_MS }
+      )
       .then((result) => {
         const items = Array.isArray(result.items) ? result.items : [];
         setProjectLibraryItems(items.filter((item) => getGlobalHistoryMediaType(item) === 'image'));
         projectLibraryLoadedForRef.current = currentProjectId;
+        projectLibraryFailedAtRef.current = 0;
       })
       .catch((error) => {
+        projectLibraryFailedAtRef.current = Date.now();
         console.warn('[TextPromptNode] 拉取项目库图片失败:', error);
       })
-      .finally(() => setProjectLibraryLoading(false));
-  }, [projectId, projectLibraryLoading]);
+      .finally(() => {
+        projectLibraryLoadingRef.current = false;
+        setProjectLibraryLoading(false);
+      });
+  }, [projectId]);
 
   const loadPersonalLibraryImages = React.useCallback(() => {
     if (personalLibraryLoadedRef.current) return;
-    if (personalLibraryLoading) return;
+    if (personalLibraryLoadingRef.current) return;
+    if (
+      personalLibraryFailedAtRef.current > 0 &&
+      Date.now() - personalLibraryFailedAtRef.current < MENTION_LIBRARY_RETRY_COOLDOWN_MS
+    ) {
+      return;
+    }
+    personalLibraryLoadingRef.current = true;
     setPersonalLibraryLoading(true);
     void personalLibraryApi
-      .list('2d')
+      .list('2d', { timeoutMs: MENTION_LIBRARY_FETCH_TIMEOUT_MS })
       .then((assets) => {
         if (Array.isArray(assets) && assets.length) {
           mergePersonalAssets(assets);
         }
         personalLibraryLoadedRef.current = true;
+        personalLibraryFailedAtRef.current = 0;
       })
       .catch((error) => {
+        personalLibraryFailedAtRef.current = Date.now();
         console.warn('[TextPromptNode] 拉取个人库图片失败:', error);
       })
-      .finally(() => setPersonalLibraryLoading(false));
-  }, [mergePersonalAssets, personalLibraryLoading]);
+      .finally(() => {
+        personalLibraryLoadingRef.current = false;
+        setPersonalLibraryLoading(false);
+      });
+  }, [mergePersonalAssets]);
 
   React.useEffect(() => {
     if (!atMention || !isPromptEditable) return;
@@ -1031,10 +1067,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const handleCompositionStart = React.useCallback(() => {
     isComposingRef.current = true;
+    setIsComposing(true);
   }, []);
 
   const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
     isComposingRef.current = false;
+    setIsComposing(false);
     const next = event.currentTarget.value;
     const nextMentions = sanitizePromptMentionsForText(next, mentionsRef.current);
     mentionsRef.current = nextMentions;
@@ -1222,6 +1260,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       : activeMentionTab === 'personal-library'
       ? personalLibraryLoading
       : false;
+  const showMentionLoading = activeMentionLoading && activeMentionCandidates.length === 0;
+  const showMentionRefreshing = activeMentionLoading && activeMentionCandidates.length > 0;
 
   return (
     <div ref={nodeRootRef} style={{
@@ -1514,7 +1554,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               );
             })}
           </div>
-          {activeMentionLoading ? (
+          {showMentionLoading ? (
             <div style={{ padding: '16px 8px', textAlign: 'center', color: '#6b7280', fontSize: 12 }}>
               {lt('加载中...', 'Loading...')}
             </div>
@@ -1523,55 +1563,62 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               {lt('暂无可引用图片', 'No images to reference')}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
-              {activeMentionCandidates.map((candidate, idx) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); handleMentionSelect(candidate); }}
-                  style={{
-                    padding: 4,
-                    borderRadius: 6,
-                    border: `2px solid ${idx === atMention.selectedIdx ? '#2563eb' : 'transparent'}`,
-                    background: idx === atMention.selectedIdx ? '#eff6ff' : '#f9fafb',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'stretch',
-                    gap: 3,
-                    minWidth: 0,
-                  }}
-                  title={candidate.title}
-                >
-                  <img
-                    src={candidate.previewUrl}
-                    alt={candidate.title}
-                    style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 4, display: 'block', background: '#f3f4f6' }}
-                    draggable={false}
-                  />
-                  <span style={{
-                    fontSize: 11,
-                    color: '#374151',
-                    lineHeight: 1.15,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {candidate.tokenHint}
-                  </span>
-                  <span style={{
-                    fontSize: 10,
-                    color: '#6b7280',
-                    lineHeight: 1.15,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {candidate.title}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <>
+              {showMentionRefreshing && (
+                <div style={{ color: '#6b7280', fontSize: 11, lineHeight: 1.2, padding: '0 2px' }}>
+                  {lt('更新中...', 'Refreshing...')}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+                {activeMentionCandidates.map((candidate, idx) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleMentionSelect(candidate); }}
+                    style={{
+                      padding: 4,
+                      borderRadius: 6,
+                      border: `2px solid ${idx === atMention.selectedIdx ? '#2563eb' : 'transparent'}`,
+                      background: idx === atMention.selectedIdx ? '#eff6ff' : '#f9fafb',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      gap: 3,
+                      minWidth: 0,
+                    }}
+                    title={candidate.title}
+                  >
+                    <img
+                      src={candidate.previewUrl}
+                      alt={candidate.title}
+                      style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 4, display: 'block', background: '#f3f4f6' }}
+                      draggable={false}
+                    />
+                    <span style={{
+                      fontSize: 11,
+                      color: '#374151',
+                      lineHeight: 1.15,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {candidate.tokenHint}
+                    </span>
+                    <span style={{
+                      fontSize: 10,
+                      color: '#6b7280',
+                      lineHeight: 1.15,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {candidate.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>,
         document.body
