@@ -1267,18 +1267,30 @@ export class VideoProviderService {
     )
       .trim()
       .toLowerCase();
-    // ALL Seedance models route through the ark-doubao-video channel (direct
-    // official VolcEngine) using snapshot ids — NOT the apimart reseller.
+    // ALL Seedance models route through the ark-doubao channel (direct official
+    // VolcEngine) using snapshot ids — NOT the apimart reseller.
     // Fast/lite/mini share the doubao-seedance-2-0-fast upstream.
-    // Order matters: fast/lite/mini and 1.5 must be checked before the
-    // generic 2.0 branch (pro / 2.0 → standard 2.0 snapshot).
-    if (explicit.includes("seedance-2.0-fast") || explicit.includes("seed-2.0-lite") || explicit.includes("seed-2.0-mini")) {
-      return "doubao-seedance-2-0-fast-260128";
-    }
-    if (explicit.includes("seedance-1.5") || explicit.includes("seed-1.5") || explicit.includes("1.5-pro")) {
-      return "doubao-seedance-1-5-pro-251215";
-    }
-    if (explicit.includes("seedance") || explicit.includes("seed-2.0") || options.provider === "doubao") {
+    //
+    // The authoritative sub-selector is seedanceModel (the node updates it
+    // directly). managedModelKey can lag behind it — e.g. a "seedance-2.0" node
+    // whose sub-selector was switched to 1.5-pro still carries
+    // managedModelKey="seedance-2.0" — so for Seedance we must trust
+    // seedanceModel first, mirroring the kling branch below. Using the
+    // managedModelKey-first `explicit` here silently ran 1.5-pro as 2.0.
+    // Order matters: fast/lite/mini and 1.5 before the generic 2.0 branch.
+    if (options.provider === "doubao" || explicit.includes("seedance") || explicit.includes("seed-")) {
+      const seedanceHint = String(options.seedanceModel || options.managedModelKey || explicit)
+        .trim()
+        .toLowerCase();
+      if (
+        seedanceHint.includes("2.0-fast") || seedanceHint.includes("2-0-fast") ||
+        seedanceHint.includes("seed-2.0-lite") || seedanceHint.includes("seed-2.0-mini")
+      ) {
+        return "doubao-seedance-2-0-fast-260128";
+      }
+      if (seedanceHint.includes("1.5") || seedanceHint.includes("1-5")) {
+        return "doubao-seedance-1-5-pro-251215";
+      }
       return "doubao-seedance-2-0-260128";
     }
     if (explicit.includes("wan2.7") || explicit.includes("wan-2.7")) {
