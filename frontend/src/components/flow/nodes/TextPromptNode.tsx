@@ -20,12 +20,12 @@ import {
 } from '@/stores/personalLibraryStore';
 import {
   hasPromptMentionTokenInText,
-  isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
   type PromptImageMention,
   type PromptMentionSource,
 } from '../types';
 import { useFlowNodeDarkTheme } from './flowNodeDarkTheme';
+import SmartImage from '@/components/ui/SmartImage';
 
 type Props = {
   id: string;
@@ -60,6 +60,14 @@ type MentionTokenRange = {
   start: number;
   end: number;
   mention: PromptImageMention;
+};
+
+type MentionPreviewItem = {
+  id: string;
+  token: string;
+  label: string;
+  previewUrl: string;
+  isVideo: boolean;
 };
 
 const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
@@ -124,7 +132,7 @@ const isResolvedMentionAt = (
   return mentions.some((mention) => {
     const token = typeof mention.token === 'string' ? mention.token.trim() : '';
     if (!token || !token.startsWith('@')) return false;
-    return text.startsWith(token, atIndex) && isPromptMentionTokenBoundary(text, token, atIndex);
+    return text.startsWith(token, atIndex);
   });
 };
 
@@ -146,9 +154,7 @@ const getPromptMentionTokenRanges = (
   let index = 0;
   while (index < text.length) {
     const match = usableMentions.find(
-      (item) =>
-        text.startsWith(item.token, index) &&
-        isPromptMentionTokenBoundary(text, item.token, index)
+      (item) => text.startsWith(item.token, index)
     );
     if (!match) {
       index += 1;
@@ -205,6 +211,15 @@ const getPromptMentionChipLabel = (mention: PromptImageMention): string => {
   const rawLabel = (mention.label || tokenLabel).trim();
   return rawLabel || tokenLabel;
 };
+
+const getPromptMentionDisplayLabel = (
+  mention: PromptImageMention,
+  mentionTitleById: Map<string, string>
+): string =>
+  getPromptMentionLookupKeys(mention)
+    .map((key) => mentionTitleById.get(key))
+    .find((label): label is string => Boolean(label)) ||
+  getPromptMentionChipLabel(mention);
 
 const pickPromptMentionTitle = (...values: unknown[]): string | undefined => {
   for (const value of values) {
@@ -418,6 +433,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     });
     return next;
   }, [candidateGroups]);
+  const mentionCandidateById = React.useMemo(() => {
+    const next = new Map<string, MentionCandidate>();
+    Object.values(candidateGroups).forEach((candidates) => {
+      candidates.forEach((candidate) => {
+        getMentionCandidateLookupKeys(candidate).forEach((key) => {
+          if (!next.has(key)) next.set(key, candidate);
+        });
+      });
+    });
+    return next;
+  }, [candidateGroups]);
 
   const filterMentionCandidates = React.useCallback((
     candidates: MentionCandidate[],
@@ -460,11 +486,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       if (range.start > cursor) {
         nodes.push(value.slice(cursor, range.start));
       }
-      const displayLabel =
-        getPromptMentionLookupKeys(range.mention)
-          .map((key) => mentionTitleById.get(key))
-          .find((label): label is string => Boolean(label)) ||
-        getPromptMentionChipLabel(range.mention);
+      const displayLabel = getPromptMentionDisplayLabel(range.mention, mentionTitleById);
       nodes.push(
         <span
           key={`${range.mention.id}-${range.start}-${index}`}
@@ -481,6 +503,52 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     }
     return nodes.length ? nodes : [value];
   }, [mentionTitleById, mentionTokenRanges, value]);
+
+  const mentionPreviewItems = React.useMemo<MentionPreviewItem[]>(() => {
+    if (!mentions.length || !value) return [];
+    const out: MentionPreviewItem[] = [];
+    const seen = new Set<string>();
+
+    for (const mention of mentions) {
+      const token = typeof mention.token === 'string' ? mention.token.trim() : '';
+      if (!token || !hasPromptMentionTokenInText(value, token)) continue;
+      const candidate = getPromptMentionLookupKeys(mention)
+        .map((key) => mentionCandidateById.get(key))
+        .find((item): item is MentionCandidate => Boolean(item));
+      const previewUrl =
+        candidate?.previewUrl ||
+        (mention.source !== 'flow' && typeof mention.ref.url === 'string'
+          ? mention.ref.url.trim()
+          : '');
+      if (!previewUrl) continue;
+      const dedupeKey = `${mention.id}::${token}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      out.push({
+        id: dedupeKey,
+        token,
+        label: candidate?.title.trim() || getPromptMentionDisplayLabel(mention, mentionTitleById),
+        previewUrl,
+        isVideo: candidate?.flowImage?.isVideo === true,
+      });
+    }
+
+    return out;
+  }, [mentionCandidateById, mentionTitleById, mentions, value]);
+
+  const mentionedFlowNodeIds = React.useMemo(() => {
+    const next = new Set<string>();
+    mentions.forEach((mention) => {
+      if (mention.source === 'flow' && mention.ref.nodeId && hasPromptMentionTokenInText(value, mention.token)) {
+        next.add(mention.ref.nodeId);
+      }
+    });
+    return next;
+  }, [mentions, value]);
+  const insertableSiblingImages = React.useMemo(
+    () => siblingImages.filter((img) => !mentionedFlowNodeIds.has(img.nodeId)),
+    [mentionedFlowNodeIds, siblingImages]
+  );
 
   const detectAtMention = React.useCallback((
     text: string,
@@ -844,6 +912,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const end = el?.selectionEnd ?? value.length;
     insertMentionCandidate(candidate, { start, end });
   }, [flowMentionCandidates, insertMentionCandidate, value.length]);
+
+  const handleMentionPreviewSelect = React.useCallback((item: MentionPreviewItem) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const index = value.indexOf(item.token);
+    if (index < 0) return;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(index, index + item.token.length);
+    });
+  }, [value]);
 
   const deleteTextRange = React.useCallback((start: number, end: number) => {
     const el = textareaRef.current;
@@ -1351,8 +1430,37 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           }}
         />
       </div>
-      {isPromptEditable && (
-        <PromptImageStrip images={siblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
+      {mentionPreviewItems.length > 0 && (
+        <div className="prompt-mentioned-strip nodrag nopan" aria-label={lt('已引用图片', 'Referenced images')}>
+          {mentionPreviewItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="prompt-mentioned-strip__card"
+              title={item.label}
+              onPointerDownCapture={(e) => { e.stopPropagation(); }}
+              onMouseDownCapture={(e) => { e.stopPropagation(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMentionPreviewSelect(item);
+              }}
+            >
+              <SmartImage
+                src={item.previewUrl}
+                alt={item.label}
+                className="prompt-mentioned-strip__img"
+                draggable={false}
+              />
+              {item.isVideo && (
+                <span className="prompt-mentioned-strip__video-icon" aria-hidden="true">▶</span>
+              )}
+              <span className="prompt-mentioned-strip__label">{item.token.replace(/^@/, '')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {isPromptEditable && insertableSiblingImages.length > 0 && (
+        <PromptImageStrip images={insertableSiblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
       )}
       {atMention && dropdownPos && createPortal(
         <div

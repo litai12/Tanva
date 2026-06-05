@@ -1,5 +1,6 @@
 import React from 'react';
 import type { SiblingImage } from '../hooks/usePromptSiblingImages';
+import SmartImage from '@/components/ui/SmartImage';
 
 type Props = {
   images: SiblingImage[];
@@ -29,7 +30,7 @@ export default function PromptImageStrip({ images, onInsert, onImageSelect }: Pr
             onInsert?.(`@图${img.index}`);
           }}
         >
-          <img
+          <SmartImage
             src={img.url}
             alt={`图${img.index}`}
             className="prompt-image-strip__img"

@@ -46,12 +46,8 @@ export const isPromptMentionTokenBoundary = (
 };
 
 export const hasPromptMentionTokenInText = (text: string, token: string): boolean => {
-  let index = text.indexOf(token);
-  while (index >= 0) {
-    if (isPromptMentionTokenBoundary(text, token, index)) return true;
-    index = text.indexOf(token, index + token.length);
-  }
-  return false;
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  return Boolean(normalizedToken) && text.includes(normalizedToken);
 };
 
 export const normalizePromptImageMentions = (value: unknown): PromptImageMention[] => {

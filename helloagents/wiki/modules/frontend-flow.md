@@ -1,3 +1,7 @@
+## 2026-06-05 Prompt Mention Stability
+- Prompt `@` image mentions now treat the stored token as an anchored structured reference as long as the token text still exists, instead of requiring a trailing whitespace/token boundary. Continuing to type immediately after an inserted `@图...` token, including IME pinyin composition and ASCII suffix text, no longer removes the corresponding `data.mentions` entry or drops it from Generate runtime reference-image resolution.
+- `TextPromptNode` renders selected image mentions as thumbnail chips below the prompt input. The preview resolves thumbnails from current mention candidates first, then falls back to stored remote library URLs for project/personal assets; the existing available workflow image strip remains for unselected images. Both strips use `SmartImage` so runtime display can convert inline/base64/flow-asset values to object URLs without persisting them.
+
 ## 2026-06-05 HTML PPT Wheel Handling
 - HTML PPT node internals no longer stop wheel propagation ahead of the shared Flow canvas wheel handler. The slide rail, style panel, code editor area, and prompt area now let canvas wheel zoom handling prevent browser page zoom while retaining the existing native-scroll rules for non-zoom wheel gestures.
 

@@ -65,6 +65,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
+- Flow/Prompt Mentions: `@` image references now stay structured when the user continues typing directly after the token, including IME pinyin/composition and ASCII suffix text; Prompt nodes also show selected referenced resources as thumbnail chips below the input while available unselected workflow images remain insertable.
 - Flow/Text Nodes: Prompt and text-node editors now keep gray-white text fill and caret colors after focus in the black Flow theme, while Prompt mention textareas stay transparent so raw `@` reference tokens do not leak over the overlay.
 - Admin/Auth: contest popup QR codes now refresh when the activity modal is reopened, when switching to the contest slide, and when the registration/community button is triggered, so newly uploaded admin QR settings do not require a full page reload.
 - Frontend Campaign Notice: top activity notice no longer auto-hides after the countdown reaches zero; the close button only hides the current page instance, so refresh shows the notice again.

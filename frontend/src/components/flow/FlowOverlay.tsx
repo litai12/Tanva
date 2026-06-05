@@ -234,6 +234,10 @@ import {
   type FlowViewportAnchor,
 } from "@/utils/flowViewportTransform";
 import {
+  TANVA_CANVAS_LAYOUT_CHANGED_EVENT,
+  TANVA_PAPER_VIEW_RESIZED_EVENT,
+} from "@/utils/canvasLayoutEvents";
+import {
   detectAlignments,
   deduplicateAlignments,
   type AlignmentLine,
@@ -8350,6 +8354,52 @@ function FlowInner() {
     syncViewportToCanvasStore();
   }, [projectId, syncViewportToCanvasStore]);
 
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    let rafId: number | null = null;
+    let timerId: number | null = null;
+
+    const scheduleSync = () => {
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(() => {
+          rafId = null;
+          syncViewportToCanvasStore();
+        });
+      }
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      timerId = window.setTimeout(() => {
+        timerId = null;
+        syncViewportToCanvasStore();
+      }, 80);
+    };
+
+    const container = containerRef.current;
+    let resizeObserver: ResizeObserver | null = null;
+    if (container && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(scheduleSync);
+      resizeObserver.observe(container);
+    }
+
+    window.addEventListener(TANVA_CANVAS_LAYOUT_CHANGED_EVENT, scheduleSync);
+    window.addEventListener(TANVA_PAPER_VIEW_RESIZED_EVENT, scheduleSync);
+    window.addEventListener("resize", scheduleSync);
+
+    return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener(TANVA_CANVAS_LAYOUT_CHANGED_EVENT, scheduleSync);
+      window.removeEventListener(TANVA_PAPER_VIEW_RESIZED_EVENT, scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+    };
+  }, [syncViewportToCanvasStore]);
+
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
     if (isConnecting) {
@@ -15645,7 +15695,10 @@ function FlowInner() {
 
           for (const mention of mentions) {
             if (mention.mediaType !== "image") continue;
-            if (mention.token && (!promptText || !hasPromptMentionTokenInText(promptText, mention.token))) {
+            if (
+              mention.token &&
+              (!promptText || !hasPromptMentionTokenInText(promptText, mention.token))
+            ) {
               continue;
             }
 
