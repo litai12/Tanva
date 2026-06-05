@@ -233,24 +233,30 @@ func (a *Adaptor) doAsyncImage(c *gin.Context, info *relaycommon.RelayInfo, requ
 	if err := common.Unmarshal(submitBody, &sResp); err != nil {
 		return nil, fmt.Errorf("apimart: unmarshal submit body failed: %w, body=%s", err, string(submitBody))
 	}
-	taskID := sResp.TaskID()
-	if sResp.Code != 200 || taskID == "" {
+	// Accepted() covers both the APIMart ({code:200,data:[…]}) and the toapis
+	// flat ({id,object:"generation.task",status}) submit envelopes.
+	if !sResp.Accepted() {
 		return synthesizeJSONResponse(http.StatusBadGateway, submitBody), nil
 	}
+	taskID := sResp.TaskID()
 
-	detailBody, err := a.pollUntilTerminal(c.Request.Context(), info, taskID)
+	detailBody, err := a.pollUntilTerminal(c.Request.Context(), info, taskID, sResp.IsFlat())
 	if err != nil {
 		return nil, err
 	}
 	return synthesizeJSONResponse(http.StatusOK, detailBody), nil
 }
 
-func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.RelayInfo, taskID string) ([]byte, error) {
+func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.RelayInfo, taskID string, flat bool) ([]byte, error) {
 	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
 	if err != nil {
 		return nil, fmt.Errorf("apimart: build poll client failed: %w", err)
 	}
+	// APIMart polls /v1/tasks/{id}; toapis polls /v1/images/generations/{id}.
 	detailURL := info.ChannelBaseUrl + taskapimart.PollPath(taskID)
+	if flat {
+		detailURL = info.ChannelBaseUrl + taskapimart.FlatPollPath(taskID)
+	}
 
 	// Use RELAY_TIMEOUT if set, otherwise default to 15 minutes.
 	// APIMart image tasks can legitimately take 10+ minutes.
@@ -297,10 +303,13 @@ func (a *Adaptor) pollUntilTerminal(ctx context.Context, info *relaycommon.Relay
 		if err := common.Unmarshal(body, &dResp); err != nil {
 			return nil, fmt.Errorf("apimart: unmarshal detail failed: %w, body=%s", err, string(body))
 		}
-		if dResp.Code != 200 || dResp.Data == nil {
+		// Ready() / EffectiveStatus() handle both the APIMart {code,data} and the
+		// toapis flat envelopes. Not-ready (error envelope) ends the poll and lets
+		// finishAsyncImage surface the error.
+		if !dResp.Ready() {
 			return body, nil
 		}
-		if taskapimart.IsTerminal(dResp.Data.Status) {
+		if taskapimart.IsTerminal(dResp.EffectiveStatus()) {
 			return body, nil
 		}
 
@@ -336,25 +345,26 @@ func (a *Adaptor) finishAsyncImage(c *gin.Context, resp *http.Response, info *re
 	if err := common.Unmarshal(body, &dResp); err != nil {
 		return nil, types.NewError(fmt.Errorf("unmarshal detail failed: %w, body=%s", err, string(body)), types.ErrorCodeBadResponseBody)
 	}
-	if dResp.Code != 200 || dResp.Data == nil {
+	if !dResp.Ready() {
 		msg := dResp.FailureReason()
 		if msg == "" {
 			msg = fmt.Sprintf("apimart upstream code=%d", dResp.Code)
 		}
 		return nil, types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
-	switch dResp.Data.Status {
+	status := dResp.EffectiveStatus()
+	switch status {
 	case taskapimart.StatusCompleted:
 		// fall through
 	case taskapimart.StatusFailed, taskapimart.StatusCancelled:
 		msg := dResp.FailureReason()
 		if msg == "" {
-			msg = "apimart task " + dResp.Data.Status
+			msg = "apimart task " + status
 		}
 		return nil, types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeBadResponse, http.StatusBadGateway)
 	default:
 		return nil, types.NewErrorWithStatusCode(
-			fmt.Errorf("apimart non-terminal status %q leaked to DoResponse", dResp.Data.Status),
+			fmt.Errorf("apimart non-terminal status %q leaked to DoResponse", status),
 			types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
 

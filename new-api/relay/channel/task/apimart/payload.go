@@ -448,6 +448,13 @@ type SubmitResponse struct {
 		TaskID string `json:"task_id"`
 	} `json:"data"`
 	Error *APIError `json:"error,omitempty"`
+
+	// toapis (OpenAI-style "generation.task") flat form: the task id is at the
+	// top level with no `code`/`data` wrapper. See toapis.go for the helpers
+	// that let this struct parse both envelopes.
+	ID     string `json:"id,omitempty"`
+	Object string `json:"object,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // APIError is the upstream error shape:
@@ -469,7 +476,7 @@ func (s *SubmitResponse) TaskID() string {
 			return d.TaskID
 		}
 	}
-	return ""
+	return s.ID // toapis flat form carries the task id at the top level
 }
 
 // ErrorMessage returns a human-readable summary for logging/billing.
@@ -515,6 +522,25 @@ type DetailResponse struct {
 		ActualTime    int64         `json:"actual_time,omitempty"`
 		FailReason    string        `json:"fail_reason,omitempty"`
 		Error         *APIError     `json:"error,omitempty"`
+	} `json:"data,omitempty"`
+
+	// toapis (OpenAI-style "generation.task") flat form (see toapis.go): status,
+	// progress and result live at the top level with no `code`/`data` wrapper,
+	// and the top-level `error` carries the failure message. These keys never
+	// appear in the APIMart envelope, so they stay zero for APIMart responses.
+	ID       string      `json:"id,omitempty"`
+	Object   string      `json:"object,omitempty"`
+	Status   string      `json:"status,omitempty"`
+	Progress int         `json:"progress,omitempty"`
+	Result   *FlatResult `json:"result,omitempty"`
+}
+
+// FlatResult is the toapis poll result shape: { "type": "image",
+// "data": [ { "url": "https://..." } ] }.
+type FlatResult struct {
+	Type string `json:"type,omitempty"`
+	Data []struct {
+		URL string `json:"url,omitempty"`
 	} `json:"data,omitempty"`
 }
 
@@ -576,20 +602,30 @@ func (f FlexURL) First() string {
 
 // AllURLs returns every URL in the response, images first then videos.
 func (d *DetailResponse) AllURLs() []string {
-	if d == nil || d.Data == nil || d.Data.Result == nil {
+	if d == nil {
 		return nil
 	}
 	out := []string{}
-	for _, img := range d.Data.Result.Images {
-		for _, u := range img.URL {
-			if u != "" {
+	if d.Data != nil && d.Data.Result != nil {
+		for _, img := range d.Data.Result.Images {
+			for _, u := range img.URL {
+				if u != "" {
+					out = append(out, u)
+				}
+			}
+		}
+		for _, v := range d.Data.Result.Videos {
+			if u := v.URL.First(); u != "" {
 				out = append(out, u)
 			}
 		}
 	}
-	for _, v := range d.Data.Result.Videos {
-		if u := v.URL.First(); u != "" {
-			out = append(out, u)
+	// toapis flat form: result.data[].url
+	if d.Result != nil {
+		for _, item := range d.Result.Data {
+			if item.URL != "" {
+				out = append(out, item.URL)
+			}
 		}
 	}
 	return out
@@ -611,6 +647,13 @@ const (
 	StatusCompleted  = "completed"
 	StatusFailed     = "failed"
 	StatusCancelled  = "cancelled"
+
+	// toapis uses different non-terminal labels for the same lifecycle:
+	//   queued      ≈ pending, in_progress ≈ processing.
+	// Terminal states (completed/failed) match APIMart, so IsTerminal needs no
+	// extra cases — these are listed for status normalization/readability only.
+	StatusQueued     = "queued"
+	StatusInProgress = "in_progress"
 )
 
 // IsTerminal reports whether the status is a final (non-polling) state.
@@ -624,15 +667,19 @@ func IsTerminal(status string) bool {
 
 // FailureReason pulls a human message when the task ends unsuccessfully.
 func (d *DetailResponse) FailureReason() string {
-	if d == nil || d.Data == nil {
+	if d == nil {
 		return ""
 	}
-	if d.Data.FailReason != "" {
-		return d.Data.FailReason
+	if d.Data != nil {
+		if d.Data.FailReason != "" {
+			return d.Data.FailReason
+		}
+		if d.Data.Error != nil && d.Data.Error.Message != "" {
+			return d.Data.Error.Message
+		}
 	}
-	if d.Data.Error != nil && d.Data.Error.Message != "" {
-		return d.Data.Error.Message
-	}
+	// toapis flat form (and any APIMart error envelope without `data`) puts the
+	// message in the top-level `error`.
 	if d.Error != nil && d.Error.Message != "" {
 		return d.Error.Message
 	}
