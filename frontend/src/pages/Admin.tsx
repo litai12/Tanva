@@ -134,7 +134,7 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
 ]);
 
 const CREDITS_PER_YUAN = 100;
-const SEEDANCE20_DISCOUNT_RATE = 0.35;
+const SEEDANCE20_DISCOUNT_RATE = 1;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
 

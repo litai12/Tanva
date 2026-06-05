@@ -3,7 +3,7 @@ import type { ManagedPricingBook } from './model-pricing-resolver';
 export const SEEDANCE20_DISCOUNT_CREDITS = 210;
 export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 2.1;
 
-const SEEDANCE20_DISCOUNT_RATE = 0.35;
+const SEEDANCE20_DISCOUNT_RATE =1;
 
 /**
  * 限时免费活动开关。设置环境变量 SEEDANCE20_FREE=1/true/on/yes 时，
