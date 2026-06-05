@@ -346,16 +346,30 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 
 	// Add images if present.
 	//
-	// Seedance/Doubao i2v: the input image is the FIRST FRAME to animate, not a
-	// subject reference. Labeling it "reference_image" makes Ark infer
-	// task_type=r2v, which models like doubao-seedance-1-5-pro reject
-	// ("the specified task_type r2v does not support model ..."). So the primary
-	// image is first_frame (i2v); any extra images fall back to reference_image.
-	// Genuine reference (r2v) inputs are passed via ReferenceImages below.
+	// Ark forbids mixing first/last-frame content with reference media content
+	// ("first/last frame content cannot be mixed with reference media content").
+	// So the role family must be chosen for the WHOLE request, not per-index:
+	//
+	//   - i2v (no reference images): the first image is the FIRST FRAME to animate;
+	//     extra images fall back to reference_image. Required because models like
+	//     doubao-seedance-1-5-pro reject task_type=r2v — they need first_frame.
+	//   - r2v (ReferenceImages non-empty): every image is a subject reference;
+	//     NONE may be first_frame, or Ark 400s. seedance-2.0 参考图模式走这里。
+	//
+	// normalizeTaskSubmitReq merges every image source (image/images/urls/
+	// referenceImages) into req.Images, so iterate req.Images once and dedupe;
+	// the separate ReferenceImages pass below is a defensive top-up (req bypassed
+	// normalize) and never double-emits thanks to the shared `seen` set.
+	referenceOnly := len(req.ReferenceImages) > 0
+	seen := make(map[string]bool, len(req.Images)+len(req.ReferenceImages))
 	if req.HasImage() {
 		for i, imgURL := range req.Images {
+			if imgURL == "" || seen[imgURL] {
+				continue
+			}
+			seen[imgURL] = true
 			role := "reference_image"
-			if i == 0 {
+			if !referenceOnly && i == 0 {
 				role = "first_frame"
 			}
 			r.Content = append(r.Content, ContentItem{
@@ -366,6 +380,10 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		}
 	}
 	for _, imgURL := range req.ReferenceImages {
+		if imgURL == "" || seen[imgURL] {
+			continue
+		}
+		seen[imgURL] = true
 		r.Content = append(r.Content, ContentItem{
 			Type:     "image_url",
 			Role:     "reference_image",

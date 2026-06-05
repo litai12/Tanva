@@ -1092,6 +1092,31 @@ export class VideoProviderService {
     // upstream only via metadata. See APIMart kling-v2-6 / kling-v3 / kling-v3-omni docs.
     const kling = this.buildKlingApimartParams(options, model, referenceImages, referenceVideos);
 
+    // Seedance 2.0 参考图模式(r2v)：所有图都是“主体参考”，必须经 new-api 的
+    // referenceImages 字段下发（doubao adaptor 全部标 role=reference_image）。
+    // 若塞进 image/images，adaptor 会把 images[0] 当 first_frame、其余当
+    // reference_image，两类 role 混用，Ark 直接 400：
+    //   "first/last frame content cannot be mixed with reference media content"。
+    // first_frame(i2v) 模式仍走 image/images（adaptor 正确标 first_frame）。
+    const seedanceVideoMode = String(options.videoMode || "").trim().toLowerCase();
+    const isSeedance2ReferenceMode =
+      isSeedance2 && seedanceVideoMode === "reference_images";
+    const buildSeedanceImageFields = (
+      urls: string[],
+    ): { image?: string; images?: string[]; referenceImages?: string[] } =>
+      isSeedance2ReferenceMode
+        ? {
+            image: undefined,
+            images: undefined,
+            referenceImages: urls.length > 0 ? urls : undefined,
+          }
+        : {
+            image: urls[0],
+            images: urls.length > 0 ? urls : undefined,
+            referenceImages: undefined,
+          };
+    const seedanceImageFields = buildSeedanceImageFields(referenceImages);
+
     const metadata = {
       ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
       ...(kling?.metadata ?? {}),
@@ -1107,12 +1132,10 @@ export class VideoProviderService {
       // For Kling, image/images selection is decided by buildKlingApimartParams
       // (omni 首尾帧 uses image_with_roles and suppresses image_urls to satisfy the
       // upstream mutual-exclusion rule).
-      image: kling ? kling.image : referenceImages[0],
-      images: kling
-        ? kling.images
-        : referenceImages.length > 0
-        ? referenceImages
-        : undefined,
+      image: kling ? kling.image : seedanceImageFields.image,
+      images: kling ? kling.images : seedanceImageFields.images,
+      // Seedance 2.0 r2v：参考图经此字段下发，new-api 全部标 reference_image。
+      referenceImages: kling ? undefined : seedanceImageFields.referenceImages,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
       reference_videos: kling
@@ -1161,8 +1184,7 @@ export class VideoProviderService {
         );
         const fallbackPayload = {
           ...payload,
-          image: rawUrls[0],
-          images: rawUrls.length > 0 ? rawUrls : undefined,
+          ...buildSeedanceImageFields(rawUrls),
           provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
         };
         result = await this.requestNewApiJson("/v1/videos", {
@@ -1178,8 +1200,7 @@ export class VideoProviderService {
         const refreshedImages = await this.reuploadImagesAsAssets(rawUrls);
         const fallbackPayload = {
           ...payload,
-          image: refreshedImages[0],
-          images: refreshedImages.length > 0 ? refreshedImages : undefined,
+          ...buildSeedanceImageFields(refreshedImages),
           provider_options: { ...payload.provider_options, referenceImageRawUrls: undefined },
         };
         result = await this.requestNewApiJson("/v1/videos", {
