@@ -91,6 +91,7 @@ import {
   getManagedRouteCredits,
   getManagedRouteOption,
   resolveManagedRoutePricing,
+  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "./managedRoutePricing";
@@ -1663,7 +1664,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   viduVideo: 600, // Vidu视频生成
   viduQ3: 600, // Vidu Q3 Pro视频生成
   doubaoVideo: 600, // Seedance 1.5 Pro包视频生成
-  seedance20Video: 600, // Seedance 2.0 视频生成
+  seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
   volcEnhanceVideo: 0, // 视频画质增强
@@ -2739,6 +2740,71 @@ const normalizeGptImage2StableImageSize = (
   return "1K";
 };
 
+const FLOW_IMAGE_ASPECT_RATIO_CANDIDATES: Array<{
+  ratio: number;
+  value: NonNullable<AIImageGenerateRequest["aspectRatio"]>;
+}> = [
+  { ratio: 1, value: "1:1" },
+  { ratio: 4 / 3, value: "4:3" },
+  { ratio: 3 / 4, value: "3:4" },
+  { ratio: 16 / 9, value: "16:9" },
+  { ratio: 9 / 16, value: "9:16" },
+  { ratio: 3 / 2, value: "3:2" },
+  { ratio: 2 / 3, value: "2:3" },
+  { ratio: 2 / 1, value: "2:1" },
+  { ratio: 1 / 2, value: "1:2" },
+  { ratio: 4 / 5, value: "4:5" },
+  { ratio: 5 / 4, value: "5:4" },
+  { ratio: 21 / 9, value: "21:9" },
+  { ratio: 9 / 21, value: "9:21" },
+  { ratio: 4 / 1, value: "4:1" },
+  { ratio: 1 / 4, value: "1:4" },
+  { ratio: 8 / 1, value: "8:1" },
+  { ratio: 1 / 8, value: "1:8" },
+];
+
+const pickNearestFlowImageAspectRatio = (
+  width: number,
+  height: number
+): NonNullable<AIImageGenerateRequest["aspectRatio"]> | undefined => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  const ratio = width / height;
+  let best = FLOW_IMAGE_ASPECT_RATIO_CANDIDATES[0];
+  let bestDiff = Math.abs(Math.log(ratio / best.ratio));
+  for (const candidate of FLOW_IMAGE_ASPECT_RATIO_CANDIDATES) {
+    const diff = Math.abs(Math.log(ratio / candidate.ratio));
+    if (diff < bestDiff) {
+      best = candidate;
+      bestDiff = diff;
+    }
+  }
+  return best.value;
+};
+
+const detectImageAspectRatioFromSource = async (
+  source: string,
+  timeoutMs = 4000
+): Promise<NonNullable<AIImageGenerateRequest["aspectRatio"]> | undefined> => {
+  const src = typeof source === "string" ? source.trim() : "";
+  if (!src || typeof window === "undefined") return undefined;
+
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    const tid = window.setTimeout(() => resolve(undefined), timeoutMs);
+    img.onload = () => {
+      window.clearTimeout(tid);
+      resolve(pickNearestFlowImageAspectRatio(img.naturalWidth, img.naturalHeight));
+    };
+    img.onerror = () => {
+      window.clearTimeout(tid);
+      resolve(undefined);
+    };
+    img.src = src;
+  });
+};
+
 const VIDEO_DYNAMIC_CREDIT_NODE_TYPES = new Set([
   "sora2Video",
   "sora2Character",
@@ -3228,6 +3294,7 @@ const resolveStableRouteCredits = (params: {
     const vendorKey = sanitizeVideoVendorKey(nodeData?.vendorKey);
     const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
+    const seedance20DiscountCredits = resolveSeedance20DiscountCredits(pricingContext);
 
     const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
     if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
@@ -3242,6 +3309,13 @@ const resolveStableRouteCredits = (params: {
     // 统一模型管理配置优先于节点原生/旧链路动态价
     if (typeof managedPricing?.credits === "number" && Number.isFinite(managedPricing.credits)) {
       resolvedCredits = managedPricing.credits;
+    }
+
+    if (
+      typeof seedance20DiscountCredits === "number" &&
+      Number.isFinite(seedance20DiscountCredits)
+    ) {
+      resolvedCredits = seedance20DiscountCredits;
     }
   }
 
@@ -21265,48 +21339,12 @@ function FlowInner() {
         (node.data as any)?.modelProvider,
         aiProvider
       );
-      let effectiveAspectRatio =
-        node.type === "generate" && runProvider === "banana-2.5"
-          ? undefined
-          : aspectRatioValue;
+      let effectiveAspectRatio = aspectRatioValue;
 
-      // viewAngle: 从源图检测宽高比以保持输出与源图一致
-      if (node.type === "viewAngle" && !effectiveAspectRatio && imageDatas.length > 0) {
+      // Auto + 图片输入：跟随首张参考图比例，避免上游缺省把图生图输出成 1:1。
+      if (!effectiveAspectRatio && imageDatas.length > 0) {
         try {
-          const srcUrl = imageDatas[0];
-          const detectedRatio = await new Promise<string | undefined>((resolve) => {
-            const img = new window.Image();
-            const tid = window.setTimeout(() => resolve(undefined), 4000);
-            img.onload = () => {
-              window.clearTimeout(tid);
-              const w = img.naturalWidth;
-              const h = img.naturalHeight;
-              if (!w || !h) { resolve(undefined); return; }
-              const ratio = w / h;
-              const candidates: Array<{ r: number; v: string }> = [
-                { r: 1, v: "1:1" },
-                { r: 4 / 3, v: "4:3" },
-                { r: 3 / 4, v: "3:4" },
-                { r: 16 / 9, v: "16:9" },
-                { r: 9 / 16, v: "9:16" },
-                { r: 3 / 2, v: "3:2" },
-                { r: 2 / 3, v: "2:3" },
-                { r: 2 / 1, v: "2:1" },
-                { r: 1 / 2, v: "1:2" },
-                { r: 4 / 5, v: "4:5" },
-                { r: 5 / 4, v: "5:4" },
-              ];
-              let best = candidates[0];
-              let bestDiff = Math.abs(Math.log(ratio / best.r));
-              for (const c of candidates) {
-                const diff = Math.abs(Math.log(ratio / c.r));
-                if (diff < bestDiff) { best = c; bestDiff = diff; }
-              }
-              resolve(best.v);
-            };
-            img.onerror = () => { window.clearTimeout(tid); resolve(undefined); };
-            img.src = srcUrl;
-          });
+          const detectedRatio = await detectImageAspectRatioFromSource(imageDatas[0]);
           if (detectedRatio) {
             effectiveAspectRatio = detectedRatio as AIImageGenerateRequest["aspectRatio"];
           }

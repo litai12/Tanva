@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Credits: free users now receive the 500-credit free quota only once (`free_starter_quota`); historical `free_monthly_quota` grants count as already claimed, and the scheduler no longer renews this quota every 30 days.
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
@@ -41,6 +42,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Admin/Auth: default login activity notice now uses a two-slide Seedance 2.0 / 2026 Tanvas AI contest carousel; the Seedance slide preserves its original layout, adds only the right-side floating arrow, auto-advances after the video ends, and the contest slide can return through the left arrow.
+- Admin/Auth: WeChat QR settings now include a contest registration QR code; the contest popup registration/community button shows both the registration QR and the login-notice button QR.
+- Admin/Auth: the contest popup "Get contest details" button now opens the WeChat public-account article at `https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g` in a separate page, preserving the current canvas page.
+- Credits: Seedance 2.0 parameter-based pricing now applies a 35% rate across Fast/standard resolution-duration tiers while preserving the product conversion of 100 credits = 1 yuan.
 - Project Load Cache: project content now uses an account-scoped IndexedDB stale-while-revalidate cache. Recently opened projects can hydrate from local content first, then validate `contentVersion/updatedAt` in the background; autosave/manual save pause during validation and cache writes store the same sanitized payload sent to cloud save.
 - Project Switch Performance: the workspace project dropdown now closes before scheduling `projectStore.open()`, Paper import can skip the duplicate internal clear when the switch path has already cleared the project, and project-load debug logs include Paper runtime rebuild timing to distinguish cache/network delay from main-thread Paper/Flow rebuild cost.
 - Canvas/Image Drag Performance: image dragging now uses a DOM-layer preview during pointer move and commits `imageInstances` once on mouseup; selected image overlays follow the same preview event while Paper bounds polling is paused during drag, reducing high-frequency React updates when many images are on the canvas.
@@ -52,12 +57,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 - Flow/Seedream: `Seedream` 节点新增豆包通道专属 `4.5/5.0` 模型切换；观猹通道固定 5.0 且隐藏模型下拉。后端 `seedream5` 链路支持读取 `modelVersion`/`model` 并在豆包通道映射到 `doubao-seedream-4-5-251128` 或 `doubao-seedream-5-0-260128`。
 - Flow/Canvas Eraser: Flow connection erasing is click-only again; drag-stroke edge deletion was removed to avoid Paper eraser trail residue.
+- Membership UI: the standard plan card no longer shows the crown icon or the leading `基础月卡积分：500` benefit line.
 
 ### Updated
+- Membership UI: quota refresh notice now warns that monthly plan quota clears on billing-day refresh, yearly plan quota clears at annual expiration, and separately purchased credits are unaffected.
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Admin/Auth: contest popup QR codes now refresh when the activity modal is reopened, when switching to the contest slide, and when the registration/community button is triggered, so newly uploaded admin QR settings do not require a full page reload.
+- Frontend Campaign Notice: top activity notice no longer auto-hides after the countdown reaches zero; the close button only hides the current page instance, so refresh shows the notice again.
+- Flow/Generate: Auto aspect ratio no longer becomes `1:1` in the new-api image provider; Auto with image inputs now follows the first reference image's nearest supported ratio, and explicit ratios pass through for the Fast Generate node instead of being silently cleared.
 - AI Chat/PDF Upload: PDF analysis now sends `application/pdf` payloads as new-api file content and uses PDF-capable text/document models instead of image-preview models; upstream analysis failures now surface as readable 503 errors instead of generic `Internal server error`.
+- Flow/Undo Redo: restoring a same-project history snapshot now preserves the current project view-ready state, so undo/redo no longer triggers the full-screen project loading overlay.
+- Flow/Prompt Mentions: image mention chips now prefer the referenced item name, hide generated numeric token suffixes in the visible badge, tighten chip spacing, and use fixed textarea/overlay line-height to avoid clipped suffix dots and reduce Windows font-metric misalignment.
 - Flow/Prompt Mentions: mention chips now reserve the same layout width as their underlying `@` token, keeping textarea caret hit-testing aligned with the visible text after a chip.
 - Flow/Prompt Mentions: after selecting an `@` image reference, continuing to type after the inserted token no longer reopens the image/source picker; the picker only opens for a newly typed unresolved `@`.
 - Flow/Zoom Performance: Prompt node titles now carry the shared `.tanva-flow-node-title` marker, so 80+ node pan/zoom soft-detail mode keeps the Prompt title visible while hiding only the visible connection-handle dots.

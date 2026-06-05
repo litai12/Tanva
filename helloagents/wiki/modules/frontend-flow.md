@@ -1,3 +1,8 @@
+## 2026-06-04 Generate Auto Aspect
+- Flow image generation nodes keep the Aspect selector's `Auto` value as an omitted `aspectRatio` during Run. Explicit aspect ratios are still passed through for all Generate tiers, including Fast (`banana-2.5`); Fast no longer silently clears a user-selected ratio.
+- When Auto is used with image inputs, Flow now detects the first input image's natural dimensions and sends the nearest supported aspect ratio, so reference-image generate/edit/blend runs follow the source image shape instead of relying on an upstream square default.
+- The backend new-api image provider no longer turns an omitted text-only aspect ratio into `1:1`, so Auto can be decided by the upstream model instead of being forced square.
+
 ## 2026-06-03 HTML PPT Node
 - Flow now has an `htmlPpt` node for multi-slide HTML/CSS presentations. The node stores a deck of slide fragments, supports preview/code modes, slide add/duplicate/delete/revert controls, and exports the whole deck as a standalone HTML file.
 - The node accepts upstream `text` input as edit context and can call the text model route from its Ultra button to rewrite only the currently selected slide.

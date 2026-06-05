@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { AdminService } from './admin.service';
+import { AdminService, CONTEST_REGISTRATION_QRCODE_SETTING_KEY } from './admin.service';
 
 @ApiTags('公开设置')
 @Controller('settings')
@@ -12,10 +12,18 @@ export class SettingsPublicController {
   async getWeChatQrCodes() {
     const officialAccountSetting = await this.adminService.getSetting('wechat_official_account_qrcode');
     const wechatGroupSetting = await this.adminService.getSetting('wechat_group_qrcode');
+    const loginNoticeButtonSetting = await this.adminService.getSetting('login_notice_button_qrcode');
+    const contestRegistrationSetting = await this.adminService.getSetting(CONTEST_REGISTRATION_QRCODE_SETTING_KEY);
+    const contestRegistration = contestRegistrationSetting?.value || null;
 
     return {
       officialAccount: officialAccountSetting?.value || null,
       wechatGroup: wechatGroupSetting?.value || null,
+      loginNoticeButton: loginNoticeButtonSetting?.value || null,
+      contestRegistration,
+      contestRegistrationQrUrl: contestRegistration,
+      contestRegistrationQrCode: contestRegistration,
+      contest_registration_qrcode: contestRegistration,
     };
   }
 

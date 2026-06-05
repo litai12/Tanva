@@ -133,6 +133,11 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "templates",
 ]);
 
+const CREDITS_PER_YUAN = 100;
+const SEEDANCE20_DISCOUNT_RATE = 0.35;
+const applySeedance20Discount = (unitPriceYuan: number): number =>
+  Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+
 const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
 
 const canAccessAdminPanel = (role?: string | null) => {
@@ -538,7 +543,7 @@ const resolvePricingV2DefaultBundle = (
     const priceYuan = normalizeFiniteNumber(evaluator.priceYuan);
     const credits =
       normalizeFiniteNumber(evaluator.credits) ??
-      (priceYuan !== undefined ? Math.ceil(priceYuan * 100) : undefined);
+      (priceYuan !== undefined ? Math.ceil(priceYuan * CREDITS_PER_YUAN) : undefined);
     if (priceYuan === undefined && credits === undefined) return undefined;
     return {
       ...(credits !== undefined ? { credits } : {}),
@@ -552,7 +557,7 @@ const resolvePricingV2DefaultBundle = (
     const unitPriceYuan = normalizeFiniteNumber(evaluator.unitPriceYuan);
     if (!unitField || unitValue === undefined || unitPriceYuan === undefined) return undefined;
     const priceYuan = Number((unitValue * unitPriceYuan).toFixed(3));
-    return { priceYuan, credits: Math.ceil(priceYuan * 100) };
+    return { priceYuan, credits: Math.ceil(priceYuan * CREDITS_PER_YUAN) };
   }
 
   return undefined;
@@ -2032,27 +2037,27 @@ const createSeedance20PricingTemplate = () => ({
     seedance20_fast_480p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 0.806,
+      unitPriceYuan: applySeedance20Discount(0.806),
     },
     seedance20_fast_720p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 0.966,
+      unitPriceYuan: applySeedance20Discount(0.966),
     },
     seedance20_480p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 1.0,
+      unitPriceYuan: applySeedance20Discount(1.0),
     },
     seedance20_720p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 1.2,
+      unitPriceYuan: applySeedance20Discount(1.2),
     },
     seedance20_1080p_eval: {
       type: "linear" as const,
       unitField: "duration",
-      unitPriceYuan: 3.0,
+      unitPriceYuan: applySeedance20Discount(3.0),
     },
   },
   displayConfig: {
@@ -8741,6 +8746,7 @@ type LoginNoticeSettingForm = {
   primaryButtonUrl: string;
   secondaryButtonText: string;
   secondaryButtonUrl: string;
+  secondaryButtonQrUrl: string;
 };
 
 const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSettingForm => {
@@ -8756,6 +8762,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
       primaryButtonUrl: "",
       secondaryButtonText: "",
       secondaryButtonUrl: "",
+      secondaryButtonQrUrl: "",
     };
   }
 
@@ -8784,6 +8791,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
         secondaryButtonText:
           typeof parsed.secondaryButtonText === "string" ? parsed.secondaryButtonText : "",
         secondaryButtonUrl: sanitizeLoginNoticeSettingUrl(parsed.secondaryButtonUrl),
+        secondaryButtonQrUrl: sanitizeLoginNoticeSettingUrl(parsed.secondaryButtonQrUrl),
       };
     }
   } catch {
@@ -8798,6 +8806,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
       primaryButtonUrl: "",
       secondaryButtonText: "",
       secondaryButtonUrl: "",
+      secondaryButtonQrUrl: "",
     };
   }
 
@@ -8812,6 +8821,7 @@ const parseLoginNoticeSetting = (setting?: SystemSetting | null): LoginNoticeSet
     primaryButtonUrl: "",
     secondaryButtonText: "",
     secondaryButtonUrl: "",
+    secondaryButtonQrUrl: "",
   };
 };
 
@@ -8837,10 +8847,12 @@ function LoginNoticeSettingsTab() {
   const [primaryButtonUrl, setPrimaryButtonUrl] = useState("");
   const [secondaryButtonText, setSecondaryButtonText] = useState("");
   const [secondaryButtonUrl, setSecondaryButtonUrl] = useState("");
+  const [secondaryButtonQrUrl, setSecondaryButtonQrUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [uploadingSecondaryQr, setUploadingSecondaryQr] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const plainContent = loginNoticeHtmlToText(contentHtml);
@@ -8860,6 +8872,7 @@ function LoginNoticeSettingsTab() {
       setPrimaryButtonUrl(parsed.primaryButtonUrl);
       setSecondaryButtonText(parsed.secondaryButtonText);
       setSecondaryButtonUrl(parsed.secondaryButtonUrl);
+      setSecondaryButtonQrUrl(parsed.secondaryButtonQrUrl);
       setLastUpdatedAt(setting.updatedAt);
     } catch {
       setEnabled(false);
@@ -8871,6 +8884,7 @@ function LoginNoticeSettingsTab() {
       setPrimaryButtonUrl("");
       setSecondaryButtonText("");
       setSecondaryButtonUrl("");
+      setSecondaryButtonQrUrl("");
       setLastUpdatedAt(null);
     } finally {
       setLoading(false);
@@ -8881,11 +8895,11 @@ function LoginNoticeSettingsTab() {
     void loadNotice();
   }, [loadNotice]);
 
-  const handleNoticeMediaUpload = async (file: File, target: "media" | "poster") => {
+  const handleNoticeMediaUpload = async (file: File, target: "media" | "poster" | "secondaryQr") => {
     const isVideoFile = file.type.startsWith("video/");
     const isImageFile = file.type.startsWith("image/");
-    if (target === "poster" && !isImageFile) {
-      setStatusText("封面图只能上传图片文件");
+    if ((target === "poster" || target === "secondaryQr") && !isImageFile) {
+      setStatusText(target === "secondaryQr" ? "按钮二维码只能上传图片文件" : "封面图只能上传图片文件");
       return;
     }
     if (target === "media" && !isVideoFile && !isImageFile) {
@@ -8893,13 +8907,18 @@ function LoginNoticeSettingsTab() {
       return;
     }
 
-    const setUploading = target === "media" ? setUploadingMedia : setUploadingPoster;
+    const setUploading =
+      target === "media"
+        ? setUploadingMedia
+        : target === "poster"
+          ? setUploadingPoster
+          : setUploadingSecondaryQr;
     setUploading(true);
     setStatusText("");
     try {
       const { uploadToOSS } = await import("@/services/ossUploadService");
       const result = await uploadToOSS(file, {
-        dir: "settings/login-notices/",
+        dir: target === "secondaryQr" ? "settings/login-notices/qrcodes/" : "settings/login-notices/",
         fileName: file.name,
       });
       if (!result.success || !result.url) {
@@ -8908,8 +8927,10 @@ function LoginNoticeSettingsTab() {
       if (target === "media") {
         setMediaType(isVideoFile ? "video" : "image");
         setMediaUrl(result.url);
-      } else {
+      } else if (target === "poster") {
         setPosterUrl(result.url);
+      } else {
+        setSecondaryButtonQrUrl(result.url);
       }
       setStatusText("上传成功");
     } catch (error) {
@@ -8924,6 +8945,7 @@ function LoginNoticeSettingsTab() {
     const normalizedContent = loginNoticeHtmlToText(sanitizedContentHtml);
     const normalizedMediaUrl = sanitizeLoginNoticeSettingUrl(mediaUrl);
     const normalizedPosterUrl = sanitizeLoginNoticeSettingUrl(posterUrl);
+    const normalizedSecondaryButtonQrUrl = sanitizeLoginNoticeSettingUrl(secondaryButtonQrUrl);
     if (enabled && normalizedContent.length === 0) {
       setStatusText("开启提醒时，提醒内容不能为空");
       return;
@@ -8950,6 +8972,7 @@ function LoginNoticeSettingsTab() {
             primaryButtonUrl: sanitizeLoginNoticeSettingUrl(primaryButtonUrl),
             secondaryButtonText: secondaryButtonText.trim(),
             secondaryButtonUrl: sanitizeLoginNoticeSettingUrl(secondaryButtonUrl),
+            secondaryButtonQrUrl: normalizedSecondaryButtonQrUrl,
           },
           null,
           2
@@ -9227,8 +9250,12 @@ function SettingsTab() {
   // 微信二维码状态
   const [officialQrCode, setOfficialQrCode] = useState<string>("");
   const [groupQrCode, setGroupQrCode] = useState<string>("");
+  const [noticeButtonQrCode, setNoticeButtonQrCode] = useState<string>("");
+  const [contestRegistrationQrCode, setContestRegistrationQrCode] = useState<string>("");
   const [uploadingOfficial, setUploadingOfficial] = useState(false);
   const [uploadingGroup, setUploadingGroup] = useState(false);
+  const [uploadingNoticeButton, setUploadingNoticeButton] = useState(false);
+  const [uploadingContestRegistration, setUploadingContestRegistration] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -9262,6 +9289,14 @@ function SettingsTab() {
       if (groupSetting) {
         setGroupQrCode(groupSetting.value);
       }
+      const noticeButtonSetting = result.find((s) => s.key === "login_notice_button_qrcode");
+      if (noticeButtonSetting) {
+        setNoticeButtonQrCode(noticeButtonSetting.value);
+      }
+      const contestRegistrationSetting = result.find((s) => s.key === "contest_registration_qrcode");
+      if (contestRegistrationSetting) {
+        setContestRegistrationQrCode(contestRegistrationSetting.value);
+      }
     } catch (error) {
       console.error("加载设置失败:", error);
     } finally {
@@ -9276,11 +9311,32 @@ function SettingsTab() {
   // 上传二维码图片
   const handleQrCodeUpload = async (
     file: File,
-    type: 'official' | 'group'
+    type: 'official' | 'group' | 'noticeButton' | 'contestRegistration'
   ) => {
-    const setUploading = type === 'official' ? setUploadingOfficial : setUploadingGroup;
-    const settingKey = type === 'official' ? 'wechat_official_account_qrcode' : 'wechat_group_qrcode';
-    const description = type === 'official' ? '微信公众号二维码' : '微信交流群二维码';
+    const setUploading =
+      type === 'official'
+        ? setUploadingOfficial
+        : type === 'group'
+          ? setUploadingGroup
+          : type === 'noticeButton'
+            ? setUploadingNoticeButton
+            : setUploadingContestRegistration;
+    const settingKey =
+      type === 'official'
+        ? 'wechat_official_account_qrcode'
+        : type === 'group'
+          ? 'wechat_group_qrcode'
+          : type === 'noticeButton'
+            ? 'login_notice_button_qrcode'
+            : 'contest_registration_qrcode';
+    const description =
+      type === 'official'
+        ? '微信公众号二维码'
+        : type === 'group'
+          ? '微信交流群二维码'
+          : type === 'noticeButton'
+            ? '进入公告的按钮二维码'
+            : '赛事报名二维码';
 
     setUploading(true);
     try {
@@ -9305,8 +9361,12 @@ function SettingsTab() {
       // 更新本地状态
       if (type === 'official') {
         setOfficialQrCode(result.url);
-      } else {
+      } else if (type === 'group') {
         setGroupQrCode(result.url);
+      } else if (type === 'noticeButton') {
+        setNoticeButtonQrCode(result.url);
+      } else {
+        setContestRegistrationQrCode(result.url);
       }
 
       alert('上传成功');
@@ -9500,7 +9560,7 @@ function SettingsTab() {
         <p className='text-sm text-gray-500 mb-4'>
           设置欢迎页面右下角悬浮按钮显示的微信二维码，用于用户咨询和加入交流群。
         </p>
-        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+        <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6'>
           {/* 公众号二维码 */}
           <div className='border rounded-lg p-4'>
             <div className='text-sm font-medium mb-3'>公众号二维码</div>
@@ -9564,6 +9624,80 @@ function SettingsTab() {
                     : 'bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
                 }`}>
                   {uploadingGroup ? '上传中...' : groupQrCode ? '更换图片' : '上传图片'}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* 进入公告的按钮二维码 */}
+          <div className='border rounded-lg p-4'>
+            <div className='text-sm font-medium mb-1'>进入公告的按钮二维码</div>
+            <div className='mb-3 text-xs text-gray-400'>
+              用于公告弹窗左侧「加入社群 获取积分赠礼」按钮触碰或点击时显示。
+            </div>
+            <div className='flex flex-col items-center'>
+              <div className='w-32 h-32 bg-gray-100 rounded-lg mb-3 flex items-center justify-center overflow-hidden'>
+                {noticeButtonQrCode ? (
+                  <img src={noticeButtonQrCode} alt='进入公告的按钮二维码' className='w-full h-full object-contain' />
+                ) : (
+                  <span className='text-gray-400 text-xs'>暂无图片</span>
+                )}
+              </div>
+              <label className='cursor-pointer'>
+                <input
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleQrCodeUpload(file, 'noticeButton');
+                    e.target.value = '';
+                  }}
+                  disabled={uploadingNoticeButton}
+                />
+                <span className={`px-4 py-2 text-sm rounded-lg border transition ${
+                  uploadingNoticeButton
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
+                }`}>
+                  {uploadingNoticeButton ? '上传中...' : noticeButtonQrCode ? '更换图片' : '上传图片'}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* 赛事报名二维码 */}
+          <div className='border rounded-lg p-4'>
+            <div className='text-sm font-medium mb-1'>赛事报名二维码</div>
+            <div className='mb-3 text-xs text-gray-400'>
+              用于公开赛弹窗「赛事报名 | 加入赛事交流群」按钮触碰或点击时，与赛事交流群二维码一起显示。
+            </div>
+            <div className='flex flex-col items-center'>
+              <div className='w-32 h-32 bg-gray-100 rounded-lg mb-3 flex items-center justify-center overflow-hidden'>
+                {contestRegistrationQrCode ? (
+                  <img src={contestRegistrationQrCode} alt='赛事报名二维码' className='w-full h-full object-contain' />
+                ) : (
+                  <span className='text-gray-400 text-xs'>暂无图片</span>
+                )}
+              </div>
+              <label className='cursor-pointer'>
+                <input
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleQrCodeUpload(file, 'contestRegistration');
+                    e.target.value = '';
+                  }}
+                  disabled={uploadingContestRegistration}
+                />
+                <span className={`px-4 py-2 text-sm rounded-lg border transition ${
+                  uploadingContestRegistration
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 cursor-pointer'
+                }`}>
+                  {uploadingContestRegistration ? '上传中...' : contestRegistrationQrCode ? '更换图片' : '上传图片'}
                 </span>
               </label>
             </div>
@@ -10033,7 +10167,7 @@ function VipManagementTab() {
       const imageDailyLimit = DEFAULT_FREE_TIER_BENEFITS.imageDailyLimit;
       const videoDailyLimit = DEFAULT_FREE_TIER_BENEFITS.videoDailyLimit;
       if (!Number.isFinite(monthlyQuotaCredits) || monthlyQuotaCredits < 0) {
-        throw new Error("免费用户月额度必须是大于等于 0 的数字");
+        throw new Error("免费用户一次性额度必须是大于等于 0 的数字");
       }
       if (!Number.isFinite(dailyRewardCredits) || dailyRewardCredits < 0) {
         throw new Error("免费签到积分必须是大于等于 0 的数字");
@@ -10143,7 +10277,7 @@ function VipManagementTab() {
             <div>
               <h3 className='text-lg font-semibold'>会员积分策略</h3>
               <p className='mt-1 text-sm text-gray-500'>
-              这里配置赠送积分衰减、固定积分时效和刷新周期。免费用户月额度、签到积分、连签倍率已收口到“免费用户”套餐内配置。
+              这里配置赠送积分衰减、固定积分时效和刷新周期。免费用户一次性额度、签到积分、连签倍率已收口到“免费用户”套餐内配置。
               </p>
             </div>
             <Button onClick={handleSavePolicy} disabled={savingPolicy}>
@@ -10656,7 +10790,7 @@ function VipManagementTab() {
             <div className='space-y-4'>
               <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
                 <div>
-                  <div className='mb-1 text-sm text-gray-600'>免费用户月额度积分</div>
+                  <div className='mb-1 text-sm text-gray-600'>免费用户一次性额度积分</div>
                   <Input
                     type='number'
                     min='0'

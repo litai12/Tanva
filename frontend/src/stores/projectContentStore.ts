@@ -5,6 +5,10 @@ type UpdateOptions = {
   markDirty?: boolean;
 };
 
+type HydrateOptions = {
+  preserveProjectViewReady?: boolean;
+};
+
 const sameCanvasSnapshot = (
   prev: ProjectContentSnapshot['canvas'] | null | undefined,
   next: ProjectContentSnapshot['canvas'] | null | undefined
@@ -52,7 +56,7 @@ type ProjectContentState = {
   cacheValidationPending: boolean;
   projectViewReady: boolean;
   setProject: (projectId: string | null) => void;
-  hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null) => void;
+  hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null, options?: HydrateOptions) => void;
   updatePartial: (partial: Partial<ProjectContentSnapshot>, options?: UpdateOptions) => void;
   setSaving: (saving: boolean) => void;
   setManualSaving: (saving: boolean) => void;
@@ -90,7 +94,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       projectId,
     }));
   },
-  hydrate: (content, version, savedAt) => {
+  hydrate: (content, version, savedAt, options) => {
     set((state) => ({
       ...state,
       content,
@@ -104,7 +108,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       lastError: null,
       lastWarning: null,
       hydrated: true,
-      projectViewReady: false,
+      projectViewReady: options?.preserveProjectViewReady ? state.projectViewReady : false,
     }));
   },
   updatePartial: (partial, options) => {

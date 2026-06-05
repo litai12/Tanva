@@ -70,6 +70,7 @@
   - `model_provider_mapping_v2.models[].vendors[].pricing.rules[]`：规格组合价
   - 命中模型管理价格时，后端会把 `pricingSnapshot` 写入 `ApiUsageRecord.requestParams`，用于审计规则来源、命中 ruleKey 和最终价格快照。
 - `POST /api/ai/generate-video-provider` 现在会在解析出模型管理线路后，将该线路 `pricing.displayConfig.defaultSelections` 用作缺失规格的计费默认值；例如对话框 Seedance 2.0 未显式选择分辨率/时长时，按模型管理默认 `720P / 5s` 参与规格定价，避免回退到静态 `doubao-video` 价格。
+- Seedance 2.0 (`seedance-2.0`) 规格定价按 3.5 折后的 `unitPriceYuan` 扣费，并继续按 `100 积分 = 1 元` 折算：Fast 480P `0.2821` 元/秒、Fast 720P `0.3381` 元/秒、标准 480P `0.35` 元/秒、标准 720P `0.42` 元/秒、标准 1080P `1.05` 元/秒；默认 `720P / 5s` 为 `210` 积分。
 - 新增只读接口 `GET /api/credits/pricing/models`：
   - 面向画布右上角“定价一览”弹层。
   - 支持通过 `modelKey` 查询单模型，未传时返回全部模型。
@@ -129,12 +130,12 @@
   - 新增 `MembershipSchedulerService`，按小时扫描已过期订阅。
   - `MembershipService.expireElapsedMemberships()` 会把到期订阅标记为 `expired`，将关联的 `membership_bound` lot 归零并写入 `membership_expire` 流水，同时把权益快照回落到 `free/inactive`。
 - 会员 P1 权益调度：
-  - `CreditsService.issueFreeUserMonthlyQuotaCredits()` 会按 `membershipRefreshCycleDays` 为非会员用户发放 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_monthly_quota` 流水；按用户注册时间锚定周期、按周期幂等。
-  - 免费用户月度额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；发放新周期前会先清理旧周期额度，定时清理任务也会兜底扫描过期额度。
+  - `CreditsService.issueFreeUserStarterQuotaCredits()` 会为没有活跃会员的用户补发一次性免费额度 `freeUserMonthlyQuotaCredits`，lot 类型为 `sourceType=subscription` + `validityType=fixed_window`，并记录 `free_starter_quota` 流水；历史 `free_monthly_quota` 流水也会被视为已领取，避免从月度规则切换后重复发 500。
+  - 免费用户一次性额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；不会再按 30 天周期续发，定时清理任务仅兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
   - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水；衰减值改为读取 `SystemSetting[membership_credit_policy].dailyGiftDecayCredits`。
   - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按配置窗口计算的月度额度，并记录 `membership_refresh` 流水；窗口天数来自 `membershipRefreshCycleDays`。
-- `MembershipSchedulerService` 新增每日 2 点免费用户月度额度发放任务、每日 2 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务；原每日 5 点会员自动赠送任务已停用。签到业务日切点单独按 `3AM` 计算，形成“先衰减、再开放新一天签到”的顺序。
+- `MembershipSchedulerService` 新增每日 2 点免费用户一次性额度补发任务、每日 2 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务；原每日 5 点会员自动赠送任务已停用。签到业务日切点单独按 `3AM` 计算，形成“先衰减、再开放新一天签到”的顺序。
 - 会员读接口：
   - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。
   - 新增 `GET /api/membership/entitlement`：返回当前权益快照；无快照时回退为 `free/inactive`。
@@ -143,7 +144,7 @@
   - 新增 `GET /api/admin/membership-credit-policy` 与 `POST /api/admin/membership-credit-policy`。
   - 新增 `GET /api/admin/membership-plans`、`POST /api/admin/membership-plans`、`PATCH /api/admin/membership-plans/:id`，用于后台会员套餐管理。
   - `PaymentService.processPaymentSuccess` 和 `CreditsService.adminAddCredits` 现在会读取 `fixedCreditExpireDays`，将充值/手工补发 lot 生成为 `fixed_window` 或 `permanent`。
-  - `CreditsService.issueFreeUserMonthlyQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`。
+  - `CreditsService.issueFreeUserStarterQuotaCredits` 会读取 `freeUserMonthlyQuotaCredits` 与 `membershipRefreshCycleDays`，其中刷新周期仅作为一次性额度有效期窗口使用，不再触发月度续发。
 - `CreditsService.claimDailyReward` 现在会读取 `dailyRewardCredits`（免费）或当前会员套餐 `dailyGiftCredits`（活跃 VIP，且不叠加免费签到额度，含 `vip_69`），新签到积分统一写入 `sourceType=gift` + `validityType=permanent` 的 lot；普通用户会参与 `gift_decay`，活跃会员期间因 `pauseGiftDecay=true` 不衰减；第 7 天按倍率发放。
 - `ReferralService.getCheckInStatus/checkIn` 现仅作为前端推广页签到入口的兼容壳层，底层状态与发奖统一复用 `CreditsService.canClaimDailyReward/claimDailyReward`；自动签到与手动签到不再各自维护独立逻辑，避免同一天重复发放。
 - `CreditsService.adminAddCredits` 的正向加积分现已改为进入 `gift` 池，与定价策略“后台管理员操作积分视为赠送积分”一致。

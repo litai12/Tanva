@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CAMPAIGN_NOTICE_DEADLINE_MS } from "@/components/layout/campaignNoticeConfig";
+import { openCampaignNoticeDetail } from "@/utils/campaignNoticeDetail";
 
 type CountdownState = {
   totalMs: number;
@@ -14,7 +15,6 @@ type CountdownState = {
 type CampaignNoticeBarProps = {
   className?: string;
   onClose: () => void;
-  onExpire?: () => void;
 };
 
 const getCountdownState = (): CountdownState => {
@@ -57,7 +57,6 @@ const DigitGroup = ({ value, label }: { value: string; label?: string }) => (
 export default function CampaignNoticeBar({
   className,
   onClose,
-  onExpire,
 }: CampaignNoticeBarProps) {
   const [countdown, setCountdown] = useState<CountdownState>(() =>
     getCountdownState()
@@ -69,20 +68,20 @@ export default function CampaignNoticeBar({
       setCountdown(next);
       if (next.totalMs <= 0) {
         window.clearInterval(timer);
-        onExpire?.();
       }
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [onExpire]);
+  }, []);
 
   const ariaLabel = useMemo(() => {
-    return `距离活动结束还有 ${countdown.days} 天 ${countdown.hours} 小时 ${countdown.minutes} 分 ${countdown.seconds} 秒`;
-  }, [countdown.days, countdown.hours, countdown.minutes, countdown.seconds]);
-
-  if (countdown.totalMs <= 0) {
-    return null;
-  }
+    return `距活动结束还有 ${countdown.days} 天 ${countdown.hours} 小时 ${countdown.minutes} 分 ${countdown.seconds} 秒`;
+  }, [
+    countdown.days,
+    countdown.hours,
+    countdown.minutes,
+    countdown.seconds,
+  ]);
 
   return (
     <div
@@ -116,8 +115,15 @@ export default function CampaignNoticeBar({
           限时3.5折！
         </span>
         <span className="hidden text-sm font-bold text-slate-950 lg:inline">
-          单条最低约合人民币0.35元！
+          每秒最低约合人民币0.35元！
         </span>
+        <button
+          type="button"
+          onClick={openCampaignNoticeDetail}
+          className="ml-1 inline-flex h-6 shrink-0 items-center justify-center rounded-full bg-[#2563eb] px-4 text-xs font-bold leading-none text-white shadow-[0_6px_14px_rgba(37,99,235,0.24)] transition hover:bg-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-[#2563eb]/35 focus:ring-offset-1"
+        >
+          了解详情
+        </button>
       </div>
 
       <button

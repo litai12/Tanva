@@ -30,7 +30,7 @@ export class CreditsSchedulerService {
       const freeQuotaResult = await this.creditsService.cleanupExpiredFreeUserMonthlyQuotaCredits();
       if (freeQuotaResult.expiredLots > 0 || freeQuotaResult.expiredCredits > 0) {
         this.logger.log(
-          `免费用户月度额度过期清理完成: accounts=${freeQuotaResult.processedAccounts}, lots=${freeQuotaResult.expiredLots}, credits=${freeQuotaResult.expiredCredits}`,
+          `免费用户一次性额度过期清理完成: accounts=${freeQuotaResult.processedAccounts}, lots=${freeQuotaResult.expiredLots}, credits=${freeQuotaResult.expiredCredits}`,
         );
       }
     } catch (error) {

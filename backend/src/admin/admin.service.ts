@@ -60,6 +60,8 @@ export interface ApiUsageStats {
 export type CreditChangeSource = 'recharge' | 'admin_add' | 'admin_deduct';
 
 export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
+export const LOGIN_NOTICE_BUTTON_QRCODE_SETTING_KEY = 'login_notice_button_qrcode';
+export const CONTEST_REGISTRATION_QRCODE_SETTING_KEY = 'contest_registration_qrcode';
 
 export interface LoginNoticeView {
   enabled: boolean;
@@ -72,6 +74,7 @@ export interface LoginNoticeView {
   primaryButtonUrl: string;
   secondaryButtonText: string;
   secondaryButtonUrl: string;
+  secondaryButtonQrUrl: string;
   updatedAt: string | null;
 }
 
@@ -174,6 +177,7 @@ export class AdminService {
     primaryButtonUrl: string;
     secondaryButtonText: string;
     secondaryButtonUrl: string;
+    secondaryButtonQrUrl: string;
   } {
     if (!value) {
       return {
@@ -187,6 +191,7 @@ export class AdminService {
         primaryButtonUrl: '',
         secondaryButtonText: '',
         secondaryButtonUrl: '',
+        secondaryButtonQrUrl: '',
       };
     }
 
@@ -214,6 +219,7 @@ export class AdminService {
           primaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.primaryButtonUrl),
           secondaryButtonText: typeof objectValue.secondaryButtonText === 'string' ? objectValue.secondaryButtonText : '',
           secondaryButtonUrl: this.sanitizeLoginNoticeUrl(objectValue.secondaryButtonUrl),
+          secondaryButtonQrUrl: this.sanitizeLoginNoticeUrl(objectValue.secondaryButtonQrUrl),
         };
       }
     } catch {
@@ -231,6 +237,7 @@ export class AdminService {
       primaryButtonUrl: '',
       secondaryButtonText: '',
       secondaryButtonUrl: '',
+      secondaryButtonQrUrl: '',
     };
   }
 
@@ -1113,6 +1120,7 @@ export class AdminService {
 
   async getLoginNotice(): Promise<LoginNoticeView> {
     const setting = await this.getSetting(LOGIN_NOTICE_SETTING_KEY);
+    const buttonQrSetting = await this.getSetting(LOGIN_NOTICE_BUTTON_QRCODE_SETTING_KEY);
     const parsed = this.parseLoginNoticeValue(setting?.value);
     const content = parsed.content.trim();
 
@@ -1127,6 +1135,7 @@ export class AdminService {
       primaryButtonUrl: parsed.primaryButtonUrl,
       secondaryButtonText: parsed.secondaryButtonText,
       secondaryButtonUrl: parsed.secondaryButtonUrl,
+      secondaryButtonQrUrl: this.sanitizeLoginNoticeUrl(buttonQrSetting?.value) || parsed.secondaryButtonQrUrl,
       updatedAt: setting?.updatedAt ? setting.updatedAt.toISOString() : null,
     };
   }

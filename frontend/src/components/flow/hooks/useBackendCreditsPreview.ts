@@ -36,6 +36,7 @@ export const useBackendCreditsPreview = ({
 
     const controller = new AbortController();
     let cancelled = false;
+    setCredits(undefined);
 
     const timer = setTimeout(async () => {
       try {

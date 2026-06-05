@@ -6,6 +6,7 @@ export type SiblingImage = {
   url: string;
   isVideo: boolean;
   nodeId: string;
+  title?: string;
 };
 
 function parseHandleIndex(sourceHandle: string | null | undefined): number {
@@ -73,6 +74,23 @@ function resolveActiveImageUrl(
     normalizeVal(d.inputImageUrl);
 
   return url ? { url, isVideo: false } : null;
+}
+
+function resolveNodeTitle(node: FlowNode): string | undefined {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  const candidates = [
+    data.title,
+    data.name,
+    data.label,
+    data.fileName,
+    data.imageName,
+  ];
+  for (const value of candidates) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
 }
 
 const EMPTY: SiblingImage[] = [];
@@ -148,6 +166,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
             url: resolved.url,
             isVideo: resolved.isVideo,
             nodeId: edge.source,
+            title: resolveNodeTitle(sourceNode),
           });
         }
 

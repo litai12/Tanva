@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, CheckCircle, Clock, Crown, FileText, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { ArrowLeft, Check, CheckCircle, Clock, FileText, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -40,7 +40,6 @@ function sortPlansByTier(a: PaymentMembershipPlan, b: PaymentMembershipPlan): nu
 }
 
 const FREE_FEATURES: string[] = [
-  "基础月卡积分：500",
   "每日签到：50 积分",
   "Seedance 2 权益：不支持",
   "快乐马权益：充值后可用",
@@ -602,10 +601,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               ))}
             </div>
 
-            <p className={cn("mt-3 text-xs leading-relaxed", isWhite ? "text-slate-500" : "text-zinc-500")}>
-              {hasYearlyPlans
-                ? "月卡积分按 30 天周期刷新；续费状态下到期日刷新为当前档位满额，未续费则刷新为 0。年付档位同样按月刷新额度，但按年结算。"
-                : "月卡积分按 30 天周期刷新；续费状态下到期日刷新为当前档位满额，未续费则刷新为 0。"}
+            <p className={cn("mt-3 text-xs font-medium leading-relaxed", isWhite ? "text-amber-700" : "text-amber-300")}>
+              请注意：月度套餐额度将在每个计费日刷新，未使用额度将清零；年付套餐额度按月发放，年度到期日统一清零。单独购买的额度不受套餐周期影响，可长期使用。
             </p>
           </section>
 
@@ -648,8 +645,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                           (isWhite ? "hover:border-[#8E86F5]/80" : "hover:border-[#8E86F5]/80"),
                       )}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <Crown className="h-5 w-5 shrink-0 text-[#E8C547]" strokeWidth={1.75} aria-hidden />
+                      <div className="flex items-center">
                         <div
                           className={cn(
                             "text-xl font-semibold tracking-tight xl:text-lg 2xl:text-xl",
