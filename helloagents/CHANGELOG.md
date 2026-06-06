@@ -24,8 +24,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/HTML PPT: Bold 34 gallery tiles now render the real upstream HTML template pages selected by the source README gallery; applying a template replaces the current deck with the converted 1920x1080 starter slides instead of only swapping theme CSS.
 - Flow/HTML PPT: Bold 34 templates now carry the shared `author:zarazhangrui` tag and show the author chip in the template gallery.
 - Flow/HTML PPT: AI responses that return complete HTML documents can now be converted into internal `HtmlPptDeck`/slide fragments by extracting safe slide bodies and style blocks, while stripping active document/runtime elements before the existing safety validation.
-- Flow/Prompt Mentions: Prompt nodes can now use `@` to reference images from the current workflow, current project library, and personal 2D asset library. Selected references are stored as structured `mentions` and merged into Generate/Generate4/GeneratePro/GeneratePro4 runtime reference images without persisting inline image data.
+- Flow/Prompt Mentions: Prompt nodes can now use `@` to reference images from the current project library and personal 2D asset library. Selected references are stored as structured `mentions` and merged into Generate/Generate4/GeneratePro/GeneratePro4 runtime reference images without persisting inline image data.
+- Flow/Prompt Mentions: Prompt nodes no longer read image inputs back from downstream nodes into a persistent available-workflow image strip, keeping explicit `@` references visually separate from connected node inputs.
 - Flow/Prompt Mentions: selected `@` image references now render as inline image chips inside Prompt nodes, and Backspace/Delete removes the whole reference token atomically while syncing `data.mentions`.
+- Flow/Video: video Run paths now consume connected Prompt image mentions as virtual reference images. Physical image edges remain first priority; Prompt `@` images fill empty frame slots or append to reference lists and add an explicit token mapping to the submitted prompt.
+- Backend/Seedance 2.0: `reference_images` requests now fall back from new-api `/v1/videos` to the managed Ark `content`/role path if the compatibility layer reports first/last-frame media mixed with reference media, keeping all full-reference images as `reference_image`.
 - Workspace Settings: added an AI image input target preference (`canvas`/`node`). In node-first mode, external image paste, drag/drop, and picker uploads create Flow Image nodes via `flow:createImageNode`; canvas-first keeps the previous direct canvas insertion behavior.
 - App/Project Load: added a minimal full-screen project loading overlay that stays visible until Flow confirms first paint plus a short idle/stabilization window after hydrate, avoiding a blank/frozen-looking workspace during dense graph first render and immediate post-paint settling.
 - Admin/Auth: added configurable login notice popup support. Full admins can edit `login_notice` in `/admin` system settings, users fetch `GET /api/settings/login-notice` after login, and the popup requires manual dismissal once per login.
@@ -41,6 +44,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Admin/Auth: default login activity notice now hides the Seedance activity slide and shows only the 2026 Tanvas AI contest popup with registration/community QR and contest-detail actions.
+- Flow/Prompt Mentions: inline `@` image references now use a non-layout background highlight drawn on the existing inline token, keeping textarea overlay wrapping and multiple-token alignment unchanged.
 - Flow/HTML PPT: simplified Run by removing the automatic generated-visual pre-pass; connected upstream images are still prepared and sent to the final text-chat rewrite request for PPT layout.
 - Flow/HTML PPT: internal scrollable/editor regions no longer stop wheel propagation before the shared Flow canvas wheel handler, so wheel and Ctrl/trackpad zoom over the node are handled by the canvas path instead of leaking browser page zoom.
 - Admin/Auth: default login activity notice now uses a two-slide Seedance 2.0 / 2026 Tanvas AI contest carousel; the Seedance slide preserves its original layout, adds only the right-side floating arrow, auto-advances after the video ends, and the contest slide can return through the left arrow.
@@ -66,6 +71,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
+- Flow/Prompt Mentions: personal-library entries in the Prompt `@` picker now use the unified `个人库` naming instead of `资产库` / `个人资产库`.
 - Flow/Prompt Mentions: `@` image references now stay structured when the user continues typing directly after the token, including IME pinyin/composition and ASCII suffix text; Prompt nodes also show selected referenced resources as thumbnail chips below the input while available unselected workflow images remain insertable.
 - Flow/Prompt Mentions: inline Prompt mention rendering now uses blue text only instead of a filled blue token background, reducing textarea overlay line-height and wrapping mismatches in dense/long prompts.
 - Flow/Prompt Mentions: Prompt inputs now suspend the transparent mention overlay during IME composition, so typing Chinese/pinyin after an existing `@` image reference remains visible while the structured mention is preserved.

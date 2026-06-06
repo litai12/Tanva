@@ -18,7 +18,7 @@
 - 显示规则：顶部活动通知栏不持久化关闭状态，也不因倒计时到期自动隐藏；点叉只关闭当前页面实例，刷新后会重新显示。
 - 倒计时：当前活动截止时间为北京时间 `2026-06-06 00:00:00`；倒计时归零后横条仍保留数字块样式并显示 `00`。
 - 关闭行为：点击右侧关闭按钮只隐藏当前 React 页面实例，不写入 localStorage/sessionStorage；刷新页面后会重新显示。
-- 详情入口：通知栏内“了解详情”按钮会触发 `CAMPAIGN_NOTICE_DETAIL_EVENT`，由 `LoginNoticeModal` 重新打开默认 Seedance 活动弹窗；该入口不写入登录提醒关闭记录，用户关闭过登录弹窗后仍可再次查看。
+- 详情入口：通知栏内“了解详情”按钮会触发 `CAMPAIGN_NOTICE_DETAIL_EVENT`，由 `LoginNoticeModal` 重新打开默认公开赛活动弹窗；该入口不写入登录提醒关闭记录，用户关闭过登录弹窗后仍可再次查看。
 - 画布避让：`frontend/src/index.css` 中的 `.tanva-campaign-shell` 会在通知栏存在时调整工作区固定顶栏、工具栏和左右侧栏位置。
 
 ## AI 对话框图片模式可用性
@@ -51,8 +51,8 @@
 - 配置：管理后台 `/admin` → 系统设置 → 登录提醒，保存到系统设置 `login_notice`（JSON：`{ enabled, content, contentHtml, mediaType, mediaUrl, posterUrl, primaryButtonText, primaryButtonUrl, secondaryButtonText, secondaryButtonUrl }`）。后台编辑器支持受限富文本：字体、字号、颜色、背景色、加粗、斜体、下划线；保存时同时保留纯文本 `content` 兼容旧客户端。顶部媒体支持图片或静音循环视频，媒体和封面均通过 OSS 上传或远程 URL 配置。
 - 读取：用户进入受保护路由后前端调用公开接口 `GET /api/settings/login-notice`；开启且内容非空时展示弹窗，公开首页 `/` 不触发。前端渲染 `contentHtml` 前会通过白名单清洗，仅允许安全标签和样式；媒体 URL 会拒绝 `data:`/`blob:`/`javascript:`。
 - 按钮动作：次按钮 URL 填 `/__action__/wechat` 会关闭登录提醒并打开/固定工作区右上角微信二维码浮层；留空且按钮文案包含“社群/微信/WeChat”时也按微信动作处理。内部 URL 使用 React Router 跳转，目标路径与当前路径相同（如已在 `/app`）时只关闭弹窗，不刷新画布。
-- 默认内置活动：`seedance-2-default-2026-06-04` 走前端双页轮播。第一页为 Seedance 2.0 视频，并保留原有媒体比例、文案排版和底部按钮区样式，只额外新增右侧浮动箭头；视频播放结束自动滑到 2026 Tanvas AI 创作公开赛页。公开赛页只显示左箭头，并保留“赛事报名 | 加入赛事交流群”和“获取赛事详细信息”按钮；“获取赛事详细信息”会新开页面打开公众号文章 `https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g`，不替换当前画板页。
-- 公开赛二维码：管理后台微信咨询二维码设置新增 `contest_registration_qrcode`（赛事报名二维码）。公开赛页“赛事报名 | 加入赛事交流群”按钮触碰或点击时展示两个二维码：赛事报名二维码和 `login_notice_button_qrcode`（进入公告的按钮二维码）；弹窗重新打开、切到公开赛页、触发该按钮时都会重新读取公开二维码接口，避免后台刚上传后前端仍持有旧空状态。
+- 默认内置活动：`contest-default-2026-06-06` 只展示 2026 Tanvas AI 创作公开赛单页弹窗，暂不展示 Seedance 活动页、轮播箭头或视频自动切页；保留“赛事报名 | 加入赛事交流群”和“获取赛事详细信息”按钮。“获取赛事详细信息”会新开页面打开公众号文章 `https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g`，不替换当前画板页。
+- 公开赛二维码：管理后台微信咨询二维码设置新增 `contest_registration_qrcode`（赛事报名二维码）。公开赛页“赛事报名 | 加入赛事交流群”按钮触碰或点击时展示两个二维码：赛事报名二维码和 `login_notice_button_qrcode`（进入公告的按钮二维码，缺失时回退到微信群二维码或 `/qrcode-group.png`）；弹窗重新打开、触发该按钮时都会重新读取公开二维码接口，避免后台刚上传后前端仍持有旧空状态。
 - 关闭记录按 `userId + last_auth_at + notice.updatedAt` 写入本地存储；同一次登录关闭后不重复弹出，用户重新登录会再次弹出。
 
 ## 我的积分（`/my-credits`）

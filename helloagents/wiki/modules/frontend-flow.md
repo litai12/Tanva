@@ -1,8 +1,9 @@
 ## 2026-06-05 Prompt Mention Stability
 - Prompt `@` image mentions now treat the stored token as an anchored structured reference as long as the token text still exists, instead of requiring a trailing whitespace/token boundary. Continuing to type immediately after an inserted `@图...` token, including IME pinyin composition and ASCII suffix text, no longer removes the corresponding `data.mentions` entry or drops it from Generate runtime reference-image resolution.
-- `TextPromptNode` renders selected image mentions as blue inline text inside the prompt, avoiding filled token backgrounds that can drift from textarea wrapping. Selected image mentions also appear as thumbnail chips below the prompt input. The preview resolves thumbnails from current mention candidates first, then falls back to stored remote library URLs for project/personal assets; the existing available workflow image strip remains for unselected images. Both strips use `SmartImage` so runtime display can convert inline/base64/flow-asset values to object URLs without persisting them.
+- `TextPromptNode` renders selected image mentions as blue inline text with a non-layout background highlight drawn on the existing inline token, avoiding DOM or spacing changes that can drift from textarea wrapping. Selected image mentions also appear as thumbnail chips below the prompt input. The preview resolves thumbnails from current mention candidates first, then falls back to stored remote library URLs for project/personal assets; Prompt no longer reads downstream node image inputs back into a persistent available-workflow image strip.
 - During IME composition, `TextPromptNode` temporarily disables the transparent mention overlay and shows the real textarea text. This keeps pinyin/Chinese input visible after an existing `@` image reference, then restores the blue inline mention rendering when composition ends.
 - Project-library and personal-library `@` menu refreshes use a short list-request timeout and ref-backed in-flight guards. Existing candidate images remain selectable while a refresh is running, with only a small refreshing status shown; failed refresh attempts are throttled so the menu falls back to cached/local candidates or the empty state instead of repeatedly showing `加载中...`.
+- Flow video Run paths now read active Prompt image mentions as virtual image inputs. Existing image edges keep priority; Prompt `@` images fill empty first/last-frame slots or append to reference-image lists, and the request prompt includes an explicit token-to-reference-image mapping when those mentions are used.
 
 ## 2026-06-05 HTML PPT Wheel Handling
 - HTML PPT node internals no longer stop wheel propagation ahead of the shared Flow canvas wheel handler. The slide rail, style panel, code editor area, and prompt area now let canvas wheel zoom handling prevent browser page zoom while retaining the existing native-scroll rules for non-zoom wheel gestures.
@@ -29,7 +30,7 @@
 - The layout uses a wider default size, keeps `Run` in the top-right header, groups all presentation controls into one toolbar row, and keeps the slide rail as a fixed-height internal scroller with fixed thumbnail tiles and truncated titles so long decks do not stretch the node.
 
 ## 2026-06-03 Prompt Mention Image Sources
-- `TextPromptNode` 的 `@` 菜单现在支持三类图片来源：当前工作流参考图、当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片。
+- `TextPromptNode` 的 `@` 菜单支持当前项目库图片（按 `sourceProjectId` 读取 Global History）和个人库 2D 图片；新建 `@` 引用不再从 Prompt 下游节点反查当前工作流图片作为候选，避免与已选 `@` 图片混在一起。
 - Prompt 节点会把选择结果保存到结构化 `data.mentions`，文本里仍插入可读 token（如 `@图1` / `@项目图1` / `@资产1`）。已选引用在输入区渲染为带图片图标的 chip；Backspace/Delete 命中 chip 时按整个 token 删除，并同步清理对应 mention，避免隐藏引用残留。
 - `FlowOverlay` 在运行 `generate` / `generate4` / `generatePro` / `generatePro4` 时，会从连接的 Prompt 节点读取仍存在于文本中的 image mentions，并与图片输入边合并、去重、按模型参考图上限截断；项目库/个人库只保存并传递远程 URL/路径引用，不把 inline 图片写入设计 JSON。
 

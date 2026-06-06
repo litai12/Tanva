@@ -272,6 +272,12 @@ export class VideoProviderService {
     return /(暂不支持|未配置|未找到|不可用|unavailable|not support|not supported)/i.test(message);
   }
 
+  private isSeedanceReferenceMediaConflictError(error: unknown): boolean {
+    return /first\/last frame content cannot be mixed with reference media content|cannot be mixed with reference media content/i.test(
+      this.summarizeError(error),
+    );
+  }
+
   private async executeManagedRouteWithFallback(
     modelKey: string,
     preferredVendorKey: string | undefined,
@@ -1176,6 +1182,12 @@ export class VideoProviderService {
         body: JSON.stringify(payload),
       });
     } catch (err: any) {
+      if (isSeedance2ReferenceMode && this.isSeedanceReferenceMediaConflictError(err)) {
+        this.logger.warn(
+          "Seedance 2.0 全能参考经 new-api 被识别为首帧+参考图混用，改走 Ark content/role 直连兜底",
+        );
+        return this.generateManagedSeedance(options);
+      }
       if (hasAssetRefs && this.isAssetServiceNotActivatedError(err)) {
         // new-api 上游账号未开通 Asset Service，降级使用 HTTPS 直链重试
         const rawUrls = referenceImageRawUrls ?? this.extractReferenceImageUrls(options.referenceImages);

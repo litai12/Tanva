@@ -3,8 +3,6 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
-import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
-import PromptImageStrip from './PromptImageStrip';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -46,7 +44,7 @@ const MIN_NODE_HEIGHT = 120;
 const PROMPT_MENTION_LINE_HEIGHT_PX = 17;
 const MENTION_LIBRARY_FETCH_TIMEOUT_MS = 8000;
 const MENTION_LIBRARY_RETRY_COOLDOWN_MS = 30000;
-type MentionTab = 'flow' | 'project-library' | 'personal-library';
+type MentionTab = 'project-library' | 'personal-library';
 
 type MentionCandidate = {
   id: string;
@@ -55,7 +53,6 @@ type MentionCandidate = {
   subtitle?: string;
   previewUrl: string;
   tokenHint: string;
-  flowImage?: SiblingImage;
   ref: PromptImageMention['ref'];
 };
 
@@ -73,7 +70,7 @@ type MentionPreviewItem = {
   isVideo: boolean;
 };
 
-const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
+const MENTION_TABS: MentionTab[] = ['project-library', 'personal-library'];
 
 const sanitizePromptMentionsForText = (
   text: string,
@@ -121,9 +118,8 @@ const isUsableRemoteImageRef = (value?: string | null): value is string => {
 };
 
 const getMentionTabLabel = (tab: MentionTab, lt: (zh: string, en: string) => string): string => {
-  if (tab === 'flow') return lt('工作流', 'Workflow');
   if (tab === 'project-library') return lt('项目库', 'Project');
-  return lt('资产库', 'Assets');
+  return lt('个人库', 'Personal');
 };
 
 const isResolvedMentionAt = (
@@ -332,7 +328,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const mentionOverlayInnerRef = React.useRef<HTMLDivElement>(null);
-  const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const [isComposing, setIsComposing] = React.useState(false);
@@ -341,7 +336,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     query: string;
     selectedIdx: number;
   } | null>(null);
-  const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('flow');
+  const [activeMentionTab, setActiveMentionTab] = React.useState<MentionTab>('project-library');
   const [dropdownPos, setDropdownPos] = React.useState<{ top: number; left: number; width: number } | null>(null);
   const [mentions, setMentions] = React.useState<PromptImageMention[]>(
     () => normalizePromptImageMentions(data.mentions)
@@ -376,24 +371,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     setMentions((prev) => (arePromptMentionsEqual(prev, normalized) ? prev : normalized));
   }, [data.mentions]);
 
-  const flowMentionCandidates = React.useMemo<MentionCandidate[]>(
-    () =>
-      siblingImages.map((img) => {
-        const title = img.title || lt(`图${img.index}`, `Image ${img.index}`);
-        return {
-          id: `flow:${img.nodeId}:${img.sourceHandle || 'default'}:${img.index}`,
-          source: 'flow' as const,
-          title,
-          subtitle: lt('当前工作流', 'Current workflow'),
-          previewUrl: img.url,
-          tokenHint: getPromptMentionTokenHint('', `图${img.index}`),
-          flowImage: img,
-          ref: { nodeId: img.nodeId, handle: img.sourceHandle },
-        };
-      }),
-    [lt, siblingImages]
-  );
-
   const projectMentionCandidates = React.useMemo<MentionCandidate[]>(
     () =>
       projectLibraryItems
@@ -425,7 +402,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           id: `personal-library:${asset.id}`,
           source: 'personal-library' as const,
           title: asset.name || asset.fileName || lt(`资产${index + 1}`, `Asset ${index + 1}`),
-          subtitle: asset.fileName || lt('个人资产库', 'Personal assets'),
+          subtitle: asset.fileName || lt('个人库', 'Personal library'),
           previewUrl: asset.thumbnail || asset.url,
           tokenHint: getPromptMentionTokenHint(asset.name || asset.fileName || '', `资产${index + 1}`),
           ref: {
@@ -438,11 +415,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const candidateGroups = React.useMemo<Record<MentionTab, MentionCandidate[]>>(
     () => ({
-      flow: flowMentionCandidates,
       'project-library': projectMentionCandidates,
       'personal-library': personalMentionCandidates,
     }),
-    [flowMentionCandidates, personalMentionCandidates, projectMentionCandidates]
+    [personalMentionCandidates, projectMentionCandidates]
   );
   const mentionTitleById = React.useMemo(() => {
     const next = new Map<string, string>();
@@ -581,26 +557,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         token,
         label: candidate?.title.trim() || getPromptMentionDisplayLabel(mention, mentionTitleById),
         previewUrl,
-        isVideo: candidate?.flowImage?.isVideo === true,
+        isVideo: false,
       });
     }
 
     return out;
   }, [mentionCandidateById, mentionTitleById, mentions, value]);
-
-  const mentionedFlowRefs = React.useMemo(() => {
-    const next = new Set<string>();
-    mentions.forEach((mention) => {
-      if (mention.source === 'flow' && mention.ref.nodeId && hasPromptMentionTokenInText(value, mention.token)) {
-        next.add(`${mention.ref.nodeId}:${mention.ref.handle || ''}`);
-      }
-    });
-    return next;
-  }, [mentions, value]);
-  const insertableSiblingImages = React.useMemo(
-    () => siblingImages.filter((img) => !mentionedFlowRefs.has(`${img.nodeId}:${img.sourceHandle || ''}`)),
-    [mentionedFlowRefs, siblingImages]
-  );
 
   const detectAtMention = React.useCallback((
     text: string,
@@ -807,7 +769,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (!atMention) return;
-    setActiveMentionTab(flowMentionCandidates.length > 0 ? 'flow' : 'project-library');
+    setActiveMentionTab('project-library');
     setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
   }, [atMention?.startIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -981,21 +943,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     });
   }, [atMention, insertMentionCandidate, value.length]);
 
-  const handleFlowStripSelect = React.useCallback((img: SiblingImage) => {
-    const candidate = flowMentionCandidates.find((item) => {
-      const flowImage = item.flowImage;
-      if (!flowImage) return false;
-      return flowImage.nodeId === img.nodeId &&
-        flowImage.index === img.index &&
-        (flowImage.sourceHandle || '') === (img.sourceHandle || '');
-    });
-    if (!candidate) return;
-    const el = textareaRef.current;
-    const start = el?.selectionStart ?? value.length;
-    const end = el?.selectionEnd ?? value.length;
-    insertMentionCandidate(candidate, { start, end });
-  }, [flowMentionCandidates, insertMentionCandidate, value.length]);
-
   const handleMentionPreviewSelect = React.useCallback((item: MentionPreviewItem) => {
     const el = textareaRef.current;
     if (!el) return;
@@ -1068,25 +1015,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       }
     }
   }, [activeMentionCandidates, atMention, handleAtomicMentionDelete, handleMentionSelect]);
-
-  const handleInsert = React.useCallback((text: string) => {
-    if (isComposingRef.current) return;
-    const el = textareaRef.current;
-    if (!el) return;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + text + value.slice(end);
-    const nextMentions = syncTypedCandidateMentions(next, mentionsRef.current);
-    mentionsRef.current = nextMentions;
-    setMentions(nextMentions);
-    setValue(next);
-    commitValue(next, nextMentions);
-    // Restore focus and move cursor after inserted text
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + text.length, start + text.length);
-    });
-  }, [commitValue, syncTypedCandidateMentions, value]);
 
   const handleValueChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const next = event.target.value;
@@ -1545,9 +1473,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             </button>
           ))}
         </div>
-      )}
-      {isPromptEditable && insertableSiblingImages.length > 0 && (
-        <PromptImageStrip images={insertableSiblingImages} onInsert={handleInsert} onImageSelect={handleFlowStripSelect} />
       )}
       {atMention && dropdownPos && createPortal(
         <div
