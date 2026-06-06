@@ -1105,8 +1105,26 @@ export class VideoProviderService {
     //   "first/last frame content cannot be mixed with reference media content"。
     // first_frame(i2v) 模式仍走 image/images（adaptor 正确标 first_frame）。
     const seedanceVideoMode = String(options.videoMode || "").trim().toLowerCase();
+    // 首/尾帧类模式：首图(可含尾图)以 image/images 下发，adaptor 正确标 first_frame/last_frame。
+    const SEEDANCE_FRAME_MODES = new Set([
+      "first_frame",
+      "last_frame",
+      "start_end",
+      "start-end",
+      "frame",
+      "smart_frames",
+    ]);
+    const isSeedance2FrameMode =
+      isSeedance2 && SEEDANCE_FRAME_MODES.has(seedanceVideoMode);
+    // 参考图模式(r2v)：显式 reference_images，或 seedance2 多图且非首尾帧模式。
+    // 后者是 videoMode 缺失/异常时的兜底——只要有 ≥2 张参考图又不是首尾帧模式，
+    // 就全部当“主体参考”，避免把首图标 first_frame 与其余 reference_image 混用，
+    // 触发 Ark "first/last frame content cannot be mixed with reference media content"。
+    // 单图(length<2)仍按首图(i2v)走 image/images，保持原首帧行为。
     const isSeedance2ReferenceMode =
-      isSeedance2 && seedanceVideoMode === "reference_images";
+      isSeedance2 &&
+      !isSeedance2FrameMode &&
+      (seedanceVideoMode === "reference_images" || referenceImages.length >= 2);
     const buildSeedanceImageFields = (
       urls: string[],
     ): { image?: string; images?: string[]; referenceImages?: string[] } =>
@@ -1182,9 +1200,11 @@ export class VideoProviderService {
         body: JSON.stringify(payload),
       });
     } catch (err: any) {
-      if (isSeedance2ReferenceMode && this.isSeedanceReferenceMediaConflictError(err)) {
+      // 安全网：凡 seedance2 命中“首帧与参考媒体混用”400（无论上面模式判定是否漏判），
+      // 一律改走 Ark content/role 直连兜底——该路径把所有图都标 reference_image，不会混用。
+      if (isSeedance2 && this.isSeedanceReferenceMediaConflictError(err)) {
         this.logger.warn(
-          "Seedance 2.0 全能参考经 new-api 被识别为首帧+参考图混用，改走 Ark content/role 直连兜底",
+          "Seedance 2.0 经 new-api 被识别为首帧+参考图混用，改走 Ark content/role 直连兜底",
         );
         return this.generateManagedSeedance(options);
       }
