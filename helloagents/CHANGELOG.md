@@ -44,6 +44,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- Admin/Auth: default login activity notice now hides the Seedance activity slide and shows only the 2026 Tanvas AI contest popup with registration/community QR and contest-detail actions.
 - Flow/Prompt Mentions: inline `@` image references now use a non-layout background highlight drawn on the existing inline token, keeping textarea overlay wrapping and multiple-token alignment unchanged.
 - Flow/HTML PPT: simplified Run by removing the automatic generated-visual pre-pass; connected upstream images are still prepared and sent to the final text-chat rewrite request for PPT layout.
 - Flow/HTML PPT: internal scrollable/editor regions no longer stop wheel propagation before the shared Flow canvas wheel handler, so wheel and Ctrl/trackpad zoom over the node are handled by the canvas path instead of leaking browser page zoom.
