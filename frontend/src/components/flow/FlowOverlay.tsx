@@ -15868,6 +15868,38 @@ function FlowInner() {
         return out;
       };
 
+      type PromptMentionImageRef = { token: string; image: string };
+
+      const appendPromptMentionImageMapping = (
+        promptText: string,
+        mentionRefs: PromptMentionImageRef[]
+      ): string => {
+        const base = typeof promptText === "string" ? promptText.trim() : "";
+        if (!base || mentionRefs.length === 0) return base;
+        const mappingText = mentionRefs
+          .map((item, index) => `${item.token}=第${index + 1}张参考图`)
+          .join("；");
+        return `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
+      };
+
+      const uploadPromptMentionImageToRemote = async (
+        image: string,
+        projectIdForUpload?: string | null
+      ): Promise<string | undefined> => {
+        const trimmed = typeof image === "string" ? image.trim() : "";
+        if (!trimmed) return undefined;
+        if (isRemoteUrl(trimmed)) return normalizeStableRemoteUrl(trimmed);
+        const publicUrl = resolvePublicAssetUrlFromKey(trimmed);
+        if (publicUrl && isRemoteUrl(publicUrl)) {
+          return normalizeStableRemoteUrl(publicUrl);
+        }
+        const uploaded = await uploadImageToOSS(
+          ensureDataUrl(trimmed),
+          projectIdForUpload
+        );
+        return uploaded || undefined;
+      };
+
       // Wan2.6 节点处理逻辑
       const parseMidjourneyList = (value: unknown): string[] => {
         if (typeof value !== "string") return [];
@@ -16084,10 +16116,41 @@ function FlowInner() {
             return;
           }
 
+          const promptMentionImages = await resolvePromptMentionImagesForNode(nodeId, 2);
+          const promptMentionBySlot = new Map<string, PromptMentionImageRef>();
+          let promptMentionCursor = 0;
+          if (!firstFrameEdge && promptMentionImages[promptMentionCursor]) {
+            promptMentionBySlot.set("image", promptMentionImages[promptMentionCursor]);
+            promptMentionCursor += 1;
+          }
+          if (!lastFrameEdge && promptMentionImages[promptMentionCursor]) {
+            promptMentionBySlot.set("image-2", promptMentionImages[promptMentionCursor]);
+            promptMentionCursor += 1;
+          }
+          const usedPromptMentionImages = Array.from(promptMentionBySlot.values());
+
           const [firstFrameUrl, lastFrameUrl] = await Promise.all([
-            uploadResolvedImageEdge(firstFrameEdge),
-            uploadResolvedImageEdge(lastFrameEdge),
+            firstFrameEdge
+              ? uploadResolvedImageEdge(firstFrameEdge)
+              : promptMentionBySlot.has("image")
+              ? uploadPromptMentionImageToRemote(
+                  promptMentionBySlot.get("image")!.image,
+                  projectId
+                )
+              : undefined,
+            lastFrameEdge
+              ? uploadResolvedImageEdge(lastFrameEdge)
+              : promptMentionBySlot.has("image-2")
+              ? uploadPromptMentionImageToRemote(
+                  promptMentionBySlot.get("image-2")!.image,
+                  projectId
+                )
+              : undefined,
           ]);
+          const promptTextForRequest = appendPromptMentionImageMapping(
+            promptTextNormalized,
+            usedPromptMentionImages
+          );
           const firstClipUrl = resolveVideoUrl(firstClipEdge);
           const audioUrlFromEdge = resolveAudioUrl(audioEdge);
           const audioUrl =
@@ -16207,7 +16270,7 @@ function FlowInner() {
               // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
               // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
               managedModelKey: "wan-2.7",
-              prompt: promptTextNormalized || undefined,
+              prompt: promptTextForRequest || undefined,
               referenceVideos: [firstClipUrl as string],
               aspectRatio: wanAspectRatio,
               resolution: resolution === "1080P" ? "1080p" : "720p",
@@ -16230,7 +16293,7 @@ function FlowInner() {
             };
           } else {
             const result = await generateWan27I2VViaAPI({
-              prompt: promptTextNormalized || undefined,
+              prompt: promptTextForRequest || undefined,
               media,
               parameters: {
                 resolution,
@@ -16334,7 +16397,7 @@ function FlowInner() {
             id: `history-${Date.now()}`,
             videoUrl,
             thumbnail: undefined,
-            prompt: promptText,
+            prompt: promptTextForRequest || promptText,
             quality: media.map((item) => item.type).join("+"),
             createdAt: new Date().toISOString(),
           };
@@ -16426,7 +16489,19 @@ function FlowInner() {
               isImageHandle(e.targetHandle)
           )
           .slice(0, 1);
-        const hasImageInput = imageEdges.length > 0;
+        const promptMentionImages =
+          imageEdges.length === 0
+            ? await resolvePromptMentionImagesForNode(nodeId, 1)
+            : [];
+        const usedPromptMentionImages =
+          imageEdges.length === 0 && promptMentionImages[0]
+            ? [promptMentionImages[0]]
+            : [];
+        const hasImageInput = imageEdges.length > 0 || usedPromptMentionImages.length > 0;
+        const promptTextForRequest = appendPromptMentionImageMapping(
+          promptText,
+          usedPromptMentionImages
+        );
 
         setNodes((ns) =>
           ns.map((n) =>
@@ -16448,7 +16523,10 @@ function FlowInner() {
           let imgUrl: string | undefined = undefined;
 
           if (hasImageInput) {
-            const imageDatas = await resolveEdgesAsDataUrls(imageEdges);
+            const imageDatas =
+              imageEdges.length > 0
+                ? await resolveEdgesAsDataUrls(imageEdges)
+                : usedPromptMentionImages.map((item) => item.image);
             if (!imageDatas.length) throw new Error("图片输入为空");
             for (const img of imageDatas) {
               const trimmed = typeof img === "string" ? img.trim() : "";
@@ -16515,7 +16593,7 @@ function FlowInner() {
 
           const wanGenerationStartedAt = Date.now();
           const result = await generateWan26ViaAPI({
-            prompt: promptText,
+            prompt: promptTextForRequest || promptText,
             imgUrl: imgUrl,
             audioUrl: audioUrl,
             parameters: { size, resolution, duration, shot_type: shotType },
@@ -16627,7 +16705,7 @@ function FlowInner() {
             id: `history-${Date.now()}`,
             videoUrl,
             thumbnail,
-            prompt: promptText,
+            prompt: promptTextForRequest || promptText,
             quality: hasImageInput ? "I2V" : "T2V",
             createdAt: new Date().toISOString(),
           };
@@ -16979,6 +17057,15 @@ function FlowInner() {
             const idx = Number(String(e.targetHandle).slice(6));
             return idx >= 1 && idx <= allowedImageHandles;
           });
+        const promptMentionImages = await resolvePromptMentionImagesForNode(
+          nodeId,
+          Math.max(0, allowedImageHandles - imageEdges.length)
+        );
+        const totalReferenceImageCount = imageEdges.length + promptMentionImages.length;
+        const promptTextForRequest = appendPromptMentionImageMapping(
+          promptTrimmed,
+          promptMentionImages
+        );
 
         // video-edit 必须连接一个视频源
         const videoEdge =
@@ -16990,7 +17077,7 @@ function FlowInner() {
 
         if (
           (hhModel === "happyhorse-1.0-i2v" || hhModel === "happyhorse-1.0-r2v") &&
-          !imageEdges.length
+          totalReferenceImageCount === 0
         ) {
           setNodes((ns) =>
             ns.map((n) =>
@@ -17029,7 +17116,7 @@ function FlowInner() {
             );
             return;
           }
-          if (!imageEdges.length) {
+          if (totalReferenceImageCount === 0) {
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -17112,6 +17199,13 @@ function FlowInner() {
             const url = await uploadResolvedImageEdge(edge);
             if (url) referenceImageUrls.push(url);
           }
+          for (const mention of promptMentionImages) {
+            const url = await uploadPromptMentionImageToRemote(
+              mention.image,
+              projectId
+            );
+            if (url) referenceImageUrls.push(url);
+          }
           const inputVideoUrl = resolveVideoEdgeUrl(videoEdge);
 
           if (
@@ -17175,7 +17269,7 @@ function FlowInner() {
 
           const result = await generateHappyhorseVideoViaAPI({
             model: hhModel,
-            prompt: promptTrimmed,
+            prompt: promptTextForRequest || promptTrimmed,
             media,
             parameters: parameters as any,
           });
@@ -17221,7 +17315,7 @@ function FlowInner() {
                         error: undefined,
                         taskId: normalizedTaskId,
                         apiUsageId: happyhorseApiUsageId,
-                        pendingPrompt: promptTrimmed,
+                        pendingPrompt: promptTextForRequest || promptTrimmed,
                         pendingQuality: quality,
                         pendingReferenceCount: referenceImageUrls.length,
                       },
@@ -17233,7 +17327,7 @@ function FlowInner() {
               nodeId,
               taskId: normalizedTaskId,
               apiUsageId: happyhorseApiUsageId,
-              prompt: promptTrimmed,
+              prompt: promptTextForRequest || promptTrimmed,
               quality,
               referenceCount: referenceImageUrls.length,
             });
@@ -17248,7 +17342,7 @@ function FlowInner() {
             id: `history-${Date.now()}`,
             videoUrl,
             thumbnail,
-            prompt: promptTrimmed,
+            prompt: promptTextForRequest || promptTrimmed,
             quality: `${resolution} / ${durationVal}s`,
             createdAt: new Date().toISOString(),
             referenceCount: referenceImageUrls.length,
@@ -17915,9 +18009,23 @@ function FlowInner() {
           : currentEdges
               .filter((e) => e.target === nodeId && e.targetHandle === "image")
               .slice(0, SORA2_MAX_REFERENCE_IMAGES);
-        const referenceImages = hasCharacterConnection
+        const promptMentionImages = hasCharacterConnection
+          ? []
+          : await resolvePromptMentionImagesForNode(
+              nodeId,
+              Math.max(0, SORA2_MAX_REFERENCE_IMAGES - imageEdges.length)
+            );
+        const edgeReferenceImages = hasCharacterConnection
           ? []
           : await resolveEdgesAsDataUrls(imageEdges);
+        const referenceImages = dedupeImageRefs([
+          ...edgeReferenceImages,
+          ...promptMentionImages.map((item) => item.image),
+        ]).slice(0, SORA2_MAX_REFERENCE_IMAGES);
+        finalPromptText = appendPromptMentionImageMapping(
+          finalPromptText,
+          promptMentionImages
+        );
 
         const generationStartMs = Date.now();
         const referenceImageUrls: string[] = [];
@@ -18381,8 +18489,20 @@ function FlowInner() {
             return String(a.id || "").localeCompare(String(b.id || ""));
           })
           .slice(0, maxImages);
-        const imageCount = imageEdges.length;
-        const hasImage2Edge = imageEdges.some((edge) => edge.targetHandle === "image-2");
+        const promptMentionImages = await resolvePromptMentionImagesForNode(
+          nodeId,
+          Math.max(0, maxImages - imageEdges.length)
+        );
+        const imageCount = imageEdges.length + promptMentionImages.length;
+        const hasPhysicalPrimaryImage = imageEdges.some(
+          (edge) => edge.targetHandle === "image"
+        );
+        const hasPhysicalImage2Edge = imageEdges.some(
+          (edge) => edge.targetHandle === "image-2"
+        );
+        const hasPrimaryImageInput =
+          hasPhysicalPrimaryImage || promptMentionImages.length > 0;
+        const hasImage2Edge = hasPhysicalImage2Edge || imageCount >= 2;
 
         // 获取 prompt
         const { text: promptText, hasEdge: hasText } =
@@ -18409,10 +18529,10 @@ function FlowInner() {
         };
 
         if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
-          const seedanceImageCount = currentEdges.filter(
+          const seedancePhysicalImageCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image"
           ).length;
-          const seedanceImage2Count = currentEdges.filter(
+          const seedancePhysicalImage2Count = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image-2"
           ).length;
           const seedanceVideoCount = currentEdges.filter(
@@ -18421,6 +18541,18 @@ function FlowInner() {
           const seedanceAudioCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "audio"
           ).length;
+          const seedanceVirtualImageCount = Math.min(
+            promptMentionImages.length,
+            Math.max(0, seedanceModeSpec.imageHandleMax - seedancePhysicalImageCount)
+          );
+          const seedanceVirtualImage2Count = Math.min(
+            Math.max(0, promptMentionImages.length - seedanceVirtualImageCount),
+            Math.max(0, seedanceModeSpec.image2HandleMax - seedancePhysicalImage2Count)
+          );
+          const seedanceImageCount =
+            seedancePhysicalImageCount + seedanceVirtualImageCount;
+          const seedanceImage2Count =
+            seedancePhysicalImage2Count + seedanceVirtualImage2Count;
           const seedanceTotalImageCount = seedanceImageCount + seedanceImage2Count;
 
           if (isSeedance20Request) {
@@ -18492,7 +18624,7 @@ function FlowInner() {
             }
           }
         } else if (provider === "vidu" || provider === "viduq3-pro") {
-          if (hasImage2Edge && !imageEdges.some((edge) => edge.targetHandle === "image")) {
+          if (hasImage2Edge && !hasPrimaryImageInput) {
             failCurrentVideoNode("请先连接图1（image）再连接图2（image-2）");
             return;
           }
@@ -18972,8 +19104,52 @@ function FlowInner() {
           const [dataUrl] = await resolveEdgesAsDataUrls([edge]);
           if (dataUrl) resolvedEdgePairs.push({ edge, dataUrl });
         }
-        const referenceImages = resolvedEdgePairs.map((p) => p.dataUrl);
-        const referenceImageSourceEdges = resolvedEdgePairs.map((p) => p.edge);
+        const promptMentionImageInputs = promptMentionImages.map((mention) => ({
+          mention,
+          dataUrl: mention.image,
+        }));
+        const hasPhysicalImage2Only =
+          !hasPhysicalPrimaryImage && hasPhysicalImage2Edge;
+        const mergedReferenceImageInputs: Array<{
+          dataUrl: string;
+          edge?: (typeof imageEdges)[number];
+          mention?: PromptMentionImageRef;
+        }> =
+          hasPhysicalImage2Only && promptMentionImageInputs.length > 0
+            ? [
+                {
+                  dataUrl: promptMentionImageInputs[0].dataUrl,
+                  mention: promptMentionImageInputs[0].mention,
+                },
+                ...resolvedEdgePairs.map((pair) => ({
+                  dataUrl: pair.dataUrl,
+                  edge: pair.edge,
+                })),
+                ...promptMentionImageInputs.slice(1).map((item) => ({
+                  dataUrl: item.dataUrl,
+                  mention: item.mention,
+                })),
+              ]
+            : [
+                ...resolvedEdgePairs.map((pair) => ({
+                  dataUrl: pair.dataUrl,
+                  edge: pair.edge,
+                })),
+                ...promptMentionImageInputs.map((item) => ({
+                  dataUrl: item.dataUrl,
+                  mention: item.mention,
+                })),
+              ];
+        const limitedReferenceImageInputs = mergedReferenceImageInputs.slice(0, maxImages);
+        const referenceImages = limitedReferenceImageInputs.map((item) => item.dataUrl);
+        const referenceImageSourceEdges = limitedReferenceImageInputs.map((item) => item.edge);
+        const usedPromptMentionImages = limitedReferenceImageInputs
+          .map((item) => item.mention)
+          .filter((item): item is PromptMentionImageRef => Boolean(item));
+        finalPrompt = appendPromptMentionImageMapping(
+          finalPrompt || "",
+          usedPromptMentionImages
+        );
 
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
         referenceImages.forEach((img, i) => {
