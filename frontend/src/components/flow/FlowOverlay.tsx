@@ -216,7 +216,10 @@ import {
   type FlowRenderMode,
 } from "./FlowRenderModeContext";
 import { resolveTextFromSourceNode } from "./utils/textSource";
-import { hasPromptMentionTokenInText, normalizePromptImageMentions } from "./types";
+import {
+  findPromptMentionTokenMatches,
+  normalizePromptImageMentions,
+} from "./types";
 import type { PromptImageMention } from "./types";
 import {
   IMAGE_INPUT_CAPABLE_TYPES,
@@ -15847,13 +15850,21 @@ function FlowInner() {
           );
           if (!mentions.length) continue;
 
-          const activeMentions = mentions
-            .filter((mention) => {
-              if (mention.mediaType !== "image") return false;
-              const token = typeof mention.token === "string" ? mention.token.trim() : "";
-              return Boolean(token) && hasPromptMentionTokenInText(promptText, token);
-            })
-            .sort((a, b) => promptText.indexOf(a.token) - promptText.indexOf(b.token));
+          const mentionByToken = new Map<string, PromptImageMention>();
+          for (const mention of mentions) {
+            if (mention.mediaType !== "image") continue;
+            const token =
+              typeof mention.token === "string" ? mention.token.trim() : "";
+            if (!token || mentionByToken.has(token)) continue;
+            mentionByToken.set(token, mention);
+          }
+
+          const activeMentions = findPromptMentionTokenMatches(
+            promptText,
+            Array.from(mentionByToken.keys())
+          )
+            .map((match) => mentionByToken.get(match.token))
+            .filter((mention): mention is PromptImageMention => Boolean(mention));
 
           for (const mention of activeMentions) {
             if (mention.mediaType !== "image") continue;

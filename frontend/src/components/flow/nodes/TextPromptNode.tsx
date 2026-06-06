@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
+import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';
 import { useLocaleText } from '@/utils/localeText';
 import { useCanvasStore } from '@/stores';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -17,7 +18,7 @@ import {
   type PersonalImageAsset,
 } from '@/stores/personalLibraryStore';
 import {
-  hasPromptMentionTokenInText,
+  findPromptMentionTokenMatches,
   isPromptMentionTokenBoundary,
   normalizePromptImageMentions,
   type PromptImageMention,
@@ -44,7 +45,7 @@ const MIN_NODE_HEIGHT = 120;
 const PROMPT_MENTION_LINE_HEIGHT_PX = 17;
 const MENTION_LIBRARY_FETCH_TIMEOUT_MS = 8000;
 const MENTION_LIBRARY_RETRY_COOLDOWN_MS = 30000;
-type MentionTab = 'project-library' | 'personal-library';
+type MentionTab = 'flow' | 'project-library' | 'personal-library';
 
 type MentionCandidate = {
   id: string;
@@ -53,6 +54,7 @@ type MentionCandidate = {
   subtitle?: string;
   previewUrl: string;
   tokenHint: string;
+  flowImage?: SiblingImage;
   ref: PromptImageMention['ref'];
 };
 
@@ -70,17 +72,20 @@ type MentionPreviewItem = {
   isVideo: boolean;
 };
 
-const MENTION_TABS: MentionTab[] = ['project-library', 'personal-library'];
+const MENTION_TABS: MentionTab[] = ['flow', 'project-library', 'personal-library'];
 
 const sanitizePromptMentionsForText = (
   text: string,
   mentions: PromptImageMention[]
 ): PromptImageMention[] => {
   if (!mentions.length) return [];
-  return mentions.filter((mention) => {
-    const token = typeof mention.token === 'string' ? mention.token.trim() : '';
-    return token.startsWith('@') && hasPromptMentionTokenInText(text, token);
-  });
+  const activeTokens = new Set(
+    findPromptMentionTokenMatches(
+      text,
+      mentions.map((mention) => mention.token)
+    ).map((match) => match.token)
+  );
+  return mentions.filter((mention) => activeTokens.has(mention.token.trim()));
 };
 
 const arePromptMentionsEqual = (
@@ -118,6 +123,7 @@ const isUsableRemoteImageRef = (value?: string | null): value is string => {
 };
 
 const getMentionTabLabel = (tab: MentionTab, lt: (zh: string, en: string) => string): string => {
+  if (tab === 'flow') return lt('工作流', 'Workflow');
   if (tab === 'project-library') return lt('项目库', 'Project');
   return lt('个人库', 'Personal');
 };
@@ -140,35 +146,23 @@ const getPromptMentionTokenRanges = (
   mentions: PromptImageMention[]
 ): MentionTokenRange[] => {
   if (!text || mentions.length === 0) return [];
-  const usableMentions = mentions
-    .map((mention) => ({
-      mention,
-      token: typeof mention.token === 'string' ? mention.token.trim() : '',
-    }))
-    .filter((item) => item.token.startsWith('@'))
-    .sort((a, b) => b.token.length - a.token.length);
-  if (usableMentions.length === 0) return [];
-
-  const ranges: MentionTokenRange[] = [];
-  let index = 0;
-  while (index < text.length) {
-    const match = usableMentions.find(
-      (item) =>
-        text.startsWith(item.token, index) &&
-        isPromptMentionTokenBoundary(text, item.token, index)
-    );
-    if (!match) {
-      index += 1;
-      continue;
+  const mentionByToken = new Map<string, PromptImageMention>();
+  mentions.forEach((mention) => {
+    const token = typeof mention.token === 'string' ? mention.token.trim() : '';
+    if (token.startsWith('@') && !mentionByToken.has(token)) {
+      mentionByToken.set(token, mention);
     }
-    ranges.push({
-      start: index,
-      end: index + match.token.length,
-      mention: match.mention,
-    });
-    index += match.token.length;
-  }
-  return ranges;
+  });
+  if (mentionByToken.size === 0) return [];
+
+  return findPromptMentionTokenMatches(text, Array.from(mentionByToken.keys()))
+    .map((match) => {
+      const mention = mentionByToken.get(match.token);
+      return mention
+        ? { start: match.start, end: match.end, mention }
+        : null;
+    })
+    .filter((range): range is MentionTokenRange => Boolean(range));
 };
 
 const getMentionDeletionRange = (
@@ -259,8 +253,11 @@ const getProjectHistoryMentionTitle = (
 
 const getMentionCandidateLookupKeys = (candidate: MentionCandidate): string[] => {
   const keys = [candidate.id];
-  if (candidate.ref.nodeId) keys.push(`${candidate.source}:node:${candidate.ref.nodeId}`);
-  if (candidate.ref.nodeId && candidate.ref.handle) keys.push(`${candidate.source}:node:${candidate.ref.nodeId}:handle:${candidate.ref.handle}`);
+  if (candidate.ref.nodeId && candidate.ref.handle) {
+    keys.push(`${candidate.source}:node:${candidate.ref.nodeId}:handle:${candidate.ref.handle}`);
+  } else if (candidate.ref.nodeId) {
+    keys.push(`${candidate.source}:node:${candidate.ref.nodeId}`);
+  }
   if (candidate.ref.historyId) keys.push(`${candidate.source}:history:${candidate.ref.historyId}`);
   if (candidate.ref.assetId) keys.push(`${candidate.source}:asset:${candidate.ref.assetId}`);
   if (candidate.ref.url) keys.push(`${candidate.source}:url:${candidate.ref.url}`);
@@ -269,8 +266,11 @@ const getMentionCandidateLookupKeys = (candidate: MentionCandidate): string[] =>
 
 const getPromptMentionLookupKeys = (mention: PromptImageMention): string[] => {
   const keys = [mention.id];
-  if (mention.ref.nodeId) keys.push(`${mention.source}:node:${mention.ref.nodeId}`);
-  if (mention.ref.nodeId && mention.ref.handle) keys.push(`${mention.source}:node:${mention.ref.nodeId}:handle:${mention.ref.handle}`);
+  if (mention.ref.nodeId && mention.ref.handle) {
+    keys.push(`${mention.source}:node:${mention.ref.nodeId}:handle:${mention.ref.handle}`);
+  } else if (mention.ref.nodeId) {
+    keys.push(`${mention.source}:node:${mention.ref.nodeId}`);
+  }
   if (mention.ref.historyId) keys.push(`${mention.source}:history:${mention.ref.historyId}`);
   if (mention.ref.assetId) keys.push(`${mention.source}:asset:${mention.ref.assetId}`);
   if (mention.ref.url) keys.push(`${mention.source}:url:${mention.ref.url}`);
@@ -328,6 +328,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const titleInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const mentionOverlayInnerRef = React.useRef<HTMLDivElement>(null);
+  const siblingImages = usePromptSiblingImages(id);
   const nodeRootRef = React.useRef<HTMLDivElement | null>(null);
   const isComposingRef = React.useRef(false);
   const [isComposing, setIsComposing] = React.useState(false);
@@ -370,6 +371,24 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const normalized = normalizePromptImageMentions(data.mentions);
     setMentions((prev) => (arePromptMentionsEqual(prev, normalized) ? prev : normalized));
   }, [data.mentions]);
+
+  const flowMentionCandidates = React.useMemo<MentionCandidate[]>(
+    () =>
+      siblingImages.map((img) => {
+        const title = img.title || lt(`图${img.index}`, `Image ${img.index}`);
+        return {
+          id: `flow:${img.nodeId}:${img.sourceHandle || 'default'}:${img.index}`,
+          source: 'flow' as const,
+          title,
+          subtitle: lt('当前工作流', 'Current workflow'),
+          previewUrl: img.url,
+          tokenHint: getPromptMentionTokenHint('', `图${img.index}`),
+          flowImage: img,
+          ref: { nodeId: img.nodeId, handle: img.sourceHandle },
+        };
+      }),
+    [lt, siblingImages]
+  );
 
   const projectMentionCandidates = React.useMemo<MentionCandidate[]>(
     () =>
@@ -415,10 +434,17 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   const candidateGroups = React.useMemo<Record<MentionTab, MentionCandidate[]>>(
     () => ({
+      flow: flowMentionCandidates,
       'project-library': projectMentionCandidates,
       'personal-library': personalMentionCandidates,
     }),
-    [personalMentionCandidates, projectMentionCandidates]
+    [flowMentionCandidates, personalMentionCandidates, projectMentionCandidates]
+  );
+  const visibleMentionTabs = React.useMemo<MentionTab[]>(
+    () => flowMentionCandidates.length > 0
+      ? MENTION_TABS
+      : MENTION_TABS.filter((tab) => tab !== 'flow'),
+    [flowMentionCandidates.length]
   );
   const mentionTitleById = React.useMemo(() => {
     const next = new Map<string, string>();
@@ -456,6 +482,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         candidate.title,
         candidate.subtitle,
         candidate.tokenHint,
+        candidate.ref.nodeId,
+        candidate.ref.handle,
         candidate.ref.assetId,
         candidate.ref.historyId,
       ]
@@ -482,20 +510,35 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       byToken.set(mention.token, mention);
     });
 
+    const candidateByToken = new Map<string, MentionCandidate>();
+    const ambiguousCandidateTokens = new Set<string>();
     Object.values(candidateGroups).forEach((candidates) => {
       candidates.forEach((candidate) => {
         const token = typeof candidate.tokenHint === 'string' ? candidate.tokenHint.trim() : '';
         if (!token.startsWith('@')) return;
-        if (!hasPromptMentionTokenInText(text, token)) return;
-        const label = candidate.title.trim() || token.replace(/^@/, '');
-        byToken.set(token, {
-          id: candidate.id,
-          token,
-          label,
-          source: candidate.source,
-          mediaType: 'image',
-          ref: candidate.ref,
-        });
+        if (ambiguousCandidateTokens.has(token)) return;
+        if (candidateByToken.has(token)) {
+          candidateByToken.delete(token);
+          ambiguousCandidateTokens.add(token);
+        } else {
+          candidateByToken.set(token, candidate);
+        }
+      });
+    });
+
+    findPromptMentionTokenMatches(text, Array.from(candidateByToken.keys())).forEach((match) => {
+      const token = match.token;
+      if (byToken.has(token)) return;
+      const candidate = candidateByToken.get(token);
+      if (!candidate) return;
+      const label = candidate.title.trim() || token.replace(/^@/, '');
+      byToken.set(token, {
+        id: candidate.id,
+        token,
+        label,
+        source: candidate.source,
+        mediaType: 'image',
+        ref: candidate.ref,
       });
     });
 
@@ -504,6 +547,13 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const mentionTokenRanges = React.useMemo(
     () => getPromptMentionTokenRanges(value, mentions),
     [mentions, value]
+  );
+  const activeMentionKeys = React.useMemo(
+    () =>
+      new Set(
+        mentionTokenRanges.map((range) => `${range.mention.id}::${range.mention.token}`)
+      ),
+    [mentionTokenRanges]
   );
   const shouldRenderMentionOverlay = mentionTokenRanges.length > 0 && !isComposing;
   const mentionOverlayNodes = React.useMemo(() => {
@@ -539,7 +589,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
     for (const mention of mentions) {
       const token = typeof mention.token === 'string' ? mention.token.trim() : '';
-      if (!token || !hasPromptMentionTokenInText(value, token)) continue;
+      const mentionKey = `${mention.id}::${token}`;
+      if (!token || !activeMentionKeys.has(mentionKey)) continue;
       const candidate = getPromptMentionLookupKeys(mention)
         .map((key) => mentionCandidateById.get(key))
         .find((item): item is MentionCandidate => Boolean(item));
@@ -549,7 +600,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           ? mention.ref.url.trim()
           : '');
       if (!previewUrl) continue;
-      const dedupeKey = `${mention.id}::${token}`;
+      const dedupeKey = mentionKey;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       out.push({
@@ -557,12 +608,12 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         token,
         label: candidate?.title.trim() || getPromptMentionDisplayLabel(mention, mentionTitleById),
         previewUrl,
-        isVideo: false,
+        isVideo: candidate?.flowImage?.isVideo === true,
       });
     }
 
     return out;
-  }, [mentionCandidateById, mentionTitleById, mentions, value]);
+  }, [activeMentionKeys, mentionCandidateById, mentionTitleById, mentions, value]);
 
   const detectAtMention = React.useCallback((
     text: string,
@@ -769,9 +820,16 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (!atMention) return;
-    setActiveMentionTab('project-library');
+    setActiveMentionTab(flowMentionCandidates.length > 0 ? 'flow' : 'project-library');
     setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
-  }, [atMention?.startIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [atMention?.startIndex, flowMentionCandidates.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (!atMention) return;
+    if (visibleMentionTabs.includes(activeMentionTab)) return;
+    setActiveMentionTab(visibleMentionTabs[0] ?? 'project-library');
+    setAtMention((prev) => prev ? { ...prev, selectedIdx: 0 } : prev);
+  }, [activeMentionTab, atMention, visibleMentionTabs]);
 
   React.useEffect(() => {
     edgesRef.current = edges;
@@ -848,7 +906,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   }, [id, syncTypedCandidateMentions]);
 
   const getReusableMention = React.useCallback((candidate: MentionCandidate): PromptImageMention | null => {
-    return mentionsRef.current.find((mention) => mention.id === candidate.id) ?? null;
+    const candidateKeys = new Set(getMentionCandidateLookupKeys(candidate));
+    return mentionsRef.current.find((mention) =>
+      getPromptMentionLookupKeys(mention).some((key) => candidateKeys.has(key))
+    ) ?? null;
   }, []);
 
   const buildUniqueToken = React.useCallback((label: string, currentText: string): string => {
@@ -1495,7 +1556,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           }}
         >
           <div style={{ display: 'flex', gap: 4 }}>
-            {MENTION_TABS.map((tab) => {
+            {visibleMentionTabs.map((tab) => {
               const isActive = tab === activeMentionTab;
               return (
                 <button
@@ -1561,7 +1622,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
                     }}
                     title={candidate.title}
                   >
-                    <img
+                    <SmartImage
                       src={candidate.previewUrl}
                       alt={candidate.title}
                       style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', borderRadius: 4, display: 'block', background: '#f3f4f6' }}
