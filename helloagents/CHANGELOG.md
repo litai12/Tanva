@@ -71,6 +71,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
+- Flow/Prompt Mentions: personal-library entries in the Prompt `@` picker now use the unified `个人库` naming instead of `资产库` / `个人资产库`.
 - Flow/Prompt Mentions: `@` image references now stay structured when the user continues typing directly after the token, including IME pinyin/composition and ASCII suffix text; Prompt nodes also show selected referenced resources as thumbnail chips below the input while available unselected workflow images remain insertable.
 - Flow/Prompt Mentions: inline Prompt mention rendering now uses blue text only instead of a filled blue token background, reducing textarea overlay line-height and wrapping mismatches in dense/long prompts.
 - Flow/Prompt Mentions: Prompt inputs now suspend the transparent mention overlay during IME composition, so typing Chinese/pinyin after an existing `@` image reference remains visible while the structured mention is preserved.

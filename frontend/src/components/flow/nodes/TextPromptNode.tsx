@@ -119,7 +119,7 @@ const isUsableRemoteImageRef = (value?: string | null): value is string => {
 
 const getMentionTabLabel = (tab: MentionTab, lt: (zh: string, en: string) => string): string => {
   if (tab === 'project-library') return lt('项目库', 'Project');
-  return lt('资产库', 'Assets');
+  return lt('个人库', 'Personal');
 };
 
 const isResolvedMentionAt = (
@@ -402,7 +402,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
           id: `personal-library:${asset.id}`,
           source: 'personal-library' as const,
           title: asset.name || asset.fileName || lt(`资产${index + 1}`, `Asset ${index + 1}`),
-          subtitle: asset.fileName || lt('个人资产库', 'Personal assets'),
+          subtitle: asset.fileName || lt('个人库', 'Personal library'),
           previewUrl: asset.thumbnail || asset.url,
           tokenHint: getPromptMentionTokenHint(asset.name || asset.fileName || '', `资产${index + 1}`),
           ref: {
