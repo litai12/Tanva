@@ -1386,6 +1386,27 @@ const getEffectiveViduMaxReferenceImages = (nodeData?: Record<string, any>): num
     ? VIDUQ3_MAX_REFERENCE_IMAGES
     : VIDU_MAX_REFERENCE_IMAGES;
 
+const resolveNano2LikeMaxReferenceImages = (
+  nodeData?: Record<string, unknown>
+): number => {
+  const metadata =
+    nodeData?.nodeConfigMetadata && typeof nodeData.nodeConfigMetadata === "object"
+      ? (nodeData.nodeConfigMetadata as Record<string, unknown>)
+      : undefined;
+  const defaultData =
+    metadata?.defaultData && typeof metadata.defaultData === "object"
+      ? (metadata.defaultData as Record<string, unknown>)
+      : undefined;
+  const raw = Number(
+    nodeData?.maxReferenceImages ??
+      metadata?.maxReferenceImages ??
+      defaultData?.maxReferenceImages
+  );
+  return Number.isFinite(raw) && raw > 0
+    ? Math.max(1, Math.min(16, Math.floor(raw)))
+    : 14;
+};
+
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
 const ADD_PANEL_TAB_STORAGE_KEY = "tanva-add-panel-tab";
@@ -12334,7 +12355,14 @@ function FlowInner() {
       }
       if (targetNode?.type === "nano2" || targetNode?.type === "gptImage2") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
-        if (params.targetHandle === "img") return true; // 图片输入
+        if (params.targetHandle === "img") {
+          return (
+            incoming.length <
+            resolveNano2LikeMaxReferenceImages(
+              (targetNode.data || {}) as Record<string, unknown>
+            )
+          );
+        }
       }
       if (targetNode?.type === "minimaxSpeech") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -13575,6 +13603,14 @@ function FlowInner() {
         targetHandle === "img"
       ) {
         return 10;
+      }
+      if (
+        (nodeType === "nano2" || nodeType === "gptImage2") &&
+        targetHandle === "img"
+      ) {
+        return resolveNano2LikeMaxReferenceImages(
+          (targetNode.data || {}) as Record<string, unknown>
+        );
       }
       if (
         nodeType === "klingO1Video" &&
@@ -20913,15 +20949,7 @@ function FlowInner() {
           metadata?.defaultData && typeof metadata.defaultData === "object"
             ? (metadata.defaultData as Record<string, any>)
             : undefined;
-        const maxReferenceImagesRaw = Number(
-          nodeData.maxReferenceImages ??
-            metadata?.maxReferenceImages ??
-            defaultData?.maxReferenceImages
-        );
-        const maxReferenceImages =
-          Number.isFinite(maxReferenceImagesRaw) && maxReferenceImagesRaw > 0
-            ? Math.max(1, Math.min(16, Math.floor(maxReferenceImagesRaw)))
-            : 14;
+        const maxReferenceImages = resolveNano2LikeMaxReferenceImages(nodeData);
         const requestedModel =
           (typeof nodeData.model === "string" && nodeData.model.trim()) ||
           (typeof metadata?.model === "string" && metadata.model.trim()) ||

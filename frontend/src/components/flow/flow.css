@@ -1016,6 +1016,10 @@ video::-webkit-media-controls-fullscreen-button {
   display: inline;
   color: #1d4ed8;
   -webkit-text-fill-color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
   text-shadow: none;
   vertical-align: baseline;
   white-space: inherit;
@@ -1033,6 +1037,7 @@ video::-webkit-media-controls-fullscreen-button {
 .tanva-flow-overlay.tanva-flow-theme-mono-dark .tanva-prompt-mention-token {
   color: #bfdbfe;
   -webkit-text-fill-color: #bfdbfe;
+  background: rgba(96, 165, 250, 0.14);
 }
 
 .tanva-prompt-mention-chip {
