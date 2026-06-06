@@ -49,11 +49,7 @@ import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
 import { editImageViaAPI } from "@/services/aiBackendAPI";
-import {
-  useAIChatStore,
-  getImageModelForProvider,
-  uploadImageToOSS,
-} from "@/stores/aiChatStore";
+import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
 import {
   isPersistableImageRef,
   isRemoteUrl,
@@ -2095,24 +2091,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       let selectedModel: string | null = null;
       let lastError: unknown = null;
 
-      // 上游图像编辑（toapis/new-api 等）只接受 URL，不接受 base64。
-      // 优先透传远程 URL；若仅有 base64，则先上传 OSS 换取可访问 URL，避免上游报
-      // "base64 image is not allowed"。失败时回退原始 base64（尽力而为）。
-      let editSourceImage = baseImage;
-      try {
-        const remoteOrData = await resolveEditImageSource();
-        if (remoteOrData) {
-          editSourceImage = isRemoteUrl(remoteOrData)
-            ? remoteOrData
-            : (await uploadImageToOSS(remoteOrData, projectId)) || remoteOrData;
-        } else if (!isRemoteUrl(baseImage)) {
-          editSourceImage =
-            (await uploadImageToOSS(baseImage, projectId)) || baseImage;
-        }
-      } catch (uploadError) {
-        logger.warn("⚠️ 预处理源图上传 OSS 失败，回退 base64", uploadError);
-      }
-
       for (const model of BG_REMOVAL_MODELS) {
         logger.info("📷 尝试预处理模型", {
           aiProvider: BG_REMOVAL_PROVIDER,
@@ -2120,7 +2098,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         });
         const editResult = await aiImageService.editImage({
           prompt: "只保留完整的主体，背景换成纯色",
-          sourceImage: editSourceImage,
+          sourceImage: baseImage,
           model,
           aiProvider: BG_REMOVAL_PROVIDER,
           outputFormat: "png",
@@ -2178,7 +2156,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       return result.imageData;
     },
-    [imageData.id, resolveEditImageSource, projectId]
+    [imageData.id]
   );
 
   const runFastBackgroundRemoval = useCallback(
