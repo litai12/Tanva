@@ -103,29 +103,52 @@ export class WsCollabGateway implements OnModuleDestroy {
 
     let userId = '';
     let userName = '';
+    let role = '';
     try {
       const payload = await this.jwt.verifyAsync<any>(token);
       userId = String(payload?.sub ?? '');
       userName = String(payload?.name ?? payload?.username ?? userId.slice(0, 8));
+      role = String(payload?.role ?? '');
     } catch {
       return this.reject(socket, 401, 'Unauthorized');
     }
     if (!userId) return this.reject(socket, 401, 'Unauthorized');
 
-    if (teamId) {
+    // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
+    // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
+    const isSuperAdmin =
+      role.toLowerCase() === 'admin' ? await this.isUserSuperAdmin(userId) : false;
+
+    if (teamId && !isSuperAdmin) {
       const member = await this.prisma.teamMembership
         .findUnique({ where: { teamId_userId: { teamId, userId } } })
         .catch(() => null);
       if (!member) return this.reject(socket, 403, 'Forbidden');
     }
     if (projectId) {
-      const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
-      if (!ok) return this.reject(socket, 403, 'Forbidden');
+      if (isSuperAdmin) {
+        // 超管绕过成员校验，但仍需确认项目存在，避免进入无效协作空间。
+        const exists = await this.prisma.project
+          .findUnique({ where: { id: projectId }, select: { id: true } })
+          .catch(() => null);
+        if (!exists) return this.reject(socket, 404, 'Not Found');
+      } else {
+        const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
+        if (!ok) return this.reject(socket, 403, 'Forbidden');
+      }
     }
 
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       void this.register(ws, { userId, userName, teamId, projectId });
     });
+  }
+
+  /** 以数据库当前角色为准判断超级管理员，避免信任可能过期的 JWT role。 */
+  private async isUserSuperAdmin(userId: string): Promise<boolean> {
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { role: true } })
+      .catch(() => null);
+    return typeof user?.role === 'string' && user.role.toLowerCase() === 'admin';
   }
 
   private async assertProjectAccess(

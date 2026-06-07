@@ -112,7 +112,7 @@ export class ProjectsService {
     return { ...updated, mainUrl: this.oss.publicUrl(mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
   }
 
-  async get(userId: string, id: string) {
+  async get(userId: string, id: string, role?: string) {
     await this.ensureThumbnailColumn();
     const p = await this.prisma.project.findUnique({
       where: { id },
@@ -122,11 +122,11 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
-  async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }) {
+  async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }, role?: string) {
     await this.ensureThumbnailColumn();
     const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const p = await this.prisma.project.findUnique({
@@ -137,7 +137,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
@@ -197,11 +197,11 @@ export class ProjectsService {
     return { ok: true };
   }
 
-  async getContent(userId: string, id: string) {
+  async getContent(userId: string, id: string, role?: string) {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+    if (!this.isSuperAdmin(role) && project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     if (!project.mainKey) {
       return {
@@ -241,7 +241,8 @@ export class ProjectsService {
         restoredFromUpdatedAt?: string;
         restoredFromVersion?: number;
       };
-    }
+    },
+    role?: string
   ) {
     void version;
     return this.runProjectSaveSerialized(id, async () => {
@@ -266,7 +267,10 @@ export class ProjectsService {
         },
       });
       if (!project) throw new NotFoundException('项目不存在');
-      if (project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+      const isSuperAdmin = this.isSuperAdmin(role);
+      if (!isSuperAdmin && project.userId !== userId) await this.assertTeamProjectAccess(userId, id);
+      // 超管保存他人项目时，工作流历史归属项目所有者，保证 owner 与超管都能查到。
+      const historyUserId = isSuperAdmin ? project.userId : userId;
       const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
       const mainKey = project.mainKey || `${prefix}project.json`;
       const sanitizeStartedAt = Date.now();
@@ -352,7 +356,7 @@ export class ProjectsService {
       if (options?.createWorkflowHistory) {
         await timeStep('workflowHistoryMs', () =>
           this.tryCreateWorkflowHistorySnapshot(
-            userId,
+            historyUserId,
             id,
             updated2,
             sanitizedContent,
@@ -382,10 +386,13 @@ export class ProjectsService {
     });
   }
 
-  async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
+  async listWorkflowHistory(userId: string, projectId: string, limit?: string, role?: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
+    const isSuperAdmin = this.isSuperAdmin(role);
+    if (!isSuperAdmin && project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
+    // 超管查看他人项目时，历史记录归属项目所有者，需按所有者 userId 查询。
+    const historyUserId = isSuperAdmin ? project.userId : userId;
 
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
@@ -401,7 +408,7 @@ export class ProjectsService {
       selectWithRestoreMeta.restoredFromVersion = true;
 
       return await this.prisma.workflowHistory.findMany({
-        where: { userId, projectId },
+        where: { userId: historyUserId, projectId },
         orderBy: { updatedAt: 'desc' },
         take: parsedLimit,
         select: selectWithRestoreMeta,
@@ -410,7 +417,7 @@ export class ProjectsService {
       if (this.isMissingWorkflowHistoryTable(error)) return [];
       if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
         return await this.prisma.workflowHistory.findMany({
-          where: { userId, projectId },
+          where: { userId: historyUserId, projectId },
           orderBy: { updatedAt: 'desc' },
           take: parsedLimit,
           select: {
@@ -426,10 +433,13 @@ export class ProjectsService {
     }
   }
 
-  async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string) {
+  async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string, role?: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
+    const isSuperAdmin = this.isSuperAdmin(role);
+    if (!isSuperAdmin && project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
+    // 超管查看他人项目时，历史记录归属项目所有者，需按所有者 userId 查询。
+    const historyUserId = isSuperAdmin ? project.userId : userId;
 
     const updatedAt = new Date(updatedAtRaw);
     if (Number.isNaN(updatedAt.getTime())) {
@@ -440,7 +450,7 @@ export class ProjectsService {
       const record = await this.prisma.workflowHistory.findUnique({
         where: {
           userId_projectId_updatedAt: {
-            userId,
+            userId: historyUserId,
             projectId,
             updatedAt,
           },
@@ -757,6 +767,11 @@ export class ProjectsService {
   private async disableThumbnailColumn(): Promise<void> {
     this.thumbnailColumnChecked = true;
     this.thumbnailColumnAvailable = false;
+  }
+
+  /** 超级管理员（role='admin'）可跨项目访问任意项目，绕过所有权/团队共享校验。 */
+  private isSuperAdmin(role?: string): boolean {
+    return typeof role === 'string' && role.toLowerCase() === 'admin';
   }
 
   /** 检查 userId 是否为项目所属团队的成员，不是则抛 NotFoundException。 */

@@ -38,7 +38,7 @@ export class ProjectsController {
 
   @Get(':id')
   async getOne(@Req() req: any, @Param('id') id: string) {
-    return this.projects.get(req.user.sub, id);
+    return this.projects.get(req.user.sub, id, req.user.role);
   }
 
   @Put(':id')
@@ -46,7 +46,7 @@ export class ProjectsController {
     return this.projects.update(req.user.sub, id, {
       name: dto.name,
       thumbnailUrl: dto.thumbnailUrl,
-    });
+    }, req.user.role);
   }
 
   @Delete(':id')
@@ -56,7 +56,7 @@ export class ProjectsController {
 
   @Get(':id/content')
   async getContent(@Req() req: any, @Param('id') id: string) {
-    return this.projects.getContent(req.user.sub, id);
+    return this.projects.getContent(req.user.sub, id, req.user.role);
   }
 
   @Put(':id/content')
@@ -64,7 +64,7 @@ export class ProjectsController {
     return this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
       createWorkflowHistory: dto.createWorkflowHistory,
       workflowHistoryMeta: dto.workflowHistoryMeta,
-    });
+    }, req.user.role);
   }
 
   @Get(':id/workflow-history')
@@ -73,7 +73,7 @@ export class ProjectsController {
     @Param('id') id: string,
     @Query('limit') limit?: string
   ) {
-    return this.projects.listWorkflowHistory(req.user.sub, id, limit);
+    return this.projects.listWorkflowHistory(req.user.sub, id, limit, req.user.role);
   }
 
   @Get(':id/workflow-history/:updatedAt')
@@ -82,7 +82,7 @@ export class ProjectsController {
     @Param('id') id: string,
     @Param('updatedAt') updatedAt: string
   ) {
-    return this.projects.getWorkflowHistory(req.user.sub, id, updatedAt);
+    return this.projects.getWorkflowHistory(req.user.sub, id, updatedAt, req.user.role);
   }
 
   @Post(':id/team-shares')

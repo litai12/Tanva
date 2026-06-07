@@ -58,7 +58,7 @@ export class TeamCollabController {
   ) {
     const userId: string = req.user.sub;
     const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
-    await this.assertProjectAccess(projectId, userId, teamId);
+    await this.assertProjectAccess(projectId, userId, teamId, req.user.role);
 
     res.raw.setHeader('Content-Type', 'text/event-stream');
     res.raw.setHeader('Cache-Control', 'no-cache');
@@ -296,7 +296,9 @@ export class TeamCollabController {
     }
   }
 
-  private async assertProjectAccess(projectId: string, userId: string, teamId?: string) {
+  private async assertProjectAccess(projectId: string, userId: string, teamId?: string, role?: string) {
+    // 超级管理员（role='admin'）可访问任意项目的协作流。
+    if (typeof role === 'string' && role.toLowerCase() === 'admin') return;
     const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId } });
     if (project.userId === userId) return;
 
