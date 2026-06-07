@@ -670,20 +670,24 @@ type TaskRelayInfo struct {
 }
 
 type TaskSubmitReq struct {
-	Prompt          string                 `json:"prompt"`
-	Model           string                 `json:"model,omitempty"`
-	Mode            string                 `json:"mode,omitempty"`
-	Image           string                 `json:"image,omitempty"`
-	Images          []string               `json:"images,omitempty"`
-	Urls            []string               `json:"urls,omitempty"`
-	ReferenceImages []string               `json:"referenceImages,omitempty"`
-	Size            string                 `json:"size,omitempty"`
-	Resolution      string                 `json:"resolution,omitempty"`
-	AspectRatio     string                 `json:"aspect_ratio,omitempty"`
-	Duration        int                    `json:"duration,omitempty"`
-	Seconds         string                 `json:"seconds,omitempty"`
-	InputReference  string                 `json:"input_reference,omitempty"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	Prompt          string   `json:"prompt"`
+	Model           string   `json:"model,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	Image           string   `json:"image,omitempty"`
+	Images          []string `json:"images,omitempty"`
+	Urls            []string `json:"urls,omitempty"`
+	ReferenceImages []string `json:"referenceImages,omitempty"`
+	// LastFrame is the tail keyframe for first/last-frame (首尾帧) generation. It is
+	// kept OUT of the Images merge in normalizeTaskSubmitReq so the doubao adaptor can
+	// emit it with role="last_frame" instead of folding it into the reference_image set.
+	LastFrame      string                 `json:"lastFrame,omitempty"`
+	Size           string                 `json:"size,omitempty"`
+	Resolution     string                 `json:"resolution,omitempty"`
+	AspectRatio    string                 `json:"aspect_ratio,omitempty"`
+	Duration       int                    `json:"duration,omitempty"`
+	Seconds        string                 `json:"seconds,omitempty"`
+	InputReference string                 `json:"input_reference,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {

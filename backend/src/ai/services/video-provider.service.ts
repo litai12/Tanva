@@ -1105,40 +1105,66 @@ export class VideoProviderService {
     //   "first/last frame content cannot be mixed with reference media content"。
     // first_frame(i2v) 模式仍走 image/images（adaptor 正确标 first_frame）。
     const seedanceVideoMode = String(options.videoMode || "").trim().toLowerCase();
-    // 首/尾帧类模式：首图(可含尾图)以 image/images 下发，adaptor 正确标 first_frame/last_frame。
+    // 首/尾帧类模式：首帧走 image（adaptor 标 first_frame），尾帧走独立 lastFrame 字段
+    // （adaptor 标 last_frame）。注意 smart_frames(智能多帧) 不在此列——它是“多参考图 +
+    // prompt @图N”玩法，所有图都是 reference_image，详见下方 reference 分支。
     const SEEDANCE_FRAME_MODES = new Set([
       "first_frame",
       "last_frame",
       "start_end",
       "start-end",
       "frame",
-      "smart_frames",
     ]);
     const isSeedance2FrameMode =
       isSeedance2 && SEEDANCE_FRAME_MODES.has(seedanceVideoMode);
-    // 参考图模式(r2v)：显式 reference_images，或 seedance2 多图且非首尾帧模式。
-    // 后者是 videoMode 缺失/异常时的兜底——只要有 ≥2 张参考图又不是首尾帧模式，
-    // 就全部当“主体参考”，避免把首图标 first_frame 与其余 reference_image 混用，
-    // 触发 Ark "first/last frame content cannot be mixed with reference media content"。
+    // 参考图模式(r2v)：全能参考(reference_images)与智能多帧(smart_frames，2-10 图、靠
+    // prompt @图N 区分用途)都属此类，所有图标 reference_image，经 referenceImages 字段下发。
+    // 兜底：videoMode 缺失/异常时，只要有 ≥2 张参考图又不是首尾帧模式，也全部当“主体参考”，
+    // 避免把首图标 first_frame 与其余 reference_image 混用触发 Ark 400。
     // 单图(length<2)仍按首图(i2v)走 image/images，保持原首帧行为。
+    const SEEDANCE_REFERENCE_MODES = new Set(["reference_images", "smart_frames"]);
     const isSeedance2ReferenceMode =
       isSeedance2 &&
       !isSeedance2FrameMode &&
-      (seedanceVideoMode === "reference_images" || referenceImages.length >= 2);
+      (SEEDANCE_REFERENCE_MODES.has(seedanceVideoMode) || referenceImages.length >= 2);
+    // 首尾帧(start_end)：≥2 图时首图=首帧、次图=尾帧；单图退化为纯首帧(i2v)。
+    const isSeedance2StartEndMode =
+      isSeedance2 &&
+      isSeedance2FrameMode &&
+      (seedanceVideoMode === "start_end" || seedanceVideoMode === "start-end");
     const buildSeedanceImageFields = (
       urls: string[],
-    ): { image?: string; images?: string[]; referenceImages?: string[] } =>
-      isSeedance2ReferenceMode
-        ? {
-            image: undefined,
-            images: undefined,
-            referenceImages: urls.length > 0 ? urls : undefined,
-          }
-        : {
-            image: urls[0],
-            images: urls.length > 0 ? urls : undefined,
-            referenceImages: undefined,
-          };
+    ): {
+      image?: string;
+      images?: string[];
+      referenceImages?: string[];
+      lastFrame?: string;
+    } => {
+      if (isSeedance2ReferenceMode) {
+        return {
+          image: undefined,
+          images: undefined,
+          referenceImages: urls.length > 0 ? urls : undefined,
+          lastFrame: undefined,
+        };
+      }
+      if (isSeedance2StartEndMode && urls.length >= 2) {
+        // 尾帧只走 lastFrame、绝不放进 images：否则 new-api 归一化会把它并入
+        // reference_image 集合，与 first_frame 混用触发 Ark 400。
+        return {
+          image: urls[0],
+          images: undefined,
+          referenceImages: undefined,
+          lastFrame: urls[1],
+        };
+      }
+      return {
+        image: urls[0],
+        images: urls.length > 0 ? urls : undefined,
+        referenceImages: undefined,
+        lastFrame: undefined,
+      };
+    };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
 
     const metadata = {
@@ -1160,6 +1186,8 @@ export class VideoProviderService {
       images: kling ? kling.images : seedanceImageFields.images,
       // Seedance 2.0 r2v：参考图经此字段下发，new-api 全部标 reference_image。
       referenceImages: kling ? undefined : seedanceImageFields.referenceImages,
+      // Seedance 2.0 首尾帧：尾帧经此字段下发，new-api 标 last_frame（与 first_frame 成对）。
+      lastFrame: kling ? undefined : seedanceImageFields.lastFrame,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
       reference_videos: kling

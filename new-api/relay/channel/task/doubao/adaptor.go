@@ -222,7 +222,6 @@ func (a *TaskAdaptor) CleanupOnTerminal(task *model.Task) {
 	go deleteAssetGroup(a.volcAccessKey, a.volcSecretKey, groupID)
 }
 
-
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
@@ -378,6 +377,17 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 				ImageURL: &MediaURL{URL: imgURL},
 			})
 		}
+	}
+	// 首尾帧(start_end)：尾帧以独立 LastFrame 字段下发，紧跟首帧后标 role=last_frame。
+	// 它与参考图(reference_image)互斥——referenceOnly 时忽略，避免把首/尾帧与参考媒体
+	// 混用触发 Ark "first/last frame content cannot be mixed with reference media content"。
+	// 不走 `seen` 去重：首尾帧可以是同一张图（静态→动态），按 role 区分而非按 URL。
+	if !referenceOnly && req.LastFrame != "" {
+		r.Content = append(r.Content, ContentItem{
+			Type:     "image_url",
+			Role:     "last_frame",
+			ImageURL: &MediaURL{URL: req.LastFrame},
+		})
 	}
 	for _, imgURL := range req.ReferenceImages {
 		if imgURL == "" || seen[imgURL] {
