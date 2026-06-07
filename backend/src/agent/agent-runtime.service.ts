@@ -36,7 +36,10 @@ export class AgentRuntimeService {
   createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
     this.cleanupExpiredRuns();
 
-    const decision = this.withContextAwareness(dto, this.decideIntent(dto));
+    const decision = this.withOutputCountAwareness(
+      dto,
+      this.withContextAwareness(dto, this.decideIntent(dto)),
+    );
     const now = new Date();
     const run: AgentRunRecord = {
       id: randomUUID(),
@@ -143,7 +146,10 @@ export class AgentRuntimeService {
         message: `建议调用 ${decision.selectedTool}。`,
         data: {
           selectedTool: decision.selectedTool,
-          parameters: { prompt: dto.prompt },
+          parameters: {
+            prompt: dto.prompt,
+            outputImageCount: this.getRequestedOutputImageCount(dto) ?? undefined,
+          },
           workflow: decision.workflow,
           intent: decision.intent,
           suggestedWebSearch: decision.shouldEnableWebSearch,
@@ -390,6 +396,55 @@ export class AgentRuntimeService {
         ...decision.steps,
       ],
     };
+  }
+
+  private withOutputCountAwareness(
+    dto: CreateAgentRunDto,
+    decision: IntentDecision,
+  ): IntentDecision {
+    const requestedOutputImageCount = this.getRequestedOutputImageCount(dto);
+    if (
+      !requestedOutputImageCount ||
+      !['generate_image', 'edit_image', 'blend_images'].includes(decision.intent)
+    ) {
+      return decision;
+    }
+
+    return {
+      ...decision,
+      steps: decision.steps.map((step) =>
+        step.id === 'execute'
+          ? {
+              ...step,
+              detail:
+                requestedOutputImageCount > 1
+                  ? `按本次请求准备生成 ${requestedOutputImageCount} 张输出图像，后续交给现有${this.toolLabel(decision.selectedTool)}工具。`
+                  : `按本次请求准备生成 1 张输出图像，后续交给现有${this.toolLabel(decision.selectedTool)}工具。`,
+            }
+          : step,
+      ),
+    };
+  }
+
+  private getRequestedOutputImageCount(dto: CreateAgentRunDto): number | null {
+    const value = dto.context?.requestedOutputImageCount;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    const normalized = Math.floor(value);
+    if (normalized < 1) return null;
+    return Math.min(normalized, 8);
+  }
+
+  private toolLabel(tool: AgentToolName): string {
+    const labels: Record<AgentToolName, string> = {
+      generateImage: '生图',
+      editImage: '改图',
+      blendImages: '融合',
+      analyzeImage: '分析',
+      chatResponse: '文本对话',
+      generateVideo: '视频生成',
+      generatePaperJS: '矢量生成',
+    };
+    return labels[tool] || tool;
   }
 
   private buildResearchCases(prompt: string): AgentResearchResult {

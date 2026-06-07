@@ -72,6 +72,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Image UI: failed/timeout image slots now render a red failure state with the backend error message instead of continuing to show the loading spinner after `generationStatus.error` is set.
+- AI Chat Image Count: Auto/Generate image requests now parse explicit output quantities from language such as `画两张`, `生成 3 张`, and `多张方案`, overriding the default UI multiplier while avoiding source-image phrases such as `用两张参考图`.
 - AI Chat Context: text chat now separates iteration detection from conversation-context dependency detection, so prompts like `刚才/之前/上文/上一条/这两个/previous/last` include recent history without being treated only as design iterations; Auto-mode Agent trace also receives this context and shows a context-reading step when needed.
 - Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
 - Flow/Prompt Mentions: multi-`@` image references now match longest tokens first, preserve existing structured refs when typed-token candidate sync runs, skip ambiguous same-token auto-binding, and prefer exact node-handle lookup for workflow references to avoid prefix or multi-output image mixups.
@@ -759,3 +761,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
 - Flow/Seedance Video: added mode inputs eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
+
+## [AI Chat Canvas Placeholder Timeout - 2026-06-08]
+### Fixed
+- AI Chat image-generation error status now dispatches a canvas placeholder remove event as a generic fallback.
+- Canvas AI predictive placeholders now carry `createdAt/expiresAt` metadata and `useQuickImageUpload` removes expired or orphaned placeholders, preventing stuck 95% waiting boxes after task timeout or missed remove events.

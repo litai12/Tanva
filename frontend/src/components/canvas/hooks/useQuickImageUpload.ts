@@ -3,7 +3,7 @@
  * 直接选择图片并自动放置到画布中心
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
 import { ImageResourceManager } from '@/canvas/ImageResourceManager';
 import { logger } from '@/utils/logger';
@@ -123,6 +123,8 @@ const getRasterSourceString = (raster: any): string => {
 const IMAGE_LOAD_TIMEOUT = 120000; // 120s
 const IMAGE_LOAD_MAX_RETRIES = 3;
 const IMAGE_LOAD_RETRY_BASE_DELAY = 800; // ms，指数退避
+const AI_PREDICT_PLACEHOLDER_TTL_MS = 15 * 60 * 1000;
+const AI_PREDICT_PLACEHOLDER_CLEANUP_INTERVAL_MS = 30 * 1000;
 const MATRIX_CELL_PADDING = 16;
 const MAX_LINEAR_SHIFT_STEPS = 50;
 const GENERATE_VERTICAL_GAP_MIN = 48;
@@ -221,22 +223,165 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         if (existed) setPendingCount((c) => Math.max(0, c - 1));
     }, []);
 
+    const removePlaceholderPaperItem = useCallback((item: paper.Item | null | undefined) => {
+        if (!item) return;
+        const animationId = (item as any)._spinnerAnimationId;
+        if (animationId && typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(animationId);
+        }
+        if (item.parent) {
+            item.remove();
+        }
+    }, []);
+
     const removePredictedPlaceholder = useCallback((placeholderId: string | undefined | null) => {
         if (!placeholderId) return;
         const existing = predictedPlaceholdersRef.current.get(placeholderId);
-        if (existing) {
-            // 清理旋转动画
-            const animationId = (existing as any)._spinnerAnimationId;
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-            }
-            if (existing.parent) {
-                existing.remove();
-            }
-        }
+        removePlaceholderPaperItem(existing);
         predictedPlaceholdersRef.current.delete(placeholderId);
         removePendingImage(placeholderId);
-    }, [removePendingImage]);
+    }, [removePendingImage, removePlaceholderPaperItem]);
+
+    const isAiPredictPlaceholder = useCallback((item: paper.Item | null | undefined) => {
+        const data = item?.data || {};
+        const placeholderId =
+            typeof data.placeholderId === 'string'
+                ? data.placeholderId
+                : typeof data.placeholderGroupId === 'string'
+                    ? data.placeholderGroupId
+                    : '';
+        return data.type === 'image-placeholder'
+            && (data.placeholderSource === 'ai-predict' || placeholderId.startsWith('ai-placeholder-'));
+    }, []);
+
+    const getPlaceholderId = useCallback((item: paper.Item | null | undefined): string | undefined => {
+        const data = item?.data || {};
+        if (typeof data.placeholderId === 'string' && data.placeholderId) return data.placeholderId;
+        if (typeof data.placeholderGroupId === 'string' && data.placeholderGroupId) return data.placeholderGroupId;
+        return undefined;
+    }, []);
+
+    const getPlaceholderExpiresAt = useCallback((item: paper.Item | null | undefined): number | null => {
+        const data = item?.data || {};
+        const explicitExpiresAt = Number(data.expiresAt ?? data.aiPredictExpiresAt);
+        if (Number.isFinite(explicitExpiresAt) && explicitExpiresAt > 0) {
+            return explicitExpiresAt;
+        }
+        const createdAt = Number(data.createdAt ?? data.aiPredictCreatedAt);
+        if (Number.isFinite(createdAt) && createdAt > 0) {
+            return createdAt + AI_PREDICT_PLACEHOLDER_TTL_MS;
+        }
+        return null;
+    }, []);
+
+    const stampPlaceholderExpiry = useCallback((item: paper.Item | null | undefined, now: number) => {
+        if (!item) return;
+        item.data = {
+            ...(item.data || {}),
+            createdAt: now,
+            expiresAt: now + AI_PREDICT_PLACEHOLDER_TTL_MS,
+        };
+    }, []);
+
+    const collectAiPredictPlaceholders = useCallback((): paper.Item[] => {
+        const results: paper.Item[] = [];
+        if (!paper.project) return results;
+
+        const visit = (item: paper.Item | null | undefined) => {
+            if (!item) return;
+            if (isAiPredictPlaceholder(item)) {
+                results.push(item);
+            }
+            const children = (item as any).children as paper.Item[] | undefined;
+            if (Array.isArray(children)) {
+                children.forEach(visit);
+            }
+        };
+
+        paper.project.layers.forEach((layer) => visit(layer));
+        return results;
+    }, [isAiPredictPlaceholder]);
+
+    const cleanupExpiredAiPredictPlaceholders = useCallback(() => {
+        const now = Date.now();
+        let removedCount = 0;
+
+        const removeExpired = (placeholderId: string | undefined, item: paper.Item | null | undefined) => {
+            removePlaceholderPaperItem(item);
+            if (placeholderId) {
+                predictedPlaceholdersRef.current.delete(placeholderId);
+                removePendingImage(placeholderId);
+            }
+            removedCount += 1;
+        };
+
+        predictedPlaceholdersRef.current.forEach((item, placeholderId) => {
+            if (!item?.parent) {
+                predictedPlaceholdersRef.current.delete(placeholderId);
+                removePendingImage(placeholderId);
+                return;
+            }
+            if (!isAiPredictPlaceholder(item)) return;
+
+            const expiresAt = getPlaceholderExpiresAt(item);
+            if (expiresAt === null) {
+                stampPlaceholderExpiry(item, now);
+                return;
+            }
+            if (now >= expiresAt) {
+                removeExpired(placeholderId, item);
+            }
+        });
+
+        collectAiPredictPlaceholders().forEach((item) => {
+            if (!item.parent) return;
+            const placeholderId = getPlaceholderId(item);
+            const expiresAt = getPlaceholderExpiresAt(item);
+            const isKnown = !!placeholderId && predictedPlaceholdersRef.current.get(placeholderId) === item;
+            const hasPending = !!placeholderId && pendingImagesRef.current.some((pending) =>
+                pending.id === placeholderId || pending.placeholderId === placeholderId
+            );
+
+            if (expiresAt === null) {
+                if (!isKnown && !hasPending) {
+                    removeExpired(placeholderId, item);
+                } else {
+                    stampPlaceholderExpiry(item, now);
+                }
+                return;
+            }
+
+            if (now >= expiresAt) {
+                removeExpired(placeholderId, item);
+            }
+        });
+
+        if (removedCount > 0) {
+            try { paper.view?.update(); } catch {}
+            try { paperSaveService.triggerAutoSave('cleanup-ai-placeholder-timeout'); } catch {}
+            logger.upload(`🧹 已清理过期 AI 预测占位符: ${removedCount}`);
+        }
+    }, [
+        collectAiPredictPlaceholders,
+        getPlaceholderExpiresAt,
+        getPlaceholderId,
+        isAiPredictPlaceholder,
+        removePendingImage,
+        removePlaceholderPaperItem,
+        stampPlaceholderExpiry,
+    ]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const intervalId = window.setInterval(
+            cleanupExpiredAiPredictPlaceholders,
+            AI_PREDICT_PLACEHOLDER_CLEANUP_INTERVAL_MS
+        );
+        cleanupExpiredAiPredictPlaceholders();
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [cleanupExpiredAiPredictPlaceholders]);
 
     // 更新占位符进度
     const updatePlaceholderProgress = useCallback((placeholderId: string, progress: number) => {
@@ -991,6 +1136,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const group = new paper.Group([bg, border, shimmerGroup, scanLine, barBg, barFg, progressLabel]);
         group.position = centerPoint;
         group.locked = true; // 占位框仅作为指示元素，不允许用户直接选择/拖拽
+        const createdAt = Date.now();
+        const expiresAt = createdAt + AI_PREDICT_PLACEHOLDER_TTL_MS;
         group.data = {
             type: 'image-placeholder',
             placeholderId: params.placeholderId,
@@ -1003,6 +1150,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             isHelper: true,
             placeholderSource: 'ai-predict',
             operationType: params.operationType,
+            createdAt,
+            expiresAt,
             // 🔥 不再存储 Paper.js 元素引用，避免循环引用导致序列化失败
             // spinnerElement: scanLine,
             // progressLabelElement: progressLabel,
@@ -1026,7 +1175,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 placeholderGroupId: params.placeholderId, // 使用 ID 而不是引用
                 placeholderType: 'image',
                 placeholderId: params.placeholderId,
-                isHelper: true
+                isHelper: true,
+                placeholderSource: 'ai-predict',
+                createdAt,
+                expiresAt
             };
             item.locked = true;
         };

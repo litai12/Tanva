@@ -629,14 +629,116 @@ const shouldAutoEnableWebSearch = (input: string): boolean => {
   );
 };
 
+const REQUESTED_IMAGE_COUNT_MAX = 8;
+const NUMBER_WORDS: Record<string, number> = {
+  一: 1,
+  二: 2,
+  两: 2,
+  俩: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+const parseRequestedImageCountToken = (token?: string | null): number | null => {
+  if (!token) return null;
+  const normalized = token.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const numeric = Number.parseInt(normalized, 10);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.min(numeric, REQUESTED_IMAGE_COUNT_MAX);
+  }
+
+  const wordValue = NUMBER_WORDS[normalized];
+  if (wordValue) return Math.min(wordValue, REQUESTED_IMAGE_COUNT_MAX);
+
+  return null;
+};
+
+const isLikelyInputImageQuantity = (
+  text: string,
+  matchStart: number,
+  matchEnd: number
+): boolean => {
+  const before = text.slice(Math.max(0, matchStart - 8), matchStart);
+  const after = text.slice(matchEnd, matchEnd + 10);
+  return (
+    /(?:用|基于|参考|源|输入|上传|选择|连接|已有|当前|这|那|把|将)\s*$/.test(
+      before
+    ) || /^(?:参考|源|输入|素材|作为|进行|融合|合成)/.test(after)
+  );
+};
+
+const extractRequestedOutputImageCount = (input: string): number | null => {
+  const text = String(input || "").trim();
+  if (!text) return null;
+
+  const directPatterns = [
+    /(?:画|生成|出|做|来|给|要|创建|设计|产出|输出)\s*([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)(?:图|图片|图像|方案|版本|效果图)?/i,
+    /(?:图|图片|图像|效果图|插画|海报|头像|方案|版本)\s*([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)/i,
+    /(?:generate|draw|create|make|render|produce|output|give me|need|want)\s+([1-9]\d?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:images?|pictures?|renders?|versions?|variations?)/i,
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = pattern.exec(text);
+    const count = parseRequestedImageCountToken(match?.[1]);
+    if (count) return count;
+  }
+
+  const genericPattern =
+    /([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)\s*(?:图|图片|图像|方案|版本|效果图|插画|海报|头像)/i;
+  const genericMatch = genericPattern.exec(text);
+  if (genericMatch) {
+    const count = parseRequestedImageCountToken(genericMatch[1]);
+    if (
+      count &&
+      !isLikelyInputImageQuantity(
+        text,
+        genericMatch.index,
+        genericMatch.index + genericMatch[0].length
+      )
+    ) {
+      return count;
+    }
+  }
+
+  const englishGenericPattern =
+    /([1-9]\d?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:images?|pictures?|renders?|versions?|variations?)\s+(?:of|about|for|with)/i;
+  const englishGenericMatch = englishGenericPattern.exec(text);
+  const englishCount = parseRequestedImageCountToken(englishGenericMatch?.[1]);
+  if (englishCount) return englishCount;
+
+  if (/(?:多张|多幅|多版|多个版本|几张|几幅)/.test(text)) return 2;
+
+  return null;
+};
+
 const buildAgentRunContext = (input: string): Record<string, unknown> => {
   const needsConversationContext =
     contextManager.detectConversationContextIntent(input);
   const sessionSummary = contextManager.getSessionSummary();
+  const requestedOutputImageCount = extractRequestedOutputImageCount(input);
 
   return {
     needsConversationContext,
     sessionSummary,
+    requestedOutputImageCount: requestedOutputImageCount ?? undefined,
     conversationPrompt: needsConversationContext
       ? contextManager.buildContextPrompt(input)
       : undefined,
@@ -3522,6 +3624,22 @@ export const useAIChatStore = create<AIChatState>()(
               // 占位框的清理交由生成/上传流程完成，避免在 100% 时提前移除导致落位信息丢失
             } catch (error) {
               placeholderLogger.warn("派发占位符进度更新事件失败", error);
+            }
+          }
+
+          if (status?.error && typeof window !== "undefined") {
+            const placeholderId = `ai-placeholder-${messageId}`;
+            try {
+              window.dispatchEvent(
+                new CustomEvent("predictImagePlaceholder", {
+                  detail: {
+                    placeholderId,
+                    action: "remove",
+                  },
+                })
+              );
+            } catch (error) {
+              placeholderLogger.warn("派发占位符错误清理事件失败", error);
             }
           }
         },
@@ -8436,12 +8554,18 @@ export const useAIChatStore = create<AIChatState>()(
           const isImageGenerationTool =
             selectedTool && imageGenerationTools.includes(selectedTool);
 
-          const multiplier: AutoModeMultiplier = isImageGenerationTool
-            ? state.autoModeMultiplier
+          const requestedOutputImageCount =
+            isImageGenerationTool ? extractRequestedOutputImageCount(input) : null;
+          const multiplier = isImageGenerationTool
+            ? requestedOutputImageCount ?? state.autoModeMultiplier
             : 1;
 
           console.log(
-            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`
+            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}${
+              requestedOutputImageCount
+                ? ` (from prompt: ${requestedOutputImageCount})`
+                : ""
+            }`
           );
 
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行

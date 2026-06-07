@@ -4271,6 +4271,11 @@ const AIChatDialog: React.FC = () => {
                     const msgExpectsImageOutput = Boolean(
                       message.expectsImageOutput
                     );
+                    const generationError =
+                      typeof msgGenerationStatus?.error === "string" &&
+                      msgGenerationStatus.error.trim().length > 0
+                        ? msgGenerationStatus.error.trim()
+                        : null;
                     const hasTextContent = Boolean(message.content?.trim());
 
                     const imageSrc = resolveMessageImageSrc(message);
@@ -4300,6 +4305,31 @@ const AIChatDialog: React.FC = () => {
                           }}
                           title={lt("点击全屏预览", "Click to preview fullscreen")}
                         />
+                      );
+                    }
+
+                    if (generationError && msgExpectsImageOutput) {
+                      return (
+                        <div
+                          className={`${imageSize} rounded-lg border border-red-200 bg-red-50/80 shadow-sm`}
+                        >
+                          <div className='relative z-10 flex flex-col items-center justify-center w-full h-full gap-1.5 px-2 text-center text-xs text-red-600'>
+                            <AlertCircle className='w-4 h-4 text-red-500' />
+                            <span className='font-semibold'>
+                              {message.groupIndex !== undefined
+                                ? `${message.groupIndex + 1}/${
+                                    message.groupTotal || "?"
+                                  } 失败`
+                                : lt("生成失败", "Failed")}
+                            </span>
+                            <span
+                              className='max-w-full text-[10px] leading-snug text-red-500 line-clamp-3'
+                              title={generationError}
+                            >
+                              {generationError}
+                            </span>
+                          </div>
+                        </div>
                       );
                     }
 
