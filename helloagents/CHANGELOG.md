@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- AI Chat/Agent: `research_cases` can now use the Volcengine web/image search API (`VOLC_SEARCH_*`) plus model JSON extraction to build case cards from real web results, then populate real image thumbnails; static case cards are only a disabled/failed/empty-search fallback.
 - AI Chat/Agent: `research_cases` runs now emit a structured research result with architecture case cards, source links, and image-search slots; Auto text chat also enables web search automatically for case/reference/research prompts.
 - AI Chat/Agent: added a first-stage Agent Runtime skeleton with authenticated `/api/agent/runs` plus SSE run events, and AI Chat now records Auto-mode agent planning traces on the active AI message before handing off to the existing tool execution path.
 - Frontend Campaign Notice: added a reusable top activity notice bar for `/` and `/app` with a Beijing-time countdown to `2026-06-06 00:00:00`, close-on-current-page behavior, refresh re-display, and canvas fixed-control offset handling.
@@ -72,6 +73,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat/Agent: research case image lookup now tries multiple queries per case and constrains the frontend thumbnail grid width, reducing partial image misses and oversized thumbnails on wide chat layouts.
+- AI Chat Text: text chat now retries once without `web_search_preview` when the new-api web-search tools call fails, and provider text failures return readable 503 errors instead of Nest's generic `Internal server error`.
 - AI Chat Image UI: failed/timeout image slots now render a red failure state with the backend error message instead of continuing to show the loading spinner after `generationStatus.error` is set.
 - AI Chat Image Count: Auto/Generate image requests now parse explicit output quantities from language such as `画两张`, `生成 3 张`, and `多张方案`, overriding the default UI multiplier while avoiding source-image phrases such as `用两张参考图`.
 - AI Chat Context: text chat now separates iteration detection from conversation-context dependency detection, so prompts like `刚才/之前/上文/上一条/这两个/previous/last` include recent history without being treated only as design iterations; Auto-mode Agent trace also receives this context and shows a context-reading step when needed.

@@ -4708,7 +4708,7 @@ const AIChatDialog: React.FC = () => {
                                                   </div>
                                                 ) : null}
                                                 {images.length > 0 ? (
-                                                  <div className='mb-2 grid grid-cols-4 gap-1'>
+                                                  <div className='mb-2 grid max-w-[760px] grid-cols-2 gap-1 sm:grid-cols-4'>
                                                     {images
                                                       .slice(0, 4)
                                                       .map((img) =>

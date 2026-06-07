@@ -14,6 +14,7 @@ import {
   AgentRunSummary,
   AgentToolName,
 } from './agent.types';
+import { VolcResearchSearchService, VolcResearchSearchPayload } from './volc-research-search.service';
 
 type AgentEventSubscriber = (event: AgentRunEvent) => void;
 
@@ -32,6 +33,8 @@ export class AgentRuntimeService {
   private readonly logger = new Logger(AgentRuntimeService.name);
   private readonly runs = new Map<string, AgentRunRecord>();
   private readonly subscribers = new Map<string, Set<AgentEventSubscriber>>();
+
+  constructor(private readonly volcResearchSearch: VolcResearchSearchService) {}
 
   createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
     this.cleanupExpiredRuns();
@@ -158,7 +161,7 @@ export class AgentRuntimeService {
 
       if (decision.intent === 'research_cases') {
         await this.pause(80);
-        const researchResult = this.buildResearchCases(dto.prompt);
+        const researchResult = await this.buildResearchCases(dto.prompt);
         this.emit(run, 'research_result', {
           title: '整理案例资料',
           message: `已准备 ${researchResult.cases.length} 个图文案例卡片。`,
@@ -447,20 +450,57 @@ export class AgentRuntimeService {
     return labels[tool] || tool;
   }
 
-  private buildResearchCases(prompt: string): AgentResearchResult {
+  private async buildResearchCases(prompt: string): Promise<AgentResearchResult> {
     const isChurch = /教堂|礼拜堂|church|chapel|cathedral/i.test(prompt);
-    const cases = isChurch ? this.buildChurchCases() : this.buildArchitectureCases();
-    const topic = isChurch ? '教堂建筑案例' : '建筑案例';
+    const isSchool = /学校|校园|大学|学院|school|campus|university/i.test(prompt);
+    const cases = isChurch
+      ? this.buildChurchCases()
+      : isSchool
+        ? this.buildSchoolCases()
+        : this.buildArchitectureCases();
+    const topic = isChurch ? '教堂建筑案例' : isSchool ? '学校建筑案例' : '建筑案例';
     const sources = this.dedupeSources(cases.flatMap((item) => item.sources));
-
-    return {
+    const fallback: AgentResearchResult = {
       title: topic,
       summary:
         `已按“案例价值 + 资料可追溯 + 图像参考价值”整理 ${cases.length} 个方向。` +
         '图片区先提供可点击的图片检索入口，后续可替换为真实抓取缩略图。',
       cases,
       sources,
+      searchStats: {
+        provider: 'static',
+        keywordCount: 0,
+        sourceCount: sources.length,
+        imageCount: 0,
+        fallback: true,
+      },
     };
+
+    try {
+      const search = await this.volcResearchSearch.searchArchitectureResearch(
+        prompt,
+        cases.flatMap((item) => this.caseImageSearchQueries(item)),
+      );
+      if (!search) return fallback;
+      const searchedImageCount = Array.from(search.imagesByQuery.values()).reduce(
+        (sum, images) => sum + images.length,
+        0,
+      );
+      if (search.sources.length === 0 && searchedImageCount === 0) {
+        return fallback;
+      }
+      if (search.cases.length > 0) {
+        return this.buildSearchDerivedResearchResult(topic, search);
+      }
+      return this.applyResearchSearch(fallback, search);
+    } catch (error) {
+      this.logger.warn(
+        `Volc research search failed, using static fallback: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return fallback;
+    }
   }
 
   private buildChurchCases(): AgentResearchCase[] {
@@ -588,6 +628,140 @@ export class AgentRuntimeService {
         images: this.imagesFor('Vanna Venturi House Robert Venturi facade'),
       },
     ];
+  }
+
+  private buildSchoolCases(): AgentResearchCase[] {
+    return [
+      {
+        id: 'bauhaus-dessau',
+        title: '包豪斯德绍校舍',
+        subtitle: 'Bauhaus Dessau',
+        architect: '沃尔特·格罗皮乌斯 Walter Gropius',
+        location: '德国德绍',
+        category: '现代主义 / 功能分区 / 玻璃幕墙',
+        summary:
+          '以教学、工坊、宿舍等功能体块清晰组织校园，玻璃幕墙与钢结构奠定现代学校建筑的原型。',
+        highlights: ['功能分区', '玻璃幕墙', '钢结构', '现代校园原型'],
+        sources: this.sourcesFor('Bauhaus Dessau Walter Gropius school architecture'),
+        images: this.imagesFor('Bauhaus Dessau Walter Gropius school architecture'),
+      },
+      {
+        id: 'iit-campus',
+        title: '伊利诺伊理工学院校园',
+        subtitle: 'IIT Campus / S. R. Crown Hall',
+        architect: '密斯·凡·德·罗 Ludwig Mies van der Rohe',
+        location: '美国芝加哥',
+        category: '少即是多 / 模数网格 / 钢玻体系',
+        summary:
+          '通过模数化钢结构和开放平面建立理性校园秩序，Crown Hall 成为建筑教育空间的经典范例。',
+        highlights: ['模数网格', '开放平面', '钢玻体系', '极简秩序'],
+        sources: this.sourcesFor('IIT campus Crown Hall Mies van der Rohe architecture school'),
+        images: this.imagesFor('IIT campus Crown Hall Mies van der Rohe architecture school'),
+      },
+      {
+        id: 'exeter-library',
+        title: '菲利普斯埃克塞特学院图书馆',
+        subtitle: 'Phillips Exeter Academy Library',
+        architect: '路易斯·康 Louis Kahn',
+        location: '美国新罕布什尔州埃克塞特',
+        category: '教育建筑 / 中庭 / 砖石秩序',
+        summary:
+          '以中心中庭、环形书库和阅读格间组织学习体验，展现纪念性空间与日常校园生活的结合。',
+        highlights: ['中心中庭', '砖石立面', '阅读格间', '纪念性空间'],
+        sources: this.sourcesFor('Phillips Exeter Academy Library Louis Kahn school architecture'),
+        images: this.imagesFor('Phillips Exeter Academy Library Louis Kahn school architecture'),
+      },
+    ];
+  }
+
+  private applyResearchSearch(
+    fallback: AgentResearchResult,
+    search: VolcResearchSearchPayload,
+  ): AgentResearchResult {
+    const cases = fallback.cases.map((item) => {
+      const searchedImages = this.dedupeImageCandidates(
+        this.caseImageSearchQueries(item).flatMap(
+          (query) => search.imagesByQuery.get(query) ?? [],
+        ),
+      ).slice(0, 4);
+      return {
+        ...item,
+        images: searchedImages.length > 0 ? searchedImages : item.images,
+      };
+    });
+    const sources = this.dedupeSources([
+      ...search.sources,
+      ...cases.flatMap((item) => item.sources),
+    ]);
+    const imageCount = cases.reduce(
+      (sum, item) => sum + item.images.filter((image) => Boolean(image.imageUrl)).length,
+      0,
+    );
+
+    return {
+      ...fallback,
+      summary: `搜索 ${search.keywords.length} 个关键词，参考 ${search.sources.length} 篇资料。`,
+      cases,
+      sources,
+      searchStats: {
+        provider: search.provider,
+        keywordCount: search.keywords.length,
+        sourceCount: search.sources.length,
+        imageCount,
+      },
+    };
+  }
+
+  private buildSearchDerivedResearchResult(
+    topic: string,
+    search: VolcResearchSearchPayload,
+  ): AgentResearchResult {
+    const sources = this.dedupeSources([
+      ...search.sources,
+      ...search.cases.flatMap((item) => item.sources),
+    ]);
+    const imageCount = search.cases.reduce(
+      (sum, item) => sum + item.images.filter((image) => Boolean(image.imageUrl)).length,
+      0,
+    );
+
+    return {
+      title: topic,
+      summary: `搜索 ${search.keywords.length} 个关键词，参考 ${search.sources.length} 篇资料。`,
+      cases: search.cases,
+      sources,
+      searchStats: {
+        provider: search.provider,
+        keywordCount: search.keywords.length,
+        sourceCount: search.sources.length,
+        imageCount,
+      },
+    };
+  }
+
+  private caseImageSearchQueries(item: AgentResearchCase): string[] {
+    const base = [item.subtitle || item.title, item.architect, item.location, 'architecture']
+      .filter(Boolean)
+      .join(' ');
+    const originalQueries = item.images
+      .map((image) => image.query)
+      .filter((query): query is string => typeof query === 'string' && query.trim().length > 0);
+    const titleOnly = [item.subtitle || item.title, 'architecture'].filter(Boolean).join(' ');
+    return Array.from(new Set([base, titleOnly, ...originalQueries].filter(Boolean))).slice(0, 3);
+  }
+
+  private dedupeImageCandidates(
+    images: AgentResearchImageCandidate[],
+  ): AgentResearchImageCandidate[] {
+    const seen = new Set<string>();
+    const result: AgentResearchImageCandidate[] = [];
+    for (const image of images) {
+      const key = image.imageUrl || image.sourceUrl || image.searchUrl || image.query;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(image);
+    }
+    return result;
   }
 
   private sourcesFor(query: string): AgentResearchSource[] {

@@ -192,15 +192,40 @@ export class NewApiProvider implements IAIProvider {
           ]
         : request.prompt;
 
-    return this.chat(
+    const payload = {
+      model: request.model || 'gemini-3.1-pro',
+      messages: [{ role: 'user', content }],
+      ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
+    };
+
+    if (!request.enableWebSearch) {
+      return this.chat(payload, request.providerOptions);
+    }
+
+    const result = await this.chat(
       {
-        model: request.model || 'gemini-3.1-pro',
-        messages: [{ role: 'user', content }],
-        ...(request.enableWebSearch ? { tools: [{ type: 'web_search_preview' }] } : {}),
-        ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
+        ...payload,
+        tools: [{ type: 'web_search_preview' }],
       },
       request.providerOptions,
     );
+
+    if (result.success || !this.shouldRetryTextWithoutWebSearch(result.error?.message)) {
+      return result;
+    }
+
+    this.logger.warn(
+      `text chat web search failed, retrying without web search: ${result.error?.message || 'unknown error'}`,
+    );
+    const fallback = await this.chat(payload, request.providerOptions);
+    if (fallback.success && fallback.data) {
+      fallback.data.metadata = {
+        ...(fallback.data.metadata || {}),
+        webSearchFallback: true,
+        webSearchFallbackReason: result.error?.message,
+      };
+    }
+    return fallback;
   }
 
   async selectTool(
@@ -570,6 +595,24 @@ export class NewApiProvider implements IAIProvider {
         details: error,
       },
     };
+  }
+
+  private shouldRetryTextWithoutWebSearch(message?: string): boolean {
+    const lower = String(message || '').toLowerCase();
+    if (!lower) return false;
+    return (
+      lower.includes('web_search_preview') ||
+      lower.includes('web search') ||
+      lower.includes('tool') ||
+      lower.includes('tools') ||
+      lower.includes('unsupported') ||
+      lower.includes('not supported') ||
+      lower.includes('invalid') ||
+      lower.includes('new-api http 500') ||
+      lower.includes('internal server error') ||
+      lower.includes('bad gateway') ||
+      lower.includes('service unavailable')
+    );
   }
 
   private extractText(result: any): string {

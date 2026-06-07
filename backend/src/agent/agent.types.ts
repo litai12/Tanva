@@ -52,6 +52,7 @@ export interface AgentResearchSource {
   title: string;
   url: string;
   snippet?: string;
+  sourceName?: string;
 }
 
 export interface AgentResearchImageCandidate {
@@ -59,6 +60,10 @@ export interface AgentResearchImageCandidate {
   query: string;
   searchUrl: string;
   imageUrl?: string;
+  sourceUrl?: string;
+  sourceName?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface AgentResearchCase {
@@ -79,6 +84,13 @@ export interface AgentResearchResult {
   summary: string;
   cases: AgentResearchCase[];
   sources: AgentResearchSource[];
+  searchStats?: {
+    provider: string;
+    keywordCount: number;
+    sourceCount: number;
+    imageCount: number;
+    fallback?: boolean;
+  };
 }
 
 export interface AgentRunRecord {

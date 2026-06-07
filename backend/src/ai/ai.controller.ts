@@ -4086,7 +4086,7 @@ export class AiController {
 
     return this.withCredits(req, serviceType, model, async () => {
       if (!customApiKey) {
-        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+        const provider = this.factory.getProvider(model, providerName || 'new-api');
         const result = await provider.generateText({
           prompt: dto.prompt,
           model,
@@ -4101,7 +4101,9 @@ export class AiController {
             metadata: result.data.metadata,
           };
         }
-        throw new Error(result.error?.message || 'Failed to generate text');
+        throw new ServiceUnavailableException(
+          result.error?.message || '文本生成服务暂时不可用，请稍后重试',
+        );
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务

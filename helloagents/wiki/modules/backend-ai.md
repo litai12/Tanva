@@ -31,10 +31,11 @@
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.
 - Current Agent runs are planning/trace-only and intentionally hand off actual generation/edit/text execution to the existing AI Chat tool paths, preserving current billing, async task, OSS, and refund semantics.
 - The initial workflow detector recognizes research/case lookup, image generation/edit/blend/analyze, video, vector, and text chat intents, emitting visible plan steps and a suggested existing tool.
-- `research_cases` emits an additional `research_result` event with deterministic architecture case cards, source links, and image-search slots. This is the first UI-ready research artifact layer; real web/image fetch can replace the generated search slots later without changing the frontend event contract.
+- `research_cases` emits an additional `research_result` event with architecture case cards, source links, and image slots. When `VOLC_SEARCH_ENABLED=true`, backend calls the Volcengine search API through `VolcResearchSearchService` (`VOLC_SEARCH_*`), asks the configured text model (`VOLC_SEARCH_SUMMARY_MODEL` / `ARK_WEB_SEARCH_MODEL` / default text model) to extract structured case JSON from those real web sources, then searches images for the extracted cases. Deterministic static case cards are only used when search is disabled, fails, or returns no parseable cases/results.
 
 ## 注意事项
 - `NewApiProvider` image generate/edit/blend only sends the upstream `size` field when callers provide an explicit `aspectRatio`; omitted/Auto aspect ratio stays omitted instead of falling back to `1:1`.
+- `NewApiProvider` text chat retries once without `web_search_preview` when an enabled web-search tools request fails with an upstream tools/5xx-style error. Successful fallback responses carry `metadata.webSearchFallback = true`, and `POST /api/ai/text-chat` returns readable `503` provider failures instead of a generic Nest 500.
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
