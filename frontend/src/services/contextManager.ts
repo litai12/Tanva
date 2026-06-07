@@ -24,6 +24,72 @@ const MEMORY_OPTIMIZATION = {
   sessionTimeoutMs: 24 * 60 * 60 * 1000, // 24小时超时
 };
 
+const CONTEXT_PROMPT_MESSAGE_LIMIT = 8;
+const CONTEXT_PROMPT_OPERATION_LIMIT = 4;
+const CONTEXT_MESSAGE_PREVIEW_LIMIT = 180;
+const CONTEXT_OPERATION_PREVIEW_LIMIT = 120;
+const CONTEXT_PROMPT_MAX_LENGTH = 2600;
+
+const EXPLICIT_CONTEXT_KEYWORDS = [
+  "刚才",
+  "刚刚",
+  "之前",
+  "前面",
+  "上面",
+  "上文",
+  "上下文",
+  "历史",
+  "上一条",
+  "上一轮",
+  "上一句",
+  "上一段",
+  "上一个",
+  "上一次",
+  "上一步",
+  "前一条",
+  "前一轮",
+  "前一句",
+  "前一段",
+  "前一个",
+  "前一次",
+  "前一步",
+  "原来",
+  "原先",
+  "刚才的",
+  "刚才那",
+  "刚刚那",
+  "前面的",
+  "上面的",
+  "这两个",
+  "那两个",
+  "两个数值",
+  "两个数字",
+  "这些数值",
+  "那些数值",
+  "previous",
+  "last",
+  "earlier",
+  "above",
+  "before",
+  "prior",
+  "context",
+  "conversation",
+  "history",
+  "last message",
+  "previous message",
+  "last answer",
+  "previous answer",
+  "last result",
+  "previous result",
+];
+
+const REFERENTIAL_CONTEXT_PATTERNS = [
+  /(这个|那个|这些|那些|这俩|那俩|它|它们|他们|前者|后者)/,
+  /(基于|按照|沿用|接着|继续|再把|帮我把).*(上面|前面|刚才|刚刚|之前|它|这个|那个|这些|那些)/,
+  /把.*(两个|这些|那些).*(相加|加起来|求和|合并|总结|改成|换成)/,
+  /\b(this|that|these|those|it|them|they)\b/i,
+];
+
 // 检查是否为 base64 数据
 const isBase64Data = (data?: string | null): boolean => {
   if (!data) return false;
@@ -80,6 +146,40 @@ class ContextManager implements IContextManager {
     if (cached.latestRemoteUrl === undefined) cached.latestRemoteUrl = null;
 
     return cached;
+  }
+
+  private getEffectiveMessages(context: ConversationContext): ChatMessage[] {
+    return context.messages.filter(
+      (msg) =>
+        !(msg.generationStatus?.isGenerating && msg.type === "ai") &&
+        typeof msg.content === "string" &&
+        msg.content.trim().length > 0
+    );
+  }
+
+  private hasUsableConversationContext(
+    context: ConversationContext,
+    currentInput?: string
+  ): boolean {
+    const messages = this.getEffectiveMessages(context).filter(
+      (msg) => !(msg.type === "user" && msg.content === currentInput)
+    );
+    if (messages.length > 0) return true;
+    if (context.operations.length > 0) return true;
+
+    const cached = this.ensureCachedImages(context);
+    return Boolean(
+      cached.latest ||
+        cached.latestRemoteUrl ||
+        context.contextInfo.imageHistory.length > 0
+    );
+  }
+
+  private compactContextText(value: string, maxLength: number): string {
+    const compacted = value.replace(/\s+/g, " ").trim();
+    return compacted.length > maxLength
+      ? `${compacted.substring(0, maxLength)}...`
+      : compacted;
   }
 
   private ensureTemporalFields(
@@ -853,13 +953,8 @@ class ContextManager implements IContextManager {
     const context = this.getCurrentContext();
     if (!context) return userInput;
 
-    // 过滤正在生成的占位消息，避免干扰上下文
-    const effectiveMessages = context.messages.filter(
-      (msg) => !(msg.generationStatus?.isGenerating && msg.type === "ai")
-    );
-
-    // 限制历史记录数量，防止请求头过大 (431错误)
-    const recentMessages = effectiveMessages.slice(-3); // 减少到最近3条消息
+    const effectiveMessages = this.getEffectiveMessages(context);
+    const recentMessages = effectiveMessages.slice(-CONTEXT_PROMPT_MESSAGE_LIMIT);
 
     // 去重：如果最新一条历史就是这次的用户输入，则从历史中移除，避免与“用户当前输入”重复
     if (recentMessages.length > 0) {
@@ -868,19 +963,21 @@ class ContextManager implements IContextManager {
         recentMessages.pop();
       }
     }
-    const recentOperations = context.operations.slice(-2); // 减少到最近2次操作
+    const recentOperations = context.operations.slice(-CONTEXT_PROMPT_OPERATION_LIMIT);
 
-    let contextPrompt = `用户当前输入: ${userInput}\n\n`;
+    let contextPrompt =
+      `你正在回答用户的当前输入。请优先用对话历史、最近操作和缓存图像理解指代词。\n` +
+      `用户当前输入: ${userInput}\n\n`;
 
     if (recentMessages.length > 0) {
-      contextPrompt += `对话历史:\n`;
+      contextPrompt += `对话历史（由早到晚）:\n`;
       recentMessages.forEach((msg) => {
-        // 减少单条消息长度限制
-        const content =
-          msg.content.length > 80
-            ? msg.content.substring(0, 80) + "..."
-            : msg.content;
-        contextPrompt += `- ${msg.type}: ${content}\n`;
+        const role = msg.type === "user" ? "用户" : "AI";
+        const content = this.compactContextText(
+          msg.content,
+          CONTEXT_MESSAGE_PREVIEW_LIMIT
+        );
+        contextPrompt += `- ${role}: ${content}\n`;
       });
       contextPrompt += `\n`;
     }
@@ -888,14 +985,14 @@ class ContextManager implements IContextManager {
     if (recentOperations.length > 0) {
       contextPrompt += `最近操作:\n`;
       recentOperations.forEach((op) => {
-        // 减少操作记录长度限制
-        const input =
-          op.input.length > 40 ? op.input.substring(0, 40) + "..." : op.input;
-        const output =
-          op.output && op.output.length > 40
-            ? op.output.substring(0, 40) + "..."
-            : op.output;
-        contextPrompt += `- ${op.type}: ${input} → ${output || "成功"} (${
+        const input = this.compactContextText(
+          op.input,
+          CONTEXT_OPERATION_PREVIEW_LIMIT
+        );
+        const output = op.output
+          ? this.compactContextText(op.output, CONTEXT_OPERATION_PREVIEW_LIMIT)
+          : "成功";
+        contextPrompt += `- ${op.type}: ${input} -> ${output} (${
           op.success ? "成功" : "失败"
         })\n`;
       });
@@ -930,13 +1027,13 @@ class ContextManager implements IContextManager {
       }
     }
 
-    // 🧠 特殊处理数学计算和连续对话 - 简化检测
-    const isMathRelated = /[\d\+\-\*\/\=]/.test(userInput);
+    const isMathRelated =
+      /[\d\+\-\*\/\=]/.test(userInput) ||
+      /(数字|数值|计算|求和|相加|加起来|等于|结果)/.test(userInput);
     if (isMathRelated) {
-      contextPrompt += `\n注意：数学计算相关对话。`;
+      contextPrompt += `\n注意：这是数学/数值相关对话，用户可能在引用历史里的数字或结果。`;
     }
 
-    // 🖼️ 特殊处理图像编辑意图 - 简化检测
     const isImageEditIntent = this.detectImageEditIntent(userInput);
     if (
       isImageEditIntent &&
@@ -945,16 +1042,41 @@ class ContextManager implements IContextManager {
       contextPrompt += `\n注意：可能需要编辑缓存图像。`;
     }
 
-    // 限制总体上下文提示长度，防止请求头过大 (431错误)
-    const maxContextLength = 1500; // 设置合理的上限
-    if (contextPrompt.length > maxContextLength) {
+    if (contextPrompt.length > CONTEXT_PROMPT_MAX_LENGTH) {
       contextPrompt =
-        contextPrompt.substring(0, maxContextLength) + "\n...(上下文已截断)";
+        contextPrompt.substring(0, CONTEXT_PROMPT_MAX_LENGTH) +
+        "\n...(上下文已截断)";
     }
 
-    contextPrompt += `\n请根据上下文直接回答“用户当前输入”。不要输出内部意图分析、关键要素拆解或回复策略。`;
+    contextPrompt +=
+      `\n回答要求：直接回答“用户当前输入”；如果用户说“刚才/之前/上面/这个/那个/这两个/last/previous”等，必须先用上面的对话历史解析。` +
+      `历史中已有相关内容时，不要声称没有之前记录。不要输出内部意图分析、关键要素拆解或回复策略。`;
 
     return contextPrompt;
+  }
+
+  /**
+   * 检测当前输入是否依赖对话上下文
+   */
+  detectConversationContextIntent(input: string): boolean {
+    if (!this.config.enableIterationDetection) return false;
+
+    const context = this.getCurrentContext();
+    if (!context || !this.hasUsableConversationContext(context, input)) {
+      return false;
+    }
+
+    const lowerInput = input.toLowerCase().trim();
+    if (!lowerInput) return false;
+
+    if (this.detectIterativeIntent(input)) return true;
+
+    const hasExplicitContextKeyword = EXPLICIT_CONTEXT_KEYWORDS.some((keyword) =>
+      lowerInput.includes(keyword.toLowerCase())
+    );
+    if (hasExplicitContextKeyword) return true;
+
+    return REFERENTIAL_CONTEXT_PATTERNS.some((pattern) => pattern.test(input));
   }
 
   /**

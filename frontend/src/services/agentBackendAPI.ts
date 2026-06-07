@@ -12,6 +12,7 @@ export type AgentEventType =
   | "step_completed"
   | "plan"
   | "tool_selected"
+  | "research_result"
   | "final"
   | "error"
   | "done";

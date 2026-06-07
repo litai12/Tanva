@@ -5,6 +5,10 @@ import {
   AgentEventType,
   AgentIntent,
   AgentPlanStep,
+  AgentResearchCase,
+  AgentResearchImageCandidate,
+  AgentResearchResult,
+  AgentResearchSource,
   AgentRunEvent,
   AgentRunRecord,
   AgentRunSummary,
@@ -32,7 +36,7 @@ export class AgentRuntimeService {
   createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
     this.cleanupExpiredRuns();
 
-    const decision = this.decideIntent(dto);
+    const decision = this.withContextAwareness(dto, this.decideIntent(dto));
     const now = new Date();
     const run: AgentRunRecord = {
       id: randomUUID(),
@@ -145,6 +149,16 @@ export class AgentRuntimeService {
           suggestedWebSearch: decision.shouldEnableWebSearch,
         },
       });
+
+      if (decision.intent === 'research_cases') {
+        await this.pause(80);
+        const researchResult = this.buildResearchCases(dto.prompt);
+        this.emit(run, 'research_result', {
+          title: '整理案例资料',
+          message: `已准备 ${researchResult.cases.length} 个图文案例卡片。`,
+          data: { result: researchResult },
+        });
+      }
 
       run.status = 'completed';
       run.completedAt = new Date();
@@ -343,6 +357,229 @@ export class AgentRuntimeService {
         { id: 'answer', title: '准备文本回答', detail: '后续交给现有文本对话工具。', tool: 'chatResponse' },
       ],
     };
+  }
+
+  private withContextAwareness(
+    dto: CreateAgentRunDto,
+    decision: IntentDecision,
+  ): IntentDecision {
+    const context = dto.context ?? {};
+    const needsConversationContext = context.needsConversationContext === true;
+    const sessionSummary =
+      typeof context.sessionSummary === 'string' ? context.sessionSummary : '';
+    const hasConversationPrompt =
+      typeof context.conversationPrompt === 'string' &&
+      context.conversationPrompt.trim().length > 0;
+
+    if (!needsConversationContext && !hasConversationPrompt) {
+      return decision;
+    }
+
+    const detail = needsConversationContext
+      ? '检测到用户在引用前文，规划时会读取最近对话和操作上下文。'
+      : '已读取当前会话摘要，用于判断是否需要历史或工具状态。';
+
+    return {
+      ...decision,
+      steps: [
+        {
+          id: 'context',
+          title: '读取会话上下文',
+          detail: sessionSummary ? `${detail} ${sessionSummary}` : detail,
+        },
+        ...decision.steps,
+      ],
+    };
+  }
+
+  private buildResearchCases(prompt: string): AgentResearchResult {
+    const isChurch = /教堂|礼拜堂|church|chapel|cathedral/i.test(prompt);
+    const cases = isChurch ? this.buildChurchCases() : this.buildArchitectureCases();
+    const topic = isChurch ? '教堂建筑案例' : '建筑案例';
+    const sources = this.dedupeSources(cases.flatMap((item) => item.sources));
+
+    return {
+      title: topic,
+      summary:
+        `已按“案例价值 + 资料可追溯 + 图像参考价值”整理 ${cases.length} 个方向。` +
+        '图片区先提供可点击的图片检索入口，后续可替换为真实抓取缩略图。',
+      cases,
+      sources,
+    };
+  }
+
+  private buildChurchCases(): AgentResearchCase[] {
+    return [
+      {
+        id: 'church-of-the-light',
+        title: '光之教堂',
+        subtitle: 'Church of the Light',
+        architect: '安藤忠雄 Tadao Ando',
+        location: '日本大阪府茨木市',
+        category: '极简 / 清水混凝土 / 光影叙事',
+        summary:
+          '以十字形开口把自然光变成空间主体，平面与材料极度克制，适合研究“光如何成为建筑语言”。',
+        highlights: ['十字光缝', '清水混凝土', '低成本但高精神性', '少即是多'],
+        sources: this.sourcesFor('Church of the Light Tadao Ando'),
+        images: this.imagesFor('Church of the Light Tadao Ando interior concrete cross light'),
+      },
+      {
+        id: 'wuying-church',
+        title: '成都无影教堂',
+        subtitle: 'Wuying Church / Sino-Ocean Taikoo Li style reference',
+        architect: '上海大椽建筑设计事务所等资料需二次核验',
+        location: '中国四川成都',
+        category: '轻结构 / 白色构件 / 花田景观',
+        summary:
+          '通过密集白色竖向构件和半透明边界营造“消隐”的宗教性，适合研究临时性、景观性和打卡传播。',
+        highlights: ['白色铝板阵列', '半透明边界', '花田环境', '轻量化精神空间'],
+        sources: this.sourcesFor('成都 无影教堂 建筑 案例'),
+        images: this.imagesFor('成都 无影教堂 白色 教堂 花田 建筑'),
+      },
+      {
+        id: 'bruder-klaus-field-chapel',
+        title: '布鲁德克劳斯田野教堂',
+        subtitle: 'Bruder Klaus Field Chapel',
+        architect: '彼得·卒姆托 Peter Zumthor',
+        location: '德国梅歇尔尼希',
+        category: '材料实验 / 土地性 / 内向冥想',
+        summary:
+          '外部粗粝、内部由燃烧木模板形成洞穴般空间，适合研究材料、工艺和精神体验的统一。',
+        highlights: ['夯筑混凝土', '火烧木模板', '洞穴式天光', '强烈触感'],
+        sources: this.sourcesFor('Bruder Klaus Field Chapel Peter Zumthor'),
+        images: this.imagesFor('Bruder Klaus Field Chapel Peter Zumthor interior oculus'),
+      },
+      {
+        id: 'kamppi-chapel',
+        title: '康比静默教堂',
+        subtitle: 'Kamppi Chapel of Silence',
+        architect: 'K2S Architects',
+        location: '芬兰赫尔辛基',
+        category: '城市公共空间 / 木结构 / 静默体验',
+        summary:
+          '在繁忙城市中心插入一枚温暖木质体量，适合研究公共性、安静边界和非传统宗教空间。',
+        highlights: ['木质曲面', '城市客厅', '无窗静默空间', '公共服务属性'],
+        sources: this.sourcesFor('Kamppi Chapel K2S Architects'),
+        images: this.imagesFor('Kamppi Chapel of Silence K2S Architects wood interior'),
+      },
+      {
+        id: 'ribbon-chapel',
+        title: '丝带教堂',
+        subtitle: 'Ribbon Chapel',
+        architect: '中村拓志 Hiroshi Nakamura & NAP',
+        location: '日本广岛县尾道市',
+        category: '婚礼教堂 / 双螺旋 / 结构叙事',
+        summary:
+          '两条螺旋楼梯相互缠绕成为结构与仪式路线，适合研究建筑形式如何直接表达叙事。',
+        highlights: ['双螺旋流线', '结构即造型', '海景场地', '仪式路径'],
+        sources: this.sourcesFor('Ribbon Chapel Hiroshi Nakamura NAP'),
+        images: this.imagesFor('Ribbon Chapel Hiroshi Nakamura NAP spiral chapel'),
+      },
+    ];
+  }
+
+  private buildArchitectureCases(): AgentResearchCase[] {
+    return [
+      {
+        id: 'heydar-aliyev-center',
+        title: '盖达尔·阿利耶夫中心',
+        subtitle: 'Heydar Aliyev Center',
+        architect: '扎哈·哈迪德 Zaha Hadid Architects',
+        location: '阿塞拜疆巴库',
+        category: '文化建筑 / 流线形态 / 参数化表皮',
+        summary:
+          '以连续曲面消解墙、屋顶与地面的边界，适合研究流动空间和地标级文化建筑表达。',
+        highlights: ['连续曲面', '地景化建筑', '无缝表皮', '公共文化地标'],
+        sources: this.sourcesFor('Heydar Aliyev Center Zaha Hadid'),
+        images: this.imagesFor('Heydar Aliyev Center Zaha Hadid interior exterior'),
+      },
+      {
+        id: 'sendai-mediatheque',
+        title: '仙台媒体中心',
+        subtitle: 'Sendai Mediatheque',
+        architect: '伊东丰雄 Toyo Ito',
+        location: '日本仙台',
+        category: '公共文化 / 结构系统 / 透明盒子',
+        summary:
+          '用管状结构整合流线、结构和设备，适合研究开放平面与复合公共功能。',
+        highlights: ['管状结构', '开放楼板', '透明立面', '媒体公共性'],
+        sources: this.sourcesFor('Sendai Mediatheque Toyo Ito'),
+        images: this.imagesFor('Sendai Mediatheque Toyo Ito tubes interior'),
+      },
+      {
+        id: 'therme-vals',
+        title: '瓦尔斯温泉浴场',
+        subtitle: 'Therme Vals',
+        architect: '彼得·卒姆托 Peter Zumthor',
+        location: '瑞士瓦尔斯',
+        category: '材料氛围 / 石材 / 身体体验',
+        summary:
+          '以石材、光线、水声和尺度组织沉浸体验，适合研究材料氛围与身体感知。',
+        highlights: ['片麻岩石材', '浴场序列', '暗光氛围', '触觉体验'],
+        sources: this.sourcesFor('Therme Vals Peter Zumthor'),
+        images: this.imagesFor('Therme Vals Peter Zumthor stone bath interior'),
+      },
+      {
+        id: 'vanna-venturi-house',
+        title: '范娜·文丘里住宅',
+        subtitle: 'Vanna Venturi House',
+        architect: '罗伯特·文丘里 Robert Venturi',
+        location: '美国宾夕法尼亚州',
+        category: '后现代 / 住宅 / 符号批判',
+        summary:
+          '以矛盾和复杂性挑战现代主义纯粹性，适合研究住宅立面、符号和历史引用。',
+        highlights: ['后现代开端', '复杂与矛盾', '山墙符号', '住宅尺度'],
+        sources: this.sourcesFor('Vanna Venturi House Robert Venturi'),
+        images: this.imagesFor('Vanna Venturi House Robert Venturi facade'),
+      },
+    ];
+  }
+
+  private sourcesFor(query: string): AgentResearchSource[] {
+    const encoded = encodeURIComponent(query);
+    return [
+      {
+        title: 'ArchDaily 项目检索',
+        url: `https://www.archdaily.com/search/projects?text=${encoded}`,
+        snippet: '适合快速获取项目介绍、图纸、摄影和建筑师信息。',
+      },
+      {
+        title: 'Google Scholar / Web 检索',
+        url: `https://www.google.com/search?q=${encoded}`,
+        snippet: '用于补充官网、媒体报道、论文或访谈资料。',
+      },
+    ];
+  }
+
+  private imagesFor(query: string): AgentResearchImageCandidate[] {
+    const variants = ['exterior', 'interior', 'plan section', 'detail'];
+    return variants.map((variant) => {
+      const finalQuery = `${query} ${variant}`;
+      return {
+        label:
+          variant === 'exterior'
+            ? '外观'
+            : variant === 'interior'
+              ? '室内'
+              : variant === 'plan section'
+                ? '图纸'
+                : '细部',
+        query: finalQuery,
+        searchUrl: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(finalQuery)}`,
+      };
+    });
+  }
+
+  private dedupeSources(sources: AgentResearchSource[]): AgentResearchSource[] {
+    const seen = new Set<string>();
+    const result: AgentResearchSource[] = [];
+    for (const source of sources) {
+      if (seen.has(source.url)) continue;
+      seen.add(source.url);
+      result.push(source);
+      if (result.length >= 8) break;
+    }
+    return result;
   }
 
   private describeIntent(intent: AgentIntent, prompt: string): string {

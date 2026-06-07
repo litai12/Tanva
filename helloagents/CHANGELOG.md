@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- AI Chat/Agent: `research_cases` runs now emit a structured research result with architecture case cards, source links, and image-search slots; Auto text chat also enables web search automatically for case/reference/research prompts.
 - AI Chat/Agent: added a first-stage Agent Runtime skeleton with authenticated `/api/agent/runs` plus SSE run events, and AI Chat now records Auto-mode agent planning traces on the active AI message before handing off to the existing tool execution path.
 - Frontend Campaign Notice: added a reusable top activity notice bar for `/` and `/app` with a Beijing-time countdown to `2026-06-06 00:00:00`, close-on-current-page behavior, refresh re-display, and canvas fixed-control offset handling.
 - Flow/HTML PPT: added an HTML PPT node with multi-slide HTML/CSS editing, sandboxed preview/export, text-handle prompt input, and Ultra-powered current-slide rewrite while blocking non-persistable inline/local image refs.
@@ -71,6 +72,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Context: text chat now separates iteration detection from conversation-context dependency detection, so prompts like `刚才/之前/上文/上一条/这两个/previous/last` include recent history without being treated only as design iterations; Auto-mode Agent trace also receives this context and shows a context-reading step when needed.
 - Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
 - Flow/Prompt Mentions: multi-`@` image references now match longest tokens first, preserve existing structured refs when typed-token candidate sync runs, skip ambiguous same-token auto-binding, and prefer exact node-handle lookup for workflow references to avoid prefix or multi-output image mixups.
 - Flow/Prompt Mentions: restored the independent `工作流` source in the Prompt `@` picker when downstream image inputs are connected, storing selections as `flow` node/handle references.

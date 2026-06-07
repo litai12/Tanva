@@ -4523,7 +4523,7 @@ const AIChatDialog: React.FC = () => {
                                           ? "失败"
                                           : "执行中";
                                     return (
-                                      <div className='mb-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-2 text-xs text-slate-700'>
+                                      <div className='mb-2 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-[2px]'>
                                         <div className='mb-1.5 flex items-center justify-between gap-2'>
                                           <div className='flex min-w-0 items-center gap-1.5 font-medium text-slate-800'>
                                             <Brain className='h-3.5 w-3.5 shrink-0 text-slate-500' />
@@ -4546,7 +4546,7 @@ const AIChatDialog: React.FC = () => {
                                                 key={step.id}
                                                 className='flex items-start gap-1.5'
                                               >
-                                                <span className='mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white'>
+                                                <span className='mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/35'>
                                                   {isRunning ? (
                                                     <Loader2 className='h-2.5 w-2.5 animate-spin text-slate-500' />
                                                   ) : isDone ? (
@@ -4582,6 +4582,179 @@ const AIChatDialog: React.FC = () => {
                                             {agentTrace.error}
                                           </div>
                                         ) : null}
+                                      </div>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const agentTrace =
+                                      message.metadata?.agentTrace;
+                                    const research =
+                                      agentTrace?.researchResult;
+                                    const cases = Array.isArray(
+                                      research?.cases
+                                    )
+                                      ? research.cases
+                                      : [];
+                                    if (!research || cases.length === 0) {
+                                      return null;
+                                    }
+                                    return (
+                                      <div className='mb-3 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px]'>
+                                        <div className='mb-2 flex items-start justify-between gap-2'>
+                                          <div className='min-w-0'>
+                                            <div className='font-semibold text-slate-900'>
+                                              {research.title || "案例资料"}
+                                            </div>
+                                            {research.summary ? (
+                                              <div className='mt-0.5 text-[11px] leading-relaxed text-slate-600'>
+                                                {research.summary}
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                          <span className='shrink-0 text-[11px] text-slate-500'>
+                                            {cases.length} 个案例
+                                          </span>
+                                        </div>
+                                        <div className='space-y-2'>
+                                          {cases.slice(0, 5).map((item) => {
+                                            const images = Array.isArray(
+                                              item.images
+                                            )
+                                              ? item.images
+                                              : [];
+                                            const sources = Array.isArray(
+                                              item.sources
+                                            )
+                                              ? item.sources
+                                              : [];
+                                            const highlights = Array.isArray(
+                                              item.highlights
+                                            )
+                                              ? item.highlights
+                                              : [];
+                                            return (
+                                              <div
+                                                key={item.id || item.title}
+                                                className='rounded-md border border-white/30 bg-white/10 p-2 backdrop-blur-[1px]'
+                                              >
+                                                <div className='mb-1 flex items-start justify-between gap-2'>
+                                                  <div className='min-w-0'>
+                                                    <div className='font-semibold text-slate-900'>
+                                                      {item.title}
+                                                    </div>
+                                                    <div className='text-[11px] text-slate-500'>
+                                                      {[
+                                                        item.subtitle,
+                                                        item.architect,
+                                                        item.location,
+                                                      ]
+                                                        .filter(Boolean)
+                                                        .join(" · ")}
+                                                    </div>
+                                                  </div>
+                                                  {item.category ? (
+                                                    <span className='shrink-0 rounded-full border border-white/35 bg-white/20 px-1.5 py-0.5 text-[10px] text-slate-600'>
+                                                      {item.category}
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                                {item.summary ? (
+                                                  <div className='mb-1.5 leading-relaxed text-slate-700'>
+                                                    {item.summary}
+                                                  </div>
+                                                ) : null}
+                                                {highlights.length > 0 ? (
+                                                  <div className='mb-2 flex flex-wrap gap-1'>
+                                                    {highlights
+                                                      .slice(0, 4)
+                                                      .map((tag) => (
+                                                        <span
+                                                          key={tag}
+                                                          className='rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] text-slate-600'
+                                                        >
+                                                          {tag}
+                                                        </span>
+                                                      ))}
+                                                  </div>
+                                                ) : null}
+                                                {images.length > 0 ? (
+                                                  <div className='mb-2 grid grid-cols-4 gap-1'>
+                                                    {images
+                                                      .slice(0, 4)
+                                                      .map((img) =>
+                                                        img.imageUrl ? (
+                                                          <button
+                                                            key={
+                                                              img.imageUrl ||
+                                                              img.searchUrl
+                                                            }
+                                                            type='button'
+                                                            className='group relative aspect-[4/3] overflow-hidden rounded border border-white/30 bg-white/10'
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              handleImagePreview(
+                                                                img.imageUrl,
+                                                                img.label ||
+                                                                  item.title
+                                                              );
+                                                            }}
+                                                          >
+                                                            <SmartImage
+                                                              src={img.imageUrl}
+                                                              alt={
+                                                                img.label ||
+                                                                item.title
+                                                              }
+                                                              className='h-full w-full object-cover'
+                                                            />
+                                                          </button>
+                                                        ) : (
+                                                          <a
+                                                            key={
+                                                              img.searchUrl ||
+                                                              img.query
+                                                            }
+                                                            href={
+                                                              img.searchUrl
+                                                            }
+                                                            target='_blank'
+                                                            rel='noopener noreferrer'
+                                                            className='flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded border border-white/30 bg-white/15 px-1 text-center text-[10px] text-slate-600 hover:bg-white/25'
+                                                          >
+                                                            <Image className='h-3.5 w-3.5 text-slate-500' />
+                                                            <span>
+                                                              {img.label ||
+                                                                "图片"}
+                                                            </span>
+                                                          </a>
+                                                        )
+                                                      )}
+                                                  </div>
+                                                ) : null}
+                                                {sources.length > 0 ? (
+                                                  <div className='flex flex-wrap gap-x-2 gap-y-1 border-t border-white/25 pt-1.5 text-[11px]'>
+                                                    {sources
+                                                      .slice(0, 3)
+                                                      .map((source) => (
+                                                        <a
+                                                          key={source.url}
+                                                          href={source.url}
+                                                          target='_blank'
+                                                          rel='noopener noreferrer'
+                                                          className='text-blue-600 hover:underline'
+                                                          title={
+                                                            source.snippet
+                                                          }
+                                                        >
+                                                          {source.title}
+                                                        </a>
+                                                      ))}
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     );
                                   })()}

@@ -508,6 +508,7 @@ type AgentTraceState = {
   intent?: string;
   selectedTool?: string;
   suggestedWebSearch?: boolean;
+  researchResult?: unknown;
   steps?: AgentTraceStep[];
   events?: AgentRunEvent[];
   error?: string;
@@ -604,6 +605,10 @@ const applyAgentEventToTrace = (
     }
   }
 
+  if (event.type === "research_result") {
+    trace.researchResult = event.data?.result;
+  }
+
   if (event.type === "error") {
     trace.status = "failed";
     trace.error = event.message || "Agent trace failed";
@@ -614,6 +619,28 @@ const applyAgentEventToTrace = (
   }
 
   return { ...trace, steps };
+};
+
+const shouldAutoEnableWebSearch = (input: string): boolean => {
+  const value = String(input || "").trim();
+  if (!value) return false;
+  return /案例|资料|参考|检索|搜索|找一些|找一|帮我找|research|case|precedent|architecture|建筑|教堂|chapel|church/i.test(
+    value
+  );
+};
+
+const buildAgentRunContext = (input: string): Record<string, unknown> => {
+  const needsConversationContext =
+    contextManager.detectConversationContextIntent(input);
+  const sessionSummary = contextManager.getSessionSummary();
+
+  return {
+    needsConversationContext,
+    sessionSummary,
+    conversationPrompt: needsConversationContext
+      ? contextManager.buildContextPrompt(input)
+      : undefined,
+  };
 };
 
 type MessageOverride = {
@@ -6675,7 +6702,7 @@ export const useAIChatStore = create<AIChatState>()(
             const modelToUse = getTextModelForProvider(state.aiProvider);
             const includeConversationContext =
               options?.includeConversationContext ??
-              contextManager.detectIterativeIntent(prompt);
+              contextManager.detectConversationContextIntent(prompt);
             const requestPrompt = includeConversationContext
               ? contextManager.buildContextPrompt(prompt)
               : prompt;
@@ -6693,7 +6720,8 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: requestPrompt,
               model: modelToUse,
               aiProvider: state.aiProvider,
-              enableWebSearch: state.enableWebSearch,
+              enableWebSearch:
+                state.enableWebSearch || shouldAutoEnableWebSearch(prompt),
               thinkingLevel: state.thinkingLevel || undefined,
               providerOptions,
             });
@@ -7561,6 +7589,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 检测迭代意图
           const isIterative = contextManager.detectIterativeIntent(input);
+          const needsConversationContext =
+            contextManager.detectConversationContextIntent(input);
           if (isIterative && !isRetry && !options?.override) {
             contextManager.incrementIteration();
           }
@@ -7658,7 +7688,10 @@ export const useAIChatStore = create<AIChatState>()(
           const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
 
           const shouldIncludeToolSelectionContext =
-            isIterative || totalImageCount > 0 || Boolean(state.sourcePdfForAnalysis);
+            needsConversationContext ||
+            isIterative ||
+            totalImageCount > 0 ||
+            Boolean(state.sourcePdfForAnalysis);
           const toolSelectionContext = shouldIncludeToolSelectionContext
             ? contextManager.buildContextPrompt(input)
             : input;
@@ -7986,7 +8019,7 @@ export const useAIChatStore = create<AIChatState>()(
                   await store.generateTextResponse(parameters.prompt, {
                     override: messageOverride,
                     metrics,
-                    includeConversationContext: isIterative,
+                    includeConversationContext: needsConversationContext,
                   });
                   if (!isIterative) {
                     contextManager.resetIteration();
@@ -8208,7 +8241,9 @@ export const useAIChatStore = create<AIChatState>()(
                   availableTools: [...traceAvailableTools] as AgentToolName[],
                   hasImages: traceImageCount > 0,
                   imageCount: traceImageCount,
-                  enableWebSearch: state.enableWebSearch,
+                  enableWebSearch:
+                    state.enableWebSearch || shouldAutoEnableWebSearch(input),
+                  context: buildAgentRunContext(input),
                 });
 
                 get().updateMessage(thinkingAiMessage.id, (msg) => ({

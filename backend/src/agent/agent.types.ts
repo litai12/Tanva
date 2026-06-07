@@ -16,6 +16,7 @@ export type AgentEventType =
   | 'step_completed'
   | 'plan'
   | 'tool_selected'
+  | 'research_result'
   | 'final'
   | 'error'
   | 'done';
@@ -45,6 +46,39 @@ export interface AgentRunEvent {
   title?: string;
   message?: string;
   data?: Record<string, unknown>;
+}
+
+export interface AgentResearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+export interface AgentResearchImageCandidate {
+  label: string;
+  query: string;
+  searchUrl: string;
+  imageUrl?: string;
+}
+
+export interface AgentResearchCase {
+  id: string;
+  title: string;
+  subtitle?: string;
+  architect?: string;
+  location?: string;
+  category?: string;
+  summary: string;
+  highlights: string[];
+  sources: AgentResearchSource[];
+  images: AgentResearchImageCandidate[];
+}
+
+export interface AgentResearchResult {
+  title: string;
+  summary: string;
+  cases: AgentResearchCase[];
+  sources: AgentResearchSource[];
 }
 
 export interface AgentRunRecord {
