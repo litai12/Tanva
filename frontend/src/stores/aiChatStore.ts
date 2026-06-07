@@ -629,6 +629,53 @@ const shouldAutoEnableWebSearch = (input: string): boolean => {
   );
 };
 
+const shouldUseAgentResearchOnly = (input: string): boolean => {
+  return shouldAutoEnableWebSearch(input);
+};
+
+const formatResearchResultAsText = (research: any): string => {
+  const cases = Array.isArray(research?.cases) ? research.cases : [];
+  const lines: string[] = [];
+  const title = typeof research?.title === "string" ? research.title : "案例研究";
+  const summary = typeof research?.summary === "string" ? research.summary : "";
+  lines.push(`## ${title}`);
+  if (summary) lines.push(summary);
+  if (cases.length === 0) return lines.join("\n").trim();
+
+  cases.slice(0, 6).forEach((item: any, index: number) => {
+    const name = String(item?.title || `案例 ${index + 1}`).trim();
+    const subtitle = String(item?.subtitle || "").trim();
+    const architect = String(item?.architect || "").trim();
+    const location = String(item?.location || "").trim();
+    const category = String(item?.category || "").trim();
+    const summaryText = String(item?.summary || "").trim();
+    const highlights = Array.isArray(item?.highlights)
+      ? item.highlights.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+      : [];
+    const sources = Array.isArray(item?.sources) ? item.sources : [];
+    const sourceTitles = sources
+      .slice(0, 2)
+      .map((source: any) => String(source?.title || source?.url || "").trim())
+      .filter(Boolean);
+
+    lines.push("");
+    lines.push(`### ${index + 1}. ${name}${subtitle ? ` (${subtitle})` : ""}`);
+    const meta = [architect, location, category].filter(Boolean).join(" · ");
+    if (meta) lines.push(meta);
+    if (summaryText) lines.push(summaryText);
+    if (highlights.length > 0) {
+      highlights.slice(0, 4).forEach((tag: string) => {
+        lines.push(`- ${tag}`);
+      });
+    }
+    if (sourceTitles.length > 0) {
+      lines.push(`来源：${sourceTitles.join("；")}`);
+    }
+  });
+
+  return lines.join("\n");
+};
+
 const REQUESTED_IMAGE_COUNT_MAX = 8;
 const NUMBER_WORDS: Record<string, number> = {
   一: 1,
@@ -8301,11 +8348,18 @@ export const useAIChatStore = create<AIChatState>()(
             aiMessageId: thinkingAiMessage.id,
           };
 
+          const traceImageCountForAgent =
+            state.sourceImagesForBlending.length +
+            (state.sourceImageForEditing ? 1 : 0) +
+            (state.sourceImageForAnalysis ? 1 : 0);
+          const agentResearchOnly =
+            state.manualAIMode === "auto" &&
+            !state.sourcePdfForAnalysis &&
+            traceImageCountForAgent === 0 &&
+            shouldUseAgentResearchOnly(input);
+
           if (state.manualAIMode === "auto") {
-            const traceImageCount =
-              state.sourceImagesForBlending.length +
-              (state.sourceImageForEditing ? 1 : 0) +
-              (state.sourceImageForAnalysis ? 1 : 0);
+            const traceImageCount = traceImageCountForAgent;
             const traceAllowAnalyze = !isAnalyzeDisabledOnCurrentBananaRoute(
               state.aiProvider,
               state.bananaImageRoute
@@ -8330,15 +8384,34 @@ export const useAIChatStore = create<AIChatState>()(
                       "generatePaperJS",
                     ] as const);
 
-            void (async () => {
+            const runAgentTrace = async () => {
               const updateAgentTrace = (event: AgentRunEvent) => {
                 get().updateMessage(thinkingAiMessage.id, (msg) => {
                   const currentTrace = msg.metadata?.agentTrace as
                     | AgentTraceState
                     | undefined;
                   const nextTrace = applyAgentEventToTrace(currentTrace, event);
+                  const researchText =
+                    agentResearchOnly && event.type === "research_result"
+                      ? formatResearchResultAsText(event.data?.result)
+                      : "";
                   return {
                     ...msg,
+                    content: researchText || msg.content,
+                    generationStatus:
+                      agentResearchOnly && event.type === "research_result"
+                        ? {
+                            ...(msg.generationStatus || {
+                              isGenerating: true,
+                              progress: 0,
+                              error: null,
+                            }),
+                            isGenerating: true,
+                            progress: 95,
+                            error: null,
+                            stage: "整理研究结果",
+                          }
+                        : msg.generationStatus,
                     metadata: {
                       ...(msg.metadata || {}),
                       agentTrace: nextTrace,
@@ -8380,6 +8453,15 @@ export const useAIChatStore = create<AIChatState>()(
                 }));
 
                 await streamAgentRunEvents(run.id, updateAgentTrace);
+                if (agentResearchOnly) {
+                  get().updateMessageStatus(thinkingAiMessage.id, {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null,
+                    stage: "已完成",
+                  });
+                  await get().refreshSessions({ immediate: true });
+                }
               } catch (error) {
                 get().updateMessage(thinkingAiMessage.id, (msg) => ({
                   ...msg,
@@ -8395,8 +8477,25 @@ export const useAIChatStore = create<AIChatState>()(
                     },
                   },
                 }));
+                if (agentResearchOnly) {
+                  get().updateMessageStatus(thinkingAiMessage.id, {
+                    isGenerating: false,
+                    progress: 0,
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : "Agent trace failed",
+                    stage: "已终止",
+                  });
+                }
               }
-            })();
+            };
+
+            if (agentResearchOnly) {
+              await runAgentTrace();
+              return;
+            }
+            void runAgentTrace();
           }
 
           // 🔥 第一步：先进行工具选择，判断用户意图（并复用结果，避免重复调用 /api/ai/tool-selection）

@@ -453,54 +453,71 @@ export class AgentRuntimeService {
   private async buildResearchCases(prompt: string): Promise<AgentResearchResult> {
     const isChurch = /教堂|礼拜堂|church|chapel|cathedral/i.test(prompt);
     const isSchool = /学校|校园|大学|学院|school|campus|university/i.test(prompt);
-    const cases = isChurch
-      ? this.buildChurchCases()
-      : isSchool
-        ? this.buildSchoolCases()
-        : this.buildArchitectureCases();
     const topic = isChurch ? '教堂建筑案例' : isSchool ? '学校建筑案例' : '建筑案例';
-    const sources = this.dedupeSources(cases.flatMap((item) => item.sources));
-    const fallback: AgentResearchResult = {
-      title: topic,
-      summary:
-        `已按“案例价值 + 资料可追溯 + 图像参考价值”整理 ${cases.length} 个方向。` +
-        '图片区先提供可点击的图片检索入口，后续可替换为真实抓取缩略图。',
-      cases,
-      sources,
-      searchStats: {
-        provider: 'static',
-        keywordCount: 0,
-        sourceCount: sources.length,
-        imageCount: 0,
-        fallback: true,
-      },
-    };
 
     try {
-      const search = await this.volcResearchSearch.searchArchitectureResearch(
-        prompt,
-        cases.flatMap((item) => this.caseImageSearchQueries(item)),
-      );
-      if (!search) return fallback;
-      const searchedImageCount = Array.from(search.imagesByQuery.values()).reduce(
-        (sum, images) => sum + images.length,
-        0,
-      );
-      if (search.sources.length === 0 && searchedImageCount === 0) {
-        return fallback;
+      const search = await this.volcResearchSearch.searchArchitectureResearch(prompt);
+      if (!search) {
+        return this.buildUnavailableResearchResult(
+          topic,
+          '真实网页检索未启用或配置未生效，因此没有返回案例。请检查 VOLC_SEARCH_ENABLED 与 VOLC_SEARCH_* 配置。',
+          'volc:disabled',
+        );
       }
       if (search.cases.length > 0) {
         return this.buildSearchDerivedResearchResult(topic, search);
       }
-      return this.applyResearchSearch(fallback, search);
+      const searchedImageCount = Array.from(search.imagesByQuery.values()).reduce(
+        (sum, images) => sum + images.length,
+        0,
+      );
+      return this.buildUnavailableResearchResult(
+        topic,
+        search.sources.length > 0
+          ? `已完成网页检索并参考 ${search.sources.length} 条结果，但没有抽取到符合当前问题约束的建筑案例；因此不展示无关内置案例。`
+          : '真实网页检索没有返回可用结果，因此不展示无关内置案例。',
+        search.provider,
+        {
+          keywordCount: search.keywords.length,
+          sourceCount: search.sources.length,
+          imageCount: searchedImageCount,
+        },
+        search.sources,
+      );
     } catch (error) {
       this.logger.warn(
-        `Volc research search failed, using static fallback: ${
+        `Volc research search failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return fallback;
+      return this.buildUnavailableResearchResult(
+        topic,
+        `真实网页检索失败：${error instanceof Error ? error.message : String(error)}。系统未使用无关内置案例兜底。`,
+        'volc:error',
+      );
     }
+  }
+
+  private buildUnavailableResearchResult(
+    topic: string,
+    summary: string,
+    provider: string,
+    stats?: { keywordCount: number; sourceCount: number; imageCount: number },
+    sources: AgentResearchSource[] = [],
+  ): AgentResearchResult {
+    return {
+      title: topic,
+      summary,
+      cases: [],
+      sources,
+      searchStats: {
+        provider,
+        keywordCount: stats?.keywordCount ?? 0,
+        sourceCount: stats?.sourceCount ?? sources.length,
+        imageCount: stats?.imageCount ?? 0,
+        fallback: true,
+      },
+    };
   }
 
   private buildChurchCases(): AgentResearchCase[] {

@@ -27,14 +27,22 @@ const isMobileDevice = (): boolean => {
 
   // 检测 userAgent
   const userAgent = navigator.userAgent.toLowerCase();
-  const mobileKeywords = ['android', 'iphone', 'ipad', 'ipod', 'webos', 'blackberry', 'windows phone'];
+  const platform = navigator.platform.toLowerCase();
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
+  const isIpad =
+    userAgent.includes('ipad') ||
+    (platform === 'macintel' && maxTouchPoints > 1);
+
+  if (isIpad) return false;
+
+  const mobileKeywords = ['android', 'iphone', 'ipod', 'webos', 'blackberry', 'windows phone'];
   const isMobileUA = mobileKeywords.some(keyword => userAgent.includes(keyword));
 
   // 检测屏幕宽度（小于 768px 视为移动设备）
   const isSmallScreen = window.innerWidth < 768;
 
   // 检测触摸设备
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isTouchDevice = 'ontouchstart' in window || maxTouchPoints > 0;
 
   // userAgent 匹配或者（小屏幕且是触摸设备）
   return isMobileUA || (isSmallScreen && isTouchDevice);

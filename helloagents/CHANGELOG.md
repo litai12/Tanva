@@ -73,6 +73,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- App/Device Access: iPad is no longer treated as a blocked mobile device at the `/app` entry point, including both classic `iPad` userAgent and iPadOS `MacIntel` touch detection paths.
 - AI Chat/Agent: research case image lookup now tries multiple queries per case and constrains the frontend thumbnail grid width, reducing partial image misses and oversized thumbnails on wide chat layouts.
 - AI Chat Text: text chat now retries once without `web_search_preview` when the new-api web-search tools call fails, and provider text failures return readable 503 errors instead of Nest's generic `Internal server error`.
 - AI Chat Image UI: failed/timeout image slots now render a red failure state with the backend error message instead of continuing to show the loading spinner after `generationStatus.error` is set.
@@ -769,3 +770,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - AI Chat image-generation error status now dispatches a canvas placeholder remove event as a generic fallback.
 - Canvas AI predictive placeholders now carry `createdAt/expiresAt` metadata and `useQuickImageUpload` removes expired or orphaned placeholders, preventing stuck 95% waiting boxes after task timeout or missed remove events.
+
+## [AI Chat Research Case Alignment - 2026-06-08]
+### Fixed
+- Agent research cases now treat user-specified architects/subjects as hard filters during Volcengine web-search keyword expansion, model extraction, and post-extraction validation.
+- Agent research case lookup now uses a two-stage flow: first plan concrete building/project names with the text model, then run real Volcengine web/image search for each planned project name.
+- Project-level research search now ranks per-project web results instead of dropping results that do not exactly match the Chinese project title; known architect seeds are used only as search-entry fallbacks and still require real web sources before display.
+- Research case image lookup now remains tied to the extracted case list; when real search is disabled, fails, or returns no matching cases, the backend returns an explicit no-result summary instead of unrelated static architecture cases.
+- AI Chat research-only responses now render the bottom text from the same `research_result` payload used by the case cards, including no-result summaries.

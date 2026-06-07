@@ -25,6 +25,9 @@
 - 手动模式会根据当前图片数量自动禁用不支持选项，并在不兼容时回退到 Auto。
 - 发送按钮在模式不支持当前图片数量时禁用并提示原因。
 
+## 设备访问
+- `/app` 入口仍会对手机和小屏触摸设备展示移动端提示，但 iPad 已从移动设备拦截中排除；检测同时兼容传统 `iPad` userAgent 与 iPadOS 13+ 的 `MacIntel + maxTouchPoints > 1` 模式。
+
 ## AI 对话框会话边界
 - `ContextManager` 不在构造期自动恢复全局本地会话；恢复由 `aiChatStore.initializeContext()` 按项目作用域调度。
 - 有项目 ID 时，对话框会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；IndexedDB/localStorage 中的全局本地会话仅用于无项目场景，避免切换/新建项目时旧历史串入当前项目。
