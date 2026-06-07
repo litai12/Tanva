@@ -4505,6 +4505,86 @@ const AIChatDialog: React.FC = () => {
                               ) : null;
                               const aiTextContent = isAiMessage ? (
                                 <div className='text-sm leading-relaxed text-black break-words markdown-content'>
+                                  {(() => {
+                                    const agentTrace =
+                                      message.metadata?.agentTrace;
+                                    const steps = Array.isArray(
+                                      agentTrace?.steps
+                                    )
+                                      ? agentTrace.steps
+                                      : [];
+                                    if (!agentTrace || steps.length === 0) {
+                                      return null;
+                                    }
+                                    const statusLabel =
+                                      agentTrace.status === "completed"
+                                        ? "已完成"
+                                        : agentTrace.status === "failed"
+                                          ? "失败"
+                                          : "执行中";
+                                    return (
+                                      <div className='mb-2 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-2 text-xs text-slate-700'>
+                                        <div className='mb-1.5 flex items-center justify-between gap-2'>
+                                          <div className='flex min-w-0 items-center gap-1.5 font-medium text-slate-800'>
+                                            <Brain className='h-3.5 w-3.5 shrink-0 text-slate-500' />
+                                            <span className='truncate'>
+                                              Agent 计划
+                                            </span>
+                                          </div>
+                                          <span className='shrink-0 text-[11px] text-slate-500'>
+                                            {statusLabel}
+                                          </span>
+                                        </div>
+                                        <div className='space-y-1'>
+                                          {steps.slice(0, 5).map((step) => {
+                                            const isRunning =
+                                              step.status === "running";
+                                            const isDone =
+                                              step.status === "completed";
+                                            return (
+                                              <div
+                                                key={step.id}
+                                                className='flex items-start gap-1.5'
+                                              >
+                                                <span className='mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white'>
+                                                  {isRunning ? (
+                                                    <Loader2 className='h-2.5 w-2.5 animate-spin text-slate-500' />
+                                                  ) : isDone ? (
+                                                    <Check className='h-2.5 w-2.5 text-emerald-600' />
+                                                  ) : (
+                                                    <span className='h-1.5 w-1.5 rounded-full bg-slate-300' />
+                                                  )}
+                                                </span>
+                                                <span className='min-w-0'>
+                                                  <span className='font-medium text-slate-800'>
+                                                    {step.title}
+                                                  </span>
+                                                  {step.detail ? (
+                                                    <span className='ml-1 text-slate-500'>
+                                                      {step.detail}
+                                                    </span>
+                                                  ) : null}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        {agentTrace.selectedTool ? (
+                                          <div className='mt-1.5 border-t border-slate-200 pt-1.5 text-[11px] text-slate-500'>
+                                            Tool: {agentTrace.selectedTool}
+                                            {agentTrace.workflow
+                                              ? ` · ${agentTrace.workflow}`
+                                              : ""}
+                                          </div>
+                                        ) : null}
+                                        {agentTrace.error ? (
+                                          <div className='mt-1.5 text-[11px] text-red-600'>
+                                            {agentTrace.error}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })()}
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{

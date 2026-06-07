@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- AI Chat/Agent: added a first-stage Agent Runtime skeleton with authenticated `/api/agent/runs` plus SSE run events, and AI Chat now records Auto-mode agent planning traces on the active AI message before handing off to the existing tool execution path.
 - Frontend Campaign Notice: added a reusable top activity notice bar for `/` and `/app` with a Beijing-time countdown to `2026-06-06 00:00:00`, close-on-current-page behavior, refresh re-display, and canvas fixed-control offset handling.
 - Flow/HTML PPT: added an HTML PPT node with multi-slide HTML/CSS editing, sandboxed preview/export, text-handle prompt input, and Ultra-powered current-slide rewrite while blocking non-persistable inline/local image refs.
 - Flow/HTML PPT: enriched the node with slide thumbnails, template-based slide insertion, aspect-ratio switching, title/notes editing, and Slide/Deck AI rewrite scope.

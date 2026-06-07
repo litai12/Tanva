@@ -22,6 +22,12 @@ import {
   pollImageTaskResult,
   type AsyncImageTaskCreateResult,
 } from "@/services/aiBackendAPI";
+import {
+  createAgentRunViaAPI,
+  streamAgentRunEvents,
+  type AgentRunEvent,
+  type AgentToolName,
+} from "@/services/agentBackendAPI";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
@@ -483,6 +489,131 @@ const logChatConversationSnapshot = (messages: ChatMessage[]): void => {
   } catch (error) {
     console.warn("⚠️ 无法打印AI对话内容:", error);
   }
+};
+
+type AgentTraceStepStatus = "pending" | "running" | "completed" | "failed";
+
+type AgentTraceStep = {
+  id: string;
+  title: string;
+  detail?: string;
+  status: AgentTraceStepStatus;
+  tool?: string;
+};
+
+type AgentTraceState = {
+  runId?: string;
+  status?: "running" | "completed" | "failed";
+  workflow?: string;
+  intent?: string;
+  selectedTool?: string;
+  suggestedWebSearch?: boolean;
+  steps?: AgentTraceStep[];
+  events?: AgentRunEvent[];
+  error?: string;
+  updatedAt?: string;
+};
+
+type AgentPlanStepPayload = {
+  id?: unknown;
+  title?: unknown;
+  detail?: unknown;
+  tool?: unknown;
+};
+
+const upsertAgentTraceStep = (
+  steps: AgentTraceStep[],
+  step: AgentTraceStep
+): AgentTraceStep[] => {
+  const index = steps.findIndex((item) => item.id === step.id);
+  if (index < 0) return [...steps, step];
+  const next = [...steps];
+  next[index] = { ...next[index], ...step };
+  return next;
+};
+
+const applyAgentEventToTrace = (
+  current: AgentTraceState | undefined,
+  event: AgentRunEvent
+): AgentTraceState => {
+  const trace: AgentTraceState = {
+    ...(current || {}),
+    runId: event.runId,
+    events: [...(current?.events || []), event].slice(-80),
+    updatedAt: event.timestamp,
+  };
+  let steps = [...(trace.steps || [])];
+
+  if (event.type === "run_started") {
+    trace.status = "running";
+  }
+
+  if (event.type === "plan") {
+    const plannedSteps = Array.isArray(event.data?.steps)
+      ? (event.data.steps as AgentPlanStepPayload[])
+      : [];
+    steps = plannedSteps.map((item) => {
+      const existing = steps.find((step) => step.id === item.id);
+      return {
+        id: String(item.id || `step-${steps.length + 1}`),
+        title: String(item.title || "任务步骤"),
+        detail:
+          typeof item.detail === "string"
+            ? item.detail
+            : existing?.detail || undefined,
+        status: existing?.status || "pending",
+        tool: typeof item.tool === "string" ? item.tool : existing?.tool,
+      };
+    });
+  }
+
+  if (event.type === "step_started" || event.type === "step_completed") {
+    const stepId =
+      typeof event.data?.stepId === "string" ? event.data.stepId : event.id;
+    const existing = steps.find((step) => step.id === stepId);
+    steps = upsertAgentTraceStep(steps, {
+      id: stepId,
+      title: event.title || existing?.title || "任务步骤",
+      detail:
+        event.type === "step_started"
+          ? event.message || existing?.detail
+          : existing?.detail || event.message,
+      status: event.type === "step_started" ? "running" : "completed",
+      tool:
+        typeof event.data?.tool === "string"
+          ? event.data.tool
+          : existing?.tool,
+    });
+  }
+
+  if (event.type === "tool_selected" || event.type === "final") {
+    if (typeof event.data?.workflow === "string") {
+      trace.workflow = event.data.workflow;
+    }
+    if (typeof event.data?.intent === "string") {
+      trace.intent = event.data.intent;
+    }
+    if (typeof event.data?.selectedTool === "string") {
+      trace.selectedTool = event.data.selectedTool;
+    }
+    if (typeof event.data?.suggestedWebSearch === "boolean") {
+      trace.suggestedWebSearch = event.data.suggestedWebSearch;
+    }
+    if (event.type === "final") {
+      trace.status = "completed";
+    }
+  }
+
+  if (event.type === "error") {
+    trace.status = "failed";
+    trace.error = event.message || "Agent trace failed";
+  }
+
+  if (event.type === "done" && trace.status !== "failed") {
+    trace.status = "completed";
+  }
+
+  return { ...trace, steps };
 };
 
 type MessageOverride = {
@@ -8018,6 +8149,102 @@ export const useAIChatStore = create<AIChatState>()(
             userMessageId: userMessage.id,
             aiMessageId: thinkingAiMessage.id,
           };
+
+          if (state.manualAIMode === "auto") {
+            const traceImageCount =
+              state.sourceImagesForBlending.length +
+              (state.sourceImageForEditing ? 1 : 0) +
+              (state.sourceImageForAnalysis ? 1 : 0);
+            const traceAllowAnalyze = !isAnalyzeDisabledOnCurrentBananaRoute(
+              state.aiProvider,
+              state.bananaImageRoute
+            );
+            const traceAvailableTools =
+              traceImageCount === 1 &&
+              state.sourceImagesForBlending.length === 0
+                ? traceAllowAnalyze
+                  ? (["editImage", "analyzeImage"] as const)
+                  : (["editImage"] as const)
+                : traceImageCount > 1
+                  ? traceAllowAnalyze
+                    ? (["blendImages", "analyzeImage"] as const)
+                    : (["blendImages"] as const)
+                  : ([
+                      "generateImage",
+                      "editImage",
+                      "blendImages",
+                      ...(traceAllowAnalyze ? ["analyzeImage"] : []),
+                      "chatResponse",
+                      "generateVideo",
+                      "generatePaperJS",
+                    ] as const);
+
+            void (async () => {
+              const updateAgentTrace = (event: AgentRunEvent) => {
+                get().updateMessage(thinkingAiMessage.id, (msg) => {
+                  const currentTrace = msg.metadata?.agentTrace as
+                    | AgentTraceState
+                    | undefined;
+                  const nextTrace = applyAgentEventToTrace(currentTrace, event);
+                  return {
+                    ...msg,
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      agentTrace: nextTrace,
+                    },
+                  };
+                });
+              };
+
+              try {
+                const projectId =
+                  useProjectContentStore.getState().projectId || undefined;
+                const run = await createAgentRunViaAPI({
+                  prompt: input,
+                  sessionId,
+                  projectId,
+                  aiProvider: state.aiProvider,
+                  manualMode: state.manualAIMode,
+                  availableTools: [...traceAvailableTools] as AgentToolName[],
+                  hasImages: traceImageCount > 0,
+                  imageCount: traceImageCount,
+                  enableWebSearch: state.enableWebSearch,
+                });
+
+                get().updateMessage(thinkingAiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    agentTrace: {
+                      ...((msg.metadata?.agentTrace as AgentTraceState) || {}),
+                      runId: run.id,
+                      status: "running",
+                      workflow: run.workflow,
+                      intent: run.intent,
+                      selectedTool: run.selectedTool,
+                    },
+                  },
+                }));
+
+                await streamAgentRunEvents(run.id, updateAgentTrace);
+              } catch (error) {
+                get().updateMessage(thinkingAiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    agentTrace: {
+                      ...((msg.metadata?.agentTrace as AgentTraceState) || {}),
+                      status: "failed",
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : "Agent trace failed",
+                    },
+                  },
+                }));
+              }
+            })();
+          }
 
           // 🔥 第一步：先进行工具选择，判断用户意图（并复用结果，避免重复调用 /api/ai/tool-selection）
           // 只有确定是图片相关操作后，才应用 multiplier
