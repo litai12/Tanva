@@ -19187,16 +19187,75 @@ function FlowInner() {
                   mention: item.mention,
                 })),
               ];
-        const limitedReferenceImageInputs = mergedReferenceImageInputs.slice(0, maxImages);
+        // 同一张图既被连线又被 @ 引用时，会以不同来源进入合并列表，导致重复下发、
+        // 重复注册 volc asset（同 url 拿到两个 assetId）。按 url 去重，保留首次位置
+        // （连线优先），并合并 edge/mention 来源——@ 引用信息不能因为连线副本先到而丢失。
+        const dedupedReferenceImageInputs: typeof mergedReferenceImageInputs = [];
+        const referenceImageIndexByUrl = new Map<string, number>();
+        for (const item of mergedReferenceImageInputs) {
+          const key = typeof item.dataUrl === "string" ? item.dataUrl.trim() : "";
+          if (!key) continue;
+          const existingIdx = referenceImageIndexByUrl.get(key);
+          if (existingIdx === undefined) {
+            referenceImageIndexByUrl.set(key, dedupedReferenceImageInputs.length);
+            dedupedReferenceImageInputs.push({ ...item, dataUrl: key });
+          } else {
+            const existing = dedupedReferenceImageInputs[existingIdx];
+            if (!existing.edge && item.edge) existing.edge = item.edge;
+            if (!existing.mention && item.mention) existing.mention = item.mention;
+          }
+        }
+        const limitedReferenceImageInputs = dedupedReferenceImageInputs.slice(0, maxImages);
         const referenceImages = limitedReferenceImageInputs.map((item) => item.dataUrl);
         const referenceImageSourceEdges = limitedReferenceImageInputs.map((item) => item.edge);
-        const usedPromptMentionImages = limitedReferenceImageInputs
-          .map((item) => item.mention)
-          .filter((item): item is PromptMentionImageRef => Boolean(item));
-        finalPrompt = appendPromptMentionImageMapping(
-          finalPrompt || "",
-          usedPromptMentionImages
-        );
+
+        // 把正文里的原始 @ token（如 "@Midjourney V7 #2 10:42:01"）改写成规范的 "@图N"，
+        // N = 该图在去重后 referenceImages 中的 1-based 下标，确保与下发顺序严格一致。
+        // 用 findPromptMentionTokenMatches 做基于位置的整体替换，避免 "@图1" 误伤 "@图10"。
+        const canonicalTokenByOriginal = new Map<string, string>();
+        // 同一张图可能被多个 @ token 引用（重复选取），它们都要指向该图的规范下标。
+        for (const item of mergedReferenceImageInputs) {
+          const originalToken = item.mention?.token;
+          if (!originalToken || canonicalTokenByOriginal.has(originalToken)) continue;
+          const key = typeof item.dataUrl === "string" ? item.dataUrl.trim() : "";
+          const dedupedIdx = key ? referenceImageIndexByUrl.get(key) : undefined;
+          if (dedupedIdx === undefined || dedupedIdx >= limitedReferenceImageInputs.length) {
+            continue;
+          }
+          canonicalTokenByOriginal.set(originalToken, `@图${dedupedIdx + 1}`);
+        }
+        // 映射说明按去重后顺序、每张被 @ 引用的图一行。
+        const canonicalMentionRefs: Array<{ token: string; index: number }> = [];
+        limitedReferenceImageInputs.forEach((item, idx) => {
+          if (!item.mention?.token) return;
+          canonicalMentionRefs.push({ token: `@图${idx + 1}`, index: idx + 1 });
+        });
+        if (canonicalTokenByOriginal.size > 0) {
+          const sourceText = finalPrompt || "";
+          const matches = findPromptMentionTokenMatches(
+            sourceText,
+            Array.from(canonicalTokenByOriginal.keys())
+          );
+          if (matches.length > 0) {
+            let rewritten = "";
+            let cursor = 0;
+            for (const m of matches) {
+              rewritten += sourceText.slice(cursor, m.start);
+              rewritten += canonicalTokenByOriginal.get(m.token) ?? m.token;
+              cursor = m.end;
+            }
+            rewritten += sourceText.slice(cursor);
+            finalPrompt = rewritten;
+          }
+          // 规范映射说明：用规范 token + 去重后下标，保证与正文一致（含纯连线图占位的偏移）。
+          const base = (finalPrompt || "").trim();
+          if (base) {
+            const mappingText = canonicalMentionRefs
+              .map((ref) => `${ref.token}=第${ref.index}张参考图`)
+              .join("；");
+            finalPrompt = `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
+          }
+        }
 
         console.log(`🎬 [VideoProvider] 解析后参考图数量: ${referenceImages.length}`);
         referenceImages.forEach((img, i) => {
