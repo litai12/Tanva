@@ -34,6 +34,9 @@ const isPromptMentionSource = (value: unknown): value is PromptMentionSource =>
 const isPromptMentionAsciiTokenPart = (char: string): boolean =>
   /[A-Za-z0-9_-]/.test(char);
 
+const isPromptMentionSuffixContinuation = (char: string): boolean =>
+  /[0-9_.-]/.test(char);
+
 export const isPromptMentionTokenBoundary = (
   text: string,
   token: string,
@@ -41,8 +44,51 @@ export const isPromptMentionTokenBoundary = (
 ): boolean => {
   const nextChar = text.charAt(startIndex + token.length);
   if (!nextChar) return true;
+  if (isPromptMentionSuffixContinuation(nextChar)) return false;
   const lastTokenChar = token.charAt(token.length - 1);
   return !(isPromptMentionAsciiTokenPart(lastTokenChar) && isPromptMentionAsciiTokenPart(nextChar));
+};
+
+export type PromptMentionTokenMatch = {
+  token: string;
+  start: number;
+  end: number;
+};
+
+export const findPromptMentionTokenMatches = (
+  text: string,
+  tokens: string[]
+): PromptMentionTokenMatch[] => {
+  if (!text || tokens.length === 0) return [];
+  const normalizedTokens = Array.from(
+    new Set(
+      tokens
+        .map((token) => (typeof token === 'string' ? token.trim() : ''))
+        .filter((token) => token.startsWith('@'))
+    )
+  ).sort((a, b) => b.length - a.length);
+  if (normalizedTokens.length === 0) return [];
+
+  const matches: PromptMentionTokenMatch[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const match = normalizedTokens.find(
+      (token) =>
+        text.startsWith(token, index) &&
+        isPromptMentionTokenBoundary(text, token, index)
+    );
+    if (!match) {
+      index += 1;
+      continue;
+    }
+    matches.push({
+      token: match,
+      start: index,
+      end: index + match.length,
+    });
+    index += match.length;
+  }
+  return matches;
 };
 
 export const hasPromptMentionTokenInText = (text: string, token: string): boolean => {
