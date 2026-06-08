@@ -153,7 +153,10 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Token "+info.ApiKey)
+	// Official Vidu (platform.vidu.cn) uses "Token <key>"; the tanvasMart relay
+	// (models.kapon.cloud, key starts with "sk-") is an OpenAI-style gateway that
+	// expects "Bearer <key>". Mirror the kling adaptor's istanvasMartRelay branch.
+	req.Header.Set("Authorization", viduAuthScheme(info.ApiKey)+info.ApiKey)
 	return nil
 }
 
@@ -203,7 +206,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Token "+key)
+	req.Header.Set("Authorization", viduAuthScheme(key)+key)
 
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
@@ -218,6 +221,16 @@ func (a *TaskAdaptor) GetModelList() []string {
 
 func (a *TaskAdaptor) GetChannelName() string {
 	return "vidu"
+}
+
+// viduAuthScheme returns the Authorization scheme prefix for the upstream:
+// "Bearer " for the tanvasMart relay (models.kapon.cloud, sk- keys), "Token "
+// for the official Vidu platform.
+func viduAuthScheme(apiKey string) string {
+	if strings.HasPrefix(apiKey, "sk-") {
+		return "Bearer "
+	}
+	return "Token "
 }
 
 // ============================
