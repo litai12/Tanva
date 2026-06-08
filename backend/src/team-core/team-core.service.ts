@@ -5,16 +5,22 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class TeamCoreService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   // ── 注册时内部调用 ──────────────────────────────────────────
   async createPersonalTeam(userId: string, tx?: any) {
     const db = tx ?? this.prisma;
+    // Prisma 扩展不注入嵌套写：显式补 tenantId 给嵌套创建的租户表行（TeamMembership / TeamCreditAccount）
+    const tenantId = this.tenantContext.getTenantId();
     const team = await db.team.create({
       data: {
         name: '我的工作区',
@@ -22,9 +28,9 @@ export class TeamCoreService {
         isPersonal: true,
         maxSeats: 1,
         memberships: {
-          create: { userId, role: 'owner' },
+          create: { userId, role: 'owner', tenantId },
         },
-        creditAccount: { create: {} },
+        creditAccount: { create: { tenantId } },
       },
     });
     return team;
@@ -32,6 +38,8 @@ export class TeamCoreService {
 
   // ── 创建真实团队 ────────────────────────────────────────────
   async createTeam(userId: string, dto: CreateTeamDto) {
+    // Prisma 扩展不注入嵌套写：显式补 tenantId 给嵌套创建的租户表行（TeamMembership / TeamCreditAccount）
+    const tenantId = this.tenantContext.getTenantId();
     return this.prisma.team.create({
       data: {
         name: dto.name,
@@ -39,9 +47,9 @@ export class TeamCoreService {
         isPersonal: false,
         maxSeats: 2,
         memberships: {
-          create: { userId, role: 'owner' },
+          create: { userId, role: 'owner', tenantId },
         },
-        creditAccount: { create: {} },
+        creditAccount: { create: { tenantId } },
       },
     });
   }

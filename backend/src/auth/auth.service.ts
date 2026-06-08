@@ -987,13 +987,19 @@ export class AuthService {
       );
     }
 
-    const session = await this.prisma.wechatLoginSession.findUnique({
-      where: { sceneKey },
-      select: {
-        id: true,
-        expiresAt: true,
-      },
-    });
+    // 回调通常打到主站(CLS=default)，而扫码会话可能由第二租户站点发起。
+    // WechatLoginSession 不在全局白名单，直接查会被注入 where.tenantId 而漏掉跨租户会话。
+    // 先以平台态按全局唯一 sceneKey 定位 session，再切到 session.tenantId 处理后续绑定。
+    const session = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.wechatLoginSession.findFirst({
+        where: { sceneKey },
+        select: {
+          id: true,
+          expiresAt: true,
+          tenantId: true,
+        },
+      })
+    );
 
     if (!session || session.expiresAt.getTime() <= Date.now()) {
       return this.buildWechatOfficialTextResponse(
@@ -1011,26 +1017,34 @@ export class AuthService {
       avatarUrl: fetchedProfile?.avatarUrl || null,
     };
 
-    const linkedUser = await this.prisma.$transaction(async (tx) => {
-      const user = await this.findWechatOfficialUserByIdentity(tx, profile);
-      if (!user) return null;
-      if (!this.isPrimaryPhone(user.phone)) return null;
-      return this.attachWechatIdentityToUser(tx, user.id, profile);
-    });
+    // 切到发起扫码的租户上下文，用户查/绑定与 session 更新都限定到该租户。
+    // 主站发起时 session.tenantId='default'，runAsTenant('default') = 原行为。
+    const linkedUser = await this.tenantContext.runAsTenant(
+      session.tenantId,
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          const user = await this.findWechatOfficialUserByIdentity(tx, profile);
+          if (!user) return null;
+          if (!this.isPrimaryPhone(user.phone)) return null;
+          return this.attachWechatIdentityToUser(tx, user.id, profile);
+        })
+    );
 
-    await this.prisma.wechatLoginSession.update({
-      where: { id: session.id },
-      data: {
-        status: linkedUser ? "authorized" : "needs_phone_bind",
-        openId: fromUserName,
-        unionId: profile.unionId,
-        nickname: profile.nickname,
-        avatarUrl: profile.avatarUrl,
-        userId: linkedUser?.id || null,
-        authorizedAt: linkedUser ? new Date() : null,
-      },
-      select: { id: true },
-    });
+    await this.tenantContext.runAsTenant(session.tenantId, () =>
+      this.prisma.wechatLoginSession.update({
+        where: { id: session.id },
+        data: {
+          status: linkedUser ? "authorized" : "needs_phone_bind",
+          openId: fromUserName,
+          unionId: profile.unionId,
+          nickname: profile.nickname,
+          avatarUrl: profile.avatarUrl,
+          userId: linkedUser?.id || null,
+          authorizedAt: linkedUser ? new Date() : null,
+        },
+        select: { id: true },
+      })
+    );
 
     await this.openObserveTelemetryService.ingestBackendEvent({
       traceId: null,

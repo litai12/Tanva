@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CreditsService } from './credits.service';
 import { CreditsAnomalyService } from './credits-anomaly.service';
+import { TenantIterationService } from '../tenancy/tenant-iteration.service';
 
 @Injectable()
 export class CreditsSchedulerService {
@@ -12,13 +13,21 @@ export class CreditsSchedulerService {
   constructor(
     private readonly creditsService: CreditsService,
     private readonly creditsAnomalyService: CreditsAnomalyService,
+    private readonly tenantIteration: TenantIterationService,
   ) {}
 
   /**
    * 每天凌晨 2 点执行过期积分清理
+   *
+   * 多租户：对每个 active 租户在其 CLS 内各跑一次清理；
+   * 只有 default 一个租户时 = 原逻辑跑一次（回归安全）。
    */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleExpiredCreditsCleanup() {
+    await this.tenantIteration.forEachTenant(() => this.runExpiredCreditsCleanup());
+  }
+
+  private async runExpiredCreditsCleanup() {
     this.logger.log('开始执行签到积分过期清理任务...');
 
     try {
@@ -40,6 +49,10 @@ export class CreditsSchedulerService {
 
   /**
    * 每 5 分钟执行一次：处理长时间 pending 的异步调用并自动退款
+   *
+   * 多租户：对每个 active 租户在其 CLS 内各跑一次退款扫描；
+   * 只有 default 一个租户时 = 原逻辑跑一次（回归安全）。
+   * Running 守卫保持进程级（per-process），避免上一轮全租户未跑完时重入。
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleStalePendingAutoRefund() {
@@ -49,6 +62,14 @@ export class CreditsSchedulerService {
     }
 
     this.stalePendingAutoRefundRunning = true;
+    try {
+      await this.tenantIteration.forEachTenant(() => this.runStalePendingAutoRefund());
+    } finally {
+      this.stalePendingAutoRefundRunning = false;
+    }
+  }
+
+  private async runStalePendingAutoRefund() {
     try {
       const [imageResult, videoResult] = await Promise.all([
         this.creditsService.autoRefundStalePendingImageUsages(),
@@ -67,13 +88,15 @@ export class CreditsSchedulerService {
       }
     } catch (error) {
       this.logger.error('pending超时自动退款任务失败:', error);
-    } finally {
-      this.stalePendingAutoRefundRunning = false;
     }
   }
 
   /**
    * 每小时执行一次：检测当天积分异常
+   *
+   * 多租户：对每个 active 租户在其 CLS 内各跑一次异常检测；
+   * 只有 default 一个租户时 = 原逻辑跑一次（回归安全）。
+   * Running 守卫保持进程级（per-process），避免上一轮全租户未跑完时重入。
    */
   @Cron(CronExpression.EVERY_HOUR)
   async handleCreditAnomalyDetection() {
@@ -84,6 +107,14 @@ export class CreditsSchedulerService {
 
     this.anomalyDetectionRunning = true;
     try {
+      await this.tenantIteration.forEachTenant(() => this.runCreditAnomalyDetection());
+    } finally {
+      this.anomalyDetectionRunning = false;
+    }
+  }
+
+  private async runCreditAnomalyDetection() {
+    try {
       const anomalyResult = await this.creditsAnomalyService.detectDailyCreditAnomalies();
       if (anomalyResult.upsertedRecords > 0) {
         this.logger.log(
@@ -92,8 +123,6 @@ export class CreditsSchedulerService {
       }
     } catch (error) {
       this.logger.error('积分异常检测任务失败:', error);
-    } finally {
-      this.anomalyDetectionRunning = false;
     }
   }
 }

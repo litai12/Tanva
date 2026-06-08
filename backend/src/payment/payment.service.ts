@@ -12,7 +12,10 @@ import {
   PaymentStatusResponse,
   RECHARGE_PACKAGES,
   CREDITS_PER_YUAN,
+  TEAM_SEAT_PLANS,
+  TEAM_SEAT_MIN_SEATS,
   type PaymentOrderType,
+  type TeamSeatCycle,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
@@ -297,6 +300,61 @@ export class PaymentService implements OnModuleInit {
     return packageConfig.credits;
   }
 
+  /**
+   * 校验 team_seat 订单的归属与套餐价，返回服务端权威的 teamId/seats/cycle/金额/积分。
+   * - 调用者必须是该 team 的 owner/admin（防同租户内给自己不管理的团队买席位）。
+   * - 金额/积分一律按服务端套餐价（TEAM_SEAT_PLANS）重算，不采信客户端 metadata。
+   * 注意：调用方需处于正确租户的 CLS（请求态或已 runAsTenant），teamMembership 查询会自动按租户限定。
+   */
+  private async resolveTeamSeatOrder(
+    userId: string,
+    metadata: unknown,
+  ): Promise<{
+    teamId: string;
+    seats: number;
+    cycle: TeamSeatCycle;
+    amount: number;
+    credits: number;
+  }> {
+    const meta =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : null;
+    const teamId = typeof meta?.teamId === 'string' ? meta.teamId.trim() : '';
+    if (!teamId) {
+      throw new BadRequestException('席位订单缺少 teamId');
+    }
+
+    const seats = Number(meta?.seats);
+    if (!Number.isInteger(seats) || seats < TEAM_SEAT_MIN_SEATS) {
+      throw new BadRequestException(`最少购买 ${TEAM_SEAT_MIN_SEATS} 席位`);
+    }
+
+    const cycle = typeof meta?.cycle === 'string' ? (meta.cycle as TeamSeatCycle) : ('' as TeamSeatCycle);
+    const plan = TEAM_SEAT_PLANS[cycle];
+    if (!plan) {
+      throw new BadRequestException('无效的套餐周期');
+    }
+
+    // 权限校验：必须是该 team 的 owner/admin（与专用入口 assertRole 一致）。
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+      select: { role: true },
+    });
+    if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+      throw new BadRequestException('仅团队 owner/admin 可购买席位套餐');
+    }
+
+    // 套餐价一律按服务端重算，忽略客户端传入的 amount/credits。
+    return {
+      teamId,
+      seats,
+      cycle,
+      amount: this.normalizeMoneyAmount(plan.pricePerSeat * seats),
+      credits: plan.creditsPerSeat * seats,
+    };
+  }
+
   async getRechargePackages(_userId: string) {
     const packages = RECHARGE_PACKAGES.map((item) => {
       return {
@@ -370,8 +428,21 @@ export class PaymentService implements OnModuleInit {
     let membershipPlanId: string | null = null;
     let businessCode: string | null = null;
     let planSnapshot: Prisma.InputJsonValue | null = null;
+    // team_seat 订单经服务端重算后的权威 metadata（金额/积分/teamId/seats/cycle）。
+    let teamSeatMetadata: Record<string, unknown> | null = null;
 
-    if (orderType === 'membership') {
+    if (orderType === 'team_seat') {
+      // 通用下单入口同样收口 team_seat：校验调用者对 team 的 owner/admin 角色，
+      // 并按服务端套餐价重算金额/积分，杜绝越权购买与低价高席位。
+      const resolved = await this.resolveTeamSeatOrder(userId, dto.metadata);
+      orderAmount = resolved.amount;
+      orderCredits = resolved.credits;
+      teamSeatMetadata = {
+        teamId: resolved.teamId,
+        seats: resolved.seats,
+        cycle: resolved.cycle,
+      };
+    } else if (orderType === 'membership') {
       if (!dto.membershipPlanId) {
         throw new BadRequestException('会员订单缺少 membershipPlanId');
       }
@@ -448,7 +519,11 @@ export class PaymentService implements OnModuleInit {
         status: PaymentStatus.PENDING, qrCodeUrl, expiredAt,
         membershipPlanId,
         ...(planSnapshot ? { planSnapshot } : {}),
-        ...(dto.metadata ? { metadata: dto.metadata as Prisma.InputJsonValue } : {}),
+        ...(teamSeatMetadata
+          ? { metadata: teamSeatMetadata as Prisma.InputJsonValue }
+          : dto.metadata
+            ? { metadata: dto.metadata as Prisma.InputJsonValue }
+            : {}),
       },
     });
 
@@ -798,8 +873,38 @@ export class PaymentService implements OnModuleInit {
           );
           return;
         }
+        // 纵深防御：发货前再校验下单者对该 team 的 owner/admin 角色，
+        // 拦截「同租户内给自己不管理的团队买席位」(H6)。
+        const buyerMembership = await tx.teamMembership.findUnique({
+          where: { teamId_userId: { teamId, userId: currentOrder.userId } },
+          select: { role: true },
+        });
+        if (
+          !buyerMembership ||
+          (buyerMembership.role !== 'owner' && buyerMembership.role !== 'admin')
+        ) {
+          this.logger.error(
+            `team_seat 订单下单者非该 team 的 owner/admin，拒绝发放席位: orderId=${orderId}, teamId=${teamId}, userId=${currentOrder.userId}`,
+          );
+          return;
+        }
+
         const seats = Number(meta?.seats) || 0;
         const cycle = typeof meta?.cycle === 'string' ? meta.cycle : 'monthly';
+        // 纵深防御：发货前按服务端套餐价复核金额/席位/积分，不采信客户端 metadata。
+        const plan = TEAM_SEAT_PLANS[cycle as TeamSeatCycle];
+        if (
+          !plan ||
+          !Number.isInteger(seats) ||
+          seats < TEAM_SEAT_MIN_SEATS ||
+          !this.isAmountMatched(this.normalizeMoneyAmount(plan.pricePerSeat * seats), Number(currentOrder.amount)) ||
+          credits !== plan.creditsPerSeat * seats
+        ) {
+          this.logger.error(
+            `team_seat 订单套餐价校验失败，拒绝发放席位: orderId=${orderId}, teamId=${teamId}, seats=${seats}, cycle=${cycle}, amount=${String(currentOrder.amount)}, credits=${credits}`,
+          );
+          return;
+        }
         const durationDays = cycle === 'annual' ? 365 : 30;
         const paidAt = options?.paidAt ?? new Date();
         const expiresAt = new Date(paidAt.getTime() + durationDays * 86_400_000);

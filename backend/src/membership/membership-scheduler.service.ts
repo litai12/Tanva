@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CreditsService } from '../credits/credits.service';
+import { TenantIterationService } from '../tenancy/tenant-iteration.service';
 import { MembershipService } from './membership.service';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class MembershipSchedulerService {
   constructor(
     private readonly membershipService: MembershipService,
     private readonly creditsService: CreditsService,
+    private readonly tenantIteration: TenantIterationService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
@@ -26,12 +28,14 @@ export class MembershipSchedulerService {
 
     this.freeStarterQuotaJobRunning = true;
     try {
-      const result = await this.creditsService.issueFreeUserStarterQuotaCredits();
-      if (result.affectedUsers > 0 || result.grantedCredits > 0) {
-        this.logger.log(
-          `免费用户一次性额度补发完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
-        );
-      }
+      await this.tenantIteration.forEachTenant(async () => {
+        const result = await this.creditsService.issueFreeUserStarterQuotaCredits();
+        if (result.affectedUsers > 0 || result.grantedCredits > 0) {
+          this.logger.log(
+            `免费用户一次性额度补发完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
+          );
+        }
+      });
     } catch (error) {
       this.logger.error('免费用户一次性额度补发失败:', error);
     } finally {
@@ -48,16 +52,18 @@ export class MembershipSchedulerService {
 
     this.expiryJobRunning = true;
     try {
-      const result = await this.membershipService.expireElapsedMemberships();
-      if (
-        result.expiredSubscriptions > 0 ||
-        result.expiredLots > 0 ||
-        result.resetSnapshots > 0
-      ) {
-        this.logger.log(
-          `会员到期扫描完成: subscriptions=${result.expiredSubscriptions}, lots=${result.expiredLots}, resetSnapshots=${result.resetSnapshots}, expiredCredits=${result.expiredCredits}`,
-        );
-      }
+      await this.tenantIteration.forEachTenant(async () => {
+        const result = await this.membershipService.expireElapsedMemberships();
+        if (
+          result.expiredSubscriptions > 0 ||
+          result.expiredLots > 0 ||
+          result.resetSnapshots > 0
+        ) {
+          this.logger.log(
+            `会员到期扫描完成: subscriptions=${result.expiredSubscriptions}, lots=${result.expiredLots}, resetSnapshots=${result.resetSnapshots}, expiredCredits=${result.expiredCredits}`,
+          );
+        }
+      });
     } catch (error) {
       this.logger.error('会员到期扫描失败:', error);
     } finally {
@@ -74,10 +80,12 @@ export class MembershipSchedulerService {
 
     this.scheduledChangeJobRunning = true;
     try {
-      const result = await this.membershipService.applyDueScheduledChanges();
-      if (result.appliedCount > 0) {
-        this.logger.log(`待生效订阅切换完成: applied=${result.appliedCount}`);
-      }
+      await this.tenantIteration.forEachTenant(async () => {
+        const result = await this.membershipService.applyDueScheduledChanges();
+        if (result.appliedCount > 0) {
+          this.logger.log(`待生效订阅切换完成: applied=${result.appliedCount}`);
+        }
+      });
     } catch (error) {
       this.logger.error('待生效订阅切换失败:', error);
     } finally {
@@ -94,12 +102,14 @@ export class MembershipSchedulerService {
 
     this.giftDecayJobRunning = true;
     try {
-      const result = await this.membershipService.decayDailyGiftCredits();
-      if (result.affectedUsers > 0 || result.decayedCredits > 0) {
-        this.logger.log(
-          `赠送积分衰减完成: users=${result.affectedUsers}, decayedCredits=${result.decayedCredits}, updatedLots=${result.updatedLots}`,
-        );
-      }
+      await this.tenantIteration.forEachTenant(async () => {
+        const result = await this.membershipService.decayDailyGiftCredits();
+        if (result.affectedUsers > 0 || result.decayedCredits > 0) {
+          this.logger.log(
+            `赠送积分衰减完成: users=${result.affectedUsers}, decayedCredits=${result.decayedCredits}, updatedLots=${result.updatedLots}`,
+          );
+        }
+      });
     } catch (error) {
       this.logger.error('赠送积分衰减失败:', error);
     } finally {
@@ -122,12 +132,14 @@ export class MembershipSchedulerService {
 
     this.yearlyRefreshJobRunning = true;
     try {
-      const result = await this.membershipService.refreshYearlySubscriptionQuotaLots();
-      if (result.refreshedSubscriptions > 0 || result.grantedCredits > 0) {
-        this.logger.log(
-          `年费会员月度额度刷新完成: subscriptions=${result.refreshedSubscriptions}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
-        );
-      }
+      await this.tenantIteration.forEachTenant(async () => {
+        const result = await this.membershipService.refreshYearlySubscriptionQuotaLots();
+        if (result.refreshedSubscriptions > 0 || result.grantedCredits > 0) {
+          this.logger.log(
+            `年费会员月度额度刷新完成: subscriptions=${result.refreshedSubscriptions}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
+          );
+        }
+      });
     } catch (error) {
       this.logger.error('年费会员月度额度刷新失败:', error);
     } finally {
