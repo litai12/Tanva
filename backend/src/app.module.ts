@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ClsModule } from 'nestjs-cls';
+import { TenancyModule } from './tenancy/tenancy.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
@@ -33,6 +35,8 @@ import { TeamCollabModule } from './team-collab/team-collab.module';
       envFilePath: ['.env', '../.env'],
       expandVariables: true,
     }),
+    ClsModule.forRoot({ global: true, middleware: { mount: true } }),
+    TenancyModule,
     ScheduleModule.forRoot(),
     PrismaModule,
     UsersModule,
