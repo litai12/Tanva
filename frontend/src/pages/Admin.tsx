@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
+import TenantManagement from "@/components/admin/TenantManagement";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
 import {
@@ -18,6 +19,8 @@ import { WECHAT_QR_ACTION_URL } from "@/utils/wechatQrPanel";
 import {
   getDashboardStats,
   getUsers,
+  getTenants,
+  type TenantInfo,
   getApiUsageStats,
   getApiUsageRecords,
   addCredits,
@@ -122,7 +125,8 @@ type SettingsSubTabKey =
   | "vip-management"
   | "model-management"
   | "unified-model-management"
-  | "volc-review";
+  | "volc-review"
+  | "tenant";
 
 const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "dashboard",
@@ -4794,13 +4798,18 @@ const buildManagedNodeMetadata = (model: ManagedModelConfig): Record<string, any
 // 用户管理 Tab
 function UsersTab({
   canManageSensitiveUserFields,
+  isPlatformAdmin = false,
 }: {
   canManageSensitiveUserFields: boolean;
+  isPlatformAdmin?: boolean;
 }) {
   const currentUserId = useAuthStore((state) => state.user?.id);
   const [users, setUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [search, setSearch] = useState("");
+  // 主站超管：租户筛选（'all'=全部租户）+ 租户下拉数据
+  const [tenantFilter, setTenantFilter] = useState<string>("all");
+  const [tenantOptions, setTenantOptions] = useState<TenantInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -4846,7 +4855,8 @@ function UsersTab({
   const [membershipEffectiveMode, setMembershipEffectiveMode] = useState<
     "immediate" | "next_cycle"
   >("immediate");
-  const tableColumnCount = canManageSensitiveUserFields ? 9 : 7;
+  const tableColumnCount =
+    (canManageSensitiveUserFields ? 9 : 7) + (isPlatformAdmin ? 1 : 0);
 
   // ── 团队视图 ──
   const [view, setView] = useState<'users' | 'teams'>('users');
@@ -4966,7 +4976,13 @@ function UsersTab({
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const result = await getUsers({ page, pageSize: 10, search });
+      const result = await getUsers({
+        page,
+        pageSize: 10,
+        search,
+        // 仅主站超管传租户筛选；普通租户管理员由后端按本租户限定
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
+      });
       setUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -4978,7 +4994,15 @@ function UsersTab({
 
   useEffect(() => {
     loadUsers();
-  }, [page, search]);
+  }, [page, search, tenantFilter]);
+
+  // 主站超管：加载租户下拉
+  useEffect(() => {
+    if (!isPlatformAdmin) return;
+    getTenants()
+      .then(setTenantOptions)
+      .catch(() => setTenantOptions([]));
+  }, [isPlatformAdmin]);
 
   const handleCreditOperation = async () => {
     if (!creditModal || !creditAmount || !creditReason) return;
@@ -5440,6 +5464,24 @@ function UsersTab({
         >
           搜索
         </Button>
+        {isPlatformAdmin && (
+          <select
+            value={tenantFilter}
+            onChange={(e) => {
+              setTenantFilter(e.target.value);
+              setPage(1);
+            }}
+            className='rounded-md border px-3 py-2 text-sm'
+            title='按租户筛选'
+          >
+            <option value='all'>全部租户</option>
+            {tenantOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>}
 
       {view === 'users' && <div className='bg-white rounded-lg border overflow-hidden'>
@@ -5448,6 +5490,9 @@ function UsersTab({
             <thead className='bg-gray-50'>
               <tr>
                 <th className='px-4 py-3 text-left'>用户</th>
+                {isPlatformAdmin && (
+                  <th className='px-4 py-3 text-left'>所属租户</th>
+                )}
                 <th className='px-4 py-3 text-left'>手机号</th>
                 <th className='px-4 py-3 text-left'>积分余额</th>
                 <th className='px-4 py-3 text-left'>总消费</th>
@@ -5499,6 +5544,13 @@ function UsersTab({
                         </span>
                       </div>
                     </td>
+                    {isPlatformAdmin && (
+                      <td className='px-4 py-3'>
+                        <span className='rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600'>
+                          {user.tenantName || user.tenantId || "-"}
+                        </span>
+                      </td>
+                    )}
                     <td className='px-4 py-3'>{user.phone}</td>
                     <td className='px-4 py-3 font-medium text-blue-600'>
                       {user.creditBalance}
@@ -14419,6 +14471,8 @@ export default function Admin() {
   const userRole = user?.role;
   const hasAdminPanelAccess = canAccessAdminPanel(userRole);
   const canManageSensitiveUserFields = isFullAdmin(userRole);
+  // 主站超管：全管角色 且 属于主站(default 租户)。可管理租户 + 跨租户查用户。
+  const isPlatformAdmin = isFullAdmin(userRole) && user?.tenantId === "default";
   const currentTab = canAccessAdminTab(userRole, activeTab) ? activeTab : "dashboard";
 
   useEffect(() => {
@@ -14606,7 +14660,10 @@ export default function Admin() {
               </div>
             </div>
             {usersSubTab === "users" && (
-              <UsersTab canManageSensitiveUserFields={canManageSensitiveUserFields} />
+              <UsersTab
+                canManageSensitiveUserFields={canManageSensitiveUserFields}
+                isPlatformAdmin={isPlatformAdmin}
+              />
             )}
             {usersSubTab === "orders" && <OrdersTab />}
           </div>
@@ -14630,6 +14687,8 @@ export default function Admin() {
                   { key: "unified-model-management", label: "统一模型管理" },
                   { key: "model-management", label: "视频模型管理" },
                   { key: "volc-review", label: "审核素材组" },
+                  // 租户管理仅主站超管可见
+                  ...(isPlatformAdmin ? [{ key: "tenant", label: "租户管理" }] : []),
                 ].map((tab) => (
                   <button
                     key={tab.key}
@@ -14652,6 +14711,7 @@ export default function Admin() {
             {settingsSubTab === "unified-model-management" && <UnifiedModelManagementTab />}
             {settingsSubTab === "model-management" && <ModelManagementTab />}
             {settingsSubTab === "volc-review" && <VolcReviewTab />}
+            {settingsSubTab === "tenant" && isPlatformAdmin && <TenantManagement />}
           </div>
         )}
       </main>
