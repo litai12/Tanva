@@ -1,6 +1,6 @@
 import { INestApplication, Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { ClsService } from 'nestjs-cls';
+import { ClsServiceManager } from 'nestjs-cls';
 import {
   CLS_PLATFORM_MODE_KEY,
   CLS_TENANT_KEY,
@@ -19,7 +19,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
    */
   private readonly _scoped: ReturnType<PrismaService['buildTenantClient']>;
 
-  constructor(private readonly cls: ClsService) {
+  constructor() {
     super();
     this._scoped = this.buildTenantClient();
 
@@ -50,11 +50,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
   }
 
   private buildTenantClient() {
+    // 通过静态 ClsServiceManager 读 CLS，避免对 ClsService 的构造注入（否则与 ClsModule
+    // 的 async 工厂形成 PrismaService→ClsService→ClsModule→PrismaService 循环依赖）。
     return this.$extends(
-      createTenantExtension(() => ({
-        tenantId: this.cls.get(CLS_TENANT_KEY) ?? PLATFORM_TENANT_ID,
-        isPlatform: this.cls.get(CLS_PLATFORM_MODE_KEY) === true,
-      })),
+      createTenantExtension(() => {
+        const cls = ClsServiceManager.getClsService();
+        const active = !!cls && typeof cls.isActive === 'function' && cls.isActive();
+        return {
+          tenantId: active ? (cls.get(CLS_TENANT_KEY) ?? PLATFORM_TENANT_ID) : PLATFORM_TENANT_ID,
+          isPlatform: active ? cls.get(CLS_PLATFORM_MODE_KEY) === true : false,
+        };
+      }),
     );
   }
 
