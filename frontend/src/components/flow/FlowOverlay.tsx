@@ -18549,9 +18549,11 @@ function FlowInner() {
             return String(a.id || "").localeCompare(String(b.id || ""));
           })
           .slice(0, maxImages);
+        // 解析到 maxImages 张（不再减去连线数）：同图既连线又被 @ 引用时，要让 @ 引用也能进入
+        // 合并列表参与“按预览/文本顺序排序”，去重(按 url)+末尾 slice(0,maxImages) 已兜住重复与上限。
         const promptMentionImages = await resolvePromptMentionImagesForNode(
           nodeId,
-          Math.max(0, maxImages - imageEdges.length)
+          maxImages
         );
         const imageCount = imageEdges.length + promptMentionImages.length;
         const hasPhysicalPrimaryImage = imageEdges.some(
@@ -19189,19 +19191,28 @@ function FlowInner() {
                   mention: item.mention,
                 })),
               ]
-            : [
-                ...resolvedEdgePairs.map((pair) => ({
-                  dataUrl: pair.dataUrl,
-                  edge: pair.edge,
-                })),
+            : promptMentionImageInputs.length > 0
+            ? // 有 @ 引用：以 prompt 下方预览缩略图（=mentions 按正文出现顺序）为权威顺序，
+              // mention 在前，去重后 referenceImages 下标就等于预览缩略图顺序（@图1→0、@图2→1）。
+              // 纯连线（未被 @ 引用）的图排在被引用图之后。
+              [
                 ...promptMentionImageInputs.map((item) => ({
                   dataUrl: item.dataUrl,
                   mention: item.mention,
                 })),
-              ];
+                ...resolvedEdgePairs.map((pair) => ({
+                  dataUrl: pair.dataUrl,
+                  edge: pair.edge,
+                })),
+              ]
+            : // 无 @ 引用：保持连线顺序（句柄优先级 + currentEdges 顺序）。
+              resolvedEdgePairs.map((pair) => ({
+                dataUrl: pair.dataUrl,
+                edge: pair.edge,
+              }));
         // 同一张图既被连线又被 @ 引用时，会以不同来源进入合并列表，导致重复下发、
         // 重复注册 volc asset（同 url 拿到两个 assetId）。按 url 去重，保留首次位置
-        // （连线优先），并合并 edge/mention 来源——@ 引用信息不能因为连线副本先到而丢失。
+        // （有 @ 引用时 mention 在前 → 按预览/正文顺序；无 @ 时连线在前），合并 edge/mention 来源。
         const dedupedReferenceImageInputs: typeof mergedReferenceImageInputs = [];
         const referenceImageIndexByUrl = new Map<string, number>();
         for (const item of mergedReferenceImageInputs) {
