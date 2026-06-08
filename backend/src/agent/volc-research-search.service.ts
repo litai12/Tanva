@@ -854,7 +854,7 @@ export class VolcResearchSearchService {
       ).slice(0, 4);
       return {
         ...item,
-        images: images.length > 0 ? images : this.placeholderImagesForCase(item),
+        images,
       };
     });
   }
@@ -866,14 +866,6 @@ export class VolcResearchSearchService {
       .join(' ');
     const titleOnly = [item.subtitle || item.title, 'architecture'].filter(Boolean).join(' ');
     return Array.from(new Set([...explicit, base, titleOnly].filter(Boolean))).slice(0, 3);
-  }
-
-  private placeholderImagesForCase(item: SearchDerivedCase): AgentResearchImageCandidate[] {
-    return this.caseImageSearchQueries(item).slice(0, 4).map((query, index) => ({
-      label: this.labelForIndex(index),
-      query,
-      searchUrl: this.buildSearchUrl(query),
-    }));
   }
 
   private async callSearch(

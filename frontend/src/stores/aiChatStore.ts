@@ -754,6 +754,26 @@ const extractRequestedOutputImageCount = (input: string): number | null => {
   return null;
 };
 
+const buildParallelSingleImagePrompt = (
+  prompt: string,
+  groupIndex: number,
+  groupTotal: number
+): string => {
+  const basePrompt = String(prompt || "").trim();
+  if (groupTotal <= 1) return basePrompt;
+
+  return [
+    basePrompt,
+    "",
+    `批量拆分说明：用户需要的是 ${groupTotal} 张彼此独立的成品图，本次只执行第 ${
+      groupIndex + 1
+    }/${groupTotal} 张。`,
+    "本次生成约束：只生成 1 张完整图片；不要拼图、网格、分屏、多宫格、三联画，也不要在同一张画面里放多张成品。",
+    "不要把总张数理解为单张画面中的主体数量；如果原提示包含“每张图/each image”的约束，请把它理解为本次这一张图的约束。",
+    "如果原提示要求不同品种、不同风格、不同版本或 variations，请让本次结果与其他批次保持差异。",
+  ].join("\n");
+};
+
 const buildAgentRunContext = (input: string): Record<string, unknown> => {
   const needsConversationContext =
     contextManager.detectConversationContextIntent(input);
@@ -3093,6 +3113,8 @@ interface AIChatState {
       groupTotal: number;
       userMessageId: string;
       aiMessageId: string;
+      prompt?: string;
+      selectedTool?: AvailableTool | null;
     }
   ) => Promise<void>;
 
@@ -8849,12 +8871,22 @@ export const useAIChatStore = create<AIChatState>()(
                 concurrency,
                 async (aiMessageId, index) => {
                   try {
+                    const basePrompt = parameters.prompt || input;
+                    const promptForSlot = requestedOutputImageCount
+                      ? buildParallelSingleImagePrompt(
+                          basePrompt,
+                          index,
+                          multiplier
+                        )
+                      : basePrompt;
                     await get().executeParallelImageGeneration(input, {
                       groupId,
                       groupIndex: index,
                       groupTotal: multiplier,
                       userMessageId: userMessage.id,
                       aiMessageId,
+                      prompt: promptForSlot,
+                      selectedTool,
                     });
                     return true;
                   } catch (error) {
@@ -8891,9 +8923,12 @@ export const useAIChatStore = create<AIChatState>()(
             groupTotal: number;
             userMessageId: string;
             aiMessageId: string;
+            prompt?: string;
+            selectedTool?: AvailableTool | null;
           }
         ) => {
           const { aiMessageId, userMessageId, groupIndex } = options;
+          const executionPrompt = options.prompt || input;
           const metrics = createProcessMetrics();
           metrics.messageId = aiMessageId;
           logProcessStep(
@@ -8926,6 +8961,9 @@ export const useAIChatStore = create<AIChatState>()(
           const hasBlendSources = blendSources.length >= 2;
 
           const decideParallelTool = (): "generate" | "edit" | "blend" => {
+            if (options.selectedTool === "generateImage") return "generate";
+            if (options.selectedTool === "editImage") return "edit";
+            if (options.selectedTool === "blendImages") return "blend";
             if (manualMode === "edit") return "edit";
             if (manualMode === "blend") return "blend";
 
@@ -8952,12 +8990,12 @@ export const useAIChatStore = create<AIChatState>()(
 
               if (!editSource) {
                 console.warn("⚠️ [并行编辑] 未找到可编辑的源图，退回生成逻辑");
-                await get().generateImage(input, {
+                await get().generateImage(executionPrompt, {
                   override: messageOverride,
                   metrics,
                 });
               } else {
-                await get().editImage(input, editSource, true, {
+                await get().editImage(executionPrompt, editSource, true, {
                   override: messageOverride,
                   metrics,
                 });
@@ -8971,12 +9009,12 @@ export const useAIChatStore = create<AIChatState>()(
             } else if (selectedTool === "blend") {
               if (!hasBlendSources) {
                 console.warn("⚠️ [并行融合] 源图不足，退回生成逻辑");
-                await get().generateImage(input, {
+                await get().generateImage(executionPrompt, {
                   override: messageOverride,
                   metrics,
                 });
               } else {
-                await get().blendImages(input, blendSources, {
+                await get().blendImages(executionPrompt, blendSources, {
                   override: messageOverride,
                   metrics,
                 });
@@ -8990,7 +9028,7 @@ export const useAIChatStore = create<AIChatState>()(
               );
             } else {
               // 直接调用 generateImage
-              await get().generateImage(input, {
+              await get().generateImage(executionPrompt, {
                 override: messageOverride,
                 metrics,
               });

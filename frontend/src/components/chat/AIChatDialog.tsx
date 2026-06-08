@@ -4653,7 +4653,9 @@ const AIChatDialog: React.FC = () => {
                                             const images = Array.isArray(
                                               item.images
                                             )
-                                              ? item.images
+                                              ? item.images.filter(
+                                                  (img) => img?.imageUrl
+                                                )
                                               : [];
                                             const sources = Array.isArray(
                                               item.sources
@@ -4690,8 +4692,7 @@ const AIChatDialog: React.FC = () => {
                                                   <div className='mb-2 grid max-w-[760px] grid-cols-2 gap-1 sm:grid-cols-4'>
                                                     {images
                                                       .slice(0, 4)
-                                                      .map((img) =>
-                                                        img.imageUrl ? (
+                                                      .map((img) => (
                                                           <button
                                                             key={
                                                               img.imageUrl ||
@@ -4717,27 +4718,7 @@ const AIChatDialog: React.FC = () => {
                                                               className='h-full w-full object-cover'
                                                             />
                                                           </button>
-                                                        ) : (
-                                                          <a
-                                                            key={
-                                                              img.searchUrl ||
-                                                              img.query
-                                                            }
-                                                            href={
-                                                              img.searchUrl
-                                                            }
-                                                            target='_blank'
-                                                            rel='noopener noreferrer'
-                                                            className='flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded border border-white/30 bg-white/15 px-1 text-center text-[10px] text-slate-600 hover:bg-white/25'
-                                                          >
-                                                            <Image className='h-3.5 w-3.5 text-slate-500' />
-                                                            <span>
-                                                              {img.label ||
-                                                                "图片"}
-                                                            </span>
-                                                          </a>
-                                                        )
-                                                      )}
+                                                        ))}
                                                   </div>
                                                 ) : null}
                                                 {sources.length > 0 ? (

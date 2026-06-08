@@ -74,12 +74,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat Image Count: explicit multi-image prompts such as `画三张...每张图1只` now split the batch into per-slot single-image prompts, so each parallel generation creates one independent image instead of reinterpreting the total count as a collage or multiple subjects in one image.
 - AI Chat/Agent: research-only case lookup now returns both the text-stage web-search answer and the Volcengine structured search payload (`text` + `volc`), and removes local static case-library / hard-coded architect fallback seeds from the Agent research path.
 - AI Chat/Agent: research-only text drafting now passes the same UI-selected text `model`, route `providerOptions`, and `thinkingLevel` as normal Text mode before Volcengine keyword search.
 - AI Chat/Agent: research keyword extraction now prioritizes numbered/markdown case headings and trims explanatory title dashes before sending seed keywords to Volcengine.
 - AI Chat/Agent: research keyword extraction is now configurable with `AGENT_RESEARCH_KEYWORD_EXTRACT_MODE=hybrid|ai|rule`; the default hybrid mode lets AI read both the user prompt and Text answer, then merges rule-based title keywords as fallback.
 - AI Chat/Agent: research result cards no longer display internal seed-validation copy such as "文本候选/联网校验" or generic verification badges, and the card section title is normalized to "案例搜索".
 - AI Chat/Agent: research-only final message text now stays on the text-stage answer; Volcengine search snippets and case summaries are stored as structured trace data and no longer appended to the chat body.
+- AI Chat/Agent: case-search cards now render only candidates with real `imageUrl` values and no longer show link-only image placeholders when Volcengine image search returns no usable image.
 - AI Chat/Agent: research-only text-stage timeout now matches normal Text chat's 60s budget, with prompt-derived non-static query fallback so Volcengine does not receive an empty keyword list when the text stage fails.
 - AI Chat Text: NewAPI `HTTP 520: openai_error` during web-search text chat now triggers the existing retry without `web_search_preview`, and failed text placeholders no longer keep showing a generating message.
 - AI Chat/Agent: research-only case lookup no longer marks all plan steps completed before real work starts, and Volcengine web/image/model search calls now have bounded timeouts with per-query failure fallback so SSE always proceeds to `research_result`/`done` instead of hanging after `research_text`.
