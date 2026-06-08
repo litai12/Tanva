@@ -1,3 +1,47 @@
+-- 租户基座（Tenancy Foundation）
+-- 注意：本仓库目标库通过 prisma db execute 增量应用(漂移库不能 migrate dev)，
+-- 此文件经 'prisma migrate resolve --applied' 登记为已应用；新环境 migrate deploy 时按此执行。
+
+-- ===== 阶段A: 租户表 + 主站种子 =====
+CREATE TABLE IF NOT EXISTS "Tenant" (
+  "id" TEXT PRIMARY KEY,
+  "slug" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "isPlatform" BOOLEAN NOT NULL DEFAULT false,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "Tenant_slug_key" ON "Tenant"("slug");
+CREATE INDEX IF NOT EXISTS "Tenant_status_idx" ON "Tenant"("status");
+
+CREATE TABLE IF NOT EXISTS "TenantDomain" (
+  "id" TEXT PRIMARY KEY,
+  "tenantId" TEXT NOT NULL,
+  "host" TEXT NOT NULL,
+  "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+  "verified" BOOLEAN NOT NULL DEFAULT false,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT now(),
+  CONSTRAINT "TenantDomain_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TenantDomain_host_key" ON "TenantDomain"("host");
+CREATE INDEX IF NOT EXISTS "TenantDomain_tenantId_idx" ON "TenantDomain"("tenantId");
+
+INSERT INTO "Tenant" ("id","slug","name","status","isPlatform","createdAt","updatedAt")
+VALUES ('default','platform','主站','active',true,now(),now())
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "TenantDomain" ("id","tenantId","host","isPrimary","verified","createdAt")
+VALUES (gen_random_uuid(),'default','tanvas.cn',true,true,now())
+ON CONFLICT ("host") DO NOTHING;
+
+-- ===== 阶段A': 额外域名(www/localhost) =====
+INSERT INTO "TenantDomain" ("id","tenantId","host","isPrimary","verified","createdAt")
+VALUES (gen_random_uuid(),'default','www.tanvas.cn',false,true,now()) ON CONFLICT ("host") DO NOTHING;
+INSERT INTO "TenantDomain" ("id","tenantId","host","isPrimary","verified","createdAt")
+VALUES (gen_random_uuid(),'default','localhost',false,true,now()) ON CONFLICT ("host") DO NOTHING;
+
+-- ===== 阶段B: 业务表加 tenantId + User 复合唯一 =====
 -- P2: add tenantId to tenant-scoped tables (additive, constant default = no full rewrite)
 ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "tenantId" TEXT NOT NULL DEFAULT 'default';
 CREATE INDEX IF NOT EXISTS "Project_tenantId_idx" ON "Project"("tenantId");

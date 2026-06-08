@@ -7,36 +7,41 @@
 
 目标库的本地迁移历史与 DB 的 `_prisma_migrations` 已**漂移**（本地有未应用项、DB 有本地缺失项）。
 `prisma migrate dev` 检测到漂移会提示 `migrate reset`（**DROP 全库**），在共享/生产库上绝不可触发。
-因此本基座一律用**手写增量 DDL** + `prisma db execute` 应用（纯 `CREATE/ALTER/CREATE INDEX`，非破坏），
-再 `prisma generate` 同步客户端类型。DDL 脚本留档于 `backend/.tenancy-backup/`。
+本基座的全部 DDL 已收敛为一个标准迁移文件：
+**`prisma/migrations/20260608120000_tenancy_foundation/migration.sql`**
+（建 Tenant/TenantDomain + 主站种子 + 域名 + 31 表加 tenantId + User 复合唯一）。
+本仓库目标库当初用 `prisma db execute` 增量应用，再用 `prisma migrate resolve --applied`
+把该迁移登记为已应用，故迁移历史与 DB 一致。
 
 ## 前置
 
-1. **备份**：对目标库做快照/逻辑备份（本仓库无 pg_dump/psql，用了 `pg_indexes` 导出索引定义到
-   `.tenancy-backup/indexes-snapshot.sql` 作为最小留档；正式环境请用 `pg_dump`）。
-2. 确认主站域名（本仓库 = `tanvas.cn`，来自 `APP_BASE_URL`）。
+1. **备份**：对目标库做快照/逻辑备份（正式环境用 `pg_dump`）。
+2. 确认主站域名（本仓库 = `tanvas.cn`，来自 `APP_BASE_URL`；migration.sql 内种子的 host 也是它，
+   新环境按需改）。
 3. `cd backend`。
 
 ## 步骤
 
-### 阶段 A — 租户表 + 主站种子（`.tenancy-backup/p1_tenant_tables.sql`）
+### 方式一（新环境/干净库，推荐）
 ```bash
-npx prisma db execute --file .tenancy-backup/p1_tenant_tables.sql
+npx prisma migrate deploy   # 会执行含 tenancy_foundation 在内的全部迁移
+npx prisma generate
 ```
-建 `Tenant`/`TenantDomain`，插入主站 `Tenant{id:'default',slug:'platform',isPlatform:true}`
-与 `TenantDomain{host:'tanvas.cn'}`。脚本幂等（`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`）。
-> 新环境改 host 为该环境主站域名。可追加 `www.`、`localhost`（见 `p4_extra_domains.sql`）。
+> ⚠ 既有漂移：本仓库本地迁移历史与某些环境的 `_prisma_migrations` 存在历史漂移
+> （3 个 DB-only 迁移、1 个本地未应用项，开工前即存在，与本基座无关）。对**已运行的老库**
+> 直接 `migrate deploy` 前需先核对 `prisma migrate status`，必要时对个别迁移用 `migrate resolve`。
 
-### 阶段 B — 业务表加 tenantId + User 复合唯一（`.tenancy-backup/p2_add_tenant_id.sql`）
+### 方式二（漂移库，无法 migrate deploy 时）
+直接对库执行迁移 SQL（纯 `CREATE/ALTER/CREATE INDEX` + 幂等 `IF NOT EXISTS`/`ON CONFLICT`）：
 ```bash
-npx prisma db execute --file .tenancy-backup/p2_add_tenant_id.sql
+npx prisma db execute --file prisma/migrations/20260608120000_tenancy_foundation/migration.sql
+npx prisma migrate resolve --applied 20260608120000_tenancy_foundation   # 登记已应用
+npx prisma generate
 ```
-- 31 张业务表 `ADD COLUMN IF NOT EXISTS "tenantId" TEXT NOT NULL DEFAULT 'default'`
-  （PG11+ 常量默认值不重写全表，存量自动回填 'default'）+ 单列 `tenantId` 索引。
-- `User`：建 5 个复合唯一 `(tenantId, phone/email/watchaUserId/wechatOfficialOpenId/wechatUnionId)`，
-  删除旧单列唯一。**前置安全**：迁移时全部数据属主站，复合唯一等价旧全局唯一，不会冲突。
-> 大表/生产：把 `CREATE UNIQUE INDEX` 改为 `CREATE UNIQUE INDEX CONCURRENTLY` 并拆成独立的无事务执行，
-> 避免长写锁。本仓库目标库数据量小，直接执行。
+要点：
+- 31 张业务表 `ADD COLUMN ... tenantId TEXT NOT NULL DEFAULT 'default'`（PG11+ 常量默认不重写全表，存量自动回填）。
+- `User` 建 5 个复合唯一并删旧单列唯一；迁移时数据全属主站，复合唯一等价旧全局唯一，不冲突。
+- 大表/生产：把 `CREATE UNIQUE INDEX` 改 `CONCURRENTLY` 并拆为无事务执行，避免长写锁。
 
 ### 阶段 C — 同步 schema 与客户端
 schema.prisma 已含 `Tenant`/`TenantDomain` 与各表 `tenantId`、User 复合唯一。
