@@ -18514,6 +18514,12 @@ function FlowInner() {
           return 99;
         };
 
+        // 同 handle 的多张参考图（Seedance 全能参考/智能多帧把所有图都接到 "image" 句柄上）
+        // 必须按 currentEdges 的数组顺序排，与 usePromptSiblingImages 给缩略图编 @图N 的顺序一致——
+        // 否则 @图1 会被 edge.id 字典序打乱成 referenceImages 里的第 2 张，破坏 @图N→下标 的对应。
+        const edgeOrderIndex = new Map(
+          currentEdges.map((edge, index) => [edge, index] as const)
+        );
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
@@ -18529,10 +18535,17 @@ function FlowInner() {
             );
           })
           .sort((a, b) => {
+            // 主键：句柄优先级（image=首帧/主参考 在前，image-2=尾帧，elementImg 在后），
+            // 保证首尾帧语义不被打乱。
             const handleDelta =
               imageHandlePriority(a.targetHandle) -
               imageHandlePriority(b.targetHandle);
             if (handleDelta !== 0) return handleDelta;
+            // 次键：连线在 currentEdges 中的位置（即缩略图条 @图N 的顺序），让发送顺序与用户所见一致。
+            const orderDelta =
+              (edgeOrderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
+              (edgeOrderIndex.get(b) ?? Number.MAX_SAFE_INTEGER);
+            if (orderDelta !== 0) return orderDelta;
             return String(a.id || "").localeCompare(String(b.id || ""));
           })
           .slice(0, maxImages);

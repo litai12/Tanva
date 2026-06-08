@@ -1140,10 +1140,19 @@ export class VideoProviderService {
       !isSeedance2FrameMode &&
       (SEEDANCE_REFERENCE_MODES.has(seedanceVideoMode) || referenceImages.length >= 2);
     // 首尾帧(start_end)：≥2 图时首图=首帧、次图=尾帧；单图退化为纯首帧(i2v)。
-    const isSeedance2StartEndMode =
-      isSeedance2 &&
-      isSeedance2FrameMode &&
-      (seedanceVideoMode === "start_end" || seedanceVideoMode === "start-end");
+    // 注意：seedance 1.5 与 2.0 都经同一个 doubao Ark 适配器下发，Ark 同样禁止首/尾帧与
+    // reference_image 混用，所以首尾帧处理必须覆盖两个版本——不能只 gate 在 isSeedance2。
+    // 模式取值差异：seedance 2.0 = "start_end"/"start-end"；seedance 1.5 = "start-end2video"
+    // （见前端 FlowOverlay seedanceVideoModeForAPI）。否则 1.5 首尾帧会落到默认分支，把次图
+    // 当 reference_image 与首帧的 first_frame 混用，触发 Ark 400。
+    const isDoubaoSeedance = /doubao-seedance/i.test(model);
+    const SEEDANCE_STARTEND_MODES = new Set([
+      "start_end",
+      "start-end",
+      "start-end2video",
+    ]);
+    const isSeedanceStartEndMode =
+      isDoubaoSeedance && SEEDANCE_STARTEND_MODES.has(seedanceVideoMode);
     const buildSeedanceImageFields = (
       urls: string[],
     ): {
@@ -1160,7 +1169,7 @@ export class VideoProviderService {
           lastFrame: undefined,
         };
       }
-      if (isSeedance2StartEndMode && urls.length >= 2) {
+      if (isSeedanceStartEndMode && urls.length >= 2) {
         // 尾帧只走 lastFrame、绝不放进 images：否则 new-api 归一化会把它并入
         // reference_image 集合，与 first_frame 混用触发 Ark 400。
         return {
