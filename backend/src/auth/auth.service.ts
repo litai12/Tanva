@@ -811,7 +811,7 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, existingWechatUser.id, profile);
       }
 
-      const userByPhone = await tx.user.findUnique({
+      const userByPhone = await tx.user.findFirst({
         where: { phone: normalizedPhone },
         select: { id: true, email: true, name: true, phone: true, role: true },
       });
@@ -1116,14 +1116,14 @@ export class AuthService {
 
   private async pickWatchaPhoneCandidate(tx: any, watchaUserId: string, preferredPhone?: string | null) {
     if (preferredPhone) {
-      const exists = await tx.user.findUnique({ where: { phone: preferredPhone } });
+      const exists = await tx.user.findFirst({ where: { phone: preferredPhone } });
       if (!exists) return preferredPhone;
     }
 
     const slug = watchaUserId.replace(/[^0-9a-zA-Z]/g, "").slice(0, 16) || randomBytes(6).toString("hex");
     for (let i = 0; i < 20; i += 1) {
       const candidate = `watcha_${slug}_${i}`;
-      const exists = await tx.user.findUnique({ where: { phone: candidate } });
+      const exists = await tx.user.findFirst({ where: { phone: candidate } });
       if (!exists) return candidate;
     }
     return `watcha_${slug}_${Date.now()}`;
@@ -1141,14 +1141,14 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       const pickSafeEmail = async (targetUserId: string, currentEmail: string | null) => {
         if (currentEmail || !email) return currentEmail;
-        const owner = await tx.user.findUnique({ where: { email } });
+        const owner = await tx.user.findFirst({ where: { email } });
         if (!owner || owner.id === targetUserId) {
           return email;
         }
         return currentEmail;
       };
 
-      const byWatcha = await tx.user.findUnique({ where: { watchaUserId: profile.watchaUserId } });
+      const byWatcha = await tx.user.findFirst({ where: { watchaUserId: profile.watchaUserId } });
       if (byWatcha) {
         const safeEmail = await pickSafeEmail(byWatcha.id, byWatcha.email);
         return tx.user.update({
@@ -1164,10 +1164,10 @@ export class AuthService {
 
       let candidate: any = null;
       if (phone) {
-        candidate = await tx.user.findUnique({ where: { phone } });
+        candidate = await tx.user.findFirst({ where: { phone } });
       }
       if (!candidate && email) {
-        candidate = await tx.user.findUnique({ where: { email } });
+        candidate = await tx.user.findFirst({ where: { email } });
       }
 
       if (candidate) {
@@ -1189,7 +1189,7 @@ export class AuthService {
 
       let emailForCreate: string | null = null;
       if (email) {
-        const emailExists = await tx.user.findUnique({ where: { email } });
+        const emailExists = await tx.user.findFirst({ where: { email } });
         if (!emailExists) {
           emailForCreate = email;
         }
@@ -1273,18 +1273,18 @@ export class AuthService {
     const hash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const existsByPhone = await tx.user.findUnique({
+      const existsByPhone = await tx.user.findFirst({
         where: { phone: normalizedPhone },
       });
       if (existsByPhone) throw new UnauthorizedException("手机号已注册");
-      const existsPhoneMatchedByName = await tx.user.findUnique({
+      const existsPhoneMatchedByName = await tx.user.findFirst({
         where: { phone: trimmedName },
       });
       if (existsPhoneMatchedByName) {
         throw new BadRequestException("用户名不能与手机号相同");
       }
       if (normalizedEmail) {
-        const existsByEmail = await tx.user.findUnique({
+        const existsByEmail = await tx.user.findFirst({
           where: { email: normalizedEmail },
         });
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
