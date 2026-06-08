@@ -35,3 +35,18 @@ export class AddDomainDto {
   @IsBoolean()
   isPrimary?: boolean;
 }
+
+export class SetTenantApiKeysDto {
+  // 每个字段：传字符串=设置(空串=清除)，不传=保持不变
+  @IsOptional()
+  @IsString()
+  newApiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  newApiKeyVip?: string;
+
+  @IsOptional()
+  @IsString()
+  newApiKeySvip?: string;
+}

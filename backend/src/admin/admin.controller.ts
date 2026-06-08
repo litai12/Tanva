@@ -46,7 +46,7 @@ import {
 } from './dto/template.dto';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 import { TenantAdminService } from './tenant-admin.service';
-import { CreateTenantDto, UpdateTenantDto, AddDomainDto } from './dto/tenant-admin.dto';
+import { CreateTenantDto, UpdateTenantDto, AddDomainDto, SetTenantApiKeysDto } from './dto/tenant-admin.dto';
 import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 
 interface AuthenticatedUser {
@@ -198,6 +198,17 @@ export class AdminController {
   ) {
     this.ensurePlatformAdmin(req);
     return this.tenantAdminService.removeDomain(id, domainId);
+  }
+
+  @Post('tenants/:id/api-keys')
+  @ApiOperation({ summary: '设置租户 new-api 三组 key' })
+  async setTenantApiKeys(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantApiKeysDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setApiKeys(id, dto);
   }
 
   @Get('users/:userId')

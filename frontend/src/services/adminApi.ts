@@ -175,6 +175,8 @@ export interface TenantInfo {
   isPlatform: boolean;
   createdAt: string;
   userCount: number;
+  // 是否已配置各档 new-api key（不含明文）
+  apiKeys?: { normal: boolean; vip: boolean; svip: boolean };
   domains: TenantDomainInfo[];
 }
 
@@ -219,6 +221,17 @@ export async function addTenantDomain(
 export async function removeTenantDomain(id: string, domainId: string): Promise<TenantInfo> {
   const response = await request(`/api/admin/tenants/${id}/domains/${domainId}`, {
     method: "DELETE",
+  });
+  return response.json();
+}
+export async function setTenantApiKeys(
+  id: string,
+  body: { newApiKey?: string; newApiKeyVip?: string; newApiKeySvip?: string },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/api-keys`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
   });
   return response.json();
 }

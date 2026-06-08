@@ -74,6 +74,16 @@ rg -n "imageTask\.|videoTask\.|apiUsageRecord\." src
 但仍由 `findById`（租户作用域）兜底——查不到当前 Host 租户用户即 401，**不构成跨租户访问**。
 access token TTL 短，过渡期（一个 TTL 周期）后设 `TENANT_STRICT_TOKEN=true` 显式拒绝无 tenantId 的 token。
 
+## 9. 子租户 new-api key 仅覆盖主力 provider —— 其余 12 个 AI service 仍走平台 key
+
+已支持：`Tenant` 存三组 key（normal/VIP/SVIP），`NewApiKeyResolver` 按当前租户解析（未配回落 env），
+已接入主力 `new-api.provider.ts`（出图/视频主路径），主站超管在「租户管理」配置。
+**未覆盖**：`background-removal` / `tencent-speech` / `tencent-vod-aigc` / `sora2-video` / `veo-video` /
+`seed3d` / `seedream5` / `minimax-speech` / `minimax-music` / `video-provider` 等约 12 个 service
+仍在构造时读 env key（用平台共享池）。要做到这些服务也按租户分账，需把它们的 `private readonly apiKey = env`
+改为请求时 `await keyResolver.resolve(tier, envFallback)`（参考 new-api.provider 的改法）。
+当前单租户/未配租户下行为不变（全用平台 key）。
+
 ## 5. 裸 SQL 审计（P8 已加 CI 闸）
 
 `$queryRaw/$executeRaw` 绕过租户扩展。CI 脚本 `npm run lint:raw-sql` 会拦截未带

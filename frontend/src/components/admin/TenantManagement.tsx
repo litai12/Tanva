@@ -5,6 +5,7 @@ import {
   updateTenant,
   addTenantDomain,
   removeTenantDomain,
+  setTenantApiKeys,
   type TenantInfo,
 } from "@/services/adminApi";
 
@@ -20,6 +21,15 @@ export default function TenantManagement() {
 
   // 给某租户加域名
   const [domainInput, setDomainInput] = useState<Record<string, string>>({});
+
+  // new-api key 配置：展开的租户id + 三档输入
+  const [keyPanel, setKeyPanel] = useState<string | null>(null);
+  const [keyForm, setKeyForm] = useState<{
+    newApiKey: string;
+    newApiKeyVip: string;
+    newApiKeySvip: string;
+  }>({ newApiKey: "", newApiKeyVip: "", newApiKeySvip: "" });
+  const [keySaving, setKeySaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -83,6 +93,30 @@ export default function TenantManagement() {
       await load();
     } catch (e: any) {
       setErr(e?.message || "删除域名失败");
+    }
+  };
+
+  const openKeyPanel = (tenantId: string) => {
+    setKeyPanel((cur) => (cur === tenantId ? null : tenantId));
+    // 不回填明文（后端不返回），留空表示保持不变
+    setKeyForm({ newApiKey: "", newApiKeyVip: "", newApiKeySvip: "" });
+  };
+
+  const handleSaveKeys = async (tenantId: string) => {
+    setKeySaving(true);
+    try {
+      // 只提交非空字段；要清除某档请输入单个空格（trim 后为空 → 后端清除）
+      const body: Record<string, string> = {};
+      if (keyForm.newApiKey !== "") body.newApiKey = keyForm.newApiKey;
+      if (keyForm.newApiKeyVip !== "") body.newApiKeyVip = keyForm.newApiKeyVip;
+      if (keyForm.newApiKeySvip !== "") body.newApiKeySvip = keyForm.newApiKeySvip;
+      await setTenantApiKeys(tenantId, body);
+      setKeyPanel(null);
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || "保存 key 失败");
+    } finally {
+      setKeySaving(false);
     }
   };
 
@@ -219,6 +253,71 @@ export default function TenantManagement() {
                   </button>
                 </div>
               </div>
+
+              {/* new-api 三组 key 配置 */}
+              {!t.isPlatform && (
+                <div className="mt-3 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                      <span>new-api Key</span>
+                      {(["normal", "vip", "svip"] as const).map((k) => (
+                        <span
+                          key={k}
+                          className={`rounded px-1.5 py-0.5 ${
+                            t.apiKeys?.[k]
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-100 text-gray-400"
+                          }`}
+                          title={t.apiKeys?.[k] ? "已配置" : "未配置(回落平台key)"}
+                        >
+                          {k}
+                          {t.apiKeys?.[k] ? "✓" : "·"}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => openKeyPanel(t.id)}
+                      className="rounded-md border px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                    >
+                      {keyPanel === t.id ? "收起" : "配置 key"}
+                    </button>
+                  </div>
+
+                  {keyPanel === t.id && (
+                    <div className="mt-2 space-y-2 rounded-md bg-gray-50 p-3">
+                      <p className="text-xs text-gray-400">
+                        留空=保持不变；要清除某档请输入一个空格。未配置则回落平台共享 key。
+                      </p>
+                      {(
+                        [
+                          ["newApiKey", "普通 (normal)"],
+                          ["newApiKeyVip", "VIP"],
+                          ["newApiKeySvip", "SVIP"],
+                        ] as const
+                      ).map(([field, label]) => (
+                        <div key={field} className="flex items-center gap-2">
+                          <span className="w-24 shrink-0 text-xs text-gray-500">{label}</span>
+                          <input
+                            className="flex-1 rounded-md border px-2 py-1 font-mono text-xs"
+                            placeholder="sk-..."
+                            value={keyForm[field]}
+                            onChange={(e) =>
+                              setKeyForm((s) => ({ ...s, [field]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => void handleSaveKeys(t.id)}
+                        disabled={keySaving}
+                        className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {keySaving ? "保存中…" : "保存 key"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

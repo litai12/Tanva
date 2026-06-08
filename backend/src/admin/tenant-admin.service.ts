@@ -2,7 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import { normalizeHost } from '../tenancy/host.util';
-import { AddDomainDto, CreateTenantDto, UpdateTenantDto } from './dto/tenant-admin.dto';
+import { NewApiKeyResolver } from '../tenancy/new-api-key-resolver.service';
+import {
+  AddDomainDto,
+  CreateTenantDto,
+  SetTenantApiKeysDto,
+  UpdateTenantDto,
+} from './dto/tenant-admin.dto';
 
 /**
  * 主站超管的租户管理。Tenant/TenantDomain 属全局白名单表，不受租户扩展注入，
@@ -10,9 +16,12 @@ import { AddDomainDto, CreateTenantDto, UpdateTenantDto } from './dto/tenant-adm
  */
 @Injectable()
 export class TenantAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly keyResolver: NewApiKeyResolver,
+  ) {}
 
-  /** 租户列表 + 域名 + 用户数 */
+  /** 租户列表 + 域名 + 用户数 + key 配置状态(不返回明文) */
   async listTenants() {
     const tenants = await (this.prisma as any).tenant.findMany({
       orderBy: [{ isPlatform: 'desc' }, { createdAt: 'asc' }],
@@ -33,6 +42,12 @@ export class TenantAdminService {
       isPlatform: t.isPlatform,
       createdAt: t.createdAt,
       userCount: countMap.get(t.id) ?? 0,
+      // 仅返回是否已配置（布尔），不泄露明文 key
+      apiKeys: {
+        normal: Boolean(t.newApiKey),
+        vip: Boolean(t.newApiKeyVip),
+        svip: Boolean(t.newApiKeySvip),
+      },
       domains: t.domains.map((d: any) => ({
         id: d.id,
         host: d.host,
@@ -99,6 +114,22 @@ export class TenantAdminService {
       throw new BadRequestException('主站主域名不可删除');
     }
     await (this.prisma as any).tenantDomain.delete({ where: { id: domainId } });
+    return this.getTenant(tenantId);
+  }
+
+  /** 设置租户 new-api 三组 key。传字符串=设置(空串=清除)，不传=不变。设置后清解析器缓存。 */
+  async setApiKeys(tenantId: string, dto: SetTenantApiKeysDto) {
+    const tenant = await (this.prisma as any).tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('租户不存在');
+    const data: Record<string, string | null> = {};
+    const norm = (v?: string) => (v === undefined ? undefined : v.trim() ? v.trim() : null);
+    if (dto.newApiKey !== undefined) data.newApiKey = norm(dto.newApiKey) as any;
+    if (dto.newApiKeyVip !== undefined) data.newApiKeyVip = norm(dto.newApiKeyVip) as any;
+    if (dto.newApiKeySvip !== undefined) data.newApiKeySvip = norm(dto.newApiKeySvip) as any;
+    if (Object.keys(data).length > 0) {
+      await (this.prisma as any).tenant.update({ where: { id: tenantId }, data });
+      this.keyResolver.invalidate(tenantId);
+    }
     return this.getTenant(tenantId);
   }
 

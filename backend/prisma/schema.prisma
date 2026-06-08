@@ -867,6 +867,10 @@ model Tenant {
   name       String
   status     String         @default("active")
   isPlatform Boolean        @default(false)
+  // 子租户独立 new-api 三组 key（空则回落平台 env key）。MVP 明文存储。
+  newApiKey     String?
+  newApiKeyVip  String?
+  newApiKeySvip String?
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
   domains    TenantDomain[]
