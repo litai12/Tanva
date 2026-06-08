@@ -5,6 +5,8 @@ import type { IncomingMessage, Server as HttpServer } from 'http';
 import type { Duplex } from 'stream';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import {
   CollabEventBus,
   channelForProject,
@@ -33,6 +35,7 @@ interface WsConn {
   userName: string;
   teamId: string;
   projectId: string | null;
+  tenantId: string;
   unsubs: Array<() => void>;
   isAlive: boolean;
 }
@@ -42,6 +45,7 @@ interface UpgradeCtx {
   userName: string;
   teamId: string;
   projectId: string | null;
+  tenantId: string;
 }
 
 @Injectable()
@@ -57,6 +61,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly bus: CollabEventBus,
+    private readonly tenantContext: TenantContextService,
   ) {
     this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
   }
@@ -104,42 +109,48 @@ export class WsCollabGateway implements OnModuleDestroy {
     let userId = '';
     let userName = '';
     let role = '';
+    let tenantId = PLATFORM_TENANT_ID;
     try {
       const payload = await this.jwt.verifyAsync<any>(token);
       userId = String(payload?.sub ?? '');
       userName = String(payload?.name ?? payload?.username ?? userId.slice(0, 8));
       role = String(payload?.role ?? '');
+      tenantId = String(payload?.tenantId ?? PLATFORM_TENANT_ID);
     } catch {
       return this.reject(socket, 401, 'Unauthorized');
     }
     if (!userId) return this.reject(socket, 401, 'Unauthorized');
 
-    // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
-    // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
-    const isSuperAdmin =
-      role.toLowerCase() === 'admin' ? await this.isUserSuperAdmin(userId) : false;
+    // WS 升级不经 HTTP 的 CLS 中间件：用 token 的租户建立上下文，
+    // 否则成员/项目校验会落主站租户，多租户下非主站用户全被 403。
+    await this.tenantContext.runAsTenant(tenantId, async () => {
+      // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
+      // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
+      const isSuperAdmin =
+        role.toLowerCase() === 'admin' ? await this.isUserSuperAdmin(userId) : false;
 
-    if (teamId && !isSuperAdmin) {
-      const member = await this.prisma.teamMembership
-        .findUnique({ where: { teamId_userId: { teamId, userId } } })
-        .catch(() => null);
-      if (!member) return this.reject(socket, 403, 'Forbidden');
-    }
-    if (projectId) {
-      if (isSuperAdmin) {
-        // 超管绕过成员校验，但仍需确认项目存在，避免进入无效协作空间。
-        const exists = await this.prisma.project
-          .findUnique({ where: { id: projectId }, select: { id: true } })
+      if (teamId && !isSuperAdmin) {
+        const member = await this.prisma.teamMembership
+          .findUnique({ where: { teamId_userId: { teamId, userId } } })
           .catch(() => null);
-        if (!exists) return this.reject(socket, 404, 'Not Found');
-      } else {
-        const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
-        if (!ok) return this.reject(socket, 403, 'Forbidden');
+        if (!member) return this.reject(socket, 403, 'Forbidden');
       }
-    }
+      if (projectId) {
+        if (isSuperAdmin) {
+          // 超管绕过成员校验，但仍需确认项目存在，避免进入无效协作空间。
+          const exists = await this.prisma.project
+            .findUnique({ where: { id: projectId }, select: { id: true } })
+            .catch(() => null);
+          if (!exists) return this.reject(socket, 404, 'Not Found');
+        } else {
+          const ok = await this.assertProjectAccess(projectId, userId, teamId).catch(() => false);
+          if (!ok) return this.reject(socket, 403, 'Forbidden');
+        }
+      }
 
-    this.wss.handleUpgrade(req, socket, head, (ws) => {
-      void this.register(ws, { userId, userName, teamId, projectId });
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        void this.register(ws, { userId, userName, teamId, projectId, tenantId });
+      });
     });
   }
 
@@ -178,6 +189,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       userName: ctx.userName,
       teamId: ctx.teamId,
       projectId: ctx.projectId,
+      tenantId: ctx.tenantId,
       unsubs: [],
       isAlive: true,
     };
