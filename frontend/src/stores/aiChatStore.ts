@@ -645,58 +645,13 @@ const shouldUseAgentResearchOnly = (input: string): boolean => {
 };
 
 const formatResearchResultAsText = (research: any): string => {
-  const cases = Array.isArray(research?.cases) ? research.cases : [];
-  const lines: string[] = [];
-  const rawTitle = typeof research?.title === "string" ? research.title : "案例研究";
-  const title = rawTitle === "建筑案例" ? "案例搜索" : rawTitle;
-  const summary = typeof research?.summary === "string" ? research.summary : "";
   const textResultText =
     typeof research?.textResult?.text === "string"
       ? research.textResult.text.trim()
       : "";
   const draftText =
     typeof research?.draftText === "string" ? research.draftText.trim() : "";
-  const primaryText = textResultText || draftText;
-  if (primaryText) {
-    lines.push(primaryText);
-    lines.push("");
-  }
-  lines.push(`## ${title}`);
-  if (summary) lines.push(summary);
-  if (cases.length === 0) return lines.join("\n").trim();
-
-  cases.slice(0, 6).forEach((item: any, index: number) => {
-    const name = String(item?.title || `案例 ${index + 1}`).trim();
-    const subtitle = String(item?.subtitle || "").trim();
-    const architect = String(item?.architect || "").trim();
-    const location = String(item?.location || "").trim();
-    const category = String(item?.category || "").trim();
-    const summaryText = String(item?.summary || "").trim();
-    const highlights = Array.isArray(item?.highlights)
-      ? item.highlights.map((v: unknown) => String(v || "").trim()).filter(Boolean)
-      : [];
-    const sources = Array.isArray(item?.sources) ? item.sources : [];
-    const sourceTitles = sources
-      .slice(0, 2)
-      .map((source: any) => String(source?.title || source?.url || "").trim())
-      .filter(Boolean);
-
-    lines.push("");
-    lines.push(`### ${index + 1}. ${name}${subtitle ? ` (${subtitle})` : ""}`);
-    const meta = [architect, location, category].filter(Boolean).join(" · ");
-    if (meta) lines.push(meta);
-    if (summaryText) lines.push(summaryText);
-    if (highlights.length > 0) {
-      highlights.slice(0, 4).forEach((tag: string) => {
-        lines.push(`- ${tag}`);
-      });
-    }
-    if (sourceTitles.length > 0) {
-      lines.push(`来源：${sourceTitles.join("；")}`);
-    }
-  });
-
-  return lines.join("\n");
+  return textResultText || draftText;
 };
 
 const REQUESTED_IMAGE_COUNT_MAX = 8;

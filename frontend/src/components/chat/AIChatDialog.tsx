@@ -4643,11 +4643,6 @@ const AIChatDialog: React.FC = () => {
                                             <div className='font-semibold text-slate-900'>
                                               {researchTitle}
                                             </div>
-                                            {research.summary ? (
-                                              <div className='mt-0.5 text-[11px] leading-relaxed text-slate-600'>
-                                                {research.summary}
-                                              </div>
-                                            ) : null}
                                           </div>
                                           <span className='shrink-0 text-[11px] text-slate-500'>
                                             {cases.length} 个案例
@@ -4664,11 +4659,6 @@ const AIChatDialog: React.FC = () => {
                                               item.sources
                                             )
                                               ? item.sources
-                                              : [];
-                                            const highlights = Array.isArray(
-                                              item.highlights
-                                            )
-                                              ? item.highlights
                                               : [];
                                             return (
                                               <div
@@ -4696,25 +4686,6 @@ const AIChatDialog: React.FC = () => {
                                                     </span>
                                                   ) : null}
                                                 </div>
-                                                {item.summary ? (
-                                                  <div className='mb-1.5 leading-relaxed text-slate-700'>
-                                                    {item.summary}
-                                                  </div>
-                                                ) : null}
-                                                {highlights.length > 0 ? (
-                                                  <div className='mb-2 flex flex-wrap gap-1'>
-                                                    {highlights
-                                                      .slice(0, 4)
-                                                      .map((tag) => (
-                                                        <span
-                                                          key={tag}
-                                                          className='rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] text-slate-600'
-                                                        >
-                                                          {tag}
-                                                        </span>
-                                                      ))}
-                                                  </div>
-                                                ) : null}
                                                 {images.length > 0 ? (
                                                   <div className='mb-2 grid max-w-[760px] grid-cols-2 gap-1 sm:grid-cols-4'>
                                                     {images
