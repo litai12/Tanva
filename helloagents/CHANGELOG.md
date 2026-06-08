@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- NewApiProvider now snaps unsupported Gemini image aspect ratios to the nearest supported value before calling new-api, preventing Flow auto-detected ratios such as `2:1` or `9:21` from failing upstream.
 - Credits: free users now receive the 500-credit free quota only once (`free_starter_quota`); historical `free_monthly_quota` grants count as already claimed, and the scheduler no longer renews this quota every 30 days.
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
@@ -74,6 +75,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Workspace Settings: invite status now paginates referral records via `/api/referral/stats?page=&pageSize=`, so users with more than 20 invites can navigate older records.
 - AI Chat Image Count: explicit multi-image prompts such as `画三张...每张图1只` now split the batch into per-slot single-image prompts, so each parallel generation creates one independent image instead of reinterpreting the total count as a collage or multiple subjects in one image.
 - AI Chat/Agent: research-only case lookup now returns both the text-stage web-search answer and the Volcengine structured search payload (`text` + `volc`), and removes local static case-library / hard-coded architect fallback seeds from the Agent research path.
 - AI Chat/Agent: research-only text drafting now passes the same UI-selected text `model`, route `providerOptions`, and `thinkingLevel` as normal Text mode before Volcengine keyword search.

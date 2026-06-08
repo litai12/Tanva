@@ -35,6 +35,7 @@
 
 ## 注意事项
 - `NewApiProvider` image generate/edit/blend only sends the upstream `size` field when callers provide an explicit `aspectRatio`; omitted/Auto aspect ratio stays omitted instead of falling back to `1:1`.
+- `NewApiProvider` normalizes Gemini image `aspectRatio` before calling new-api: Gemini 2.5/Pro use the base supported set (`1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`), while Gemini 3.1 Flash additionally allows `1:4`, `4:1`, `1:8`, and `8:1`; unsupported values such as `2:1`, `1:2`, or `9:21` snap to the nearest supported ratio instead of failing upstream.
 - `NewApiProvider` text chat retries once without `web_search_preview` when an enabled web-search tools request fails with an upstream tools/5xx-style error, including `HTTP 520: openai_error`. Successful fallback responses carry `metadata.webSearchFallback = true`, and `POST /api/ai/text-chat` returns readable `503` provider failures instead of a generic Nest 500.
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?

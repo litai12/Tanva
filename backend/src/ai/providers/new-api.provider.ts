@@ -28,6 +28,25 @@ const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
 const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 const IMAGE_MAX_RETRIES = 2;
 const IMAGE_RETRY_DELAYS = [5_000, 15_000];
+const GEMINI_BASE_IMAGE_ASPECT_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9',
+] as const;
+const GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS = [
+  ...GEMINI_BASE_IMAGE_ASPECT_RATIOS,
+  '1:4',
+  '4:1',
+  '1:8',
+  '8:1',
+] as const;
 
 @Injectable()
 export class NewApiProvider implements IAIProvider {
@@ -87,11 +106,15 @@ export class NewApiProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest,
   ): Promise<AIProviderResponse<ImageResult>> {
+    const model = this.resolveUltraModel(
+      request.model || 'gemini-2.5-flash-image-preview',
+      request.providerOptions,
+    );
     const payload: Record<string, unknown> = {
-      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
+      model,
       prompt: request.prompt,
       n: this.resolveImageCount(request),
-      size: this.resolveImageSizeParam(request.aspectRatio),
+      size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: request.imageUrls,
       quality: request.quality,
@@ -108,11 +131,15 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async editImage(request: ImageEditRequest): Promise<AIProviderResponse<ImageResult>> {
+    const model = this.resolveUltraModel(
+      request.model || 'gemini-2.5-flash-image-preview',
+      request.providerOptions,
+    );
     const payload: Record<string, unknown> = {
-      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
+      model,
       prompt: request.prompt,
       n: 1,
-      size: this.resolveImageSizeParam(request.aspectRatio),
+      size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: [this.toImageReference(request.sourceImage)],
       output_format: request.outputFormat,
@@ -122,11 +149,15 @@ export class NewApiProvider implements IAIProvider {
   }
 
   async blendImages(request: ImageBlendRequest): Promise<AIProviderResponse<ImageResult>> {
+    const model = this.resolveUltraModel(
+      request.model || 'gemini-2.5-flash-image-preview',
+      request.providerOptions,
+    );
     const payload: Record<string, unknown> = {
-      model: this.resolveUltraModel(request.model || 'gemini-2.5-flash-image-preview', request.providerOptions),
+      model,
       prompt: request.prompt,
       n: 1,
-      size: this.resolveImageSizeParam(request.aspectRatio),
+      size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
       image_urls: request.sourceImages.map((item) => this.toImageReference(item)),
       output_format: request.outputFormat,
@@ -724,11 +755,76 @@ export class NewApiProvider implements IAIProvider {
     return normalizeGeminiImageSize(value);
   }
 
-  private resolveImageSizeParam(aspectRatio: unknown): string | undefined {
+  private resolveImageSizeParam(aspectRatio: unknown, model?: string): string | undefined {
     const normalized = typeof aspectRatio === 'string' ? aspectRatio.trim() : '';
     // Flow 的“自动比例”会传 undefined。这里不要兜底成 1:1，否则会强制方图；
     // 让 new-api/上游模型在缺省 size 时按自身规则或参考图决定输出比例。
-    return normalized || undefined;
+    if (!normalized) return undefined;
+
+    if (!this.isGeminiImageModel(model)) return normalized;
+
+    const allowedRatios = this.resolveGeminiImageAspectRatios(model);
+    if (allowedRatios.includes(normalized)) return normalized;
+
+    const snapped = this.findNearestAspectRatio(normalized, allowedRatios);
+    if (snapped) {
+      this.logger.warn(
+        `Gemini image aspectRatio "${normalized}" is not supported by model=${model || 'unknown'}, using nearest supported ratio "${snapped}"`,
+      );
+      return snapped;
+    }
+
+    this.logger.warn(
+      `Gemini image aspectRatio "${normalized}" is invalid for model=${model || 'unknown'}, omitting size`,
+    );
+    return undefined;
+  }
+
+  private isGeminiImageModel(model?: string): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return normalized.includes('gemini') && normalized.includes('image');
+  }
+
+  private resolveGeminiImageAspectRatios(model?: string): readonly string[] {
+    const normalized = String(model || '').trim().toLowerCase();
+    if (normalized.includes('gemini-3.1') && normalized.includes('flash-image')) {
+      return GEMINI_31_FLASH_IMAGE_ASPECT_RATIOS;
+    }
+    return GEMINI_BASE_IMAGE_ASPECT_RATIOS;
+  }
+
+  private findNearestAspectRatio(value: string, candidates: readonly string[]): string | undefined {
+    const target = this.parseAspectRatioValue(value);
+    if (!target) return undefined;
+
+    let best: string | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      const candidateRatio = this.parseAspectRatioValue(candidate);
+      if (!candidateRatio) continue;
+      const distance = Math.abs(Math.log(target / candidateRatio));
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  private parseAspectRatioValue(value: string): number | null {
+    const parts = value.split(':');
+    if (parts.length !== 2) return null;
+    const width = Number(parts[0]);
+    const height = Number(parts[1]);
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    ) {
+      return null;
+    }
+    return width / height;
   }
 
   private resolveImageCount(request: ImageGenerationRequest): number {

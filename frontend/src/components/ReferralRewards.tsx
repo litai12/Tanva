@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,7 +8,9 @@ import {
   type ReferralStats,
   type CheckInStatus,
 } from "@/services/referralApi";
-import { Calendar, Users, Gift, Copy, Check, Sparkles } from "lucide-react";
+import { Calendar, Users, Gift, Copy, Check, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
+
+const INVITE_RECORDS_PAGE_SIZE = 20;
 
 export default function ReferralRewards() {
   const { t } = useTranslation();
@@ -17,26 +19,30 @@ export default function ReferralRewards() {
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [invitePage, setInvitePage] = useState(1);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [statsData, checkInData] = await Promise.all([
-        getReferralStats(),
+        getReferralStats({ page: invitePage, pageSize: INVITE_RECORDS_PAGE_SIZE }),
         getCheckInStatus(),
       ]);
       setStats(statsData);
       setCheckInStatus(checkInData);
+      if (statsData.pagination?.page && statsData.pagination.page !== invitePage) {
+        setInvitePage(statsData.pagination.page);
+      }
     } catch (error) {
       console.error("Failed to load referral data:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [invitePage]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleCheckIn = async () => {
     if (!checkInStatus?.canCheckIn || checkingIn) return;
@@ -58,8 +64,9 @@ export default function ReferralRewards() {
           })
         );
       }
-    } catch (error: any) {
-      alert(error.message || t("workspace.settings.referralTab.alerts.checkInFailed"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "";
+      alert(message || t("workspace.settings.referralTab.alerts.checkInFailed"));
     } finally {
       setCheckingIn(false);
     }
@@ -71,7 +78,7 @@ export default function ReferralRewards() {
       await navigator.clipboard.writeText(stats.inviteCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
+    } catch (_error) {
       // 降级方案
       const input = document.createElement("input");
       input.value = stats.inviteCode;
@@ -118,6 +125,12 @@ export default function ReferralRewards() {
   const consecutiveDays = checkInStatus?.consecutiveDays || 0;
   const todayReward = checkInStatus?.todayReward ?? 0;
   const weeklyBonus = checkInStatus?.weeklyBonus ?? 0;
+  const invitePagination = stats?.pagination;
+  const currentInvitePage = invitePagination?.page ?? invitePage;
+  const invitePageSize = invitePagination?.pageSize ?? INVITE_RECORDS_PAGE_SIZE;
+  const totalInviteRecords = invitePagination?.total ?? stats?.successfulInvites ?? 0;
+  const totalInvitePages = Math.max(1, invitePagination?.totalPages ?? 1);
+  const showInvitePagination = totalInvitePages > 1 || totalInviteRecords > invitePageSize;
 
   return (
     <div className="tanva-referral-panel space-y-6">
@@ -278,7 +291,7 @@ export default function ReferralRewards() {
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm text-gray-500">
-                    {index + 1}
+                    {(currentInvitePage - 1) * invitePageSize + index + 1}
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">{record.inviteeName}</div>
@@ -307,6 +320,47 @@ export default function ReferralRewards() {
                 </div>
               </div>
             ))}
+            {showInvitePagination && (
+              <div className="flex flex-col gap-3 pt-2 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  {t("workspace.settings.referralTab.status.total", {
+                    total: totalInviteRecords,
+                  })}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={currentInvitePage <= 1 || loading}
+                    onClick={() => setInvitePage((page) => Math.max(1, page - 1))}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span className="ml-1">
+                      {t("workspace.settings.referralTab.status.previous")}
+                    </span>
+                  </Button>
+                  <span className="min-w-[88px] text-center">
+                    {t("workspace.settings.referralTab.status.page", {
+                      page: currentInvitePage,
+                      totalPages: totalInvitePages,
+                    })}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={currentInvitePage >= totalInvitePages || loading}
+                    onClick={() =>
+                      setInvitePage((page) => Math.min(totalInvitePages, page + 1))
+                    }
+                  >
+                    <span className="mr-1">
+                      {t("workspace.settings.referralTab.status.next")}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="text-center py-8 text-gray-400">
