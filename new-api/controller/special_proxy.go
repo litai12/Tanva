@@ -10,12 +10,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ProxyKaponSpeech forwards /minimaxi/v1/* to the kapon-speech channel
+// ProxyKaponSpeech forwards /minimaxi/v1/* to the unified `kapon` channel
 // (models.kapon.cloud). Path kept as-is for minimax speech SDK compatibility.
+// The lookup is type-agnostic (getChannelByName matches name+status only), so the
+// same kapon channel that serves Vidu video via the relay adaptor also backs TTS
+// here. Falls back to the legacy `kapon-speech` name for pre-merge deployments.
 func ProxyKaponSpeech(c *gin.Context) {
-	ch, err := getChannelByName("kapon-speech")
+	ch, err := getChannelByName("kapon")
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no kapon-speech channel: " + err.Error()})
+		ch, err = getChannelByName("kapon-speech")
+	}
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no kapon channel: " + err.Error()})
 		return
 	}
 	subpath := c.Param("path")

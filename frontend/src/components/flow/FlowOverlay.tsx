@@ -18797,9 +18797,8 @@ function FlowInner() {
           typeof rawNodeData?.nodeConfigKey === "string"
             ? rawNodeData.nodeConfigKey.trim()
             : "";
-        // Tencent route removed: kling-o3 always runs via new-api (max 10s); the
-        // Tencent-only 15s storyboard range no longer applies.
-        const klingO3DurationRangeMax = 10;
+        // kling-o3(omni) 经 new-api/apimart 支持 3~15s（参考图/视频参考场景）。
+        const klingO3DurationRangeMax = 15;
         const nodeSupportedSeedanceModels = (() => {
           const rawSupported = rawNodeData?.nodeConfigMetadata?.supportedModels;
           if (!Array.isArray(rawSupported)) return new Set<string>();
@@ -19363,6 +19362,22 @@ function FlowInner() {
           }
         }
 
+        // Kling omni(kling-o3)：把 elementImg 句柄连接的图拆成命名角色(element_list)，
+        // 其余 image/image-2 句柄图保留作首尾帧/参考图(image_with_roles)。其他 provider
+        // 不分桩，全部当参考图。referenceImageSourceEdges 与 referenceImageUrls 同序对应。
+        const klingElementImageUrls: string[] = [];
+        const klingReferenceImagesForSend: string[] = [];
+        referenceImageUrls.forEach((url, idx) => {
+          if (
+            provider === "kling-o3" &&
+            referenceImageSourceEdges[idx]?.targetHandle === "elementImg"
+          ) {
+            klingElementImageUrls.push(url);
+          } else {
+            klingReferenceImagesForSend.push(url);
+          }
+        });
+
         setNodes((ns) =>
           ns.map((n) =>
             n.id === nodeId
@@ -19720,21 +19735,50 @@ function FlowInner() {
               : {
                   ...managedRoutePayload,
                   prompt: finalPrompt,
+                  negativePrompt:
+                    provider === "kling-o3" &&
+                    typeof rawNodeData.negativePrompt === "string" &&
+                    rawNodeData.negativePrompt.trim()
+                      ? rawNodeData.negativePrompt.trim()
+                      : undefined,
                   referenceImages:
-                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                    klingReferenceImagesForSend.length > 0
+                      ? klingReferenceImagesForSend
+                      : undefined,
+                  // omni 命名角色(element_list)：elementImg 桩的图 + 名字/描述。
+                  elementImages:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? klingElementImageUrls
+                      : undefined,
+                  elementName:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? (rawNodeData.elementName || "").trim() || undefined
+                      : undefined,
+                  elementDescription:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? (rawNodeData.elementDescription || "").trim() || undefined
+                      : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
+                  // omni 多分镜：复用 storyboard 模式/脚本 → multi_shot/shot_type/multi_prompt。
+                  klingStoryboardMode:
+                    provider === "kling-o3" ? rawNodeData.klingStoryboardMode : undefined,
+                  klingStoryboardScript:
+                    provider === "kling-o3" ? rawNodeData.klingStoryboardScript : undefined,
                   klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
-                  // 让后端区分 首尾帧(frame) / 单图(image) / 参考视频(video) / 文生(text)。
-                  // omni 据此用 image_with_roles 表达首尾帧；v2-6/v3 走 image_urls[0,1]。
+                  // 让后端区分 首尾帧(frame) / 单图(image) / 多主体参考(reference) /
+                  // 参考视频(video) / 文生(text)。omni 据此用 image_with_roles 表达首尾帧/参考；
+                  // v2-6/v3 走 image_urls[0,1]。仅统计 image/image-2 桩的图（不含 element 角色图）。
                   videoMode: referenceVideoUrl
                     ? "video"
-                    : referenceImageUrls.length >= 2
+                    : provider === "kling-o3" && klingReferenceImagesForSend.length >= 3
+                    ? "reference"
+                    : klingReferenceImagesForSend.length >= 2
                     ? "frame"
-                    : referenceImageUrls.length === 1
+                    : klingReferenceImagesForSend.length === 1
                     ? "image"
                     : "text",
                   // 声音：按 APIMart 各模型真实约束发"有效声音"，避免"扣有声却无声"。

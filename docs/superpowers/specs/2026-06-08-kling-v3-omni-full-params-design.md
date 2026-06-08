@@ -22,9 +22,10 @@ apimart 普通线路视频统一走 new-api `/v1/videos` → apimart adaptor。n
 2. `duration` 上限 15（现 omni 前端封顶 10）
 3. `mode: "4k"`（现前端仅 std/pro）
 4. `image_with_roles` 的 `reference` 角色（现参考图走裸 `image_urls`，未打 role）
-5. `watermark`（现顶层下发，对 kling 会被丢；omni 节点也无开关）
-6. `multi_shot` / `shot_type` / `multi_prompt`（仅 Tencent 历史路径有，omni 链路没有）
-7. `element_list`（命名角色 @name，**后端历史从未真正实现**，需按 apimart 文档新做）
+5. `multi_shot` / `shot_type` / `multi_prompt`（仅 Tencent 历史路径有，omni 链路没有）
+6. `element_list`（命名角色 @name，**后端历史从未真正实现**，需按 apimart 文档新做）
+
+注：`watermark` 经评估后**不做**——产品方明确不要水印（2026-06-08 用户决定）。
 
 计费：omni（`kling-o3-video`）为固定 600 积分（`resolveKlingModelCredits` 对 kling-o3 直接返回默认值，
 无 dynamicPricing）。故 4K / 15s / 多分镜均不影响计价，**本次不动计费**。
@@ -49,11 +50,9 @@ apimart 普通线路视频统一走 new-api `/v1/videos` → apimart adaptor。n
 - `elementName?: string` / `elementDescription?: string`（最小单角色 UI 用）
 - 复用已存在的 `klingStoryboardMode` / `klingStoryboardScript`
 - `mode` 类型放开到 `'std' | 'pro' | '4k'`
-- `watermark?: boolean`（已存在）
 
 `buildKlingApimartParams()`（omni 分支）输出 metadata 扩展：
 - `negative_prompt`：来自 `options.negativePrompt`（trim 非空才发）。
-- `watermark`：`options.watermark === true` 时发 boolean。
 - `mode`：放开接受 `4k`（仍由顶层 `mode` 字段下发，omni 已知字段）。
 - `image_with_roles` 的 reference 角色：当判定为参考图模式（`videoMode` 非 frame 且 `image` 图 ≥1，
   或显式 reference）时，把这些图标 `{url, role:"reference"}` 经 `image_with_roles` 下发，并清空顶层
@@ -87,12 +86,11 @@ apimart 普通线路视频统一走 new-api `/v1/videos` → apimart adaptor。n
 - 负向提示词输入框。
 - 时长选项：参考图/视频参考场景扩到 15s（文/首帧仍 5/10 由上游约束决定，保持现状）。
 - 画质模式：std / pro / 4K 三档（无图/有图均可选，4K 仅 omni）。
-- 水印开关（on/off）。
 - 分镜（storyboard）：模式下拉（单镜头 single / 智能分镜 intelligence / 自定义 customize），
   customize 显示 JSON 脚本框（沿用 Tencent 历史最小 UI，占位示例 `[{"index":1,"prompt":"...","duration":2}]`）。
 - 角色（element_list）：elementImg 连图时显示「角色名 + 角色描述」两个输入框（单角色）。
 
-`FlowOverlay.tsx` 发送 kling-o3 请求时带上：`negativePrompt`、`mode`(含 4k)、`watermark`、
+`FlowOverlay.tsx` 发送 kling-o3 请求时带上：`negativePrompt`、`mode`(含 4k)、
 `klingStoryboardMode`、`klingStoryboardScript`、`elementName`、`elementDescription`，
 并把 elementImg 连接的图作为独立角色图集合下发（与 image 桩参考图分开）。
 
@@ -103,5 +101,5 @@ apimart 普通线路视频统一走 new-api `/v1/videos` → apimart adaptor。n
 
 ## 验证
 - 后端 `tsc -b`（或后端 build）通过；前端 `tsc -b` 通过。
-- 真机各模式各发一单确认 new-api 透传：negative_prompt / 4k / 15s / watermark / reference 角色 /
+- 真机各模式各发一单确认 new-api 透传：negative_prompt / 4k / 15s / reference 角色 /
   intelligence 分镜 / customize 分镜 / 单角色 element_list。

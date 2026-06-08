@@ -318,27 +318,15 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     { label: lt("方形（1:1）", "Square (1:1)"), value: "1:1" },
   ];
 
-  // 根据场景动态生成时长选项
-  const durationOptions = React.useMemo(() => {
-    // 文生视频、首帧图生视频：仅支持 5/10
-    if (isTextToVideo || (isImageToVideo && imageInputCount === 1)) {
-      return [
-        { label: lt("5秒", "5s"), value: 5 },
-        { label: lt("10秒", "10s"), value: 10 },
-      ];
-    }
-    // 图片/主体参考或视频参考：支持 3~10
-    return [
-      { label: lt("3秒", "3s"), value: 3 },
-      { label: lt("4秒", "4s"), value: 4 },
-      { label: lt("5秒", "5s"), value: 5 },
-      { label: lt("6秒", "6s"), value: 6 },
-      { label: lt("7秒", "7s"), value: 7 },
-      { label: lt("8秒", "8s"), value: 8 },
-      { label: lt("9秒", "9s"), value: 9 },
-      { label: lt("10秒", "10s"), value: 10 },
-    ];
-  }, [hasVideoInput, imageInputCount, isImageToVideo, isTextToVideo, lt]);
+  // 时长选项：APIMart kling-v3-omni 文档全场景统一支持 3~15s（默认 5s）。
+  const durationOptions = React.useMemo(
+    () =>
+      Array.from({ length: 13 }, (_, i) => {
+        const value = i + 3;
+        return { label: lt(`${value}秒`, `${value}s`), value };
+      }),
+    [lt]
+  );
 
   const videoRefTypeOptions = [
     { label: lt("视频参考", "Video reference"), value: "feature", desc: lt("保留风格/节奏/镜头感", "Keep style/rhythm/camera feel") },
@@ -415,6 +403,43 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     if ((data as any).sound !== undefined && (data as any).sound !== null) return;
     patchNodeData({ sound: true });
   }, [(data as any).sound, patchNodeData]);
+
+  // ── omni 新增参数（直到 new-api：negative_prompt / mode 4k / watermark / 分镜 / 角色） ──
+  const modeValue: "std" | "pro" | "4k" =
+    (data as any).mode === "pro" || (data as any).mode === "4k"
+      ? ((data as any).mode as "pro" | "4k")
+      : "std";
+  const negativePromptValue =
+    typeof (data as any).negativePrompt === "string" ? (data as any).negativePrompt : "";
+  const storyboardMode: "single" | "intelligence" | "customize" =
+    (data as any).klingStoryboardMode === "intelligence" ||
+    (data as any).klingStoryboardMode === "customize"
+      ? (data as any).klingStoryboardMode
+      : "single";
+  const storyboardScript =
+    typeof (data as any).klingStoryboardScript === "string"
+      ? (data as any).klingStoryboardScript
+      : "";
+  const elementNameValue =
+    typeof (data as any).elementName === "string" ? (data as any).elementName : "";
+  const elementDescriptionValue =
+    typeof (data as any).elementDescription === "string"
+      ? (data as any).elementDescription
+      : "";
+
+  const modeOptions: Array<{ value: "std" | "pro" | "4k"; label: string }> = [
+    { value: "std", label: lt("标准 720P", "Std 720P") },
+    { value: "pro", label: lt("专业 1080P", "Pro 1080P") },
+    { value: "4k", label: lt("超清 4K", "Ultra 4K") },
+  ];
+  const storyboardOptions: Array<{
+    value: "single" | "intelligence" | "customize";
+    label: string;
+  }> = [
+    { value: "single", label: lt("单镜头", "Single") },
+    { value: "intelligence", label: lt("智能分镜", "Auto multi-shot") },
+    { value: "customize", label: lt("自定义分镜", "Custom multi-shot") },
+  ];
 
 
   const aspectLabel = React.useMemo(() => {
@@ -1158,6 +1183,151 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           {klingSoundEnabled ? lt("开启", "On") : lt("关闭", "Off")}
         </button>
       </div>
+
+      {/* 画质模式：标准 / 专业 / 4K */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("画质", "Quality")}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {modeOptions.map((option) => {
+            const isActive = option.value === modeValue;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => patchNodeData({ mode: option.value })}
+                style={{
+                  flex: 1,
+                  padding: "6px 4px",
+                  borderRadius: 8,
+                  border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                  background: isActive ? "#111827" : "#fff",
+                  color: isActive ? "#fff" : "#111827",
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 负向提示词 */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("负向提示词", "Negative prompt")}
+        </div>
+        <textarea
+          value={negativePromptValue}
+          onChange={(e) => patchNodeData({ negativePrompt: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          placeholder={lt("不希望出现的内容（可选）", "Content to avoid (optional)")}
+          rows={2}
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "6px 8px",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            fontSize: 12,
+            resize: "vertical",
+          }}
+        />
+      </div>
+
+      {/* 分镜（多镜头）：单镜头 / 智能 / 自定义 */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+          {lt("分镜", "Multi-shot")}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {storyboardOptions.map((option) => {
+            const isActive = option.value === storyboardMode;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => patchNodeData({ klingStoryboardMode: option.value })}
+                style={{
+                  flex: 1,
+                  padding: "6px 4px",
+                  borderRadius: 8,
+                  border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                  background: isActive ? "#111827" : "#fff",
+                  color: isActive ? "#fff" : "#111827",
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        {storyboardMode === "customize" && (
+          <textarea
+            value={storyboardScript}
+            onChange={(e) => patchNodeData({ klingStoryboardScript: e.target.value })}
+            onClick={(e) => e.stopPropagation()}
+            placeholder={'[{"index":1,"prompt":"...","duration":2}]'}
+            rows={3}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              marginTop: 4,
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              fontSize: 11,
+              fontFamily: "monospace",
+              resize: "vertical",
+            }}
+          />
+        )}
+      </div>
+
+      {/* 命名角色（element_list）：连接 elementImg 角色图后填写名字/描述，prompt 用 @名字 引用 */}
+      {elementImgInputCount > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("角色（@引用）", "Character (@reference)")}
+          </div>
+          <input
+            type="text"
+            value={elementNameValue}
+            onChange={(e) => patchNodeData({ elementName: e.target.value })}
+            onClick={(e) => e.stopPropagation()}
+            placeholder={lt("角色名，如 role1", "Name, e.g. role1")}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              marginBottom: 4,
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              fontSize: 12,
+            }}
+          />
+          <input
+            type="text"
+            value={elementDescriptionValue}
+            onChange={(e) => patchNodeData({ elementDescription: e.target.value })}
+            onClick={(e) => e.stopPropagation()}
+            placeholder={lt("角色描述（可选）", "Description (optional)")}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              fontSize: 12,
+            }}
+          />
+        </div>
+      )}
 
 
       {/* 视频类型选择 - 仅在有视频输入时显示 */}
