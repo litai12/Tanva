@@ -24,6 +24,12 @@
 ## AI 对话框图片模式可用性
 - 手动模式会根据当前图片数量自动禁用不支持选项，并在不兼容时回退到 Auto。
 - 发送按钮在模式不支持当前图片数量时禁用并提示原因。
+- 展开历史模式默认预留顶部间隙，让画布/顶栏仍露出一条内容；用户拖拽顶部边缘后仍可把面板拉高到接近全屏。
+- Auto research-only 问题会先按普通 Text 模式计算并传递当前 `model`、`providerOptions` 路由和 `thinkingLevel` 给 Agent，再消费 Agent 的 `research_text` 事件，把联网文字回答写入消息正文；随后 `research_result` 会把联网文字回答与火山 `volc` 结构一并保存到 `metadata.agentTrace`，正文继续以联网文字回答为主，不再拼接火山搜索摘要/案例文本，同时通过 `metadata.agentTrace.researchResult` 渲染只含标题、必要元信息、真实图片和来源链接的图文案例卡片；无 `imageUrl` 的图片候选不会显示占位块。研究类 Agent 步骤现在跟随真实后端进度更新，页面不会再把联网检索与组织卡片提前显示为已完成。
+- AI Chat 文本生成失败时会把占位正文替换为失败说明，并把 `generationStatus.stage` 置为“已终止”，避免错误后仍显示“正在生成文本回复...”。
+
+## 设备访问
+- `/app` 入口仍会对手机和小屏触摸设备展示移动端提示，但 iPad 已从移动设备拦截中排除；检测同时兼容传统 `iPad` userAgent 与 iPadOS 13+ 的 `MacIntel + maxTouchPoints > 1` 模式。
 
 ## AI 对话框会话边界
 - `ContextManager` 不在构造期自动恢复全局本地会话；恢复由 `aiChatStore.initializeContext()` 按项目作用域调度。

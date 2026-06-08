@@ -24,12 +24,27 @@ type AuthenticatedRequest = FastifyRequest & { user: AuthenticatedUser };
 export class ReferralController {
   constructor(private readonly referralService: ReferralService) {}
 
+  private parsePositiveInt(value: string | undefined, fallback: number, max: number) {
+    const parsed = Number.parseInt(value || '', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return fallback;
+    }
+    return Math.min(parsed, max);
+  }
+
   @Get('stats')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '获取推广激励统计' })
-  async getReferralStats(@Request() req: AuthenticatedRequest) {
-    return this.referralService.getReferralStats(req.user.id);
+  async getReferralStats(
+    @Request() req: AuthenticatedRequest,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.referralService.getReferralStats(req.user.id, {
+      page: this.parsePositiveInt(page, 1, 100000),
+      pageSize: this.parsePositiveInt(pageSize, 20, 100),
+    });
   }
 
   @Get('check-in/status')

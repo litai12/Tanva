@@ -10,7 +10,7 @@ import (
 // APIs that use non-standard paths or auth mechanisms.
 //
 // Route layout:
-//   /minimaxi/v1/*path      → kapon-speech channel  (minimax TTS, fixed path prefix)
+//   /minimaxi/v1/*path      → kapon channel          (minimax TTS, fixed path prefix)
 //   /v1/music_generation    → minimax-music channel  (minimax music, fixed path)
 //   /youchuan/*path         → youchuan channel       (x-youchuan-app/secret auth)
 //   /proxy/:name/*path      → GenericChannelProxy    (Bearer, looks up channel by name)

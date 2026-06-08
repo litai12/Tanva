@@ -1410,6 +1410,10 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
               position: 'absolute',
               inset: 0,
               overflow: 'hidden',
+              // 与下方 textarea 保留同宽的滚动条占位，保证两者换行宽度一致，
+              // 否则文字过多触发滚动条时 textarea 比 overlay 提前换行，光标会与可见文字错位。
+              // （Windows 经典滚动条占宽，macOS overlay 滚动条不占宽，故此问题仅在 Windows 概率出现）
+              scrollbarGutter: 'stable',
               pointerEvents: 'none',
               zIndex: 1,
             }}
@@ -1485,6 +1489,9 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
             minHeight: 0,
             overflowY: 'auto',
             overflowX: 'hidden',
+            // 始终为竖向滚动条预留固定宽度，使文本换行宽度恒定（与 overlay 一致），
+            // 避免滚动条出现/消失导致换行变化、光标错位（Windows 经典滚动条占宽时尤为明显）。
+            scrollbarGutter: 'stable',
             fontSize: 12,
             lineHeight: `${PROMPT_MENTION_LINE_HEIGHT_PX}px`,
             border: 'none',

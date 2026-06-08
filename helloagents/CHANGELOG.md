@@ -6,11 +6,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- NewApiProvider now snaps unsupported Gemini image aspect ratios to the nearest supported value before calling new-api, preventing Flow auto-detected ratios such as `2:1` or `9:21` from failing upstream.
 - Credits: free users now receive the 500-credit free quota only once (`free_starter_quota`); historical `free_monthly_quota` grants count as already claimed, and the scheduler no longer renews this quota every 30 days.
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- AI Chat/Agent: `research_cases` can now use the Volcengine web/image search API (`VOLC_SEARCH_*`) plus model JSON extraction to build case cards from real web results, then populate real image thumbnails; static case cards are only a disabled/failed/empty-search fallback.
+- AI Chat/Agent: `research_cases` runs now emit a structured research result with architecture case cards, source links, and image-search slots; Auto text chat also enables web search automatically for case/reference/research prompts.
+- AI Chat/Agent: added a first-stage Agent Runtime skeleton with authenticated `/api/agent/runs` plus SSE run events, and AI Chat now records Auto-mode agent planning traces on the active AI message before handing off to the existing tool execution path.
 - Frontend Campaign Notice: added a reusable top activity notice bar for `/` and `/app` with a Beijing-time countdown to `2026-06-06 00:00:00`, close-on-current-page behavior, refresh re-display, and canvas fixed-control offset handling.
 - Flow/HTML PPT: added an HTML PPT node with multi-slide HTML/CSS editing, sandboxed preview/export, text-handle prompt input, and Ultra-powered current-slide rewrite while blocking non-persistable inline/local image refs.
 - Flow/HTML PPT: enriched the node with slide thumbnails, template-based slide insertion, aspect-ratio switching, title/notes editing, and Slide/Deck AI rewrite scope.
@@ -44,6 +48,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- AI Chat: expanded history mode now starts with a reserved top gap so a strip of the canvas/header remains visible, while manual height resize can still pull the panel close to full height.
 - Admin/Auth: default login activity notice now hides the Seedance activity slide and shows only the 2026 Tanvas AI contest popup with registration/community QR and contest-detail actions.
 - Flow/Prompt Mentions: inline `@` image references now use a non-layout background highlight drawn on the existing inline token, keeping textarea overlay wrapping and multiple-token alignment unchanged.
 - Flow/HTML PPT: simplified Run by removing the automatic generated-visual pre-pass; connected upstream images are still prepared and sent to the final text-chat rewrite request for PPT layout.
@@ -70,6 +75,24 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Workspace Settings: invite status now paginates referral records via `/api/referral/stats?page=&pageSize=`, so users with more than 20 invites can navigate older records.
+- AI Chat Image Count: explicit multi-image prompts such as `画三张...每张图1只` now split the batch into per-slot single-image prompts, so each parallel generation creates one independent image instead of reinterpreting the total count as a collage or multiple subjects in one image.
+- AI Chat/Agent: research-only case lookup now returns both the text-stage web-search answer and the Volcengine structured search payload (`text` + `volc`), and removes local static case-library / hard-coded architect fallback seeds from the Agent research path.
+- AI Chat/Agent: research-only text drafting now passes the same UI-selected text `model`, route `providerOptions`, and `thinkingLevel` as normal Text mode before Volcengine keyword search.
+- AI Chat/Agent: research keyword extraction now prioritizes numbered/markdown case headings and trims explanatory title dashes before sending seed keywords to Volcengine.
+- AI Chat/Agent: research keyword extraction is now configurable with `AGENT_RESEARCH_KEYWORD_EXTRACT_MODE=hybrid|ai|rule`; the default hybrid mode lets AI read both the user prompt and Text answer, then merges rule-based title keywords as fallback.
+- AI Chat/Agent: research result cards no longer display internal seed-validation copy such as "文本候选/联网校验" or generic verification badges, and the card section title is normalized to "案例搜索".
+- AI Chat/Agent: research-only final message text now stays on the text-stage answer; Volcengine search snippets and case summaries are stored as structured trace data and no longer appended to the chat body.
+- AI Chat/Agent: case-search cards now render only candidates with real `imageUrl` values and no longer show link-only image placeholders when Volcengine image search returns no usable image.
+- AI Chat/Agent: research-only text-stage timeout now matches normal Text chat's 60s budget, with prompt-derived non-static query fallback so Volcengine does not receive an empty keyword list when the text stage fails.
+- AI Chat Text: NewAPI `HTTP 520: openai_error` during web-search text chat now triggers the existing retry without `web_search_preview`, and failed text placeholders no longer keep showing a generating message.
+- AI Chat/Agent: research-only case lookup no longer marks all plan steps completed before real work starts, and Volcengine web/image/model search calls now have bounded timeouts with per-query failure fallback so SSE always proceeds to `research_result`/`done` instead of hanging after `research_text`.
+- App/Device Access: iPad is no longer treated as a blocked mobile device at the `/app` entry point, including both classic `iPad` userAgent and iPadOS `MacIntel` touch detection paths.
+- AI Chat/Agent: research case image lookup now tries multiple queries per case and constrains the frontend thumbnail grid width, reducing partial image misses and oversized thumbnails on wide chat layouts.
+- AI Chat Text: text chat now retries once without `web_search_preview` when the new-api web-search tools call fails, and provider text failures return readable 503 errors instead of Nest's generic `Internal server error`.
+- AI Chat Image UI: failed/timeout image slots now render a red failure state with the backend error message instead of continuing to show the loading spinner after `generationStatus.error` is set.
+- AI Chat Image Count: Auto/Generate image requests now parse explicit output quantities from language such as `画两张`, `生成 3 张`, and `多张方案`, overriding the default UI multiplier while avoiding source-image phrases such as `用两张参考图`.
+- AI Chat Context: text chat now separates iteration detection from conversation-context dependency detection, so prompts like `刚才/之前/上文/上一条/这两个/previous/last` include recent history without being treated only as design iterations; Auto-mode Agent trace also receives this context and shows a context-reading step when needed.
 - Canvas/Flow: closing the top campaign notice now emits a canvas layout-change signal; Paper view resize, GridRenderer redraw, and ReactFlow viewport sync all subscribe to the same path so the workspace does not become misaligned after the banner is removed.
 - Flow/Prompt Mentions: multi-`@` image references now match longest tokens first, preserve existing structured refs when typed-token candidate sync runs, skip ambiguous same-token auto-binding, and prefer exact node-handle lookup for workflow references to avoid prefix or multi-output image mixups.
 - Flow/Prompt Mentions: restored the independent `工作流` source in the Prompt `@` picker when downstream image inputs are connected, storing selections as `flow` node/handle references.
@@ -756,3 +779,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
 - Flow/Seedance Video: added mode inputs eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
+
+## [AI Chat Canvas Placeholder Timeout - 2026-06-08]
+### Fixed
+- AI Chat image-generation error status now dispatches a canvas placeholder remove event as a generic fallback.
+- Canvas AI predictive placeholders now carry `createdAt/expiresAt` metadata and `useQuickImageUpload` removes expired or orphaned placeholders, preventing stuck 95% waiting boxes after task timeout or missed remove events.
+
+## [AI Chat Research Case Alignment - 2026-06-08]
+### Fixed
+- Agent research cases now treat user-specified architects/subjects as hard filters during Volcengine web-search keyword expansion, model extraction, and post-extraction validation.
+- Agent research case lookup now uses a two-stage flow: first plan concrete building/project names with the text model, then run real Volcengine web/image search for each planned project name.
+- Agent research now emits a text-first `research_text` event: the text model answers with candidate cases first, the backend extracts project keywords from that reply, and Volcengine search then uses those extracted keywords to build image/source-backed case cards.
+- Project-level research search now ranks per-project web results instead of dropping results that do not exactly match the Chinese project title; known architect seeds are used only as search-entry fallbacks and still require real web sources before display.
+- Research case image lookup now remains tied to the extracted case list; when real search is disabled, fails, or returns no matching cases, the backend returns an explicit no-result summary instead of unrelated static architecture cases.
+- AI Chat research-only responses now render the bottom text from the same `research_result` payload used by the case cards, including no-result summaries.

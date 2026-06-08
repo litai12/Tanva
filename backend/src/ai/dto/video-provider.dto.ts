@@ -29,10 +29,37 @@ export class VideoProviderRequestDto {
   @MaxLength(5000)
   prompt?: string;
 
+  @ApiProperty({ description: 'Negative prompt (Kling omni)', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2500)
+  negativePrompt?: string;
+
   @ApiProperty({ description: 'Reference image URL list', required: false, type: [String] })
   @IsOptional()
   @IsArray()
   referenceImages?: ReferenceImageItem[];
+
+  @ApiProperty({
+    description: 'Element/character reference image URL list (Kling omni element_list)',
+    required: false,
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  elementImages?: ReferenceImageItem[];
+
+  @ApiProperty({ description: 'Element/character name referenced via @name (Kling omni)', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  elementName?: string;
+
+  @ApiProperty({ description: 'Element/character description (Kling omni)', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  elementDescription?: string;
 
   @ApiProperty({ description: 'Audio URL list', required: false, type: [String] })
   @IsOptional()

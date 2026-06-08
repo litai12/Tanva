@@ -30,6 +30,7 @@ import { TeamSubscriptionModule } from './team-subscription/team-subscription.mo
 import { TeamCoreModule } from './team-core/team-core.module';
 import { TeamCreditsModule } from './team-credits/team-credits.module';
 import { TeamCollabModule } from './team-collab/team-collab.module';
+import { AgentModule } from './agent/agent.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { TeamCollabModule } from './team-collab/team-collab.module';
     TeamCoreModule,
     TeamCreditsModule,
     TeamCollabModule,
+    AgentModule,
   ],
 })
 export class AppModule {}

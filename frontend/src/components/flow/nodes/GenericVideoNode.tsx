@@ -1169,7 +1169,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   };
 
   const getDurationOptions = () => {
-    if (provider === "kling" || provider === "kling-2.6") {
+    if (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") {
+      // Kling 3.0 (kling-v3-0)：APIMart 全场景 3–15s；Kling 2.6 仍为 5/10。
+      if (klingModel === "kling-v3-0") {
+        return Array.from({ length: 13 }, (_, i) => {
+          const value = i + 3;
+          return { label: lt(`${value}秒`, `${value}s`), value };
+        });
+      }
       return [
         { label: lt("5秒", "5s"), value: 5 },
         { label: lt("10秒", "10s"), value: 10 },
@@ -1380,12 +1387,40 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         value,
       }));
     }
+    // Vidu Q2/Q3 share one VOD node, but their valid durations differ (Q2: 1–8s,
+    // Q3: 3–16s). A single shared vodConfig list can't express both, so use the
+    // model-aware getDurationOptions() instead — otherwise a stale DB config (e.g.
+    // [1..16]) would offer 1s/2s which viduq3 upstream rejects.
+    if (isViduNode) {
+      return getDurationOptions();
+    }
+    // Kling 2.6/3.0 共用一个节点但时长不同（2.6:5/10、3.0:3–15）。与 Vidu 同理，
+    // 单一 vodConfig 无法表达两套，改用 model-aware getDurationOptions()，否则切到
+    // 3.0 仍会被 vodConfig 的旧 [5,10] 覆盖。
+    if (provider === "kling" || provider === "kling-2.6" || provider === "kling-o3") {
+      return getDurationOptions();
+    }
     return vodDurationOptions.length > 0 ? vodDurationOptions : getDurationOptions();
-  }, [getDurationOptions, isSeedance20Model, lt, provider, seedanceModel, vodDurationOptions]);
+  }, [getDurationOptions, isSeedance20Model, isViduNode, lt, provider, seedanceModel, vodDurationOptions]);
   const durationOptionValues = React.useMemo(
     () => durationOptions.map((option) => option.value),
     [durationOptions]
   );
+  // 时长用进度条（滑块）呈现：当可选值是一段连续整数区间（如 Seedance 4~12 秒）
+  // 时，用滑块替代下拉，更直观；离散区间（如 Kling 仅 5/10 秒）仍用下拉。
+  const durationSliderRange = React.useMemo(() => {
+    const values = durationOptionValues
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b);
+    if (values.length < 3) return null;
+    const min = values[0];
+    const max = values[values.length - 1];
+    const isContiguous =
+      max - min + 1 === values.length &&
+      values.every((value, index) => value === min + index);
+    return isContiguous ? { min, max } : null;
+  }, [durationOptionValues]);
   const shouldShowAspectSelector =
     isSeedanceModel
       ? true
@@ -1429,12 +1464,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const isCurrentViduQ3FamilyModel = viduModelFamily === "q3";
   const isViduQ3ProMode = viduModel === "q3-pro";
   const isViduQ3TurboModel = viduModel === "q3-turbo";
-  const viduModelSelectionValue: "q2" | "q3" | "q3-turbo" =
-    viduModel === "q2-pro"
-      ? "q2"
-      : viduModel === "q3-pro"
-      ? "q3"
-      : (viduModel as "q2" | "q3" | "q3-turbo");
+  // 下拉只有 q2 / q3 两个选项，所以把所有变体(q2-pro / q3-pro / q3-turbo / q3-mix /
+  // q2-turbo 等)统一折叠到家族值，否则像 q3-turbo 这种值在选项里找不到，按钮标签会
+  // 回退成默认的 "Vidu Q2"——一个 Q3 节点被错显成 Q2，菜单也无高亮项。
+  const viduModelSelectionValue: "q2" | "q3" = viduModelFamily;
   const shouldShowResolutionSelector = resolutionOptions.length > 0;
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
@@ -3017,36 +3050,91 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         className='video-dropdown'
         style={{ marginBottom: 8, position: "relative" }}
       >
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-          {lt("时长", "Duration")}
-        </div>
-        <button
-          type='button'
-          onClick={(event) => {
-            event.stopPropagation();
-            setModelMenuOpen(false);
-            setAspectMenuOpen(false);
-            setDurationMenuOpen((open) => !open);
-          }}
+        <div
           style={{
-            width: "100%",
+            fontSize: 12,
+            color: "#6b7280",
+            marginBottom: 4,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            fontSize: 12,
-            cursor: "pointer",
           }}
         >
-          <span>{durationLabel}</span>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>
-            {durationMenuOpen ? "▴" : "▾"}
-          </span>
-        </button>
-        {durationMenuOpen && (
+          <span>{lt("时长", "Duration")}</span>
+          {durationSliderRange && (
+            <span style={{ color: "#111827", fontWeight: 600 }}>
+              {durationLabel}
+            </span>
+          )}
+        </div>
+        {durationSliderRange ? (
+          <div style={{ padding: "2px 2px 0" }}>
+            <input
+              className='nodrag nopan'
+              type='range'
+              min={durationSliderRange.min}
+              max={durationSliderRange.max}
+              step={1}
+              value={
+                typeof clipDuration === "number" &&
+                clipDuration >= durationSliderRange.min &&
+                clipDuration <= durationSliderRange.max
+                  ? clipDuration
+                  : durationSliderRange.min
+              }
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                handleDurationChange(Number(event.target.value))
+              }
+              style={{
+                width: "100%",
+                accentColor: "#2563eb",
+                cursor: "pointer",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 10,
+                color: "#9ca3af",
+                marginTop: 2,
+              }}
+            >
+              <span>{lt(`${durationSliderRange.min}秒`, `${durationSliderRange.min}s`)}</span>
+              <span>{lt(`${durationSliderRange.max}秒`, `${durationSliderRange.max}s`)}</span>
+            </div>
+          </div>
+        ) : (
+          <button
+            type='button'
+            onClick={(event) => {
+              event.stopPropagation();
+              setModelMenuOpen(false);
+              setAspectMenuOpen(false);
+              setDurationMenuOpen((open) => !open);
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            <span>{durationLabel}</span>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>
+              {durationMenuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+        )}
+        {!durationSliderRange && durationMenuOpen && (
           <div
             className='video-dropdown-menu'
             onClick={(event) => event.stopPropagation()}

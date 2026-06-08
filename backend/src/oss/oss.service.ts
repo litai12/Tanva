@@ -611,6 +611,7 @@ export class OssService {
       'amazonaws.com',
       's3.cn-northwest-1.amazonaws.com.cn',
       'apimart.ai',
+      'apib.ai', // APIMart 生成视频的 CDN 域名（如 upload.apib.ai），与 apimart.ai 不同，需单列
       'kechuangai.com',
       'models.kapon.cloud',
       'volces.com',

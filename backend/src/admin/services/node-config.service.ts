@@ -1242,7 +1242,8 @@ export class NodeConfigService {
               modelVersion: 'q2 / q3',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '3:4', '4:3', '1:1'],
-                durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                // apimart viduq3 仅支持 3-16s（1-2s 是 viduq3-mix 专属，本节点未启用 mix）。
+                durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                 resolutions: ['540P', '720P', '1080P'],
               },
               inputModes: ['text', 'image', 'reference'],

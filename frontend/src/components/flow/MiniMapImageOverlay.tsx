@@ -136,6 +136,23 @@ const MiniMapImageOverlay: React.FC = () => {
         const worldX = hit ? (hit.x + hit.width / 2) : world.x;
         const worldY = hit ? (hit.y + hit.height / 2) : world.y;
 
+        // [DEBUG] minimap navigation diagnostics — remove after investigation.
+        try {
+          const st = useCanvasStore.getState();
+          // eslint-disable-next-line no-console
+          console.log('[minimap-click]', {
+            client: [Math.round(ev.clientX), Math.round(ev.clientY)],
+            world: world ? { x: Math.round(world.x), y: Math.round(world.y) } : null,
+            target: { x: Math.round(worldX), y: Math.round(worldY) },
+            hit: hit ? { id: hit.id, x: Math.round(hit.x), y: Math.round(hit.y), w: Math.round(hit.width), h: Math.round(hit.height) } : null,
+            viewBox: svgEl?.getAttribute?.('viewBox'),
+            svgRect: (() => { const r = svgEl?.getBoundingClientRect?.(); return r ? { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) } : null; })(),
+            zoom: st.zoom, panX: Math.round(st.panX), panY: Math.round(st.panY),
+            dpr: window.devicePixelRatio || 1,
+            imagesCount: images.length,
+          });
+        } catch {}
+
         panToWorldCenter(worldX, worldY);
       } catch {}
     };

@@ -153,6 +153,8 @@ const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const HISTORY_DEFAULT_MIN_HEIGHT = 320;
+// 展开态默认留出一段画布/顶栏内容；用户仍可拖拽顶部边缘拉高到接近全屏。
+const EXPANDED_HISTORY_DEFAULT_TOP = "clamp(64px, 8vh, 88px)";
 
 type ResendInfo =
   | { type: "edit"; prompt: string; sourceImage: string }
@@ -2841,6 +2843,8 @@ const AIChatDialog: React.FC = () => {
       // bottom 固定为 16px，根据 customHeight 计算 top
       const calculatedTop = window.innerHeight - 16 - customHeight;
       style.top = Math.max(16, calculatedTop); // 最小 top 为 16px
+    } else {
+      style.top = EXPANDED_HISTORY_DEFAULT_TOP;
     }
 
     return style;
@@ -4271,6 +4275,11 @@ const AIChatDialog: React.FC = () => {
                     const msgExpectsImageOutput = Boolean(
                       message.expectsImageOutput
                     );
+                    const generationError =
+                      typeof msgGenerationStatus?.error === "string" &&
+                      msgGenerationStatus.error.trim().length > 0
+                        ? msgGenerationStatus.error.trim()
+                        : null;
                     const hasTextContent = Boolean(message.content?.trim());
 
                     const imageSrc = resolveMessageImageSrc(message);
@@ -4300,6 +4309,31 @@ const AIChatDialog: React.FC = () => {
                           }}
                           title={lt("点击全屏预览", "Click to preview fullscreen")}
                         />
+                      );
+                    }
+
+                    if (generationError && msgExpectsImageOutput) {
+                      return (
+                        <div
+                          className={`${imageSize} rounded-lg border border-red-200 bg-red-50/80 shadow-sm`}
+                        >
+                          <div className='relative z-10 flex flex-col items-center justify-center w-full h-full gap-1.5 px-2 text-center text-xs text-red-600'>
+                            <AlertCircle className='w-4 h-4 text-red-500' />
+                            <span className='font-semibold'>
+                              {message.groupIndex !== undefined
+                                ? `${message.groupIndex + 1}/${
+                                    message.groupTotal || "?"
+                                  } 失败`
+                                : lt("生成失败", "Failed")}
+                            </span>
+                            <span
+                              className='max-w-full text-[10px] leading-snug text-red-500 line-clamp-3'
+                              title={generationError}
+                            >
+                              {generationError}
+                            </span>
+                          </div>
+                        </div>
                       );
                     }
 
@@ -4505,6 +4539,215 @@ const AIChatDialog: React.FC = () => {
                               ) : null;
                               const aiTextContent = isAiMessage ? (
                                 <div className='text-sm leading-relaxed text-black break-words markdown-content'>
+                                  {(() => {
+                                    const agentTrace =
+                                      message.metadata?.agentTrace;
+                                    const steps = Array.isArray(
+                                      agentTrace?.steps
+                                    )
+                                      ? agentTrace.steps
+                                      : [];
+                                    if (!agentTrace || steps.length === 0) {
+                                      return null;
+                                    }
+                                    const statusLabel =
+                                      agentTrace.status === "completed"
+                                        ? "已完成"
+                                        : agentTrace.status === "failed"
+                                          ? "失败"
+                                          : "执行中";
+                                    return (
+                                      <div className='mb-2 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-[2px]'>
+                                        <div className='mb-1.5 flex items-center justify-between gap-2'>
+                                          <div className='flex min-w-0 items-center gap-1.5 font-medium text-slate-800'>
+                                            <Brain className='h-3.5 w-3.5 shrink-0 text-slate-500' />
+                                            <span className='truncate'>
+                                              Agent 计划
+                                            </span>
+                                          </div>
+                                          <span className='shrink-0 text-[11px] text-slate-500'>
+                                            {statusLabel}
+                                          </span>
+                                        </div>
+                                        <div className='space-y-1'>
+                                          {steps.slice(0, 5).map((step) => {
+                                            const isRunning =
+                                              step.status === "running";
+                                            const isDone =
+                                              step.status === "completed";
+                                            return (
+                                              <div
+                                                key={step.id}
+                                                className='flex items-start gap-1.5'
+                                              >
+                                                <span className='mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/35'>
+                                                  {isRunning ? (
+                                                    <Loader2 className='h-2.5 w-2.5 animate-spin text-slate-500' />
+                                                  ) : isDone ? (
+                                                    <Check className='h-2.5 w-2.5 text-emerald-600' />
+                                                  ) : (
+                                                    <span className='h-1.5 w-1.5 rounded-full bg-slate-300' />
+                                                  )}
+                                                </span>
+                                                <span className='min-w-0'>
+                                                  <span className='font-medium text-slate-800'>
+                                                    {step.title}
+                                                  </span>
+                                                  {step.detail ? (
+                                                    <span className='ml-1 text-slate-500'>
+                                                      {step.detail}
+                                                    </span>
+                                                  ) : null}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        {agentTrace.selectedTool ? (
+                                          <div className='mt-1.5 border-t border-slate-200 pt-1.5 text-[11px] text-slate-500'>
+                                            Tool: {agentTrace.selectedTool}
+                                            {agentTrace.workflow
+                                              ? ` · ${agentTrace.workflow}`
+                                              : ""}
+                                          </div>
+                                        ) : null}
+                                        {agentTrace.error ? (
+                                          <div className='mt-1.5 text-[11px] text-red-600'>
+                                            {agentTrace.error}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const agentTrace =
+                                      message.metadata?.agentTrace;
+                                    const research =
+                                      agentTrace?.researchResult;
+                                    const cases = Array.isArray(
+                                      research?.cases
+                                    )
+                                      ? research.cases
+                                      : [];
+                                    if (!research || cases.length === 0) {
+                                      return null;
+                                    }
+                                    const researchTitle =
+                                      research.title === "建筑案例"
+                                        ? "案例搜索"
+                                        : research.title || "案例资料";
+                                    return (
+                                      <div className='mb-3 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px]'>
+                                        <div className='mb-2 flex items-start justify-between gap-2'>
+                                          <div className='min-w-0'>
+                                            <div className='font-semibold text-slate-900'>
+                                              {researchTitle}
+                                            </div>
+                                          </div>
+                                          <span className='shrink-0 text-[11px] text-slate-500'>
+                                            {cases.length} 个案例
+                                          </span>
+                                        </div>
+                                        <div className='space-y-2'>
+                                          {cases.slice(0, 5).map((item) => {
+                                            const images = Array.isArray(
+                                              item.images
+                                            )
+                                              ? item.images.filter(
+                                                  (img) => img?.imageUrl
+                                                )
+                                              : [];
+                                            const sources = Array.isArray(
+                                              item.sources
+                                            )
+                                              ? item.sources
+                                              : [];
+                                            return (
+                                              <div
+                                                key={item.id || item.title}
+                                                className='rounded-md border border-white/30 bg-white/10 p-2 backdrop-blur-[1px]'
+                                              >
+                                                <div className='mb-1 flex items-start justify-between gap-2'>
+                                                  <div className='min-w-0'>
+                                                    <div className='font-semibold text-slate-900'>
+                                                      {item.title}
+                                                    </div>
+                                                    <div className='text-[11px] text-slate-500'>
+                                                      {[
+                                                        item.subtitle,
+                                                        item.architect,
+                                                        item.location,
+                                                      ]
+                                                        .filter(Boolean)
+                                                        .join(" · ")}
+                                                    </div>
+                                                  </div>
+                                                  {item.category ? (
+                                                    <span className='shrink-0 rounded-full border border-white/35 bg-white/20 px-1.5 py-0.5 text-[10px] text-slate-600'>
+                                                      {item.category}
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                                {images.length > 0 ? (
+                                                  <div className='mb-2 grid max-w-[760px] grid-cols-2 gap-1 sm:grid-cols-4'>
+                                                    {images
+                                                      .slice(0, 4)
+                                                      .map((img) => (
+                                                          <button
+                                                            key={
+                                                              img.imageUrl ||
+                                                              img.searchUrl
+                                                            }
+                                                            type='button'
+                                                            className='group relative aspect-[4/3] overflow-hidden rounded border border-white/30 bg-white/10'
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              handleImagePreview(
+                                                                img.imageUrl,
+                                                                img.label ||
+                                                                  item.title
+                                                              );
+                                                            }}
+                                                          >
+                                                            <SmartImage
+                                                              src={img.imageUrl}
+                                                              alt={
+                                                                img.label ||
+                                                                item.title
+                                                              }
+                                                              className='h-full w-full object-cover'
+                                                            />
+                                                          </button>
+                                                        ))}
+                                                  </div>
+                                                ) : null}
+                                                {sources.length > 0 ? (
+                                                  <div className='flex flex-wrap gap-x-2 gap-y-1 border-t border-white/25 pt-1.5 text-[11px]'>
+                                                    {sources
+                                                      .slice(0, 3)
+                                                      .map((source) => (
+                                                        <a
+                                                          key={source.url}
+                                                          href={source.url}
+                                                          target='_blank'
+                                                          rel='noopener noreferrer'
+                                                          className='text-blue-600 hover:underline'
+                                                          title={
+                                                            source.snippet
+                                                          }
+                                                        >
+                                                          {source.title}
+                                                        </a>
+                                                      ))}
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{

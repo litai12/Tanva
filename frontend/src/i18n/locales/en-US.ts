@@ -256,6 +256,10 @@ const enUS = {
           rewarded: "Rewarded",
           pendingFirstGeneration: "Pending first creation",
           empty: "No invite records yet.",
+          total: "{{total}} records",
+          page: "Page {{page}} / {{totalPages}}",
+          previous: "Previous",
+          next: "Next",
         },
       },
       appearanceTab: {

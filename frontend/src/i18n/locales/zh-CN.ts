@@ -256,6 +256,10 @@ const zhCN = {
           rewarded: "奖励已发放",
           pendingFirstGeneration: "待首次创作",
           empty: "暂无邀请记录",
+          total: "共 {{total}} 条记录",
+          page: "第 {{page}} / {{totalPages}} 页",
+          previous: "上一页",
+          next: "下一页",
         },
       },
       appearanceTab: {

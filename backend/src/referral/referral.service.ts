@@ -285,7 +285,19 @@ export class ReferralService {
   /**
    * 获取用户的推广激励统计
    */
-  async getReferralStats(userId: string) {
+  async getReferralStats(
+    userId: string,
+    options: { page?: number; pageSize?: number } = {},
+  ) {
+    const parsedPage = Math.trunc(options.page ?? 1);
+    const parsedPageSize = Math.trunc(options.pageSize ?? 20);
+    const requestedPage =
+      Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const pageSize =
+      Number.isFinite(parsedPageSize) && parsedPageSize > 0
+        ? Math.min(100, parsedPageSize)
+        : 20;
+
     // 获取邀请码
     const inviteCode = await this.getOrCreateInviteCode(userId);
 
@@ -319,6 +331,9 @@ export class ReferralService {
       (rewardedSummary._sum.rewardAmount ?? 0) +
       firstRechargeRewards * REFERRAL_INVITER_FIRST_RECHARGE_REWARD;
 
+    const totalPages = Math.max(1, Math.ceil(successfulInvites / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+
     // 获取邀请记录列表
     const inviteRecords = await this.prisma.invitationRedemption.findMany({
       where: { inviterUserId: userId },
@@ -333,7 +348,8 @@ export class ReferralService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
 
     // 格式化邀请记录
@@ -353,6 +369,12 @@ export class ReferralService {
       successfulInvites,
       totalEarnings,
       inviteRecords: formattedRecords,
+      pagination: {
+        page,
+        pageSize,
+        total: successfulInvites,
+        totalPages,
+      },
     };
   }
 

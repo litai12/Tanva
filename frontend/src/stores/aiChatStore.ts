@@ -22,6 +22,12 @@ import {
   pollImageTaskResult,
   type AsyncImageTaskCreateResult,
 } from "@/services/aiBackendAPI";
+import {
+  createAgentRunViaAPI,
+  streamAgentRunEvents,
+  type AgentRunEvent,
+  type AgentToolName,
+} from "@/services/agentBackendAPI";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
@@ -483,6 +489,305 @@ const logChatConversationSnapshot = (messages: ChatMessage[]): void => {
   } catch (error) {
     console.warn("⚠️ 无法打印AI对话内容:", error);
   }
+};
+
+type AgentTraceStepStatus = "pending" | "running" | "completed" | "failed";
+
+type AgentTraceStep = {
+  id: string;
+  title: string;
+  detail?: string;
+  status: AgentTraceStepStatus;
+  tool?: string;
+};
+
+type AgentTraceState = {
+  runId?: string;
+  status?: "running" | "completed" | "failed";
+  workflow?: string;
+  intent?: string;
+  selectedTool?: string;
+  suggestedWebSearch?: boolean;
+  researchDraftText?: string;
+  researchText?: unknown;
+  researchVolc?: unknown;
+  researchResult?: unknown;
+  steps?: AgentTraceStep[];
+  events?: AgentRunEvent[];
+  error?: string;
+  updatedAt?: string;
+};
+
+type AgentPlanStepPayload = {
+  id?: unknown;
+  title?: unknown;
+  detail?: unknown;
+  tool?: unknown;
+};
+
+const upsertAgentTraceStep = (
+  steps: AgentTraceStep[],
+  step: AgentTraceStep
+): AgentTraceStep[] => {
+  const index = steps.findIndex((item) => item.id === step.id);
+  if (index < 0) return [...steps, step];
+  const next = [...steps];
+  next[index] = { ...next[index], ...step };
+  return next;
+};
+
+const applyAgentEventToTrace = (
+  current: AgentTraceState | undefined,
+  event: AgentRunEvent
+): AgentTraceState => {
+  const trace: AgentTraceState = {
+    ...(current || {}),
+    runId: event.runId,
+    events: [...(current?.events || []), event].slice(-80),
+    updatedAt: event.timestamp,
+  };
+  let steps = [...(trace.steps || [])];
+
+  if (event.type === "run_started") {
+    trace.status = "running";
+  }
+
+  if (event.type === "plan") {
+    const plannedSteps = Array.isArray(event.data?.steps)
+      ? (event.data.steps as AgentPlanStepPayload[])
+      : [];
+    steps = plannedSteps.map((item) => {
+      const existing = steps.find((step) => step.id === item.id);
+      return {
+        id: String(item.id || `step-${steps.length + 1}`),
+        title: String(item.title || "任务步骤"),
+        detail:
+          typeof item.detail === "string"
+            ? item.detail
+            : existing?.detail || undefined,
+        status: existing?.status || "pending",
+        tool: typeof item.tool === "string" ? item.tool : existing?.tool,
+      };
+    });
+  }
+
+  if (event.type === "step_started" || event.type === "step_completed") {
+    const stepId =
+      typeof event.data?.stepId === "string" ? event.data.stepId : event.id;
+    const existing = steps.find((step) => step.id === stepId);
+    steps = upsertAgentTraceStep(steps, {
+      id: stepId,
+      title: event.title || existing?.title || "任务步骤",
+      detail:
+        event.type === "step_started"
+          ? event.message || existing?.detail
+          : existing?.detail || event.message,
+      status: event.type === "step_started" ? "running" : "completed",
+      tool:
+        typeof event.data?.tool === "string"
+          ? event.data.tool
+          : existing?.tool,
+    });
+  }
+
+  if (event.type === "tool_selected" || event.type === "final") {
+    if (typeof event.data?.workflow === "string") {
+      trace.workflow = event.data.workflow;
+    }
+    if (typeof event.data?.intent === "string") {
+      trace.intent = event.data.intent;
+    }
+    if (typeof event.data?.selectedTool === "string") {
+      trace.selectedTool = event.data.selectedTool;
+    }
+    if (typeof event.data?.suggestedWebSearch === "boolean") {
+      trace.suggestedWebSearch = event.data.suggestedWebSearch;
+    }
+    if (event.type === "final") {
+      trace.status = "completed";
+    }
+  }
+
+  if (event.type === "research_result") {
+    trace.researchResult = event.data?.result;
+    trace.researchText = event.data?.text;
+    trace.researchVolc = event.data?.volc;
+  }
+
+  if (event.type === "research_text") {
+    const text =
+      typeof event.data?.text === "string" ? event.data.text : event.message;
+    if (text) trace.researchDraftText = text;
+  }
+
+  if (event.type === "error") {
+    trace.status = "failed";
+    trace.error = event.message || "Agent trace failed";
+  }
+
+  if (event.type === "done" && trace.status !== "failed") {
+    trace.status = "completed";
+  }
+
+  return { ...trace, steps };
+};
+
+const shouldAutoEnableWebSearch = (input: string): boolean => {
+  const value = String(input || "").trim();
+  if (!value) return false;
+  return /案例|资料|参考|检索|搜索|找一些|找一|帮我找|research|case|precedent|architecture|建筑|教堂|chapel|church/i.test(
+    value
+  );
+};
+
+const shouldUseAgentResearchOnly = (input: string): boolean => {
+  return shouldAutoEnableWebSearch(input);
+};
+
+const formatResearchResultAsText = (research: any): string => {
+  const textResultText =
+    typeof research?.textResult?.text === "string"
+      ? research.textResult.text.trim()
+      : "";
+  const draftText =
+    typeof research?.draftText === "string" ? research.draftText.trim() : "";
+  return textResultText || draftText;
+};
+
+const REQUESTED_IMAGE_COUNT_MAX = 8;
+const NUMBER_WORDS: Record<string, number> = {
+  一: 1,
+  二: 2,
+  两: 2,
+  俩: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+const parseRequestedImageCountToken = (token?: string | null): number | null => {
+  if (!token) return null;
+  const normalized = token.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const numeric = Number.parseInt(normalized, 10);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.min(numeric, REQUESTED_IMAGE_COUNT_MAX);
+  }
+
+  const wordValue = NUMBER_WORDS[normalized];
+  if (wordValue) return Math.min(wordValue, REQUESTED_IMAGE_COUNT_MAX);
+
+  return null;
+};
+
+const isLikelyInputImageQuantity = (
+  text: string,
+  matchStart: number,
+  matchEnd: number
+): boolean => {
+  const before = text.slice(Math.max(0, matchStart - 8), matchStart);
+  const after = text.slice(matchEnd, matchEnd + 10);
+  return (
+    /(?:用|基于|参考|源|输入|上传|选择|连接|已有|当前|这|那|把|将)\s*$/.test(
+      before
+    ) || /^(?:参考|源|输入|素材|作为|进行|融合|合成)/.test(after)
+  );
+};
+
+const extractRequestedOutputImageCount = (input: string): number | null => {
+  const text = String(input || "").trim();
+  if (!text) return null;
+
+  const directPatterns = [
+    /(?:画|生成|出|做|来|给|要|创建|设计|产出|输出)\s*([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)(?:图|图片|图像|方案|版本|效果图)?/i,
+    /(?:图|图片|图像|效果图|插画|海报|头像|方案|版本)\s*([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)/i,
+    /(?:generate|draw|create|make|render|produce|output|give me|need|want)\s+([1-9]\d?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:images?|pictures?|renders?|versions?|variations?)/i,
+  ];
+
+  for (const pattern of directPatterns) {
+    const match = pattern.exec(text);
+    const count = parseRequestedImageCountToken(match?.[1]);
+    if (count) return count;
+  }
+
+  const genericPattern =
+    /([一二两俩三四五六七八九十\d]{1,3})\s*(?:张|幅|个|版|款|种|组)\s*(?:图|图片|图像|方案|版本|效果图|插画|海报|头像)/i;
+  const genericMatch = genericPattern.exec(text);
+  if (genericMatch) {
+    const count = parseRequestedImageCountToken(genericMatch[1]);
+    if (
+      count &&
+      !isLikelyInputImageQuantity(
+        text,
+        genericMatch.index,
+        genericMatch.index + genericMatch[0].length
+      )
+    ) {
+      return count;
+    }
+  }
+
+  const englishGenericPattern =
+    /([1-9]\d?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:images?|pictures?|renders?|versions?|variations?)\s+(?:of|about|for|with)/i;
+  const englishGenericMatch = englishGenericPattern.exec(text);
+  const englishCount = parseRequestedImageCountToken(englishGenericMatch?.[1]);
+  if (englishCount) return englishCount;
+
+  if (/(?:多张|多幅|多版|多个版本|几张|几幅)/.test(text)) return 2;
+
+  return null;
+};
+
+const buildParallelSingleImagePrompt = (
+  prompt: string,
+  groupIndex: number,
+  groupTotal: number
+): string => {
+  const basePrompt = String(prompt || "").trim();
+  if (groupTotal <= 1) return basePrompt;
+
+  return [
+    basePrompt,
+    "",
+    `批量拆分说明：用户需要的是 ${groupTotal} 张彼此独立的成品图，本次只执行第 ${
+      groupIndex + 1
+    }/${groupTotal} 张。`,
+    "本次生成约束：只生成 1 张完整图片；不要拼图、网格、分屏、多宫格、三联画，也不要在同一张画面里放多张成品。",
+    "不要把总张数理解为单张画面中的主体数量；如果原提示包含“每张图/each image”的约束，请把它理解为本次这一张图的约束。",
+    "如果原提示要求不同品种、不同风格、不同版本或 variations，请让本次结果与其他批次保持差异。",
+  ].join("\n");
+};
+
+const buildAgentRunContext = (input: string): Record<string, unknown> => {
+  const needsConversationContext =
+    contextManager.detectConversationContextIntent(input);
+  const sessionSummary = contextManager.getSessionSummary();
+  const requestedOutputImageCount = extractRequestedOutputImageCount(input);
+
+  return {
+    needsConversationContext,
+    sessionSummary,
+    requestedOutputImageCount: requestedOutputImageCount ?? undefined,
+    conversationPrompt: needsConversationContext
+      ? contextManager.buildContextPrompt(input)
+      : undefined,
+  };
 };
 
 type MessageOverride = {
@@ -2808,6 +3113,8 @@ interface AIChatState {
       groupTotal: number;
       userMessageId: string;
       aiMessageId: string;
+      prompt?: string;
+      selectedTool?: AvailableTool | null;
     }
   ) => Promise<void>;
 
@@ -3364,6 +3671,22 @@ export const useAIChatStore = create<AIChatState>()(
               // 占位框的清理交由生成/上传流程完成，避免在 100% 时提前移除导致落位信息丢失
             } catch (error) {
               placeholderLogger.warn("派发占位符进度更新事件失败", error);
+            }
+          }
+
+          if (status?.error && typeof window !== "undefined") {
+            const placeholderId = `ai-placeholder-${messageId}`;
+            try {
+              window.dispatchEvent(
+                new CustomEvent("predictImagePlaceholder", {
+                  detail: {
+                    placeholderId,
+                    action: "remove",
+                  },
+                })
+              );
+            } catch (error) {
+              placeholderLogger.warn("派发占位符错误清理事件失败", error);
             }
           }
         },
@@ -6544,7 +6867,7 @@ export const useAIChatStore = create<AIChatState>()(
             const modelToUse = getTextModelForProvider(state.aiProvider);
             const includeConversationContext =
               options?.includeConversationContext ??
-              contextManager.detectIterativeIntent(prompt);
+              contextManager.detectConversationContextIntent(prompt);
             const requestPrompt = includeConversationContext
               ? contextManager.buildContextPrompt(prompt)
               : prompt;
@@ -6562,7 +6885,8 @@ export const useAIChatStore = create<AIChatState>()(
               prompt: requestPrompt,
               model: modelToUse,
               aiProvider: state.aiProvider,
-              enableWebSearch: state.enableWebSearch,
+              enableWebSearch:
+                state.enableWebSearch || shouldAutoEnableWebSearch(prompt),
               thinkingLevel: state.thinkingLevel || undefined,
               providerOptions,
             });
@@ -6626,10 +6950,15 @@ export const useAIChatStore = create<AIChatState>()(
             const errorMessage =
               error instanceof Error ? error.message : "未知错误";
 
+            get().updateMessage(aiMessageId, (msg) => ({
+              ...msg,
+              content: `文本生成失败: ${errorMessage}`,
+            }));
             get().updateMessageStatus(aiMessageId, {
               isGenerating: false,
               progress: 0,
               error: errorMessage,
+              stage: "已终止",
             });
 
             console.error("❌ 文本生成失败:", errorMessage);
@@ -7430,6 +7759,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 检测迭代意图
           const isIterative = contextManager.detectIterativeIntent(input);
+          const needsConversationContext =
+            contextManager.detectConversationContextIntent(input);
           if (isIterative && !isRetry && !options?.override) {
             contextManager.incrementIteration();
           }
@@ -7527,7 +7858,10 @@ export const useAIChatStore = create<AIChatState>()(
           const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
 
           const shouldIncludeToolSelectionContext =
-            isIterative || totalImageCount > 0 || Boolean(state.sourcePdfForAnalysis);
+            needsConversationContext ||
+            isIterative ||
+            totalImageCount > 0 ||
+            Boolean(state.sourcePdfForAnalysis);
           const toolSelectionContext = shouldIncludeToolSelectionContext
             ? contextManager.buildContextPrompt(input)
             : input;
@@ -7855,7 +8189,7 @@ export const useAIChatStore = create<AIChatState>()(
                   await store.generateTextResponse(parameters.prompt, {
                     override: messageOverride,
                     metrics,
-                    includeConversationContext: isIterative,
+                    includeConversationContext: needsConversationContext,
                   });
                   if (!isIterative) {
                     contextManager.resetIteration();
@@ -8019,6 +8353,175 @@ export const useAIChatStore = create<AIChatState>()(
             aiMessageId: thinkingAiMessage.id,
           };
 
+          const traceImageCountForAgent =
+            state.sourceImagesForBlending.length +
+            (state.sourceImageForEditing ? 1 : 0) +
+            (state.sourceImageForAnalysis ? 1 : 0);
+          const agentResearchOnly =
+            state.manualAIMode === "auto" &&
+            !state.sourcePdfForAnalysis &&
+            traceImageCountForAgent === 0 &&
+            shouldUseAgentResearchOnly(input);
+
+          if (state.manualAIMode === "auto") {
+            const traceImageCount = traceImageCountForAgent;
+            const traceAllowAnalyze = !isAnalyzeDisabledOnCurrentBananaRoute(
+              state.aiProvider,
+              state.bananaImageRoute
+            );
+            const traceAvailableTools =
+              traceImageCount === 1 &&
+              state.sourceImagesForBlending.length === 0
+                ? traceAllowAnalyze
+                  ? (["editImage", "analyzeImage"] as const)
+                  : (["editImage"] as const)
+                : traceImageCount > 1
+                  ? traceAllowAnalyze
+                    ? (["blendImages", "analyzeImage"] as const)
+                    : (["blendImages"] as const)
+                  : ([
+                      "generateImage",
+                      "editImage",
+                      "blendImages",
+                      ...(traceAllowAnalyze ? ["analyzeImage"] : []),
+                      "chatResponse",
+                      "generateVideo",
+                      "generatePaperJS",
+                    ] as const);
+
+            const runAgentTrace = async () => {
+              const updateAgentTrace = (event: AgentRunEvent) => {
+                get().updateMessage(thinkingAiMessage.id, (msg) => {
+                  const currentTrace = msg.metadata?.agentTrace as
+                    | AgentTraceState
+                    | undefined;
+                  const nextTrace = applyAgentEventToTrace(currentTrace, event);
+                  const researchText =
+                    agentResearchOnly && event.type === "research_text"
+                      ? String(event.data?.text || event.message || "").trim()
+                      : agentResearchOnly && event.type === "research_result"
+                      ? formatResearchResultAsText(event.data?.result)
+                      : "";
+                  const researchStage =
+                    event.type === "research_text"
+                      ? "提取案例关键词"
+                      : event.type === "research_result"
+                        ? "整理搜索结果"
+                        : undefined;
+                  return {
+                    ...msg,
+                    content: researchText || msg.content,
+                    generationStatus:
+                      agentResearchOnly &&
+                      (event.type === "research_text" ||
+                        event.type === "research_result")
+                        ? {
+                            ...(msg.generationStatus || {
+                              isGenerating: true,
+                              progress: 0,
+                              error: null,
+                            }),
+                            isGenerating: true,
+                            progress: event.type === "research_text" ? 55 : 95,
+                            error: null,
+                            stage: researchStage,
+                          }
+                        : msg.generationStatus,
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      agentTrace: nextTrace,
+                    },
+                  };
+                });
+              };
+
+              try {
+                const projectId =
+                  useProjectContentStore.getState().projectId || undefined;
+                const agentTextModel = getTextModelForProvider(state.aiProvider);
+                const agentProviderOptions = withBananaRouteProviderOptions(
+                  state.aiProvider,
+                  undefined,
+                  state.bananaImageRoute
+                );
+                const run = await createAgentRunViaAPI({
+                  prompt: input,
+                  sessionId,
+                  projectId,
+                  aiProvider: state.aiProvider,
+                  model: agentTextModel,
+                  providerOptions: agentProviderOptions,
+                  thinkingLevel: state.thinkingLevel || undefined,
+                  manualMode: state.manualAIMode,
+                  availableTools: [...traceAvailableTools] as AgentToolName[],
+                  hasImages: traceImageCount > 0,
+                  imageCount: traceImageCount,
+                  enableWebSearch:
+                    state.enableWebSearch || shouldAutoEnableWebSearch(input),
+                  context: buildAgentRunContext(input),
+                });
+
+                get().updateMessage(thinkingAiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    agentTrace: {
+                      ...((msg.metadata?.agentTrace as AgentTraceState) || {}),
+                      runId: run.id,
+                      status: "running",
+                      workflow: run.workflow,
+                      intent: run.intent,
+                      selectedTool: run.selectedTool,
+                    },
+                  },
+                }));
+
+                await streamAgentRunEvents(run.id, updateAgentTrace);
+                if (agentResearchOnly) {
+                  get().updateMessageStatus(thinkingAiMessage.id, {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null,
+                    stage: "已完成",
+                  });
+                  await get().refreshSessions({ immediate: true });
+                }
+              } catch (error) {
+                get().updateMessage(thinkingAiMessage.id, (msg) => ({
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    agentTrace: {
+                      ...((msg.metadata?.agentTrace as AgentTraceState) || {}),
+                      status: "failed",
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : "Agent trace failed",
+                    },
+                  },
+                }));
+                if (agentResearchOnly) {
+                  get().updateMessageStatus(thinkingAiMessage.id, {
+                    isGenerating: false,
+                    progress: 0,
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : "Agent trace failed",
+                    stage: "已终止",
+                  });
+                }
+              }
+            };
+
+            if (agentResearchOnly) {
+              await runAgentTrace();
+              return;
+            }
+            void runAgentTrace();
+          }
+
           // 🔥 第一步：先进行工具选择，判断用户意图（并复用结果，避免重复调用 /api/ai/tool-selection）
           // 只有确定是图片相关操作后，才应用 multiplier
           const manualMode = state.manualAIMode;
@@ -8174,12 +8677,18 @@ export const useAIChatStore = create<AIChatState>()(
           const isImageGenerationTool =
             selectedTool && imageGenerationTools.includes(selectedTool);
 
-          const multiplier: AutoModeMultiplier = isImageGenerationTool
-            ? state.autoModeMultiplier
+          const requestedOutputImageCount =
+            isImageGenerationTool ? extractRequestedOutputImageCount(input) : null;
+          const multiplier = isImageGenerationTool
+            ? requestedOutputImageCount ?? state.autoModeMultiplier
             : 1;
 
           console.log(
-            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`
+            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}${
+              requestedOutputImageCount
+                ? ` (from prompt: ${requestedOutputImageCount})`
+                : ""
+            }`
           );
 
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
@@ -8362,12 +8871,22 @@ export const useAIChatStore = create<AIChatState>()(
                 concurrency,
                 async (aiMessageId, index) => {
                   try {
+                    const basePrompt = parameters.prompt || input;
+                    const promptForSlot = requestedOutputImageCount
+                      ? buildParallelSingleImagePrompt(
+                          basePrompt,
+                          index,
+                          multiplier
+                        )
+                      : basePrompt;
                     await get().executeParallelImageGeneration(input, {
                       groupId,
                       groupIndex: index,
                       groupTotal: multiplier,
                       userMessageId: userMessage.id,
                       aiMessageId,
+                      prompt: promptForSlot,
+                      selectedTool,
                     });
                     return true;
                   } catch (error) {
@@ -8404,9 +8923,12 @@ export const useAIChatStore = create<AIChatState>()(
             groupTotal: number;
             userMessageId: string;
             aiMessageId: string;
+            prompt?: string;
+            selectedTool?: AvailableTool | null;
           }
         ) => {
           const { aiMessageId, userMessageId, groupIndex } = options;
+          const executionPrompt = options.prompt || input;
           const metrics = createProcessMetrics();
           metrics.messageId = aiMessageId;
           logProcessStep(
@@ -8439,6 +8961,9 @@ export const useAIChatStore = create<AIChatState>()(
           const hasBlendSources = blendSources.length >= 2;
 
           const decideParallelTool = (): "generate" | "edit" | "blend" => {
+            if (options.selectedTool === "generateImage") return "generate";
+            if (options.selectedTool === "editImage") return "edit";
+            if (options.selectedTool === "blendImages") return "blend";
             if (manualMode === "edit") return "edit";
             if (manualMode === "blend") return "blend";
 
@@ -8465,12 +8990,12 @@ export const useAIChatStore = create<AIChatState>()(
 
               if (!editSource) {
                 console.warn("⚠️ [并行编辑] 未找到可编辑的源图，退回生成逻辑");
-                await get().generateImage(input, {
+                await get().generateImage(executionPrompt, {
                   override: messageOverride,
                   metrics,
                 });
               } else {
-                await get().editImage(input, editSource, true, {
+                await get().editImage(executionPrompt, editSource, true, {
                   override: messageOverride,
                   metrics,
                 });
@@ -8484,12 +9009,12 @@ export const useAIChatStore = create<AIChatState>()(
             } else if (selectedTool === "blend") {
               if (!hasBlendSources) {
                 console.warn("⚠️ [并行融合] 源图不足，退回生成逻辑");
-                await get().generateImage(input, {
+                await get().generateImage(executionPrompt, {
                   override: messageOverride,
                   metrics,
                 });
               } else {
-                await get().blendImages(input, blendSources, {
+                await get().blendImages(executionPrompt, blendSources, {
                   override: messageOverride,
                   metrics,
                 });
@@ -8503,7 +9028,7 @@ export const useAIChatStore = create<AIChatState>()(
               );
             } else {
               // 直接调用 generateImage
-              await get().generateImage(input, {
+              await get().generateImage(executionPrompt, {
                 override: messageOverride,
                 metrics,
               });

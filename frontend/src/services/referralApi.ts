@@ -30,6 +30,13 @@ export interface InviteRecord {
   rewardedAt: string | null;
 }
 
+export interface ReferralPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
 // 推广统计
 export interface ReferralStats {
   inviteCode: string;
@@ -37,6 +44,7 @@ export interface ReferralStats {
   successfulInvites: number;
   totalEarnings: number;
   inviteRecords: InviteRecord[];
+  pagination?: ReferralPagination;
 }
 
 // 签到状态
@@ -58,9 +66,29 @@ export interface CheckInResult {
   isWeeklyBonus: boolean;
 }
 
+export interface InviteCodeUseResult {
+  id: string;
+  codeId: string;
+  inviteeUserId: string;
+  inviterUserId: string | null;
+  rewardStatus: "pending" | "rewarded";
+  rewardAmount: number;
+  rewardedAt: string | null;
+  createdAt: string;
+  metadata?: unknown;
+}
+
 // 获取推广统计
-export async function getReferralStats(): Promise<ReferralStats> {
-  const response = await request("/api/referral/stats");
+export async function getReferralStats(params: {
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<ReferralStats> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
+
+  const query = searchParams.toString();
+  const response = await request(`/api/referral/stats${query ? `?${query}` : ""}`);
   return response.json();
 }
 
@@ -87,7 +115,7 @@ export async function validateInviteCode(
 }
 
 // 使用邀请码
-export async function useInviteCode(code: string): Promise<any> {
+export async function useInviteCode(code: string): Promise<InviteCodeUseResult> {
   const response = await request("/api/referral/use-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

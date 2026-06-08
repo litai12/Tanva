@@ -9,8 +9,12 @@
 ## 交互要点
 - `ProtectedRoute` 在首次挂载时触发 `authStore.init()`，避免无意义的“每次打开页面就请求一次 /api/auth/me”。
 - AI 会话状态由 `aiChatStore` 管理，持久化字段为 `Project.contentJson.aiChatSessions/aiChatActiveSessionId`。
-- AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；只有命中“继续/调整/再试”等迭代意图时才通过 `contextManager.buildContextPrompt` 拼接对话历史。Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
+- AI Chat 普通 Text 请求默认只把当前输入发送到 `/api/ai/text-chat`；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接对话历史。迭代计数与上下文依赖检测独立，Flow Text Chat 节点不走这条 AI Chat 上下文注入路径。
+- AI Chat Auto/Generate 的多图输出数量默认来自 `autoModeMultiplier`，但会先解析本次输入里的明确输出数量（如“画两张”“生成 3 张”“多张方案”）并覆盖默认倍数；“用两张参考图/把两张图融合”等输入素材数量不应触发输出倍数。明确数量触发并行时，每个 slot 会使用拆分后的单张 prompt，强调“本次只生成 1 张完整图片”，避免把总张数画成单图拼图或同图多主体。
+- AI Chat 图片生成任务前端轮询上限为 15 分钟；消息写入错误态时会派发画布占位框 remove 事件，画布 `useQuickImageUpload` 还会定时清理过期或孤儿 AI 预测占位框，避免 95% 等待框残留。
 - AI Chat 工具选择兜底会把缓存图上的 `改文字` / `改成` / `替换文字` 等编辑意图路由到 `editImage`，避免尊享路线工具选择不稳定时退成 `chatResponse`。
+- AI Chat Auto 模式会并行创建 `/api/agent/runs` 规划 trace，并把 SSE 事件归并到当前 AI 占位消息的 `metadata.agentTrace`；上下文依赖命中时会把会话上下文传给 Agent Runtime 并展示“读取会话上下文”步骤。实际工具执行仍走现有 `processUserInput` / `executeProcessFlow` 链路。
+- AI Chat 的 Agent trace 支持 `research_result`，前端会从 `metadata.agentTrace.researchResult` 渲染案例卡片、来源链接和图片检索网格；“案例/资料/参考/建筑/教堂”等文本请求会自动为 text-chat 打开联网搜索。
 - AI 图片工具链路（融合/编辑）在源图为远程 URL 时仅对白名单 host 直传 `sourceImageUrls/sourceImageUrl`；非白名单远程图会先尝试在前端读取并上传 OSS，再传可持久化 URL，避免后端 `imageUrl host not allowed`。
 - 导入对话 JSON 时采用追加策略并重映射 `sessionId`，避免覆盖当前会话。
 - `projectContentStore.updatePartial(..., { markDirty: false })` 会跳过无变化快照；项目 autosave 管理器同步 canvas `zoom/pan` 时使用 160ms 防抖和同值过滤，避免缩放/平移期间把高频视角变化转成 React 内容状态更新。

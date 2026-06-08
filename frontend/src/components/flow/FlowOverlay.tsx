@@ -18514,6 +18514,12 @@ function FlowInner() {
           return 99;
         };
 
+        // 同 handle 的多张参考图（Seedance 全能参考/智能多帧把所有图都接到 "image" 句柄上）
+        // 必须按 currentEdges 的数组顺序排，与 usePromptSiblingImages 给缩略图编 @图N 的顺序一致——
+        // 否则 @图1 会被 edge.id 字典序打乱成 referenceImages 里的第 2 张，破坏 @图N→下标 的对应。
+        const edgeOrderIndex = new Map(
+          currentEdges.map((edge, index) => [edge, index] as const)
+        );
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
@@ -18529,16 +18535,25 @@ function FlowInner() {
             );
           })
           .sort((a, b) => {
+            // 主键：句柄优先级（image=首帧/主参考 在前，image-2=尾帧，elementImg 在后），
+            // 保证首尾帧语义不被打乱。
             const handleDelta =
               imageHandlePriority(a.targetHandle) -
               imageHandlePriority(b.targetHandle);
             if (handleDelta !== 0) return handleDelta;
+            // 次键：连线在 currentEdges 中的位置（即缩略图条 @图N 的顺序），让发送顺序与用户所见一致。
+            const orderDelta =
+              (edgeOrderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
+              (edgeOrderIndex.get(b) ?? Number.MAX_SAFE_INTEGER);
+            if (orderDelta !== 0) return orderDelta;
             return String(a.id || "").localeCompare(String(b.id || ""));
           })
           .slice(0, maxImages);
+        // 解析到 maxImages 张（不再减去连线数）：同图既连线又被 @ 引用时，要让 @ 引用也能进入
+        // 合并列表参与“按预览/文本顺序排序”，去重(按 url)+末尾 slice(0,maxImages) 已兜住重复与上限。
         const promptMentionImages = await resolvePromptMentionImagesForNode(
           nodeId,
-          Math.max(0, maxImages - imageEdges.length)
+          maxImages
         );
         const imageCount = imageEdges.length + promptMentionImages.length;
         const hasPhysicalPrimaryImage = imageEdges.some(
@@ -18797,9 +18812,8 @@ function FlowInner() {
           typeof rawNodeData?.nodeConfigKey === "string"
             ? rawNodeData.nodeConfigKey.trim()
             : "";
-        // Tencent route removed: kling-o3 always runs via new-api (max 10s); the
-        // Tencent-only 15s storyboard range no longer applies.
-        const klingO3DurationRangeMax = 10;
+        // kling-o3(omni) 经 new-api/apimart 支持 3~15s（参考图/视频参考场景）。
+        const klingO3DurationRangeMax = 15;
         const nodeSupportedSeedanceModels = (() => {
           const rawSupported = rawNodeData?.nodeConfigMetadata?.supportedModels;
           if (!Array.isArray(rawSupported)) return new Set<string>();
@@ -19177,19 +19191,28 @@ function FlowInner() {
                   mention: item.mention,
                 })),
               ]
-            : [
-                ...resolvedEdgePairs.map((pair) => ({
-                  dataUrl: pair.dataUrl,
-                  edge: pair.edge,
-                })),
+            : promptMentionImageInputs.length > 0
+            ? // 有 @ 引用：以 prompt 下方预览缩略图（=mentions 按正文出现顺序）为权威顺序，
+              // mention 在前，去重后 referenceImages 下标就等于预览缩略图顺序（@图1→0、@图2→1）。
+              // 纯连线（未被 @ 引用）的图排在被引用图之后。
+              [
                 ...promptMentionImageInputs.map((item) => ({
                   dataUrl: item.dataUrl,
                   mention: item.mention,
                 })),
-              ];
+                ...resolvedEdgePairs.map((pair) => ({
+                  dataUrl: pair.dataUrl,
+                  edge: pair.edge,
+                })),
+              ]
+            : // 无 @ 引用：保持连线顺序（句柄优先级 + currentEdges 顺序）。
+              resolvedEdgePairs.map((pair) => ({
+                dataUrl: pair.dataUrl,
+                edge: pair.edge,
+              }));
         // 同一张图既被连线又被 @ 引用时，会以不同来源进入合并列表，导致重复下发、
         // 重复注册 volc asset（同 url 拿到两个 assetId）。按 url 去重，保留首次位置
-        // （连线优先），并合并 edge/mention 来源——@ 引用信息不能因为连线副本先到而丢失。
+        // （有 @ 引用时 mention 在前 → 按预览/正文顺序；无 @ 时连线在前），合并 edge/mention 来源。
         const dedupedReferenceImageInputs: typeof mergedReferenceImageInputs = [];
         const referenceImageIndexByUrl = new Map<string, number>();
         for (const item of mergedReferenceImageInputs) {
@@ -19362,6 +19385,22 @@ function FlowInner() {
             return;
           }
         }
+
+        // Kling omni(kling-o3)：把 elementImg 句柄连接的图拆成命名角色(element_list)，
+        // 其余 image/image-2 句柄图保留作首尾帧/参考图(image_with_roles)。其他 provider
+        // 不分桩，全部当参考图。referenceImageSourceEdges 与 referenceImageUrls 同序对应。
+        const klingElementImageUrls: string[] = [];
+        const klingReferenceImagesForSend: string[] = [];
+        referenceImageUrls.forEach((url, idx) => {
+          if (
+            provider === "kling-o3" &&
+            referenceImageSourceEdges[idx]?.targetHandle === "elementImg"
+          ) {
+            klingElementImageUrls.push(url);
+          } else {
+            klingReferenceImagesForSend.push(url);
+          }
+        });
 
         setNodes((ns) =>
           ns.map((n) =>
@@ -19720,21 +19759,50 @@ function FlowInner() {
               : {
                   ...managedRoutePayload,
                   prompt: finalPrompt,
+                  negativePrompt:
+                    provider === "kling-o3" &&
+                    typeof rawNodeData.negativePrompt === "string" &&
+                    rawNodeData.negativePrompt.trim()
+                      ? rawNodeData.negativePrompt.trim()
+                      : undefined,
                   referenceImages:
-                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                    klingReferenceImagesForSend.length > 0
+                      ? klingReferenceImagesForSend
+                      : undefined,
+                  // omni 命名角色(element_list)：elementImg 桩的图 + 名字/描述。
+                  elementImages:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? klingElementImageUrls
+                      : undefined,
+                  elementName:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? (rawNodeData.elementName || "").trim() || undefined
+                      : undefined,
+                  elementDescription:
+                    provider === "kling-o3" && klingElementImageUrls.length > 0
+                      ? (rawNodeData.elementDescription || "").trim() || undefined
+                      : undefined,
                   duration: durationForAPI,
                   aspectRatio: aspectRatioForAPI,
                   resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
+                  // omni 多分镜：复用 storyboard 模式/脚本 → multi_shot/shot_type/multi_prompt。
+                  klingStoryboardMode:
+                    provider === "kling-o3" ? rawNodeData.klingStoryboardMode : undefined,
+                  klingStoryboardScript:
+                    provider === "kling-o3" ? rawNodeData.klingStoryboardScript : undefined,
                   klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
-                  // 让后端区分 首尾帧(frame) / 单图(image) / 参考视频(video) / 文生(text)。
-                  // omni 据此用 image_with_roles 表达首尾帧；v2-6/v3 走 image_urls[0,1]。
+                  // 让后端区分 首尾帧(frame) / 单图(image) / 多主体参考(reference) /
+                  // 参考视频(video) / 文生(text)。omni 据此用 image_with_roles 表达首尾帧/参考；
+                  // v2-6/v3 走 image_urls[0,1]。仅统计 image/image-2 桩的图（不含 element 角色图）。
                   videoMode: referenceVideoUrl
                     ? "video"
-                    : referenceImageUrls.length >= 2
+                    : provider === "kling-o3" && klingReferenceImagesForSend.length >= 3
+                    ? "reference"
+                    : klingReferenceImagesForSend.length >= 2
                     ? "frame"
-                    : referenceImageUrls.length === 1
+                    : klingReferenceImagesForSend.length === 1
                     ? "image"
                     : "text",
                   // 声音：按 APIMart 各模型真实约束发"有效声音"，避免"扣有声却无声"。

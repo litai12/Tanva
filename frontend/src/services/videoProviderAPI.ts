@@ -20,7 +20,12 @@ const buildIdempotencyKey = (scope: string): string => {
 
 export interface VideoGenerationRequest {
   prompt?: string;
+  negativePrompt?: string;
   referenceImages?: string[]; // Base64 Data URI 鏁扮粍
+  // Kling omni 命名角色(element_list)专用：角色参考图 + 名字 + 描述
+  elementImages?: string[];
+  elementName?: string;
+  elementDescription?: string;
   audioUrls?: string[];
   referenceVideos?: string[];
   videoMode?: string;
@@ -38,7 +43,7 @@ export interface VideoGenerationRequest {
   camerafixed?: boolean;
   watermark?: boolean;
   // Kling/Kling-O1 涓撶敤鍙傛暟
-  mode?: "std" | "pro";
+  mode?: "std" | "pro" | "4k";
   sound?: string;
   klingModel?: "kling-v2-1" | "kling-v2-6" | "kling-v3-0" | "kling-o3" | "kling-v3-omni";
   klingStoryboardMode?: "single" | "intelligence" | "customize";

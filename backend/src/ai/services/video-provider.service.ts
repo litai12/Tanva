@@ -1066,9 +1066,11 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
-    // omni-flash-ext uses aspect_ratio + resolution natively; sending a WxH
-    // size string would conflict with upstream's aspect_ratio parameter.
-    const size = model === "omni-flash-ext" ? undefined : this.resolveNewApiVideoSize(options);
+    // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
+    // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
+    // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
+    const usesNativeAspectRatio = model === "omni-flash-ext" || model.startsWith("vidu-");
+    const size = usesNativeAspectRatio ? undefined : this.resolveNewApiVideoSize(options);
     const duration = this.resolveNewApiDuration(options);
     const isSeedance2 = /doubao-seedance-2/i.test(model);
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
@@ -1096,7 +1098,17 @@ export class VideoProviderService {
     // adaptor forwards every non-internal metadata key to the upstream body as-is
     // (Extras passthrough). So `audio`/`video_list`/`image_with_roles` reach Kling
     // upstream only via metadata. See APIMart kling-v2-6 / kling-v3 / kling-v3-omni docs.
-    const kling = this.buildKlingApimartParams(options, model, referenceImages, referenceVideos);
+    // Kling omni 命名角色(element_list)经独立的 elementImages 字段下发，与 image 桩的
+    // 首尾帧/参考图(image_with_roles)分离，避免被当成普通参考图。
+    const elementImages = this.extractReferenceImageUrls(options.elementImages);
+    const kling = this.buildKlingApimartParams(
+      options,
+      model,
+      referenceImages,
+      referenceVideos,
+      elementImages,
+      duration,
+    );
 
     // Seedance 2.0 参考图模式(r2v)：所有图都是“主体参考”，必须经 new-api 的
     // referenceImages 字段下发（doubao adaptor 全部标 role=reference_image）。
@@ -1128,10 +1140,19 @@ export class VideoProviderService {
       !isSeedance2FrameMode &&
       (SEEDANCE_REFERENCE_MODES.has(seedanceVideoMode) || referenceImages.length >= 2);
     // 首尾帧(start_end)：≥2 图时首图=首帧、次图=尾帧；单图退化为纯首帧(i2v)。
-    const isSeedance2StartEndMode =
-      isSeedance2 &&
-      isSeedance2FrameMode &&
-      (seedanceVideoMode === "start_end" || seedanceVideoMode === "start-end");
+    // 注意：seedance 1.5 与 2.0 都经同一个 doubao Ark 适配器下发，Ark 同样禁止首/尾帧与
+    // reference_image 混用，所以首尾帧处理必须覆盖两个版本——不能只 gate 在 isSeedance2。
+    // 模式取值差异：seedance 2.0 = "start_end"/"start-end"；seedance 1.5 = "start-end2video"
+    // （见前端 FlowOverlay seedanceVideoModeForAPI）。否则 1.5 首尾帧会落到默认分支，把次图
+    // 当 reference_image 与首帧的 first_frame 混用，触发 Ark 400。
+    const isDoubaoSeedance = /doubao-seedance/i.test(model);
+    const SEEDANCE_STARTEND_MODES = new Set([
+      "start_end",
+      "start-end",
+      "start-end2video",
+    ]);
+    const isSeedanceStartEndMode =
+      isDoubaoSeedance && SEEDANCE_STARTEND_MODES.has(seedanceVideoMode);
     const buildSeedanceImageFields = (
       urls: string[],
     ): {
@@ -1148,7 +1169,7 @@ export class VideoProviderService {
           lastFrame: undefined,
         };
       }
-      if (isSeedance2StartEndMode && urls.length >= 2) {
+      if (isSeedanceStartEndMode && urls.length >= 2) {
         // 尾帧只走 lastFrame、绝不放进 images：否则 new-api 归一化会把它并入
         // reference_image 集合，与 first_frame 混用触发 Ark 400。
         return {
@@ -1424,6 +1445,8 @@ export class VideoProviderService {
     model: string,
     referenceImages: string[],
     referenceVideos: string[],
+    elementImages: string[] = [],
+    duration?: number,
   ): { image?: string; images?: string[]; metadata: Record<string, any> } | null {
     const isV26 = model === "kling-v2-6";
     const isV3 = model === "kling-v3";
@@ -1436,12 +1459,23 @@ export class VideoProviderService {
     const videoMode = String(options.videoMode || "").trim().toLowerCase();
     const frameMode =
       videoMode === "frame" || videoMode === "start_end" || videoMode === "start-end";
+    // 参考图模式：多张主体参考图（≥3 或显式 reference），用 image_with_roles role=reference 表达。
+    const referenceMode =
+      videoMode === "reference" ||
+      videoMode === "reference_images" ||
+      (!frameMode && !hasVideo && referenceImages.length >= 3);
     const twoImages = referenceImages.length >= 2;
 
     const metadata: Record<string, any> = {};
     let image: string | undefined = referenceImages[0];
     let images: string[] | undefined =
       referenceImages.length > 0 ? referenceImages : undefined;
+
+    // ── 负向提示词 → negative_prompt（omni 文档支持；apimart 经 metadata 透传到上游顶层）。 ──
+    if (isOmni) {
+      const negativePrompt = String(options.negativePrompt || "").trim();
+      if (negativePrompt) metadata.negative_prompt = negativePrompt;
+    }
 
     // ── 声音 → boolean `audio`, honoring APIMart's mutual-exclusion rules (fail-closed). ──
     let audio = wantSound;
@@ -1469,6 +1503,29 @@ export class VideoProviderService {
       images = undefined;
     }
 
+    // ── omni 多主体参考 → image_with_roles role=reference（与 image_urls 互斥，清顶层 image/images）。 ──
+    if (isOmni && referenceMode && referenceImages.length > 0 && !hasVideo) {
+      metadata.image_with_roles = referenceImages.map((url) => ({
+        url,
+        role: "reference",
+      }));
+      image = undefined;
+      images = undefined;
+    }
+
+    // ── omni 命名角色 → element_list=[{name,description,element_input_urls}]（@name 引用）。 ──
+    if (isOmni && elementImages.length > 0) {
+      const elementName = String(options.elementName || "").trim() || "role1";
+      const elementDescription = String(options.elementDescription || "").trim();
+      metadata.element_list = [
+        {
+          name: elementName,
+          description: elementDescription,
+          element_input_urls: elementImages,
+        },
+      ];
+    }
+
     // ── omni 参考视频 → video_list (refer_type / keep_original_sound from user choice). ──
     if (isOmni && hasVideo) {
       const referType =
@@ -1488,11 +1545,65 @@ export class VideoProviderService {
       ];
       // APIMart omni 规则：refer_type=feature 时 image_urls 仅允许首帧；base 不定义
       // 首尾帧。统一只保留首帧做参考，避免与 video_list 冲突。
+      delete metadata.image_with_roles;
       image = referenceImages[0];
       images = referenceImages[0] ? [referenceImages[0]] : undefined;
     }
 
+    // ── omni 多分镜 → multi_shot / shot_type / multi_prompt（复用历史 storyboard 校验）。 ──
+    if (isOmni) {
+      this.applyKlingOmniStoryboard(options, metadata, duration);
+    }
+
     return { image, images, metadata };
+  }
+
+  /**
+   * 把历史 storyboard 模式（single / intelligence / customize）翻译成 APIMart kling-v3-omni
+   * 的 multi_shot / shot_type / multi_prompt 字段，写进 metadata（经 apimart Extras 透传到上游）。
+   * 复用 Tencent 渠道的 multi_prompt 解析/校验逻辑（parseTencentKlingCustomStoryboardShots）。
+   */
+  private applyKlingOmniStoryboard(
+    options: VideoProviderRequestDto,
+    metadata: Record<string, any>,
+    duration?: number,
+  ): void {
+    const rawMode = String(options.klingStoryboardMode || "").trim().toLowerCase();
+    if (!rawMode || rawMode === "single") {
+      return;
+    }
+
+    if (rawMode === "intelligence" || rawMode === "smart") {
+      if (!String(options.prompt || "").trim()) {
+        throw new BadRequestException("可灵 Omni 智能分镜模式需要填写提示词");
+      }
+      metadata.multi_shot = true;
+      metadata.shot_type = "intelligence";
+      return;
+    }
+
+    if (rawMode === "customize" || rawMode === "custom") {
+      const scriptRaw = String(options.klingStoryboardScript || "").trim();
+      if (!scriptRaw) {
+        throw new BadRequestException("可灵 Omni 自定义分镜模式需要填写分镜脚本 JSON");
+      }
+      const shots = this.parseTencentKlingCustomStoryboardShots(scriptRaw);
+      const totalShotDuration = shots.reduce((sum, shot) => sum + shot.duration, 0);
+      const taskDuration = Number(duration);
+      if (Number.isFinite(taskDuration) && taskDuration > 0 && totalShotDuration !== taskDuration) {
+        throw new BadRequestException(
+          `可灵 Omni 自定义分镜总时长需等于任务时长：当前分镜总时长 ${totalShotDuration}s，任务时长 ${taskDuration}s`,
+        );
+      }
+      metadata.multi_shot = true;
+      metadata.shot_type = "customize";
+      metadata.multi_prompt = shots;
+      return;
+    }
+
+    throw new BadRequestException(
+      "可灵 Omni 分镜模式无效，仅支持 single / intelligence / customize",
+    );
   }
 
   private resolveNewApiDuration(options: VideoProviderRequestDto): number {
@@ -1590,22 +1701,34 @@ export class VideoProviderService {
     return data;
   }
 
+  // APIMart (e.g. Vidu) wraps the task in a `data` array:
+  // {code, data:[{status, task_id, url}]}. Other new-api models return `data`
+  // as a plain object. Unwrap the first array entry so the field probes below
+  // work for both shapes — otherwise status stays "processing" forever and the
+  // frontend hangs on 生成中. See APIMart vidu-q3 docs.
+  private firstNewApiDataEntry(result: any): any {
+    const data = result?.data;
+    return Array.isArray(data) ? data[0] : data;
+  }
+
   private extractTaskId(result: any): string | null {
+    const data = this.firstNewApiDataEntry(result);
     const value =
       result?.id ||
       result?.task_id ||
       result?.taskId ||
-      result?.data?.id ||
-      result?.data?.task_id ||
-      result?.data?.taskId;
+      data?.id ||
+      data?.task_id ||
+      data?.taskId;
     return typeof value === "string" && value.trim() ? value.trim() : null;
   }
 
   private normalizeNewApiStatus(result: any): string {
+    const data = this.firstNewApiDataEntry(result);
     const raw = String(
       result?.status ||
-      result?.data?.status ||
-      result?.data?.task_status ||
+      data?.status ||
+      data?.task_status ||
       result?.task_status ||
       ""
     ).toLowerCase();
@@ -1670,13 +1793,14 @@ export class VideoProviderService {
   }
 
   private extractThumbnailUrl(result: any): string | undefined {
+    const data = this.firstNewApiDataEntry(result);
     const candidates = [
       result?.thumbnail_url,
       result?.thumbnailUrl,
       result?.poster,
-      result?.data?.thumbnail_url,
-      result?.data?.thumbnailUrl,
-      result?.data?.poster,
+      data?.thumbnail_url,
+      data?.thumbnailUrl,
+      data?.poster,
     ];
     return candidates.find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
   }

@@ -178,6 +178,7 @@ export interface IContextManager {
   ): ChatMessage;
   recordOperation(operation: Omit<OperationHistory, 'id' | 'timestamp'>): void;
   buildContextPrompt(userInput: string): string;
+  detectConversationContextIntent(input: string): boolean;
   detectIterativeIntent(input: string): boolean;
   incrementIteration(): void;
   resetIteration(): void;
