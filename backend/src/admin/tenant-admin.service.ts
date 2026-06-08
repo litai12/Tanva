@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
+import { TenantContextService } from '../tenancy/tenant-context.service';
 import { normalizeHost } from '../tenancy/host.util';
 import { NewApiKeyResolver } from '../tenancy/new-api-key-resolver.service';
 import {
@@ -19,6 +20,7 @@ export class TenantAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyResolver: NewApiKeyResolver,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   /** 租户列表 + 域名 + 用户数 + key 配置状态(不返回明文) */
@@ -27,12 +29,14 @@ export class TenantAdminService {
       orderBy: [{ isPlatform: 'desc' }, { createdAt: 'asc' }],
       include: { domains: { orderBy: { isPrimary: 'desc' } } },
     });
-    // 各租户用户数（平台态聚合一次）
+    // 各租户用户数：必须平台态聚合，否则被租户扩展注入当前 CLS 租户 → 其他租户数为 0
     const grouped: Array<{ tenantId: string; _count: { _all: number } }> =
-      await (this.prisma as any).user.groupBy({
-        by: ['tenantId'],
-        _count: { _all: true },
-      });
+      await this.tenantContext.runAsPlatform(() =>
+        (this.prisma as any).user.groupBy({
+          by: ['tenantId'],
+          _count: { _all: true },
+        }),
+      );
     const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));
     return tenants.map((t: any) => ({
       id: t.id,

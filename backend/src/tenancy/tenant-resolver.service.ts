@@ -13,13 +13,19 @@ import { normalizeHost } from './host.util';
  */
 @Injectable()
 export class TenantResolverService {
-  // host -> tenantId 进程内缓存（增删域名时失效；基座阶段重启失效即可）
-  private cache = new Map<string, string>();
+  // host -> tenantId 带 TTL 的进程内缓存。增删域名后靠 TTL（默认 60s）兜底失效，
+  // 把域名迁移/删除的错配窗口限制在 TTL 内（多实例无需共享缓存）。
+  private cache = new Map<string, { tenantId: string; expireAt: number }>();
+  private readonly ttlMs = 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  private now(): number {
+    return Number(process.hrtime.bigint() / 1_000_000n);
+  }
 
   async resolve(req: any): Promise<string> {
     const trustForwarded = this.config.get('TRUST_FORWARDED_HOST') === 'true';
@@ -29,12 +35,13 @@ export class TenantResolverService {
         : req?.headers?.['host'];
     const host = normalizeHost(rawHost);
 
-    let tenantId = host ? this.cache.get(host) : undefined;
+    const hit = host ? this.cache.get(host) : undefined;
+    let tenantId = hit && hit.expireAt > this.now() ? hit.tenantId : undefined;
     if (host && !tenantId) {
       const row = await (this.prisma as any).tenantDomain.findUnique({ where: { host } });
       if (row) {
         tenantId = row.tenantId as string;
-        this.cache.set(host, tenantId);
+        this.cache.set(host, { tenantId, expireAt: this.now() + this.ttlMs });
       }
     }
 

@@ -19,22 +19,30 @@ interface TenantKeys {
  */
 @Injectable()
 export class NewApiKeyResolver {
-  private cache = new Map<string, TenantKeys>();
+  // 带 TTL 的进程内缓存：本实例 setApiKeys 会主动失效；多实例/多进程靠 TTL 兜底
+  // 把改 key 后的错账窗口限制在 TTL 内（默认 60s）。
+  private cache = new Map<string, { keys: TenantKeys; expireAt: number }>();
+  private readonly ttlMs = 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
   ) {}
 
-  /** 租户 key 变更后调用，清缓存 */
+  /** 租户 key 变更后调用，清本实例缓存 */
   invalidate(tenantId?: string) {
     if (tenantId) this.cache.delete(tenantId);
     else this.cache.clear();
   }
 
+  private now(): number {
+    // 避免直接用 Date.now()（脚本环境受限）；用单调时间
+    return Number(process.hrtime.bigint() / 1_000_000n);
+  }
+
   private async getTenantKeys(tenantId: string): Promise<TenantKeys> {
     const cached = this.cache.get(tenantId);
-    if (cached) return cached;
+    if (cached && cached.expireAt > this.now()) return cached.keys;
     const t = await (this.prisma as any).tenant.findUnique({
       where: { id: tenantId },
       select: { newApiKey: true, newApiKeyVip: true, newApiKeySvip: true },
@@ -44,7 +52,7 @@ export class NewApiKeyResolver {
       vip: t?.newApiKeyVip ?? null,
       svip: t?.newApiKeySvip ?? null,
     };
-    this.cache.set(tenantId, keys);
+    this.cache.set(tenantId, { keys, expireAt: this.now() + this.ttlMs });
     return keys;
   }
 
