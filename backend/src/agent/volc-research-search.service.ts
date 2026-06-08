@@ -20,6 +20,12 @@ export interface VolcResearchSearchPayload {
   provider: string;
 }
 
+export interface VolcResearchSearchOptions {
+  baseImageQueries?: string[];
+  seedKeywords?: string[];
+  seedText?: string;
+}
+
 type SearchDerivedCase = AgentResearchCase & {
   imageSearchQueries?: string[];
 };
@@ -65,10 +71,12 @@ export class VolcResearchSearchService {
 
   async searchArchitectureResearch(
     prompt: string,
-    baseImageQueries: string[] = [],
+    options: VolcResearchSearchOptions = {},
   ): Promise<VolcResearchSearchPayload | null> {
     if (!this.isEnabled()) return null;
 
+    const baseImageQueries = options.baseImageQueries ?? [];
+    const seedKeywords = this.dedupeStrings(options.seedKeywords ?? []);
     const profile = this.buildQueryProfile(prompt);
     let keywords = this.buildKeywords(prompt, profile);
     const webCount = this.readInt('VOLC_SEARCH_WEB_COUNT', 12, 1, 20);
@@ -77,22 +85,9 @@ export class VolcResearchSearchService {
     let sources: AgentResearchSource[] = [];
     let cases: SearchDerivedCase[] = [];
 
-    const modelSeeds = await this.buildCaseSeedsWithModel(
-      prompt,
-      requestedCaseCount,
-      profile,
-    ).catch((error) => {
-      this.logger.warn(
-        `Failed to plan research case seeds: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return [];
-    });
-    const seeds = this.mergeCaseSeeds([
-      ...modelSeeds,
-      ...this.buildFallbackCaseSeeds(prompt, profile),
-    ]).slice(0, requestedCaseCount);
+    const seeds = this.mergeCaseSeeds(
+      this.buildCaseSeedsFromKeywords(seedKeywords, profile),
+    ).slice(0, requestedCaseCount);
 
     if (seeds.length > 0) {
       const seedBundles = await this.searchSourcesForSeeds(
@@ -174,9 +169,18 @@ export class VolcResearchSearchService {
   ): Promise<AgentResearchSource[]> {
     const perQuery = Math.max(1, Math.ceil(totalCount / Math.max(1, keywords.length)));
     const batches = await Promise.all(
-      keywords.map((keyword) => this.callSearch(keyword, 'web', perQuery)),
+      keywords.map(async (keyword) => {
+        try {
+          return await this.callSearch(keyword, 'web', perQuery);
+        } catch (error) {
+          this.logger.warn(
+            `Volc web search skipped for "${keyword}": ${this.errorMessage(error)}`,
+          );
+          return null;
+        }
+      }),
     );
-    const sources = batches.flatMap((batch) => this.extractWebSources(batch));
+    const sources = batches.flatMap((batch) => (batch ? this.extractWebSources(batch) : []));
     return this.dedupeSources(sources).slice(0, totalCount);
   }
 
@@ -184,8 +188,16 @@ export class VolcResearchSearchService {
     query: string,
     count: number,
   ): Promise<AgentResearchImageCandidate[]> {
-    const raw = await this.callSearch(query, 'image', count);
-    const images = this.extractImageCandidates(raw, query).slice(0, count);
+    let images: AgentResearchImageCandidate[] = [];
+    try {
+      const raw = await this.callSearch(query, 'image', count);
+      images = this.extractImageCandidates(raw, query).slice(0, count);
+    } catch (error) {
+      this.logger.warn(
+        `Volc image search skipped for "${query}": ${this.errorMessage(error)}`,
+      );
+      return [];
+    }
     if (!this.readBool('VOLC_SEARCH_UPLOAD_IMAGES_TO_OSS', false)) {
       return images;
     }
@@ -207,78 +219,55 @@ export class VolcResearchSearchService {
     );
   }
 
-  private async buildCaseSeedsWithModel(
-    prompt: string,
-    count: number,
+  private buildCaseSeedsFromKeywords(
+    keywords: string[],
     profile: ResearchQueryProfile,
-  ): Promise<ResearchCaseSeed[]> {
-    const model =
-      this.config.get<string>('VOLC_SEARCH_SUMMARY_MODEL') ||
-      this.config.get<string>('ARK_WEB_SEARCH_MODEL') ||
-      'gemini-3.1-pro';
-    const provider = this.providerFactory.getProvider(model, 'new-api');
-    const result = await provider.generateText({
-      model,
-      enableWebSearch: false,
-      prompt: [
-        '你是建筑案例检索规划器。先把用户问题拆成具体建筑项目名称，再交给网页检索核验。',
-        `用户需求：${prompt}`,
-        `目标案例数量：${count}`,
-        profile.strict
-          ? `硬性主题/人物：${profile.aliases.join(' / ')}。候选项目必须属于这个主题/人物。`
-          : '',
-        '输出必须是 JSON，不要 Markdown，不要解释。',
-        'JSON 格式：',
-        '{"cases":[{"title":"中文项目名，不要写人物名或文章标题","subtitle":"英文/原名","architect":"建筑师","location":"地点","category":"类型 / 风格 / 研究点","reason":"为什么适合作为案例，50字以内","searchQueries":["用于网页检索的精确查询1","用于网页检索的精确查询2"],"imageSearchQueries":["用于图片检索的精确查询1","用于图片检索的精确查询2"]}]}',
-        '规则：',
-        '- title 必须是单个真实建筑项目/建筑作品名，例如“住吉的长屋”，不能是“安藤忠雄”、文章标题、作品合集、新闻标题或排行榜标题。',
-        '- 如果用户问某位建筑师的案例，先列出该建筑师的具体作品名，再让后续网页搜索核验。',
-        '- 可以用建筑常识规划候选名称，但不要编造不存在的项目；不确定就少返回。',
-        '- searchQueries 必须包含项目名 + 建筑师/主题名，便于后续真实联网搜索。',
-        '- imageSearchQueries 优先使用英文项目名 + architect + architecture。',
-      ].join('\n'),
-    });
-    if (!result.success || !result.data?.text) return [];
-    return this.normalizeCaseSeeds(result.data.text, profile).slice(0, count);
-  }
-
-  private normalizeCaseSeeds(text: string, profile: ResearchQueryProfile): ResearchCaseSeed[] {
-    const parsed = this.parseJsonObject(text);
-    const rawCases: any[] = Array.isArray(parsed?.cases) ? parsed.cases : [];
-    return rawCases
-      .map((item: any): ResearchCaseSeed | null => {
-        const title = this.cleanText(item?.title);
-        if (!this.isLikelyProjectTitle(title, profile)) return null;
-        const subtitle = this.cleanText(item?.subtitle);
-        const architect = this.cleanText(item?.architect);
-        const location = this.cleanText(item?.location);
-        const category = this.cleanText(item?.category);
-        const reason = this.cleanText(item?.reason);
-        const defaultQuery = [title, subtitle, architect || profile.aliases.join(' '), 'architecture']
-          .filter(Boolean)
-          .join(' ');
-        const searchQueries = this.dedupeStrings([
-          ...this.normalizeStringArray(item?.searchQueries),
-          defaultQuery,
-        ]).slice(0, 3);
-        const imageSearchQueries = this.dedupeStrings([
-          ...this.normalizeStringArray(item?.imageSearchQueries),
-          [subtitle || title, architect || profile.aliases.join(' '), 'architecture'].filter(Boolean).join(' '),
-          [subtitle || title, architect || profile.aliases.join(' '), 'interior exterior plan'].filter(Boolean).join(' '),
-        ]).slice(0, 3);
-        const seed = {
-          title,
-          subtitle,
-          architect,
-          location,
-          category,
-          reason,
-          searchQueries,
-          imageSearchQueries,
-        };
-        return this.seedMatchesProfile(seed, profile) ? seed : null;
+  ): ResearchCaseSeed[] {
+    return this.dedupeStrings(keywords)
+      .map((keyword): ResearchCaseSeed | null => {
+        const parsed = this.parseCaseKeyword(keyword);
+        if (!this.isLikelyProjectTitle(parsed.title, profile)) return null;
+        return this.createCaseSeed({
+          title: parsed.title,
+          subtitle: parsed.subtitle,
+          architect: this.profileArchitectLabel(profile),
+        });
       })
       .filter((item: ResearchCaseSeed | null): item is ResearchCaseSeed => Boolean(item));
+  }
+
+  private parseCaseKeyword(value: string): { title: string; subtitle?: string } {
+    const cleaned = this.cleanText(value)
+      .replace(/^[-*#\d.、)）\s]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) return { title: '' };
+
+    const parenMatch = cleaned.match(/^(.+?)[（(]([^）)]{2,100})[）)]/);
+    if (parenMatch) {
+      return {
+        title: this.cleanText(parenMatch[1]),
+        subtitle: this.cleanText(parenMatch[2]),
+      };
+    }
+
+    const slashParts = cleaned.split(/\s+\/\s+/).map((item) => this.cleanText(item));
+    if (slashParts.length > 1) {
+      return {
+        title: slashParts[0],
+        subtitle: slashParts.slice(1).join(' / '),
+      };
+    }
+
+    const mixedName = cleaned.match(/^([\u4e00-\u9fa5·\s]{2,40})\s+(.{2,80})$/);
+    if (mixedName && /[A-Za-zÀ-ÿ]/.test(mixedName[2])) {
+      return {
+        title: this.cleanText(mixedName[1]),
+        subtitle: this.cleanText(mixedName[2]),
+      };
+    }
+
+    return { title: cleaned };
   }
 
   private mergeCaseSeeds(seeds: ResearchCaseSeed[]): ResearchCaseSeed[] {
@@ -291,57 +280,6 @@ export class VolcResearchSearchService {
       result.push(seed);
     }
     return result;
-  }
-
-  private buildFallbackCaseSeeds(
-    prompt: string,
-    profile: ResearchQueryProfile,
-  ): ResearchCaseSeed[] {
-    const haystack = `${prompt} ${profile.aliases.join(' ')}`;
-    if (!/安藤忠雄|tadao\s+ando/i.test(haystack)) return [];
-
-    return [
-      this.createCaseSeed({
-        title: '住吉的长屋',
-        subtitle: 'Row House in Sumiyoshi / Azuma House',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本大阪',
-        category: '住宅 / 清水混凝土 / 光与庭院',
-        reason: '早期成名作，以狭长住宅和中庭组织日常生活。',
-      }),
-      this.createCaseSeed({
-        title: '光之教堂',
-        subtitle: 'Church of the Light',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本大阪府茨木市',
-        category: '宗教建筑 / 清水混凝土 / 光影',
-        reason: '以十字光缝和极简混凝土空间成为安藤代表作。',
-      }),
-      this.createCaseSeed({
-        title: '水御堂',
-        subtitle: 'Water Temple / Honpukuji Temple',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本淡路岛',
-        category: '宗教建筑 / 水庭 / 下沉空间',
-        reason: '通过莲池、下沉路径和朱红内殿组织独特宗教体验。',
-      }),
-      this.createCaseSeed({
-        title: '六甲集合住宅',
-        subtitle: 'Rokko Housing',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本神户',
-        category: '集合住宅 / 山地地形 / 阶梯社区',
-        reason: '顺应陡坡地形组织住宅单元和公共路径。',
-      }),
-      this.createCaseSeed({
-        title: '地中美术馆',
-        subtitle: 'Chichu Art Museum',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本直岛',
-        category: '美术馆 / 地景建筑 / 自然光',
-        reason: '将美术馆埋入地景，以自然光组织展览体验。',
-      }),
-    ];
   }
 
   private createCaseSeed(seed: Omit<ResearchCaseSeed, 'searchQueries' | 'imageSearchQueries'>): ResearchCaseSeed {
@@ -382,7 +320,7 @@ export class VolcResearchSearchService {
   }
 
   private caseSeedWebQueries(seed: ResearchCaseSeed, profile: ResearchQueryProfile): string[] {
-    const subject = seed.architect || profile.aliases.join(' ');
+    const subject = seed.architect || this.profileArchitectLabel(profile) || '';
     return this.dedupeStrings([
       ...seed.searchQueries,
       [seed.title, subject, '建筑'].filter(Boolean).join(' '),
@@ -457,29 +395,33 @@ export class VolcResearchSearchService {
       })
       .join('\n\n---\n\n');
 
-    const result = await provider.generateText({
-      model,
-      enableWebSearch: false,
-      prompt: [
-        '你是建筑案例研究助理。输入已经按“候选建筑项目”分组，并且每组下面是该项目的真实网页搜索结果。',
-        `用户需求：${prompt}`,
-        `目标案例数量：${count}`,
-        profile.strict
-          ? `硬性主题/人物：${profile.aliases.join(' / ')}。每个案例必须属于这个主题/人物。`
-          : '',
-        '输出必须是 JSON，不要 Markdown，不要解释。',
-        'JSON 格式：',
-        '{"cases":[{"title":"建筑项目中文名","subtitle":"英文/原名","architect":"建筑师","location":"地点","category":"3 个以内分类，用 / 分隔","summary":"70字以内，说明这个项目为什么值得研究","highlights":["要点1","要点2","要点3","要点4"],"imageSearchQueries":["适合搜图的英文查询1","适合搜图的英文查询2"],"sourceUrls":["必须来自输入 sources 的 url"]}]}',
-        '规则：',
-        '- 一张卡片只对应一个候选建筑项目，不能把一个文章里的多个作品合并成一张卡片。',
-        '- title 必须是建筑项目名，不能是建筑师名、文章标题、新闻标题、榜单标题或作品合集标题。',
-        '- sourceUrls 只能使用该候选项目分组下的 URL；如果该分组资料不足就跳过。',
-        '- 如果资料不足，少返回案例，不要编造。',
-        '',
-        '候选项目与搜索结果：',
-        bundleLines,
-      ].join('\n'),
-    });
+    const result = await this.withTimeout(
+      provider.generateText({
+        model,
+        enableWebSearch: false,
+        prompt: [
+          '你是建筑案例研究助理。输入已经按“候选建筑项目”分组，并且每组下面是该项目的真实网页搜索结果。',
+          `用户需求：${prompt}`,
+          `目标案例数量：${count}`,
+          profile.strict
+            ? `硬性主题/人物：${profile.aliases.join(' / ')}。每个案例必须属于这个主题/人物。`
+            : '',
+          '输出必须是 JSON，不要 Markdown，不要解释。',
+          'JSON 格式：',
+          '{"cases":[{"title":"建筑项目中文名","subtitle":"英文/原名","architect":"建筑师","location":"地点","category":"3 个以内分类，用 / 分隔","summary":"70字以内，说明这个项目为什么值得研究","highlights":["要点1","要点2","要点3","要点4"],"imageSearchQueries":["适合搜图的英文查询1","适合搜图的英文查询2"],"sourceUrls":["必须来自输入 sources 的 url"]}]}',
+          '规则：',
+          '- 一张卡片只对应一个候选建筑项目，不能把一个文章里的多个作品合并成一张卡片。',
+          '- title 必须是建筑项目名，不能是建筑师名、文章标题、新闻标题、榜单标题或作品合集标题。',
+          '- sourceUrls 只能使用该候选项目分组下的 URL；如果该分组资料不足就跳过。',
+          '- 如果资料不足，少返回案例，不要编造。',
+          '',
+          '候选项目与搜索结果：',
+          bundleLines,
+        ].join('\n'),
+      }),
+      this.modelTimeoutMs(),
+      'research summarize model',
+    );
     if (!result.success || !result.data?.text) return [];
     return this.normalizeModelCases(result.data.text, allSources, profile)
       .filter((item) => this.isLikelyProjectTitle(item.title, profile))
@@ -501,14 +443,11 @@ export class VolcResearchSearchService {
           id: this.slugify(`${seed.title}-${seed.architect || profile.aliases.join('-')}`),
           title: seed.title,
           subtitle: seed.subtitle,
-          architect: seed.architect || profile.aliases.join(' / '),
+          architect: seed.architect || this.profileArchitectLabel(profile),
           location: seed.location,
-          category: seed.category || '建筑案例 / 资料检索 / 图像参考',
-          summary:
-            seed.reason ||
-            sources[0]?.snippet ||
-            '由文本规划出的建筑项目，并通过真实网页检索结果进行来源校验。',
-          highlights: ['项目名先行', '真实网页校验', '资料可追溯', '图像参考'],
+          category: seed.category,
+          summary: sources[0]?.snippet || '',
+          highlights: [],
           sources: sources.slice(0, 3),
           images: [],
           imageSearchQueries: seed.imageSearchQueries,
@@ -564,30 +503,34 @@ export class VolcResearchSearchService {
       })
       .join('\n\n');
 
-    const result = await provider.generateText({
-      model,
-      enableWebSearch: false,
-      prompt: [
-        '你是建筑案例研究助理。请只基于给定搜索结果抽取真实建筑案例，不要使用内置知识补案例。',
-        `用户需求：${prompt}`,
-        `目标案例数量：${count}`,
-        profile.strict
-          ? `硬性主题/人物：${profile.aliases.join(' / ')}。每个返回案例必须明显属于这个主题/人物；不符合就不要返回。`
-          : '',
-        '输出必须是 JSON，不要 Markdown，不要解释。',
-        'JSON 格式：',
-        '{"title":"...","cases":[{"title":"中文案例名","subtitle":"英文/原名","architect":"建筑师","location":"地点","category":"3 个以内分类，用 / 分隔","summary":"70字以内，说明为什么值得研究","highlights":["要点1","要点2","要点3","要点4"],"imageSearchQueries":["适合搜图的英文查询1","适合搜图的英文查询2"],"sourceUrls":["必须来自给定搜索结果的 url"]}]}',
-        '规则：',
-        '- 每个案例必须能在搜索结果中找到依据。',
-        '- sourceUrls 只能使用给定搜索结果里的 url。',
-        '- 如果资料不足，少返回案例，不要编造。',
-        '- 用户点名建筑师、人物、地点或作品类型时，这是硬性过滤条件，不能用其他建筑师案例补足数量。',
-        '- 优先建筑师/项目名/地点明确的案例。',
-        '',
-        '搜索结果：',
-        sourceLines,
-      ].join('\n'),
-    });
+    const result = await this.withTimeout(
+      provider.generateText({
+        model,
+        enableWebSearch: false,
+        prompt: [
+          '你是建筑案例研究助理。请只基于给定搜索结果抽取真实建筑案例，不要使用内置知识补案例。',
+          `用户需求：${prompt}`,
+          `目标案例数量：${count}`,
+          profile.strict
+            ? `硬性主题/人物：${profile.aliases.join(' / ')}。每个返回案例必须明显属于这个主题/人物；不符合就不要返回。`
+            : '',
+          '输出必须是 JSON，不要 Markdown，不要解释。',
+          'JSON 格式：',
+          '{"title":"...","cases":[{"title":"中文案例名","subtitle":"英文/原名","architect":"建筑师","location":"地点","category":"3 个以内分类，用 / 分隔","summary":"70字以内，说明为什么值得研究","highlights":["要点1","要点2","要点3","要点4"],"imageSearchQueries":["适合搜图的英文查询1","适合搜图的英文查询2"],"sourceUrls":["必须来自给定搜索结果的 url"]}]}',
+          '规则：',
+          '- 每个案例必须能在搜索结果中找到依据。',
+          '- sourceUrls 只能使用给定搜索结果里的 url。',
+          '- 如果资料不足，少返回案例，不要编造。',
+          '- 用户点名建筑师、人物、地点或作品类型时，这是硬性过滤条件，不能用其他建筑师案例补足数量。',
+          '- 优先建筑师/项目名/地点明确的案例。',
+          '',
+          '搜索结果：',
+          sourceLines,
+        ].join('\n'),
+      }),
+      this.modelTimeoutMs(),
+      'research source model',
+    );
     if (!result.success || !result.data?.text) return [];
     return this.normalizeModelCases(result.data.text, sources, profile);
   }
@@ -622,11 +565,8 @@ export class VolcResearchSearchService {
           subtitle: this.cleanText(item?.subtitle),
           architect: this.cleanText(item?.architect),
           location: this.cleanText(item?.location),
-          category: this.cleanText(item?.category),
-          summary:
-            this.cleanText(item?.summary) ||
-            caseSources[0]?.snippet ||
-            '从真实搜索资料中整理出的建筑案例，适合继续追踪项目来源和图像资料。',
+          category: this.cleanDisplayCategory(item?.category),
+          summary: this.cleanText(item?.summary) || caseSources[0]?.snippet || '',
           highlights: this.normalizeStringArray(item?.highlights).slice(0, 4),
           sources: caseSources,
           images: [],
@@ -654,11 +594,9 @@ export class VolcResearchSearchService {
         subtitle: source.title !== title ? source.title : undefined,
         architect: '',
         location: '',
-        category: this.categoryFromPrompt(prompt),
-        summary:
-          source.snippet ||
-          '从真实搜索资料中整理出的建筑案例，适合继续追踪项目来源和图像资料。',
-        highlights: ['真实检索来源', '资料可追溯', '可继续核验', '图像参考'],
+        category: undefined,
+        summary: source.snippet || '',
+        highlights: [],
         sources: [source],
         images: [],
         imageSearchQueries: [title, `${title} architecture`, `${title} case study`],
@@ -674,6 +612,10 @@ export class VolcResearchSearchService {
       { match: /伊东丰雄|伊東豊雄|toyo\s+ito/i, aliases: ['伊东丰雄', 'Toyo Ito'] },
       { match: /彼得[·\s-]*卒姆托|peter\s+zumthor/i, aliases: ['彼得·卒姆托', 'Peter Zumthor'] },
       { match: /路易斯[·\s-]*康|louis\s+kahn/i, aliases: ['路易斯·康', 'Louis Kahn'] },
+      {
+        match: /柯布西耶|勒[·\s-]*柯布西耶|le\s+corbusier|corbusier/i,
+        aliases: ['勒·柯布西耶', 'Le Corbusier', '柯布西耶'],
+      },
     ];
     const haystack = `${prompt} ${subject || ''}`;
     const known = aliasMap.find((item) => item.match.test(haystack));
@@ -696,7 +638,7 @@ export class VolcResearchSearchService {
     const candidate = this.cleanSubject(match?.[1] || '');
     if (candidate && !this.isGenericResearchSubject(candidate)) return candidate;
 
-    const knownArchitect = raw.match(/安藤忠雄|tadao\s+ando|扎哈[·\s-]*哈迪德|zaha\s+hadid|伊东丰雄|伊東豊雄|toyo\s+ito|彼得[·\s-]*卒姆托|peter\s+zumthor|路易斯[·\s-]*康|louis\s+kahn/i);
+    const knownArchitect = raw.match(/安藤忠雄|tadao\s+ando|扎哈[·\s-]*哈迪德|zaha\s+hadid|伊东丰雄|伊東豊雄|toyo\s+ito|彼得[·\s-]*卒姆托|peter\s+zumthor|路易斯[·\s-]*康|louis\s+kahn|柯布西耶|勒[·\s-]*柯布西耶|le\s+corbusier|corbusier/i);
     return knownArchitect?.[0];
   }
 
@@ -719,12 +661,22 @@ export class VolcResearchSearchService {
       '项目',
       '资料',
       '参考',
+      '大师',
+      '建筑大师',
       '优秀建筑',
       '经典建筑',
       '教堂',
       '学校',
       '校园',
     ].includes(normalized);
+  }
+
+  private profileArchitectLabel(profile: ResearchQueryProfile): string | undefined {
+    const aliases = this.dedupeStrings(profile.aliases)
+      .map((item) => this.cleanText(item))
+      .filter((item) => item && !this.isGenericResearchSubject(item));
+    if (aliases.length === 0) return undefined;
+    return aliases.join(' / ');
   }
 
   private caseMatchesProfile(item: SearchDerivedCase, profile: ResearchQueryProfile): boolean {
@@ -950,15 +902,20 @@ export class VolcResearchSearchService {
 
     const response =
       authMode === 'apikey'
-        ? await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8',
-              Authorization: `Bearer ${this.requiredConfig('VOLC_SEARCH_API_KEY')}`,
+        ? await this.fetchWithTimeout(
+            endpoint,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                Authorization: `Bearer ${this.requiredConfig('VOLC_SEARCH_API_KEY')}`,
+              },
+              body,
             },
-            body,
-          })
-        : await this.callWithAkSk(url, body);
+            this.searchTimeoutMs(searchType),
+            `Volc ${searchType} search`,
+          )
+        : await this.callWithAkSk(url, body, this.searchTimeoutMs(searchType));
 
     const text = await response.text();
     if (!response.ok) {
@@ -978,7 +935,11 @@ export class VolcResearchSearchService {
     return parsed;
   }
 
-  private async callWithAkSk(endpoint: URL, body: string): Promise<Response> {
+  private async callWithAkSk(
+    endpoint: URL,
+    body: string,
+    timeoutMs: number,
+  ): Promise<Response> {
     const action = this.config.get<string>('VOLC_SEARCH_ACTION') || 'WebSearch';
     const version = this.config.get<string>('VOLC_SEARCH_VERSION') || '2025-01-01';
     const signed = signVolcRequest({
@@ -997,11 +958,72 @@ export class VolcResearchSearchService {
       body,
     });
     const { Host: _host, ...headers } = signed.headers;
-    return fetch(signed.url, {
-      method: 'POST',
-      headers,
-      body,
+    return this.fetchWithTimeout(
+      signed.url,
+      {
+        method: 'POST',
+        headers,
+        body,
+      },
+      timeoutMs,
+      'Volc signed search',
+    );
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    label: string,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        throw new Error(`${label} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T> {
+    let timeout: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
     });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private searchTimeoutMs(searchType: VolcSearchType): number {
+    const specificKey =
+      searchType === 'image' ? 'VOLC_SEARCH_IMAGE_TIMEOUT_MS' : 'VOLC_SEARCH_WEB_TIMEOUT_MS';
+    const fallback = this.readInt('VOLC_SEARCH_TIMEOUT_MS', 10_000, 1_000, 60_000);
+    return this.readInt(specificKey, fallback, 1_000, 60_000);
+  }
+
+  private modelTimeoutMs(): number {
+    return this.readInt('VOLC_SEARCH_MODEL_TIMEOUT_MS', 15_000, 2_000, 60_000);
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private extractWebSources(raw: any): AgentResearchSource[] {
@@ -1255,14 +1277,11 @@ export class VolcResearchSearchService {
     return (parts[0] || cleaned).slice(0, 48);
   }
 
-  private categoryFromPrompt(prompt: string): string {
-    if (/教堂|礼拜堂|church|chapel|cathedral/i.test(prompt)) {
-      return '宗教建筑 / 案例研究 / 图像参考';
-    }
-    if (/学校|校园|大学|学院|school|campus|university/i.test(prompt)) {
-      return '教育建筑 / 校园空间 / 案例研究';
-    }
-    return '建筑案例 / 资料检索 / 图像参考';
+  private cleanDisplayCategory(value: unknown): string | undefined {
+    const cleaned = this.cleanText(value);
+    if (!cleaned) return undefined;
+    if (/文本候选|联网校验|资料检索|图像参考/.test(cleaned)) return undefined;
+    return cleaned;
   }
 
   private pickString(value: any, keys: string[]): string {

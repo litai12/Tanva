@@ -508,6 +508,9 @@ type AgentTraceState = {
   intent?: string;
   selectedTool?: string;
   suggestedWebSearch?: boolean;
+  researchDraftText?: string;
+  researchText?: unknown;
+  researchVolc?: unknown;
   researchResult?: unknown;
   steps?: AgentTraceStep[];
   events?: AgentRunEvent[];
@@ -607,6 +610,14 @@ const applyAgentEventToTrace = (
 
   if (event.type === "research_result") {
     trace.researchResult = event.data?.result;
+    trace.researchText = event.data?.text;
+    trace.researchVolc = event.data?.volc;
+  }
+
+  if (event.type === "research_text") {
+    const text =
+      typeof event.data?.text === "string" ? event.data.text : event.message;
+    if (text) trace.researchDraftText = text;
   }
 
   if (event.type === "error") {
@@ -636,8 +647,20 @@ const shouldUseAgentResearchOnly = (input: string): boolean => {
 const formatResearchResultAsText = (research: any): string => {
   const cases = Array.isArray(research?.cases) ? research.cases : [];
   const lines: string[] = [];
-  const title = typeof research?.title === "string" ? research.title : "案例研究";
+  const rawTitle = typeof research?.title === "string" ? research.title : "案例研究";
+  const title = rawTitle === "建筑案例" ? "案例搜索" : rawTitle;
   const summary = typeof research?.summary === "string" ? research.summary : "";
+  const textResultText =
+    typeof research?.textResult?.text === "string"
+      ? research.textResult.text.trim()
+      : "";
+  const draftText =
+    typeof research?.draftText === "string" ? research.draftText.trim() : "";
+  const primaryText = textResultText || draftText;
+  if (primaryText) {
+    lines.push(primaryText);
+    lines.push("");
+  }
   lines.push(`## ${title}`);
   if (summary) lines.push(summary);
   if (cases.length === 0) return lines.join("\n").trim();
@@ -6950,10 +6973,15 @@ export const useAIChatStore = create<AIChatState>()(
             const errorMessage =
               error instanceof Error ? error.message : "未知错误";
 
+            get().updateMessage(aiMessageId, (msg) => ({
+              ...msg,
+              content: `文本生成失败: ${errorMessage}`,
+            }));
             get().updateMessageStatus(aiMessageId, {
               isGenerating: false,
               progress: 0,
               error: errorMessage,
+              stage: "已终止",
             });
 
             console.error("❌ 文本生成失败:", errorMessage);
@@ -8392,14 +8420,24 @@ export const useAIChatStore = create<AIChatState>()(
                     | undefined;
                   const nextTrace = applyAgentEventToTrace(currentTrace, event);
                   const researchText =
-                    agentResearchOnly && event.type === "research_result"
+                    agentResearchOnly && event.type === "research_text"
+                      ? String(event.data?.text || event.message || "").trim()
+                      : agentResearchOnly && event.type === "research_result"
                       ? formatResearchResultAsText(event.data?.result)
                       : "";
+                  const researchStage =
+                    event.type === "research_text"
+                      ? "提取案例关键词"
+                      : event.type === "research_result"
+                        ? "整理搜索结果"
+                        : undefined;
                   return {
                     ...msg,
                     content: researchText || msg.content,
                     generationStatus:
-                      agentResearchOnly && event.type === "research_result"
+                      agentResearchOnly &&
+                      (event.type === "research_text" ||
+                        event.type === "research_result")
                         ? {
                             ...(msg.generationStatus || {
                               isGenerating: true,
@@ -8407,9 +8445,9 @@ export const useAIChatStore = create<AIChatState>()(
                               error: null,
                             }),
                             isGenerating: true,
-                            progress: 95,
+                            progress: event.type === "research_text" ? 55 : 95,
                             error: null,
-                            stage: "整理研究结果",
+                            stage: researchStage,
                           }
                         : msg.generationStatus,
                     metadata: {
@@ -8423,11 +8461,20 @@ export const useAIChatStore = create<AIChatState>()(
               try {
                 const projectId =
                   useProjectContentStore.getState().projectId || undefined;
+                const agentTextModel = getTextModelForProvider(state.aiProvider);
+                const agentProviderOptions = withBananaRouteProviderOptions(
+                  state.aiProvider,
+                  undefined,
+                  state.bananaImageRoute
+                );
                 const run = await createAgentRunViaAPI({
                   prompt: input,
                   sessionId,
                   projectId,
                   aiProvider: state.aiProvider,
+                  model: agentTextModel,
+                  providerOptions: agentProviderOptions,
+                  thinkingLevel: state.thinkingLevel || undefined,
                   manualMode: state.manualAIMode,
                   availableTools: [...traceAvailableTools] as AgentToolName[],
                   hasImages: traceImageCount > 0,

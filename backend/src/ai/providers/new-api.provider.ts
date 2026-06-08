@@ -609,6 +609,8 @@ export class NewApiProvider implements IAIProvider {
       lower.includes('not supported') ||
       lower.includes('invalid') ||
       lower.includes('new-api http 500') ||
+      lower.includes('new-api http 520') ||
+      lower.includes('openai_error') ||
       lower.includes('internal server error') ||
       lower.includes('bad gateway') ||
       lower.includes('service unavailable')

@@ -16,6 +16,7 @@ export type AgentEventType =
   | 'step_completed'
   | 'plan'
   | 'tool_selected'
+  | 'research_text'
   | 'research_result'
   | 'final'
   | 'error'
@@ -79,9 +80,39 @@ export interface AgentResearchCase {
   images: AgentResearchImageCandidate[];
 }
 
+export interface AgentResearchTextResult {
+  text: string;
+  keywords: string[];
+  model?: string;
+  providerName?: string | null;
+  keywordExtractionMode?: 'hybrid' | 'ai' | 'rule';
+  keywordExtractionSource?: 'hybrid' | 'ai' | 'rule' | 'rule_fallback' | 'prompt_fallback';
+  fallback?: boolean;
+  webSearchResult?: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentResearchVolcResult {
+  provider: string;
+  keywords: string[];
+  cases: AgentResearchCase[];
+  sources: AgentResearchSource[];
+  searchStats?: {
+    provider: string;
+    keywordCount: number;
+    sourceCount: number;
+    imageCount: number;
+    fallback?: boolean;
+  };
+}
+
 export interface AgentResearchResult {
   title: string;
   summary: string;
+  draftText?: string;
+  seedKeywords?: string[];
+  textResult?: AgentResearchTextResult;
+  volcResult?: AgentResearchVolcResult;
   cases: AgentResearchCase[];
   sources: AgentResearchSource[];
   searchStats?: {

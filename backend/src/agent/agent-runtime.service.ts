@@ -1,14 +1,15 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import { AIProviderFactory } from '../ai/ai-provider.factory';
 import { CreateAgentRunDto } from './dto/agent-run.dto';
 import {
   AgentEventType,
   AgentIntent,
   AgentPlanStep,
-  AgentResearchCase,
-  AgentResearchImageCandidate,
   AgentResearchResult,
   AgentResearchSource,
+  AgentResearchTextResult,
   AgentRunEvent,
   AgentRunRecord,
   AgentRunSummary,
@@ -26,7 +27,33 @@ type IntentDecision = {
   steps: AgentPlanStep[];
 };
 
+type ResearchTextDraft = {
+  text: string;
+  keywords: string[];
+  model?: string;
+  providerName?: string | null;
+  keywordExtractionMode?: ResearchKeywordExtractionMode;
+  keywordExtractionSource?: ResearchKeywordExtractionSource;
+  fallback?: boolean;
+  webSearchResult?: unknown;
+  metadata?: Record<string, unknown>;
+};
+
+type ResearchKeywordExtractionMode = 'hybrid' | 'ai' | 'rule';
+type ResearchKeywordExtractionSource = 'hybrid' | 'ai' | 'rule' | 'rule_fallback' | 'prompt_fallback';
+
 const RUN_TTL_MS = 60 * 60 * 1000;
+const PROVIDER_DEFAULT_TEXT_MODELS: Record<string, string> = {
+  gemini: 'gemini-3.1-pro',
+  'gemini-pro': 'gemini-3.1-pro',
+  banana: 'gemini-3.5-flash',
+  'banana-2.5': 'gemini-2.5-flash',
+  'banana-3.1': 'gemini-3.1-pro-preview',
+  runninghub: 'gemini-3.1-pro',
+  midjourney: 'gemini-3.1-pro',
+  nano2: 'gemini-3.1-pro-preview',
+  seedream5: 'gemini-3.1-pro',
+};
 
 @Injectable()
 export class AgentRuntimeService {
@@ -34,7 +61,11 @@ export class AgentRuntimeService {
   private readonly runs = new Map<string, AgentRunRecord>();
   private readonly subscribers = new Map<string, Set<AgentEventSubscriber>>();
 
-  constructor(private readonly volcResearchSearch: VolcResearchSearchService) {}
+  constructor(
+    private readonly volcResearchSearch: VolcResearchSearchService,
+    private readonly providerFactory: AIProviderFactory,
+    private readonly config: ConfigService,
+  ) {}
 
   createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
     this.cleanupExpiredRuns();
@@ -128,19 +159,21 @@ export class AgentRuntimeService {
         data: { steps: decision.steps },
       });
 
-      for (const step of decision.steps) {
-        await this.pause(70);
-        this.emit(run, 'step_started', {
-          title: step.title,
-          message: step.detail,
-          data: { stepId: step.id, tool: step.tool },
-        });
-        await this.pause(110);
-        this.emit(run, 'step_completed', {
-          title: step.title,
-          message: '已准备好进入下一步。',
-          data: { stepId: step.id, tool: step.tool },
-        });
+      if (decision.intent !== 'research_cases') {
+        for (const step of decision.steps) {
+          await this.pause(70);
+          this.emit(run, 'step_started', {
+            title: step.title,
+            message: step.detail,
+            data: { stepId: step.id, tool: step.tool },
+          });
+          await this.pause(110);
+          this.emit(run, 'step_completed', {
+            title: step.title,
+            message: '已准备好进入下一步。',
+            data: { stepId: step.id, tool: step.tool },
+          });
+        }
       }
 
       await this.pause(80);
@@ -161,11 +194,95 @@ export class AgentRuntimeService {
 
       if (decision.intent === 'research_cases') {
         await this.pause(80);
-        const researchResult = await this.buildResearchCases(dto.prompt);
+        this.emit(run, 'step_started', {
+          title: '生成文字回复',
+          message: '正在通过联网回答用户问题。',
+          data: { stepId: 'text-draft', tool: 'chatResponse' },
+        });
+        const draft = await this.buildResearchTextDraft(dto);
+        this.emit(run, 'research_text', {
+          title: '生成文字回复',
+          message: '已先生成联网文字回答，准备从文字结果提取案例关键词。',
+          data: {
+            text: draft.text,
+            keywords: draft.keywords,
+            model: draft.model,
+            providerName: draft.providerName,
+            keywordExtractionMode: draft.keywordExtractionMode,
+            keywordExtractionSource: draft.keywordExtractionSource,
+            fallback: draft.fallback,
+            webSearchResult: draft.webSearchResult,
+            metadata: draft.metadata,
+          },
+        });
+        this.emit(run, 'step_completed', {
+          title: '生成文字回复',
+          message: draft.fallback
+            ? '联网文字回答未返回稳定结果，后续仅保留真实检索或无结果摘要。'
+            : '已得到联网文字回答，准备从中提取项目关键词。',
+          data: { stepId: 'text-draft', tool: 'chatResponse', fallback: draft.fallback },
+        });
+
+        this.emit(run, 'step_started', {
+          title: '提取案例关键词',
+          message: '正在读取文字回复中的项目名、建筑师和英文名。',
+          data: { stepId: 'extract-keywords', tool: 'sourceRank' },
+        });
+        this.emit(run, 'step_completed', {
+          title: '提取案例关键词',
+          message:
+            draft.keywords.length > 0
+              ? `已提取 ${draft.keywords.length} 个候选检索关键词。`
+              : '未提取到明确项目名，将继续用用户问题规划候选案例并检索。',
+          data: {
+            stepId: 'extract-keywords',
+            tool: 'sourceRank',
+            keywords: draft.keywords,
+          },
+        });
+
+        await this.pause(80);
+        this.emit(run, 'step_started', {
+          title: '联网检索图文',
+          message: '正在把候选关键词交给网页与图片搜索。',
+          data: { stepId: 'web-image-search', tool: 'imageSearch' },
+        });
+        const researchResult = await this.buildResearchCases(dto.prompt, draft);
+        this.emit(run, 'step_completed', {
+          title: '联网检索图文',
+          message:
+            researchResult.cases.length > 0
+              ? `已检索并整理出 ${researchResult.cases.length} 个可展示案例。`
+              : researchResult.summary || '检索结束，但没有得到可展示案例。',
+          data: {
+            stepId: 'web-image-search',
+            tool: 'imageSearch',
+            searchStats: researchResult.searchStats,
+          },
+        });
+
+        this.emit(run, 'step_started', {
+          title: '组织图文案例卡',
+          message: '正在把案例说明、来源链接和图片网格组合成结构化回答。',
+          data: { stepId: 'compose', tool: 'chatResponse' },
+        });
         this.emit(run, 'research_result', {
           title: '整理案例资料',
           message: `已准备 ${researchResult.cases.length} 个图文案例卡片。`,
-          data: { result: researchResult },
+          data: {
+            text: researchResult.textResult,
+            volc: researchResult.volcResult,
+            result: researchResult,
+          },
+        });
+        this.emit(run, 'step_completed', {
+          title: '组织图文案例卡',
+          message: '图文案例结果已写入当前回复。',
+          data: {
+            stepId: 'compose',
+            tool: 'chatResponse',
+            caseCount: researchResult.cases.length,
+          },
         });
       }
 
@@ -246,22 +363,22 @@ export class AgentRuntimeService {
         shouldEnableWebSearch: true,
         steps: [
           {
-            id: 'query',
-            title: '拆解检索方向',
-            detail: '提取建筑类型、风格、地点、用途等关键词，准备中英文检索词。',
-            tool: 'webSearch',
+            id: 'text-draft',
+            title: '生成文字回复',
+            detail: '先生成联网文字回答，拿到可展示文字结果。',
+            tool: 'chatResponse',
           },
           {
-            id: 'collect',
-            title: '收集网页与图片',
-            detail: '优先查找官方/媒体/设计平台来源，并保留可展示图片。',
-            tool: 'imageSearch',
-          },
-          {
-            id: 'rank',
-            title: '筛选可信来源',
-            detail: '按相关性、信息完整度和图片质量筛选案例。',
+            id: 'extract-keywords',
+            title: '提取案例关键词',
+            detail: '读取文字回复中的项目名、建筑师和英文名，形成检索关键词。',
             tool: 'sourceRank',
+          },
+          {
+            id: 'web-image-search',
+            title: '联网检索图文',
+            detail: '把提取出的案例关键词交给网页与图片搜索，并保留可展示图片。',
+            tool: 'imageSearch',
           },
           {
             id: 'compose',
@@ -450,22 +567,399 @@ export class AgentRuntimeService {
     return labels[tool] || tool;
   }
 
-  private async buildResearchCases(prompt: string): Promise<AgentResearchResult> {
-    const isChurch = /教堂|礼拜堂|church|chapel|cathedral/i.test(prompt);
-    const isSchool = /学校|校园|大学|学院|school|campus|university/i.test(prompt);
-    const topic = isChurch ? '教堂建筑案例' : isSchool ? '学校建筑案例' : '建筑案例';
+  private async buildResearchTextDraft(dto: CreateAgentRunDto): Promise<ResearchTextDraft> {
+    const prompt = dto.prompt;
+    const requestPrompt = this.resolveResearchTextPrompt(dto);
+    const providerName = this.resolveResearchTextProviderName(dto.aiProvider);
+    const model = this.resolveResearchTextModel(providerName, dto.model);
+    try {
+      const provider = this.providerFactory.getProvider(model, providerName || 'new-api');
+      const result = await this.withTimeout(
+        provider.generateText({
+          model,
+          enableWebSearch: true,
+          prompt: requestPrompt,
+          thinkingLevel: dto.thinkingLevel,
+          providerOptions: dto.providerOptions,
+        }),
+        this.readIntConfig('AGENT_RESEARCH_TEXT_TIMEOUT_MS', 60_000, 5_000, 120_000),
+        'newapi text research',
+      );
+      if (result.success && result.data?.text?.trim()) {
+        const text = result.data.text.trim();
+        const keywordExtraction = await this.extractResearchKeywordsWithMode({
+          prompt,
+          text,
+          model,
+          providerName,
+          thinkingLevel: dto.thinkingLevel,
+          providerOptions: dto.providerOptions,
+        });
+        return {
+          text,
+          keywords: keywordExtraction.keywords,
+          model,
+          providerName,
+          keywordExtractionMode: keywordExtraction.mode,
+          keywordExtractionSource: keywordExtraction.source,
+          webSearchResult: result.data.webSearchResult,
+          metadata: result.data.metadata,
+        };
+      }
+      this.logger.warn(
+        `Research text draft failed: ${result.error?.message || 'empty response'}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Research text draft failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return {
+      text: '联网文字回答未返回可用文本，后续仅保留真实检索结果或无结果摘要。',
+      keywords: this.fallbackResearchQueriesFromPrompt(prompt),
+      model,
+      providerName,
+      keywordExtractionMode: this.resolveResearchKeywordExtractionMode(),
+      keywordExtractionSource: 'prompt_fallback',
+      fallback: true,
+    };
+  }
+
+  private resolveResearchTextPrompt(dto: CreateAgentRunDto): string {
+    const contextPrompt = dto.context?.conversationPrompt;
+    if (typeof contextPrompt === 'string' && contextPrompt.trim().length > 0) {
+      return contextPrompt;
+    }
+    return dto.prompt;
+  }
+
+  private resolveResearchTextProviderName(aiProvider?: string): string | null {
+    const providerName = aiProvider?.trim();
+    return providerName && providerName !== 'gemini' ? providerName : null;
+  }
+
+  private resolveResearchTextModel(providerName: string | null, requestedModel?: string): string {
+    const model = requestedModel?.trim();
+    if (model?.length) return model;
+    if (providerName) {
+      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gemini-3.1-pro';
+    }
+    return PROVIDER_DEFAULT_TEXT_MODELS.gemini;
+  }
+
+  private async extractResearchKeywordsWithMode(options: {
+    prompt: string;
+    text: string;
+    model: string;
+    providerName: string | null;
+    thinkingLevel?: 'high' | 'low';
+    providerOptions?: Record<string, any>;
+  }): Promise<{
+    keywords: string[];
+    mode: ResearchKeywordExtractionMode;
+    source: ResearchKeywordExtractionSource;
+  }> {
+    const ruleKeywords = this.extractResearchKeywordsFromText(options.text, options.prompt);
+    const mode = this.resolveResearchKeywordExtractionMode();
+    if (mode === 'rule') {
+      return { keywords: ruleKeywords, mode, source: 'rule' };
+    }
+
+    const aiKeywords = await this.extractResearchKeywordsWithAi(options).catch((error) => {
+      this.logger.warn(
+        `AI research keyword extraction failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    });
+
+    if (mode === 'ai') {
+      return aiKeywords.length > 0
+        ? { keywords: aiKeywords, mode, source: 'ai' }
+        : { keywords: ruleKeywords, mode, source: 'rule_fallback' };
+    }
+
+    const merged = this.dedupeTextItems([...aiKeywords, ...ruleKeywords]).slice(0, 8);
+    return {
+      keywords: merged.length > 0 ? merged : ruleKeywords,
+      mode,
+      source: aiKeywords.length > 0 ? 'hybrid' : 'rule_fallback',
+    };
+  }
+
+  private resolveResearchKeywordExtractionMode(): ResearchKeywordExtractionMode {
+    const raw = this.config
+      .get<string>('AGENT_RESEARCH_KEYWORD_EXTRACT_MODE', 'hybrid')
+      .trim()
+      .toLowerCase();
+    if (raw === 'ai' || raw === 'rule' || raw === 'hybrid') return raw;
+    return 'hybrid';
+  }
+
+  private async extractResearchKeywordsWithAi(options: {
+    prompt: string;
+    text: string;
+    model: string;
+    providerName: string | null;
+    thinkingLevel?: 'high' | 'low';
+    providerOptions?: Record<string, any>;
+  }): Promise<string[]> {
+    const provider = this.providerFactory.getProvider(options.model, options.providerName || 'new-api');
+    const result = await this.withTimeout(
+      provider.generateText({
+        model: options.model,
+        enableWebSearch: false,
+        prompt: this.buildResearchKeywordExtractionPrompt(options.prompt, options.text),
+        thinkingLevel: options.thinkingLevel,
+        providerOptions: options.providerOptions,
+      }),
+      this.readIntConfig('AGENT_RESEARCH_KEYWORD_EXTRACT_TIMEOUT_MS', 20_000, 3_000, 60_000),
+      'ai research keyword extraction',
+    );
+    if (!result.success || !result.data?.text?.trim()) {
+      throw new Error(result.error?.message || 'empty keyword extraction response');
+    }
+    return this.parseResearchKeywordExtraction(result.data.text);
+  }
+
+  private buildResearchKeywordExtractionPrompt(prompt: string, text: string): string {
+    return [
+      '你是联网检索关键词提取器。请同时阅读“用户原始问题”和“Text 模式回答”，提取后续用于真实网页/图片搜索的关键词。',
+      '目标：让搜索引擎能找到回答中对应的文章、案例、项目、作品或核心主题。',
+      '要求：',
+      '1. 优先提取具体项目/作品/文章主题/地点/人物/机构等可直接搜索的关键词。',
+      '2. 如果回答里有编号标题或 Markdown 标题，优先提取标题里的主名称；保留必要英文名，但去掉破折号后的解释语。',
+      '3. 不要提取“设计亮点、案例解析、建筑大师、建成时间、所在地点、总结”等小节标签。',
+      '4. 每个关键词 2 到 80 字，按重要性排序，最多 8 个。',
+      '5. 只返回 JSON，不要解释。',
+      '',
+      'JSON 格式：{"keywords":["关键词1","关键词2"]}',
+      '',
+      `用户原始问题：${prompt}`,
+      '',
+      `Text 模式回答：${text.slice(0, 8000)}`,
+    ].join('\n');
+  }
+
+  private parseResearchKeywordExtraction(text: string): string[] {
+    const parsed = this.parseJsonObject(text);
+    const rawKeywords = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.keywords)
+        ? parsed.keywords
+        : [];
+    return this.dedupeTextItems(
+      rawKeywords
+        .map((item: unknown) => this.cleanResearchKeyword(String(item || '')))
+        .filter((item: string) => item && !this.isGenericResearchKeywordLabel(item)),
+    ).slice(0, 8);
+  }
+
+  private parseJsonObject(text: string): any {
+    const trimmed = String(text || '').trim();
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fenced?.[1]?.trim() || trimmed;
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+
+    const objectStart = candidate.indexOf('{');
+    const objectEnd = candidate.lastIndexOf('}');
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      try {
+        return JSON.parse(candidate.slice(objectStart, objectEnd + 1));
+      } catch {}
+    }
+
+    const arrayStart = candidate.indexOf('[');
+    const arrayEnd = candidate.lastIndexOf(']');
+    if (arrayStart >= 0 && arrayEnd > arrayStart) {
+      try {
+        return JSON.parse(candidate.slice(arrayStart, arrayEnd + 1));
+      } catch {}
+    }
+
+    return null;
+  }
+
+  private extractResearchKeywordsFromText(text: string, prompt: string): string[] {
+    const titleKeywords: string[] = [];
+    const supplementalKeywords: string[] = [];
+    const lines = String(text || '').split(/\r?\n/);
+    for (const line of lines) {
+      const titleKeyword = this.extractResearchTitleKeyword(line);
+      if (titleKeyword) {
+        titleKeywords.push(titleKeyword);
+        continue;
+      }
+
+      const boldMatches = Array.from(String(line || '').matchAll(/\*\*([^*]{2,100})\*\*/g));
+      for (const match of boldMatches) {
+        const candidate = this.cleanResearchKeyword(match[1]);
+        if (!this.isGenericResearchKeywordLabel(candidate)) {
+          supplementalKeywords.push(candidate);
+        }
+      }
+
+      const numberedMatch = this.normalizeResearchKeywordLine(line).match(
+        /^(?:[-*]\s*)?(?:\d+[.、)]|[一二三四五六七八九十]+[、.])\s*(.{2,100})/,
+      );
+      if (numberedMatch) {
+        const candidate = this.cleanResearchKeyword(
+          this.stripResearchTitleComment(numberedMatch[1]),
+        );
+        if (!this.isGenericResearchKeywordLabel(candidate)) {
+          supplementalKeywords.push(candidate);
+        }
+      }
+    }
+    return this.dedupeTextItems([
+      ...titleKeywords.map((item) => this.cleanResearchKeyword(item)),
+      ...supplementalKeywords.map((item) => this.cleanResearchKeyword(item)),
+    ]).slice(0, 8);
+  }
+
+  private extractResearchTitleKeyword(line: string): string | null {
+    let value = this.normalizeResearchKeywordLine(line);
+    if (!value) return null;
+
+    const hasHeading = /^#{1,6}\s+/.test(value);
+    value = value.replace(/^#{1,6}\s+/, '').trim();
+    value = value.replace(/^[-*]\s+(?=(?:\*\*)?(?:\d+|[一二三四五六七八九十]+)[.、)]\s*)/, '');
+    value = value.replace(/^(\*\*|__)\s*/, '').trim();
+
+    const numberedMatch = value.match(
+      /^(?:\d+|[一二三四五六七八九十]+)[.、)]\s*(.{2,140})/,
+    );
+    const hasNumber = Boolean(numberedMatch);
+    if (!hasHeading && !hasNumber) return null;
+
+    const rawCandidate = numberedMatch?.[1] ?? value;
+    const hasTitleComment = /\s*(?:——|—|–|--)\s*|\s+-\s+/.test(rawCandidate);
+    let candidate = this.stripResearchTitleComment(rawCandidate);
+    candidate = this.cleanResearchKeyword(candidate);
+    if (!candidate || this.isGenericResearchKeywordLabel(candidate)) return null;
+
+    // Unnumbered markdown headings are accepted only when they look like case titles,
+    // not generic sections such as "设计亮点" or "案例解析".
+    if (
+      !hasNumber &&
+      !hasTitleComment &&
+      !/[（(][^）)]{2,100}[）)]/.test(candidate) &&
+      !/[A-Za-z]/.test(candidate)
+    ) {
+      return null;
+    }
+    return candidate;
+  }
+
+  private normalizeResearchKeywordLine(line: string): string {
+    return String(line || '')
+      .replace(/^\s*>+\s*/, '')
+      .trim();
+  }
+
+  private stripResearchTitleComment(value: string): string {
+    return String(value || '')
+      .replace(/\*\*/g, '')
+      .replace(/__/g, '')
+      .split(/\s*(?:——|—|–|--)\s*/)[0]
+      .split(/\s+-\s+/)[0]
+      .trim();
+  }
+
+  private cleanResearchKeyword(value: string): string {
+    return this.stripResearchTitleComment(value)
+      .replace(/^[\s\-*#\d.、)）]+/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/^(候选案例|案例|项目|建筑案例)[：:\s]*/g, '')
+      .trim()
+      .slice(0, 100);
+  }
+
+  private isGenericResearchKeywordLabel(value: string): boolean {
+    const cleaned = String(value || '').replace(/\s+/g, '').replace(/[：:]+$/g, '');
+    if (!cleaned) return true;
+    return /^(案例解析|设计亮点|大师启示|建筑大师|建成时间|所在地点|建筑风格|项目解析|来源|参考资料|总结|结论)$/.test(
+      cleaned,
+    );
+  }
+
+  private dedupeTextItems(values: string[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const value of values) {
+      const cleaned = this.cleanResearchKeyword(value);
+      if (!cleaned || cleaned.length < 2) continue;
+      const key = cleaned.toLowerCase().replace(/\s+/g, '');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(cleaned);
+    }
+    return result;
+  }
+
+  private fallbackResearchQueriesFromPrompt(prompt: string): string[] {
+    const value = String(prompt || '').replace(/\s+/g, ' ').trim();
+    if (!value) return [];
+
+    const subjectMatch = value.match(
+      /(?:帮我|请|给我|麻烦)?(?:找|搜索|检索|推荐|整理|列出)?\s*(?:[一二两三四五六七八九十\d]+\s*(?:个|组|则|篇)?)?\s*([^，。,.!?！？]{2,40}?)(?:的)?(?:案例|建筑案例|建筑作品|建筑项目|资料|参考)/i,
+    );
+    const subject = this.cleanResearchSubject(subjectMatch?.[1] || '');
+    const queries = [
+      subject ? `${subject} 建筑 案例` : '',
+      subject ? `${subject} architecture case study` : '',
+      value,
+    ];
+    if (/体育|运动|stadium|arena|sports/i.test(value)) {
+      queries.push('体育建筑 案例 体育馆 体育场', 'sports architecture stadium arena case study');
+    }
+    return this.dedupeTextItems(queries).slice(0, 6);
+  }
+
+  private cleanResearchSubject(value: string): string {
+    return this.cleanResearchKeyword(value)
+      .replace(/^(帮我|请|给我|麻烦|找|搜索|检索|推荐|整理|列出|关于|一些|几个)+/g, '')
+      .replace(/^[一二两三四五六七八九十\d]+\s*(个|组|则|篇)?/g, '')
+      .replace(/^(优秀|经典|著名|知名|真实|参考)+/g, '')
+      .replace(/的$/g, '')
+      .trim();
+  }
+
+  private async buildResearchCases(
+    prompt: string,
+    draft?: ResearchTextDraft,
+  ): Promise<AgentResearchResult> {
+    const topic = '案例搜索';
 
     try {
-      const search = await this.volcResearchSearch.searchArchitectureResearch(prompt);
+      const search = await this.withTimeout(
+        this.volcResearchSearch.searchArchitectureResearch(prompt, {
+          seedKeywords: draft?.keywords ?? [],
+          seedText: draft?.text,
+        }),
+        this.readIntConfig('AGENT_RESEARCH_SEARCH_TIMEOUT_MS', 45_000, 5_000, 120_000),
+        'research search',
+      );
       if (!search) {
         return this.buildUnavailableResearchResult(
           topic,
           '真实网页检索未启用或配置未生效，因此没有返回案例。请检查 VOLC_SEARCH_ENABLED 与 VOLC_SEARCH_* 配置。',
           'volc:disabled',
+          undefined,
+          [],
+          draft,
         );
       }
       if (search.cases.length > 0) {
-        return this.buildSearchDerivedResearchResult(topic, search);
+        return this.attachResearchTextAndVolc(
+          this.buildSearchDerivedResearchResult(topic, search),
+          draft,
+          search,
+        );
       }
       const searchedImageCount = Array.from(search.imagesByQuery.values()).reduce(
         (sum, images) => sum + images.length,
@@ -474,7 +968,7 @@ export class AgentRuntimeService {
       return this.buildUnavailableResearchResult(
         topic,
         search.sources.length > 0
-          ? `已完成网页检索并参考 ${search.sources.length} 条结果，但没有抽取到符合当前问题约束的建筑案例；因此不展示无关内置案例。`
+          ? `已完成网页检索并参考 ${search.sources.length} 条结果，但没有抽取到符合当前问题约束的案例；因此不展示无关内置案例。`
           : '真实网页检索没有返回可用结果，因此不展示无关内置案例。',
         search.provider,
         {
@@ -483,6 +977,8 @@ export class AgentRuntimeService {
           imageCount: searchedImageCount,
         },
         search.sources,
+        draft,
+        search.keywords,
       );
     } catch (error) {
       this.logger.warn(
@@ -494,8 +990,41 @@ export class AgentRuntimeService {
         topic,
         `真实网页检索失败：${error instanceof Error ? error.message : String(error)}。系统未使用无关内置案例兜底。`,
         'volc:error',
+        undefined,
+        [],
+        draft,
       );
     }
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T> {
+    let timeout: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private readIntConfig(
+    key: string,
+    fallback: number,
+    min: number,
+    max: number,
+  ): number {
+    const raw = this.config.get<string>(key);
+    const parsed = Number.parseInt(String(raw ?? ''), 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
   }
 
   private buildUnavailableResearchResult(
@@ -504,228 +1033,79 @@ export class AgentRuntimeService {
     provider: string,
     stats?: { keywordCount: number; sourceCount: number; imageCount: number },
     sources: AgentResearchSource[] = [],
+    draft?: ResearchTextDraft,
+    volcKeywords?: string[],
   ): AgentResearchResult {
+    const searchStats = {
+      provider,
+      keywordCount: stats?.keywordCount ?? 0,
+      sourceCount: stats?.sourceCount ?? sources.length,
+      imageCount: stats?.imageCount ?? 0,
+      fallback: true,
+    };
     return {
       title: topic,
       summary,
+      draftText: draft?.text,
+      seedKeywords: draft?.keywords,
+      textResult: this.toResearchTextResult(draft),
+      volcResult: {
+        provider,
+        keywords: volcKeywords ?? draft?.keywords ?? [],
+        cases: [],
+        sources,
+        searchStats,
+      },
       cases: [],
       sources,
-      searchStats: {
-        provider,
-        keywordCount: stats?.keywordCount ?? 0,
-        sourceCount: stats?.sourceCount ?? sources.length,
-        imageCount: stats?.imageCount ?? 0,
-        fallback: true,
-      },
+      searchStats,
     };
   }
 
-  private buildChurchCases(): AgentResearchCase[] {
-    return [
-      {
-        id: 'church-of-the-light',
-        title: '光之教堂',
-        subtitle: 'Church of the Light',
-        architect: '安藤忠雄 Tadao Ando',
-        location: '日本大阪府茨木市',
-        category: '极简 / 清水混凝土 / 光影叙事',
-        summary:
-          '以十字形开口把自然光变成空间主体，平面与材料极度克制，适合研究“光如何成为建筑语言”。',
-        highlights: ['十字光缝', '清水混凝土', '低成本但高精神性', '少即是多'],
-        sources: this.sourcesFor('Church of the Light Tadao Ando'),
-        images: this.imagesFor('Church of the Light Tadao Ando interior concrete cross light'),
-      },
-      {
-        id: 'wuying-church',
-        title: '成都无影教堂',
-        subtitle: 'Wuying Church / Sino-Ocean Taikoo Li style reference',
-        architect: '上海大椽建筑设计事务所等资料需二次核验',
-        location: '中国四川成都',
-        category: '轻结构 / 白色构件 / 花田景观',
-        summary:
-          '通过密集白色竖向构件和半透明边界营造“消隐”的宗教性，适合研究临时性、景观性和打卡传播。',
-        highlights: ['白色铝板阵列', '半透明边界', '花田环境', '轻量化精神空间'],
-        sources: this.sourcesFor('成都 无影教堂 建筑 案例'),
-        images: this.imagesFor('成都 无影教堂 白色 教堂 花田 建筑'),
-      },
-      {
-        id: 'bruder-klaus-field-chapel',
-        title: '布鲁德克劳斯田野教堂',
-        subtitle: 'Bruder Klaus Field Chapel',
-        architect: '彼得·卒姆托 Peter Zumthor',
-        location: '德国梅歇尔尼希',
-        category: '材料实验 / 土地性 / 内向冥想',
-        summary:
-          '外部粗粝、内部由燃烧木模板形成洞穴般空间，适合研究材料、工艺和精神体验的统一。',
-        highlights: ['夯筑混凝土', '火烧木模板', '洞穴式天光', '强烈触感'],
-        sources: this.sourcesFor('Bruder Klaus Field Chapel Peter Zumthor'),
-        images: this.imagesFor('Bruder Klaus Field Chapel Peter Zumthor interior oculus'),
-      },
-      {
-        id: 'kamppi-chapel',
-        title: '康比静默教堂',
-        subtitle: 'Kamppi Chapel of Silence',
-        architect: 'K2S Architects',
-        location: '芬兰赫尔辛基',
-        category: '城市公共空间 / 木结构 / 静默体验',
-        summary:
-          '在繁忙城市中心插入一枚温暖木质体量，适合研究公共性、安静边界和非传统宗教空间。',
-        highlights: ['木质曲面', '城市客厅', '无窗静默空间', '公共服务属性'],
-        sources: this.sourcesFor('Kamppi Chapel K2S Architects'),
-        images: this.imagesFor('Kamppi Chapel of Silence K2S Architects wood interior'),
-      },
-      {
-        id: 'ribbon-chapel',
-        title: '丝带教堂',
-        subtitle: 'Ribbon Chapel',
-        architect: '中村拓志 Hiroshi Nakamura & NAP',
-        location: '日本广岛县尾道市',
-        category: '婚礼教堂 / 双螺旋 / 结构叙事',
-        summary:
-          '两条螺旋楼梯相互缠绕成为结构与仪式路线，适合研究建筑形式如何直接表达叙事。',
-        highlights: ['双螺旋流线', '结构即造型', '海景场地', '仪式路径'],
-        sources: this.sourcesFor('Ribbon Chapel Hiroshi Nakamura NAP'),
-        images: this.imagesFor('Ribbon Chapel Hiroshi Nakamura NAP spiral chapel'),
-      },
-    ];
-  }
-
-  private buildArchitectureCases(): AgentResearchCase[] {
-    return [
-      {
-        id: 'heydar-aliyev-center',
-        title: '盖达尔·阿利耶夫中心',
-        subtitle: 'Heydar Aliyev Center',
-        architect: '扎哈·哈迪德 Zaha Hadid Architects',
-        location: '阿塞拜疆巴库',
-        category: '文化建筑 / 流线形态 / 参数化表皮',
-        summary:
-          '以连续曲面消解墙、屋顶与地面的边界，适合研究流动空间和地标级文化建筑表达。',
-        highlights: ['连续曲面', '地景化建筑', '无缝表皮', '公共文化地标'],
-        sources: this.sourcesFor('Heydar Aliyev Center Zaha Hadid'),
-        images: this.imagesFor('Heydar Aliyev Center Zaha Hadid interior exterior'),
-      },
-      {
-        id: 'sendai-mediatheque',
-        title: '仙台媒体中心',
-        subtitle: 'Sendai Mediatheque',
-        architect: '伊东丰雄 Toyo Ito',
-        location: '日本仙台',
-        category: '公共文化 / 结构系统 / 透明盒子',
-        summary:
-          '用管状结构整合流线、结构和设备，适合研究开放平面与复合公共功能。',
-        highlights: ['管状结构', '开放楼板', '透明立面', '媒体公共性'],
-        sources: this.sourcesFor('Sendai Mediatheque Toyo Ito'),
-        images: this.imagesFor('Sendai Mediatheque Toyo Ito tubes interior'),
-      },
-      {
-        id: 'therme-vals',
-        title: '瓦尔斯温泉浴场',
-        subtitle: 'Therme Vals',
-        architect: '彼得·卒姆托 Peter Zumthor',
-        location: '瑞士瓦尔斯',
-        category: '材料氛围 / 石材 / 身体体验',
-        summary:
-          '以石材、光线、水声和尺度组织沉浸体验，适合研究材料氛围与身体感知。',
-        highlights: ['片麻岩石材', '浴场序列', '暗光氛围', '触觉体验'],
-        sources: this.sourcesFor('Therme Vals Peter Zumthor'),
-        images: this.imagesFor('Therme Vals Peter Zumthor stone bath interior'),
-      },
-      {
-        id: 'vanna-venturi-house',
-        title: '范娜·文丘里住宅',
-        subtitle: 'Vanna Venturi House',
-        architect: '罗伯特·文丘里 Robert Venturi',
-        location: '美国宾夕法尼亚州',
-        category: '后现代 / 住宅 / 符号批判',
-        summary:
-          '以矛盾和复杂性挑战现代主义纯粹性，适合研究住宅立面、符号和历史引用。',
-        highlights: ['后现代开端', '复杂与矛盾', '山墙符号', '住宅尺度'],
-        sources: this.sourcesFor('Vanna Venturi House Robert Venturi'),
-        images: this.imagesFor('Vanna Venturi House Robert Venturi facade'),
-      },
-    ];
-  }
-
-  private buildSchoolCases(): AgentResearchCase[] {
-    return [
-      {
-        id: 'bauhaus-dessau',
-        title: '包豪斯德绍校舍',
-        subtitle: 'Bauhaus Dessau',
-        architect: '沃尔特·格罗皮乌斯 Walter Gropius',
-        location: '德国德绍',
-        category: '现代主义 / 功能分区 / 玻璃幕墙',
-        summary:
-          '以教学、工坊、宿舍等功能体块清晰组织校园，玻璃幕墙与钢结构奠定现代学校建筑的原型。',
-        highlights: ['功能分区', '玻璃幕墙', '钢结构', '现代校园原型'],
-        sources: this.sourcesFor('Bauhaus Dessau Walter Gropius school architecture'),
-        images: this.imagesFor('Bauhaus Dessau Walter Gropius school architecture'),
-      },
-      {
-        id: 'iit-campus',
-        title: '伊利诺伊理工学院校园',
-        subtitle: 'IIT Campus / S. R. Crown Hall',
-        architect: '密斯·凡·德·罗 Ludwig Mies van der Rohe',
-        location: '美国芝加哥',
-        category: '少即是多 / 模数网格 / 钢玻体系',
-        summary:
-          '通过模数化钢结构和开放平面建立理性校园秩序，Crown Hall 成为建筑教育空间的经典范例。',
-        highlights: ['模数网格', '开放平面', '钢玻体系', '极简秩序'],
-        sources: this.sourcesFor('IIT campus Crown Hall Mies van der Rohe architecture school'),
-        images: this.imagesFor('IIT campus Crown Hall Mies van der Rohe architecture school'),
-      },
-      {
-        id: 'exeter-library',
-        title: '菲利普斯埃克塞特学院图书馆',
-        subtitle: 'Phillips Exeter Academy Library',
-        architect: '路易斯·康 Louis Kahn',
-        location: '美国新罕布什尔州埃克塞特',
-        category: '教育建筑 / 中庭 / 砖石秩序',
-        summary:
-          '以中心中庭、环形书库和阅读格间组织学习体验，展现纪念性空间与日常校园生活的结合。',
-        highlights: ['中心中庭', '砖石立面', '阅读格间', '纪念性空间'],
-        sources: this.sourcesFor('Phillips Exeter Academy Library Louis Kahn school architecture'),
-        images: this.imagesFor('Phillips Exeter Academy Library Louis Kahn school architecture'),
-      },
-    ];
-  }
-
-  private applyResearchSearch(
-    fallback: AgentResearchResult,
+  private attachResearchTextAndVolc(
+    result: AgentResearchResult,
+    draft: ResearchTextDraft | undefined,
     search: VolcResearchSearchPayload,
   ): AgentResearchResult {
-    const cases = fallback.cases.map((item) => {
-      const searchedImages = this.dedupeImageCandidates(
-        this.caseImageSearchQueries(item).flatMap(
-          (query) => search.imagesByQuery.get(query) ?? [],
-        ),
-      ).slice(0, 4);
-      return {
-        ...item,
-        images: searchedImages.length > 0 ? searchedImages : item.images,
-      };
-    });
-    const sources = this.dedupeSources([
-      ...search.sources,
-      ...cases.flatMap((item) => item.sources),
-    ]);
-    const imageCount = cases.reduce(
-      (sum, item) => sum + item.images.filter((image) => Boolean(image.imageUrl)).length,
-      0,
-    );
-
+    const searchStats = result.searchStats ?? {
+      provider: search.provider,
+      keywordCount: search.keywords.length,
+      sourceCount: search.sources.length,
+      imageCount: result.cases.reduce(
+        (sum, item) => sum + item.images.filter((image) => Boolean(image.imageUrl)).length,
+        0,
+      ),
+    };
     return {
-      ...fallback,
-      summary: `搜索 ${search.keywords.length} 个关键词，参考 ${search.sources.length} 篇资料。`,
-      cases,
-      sources,
-      searchStats: {
+      ...result,
+      draftText: draft?.text,
+      seedKeywords: draft?.keywords,
+      textResult: this.toResearchTextResult(draft),
+      volcResult: {
         provider: search.provider,
-        keywordCount: search.keywords.length,
-        sourceCount: search.sources.length,
-        imageCount,
+        keywords: search.keywords,
+        cases: result.cases,
+        sources: result.sources,
+        searchStats,
       },
+      searchStats,
+    };
+  }
+
+  private toResearchTextResult(
+    draft: ResearchTextDraft | undefined,
+  ): AgentResearchTextResult | undefined {
+    if (!draft) return undefined;
+    return {
+      text: draft.text,
+      keywords: draft.keywords,
+      model: draft.model,
+      providerName: draft.providerName,
+      keywordExtractionMode: draft.keywordExtractionMode,
+      keywordExtractionSource: draft.keywordExtractionSource,
+      fallback: draft.fallback,
+      webSearchResult: draft.webSearchResult,
+      metadata: draft.metadata,
     };
   }
 
@@ -754,66 +1134,6 @@ export class AgentRuntimeService {
         imageCount,
       },
     };
-  }
-
-  private caseImageSearchQueries(item: AgentResearchCase): string[] {
-    const base = [item.subtitle || item.title, item.architect, item.location, 'architecture']
-      .filter(Boolean)
-      .join(' ');
-    const originalQueries = item.images
-      .map((image) => image.query)
-      .filter((query): query is string => typeof query === 'string' && query.trim().length > 0);
-    const titleOnly = [item.subtitle || item.title, 'architecture'].filter(Boolean).join(' ');
-    return Array.from(new Set([base, titleOnly, ...originalQueries].filter(Boolean))).slice(0, 3);
-  }
-
-  private dedupeImageCandidates(
-    images: AgentResearchImageCandidate[],
-  ): AgentResearchImageCandidate[] {
-    const seen = new Set<string>();
-    const result: AgentResearchImageCandidate[] = [];
-    for (const image of images) {
-      const key = image.imageUrl || image.sourceUrl || image.searchUrl || image.query;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      result.push(image);
-    }
-    return result;
-  }
-
-  private sourcesFor(query: string): AgentResearchSource[] {
-    const encoded = encodeURIComponent(query);
-    return [
-      {
-        title: 'ArchDaily 项目检索',
-        url: `https://www.archdaily.com/search/projects?text=${encoded}`,
-        snippet: '适合快速获取项目介绍、图纸、摄影和建筑师信息。',
-      },
-      {
-        title: 'Google Scholar / Web 检索',
-        url: `https://www.google.com/search?q=${encoded}`,
-        snippet: '用于补充官网、媒体报道、论文或访谈资料。',
-      },
-    ];
-  }
-
-  private imagesFor(query: string): AgentResearchImageCandidate[] {
-    const variants = ['exterior', 'interior', 'plan section', 'detail'];
-    return variants.map((variant) => {
-      const finalQuery = `${query} ${variant}`;
-      return {
-        label:
-          variant === 'exterior'
-            ? '外观'
-            : variant === 'interior'
-              ? '室内'
-              : variant === 'plan section'
-                ? '图纸'
-                : '细部',
-        query: finalQuery,
-        searchUrl: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(finalQuery)}`,
-      };
-    });
   }
 
   private dedupeSources(sources: AgentResearchSource[]): AgentResearchSource[] {

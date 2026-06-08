@@ -39,6 +39,18 @@ export class CreateAgentRunDto {
 
   @IsOptional()
   @IsString()
+  model?: string;
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
+
+  @IsOptional()
+  @IsIn(['high', 'low'])
+  thinkingLevel?: 'high' | 'low';
+
+  @IsOptional()
+  @IsString()
   manualMode?: string;
 
   @IsOptional()

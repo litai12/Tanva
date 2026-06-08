@@ -47,6 +47,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- AI Chat: expanded history mode now starts with a reserved top gap so a strip of the canvas/header remains visible, while manual height resize can still pull the panel close to full height.
 - Admin/Auth: default login activity notice now hides the Seedance activity slide and shows only the 2026 Tanvas AI contest popup with registration/community QR and contest-detail actions.
 - Flow/Prompt Mentions: inline `@` image references now use a non-layout background highlight drawn on the existing inline token, keeping textarea overlay wrapping and multiple-token alignment unchanged.
 - Flow/HTML PPT: simplified Run by removing the automatic generated-visual pre-pass; connected upstream images are still prepared and sent to the final text-chat rewrite request for PPT layout.
@@ -73,6 +74,14 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- AI Chat/Agent: research-only case lookup now returns both the text-stage web-search answer and the Volcengine structured search payload (`text` + `volc`), and removes local static case-library / hard-coded architect fallback seeds from the Agent research path.
+- AI Chat/Agent: research-only text drafting now passes the same UI-selected text `model`, route `providerOptions`, and `thinkingLevel` as normal Text mode before Volcengine keyword search.
+- AI Chat/Agent: research keyword extraction now prioritizes numbered/markdown case headings and trims explanatory title dashes before sending seed keywords to Volcengine.
+- AI Chat/Agent: research keyword extraction is now configurable with `AGENT_RESEARCH_KEYWORD_EXTRACT_MODE=hybrid|ai|rule`; the default hybrid mode lets AI read both the user prompt and Text answer, then merges rule-based title keywords as fallback.
+- AI Chat/Agent: research result cards no longer display internal seed-validation copy such as "文本候选/联网校验" or generic verification badges, and the card section title is normalized to "案例搜索".
+- AI Chat/Agent: research-only text-stage timeout now matches normal Text chat's 60s budget, with prompt-derived non-static query fallback so Volcengine does not receive an empty keyword list when the text stage fails.
+- AI Chat Text: NewAPI `HTTP 520: openai_error` during web-search text chat now triggers the existing retry without `web_search_preview`, and failed text placeholders no longer keep showing a generating message.
+- AI Chat/Agent: research-only case lookup no longer marks all plan steps completed before real work starts, and Volcengine web/image/model search calls now have bounded timeouts with per-query failure fallback so SSE always proceeds to `research_result`/`done` instead of hanging after `research_text`.
 - App/Device Access: iPad is no longer treated as a blocked mobile device at the `/app` entry point, including both classic `iPad` userAgent and iPadOS `MacIntel` touch detection paths.
 - AI Chat/Agent: research case image lookup now tries multiple queries per case and constrains the frontend thumbnail grid width, reducing partial image misses and oversized thumbnails on wide chat layouts.
 - AI Chat Text: text chat now retries once without `web_search_preview` when the new-api web-search tools call fails, and provider text failures return readable 503 errors instead of Nest's generic `Internal server error`.
@@ -775,6 +784,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - Agent research cases now treat user-specified architects/subjects as hard filters during Volcengine web-search keyword expansion, model extraction, and post-extraction validation.
 - Agent research case lookup now uses a two-stage flow: first plan concrete building/project names with the text model, then run real Volcengine web/image search for each planned project name.
+- Agent research now emits a text-first `research_text` event: the text model answers with candidate cases first, the backend extracts project keywords from that reply, and Volcengine search then uses those extracted keywords to build image/source-backed case cards.
 - Project-level research search now ranks per-project web results instead of dropping results that do not exactly match the Chinese project title; known architect seeds are used only as search-entry fallbacks and still require real web sources before display.
 - Research case image lookup now remains tied to the extracted case list; when real search is disabled, fails, or returns no matching cases, the backend returns an explicit no-result summary instead of unrelated static architecture cases.
 - AI Chat research-only responses now render the bottom text from the same `research_result` payload used by the case cards, including no-result summaries.

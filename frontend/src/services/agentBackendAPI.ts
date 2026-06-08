@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "./authFetch";
+import type { AIProviderOptions } from "@/types/ai";
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL &&
@@ -12,6 +13,7 @@ export type AgentEventType =
   | "step_completed"
   | "plan"
   | "tool_selected"
+  | "research_text"
   | "research_result"
   | "final"
   | "error"
@@ -53,6 +55,9 @@ export interface CreateAgentRunRequest {
   sessionId?: string | null;
   projectId?: string | null;
   aiProvider?: string;
+  model?: string;
+  providerOptions?: AIProviderOptions;
+  thinkingLevel?: "high" | "low";
   manualMode?: string;
   availableTools?: AgentToolName[];
   hasImages?: boolean;

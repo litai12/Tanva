@@ -153,6 +153,8 @@ const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const HISTORY_DEFAULT_MIN_HEIGHT = 320;
+// 展开态默认留出一段画布/顶栏内容；用户仍可拖拽顶部边缘拉高到接近全屏。
+const EXPANDED_HISTORY_DEFAULT_TOP = "clamp(64px, 8vh, 88px)";
 
 type ResendInfo =
   | { type: "edit"; prompt: string; sourceImage: string }
@@ -2841,6 +2843,8 @@ const AIChatDialog: React.FC = () => {
       // bottom 固定为 16px，根据 customHeight 计算 top
       const calculatedTop = window.innerHeight - 16 - customHeight;
       style.top = Math.max(16, calculatedTop); // 最小 top 为 16px
+    } else {
+      style.top = EXPANDED_HISTORY_DEFAULT_TOP;
     }
 
     return style;
@@ -4628,12 +4632,16 @@ const AIChatDialog: React.FC = () => {
                                     if (!research || cases.length === 0) {
                                       return null;
                                     }
+                                    const researchTitle =
+                                      research.title === "建筑案例"
+                                        ? "案例搜索"
+                                        : research.title || "案例资料";
                                     return (
                                       <div className='mb-3 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px]'>
                                         <div className='mb-2 flex items-start justify-between gap-2'>
                                           <div className='min-w-0'>
                                             <div className='font-semibold text-slate-900'>
-                                              {research.title || "案例资料"}
+                                              {researchTitle}
                                             </div>
                                             {research.summary ? (
                                               <div className='mt-0.5 text-[11px] leading-relaxed text-slate-600'>
