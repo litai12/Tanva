@@ -307,7 +307,9 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const isVideoEdit = hasVideoInput && referenceVideoType === "base";
 
   // 参数显示控制
-  const shouldShowAspectSelector = totalImageCountWithUploads === 0 && !hasVideoInput;
+  // 尺寸（aspect_ratio）始终展示可选：apimart kling-v3-omni 各模式均接受该参数
+  // （图生/首尾帧模式下上游可能用图片实际比例覆盖，但参数本身合法且会下发）。
+  const shouldShowAspectSelector = true;
   const shouldShowDurationSelector = !isVideoEdit;
 
   // Kling O3 支持 3-10 秒
