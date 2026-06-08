@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
 import {
   PaymentMethod,
   PaymentStatus,
@@ -40,6 +41,7 @@ export class PaymentService implements OnModuleInit {
     private referralService: ReferralService,
     private membershipService: MembershipService,
     private readonly businessPolicyService: BusinessPolicyService,
+    private readonly tenantContext: TenantContextService,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) { }
 
@@ -713,6 +715,20 @@ export class PaymentService implements OnModuleInit {
       paidAt?: Date;
     },
   ): Promise<void> {
+    // 异步入口（支付回调/cron）无正确 Host 租户：按订单所属租户重新进入上下文，
+    // 否则发积分/会员/席位会落错租户或查不到订单（codex#1/#9）。一级递归，无死循环。
+    const owner = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.findUnique({
+        where: { id: orderId },
+        select: { tenantId: true },
+      }),
+    );
+    if (owner && owner.tenantId !== this.tenantContext.getTenantId()) {
+      return this.tenantContext.runAsTenant(owner.tenantId, () =>
+        this.processPaymentSuccess(orderId, userId, credits, options),
+      );
+    }
+
     type TopupBroadcast = { teamId: string; delta: number; taskId: string };
     // Use a ref-like wrapper because TS's flow analysis narrows the simple
     // `let x = null` to `never` when only assigned inside a closure.
@@ -1098,15 +1114,18 @@ export class PaymentService implements OnModuleInit {
   }
 
   async cleanupExpiredOrders() {
-    const result = await this.prisma.paymentOrder.updateMany({
-      where: {
-        status: PaymentStatus.PENDING,
-        expiredAt: { lt: new Date() },
-      },
-      data: {
-        status: PaymentStatus.EXPIRED,
-      },
-    });
+    // cron 无 CLS 上下文：平台态跨租户清理过期待支付订单
+    const result = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.updateMany({
+        where: {
+          status: PaymentStatus.PENDING,
+          expiredAt: { lt: new Date() },
+        },
+        data: {
+          status: PaymentStatus.EXPIRED,
+        },
+      }),
+    );
     return result.count;
   }
 
@@ -1143,12 +1162,15 @@ export class PaymentService implements OnModuleInit {
 
   async reconcileExpiredOrders(): Promise<number> {
     const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const expiredOrders = await this.prisma.paymentOrder.findMany({
-      where: {
-        status: PaymentStatus.EXPIRED,
-        createdAt: { gte: since },
-      },
-    });
+    // cron 无 CLS 上下文（默认会落主站）：平台态跨租户扫描，逐单由 processPaymentSuccess 切回各自租户
+    const expiredOrders = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.findMany({
+        where: {
+          status: PaymentStatus.EXPIRED,
+          createdAt: { gte: since },
+        },
+      }),
+    );
 
     let rescued = 0;
     for (const order of expiredOrders) {
@@ -1242,9 +1264,10 @@ export class PaymentService implements OnModuleInit {
         return true;
       }
 
-      const order = await this.prisma.paymentOrder.findFirst({
-        where: { orderNo },
-      });
+      // 回调无正确 Host 租户：平台态按全局唯一 orderNo 定位订单（codex#9）
+      const order = await this.tenantContext.runAsPlatform(() =>
+        this.prisma.paymentOrder.findFirst({ where: { orderNo } }),
+      );
 
       if (!order) {
         this.logger.error(`支付宝回调订单不存在: orderNo=${orderNo}`);
@@ -1350,9 +1373,10 @@ export class PaymentService implements OnModuleInit {
         return true;
       }
 
-      const order = await this.prisma.paymentOrder.findFirst({
-        where: { orderNo: outTradeNo },
-      });
+      // 回调无正确 Host 租户：平台态按全局唯一 orderNo 定位订单（codex#9）
+      const order = await this.tenantContext.runAsPlatform(() =>
+        this.prisma.paymentOrder.findFirst({ where: { orderNo: outTradeNo } }),
+      );
       if (!order) {
         this.logger.error(`微信回调订单不存在: orderNo=${outTradeNo}`);
         return false;
