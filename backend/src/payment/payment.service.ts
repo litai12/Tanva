@@ -790,6 +790,14 @@ export class PaymentService implements OnModuleInit {
         const meta = currentOrder.metadata as Record<string, unknown> | null;
         const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
         if (!teamId) return;
+        // 校验 metadata.teamId 与订单同租户：tx 已限定订单租户，team 查不到即跨租户/不存在，拒绝发货（codex#2/#6）
+        const team = await tx.team.findUnique({ where: { id: teamId }, select: { id: true } });
+        if (!team) {
+          this.logger.error(
+            `team_seat 订单的 teamId 不属于订单租户或不存在，拒绝发放席位: orderId=${orderId}, teamId=${teamId}`,
+          );
+          return;
+        }
         const seats = Number(meta?.seats) || 0;
         const cycle = typeof meta?.cycle === 'string' ? meta.cycle : 'monthly';
         const durationDays = cycle === 'annual' ? 365 : 30;

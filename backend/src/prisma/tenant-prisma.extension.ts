@@ -25,6 +25,12 @@ const WHERE_OPS = new Set([
 /**
  * 纯函数：根据 model / operation / ctx 决定如何注入 tenantId。
  * 抽出来便于单测，不依赖 Prisma client / CLS。
+ *
+ * ⚠ 已知盲区（见 docs/tenancy-known-gaps.md 第 6 条，接第二租户前为硬门槛）：
+ * 只改写**顶层** data/where/create/update，不递归 nested writes / connect / connectOrCreate。
+ * 因此「嵌套创建的租户表行」会落到 DB 列默认值 'default'（非当前租户），
+ * 且 connect 可引用异租户实体。多租户上线前需审计 ~28 处嵌套写并改为显式分步写 + assertSameTenant，
+ * 或避免对租户表使用嵌套写。
  */
 export function buildTenantArgs(
   model: string,

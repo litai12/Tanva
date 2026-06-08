@@ -245,6 +245,9 @@ export class WsCollabGateway implements OnModuleDestroy {
   }
 
   private onClientMessage(conn: WsConn, raw: RawData): void {
+    // 注意：本回调在 runAsTenant 作用域外执行（升级回调异步触发）。当前仅做内存级
+    // 事件总线转发（按 projectId/UUID），不触达 Prisma，故无需租户上下文。
+    // 若未来在此加入任何 DB/租户敏感逻辑，必须 this.tenantContext.runAsTenant(conn.tenantId, ...) 包裹。
     let msg: any;
     try {
       msg = JSON.parse(raw.toString());

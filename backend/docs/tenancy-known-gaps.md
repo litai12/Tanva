@@ -49,6 +49,31 @@ rg -n "imageTask\.|videoTask\.|apiUsageRecord\." src
 - 为支付回调 / 健康检查 / 内部回调路由做豁免（否则被 404）。
 见子项目 2（域名路由 + 品牌分站）。
 
+## 6. Prisma 扩展不处理嵌套写 / connect —— 硬门槛（codex 实现复审·严重）
+
+`tenant-prisma.extension.ts` 只注入**顶层** data/where/create/update，**不递归** nested writes /
+`connect` / `connectOrCreate`。后果：
+- 嵌套创建的租户表行会落到 DB 列默认值 `'default'`（而非当前租户）→ 多租户下数据归属错乱；
+- `connect` 可引用异租户实体 → 跨租户外键拼接。
+单租户（全 default）下无影响。多租户上线前：审计约 28 处嵌套写
+（`rg -n "create:\s*\{|connect:\s*\{|connectOrCreate" backend/src`），改为显式分步写 +
+`assertSameTenant`，或对租户表避免嵌套写。
+
+## 7. 支付通用下单接口的 team_seat 越权 —— 既有 authz 缺口（codex 实现复审·高）
+
+`POST /payment/order`（`createOrder`）接受客户端提交的 `orderType:'team_seat'` 与任意
+`metadata.teamId`，绕过 `TeamSeatPackageService.createOrder` 的团队角色校验。
+**跨租户**部分已由发货时校验堵住（`processPaymentSuccess` 对 team_seat 校验 team 同租户，
+异租户/不存在则拒绝发席位）。但**同租户内**「给自己不管理的团队买席位」的角色校验仍缺，
+属既有 authz 问题，建议：通用下单接口拒绝 `team_seat`（强制走带角色校验的专用入口），
+或在 `createOrder` 内对 team_seat 校验调用者团队角色。
+
+## 8. JWT 旧 token 缺 tenantId —— 过渡期后收紧
+
+`JwtStrategy` 仅在 `payload.tenantId` 存在时校验租户一致；旧 token 无 tenantId 时不显式拒绝，
+但仍由 `findById`（租户作用域）兜底——查不到当前 Host 租户用户即 401，**不构成跨租户访问**。
+access token TTL 短，过渡期（一个 TTL 周期）后设 `TENANT_STRICT_TOKEN=true` 显式拒绝无 tenantId 的 token。
+
 ## 5. 裸 SQL 审计（P8 已加 CI 闸）
 
 `$queryRaw/$executeRaw` 绕过租户扩展。CI 脚本 `npm run lint:raw-sql` 会拦截未带
