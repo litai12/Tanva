@@ -19532,6 +19532,10 @@ function FlowInner() {
             ? aspectSetting || undefined
             : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
+            : provider === "kling-o3"
+            // omni(kling-v3-omni) 各模式(文生/首尾帧/参考图/参考视频)均接受 aspect_ratio，
+            // 不因连图而丢弃；图生/首尾帧场景上游可能用图片实际比例覆盖（合法行为）。
+            ? aspectSetting || undefined
             : referenceImageUrls.length > 0
             ? undefined
             : aspectSetting || undefined;
