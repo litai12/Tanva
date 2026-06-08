@@ -17,6 +17,7 @@ import { ReferralService } from "../referral/referral.service";
 import { CreditsService } from "../credits/credits.service";
 import { OpenObserveTelemetryService } from "../telemetry/openobserve-telemetry.service";
 import { TeamCoreService } from "../team-core/team-core.service";
+import { TenantContextService } from "../tenancy/tenant-context.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 type WatchaTokenResponse = {
@@ -131,7 +132,8 @@ export class AuthService {
     private readonly referralService: ReferralService,
     private readonly creditsService: CreditsService,
     private readonly openObserveTelemetryService: OpenObserveTelemetryService,
-    private readonly teamCoreService: TeamCoreService
+    private readonly teamCoreService: TeamCoreService,
+    private readonly tenantContext: TenantContextService
   ) {}
 
   private async touchUserLastLoginAt(userId: string) {
@@ -146,8 +148,14 @@ export class AuthService {
     id: string;
     email: string;
     role: string;
+    tenantId: string;
   }): Promise<TokenPair> {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+    };
     const accessTtl = this.config.get<string>("JWT_ACCESS_TTL") || "900s";
     const refreshTtl = this.config.get<string>("JWT_REFRESH_TTL") || "30d";
 
@@ -1341,7 +1349,9 @@ export class AuthService {
     user: { id: string; email: string; role: string },
     meta?: { ip?: string; ua?: string }
   ) {
-    const tokens = await this.signTokens(user);
+    // 租户来自当前请求上下文（用户已在该租户内被查到/创建）
+    const tenantId = this.tenantContext.getTenantId();
+    const tokens = await this.signTokens({ ...user, tenantId });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
     const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
@@ -1413,6 +1423,7 @@ export class AuthService {
       id: userPayload.sub,
       email: userPayload.email,
       role: userPayload.role,
+      tenantId: userPayload.tenantId ?? this.tenantContext.getTenantId(),
     });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
