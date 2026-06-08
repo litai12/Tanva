@@ -313,6 +313,7 @@ export class AdminService {
           },
         },
       }),
+      // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
       this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
         SELECT COUNT(DISTINCT "userId")::bigint AS count
         FROM "RefreshToken"
@@ -342,6 +343,7 @@ export class AdminService {
                 },
               },
             }),
+            // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
             this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
               SELECT COUNT(DISTINCT "userId")::bigint AS count
               FROM "RefreshToken"

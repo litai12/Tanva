@@ -31,6 +31,7 @@ export class TeamCreditLedgerService {
     try {
       await this.prisma.$transaction(async (tx) => {
         // 行锁：SELECT FOR UPDATE
+        // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId 锁团队积分账户，teamId(uuid)跨租户不撞
         const acc = await tx.$queryRaw<{ id: string; balance: number; frozenBalance: number }[]>`
           SELECT id, balance, "frozenBalance"
           FROM "TeamCreditAccount"
@@ -60,6 +61,7 @@ export class TeamCreditLedgerService {
         // 配额原子更新（行锁保证）
         if (actorUserId) {
           // 月度周期重置：超过 30 天自动开启新周期
+          // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId+userId 定位，uuid 跨租户不撞
           await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET "creditUsedThisCycle" = 0,
@@ -69,6 +71,7 @@ export class TeamCreditLedgerService {
               AND "userId" = ${actorUserId}
               AND "quotaCycleStartAt" < NOW() - INTERVAL '30 days'
           `;
+          // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId+userId 定位，uuid 跨租户不撞
           const updatedCount: number = await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET "creditUsedThisCycle" = "creditUsedThisCycle" + ${amount},
@@ -178,6 +181,7 @@ export class TeamCreditLedgerService {
         data: { frozenBalance: { decrement: amount } },
       });
       // 回退成员配额（月度 + 总量）
+      // ALLOW_RAW_NO_TENANT: 按全局唯一 taskId 关联 ledger 定位成员，uuid 跨租户不撞
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
         SET "creditUsedThisCycle" = GREATEST(0, tm."creditUsedThisCycle" - ${amount}),

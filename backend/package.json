@@ -7,6 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
+    "lint:raw-sql": "node scripts/check-raw-sql-tenant.mjs",
+    "test:tenancy": "jest src/tenancy src/prisma src/auth/strategies",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts"
   },
   "dependencies": {

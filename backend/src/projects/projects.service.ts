@@ -659,6 +659,7 @@ export class ProjectsService {
   private async ensureThumbnailColumn(): Promise<void> {
     if (await this.supportsThumbnailColumn()) return;
     try {
+      // ALLOW_RAW_NO_TENANT: DDL 加列，与租户数据无关
       await this.prisma.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN "thumbnailUrl" TEXT`);
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -673,6 +674,7 @@ export class ProjectsService {
     if (this.thumbnailColumnChecked && !forceRefresh) return this.thumbnailColumnAvailable;
 
     try {
+      // ALLOW_RAW_NO_TENANT: 读 information_schema 探测列是否存在，与租户数据无关
       const rows = await this.prisma.$queryRaw<{ column_name?: string }[]>`
         SELECT column_name FROM information_schema.columns
         WHERE table_name = 'Project' AND column_name = 'thumbnailUrl'
@@ -682,6 +684,7 @@ export class ProjectsService {
       this.thumbnailColumnAvailable = rows.length > 0;
     } catch {
       try {
+        // ALLOW_RAW_NO_TENANT: SQLite PRAGMA 表结构探测，与租户数据无关
         const rows = await this.prisma.$queryRaw<{ name?: string }[]>`PRAGMA table_info("Project")`;
         this.thumbnailColumnAvailable = rows.some((row) => row.name === 'thumbnailUrl');
       } catch {
