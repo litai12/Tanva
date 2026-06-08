@@ -1,22 +1,17 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Activity, Zap, RefreshCw, AlertTriangle, Crown } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, RefreshCw, AlertTriangle, Crown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { formatCreditBillingRemark } from '@/utils/creditBillingRemark';
 import {
-  claimDailyReward,
-  getDailyRewardStatus,
   getExpiringCredits,
-  getCheckInCalendar,
   getMyApiUsage,
   getMyCredits,
   getMembershipCurrent,
   getMyTransactions,
   getMembershipOrders,
-  type DailyRewardStatus,
   type ExpiringCreditsInfo,
-  type CheckInCalendar,
   type MembershipCurrentResponse,
   type UserCreditsInfo,
   type MembershipOrderRecord,
@@ -64,29 +59,6 @@ interface ApiUsageRecord {
   responseStatus: string;
   createdAt: string;
 }
-
-const SERVICE_TYPE_TRANSLATION_KEYS: Record<string, string> = {
-  'gemini-3-pro-image': 'gemini3ProImage',
-  'gemini-3.1-image': 'gemini31Image',
-  'gemini-2.5-image': 'gemini25Image',
-  'gemini-image-edit': 'geminiImageEdit',
-  'gemini-3.1-image-edit': 'gemini31ImageEdit',
-  'gemini-image-blend': 'geminiImageBlend',
-  'gemini-3.1-image-blend': 'gemini31ImageBlend',
-  'gemini-2.5-image-analyze': 'geminiImageAnalyze',
-  'gemini-image-analyze': 'geminiImageAnalyze',
-  'gemini-3.1-image-analyze': 'geminiImageAnalyze',
-  'gemini-text': 'geminiText',
-  'gemini-prompt-optimize': 'geminiPromptOptimize',
-  'gemini-paperjs': 'geminiPaperJs',
-  'midjourney-imagine': 'midjourneyImagine',
-  'midjourney-variation': 'midjourneyVariation',
-  'background-removal': 'backgroundRemoval',
-  'expand-image': 'expandImage',
-  'convert-2d-to-3d': 'convert2dTo3d',
-  'sora-sd': 'soraSd',
-  'sora-hd': 'soraHd',
-};
 
 const SimpleLineChart: React.FC<{
   data: { date: string; value: number }[];
@@ -143,11 +115,7 @@ const MyCredits: React.FC = () => {
   const [membershipOrders, setMembershipOrders] = useState<MembershipOrderRecord[]>([]);
   const [apiUsage, setApiUsage] = useState<ApiUsageRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dailyRewardStatus, setDailyRewardStatus] = useState<DailyRewardStatus | null>(null);
-  const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
-  const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
   const [expiringCredits, setExpiringCredits] = useState<ExpiringCreditsInfo | null>(null);
-  const [checkInCalendar, setCheckInCalendar] = useState<CheckInCalendar | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions'>('overview');
   const [membershipCurrent, setMembershipCurrent] = useState<MembershipCurrentResponse | null>(null);
 
@@ -169,7 +137,7 @@ const MyCredits: React.FC = () => {
   const loadData = async (showLoading: boolean = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [creditsData, transactionsData, usageData, expiringData, calendarData, membershipOrdersData] = await Promise.all([
+      const [creditsData, transactionsData, usageData, expiringData, membershipOrdersData] = await Promise.all([
         getMyCredits(),
         getMyTransactions({ pageSize: 100 }),
         getMyApiUsage({ pageSize: 100 }).catch((error) => {
@@ -177,7 +145,6 @@ const MyCredits: React.FC = () => {
           return { records: [] as ApiUsageRecord[] };
         }),
         getExpiringCredits(),
-        getCheckInCalendar(),
         getMembershipOrders({ page: 1, pageSize: 100, includeRecharge: false }).catch((error) => {
           console.warn('Failed to load membership orders:', error);
           return { items: [] as MembershipOrderRecord[], page: 1, pageSize: 100, total: 0 };
@@ -188,7 +155,6 @@ const MyCredits: React.FC = () => {
       setMembershipOrders(membershipOrdersData.items || []);
       setApiUsage(usageData.records || []);
       setExpiringCredits(expiringData);
-      setCheckInCalendar(calendarData);
       const membershipData = await getMembershipCurrent().catch((error) => {
         console.warn('Failed to load membership current:', error);
         return null;
@@ -198,37 +164,6 @@ const MyCredits: React.FC = () => {
       console.error('Failed to load credits data:', error);
     } finally {
       if (showLoading) setLoading(false);
-    }
-
-    setDailyRewardLoading(true);
-    try {
-      const status = await getDailyRewardStatus();
-      setDailyRewardStatus(status);
-    } catch (error) {
-      console.warn('Failed to load daily reward status:', error);
-    } finally {
-      setDailyRewardLoading(false);
-    }
-  };
-
-  const handleClaimDailyReward = async () => {
-    if (dailyRewardClaiming) return;
-    setDailyRewardClaiming(true);
-    try {
-      const result = await claimDailyReward();
-      if (result.success) {
-        alert(t('creditsPage.alerts.dailyRewardSuccess'));
-      } else if (result.alreadyClaimed) {
-        alert(t('creditsPage.alerts.dailyRewardAlreadyClaimed'));
-      } else {
-        alert(t('creditsPage.alerts.dailyRewardFailed'));
-      }
-    } catch (error: any) {
-      console.error('Failed to claim daily reward:', error);
-      alert(error?.message || t('creditsPage.alerts.dailyRewardFailed'));
-    } finally {
-      setDailyRewardClaiming(false);
-      loadData(false);
     }
   };
 
@@ -483,12 +418,6 @@ const MyCredits: React.FC = () => {
     }));
   }, [transactions]);
 
-  const getServiceTypeLabel = (serviceType: string) => {
-    const translationKey = SERVICE_TYPE_TRANSLATION_KEYS[serviceType];
-    if (!translationKey) return serviceType;
-    return t(`creditsPage.serviceTypes.${translationKey}`, { defaultValue: serviceType });
-  };
-
   const usageByService = useMemo(() => {
     // 鎸?serviceName 鍒嗙粍锛堝悗绔凡鎸?Sora 妯″瀷鍖哄垎锛夛紝浠ユ纭睍绀?Sora 鏍囧噯鐗?vs Pro 鐗?
     const serviceMap = new Map<string, { count: number; credits: number }>();
@@ -647,14 +576,6 @@ const MyCredits: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* 浠樿垂鐢ㄦ埛鏍囪瘑 */}
-        {expiringCredits?.isPaidUser && (
-          <div className="flex items-center gap-2 p-3 border bg-emerald-50 border-emerald-200 rounded-xl">
-            <Zap className="w-4 h-4 text-emerald-500" />
-            <span className="text-sm text-emerald-700">{t('creditsPage.paidUserBadge')}</span>
           </div>
         )}
 
@@ -861,5 +782,3 @@ const MyCredits: React.FC = () => {
 };
 
 export default MyCredits;
-
-

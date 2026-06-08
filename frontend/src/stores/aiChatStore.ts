@@ -3216,6 +3216,7 @@ export const useAIChatStore = create<AIChatState>()(
                 ? { remoteUrl: initialRemoteUrl }
                 : { dataUrl }),
               title: prompt,
+              prompt,
               nodeId: aiMessageId,
               nodeType: "generate",
               projectId,

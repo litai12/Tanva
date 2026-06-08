@@ -27,6 +27,8 @@ model User {
   lastLoginAt                DateTime?
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
+  generationImageAssets      GenerationImageAsset[]
+  generationImageReuses      GenerationImageReuse[]
   invitedById                String?
   apiUsageRecords            ApiUsageRecord[]
   creditAccount              CreditAccount?
@@ -461,6 +463,51 @@ model GlobalImageHistory {
   @@index([userId, createdAt(sort: Desc)])
   @@index([sourceType])
   @@index([userId, sourceProjectId, createdAt(sort: Desc)])
+}
+
+model GenerationImageAsset {
+  id               String                 @id @default(uuid())
+  userId           String
+  requestSignature String
+  prompt           String                 @db.Text
+  params           Json
+  imageUrl         String                 @db.Text
+  imageUrlHash     String
+  imageKey         String?
+  sourceType       String                 @default("text-to-image")
+  provider         String?
+  model            String?
+  serviceType      String?
+  textResponse     String?                @db.Text
+  status           String                 @default("active")
+  metadata         Json?
+  reuseCount       Int                    @default(0)
+  lastReusedAt     DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reuses           GenerationImageReuse[]
+
+  @@unique([userId, imageUrlHash])
+  @@index([userId, requestSignature, status, createdAt])
+  @@index([requestSignature, status, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model GenerationImageReuse {
+  id               String               @id @default(uuid())
+  userId           String
+  assetId          String
+  requestSignature String
+  apiUsageId       String?
+  createdAt        DateTime             @default(now())
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset            GenerationImageAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assetId])
+  @@index([userId, requestSignature, createdAt])
+  @@index([assetId, createdAt])
+  @@index([apiUsageId])
 }
 
 model PublicTemplate {

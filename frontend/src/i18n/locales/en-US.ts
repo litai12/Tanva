@@ -410,7 +410,6 @@ const enUS = {
       detail: "{{amount}} credits will expire on {{date}}",
       more: "{{count}} more expiring soon...",
     },
-    paidUserBadge: "Paid user - check-in credits never expire",
     tabs: {
       overview: "Overview",
       transactions: "Credit Records",

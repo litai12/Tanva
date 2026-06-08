@@ -409,7 +409,6 @@ const zhCN = {
       detail: "{{amount}} 积分将于 {{date}} 过期",
       more: "还有 {{count}} 笔即将过期...",
     },
-    paidUserBadge: "付费用户 - 签到积分永久有效",
     tabs: {
       overview: "概览",
       transactions: "积分记录",
