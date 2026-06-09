@@ -3288,10 +3288,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           imageOnly: chatState.imageOnly,
         });
 
-        // 使用与聊天框 edit 模式完全相同的参数和调用方式
+        const composedBlob = await dataUrlToBlob(composed.dataUrl);
+        const composedFileName = `expand-mask-${Date.now()}.png`;
+        const composedUpload = await uploadToOSS(composedBlob, {
+          dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
+          projectId,
+          fileName: composedFileName,
+          contentType: "image/png",
+        });
+        const composedImageUrl = composedUpload.url?.trim();
+        if (!composedUpload.success || !composedImageUrl) {
+          throw new Error(composedUpload.error || "扩图蒙版上传失败，无法发送给当前模型");
+        }
+
+        // new-api Gemini image edit rejects inline base64 image_urls, so send a remote URL.
         const editResult = await editImageViaAPI({
           prompt: EXPAND_PRESET_PROMPT,
-          sourceImage: composed.dataUrl,
+          sourceImageUrl: composedImageUrl,
           model: modelToUse,
           aiProvider: chatState.aiProvider,
           outputFormat: "png",
@@ -3358,6 +3371,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     [
       resolveImageDataUrl,
       imageData.id,
+      projectId,
       realTimeBounds,
       releaseExpandOperationLock,
       setDrawMode,

@@ -3204,7 +3204,7 @@ const AIChatDialog: React.FC = () => {
                       disabled={false}
                       data-dropdown-trigger='true'
                       className={cn(
-                        "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "order-2 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                         manualAIMode !== "auto"
                           ? "bg-gray-100 text-gray-800 border-gray-200"
@@ -3279,7 +3279,7 @@ const AIChatDialog: React.FC = () => {
                         disabled={false}
                         data-dropdown-trigger='true'
                         className={cn(
-                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "order-1 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                           "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                           !generationStatus.isGenerating
                             ? "hover:bg-gray-100 text-gray-700"
@@ -3354,7 +3354,7 @@ const AIChatDialog: React.FC = () => {
                       <button
                         type='button'
                         className={cn(
-                          "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
+                          "order-3 h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
                         title={lt("选择生成倍数", "Select multiplier")}

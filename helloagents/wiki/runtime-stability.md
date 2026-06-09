@@ -37,6 +37,8 @@
 - Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
 - Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.
 - Flow node-local expensive updates should prefer frame-batched previews over continuous ReactFlow state writes. `ImageSplit` crop previews share image decode promises and throttle resize observations, while `TextPrompt` resize commits dimensions/position only at drag end.
+- Canvas quick image upload falls back to placing a persistable remote URL when managed re-upload of an AI result fails, so image-expand/edit results can still appear on the canvas instead of losing the placeholder with no output.
+- Canvas image expand uploads its composed red-mask input before calling edit-image and passes `sourceImageUrl`, because the new-api Gemini edit route rejects inline base64 image inputs.
 
 ## Deployment changes
 - Frontend Docker builder now installs full dependencies (`npm ci`) and accepts build args:
