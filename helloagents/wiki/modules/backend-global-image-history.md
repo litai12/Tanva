@@ -10,6 +10,9 @@
 ## 数据模型关联
 - `GlobalImageHistory`
 
+## 写入约定
+- 前端历史写入区分展示标题与真实请求提示词：`prompt` / `metadata.requestPrompt` 保存可追溯的生成请求，`metadata.title` 保存列表展示标题（例如 `Generate 22:18:44`）。
+
 ## 查询说明
 - `GET /api/global-image-history` 支持两种分页方式：
 - 游标分页：`cursor + limit`（原有行为，返回 `nextCursor/hasMore`）。

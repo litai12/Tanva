@@ -17,6 +17,7 @@ import {
   TaskBroadcastStatus,
   TaskStatusPayload,
 } from '../../team-collab/types';
+import { ImageReuseCacheService, type ImageReuseSignature } from './image-reuse-cache.service';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -74,6 +75,7 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    private readonly imageReuseCache: ImageReuseCacheService,
     @Inject(forwardRef(() => ImageTaskQueueService))
     private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
@@ -422,6 +424,100 @@ export class ImageTaskService {
     };
   }
 
+  private buildAsyncImageReuseSignature(params: {
+    taskType: ImageTaskType;
+    prompt: string;
+    requestData: Record<string, any> | null;
+    providerName: string | null;
+    model?: string;
+    serviceType: string;
+    outputImageCount: number;
+  }): ImageReuseSignature | null {
+    if (params.taskType !== 'generate') return null;
+    const requestData = params.requestData || {};
+    return this.imageReuseCache.buildTextToImageSignature({
+      prompt: params.prompt,
+      providerName: params.providerName || 'gemini',
+      model: params.model,
+      serviceType: params.serviceType,
+      aspectRatio: requestData.aspectRatio,
+      imageSize: requestData.imageSize,
+      outputFormat: requestData.outputFormat,
+      thinkingLevel: requestData.thinkingLevel,
+      imageOnly: requestData.imageOnly,
+      providerOptions: requestData.providerOptions,
+      enableWebSearch: requestData.enableWebSearch,
+      googleSearch: requestData.googleSearch,
+      googleImageSearch: requestData.googleImageSearch,
+      imageUrls: requestData.imageUrls,
+      batchMode: requestData.batchMode,
+      batchCount: requestData.batchCount,
+      outputImageCount: params.outputImageCount,
+      officialFallback: requestData.officialFallback,
+      quality: requestData.quality,
+      background: requestData.background,
+      moderation: requestData.moderation,
+      outputCompression: requestData.outputCompression,
+      maskUrl: requestData.maskUrl,
+    });
+  }
+
+  private async updateImageReuseApiUsageParams(
+    apiUsageId: string | undefined | null,
+    patch: Record<string, any>,
+  ): Promise<void> {
+    if (!apiUsageId) return;
+    try {
+      await this.creditsService.updateApiUsageRequestParams(apiUsageId, patch);
+    } catch (error) {
+      this.logger.warn(
+        `[image-reuse-cache] failed to update async api usage params: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async recordGeneratedImageReuseAsset(params: {
+    userId: string;
+    signature: ImageReuseSignature | null;
+    imageUrl: string | null;
+    result: any;
+    providerName: string | null;
+    model?: string;
+    serviceType: string;
+    apiUsageId?: string | null;
+  }): Promise<void> {
+    if (!params.signature || !params.imageUrl) return;
+    const metadata =
+      params.result?.metadata && typeof params.result.metadata === 'object' && !Array.isArray(params.result.metadata)
+        ? (params.result.metadata as Record<string, any>)
+        : {};
+    const recorded = await this.imageReuseCache.recordGeneratedAsset({
+      userId: params.userId,
+      signature: params.signature,
+      imageUrl: params.imageUrl,
+      imageKey: typeof metadata.imageKey === 'string' ? metadata.imageKey : undefined,
+      provider: params.providerName || 'gemini',
+      model: params.model,
+      serviceType: params.serviceType,
+      textResponse: typeof params.result?.textResponse === 'string' ? params.result.textResponse : '',
+      metadata,
+      apiUsageId: params.apiUsageId,
+    });
+
+    if (!recorded) return;
+
+    await this.updateImageReuseApiUsageParams(params.apiUsageId, {
+      imageReuseCacheEligible: true,
+      imageReuseCacheHit: false,
+      imageReuseCacheStored: true,
+      imageReuseAssetId: recorded.id,
+      imageReuseCacheSignature: params.signature.signature,
+      imageReuseCacheVersion: params.signature.version,
+    });
+  }
+
   private async runGenerateTask(
     task: { prompt: string; aiProvider?: string | null },
     taskRequestData: Record<string, any>,
@@ -666,6 +762,30 @@ export class ImageTaskService {
       task.aiProvider,
       taskRequestData?.aiProvider,
     );
+    const imageReuseSignature = this.buildAsyncImageReuseSignature({
+      taskType,
+      prompt: task.prompt,
+      requestData: taskRequestData,
+      providerName: resolvedTaskProviderName,
+      model,
+      serviceType,
+      outputImageCount,
+    });
+    const asyncCreditRequestParams = {
+      ...this.buildAsyncTaskCreditRequestParams(
+        taskId,
+        taskType,
+        taskRequestData,
+        resolvedTaskProviderName,
+      ),
+      ...(imageReuseSignature
+        ? {
+            imageReuseCacheEligible: true,
+            imageReuseCacheSignature: imageReuseSignature.signature,
+            imageReuseCacheVersion: imageReuseSignature.version,
+          }
+        : {}),
+    };
     const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
 
     // 如果有 apiUsageId，则说明已在控制器层预扣积分；否则需要自己处理
@@ -696,12 +816,7 @@ export class ImageTaskService {
                 model,
                 inputImageCount,
                 outputImageCount,
-                requestParams: this.buildAsyncTaskCreditRequestParams(
-                  taskId,
-                  taskType,
-                  taskRequestData,
-                  resolvedTaskProviderName,
-                ),
+                requestParams: asyncCreditRequestParams,
               });
               effectiveApiUsageId = deductResult.apiUsageId;
               this.logger.debug(
@@ -722,6 +837,14 @@ export class ImageTaskService {
               });
               return;
             }
+          }
+
+          if (imageReuseSignature && effectiveApiUsageId) {
+            await this.updateImageReuseApiUsageParams(effectiveApiUsageId, {
+              imageReuseCacheEligible: true,
+              imageReuseCacheSignature: imageReuseSignature.signature,
+              imageReuseCacheVersion: imageReuseSignature.version,
+            });
           }
 
           await this.prisma.imageTask.update({
@@ -760,8 +883,55 @@ export class ImageTaskService {
 
           const generate = async (): Promise<any> => {
             switch (taskType) {
-              case 'generate':
+              case 'generate': {
+                if (imageReuseSignature) {
+                  const claimed = await this.imageReuseCache.claimNextUnusedAsset({
+                    userId: task.userId,
+                    signature: imageReuseSignature.signature,
+                    apiUsageId: effectiveApiUsageId,
+                  });
+                  if (claimed) {
+                    const presentationDelayMs =
+                      await this.imageReuseCache.waitForHitPresentationDelay(claimed.presentationDelayMs);
+                    await this.updateImageReuseApiUsageParams(effectiveApiUsageId, {
+                      imageReuseCacheEligible: true,
+                      imageReuseCacheHit: true,
+                      imageReuseAssetId: claimed.id,
+                      imageReuseCacheScope: claimed.scope,
+                      imageReuseAssetOwnerIsRequester: claimed.assetOwnerIsRequester,
+                      imageReuseAssetOwnerUserId: claimed.assetOwnerUserId,
+                      imageReuseCacheSignature: imageReuseSignature.signature,
+                      imageReuseCacheVersion: imageReuseSignature.version,
+                      imageReuseCachePoolSize: claimed.poolSize,
+                      imageReuseCacheAvailablePoolSize: claimed.availablePoolSize,
+                      imageReuseCacheMinPoolSize: claimed.minPoolSize,
+                      imageReuseCachePresentationDelayMs: presentationDelayMs,
+                    });
+                    return {
+                      imageUrl: claimed.imageUrl,
+                      textResponse: claimed.textResponse || '',
+                      metadata: {
+                        ...(claimed.metadata || {}),
+                        imageUrl: claimed.imageUrl,
+                        ...(claimed.imageKey ? { imageKey: claimed.imageKey } : {}),
+                        imageReuseCache: {
+                          hit: true,
+                          scope: claimed.scope,
+                          assetId: claimed.id,
+                          signature: imageReuseSignature.signature,
+                          version: imageReuseSignature.version,
+                          assetOwnerIsRequester: claimed.assetOwnerIsRequester,
+                          availablePoolSize: claimed.availablePoolSize,
+                          poolSize: claimed.poolSize,
+                          minPoolSize: claimed.minPoolSize,
+                          presentationDelayMs,
+                        },
+                      },
+                    };
+                  }
+                }
                 return await this.runGenerateTask(task, taskRequestData || {}, model);
+              }
               case 'edit': {
                 const editProvider = this.providerFactory.getProvider(model, 'new-api');
                 const editResult = await editProvider.editImage(taskRequestData as any);
@@ -816,17 +986,41 @@ export class ImageTaskService {
             throw new BadGatewayException('Image task succeeded but no image payload returned');
           }
 
+          const resultMetadata =
+            result?.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+              ? ({ ...(result.metadata as Record<string, any>) } as Record<string, any>)
+              : {};
+          const imageReuseCacheMeta =
+            resultMetadata.imageReuseCache &&
+            typeof resultMetadata.imageReuseCache === 'object' &&
+            !Array.isArray(resultMetadata.imageReuseCache)
+              ? (resultMetadata.imageReuseCache as Record<string, any>)
+              : null;
+          const isImageReuseCacheHit = imageReuseCacheMeta?.hit === true;
+
           let persistedImageUrl: string | null = null;
           let persistedThumbnailUrl: string | null = null;
           if (taskImagePayload) {
-            if (/^https?:\/\//i.test(taskImagePayload)) {
+            if (isImageReuseCacheHit && /^https?:\/\//i.test(taskImagePayload)) {
+              persistedImageUrl = taskImagePayload;
+              persistedThumbnailUrl = taskImagePayload;
+              resultMetadata.imageUrl = taskImagePayload;
+            } else if (/^https?:\/\//i.test(taskImagePayload)) {
               const uploaded = await this.uploadRemoteImageToOss(taskImagePayload, task.userId);
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
+              resultMetadata.imageUrl = uploaded.url;
+              resultMetadata.imageKey = uploaded.key;
+              resultMetadata.mimeType = uploaded.mimeType;
+              resultMetadata.bytes = uploaded.size;
             } else {
               const uploaded = await this.uploadImagePayloadToOss(taskImagePayload, task.userId);
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
+              resultMetadata.imageUrl = uploaded.url;
+              resultMetadata.imageKey = uploaded.key;
+              resultMetadata.mimeType = uploaded.mimeType;
+              resultMetadata.bytes = uploaded.size;
             }
           }
 
@@ -846,6 +1040,22 @@ export class ImageTaskService {
           if (succeededCount === 0) {
             this.logger.warn(`任务已被判失败，丢弃迟到的成功结果: taskId=${taskId}`);
             return;
+          }
+
+          if (!isImageReuseCacheHit) {
+            await this.recordGeneratedImageReuseAsset({
+              userId: task.userId,
+              signature: imageReuseSignature,
+              imageUrl: persistedImageUrl,
+              result: {
+                ...result,
+                metadata: resultMetadata,
+              },
+              providerName: resolvedTaskProviderName,
+              model,
+              serviceType,
+              apiUsageId: effectiveApiUsageId,
+            });
           }
 
           void this.publishTaskStatus(

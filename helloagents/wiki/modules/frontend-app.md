@@ -66,6 +66,7 @@
 - 积分流水在“项目”列支持显示 AI 渠道与模型（如 `渠道：A · 模型：gemini-2.5-flash-image-preview`），用于定位实际执行链路。
 - 记录列表会额外读取已支付会员订单，并把 VIP 订阅消费按 `PaymentOrder.planName/amount/paymentMethod/orderNo` 合并展示；普通充值仍沿用积分流水展示，避免重复。
 - 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
+- 付费用户不再额外展示“签到积分永久有效”绿色提示条；只保留即将过期积分提醒给非付费用户。
 - `MembershipPanel` 中“积分充值”区域对所有用户开放，且在会员页顶部优先展示（打开即见），无需先选择或购买 VIP。
 - `MembershipPanel` 的 VIP 订阅视图使用紧凑的当前会员摘要栏承载计费周期切换、当前额度和刷新说明；套餐卡片按档位强化视觉区分，减少长卡片大留白，但不改变订单创建、支付方式切换和轮询逻辑。
 - `MembershipPanel` 的 VIP 套餐卡片合计积分按预计月合计展示：套餐到账积分 + `dailyGiftCredits * 30` 每日签到积分 + `dailyGiftCredits * (rewardMultiplier - 1) * 4` 连续 7 天签到额外奖励。

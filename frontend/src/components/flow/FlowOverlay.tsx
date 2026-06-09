@@ -20978,6 +20978,7 @@ function FlowInner() {
                 base64: entry.hasRemote ? undefined : entry.source,
                 remoteUrl: entry.hasRemote ? entry.source : undefined,
                 title: itemTitle,
+                prompt: finalPrompt,
                 nodeId,
                 nodeType: node.type,
                 fileName: `flow_${node.type}_${entry.id}_${idx + 1}.png`,
@@ -21462,6 +21463,7 @@ function FlowInner() {
                 base64: historyRemote ? undefined : stableImageRef,
                 remoteUrl: historyRemote ? stableImageRef : undefined,
                 title: `${historyPrefix} ${new Date().toLocaleTimeString()}`,
+                prompt: promptText,
                 nodeId,
                 nodeType: "generate",
                 fileName,
@@ -21658,6 +21660,7 @@ function FlowInner() {
                 base64: historyRemote ? undefined : historySource,
                 remoteUrl: historyRemote ? historySource : undefined,
                 title: `Seedream ${new Date().toLocaleTimeString()}`,
+                prompt: promptText,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_seedream5_${historyId}.png`,
@@ -22185,6 +22188,7 @@ function FlowInner() {
                 title: `Generate4 #${
                   slotIndex + 1
                 } ${new Date().toLocaleTimeString()}`,
+                prompt,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_generate4_${historyId}.png`,
@@ -22480,6 +22484,7 @@ function FlowInner() {
                   title: `GeneratePro4 #${
                     slotIndex + 1
                   } ${new Date().toLocaleTimeString()}`,
+                  prompt,
                   nodeId,
                   nodeType: "generatePro4",
                   fileName: `flow_generatepro4_${historyId}.png`,
@@ -22777,6 +22782,7 @@ function FlowInner() {
                   ? "ViewAngle"
                   : "Generate"
               } ${new Date().toLocaleTimeString()}`,
+              prompt,
               nodeId,
               nodeType: historyNodeType,
               fileName: `flow_${node.type || "generate"}_${historyId}.png`,

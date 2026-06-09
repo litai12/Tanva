@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Added
+- Backend/AI: added a first-pass text-to-image reuse cache. Eligible single-output, no-reference, no-web-search image requests now claim an unused matching `GenerationImageAsset` by stable request signature before calling the provider once the same-signature unused asset pool reaches `IMAGE_REUSE_CACHE_MIN_POOL_SIZE` (default 3); `IMAGE_REUSE_CACHE_SCOPE` defaults to `global` for a site-wide shared pool and can be set to `user` for per-user isolation. Cache hits still use normal credit deduction and wait `IMAGE_REUSE_CACHE_HIT_DELAY_MS` (default 8000ms) before returning so Flow progress does not look like an instant fake result; successful fresh generations are recorded for later reuse.
 - AI Chat/Agent: `research_cases` can now use the Volcengine web/image search API (`VOLC_SEARCH_*`) plus model JSON extraction to build case cards from real web results, then populate real image thumbnails; static case cards are only a disabled/failed/empty-search fallback.
 - AI Chat/Agent: `research_cases` runs now emit a structured research result with architecture case cards, source links, and image-search slots; Auto text chat also enables web search automatically for case/reference/research prompts.
 - AI Chat/Agent: added a first-stage Agent Runtime skeleton with authenticated `/api/agent/runs` plus SSE run events, and AI Chat now records Auto-mode agent planning traces on the active AI message before handing off to the existing tool execution path.
@@ -55,6 +56,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - My Credits: paid VIP membership orders are now merged into the records list with plan name, payment amount, method, and order number, while regular recharge remains represented by credit ledger rows to avoid duplicates.
 
 ### Changed
+- My Credits: removed the paid-user “check-in credits never expire” badge from `/my-credits`; expiring-credit alerts remain limited to non-paid users.
 - AI Chat: expanded history mode now starts with a reserved top gap so a strip of the canvas/header remains visible, while manual height resize can still pull the panel close to full height.
 - Admin/Auth: default login activity notice now hides the Seedance activity slide and shows only the 2026 Tanvas AI contest popup with registration/community QR and contest-detail actions.
 - Flow/Prompt Mentions: inline `@` image references now use a non-layout background highlight drawn on the existing inline token, keeping textarea overlay wrapping and multiple-token alignment unchanged.
@@ -82,6 +84,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Global History: Flow image generation entries now store the actual request prompt separately from display titles like `Generate 22:18:44`, and legacy auto titles are no longer shown as prompts in image detail.
 - Workspace Settings: invite status now paginates referral records via `/api/referral/stats?page=&pageSize=`, so users with more than 20 invites can navigate older records.
 - AI Chat Image Count: explicit multi-image prompts such as `画三张...每张图1只` now split the batch into per-slot single-image prompts, so each parallel generation creates one independent image instead of reinterpreting the total count as a collage or multiple subjects in one image.
 - AI Chat/Agent: research-only case lookup now returns both the text-stage web-search answer and the Volcengine structured search payload (`text` + `volc`), and removes local static case-library / hard-coded architect fallback seeds from the Agent research path.

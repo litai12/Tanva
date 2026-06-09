@@ -8,6 +8,7 @@
 - `backend/src/ai/ai.service.ts`：AI 业务逻辑（Gemini 等）
 - `backend/src/ai/tool-selection-json.util.ts`：工具选择响应提取/解析（支持前后缀文本/markdown code fence/非严�?JSON/从文本提取工具名�?
 - `backend/src/ai/services/*`：不同能�?供应商的服务拆分
+- `backend/src/ai/services/image-reuse-cache.service.ts`：纯文生图结果复用缓存；生成请求按完整参数签名查找未取用的 OSS 图片资产，默认使用全站共享池，缓存命中仍走正常积分扣费
 - `backend/src/ai/providers/*`：供应商适配（以实现为准�?
 - `backend/src/ai/dto/*`：请�?响应 DTO
 
@@ -38,6 +39,7 @@
 - `NewApiProvider` normalizes Gemini image `aspectRatio` before calling new-api: Gemini 2.5/Pro use the base supported set (`1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9`), while Gemini 3.1 Flash additionally allows `1:4`, `4:1`, `1:8`, and `8:1`; unsupported values such as `2:1`, `1:2`, or `9:21` snap to the nearest supported ratio instead of failing upstream.
 - `NewApiProvider` text chat retries once without `web_search_preview` when an enabled web-search tools request fails with an upstream tools/5xx-style error, including `HTTP 520: openai_error`. Successful fallback responses carry `metadata.webSearchFallback = true`, and `POST /api/ai/text-chat` returns readable `503` provider failures instead of a generic Nest 500.
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
+- `generate-image` / `generate-image-async` 第一版支持纯文生图复用缓存：仅无参考图、无联网搜索、单张输出的请求会构造 `imageReuseCacheSignature`；默认 `IMAGE_REUSE_CACHE_SCOPE=global`，同签名且当前用户尚未取用的全站 active 资产池达到 `IMAGE_REUSE_CACHE_MIN_POOL_SIZE`（默认 3）后，才会命中 `GenerationImageAsset` 并直接返回缓存 OSS URL；如需退回单用户隔离，可设置 `IMAGE_REUSE_CACHE_SCOPE=user`。已被当前用户取用的资产不会继续计入该用户的命中门槛，避免缓存用完后出现“新生成一张、下一次立刻复用一张”的循环；缓存命中仍通过原 `withCredits` / `preDeductCredits` 计费，并在返回前等待 `IMAGE_REUSE_CACHE_HIT_DELAY_MS`（默认 8000ms，0 可关闭）让 Flow 进度条保持自然运行。真实生成成功后会写入 `GenerationImageAsset`，资产仍保留原生成者 `userId`，`GenerationImageReuse.userId` 记录领取者。
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.
 - `GET /api/ai/seedream5/provider` returns current Seedream channel provider/model for frontend node UI capability gating.

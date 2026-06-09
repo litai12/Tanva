@@ -14,6 +14,7 @@
 - `CreditPricing` / `CreditPackage`：计费配置与套餐
 - `InvitationCode` / `InvitationRedemption`：邀请码与兑换
 - `GlobalImageHistory`：全局图片历史
+- `GenerationImageAsset` / `GenerationImageReuse`：纯文生图复用缓存；按完整请求签名索引已生成 OSS 图片，并记录用户已取用资产；默认全站共享池，资产保留原生成者，复用记录记录领取者
 - `PublicTemplate`：公共模板
 - `UserTemplate`：用户私有模板（“我的模板”云端持久化）
 - `SystemSetting`：系统配置
@@ -24,3 +25,4 @@
 - `Project` 1..n `WorkflowHistory`
 - `User` 0..1 `CreditAccount`，`CreditAccount` 1..n `CreditTransaction`
 - `User` 1..n `RefreshToken`
+- `User` 1..n `GenerationImageAsset` / `GenerationImageReuse`；`GenerationImageAsset.userId` 是原生成者，`GenerationImageReuse.userId` 是领取/复用者；默认 `IMAGE_REUSE_CACHE_SCOPE=global` 支持跨用户共享池，可用 `user` 切回单用户隔离
