@@ -11241,7 +11241,12 @@ function FlowInner() {
     return klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
   }, []);
 
-  /** Kling 2.6/3.0 pro 模式支持首尾帧（image-2）；std 模式仅 1 张图 */
+  /**
+   * Kling 首尾帧(image-2)句柄可用性：
+   *  - Kling v3-0：APIMart image_urls/image_with_roles 不限模式，std/pro 均支持首尾帧(2 张)；
+   *  - Kling v2-6：仅 pro 模式支持第二张(首+尾)。
+   * 须与 GenericVideoNode 的 canUseKlingImage2Input 保持一致，否则句柄可见但连不上线。
+   */
   const canKlingNodeUseImage2Input = React.useCallback((node?: Node | null) => {
     if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video" && node.type !== "kling30Video")) {
       return false;
@@ -11254,9 +11259,9 @@ function FlowInner() {
         : node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
         : "kling-v2-6");
-    const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+    if (klingModel === "kling-v3-0") return true;
     const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-    return isKling26Model && mode === "pro";
+    return klingModel === "kling-v2-6" && mode === "pro";
   }, []);
 
   const isSeedance20ModeValue = React.useCallback(
@@ -12277,7 +12282,9 @@ function FlowInner() {
         if (params.targetHandle === "image" || params.targetHandle === "image-2") {
           if (!isImageHandle(params.targetHandle) && params.targetHandle !== "image-2") return false;
           if (params.targetHandle === "image-2") {
-            if (!isKling26Model || mode !== "pro") return false;
+            // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro
+            const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+            if (!allowImage2) return false;
           }
           // 同一个 handle 只能连 1 张图（不能重复连线替换）
           return incoming.length < 1;
@@ -12627,20 +12634,24 @@ function FlowInner() {
               )
           );
         }
-        // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
-        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
+        // Kling 视频节点：v2-6 std 最多 1 张图、pro 最多 2 张；v3-0 std/pro 均支持首尾帧(2 张)
+        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video" || tgt?.type === "kling30Video") &&
             (params.targetHandle === "image" || params.targetHandle === "image-2")) {
           const nodeData = (tgt.data || {}) as Record<string, any>;
           const klingModel =
             nodeData.klingModel ||
-            (tgt?.type === "kling26Video" || nodeData.provider === "kling-2.6"
+            (tgt?.type === "kling30Video"
+              ? "kling-v3-0"
+              : tgt?.type === "kling26Video" || nodeData.provider === "kling-2.6"
               ? "kling-v2-6"
               : "kling-v2-6");
           const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
           const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-          const maxImages = isKling26Model && mode === "pro" ? 2 : 1;
-          // image-2 只能在 pro 模式下接，不能替换 image
-          if (params.targetHandle === "image-2" && !(isKling26Model && mode === "pro")) {
+          // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro 支持第二张
+          const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+          const maxImages = allowImage2 ? 2 : 1;
+          // image-2 只能在允许首尾帧时接，不能替换 image
+          if (params.targetHandle === "image-2" && !allowImage2) {
             return;
           }
           const imgEdges = next.filter(
