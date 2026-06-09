@@ -10,12 +10,20 @@ const KEY = Buffer.alloc(32, 7).toString('base64');
 
 describe('secret-crypto', () => {
   const original = process.env.TENANT_SECRET_KEY;
+  const originalJwtR = process.env.JWT_REFRESH_SECRET;
+  const originalJwtA = process.env.JWT_ACCESS_SECRET;
   beforeEach(() => {
     process.env.TENANT_SECRET_KEY = KEY;
+    // 隔离派生来源，避免测试机环境里的 JWT 密钥干扰 fail-closed 用例
+    delete process.env.JWT_REFRESH_SECRET;
+    delete process.env.JWT_ACCESS_SECRET;
   });
+  const restore = (k: string, v: string | undefined) =>
+    v === undefined ? delete process.env[k] : (process.env[k] = v);
   afterAll(() => {
-    if (original === undefined) delete process.env.TENANT_SECRET_KEY;
-    else process.env.TENANT_SECRET_KEY = original;
+    restore('TENANT_SECRET_KEY', original);
+    restore('JWT_REFRESH_SECRET', originalJwtR);
+    restore('JWT_ACCESS_SECRET', originalJwtA);
   });
 
   it('加解密往返一致', () => {
@@ -56,10 +64,29 @@ describe('secret-crypto', () => {
     expect(decryptSecret('legacy-plaintext')).toBe('legacy-plaintext');
   });
 
-  it('fail-closed：无主密钥时加密抛错（绝不明文落库）', () => {
+  it('fail-closed：无主密钥且无 JWT 派生来源时加密抛错（绝不明文落库）', () => {
     delete process.env.TENANT_SECRET_KEY;
+    // beforeEach 已清掉 JWT_*，此处无任何派生来源
     expect(isSecretCryptoReady()).toBe(false);
     expect(() => encryptSecret('secret')).toThrow();
+  });
+
+  it('无显式 TENANT_SECRET_KEY 但有 JWT_REFRESH_SECRET → 派生主密钥，加解密可用', () => {
+    delete process.env.TENANT_SECRET_KEY;
+    process.env.JWT_REFRESH_SECRET = 'some-high-entropy-refresh-secret';
+    expect(isSecretCryptoReady()).toBe(true);
+    const enc = encryptSecret('mch-private-key')!;
+    expect(isEncrypted(enc)).toBe(true);
+    expect(decryptSecret(enc)).toBe('mch-private-key');
+  });
+
+  it('派生稳定：同一 JWT_REFRESH_SECRET 解得回；换了则解不开', () => {
+    delete process.env.TENANT_SECRET_KEY;
+    process.env.JWT_REFRESH_SECRET = 'refresh-A';
+    const enc = encryptSecret('x')!;
+    expect(decryptSecret(enc)).toBe('x');
+    process.env.JWT_REFRESH_SECRET = 'refresh-B';
+    expect(() => decryptSecret(enc)).toThrow(); // 不同派生密钥 → GCM 校验失败
   });
 
   it('主密钥长度非法时抛错', () => {

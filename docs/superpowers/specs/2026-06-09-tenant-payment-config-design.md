@@ -26,7 +26,7 @@
 
 ## 加密工具 `src/utils/secret-crypto.ts`（新）
 
-AES-256-GCM，主密钥 env `TENANT_SECRET_KEY`（base64 32 字节）。密文格式 `v1:<iv_b64>:<tag_b64>:<ct_b64>`。`encryptSecret(plain)` / `decryptSecret(enc)`。**Fail-closed**：要加密但无主密钥 → 抛错（绝不明文落库）。`isEncrypted(s)` 辅助。
+AES-256-GCM。主密钥优先 env `TENANT_SECRET_KEY`（base64 32 字节，生产推荐可独立轮换）；**未设则从已有的 `JWT_REFRESH_SECRET`（退而 `JWT_ACCESS_SECRET`）经 HKDF-SHA256 派生**（每环境唯一、不进源码，免新增运维项即"自带默认值"；不用写死公开常量，否则等于架空加密）。两者皆无才 fail-closed 抛错（绝不明文落库）。密文 `v1:<iv_b64>:<tag_b64>:<ct_b64>`。`encryptSecret` / `decryptSecret` / `isEncrypted` / `isSecretCryptoReady`。⚠ 依赖派生时若轮换 JWT_REFRESH_SECRET，旧密文将解不开。
 
 ## 解析器 `TenantPaymentResolver`（新，镜像 `NewApiKeyResolver`，注册进 `@Global` TenancyModule）
 

@@ -2,41 +2,56 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
+  hkdfSync,
 } from 'crypto';
 
 /**
  * 租户级机密（支付私钥/证书/APIv3 key 等）的对称加密工具。
  *
- * 算法：AES-256-GCM。主密钥来自 env `TENANT_SECRET_KEY`（base64，解码后必须 32 字节）。
- * 密文格式（便于将来轮换算法）：`v1:<iv_b64>:<tag_b64>:<ciphertext_b64>`。
+ * 算法：AES-256-GCM。主密钥按以下优先级取得：
+ *   1. env `TENANT_SECRET_KEY`（base64，解码后必须 32 字节）—— 生产推荐，可独立轮换；
+ *   2. 否则从已有的应用级密钥 `JWT_REFRESH_SECRET`（退而 `JWT_ACCESS_SECRET`）经 HKDF-SHA256 派生
+ *      —— 每环境唯一、**不进源码**，免去新增运维项即"自带默认值"。
  *
- * Fail-closed：要加密但主密钥缺失/非法 → 抛错，**绝不**把明文落库。
+ * 之所以不放写死的公开默认常量：那等于把密文对任何能看到代码的人变成明文，架空加密本身。
+ * 派生方案保留「攻击者还需拿到该环境的 JWT 密钥才能解密」的真实保护。
+ *
+ * 密文格式（便于将来轮换算法）：`v1:<iv_b64>:<tag_b64>:<ciphertext_b64>`。
+ * Fail-closed：连派生来源都没有时加密抛错，**绝不**把明文落库。
+ *
+ * ⚠ 轮换注意：若依赖派生（未设 TENANT_SECRET_KEY）且轮换了 JWT_REFRESH_SECRET，
+ *   已有密文将无法解密。对需独立轮换的生产环境，建议显式设 TENANT_SECRET_KEY。
  */
 
 const VERSION = 'v1';
 const ALGO = 'aes-256-gcm';
 const IV_LEN = 12; // GCM 推荐 12 字节
 const KEY_LEN = 32;
+const DERIVE_SALT = 'tanva:tenant-payment-secret:v1';
+const DERIVE_INFO = 'aes-256-gcm-master-key';
 
 function loadMasterKey(): Buffer {
-  const raw = process.env.TENANT_SECRET_KEY?.trim();
-  if (!raw) {
-    throw new Error(
-      'TENANT_SECRET_KEY 未配置：无法加密/解密租户机密。请在 env 设置 base64 编码的 32 字节密钥。',
-    );
+  // 1. 显式主密钥（base64 32 字节）
+  const explicit = process.env.TENANT_SECRET_KEY?.trim();
+  if (explicit) {
+    const key = Buffer.from(explicit, 'base64');
+    if (key.length !== KEY_LEN) {
+      throw new Error(
+        `TENANT_SECRET_KEY 长度错误：base64 解码后需 ${KEY_LEN} 字节，实际 ${key.length} 字节。`,
+      );
+    }
+    return key;
   }
-  let key: Buffer;
-  try {
-    key = Buffer.from(raw, 'base64');
-  } catch {
-    throw new Error('TENANT_SECRET_KEY 非法：必须是 base64 编码。');
+  // 2. 回落：从已有应用级密钥派生（不进源码、每环境唯一）
+  const ikm =
+    process.env.JWT_REFRESH_SECRET?.trim() || process.env.JWT_ACCESS_SECRET?.trim();
+  if (ikm) {
+    const derived = hkdfSync('sha256', ikm, DERIVE_SALT, DERIVE_INFO, KEY_LEN);
+    return Buffer.from(derived);
   }
-  if (key.length !== KEY_LEN) {
-    throw new Error(
-      `TENANT_SECRET_KEY 长度错误：解码后需 ${KEY_LEN} 字节，实际 ${key.length} 字节。`,
-    );
-  }
-  return key;
+  throw new Error(
+    '无法取得加密主密钥：请设置 TENANT_SECRET_KEY（base64 32 字节），或确保已配置 JWT_REFRESH_SECRET 供派生。',
+  );
 }
 
 /** 是否为本工具产出的密文（带版本前缀）。 */
