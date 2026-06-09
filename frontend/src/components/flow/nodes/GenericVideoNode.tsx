@@ -1428,6 +1428,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? !hasImageInput
       : provider === "vidu"
       ? true
+      // kling 全系(apimart kling-v2-6/v3/v3-omni)各模式均接受 aspect_ratio，
+      // 始终展示可选（图生/首尾帧时上游可能用图片实际比例覆盖，属合法行为）。
+      : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
+      ? true
       : !hasImageInput;
   const seedance20ResolutionList = React.useMemo<string[]>(
     () => getSeedance20ResolutionList(seedanceModel),

@@ -95,6 +95,10 @@ import {
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "./managedRoutePricing";
+import {
+  resolveKlingO3VideoMode,
+  normalizeKlingO3ImageMode,
+} from "./klingO3VideoMode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import VideoToGifNode from "./nodes/VideoToGifNode";
 import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
@@ -1298,6 +1302,11 @@ const SORA2_MAX_REFERENCE_IMAGES = 1;
 const VIDU_MAX_REFERENCE_IMAGES = 2; // Vidu 当前统一限制最多 2 张参考图（图1/图2）
 const VIDUQ3_MAX_REFERENCE_IMAGES = 2; // Vidu Q3 支持最多 2 张参考图
 const KLING_MAX_REFERENCE_IMAGES = 2; // Kling 2.1 / 2.6 统一限制最多 2 张参考图
+// Kling O3 (Omni) 图片参考模式支持 1~7 张（首尾帧仍是 2 张，但后端只取 [0]/[1]，
+// 多余的图在 frame/video 模式被忽略，故收集上限统一取参考模式的 7 即可）。
+const KLING_O3_MAX_REFERENCE_IMAGES = 7;
+// 连了参考视频时，APIMart omni 限制图片最多 4 张（且后端只取首帧做参考）。
+const KLING_O3_MAX_REFERENCE_IMAGES_WITH_VIDEO = 4;
 const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
 const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
@@ -11241,7 +11250,12 @@ function FlowInner() {
     return klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
   }, []);
 
-  /** Kling 2.6/3.0 pro 模式支持首尾帧（image-2）；std 模式仅 1 张图 */
+  /**
+   * Kling 首尾帧(image-2)句柄可用性：
+   *  - Kling v3-0：APIMart image_urls/image_with_roles 不限模式，std/pro 均支持首尾帧(2 张)；
+   *  - Kling v2-6：仅 pro 模式支持第二张(首+尾)。
+   * 须与 GenericVideoNode 的 canUseKlingImage2Input 保持一致，否则句柄可见但连不上线。
+   */
   const canKlingNodeUseImage2Input = React.useCallback((node?: Node | null) => {
     if (!node || (node.type !== "klingVideo" && node.type !== "kling26Video" && node.type !== "kling30Video")) {
       return false;
@@ -11254,9 +11268,9 @@ function FlowInner() {
         : node.type === "kling26Video" || nodeData.provider === "kling-2.6"
         ? "kling-v2-6"
         : "kling-v2-6");
-    const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
+    if (klingModel === "kling-v3-0") return true;
     const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-    return isKling26Model && mode === "pro";
+    return klingModel === "kling-v2-6" && mode === "pro";
   }, []);
 
   const isSeedance20ModeValue = React.useCallback(
@@ -12277,7 +12291,9 @@ function FlowInner() {
         if (params.targetHandle === "image" || params.targetHandle === "image-2") {
           if (!isImageHandle(params.targetHandle) && params.targetHandle !== "image-2") return false;
           if (params.targetHandle === "image-2") {
-            if (!isKling26Model || mode !== "pro") return false;
+            // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro
+            const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+            if (!allowImage2) return false;
           }
           // 同一个 handle 只能连 1 张图（不能重复连线替换）
           return incoming.length < 1;
@@ -12627,20 +12643,24 @@ function FlowInner() {
               )
           );
         }
-        // Kling 视频节点：std 最多 1 张图，pro 最多 2 张（image + image-2）
-        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video") &&
+        // Kling 视频节点：v2-6 std 最多 1 张图、pro 最多 2 张；v3-0 std/pro 均支持首尾帧(2 张)
+        if ((tgt?.type === "klingVideo" || tgt?.type === "kling26Video" || tgt?.type === "kling30Video") &&
             (params.targetHandle === "image" || params.targetHandle === "image-2")) {
           const nodeData = (tgt.data || {}) as Record<string, any>;
           const klingModel =
             nodeData.klingModel ||
-            (tgt?.type === "kling26Video" || nodeData.provider === "kling-2.6"
+            (tgt?.type === "kling30Video"
+              ? "kling-v3-0"
+              : tgt?.type === "kling26Video" || nodeData.provider === "kling-2.6"
               ? "kling-v2-6"
               : "kling-v2-6");
           const isKling26Model = klingModel === "kling-v2-6" || klingModel === "kling-v3-0";
           const mode = typeof nodeData.mode === "string" ? nodeData.mode : "std";
-          const maxImages = isKling26Model && mode === "pro" ? 2 : 1;
-          // image-2 只能在 pro 模式下接，不能替换 image
-          if (params.targetHandle === "image-2" && !(isKling26Model && mode === "pro")) {
+          // Kling v3-0：std/pro 均支持首尾帧；v2-6：仅 pro 支持第二张
+          const allowImage2 = klingModel === "kling-v3-0" || (isKling26Model && mode === "pro");
+          const maxImages = allowImage2 ? 2 : 1;
+          // image-2 只能在允许首尾帧时接，不能替换 image
+          if (params.targetHandle === "image-2" && !allowImage2) {
             return;
           }
           const imgEdges = next.filter(
@@ -18490,6 +18510,11 @@ function FlowInner() {
         const seedanceMode = isSeedanceNode ? inferSeedanceMode(node) : undefined;
         const seedanceModeSpec = isSeedanceNode ? getSeedanceModeSpec(node) : undefined;
 
+        // 检查是否有视频输入
+        const hasVideoInput = currentEdges.some(
+          (e) => e.target === nodeId && e.targetHandle === "video"
+        );
+
         // 先获取图片数量，判断是否需要 prompt
         const maxImages =
           isSeedanceNode && seedanceModeSpec
@@ -18498,14 +18523,14 @@ function FlowInner() {
             ? 3
             : provider === "vidu" || provider === "viduq3-pro"
             ? getEffectiveViduMaxReferenceImages(viduNodeDataForProvider)
-            : provider === "kling" || provider === "kling-2.6" || provider === "kling-o3"
+            : provider === "kling-o3"
+            ? // Omni 参考模式 1~7；连了参考视频时上游限制图片≤4（且只取首帧参考）。
+              hasVideoInput
+              ? KLING_O3_MAX_REFERENCE_IMAGES_WITH_VIDEO
+              : KLING_O3_MAX_REFERENCE_IMAGES
+            : provider === "kling" || provider === "kling-2.6"
             ? KLING_MAX_REFERENCE_IMAGES
             : SORA2_MAX_REFERENCE_IMAGES;
-
-        // 检查是否有视频输入
-        const hasVideoInput = currentEdges.some(
-          (e) => e.target === nodeId && e.targetHandle === "video"
-        );
 
         const imageHandlePriority = (handle?: string | null): number => {
           if (handle === "image") return 0;
@@ -19532,6 +19557,10 @@ function FlowInner() {
             ? aspectSetting || undefined
             : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
+            : provider === "kling-o3" || provider === "kling-2.6" || provider === "kling"
+            // kling 全系(apimart kling-v2-6/v3/v3-omni)各模式(文生/首尾帧/参考图/参考视频)
+            // 均接受 aspect_ratio，不因连图而丢弃；图生/首尾帧场景上游可能用图片实际比例覆盖（合法行为）。
+            ? aspectSetting || undefined
             : referenceImageUrls.length > 0
             ? undefined
             : aspectSetting || undefined;
@@ -19788,23 +19817,39 @@ function FlowInner() {
                   provider: provider as VideoProvider,
                   mode: rawNodeData.mode,
                   // omni 多分镜：复用 storyboard 模式/脚本 → multi_shot/shot_type/multi_prompt。
+                  // 多分镜与参考视频互斥（上游：multi shot is not supported with
+                  // video input）。连了参考视频就不下发 storyboard，避免上游 400。
                   klingStoryboardMode:
-                    provider === "kling-o3" ? rawNodeData.klingStoryboardMode : undefined,
+                    provider === "kling-o3" && !referenceVideoUrl
+                      ? rawNodeData.klingStoryboardMode
+                      : undefined,
                   klingStoryboardScript:
-                    provider === "kling-o3" ? rawNodeData.klingStoryboardScript : undefined,
+                    provider === "kling-o3" && !referenceVideoUrl
+                      ? rawNodeData.klingStoryboardScript
+                      : undefined,
                   klingModel: klingModel === "kling-v3-0" ? "kling-v3-0" : rawNodeData.klingModel,
                   // 让后端区分 首尾帧(frame) / 单图(image) / 多主体参考(reference) /
                   // 参考视频(video) / 文生(text)。omni 据此用 image_with_roles 表达首尾帧/参考；
                   // v2-6/v3 走 image_urls[0,1]。仅统计 image/image-2 桩的图（不含 element 角色图）。
-                  videoMode: referenceVideoUrl
-                    ? "video"
-                    : provider === "kling-o3" && klingReferenceImagesForSend.length >= 3
-                    ? "reference"
-                    : klingReferenceImagesForSend.length >= 2
-                    ? "frame"
-                    : klingReferenceImagesForSend.length === 1
-                    ? "image"
-                    : "text",
+                  // kling-o3 用 resolveKlingO3VideoMode 单轨判定（与节点计费预估同源）：
+                  // 显式 imageType 优先(reference 全当参考图 / frame 2张首尾帧、1张退化单图)，
+                  // 未显式则按图片数量自动判定。kling/kling-2.6 仍走原数量判定。
+                  videoMode:
+                    provider === "kling-o3"
+                      ? resolveKlingO3VideoMode({
+                          hasReferenceVideo: Boolean(referenceVideoUrl),
+                          explicitImageType: normalizeKlingO3ImageMode(
+                            rawNodeData.imageType
+                          ),
+                          referenceImageCount: klingReferenceImagesForSend.length,
+                        })
+                      : referenceVideoUrl
+                      ? "video"
+                      : klingReferenceImagesForSend.length >= 2
+                      ? "frame"
+                      : klingReferenceImagesForSend.length === 1
+                      ? "image"
+                      : "text",
                   // 声音：按 APIMart 各模型真实约束发"有效声音"，避免"扣有声却无声"。
                   //  - omni(kling-o3): audio 与 video_list 互斥 → 连了参考视频则无声。
                   //  - v2-6: audio 仅 pro 模式且单图可用(与尾帧互斥) → 否则无声。

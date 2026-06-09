@@ -5,6 +5,7 @@ import PaymentPanel from "@/components/payment/PaymentPanel";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import {
   createMembershipOrder,
+  getDailyRewardStatus,
   getMembershipCurrent,
   getMembershipOrders,
   getPaymentMembershipPlans,
@@ -65,10 +66,10 @@ function splitBenefitText(value: unknown): string[] {
 
 function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
-  return `套餐积分合计到账 ${total} `;
+  return `立即到账积分 ${total} `;
 }
 
-function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent: string[] } {
+function vipFeatureLines(plan: PaymentMembershipPlan, rewardMultiplier: number): { main: string[]; accent: string[] } {
   const metadata = getPlanMetadataObject(plan.metadata);
   const main = [buildPlanCreditsSummary(plan), ...splitBenefitText(metadata.coreBenefits)];
   const accent: string[] = [];
@@ -103,7 +104,8 @@ function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent:
   }
 
   if (typeof plan.dailyGiftCredits === "number" && plan.dailyGiftCredits > 0) {
-    accent.push(`每日赠送：${plan.dailyGiftCredits} 积分`);
+    const { weeklyStreakBonusCredits } = getPlanMonthlyCreditsBreakdown(plan, rewardMultiplier);
+    accent.push(`每周连签7天：额外 ${weeklyStreakBonusCredits} 积分`);
   }
 
   if (metadata.pauseGiftDecay === true) {
@@ -138,6 +140,30 @@ function isRecommendedPlan(plan: PaymentMembershipPlan): boolean {
 
 /** 套餐卡默认统一最小高度（免费 + 各档付费、选中/未选中一致） */
 const PLAN_CARD_MIN_H = "min-h-[440px] sm:min-h-[470px] lg:min-h-[500px] xl:min-h-[520px]";
+const MEMBERSHIP_MONTH_DAYS = 30;
+const MONTHLY_7_DAY_STREAK_CYCLES = 4;
+const DEFAULT_7_DAY_REWARD_MULTIPLIER = 3;
+
+function getPlanMonthlyCreditsBreakdown(plan: PaymentMembershipPlan, rewardMultiplier: number) {
+  const immediateCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+  const dailyCheckInCredits = Math.max(0, Math.trunc(plan.dailyGiftCredits || 0));
+  const normalizedMultiplier = Math.max(
+    1,
+    Math.trunc(Number.isFinite(rewardMultiplier) ? rewardMultiplier : DEFAULT_7_DAY_REWARD_MULTIPLIER),
+  );
+  const monthlyDailyCheckInCredits = dailyCheckInCredits * MEMBERSHIP_MONTH_DAYS;
+  const weeklyStreakBonusCredits = dailyCheckInCredits * (normalizedMultiplier - 1);
+  const monthlyStreakBonusCredits = weeklyStreakBonusCredits * MONTHLY_7_DAY_STREAK_CYCLES;
+
+  return {
+    immediateCredits,
+    dailyCheckInCredits,
+    monthlyDailyCheckInCredits,
+    weeklyStreakBonusCredits,
+    monthlyStreakBonusCredits,
+    totalCredits: immediateCredits + monthlyDailyCheckInCredits + monthlyStreakBonusCredits,
+  };
+}
 
 const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSuccess, hideBackButton = false }) => {
   const [plans, setPlans] = useState<PaymentMembershipPlan[]>([]);
@@ -156,6 +182,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [hasWhitelistTopUpAccess, setHasWhitelistTopUpAccess] = useState(false);
+  const [sevenDayRewardMultiplier, setSevenDayRewardMultiplier] = useState(DEFAULT_7_DAY_REWARD_MULTIPLIER);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const hasYearlyPlans = useMemo(() => (plans || []).some((plan) => plan.billingCycle === "yearly"), [plans]);
@@ -171,10 +198,11 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   );
 
   const loadData = useCallback(async () => {
-    const [plansResult, currentResult, seedance2AccessResult] = await Promise.allSettled([
+    const [plansResult, currentResult, seedance2AccessResult, dailyRewardStatusResult] = await Promise.allSettled([
       getPaymentMembershipPlans(),
       getMembershipCurrent(),
       getSeedance2Access(),
+      getDailyRewardStatus(),
     ]);
 
     if (plansResult.status === "fulfilled") {
@@ -198,6 +226,18 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     } else {
       console.warn("加载白名单状态失败，默认按非白名单处理:", seedance2AccessResult.reason);
       setHasWhitelistTopUpAccess(false);
+    }
+
+    if (dailyRewardStatusResult.status === "fulfilled") {
+      const nextMultiplier = dailyRewardStatusResult.value.rewardMultiplier;
+      setSevenDayRewardMultiplier(
+        typeof nextMultiplier === "number" && Number.isFinite(nextMultiplier)
+          ? Math.max(1, Math.trunc(nextMultiplier))
+          : DEFAULT_7_DAY_REWARD_MULTIPLIER,
+      );
+    } else {
+      console.warn("加载签到奖励倍率失败，默认按 3 倍展示:", dailyRewardStatusResult.reason);
+      setSevenDayRewardMultiplier(DEFAULT_7_DAY_REWARD_MULTIPLIER);
     }
   }, []);
 
@@ -712,14 +752,14 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                     const active = plan.code === selectedPlanCode;
                     const confirmedActive = active && userConfirmedPlan;
                     const tierTitle = plan.name;
-                    const { main, accent } = vipFeatureLines(plan);
+                    const { main, accent } = vipFeatureLines(plan, sevenDayRewardMultiplier);
                     const isRecommended = isRecommendedPlan(plan);
                     const billingLabel = plan.billingCycle === "yearly" ? "年费套餐 · 在月付价基础上 8 折" : "月费套餐";
                     const equivMonthly =
                       plan.billingCycle === "yearly" && plan.price > 0
                         ? Math.round((plan.price / 12) * 100) / 100
                         : null;
-                    const planTotalCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+                    const creditsBreakdown = getPlanMonthlyCreditsBreakdown(plan, sevenDayRewardMultiplier);
 
                     return (
                       <div
@@ -801,7 +841,16 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             >
                               ✦
                             </span>{" "}
-                            {planTotalCredits} 合计积分
+                            {creditsBreakdown.totalCredits} 预计月合计积分
+                          </div>
+                          <div className={cn("mt-2 grid gap-1 text-[11px] leading-relaxed", isWhite ? "text-indigo-600/80" : "text-violet-100/80")}>
+                            <div>套餐到账：{creditsBreakdown.immediateCredits} 积分</div>
+                            <div>
+                              每日签到：{creditsBreakdown.dailyCheckInCredits} × {MEMBERSHIP_MONTH_DAYS} = {creditsBreakdown.monthlyDailyCheckInCredits} 积分
+                            </div>
+                            <div>
+                              7天连签额外：{creditsBreakdown.weeklyStreakBonusCredits} × {MONTHLY_7_DAY_STREAK_CYCLES} = {creditsBreakdown.monthlyStreakBonusCredits} 积分
+                            </div>
                           </div>
                         </div>
 

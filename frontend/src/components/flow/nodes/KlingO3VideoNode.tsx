@@ -11,6 +11,12 @@ import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useBackendCreditsPreview } from "../hooks/useBackendCreditsPreview";
 import { sanitizeVideoVendorKey } from "../managedRoutePricing";
+import {
+  resolveKlingO3VideoMode,
+  resolveKlingO3InputType,
+  normalizeKlingO3ImageMode,
+  klingO3BillingResolutionFromMode,
+} from "../klingO3VideoMode";
 
 type Props = {
   id: string;
@@ -93,6 +99,40 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     () => resolveKlingSoundEnabled((data as any).sound),
     [(data as any).sound]
   );
+  // 连了参考视频时：上游 audio 与 video_list 互斥，声音必然无效，FlowOverlay 实际下发也强制
+  // sound=off。这里把"有效声音"统一视为关闭，让节点 UI / 计费预估与实扣单轨一致——否则预估
+  // 按有声(节点开关 on)算、实扣按无声算，积分对不上(700 vs 300)。
+  const hasEdgeVideoInput = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.some(
+      (edge) => edge.target === id && edge.targetHandle === "video"
+    );
+  });
+  const effectiveKlingSoundEnabled = hasEdgeVideoInput ? false : klingSoundEnabled;
+  // image / elementImg 句柄连线数（早于 previewRequestParams 计算，供预估单轨用）。
+  const imageInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "image"
+    ).length;
+  });
+  const elementImgInputCount = useStore((state) => {
+    const edges = state.edges || [];
+    return edges.filter(
+      (edge) => edge.target === id && edge.targetHandle === "elementImg"
+    ).length;
+  });
+  // 预估用的 videoMode / inputType：与 FlowOverlay 实际发送共用 resolveKlingO3VideoMode，
+  // 确保计费预估上下文与实扣单轨一致（参考图走 image 句柄，element 角色图不计入参考图数）。
+  const previewVideoMode = resolveKlingO3VideoMode({
+    hasReferenceVideo: hasEdgeVideoInput,
+    explicitImageType: normalizeKlingO3ImageMode(data.imageType),
+    referenceImageCount: imageInputCount,
+  });
+  const previewInputType = resolveKlingO3InputType({
+    hasReferenceVideo: hasEdgeVideoInput,
+    referenceImageCount: imageInputCount,
+  });
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -104,15 +144,18 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const previewRequestParams = React.useMemo(
     () => ({
       aiProvider: "kling-o3",
-      managedModelKey: (data as any).managedModelKey,
-      modelKey: (data as any).managedModelKey,
+      // 计费线路 modelKey 钉死 kling-o3，命中专属 kling-o3 计价书（与后端
+      // buildVideoProviderCreditParams 对 provider=kling-o3 的钉死一致）。不可依赖
+      // klingModel 推断——实际下发的 klingModel 是 kling-v3-0，会被推断成 kling-3.0 书。
+      managedModelKey: (data as any).managedModelKey || "kling-o3",
+      modelKey: (data as any).managedModelKey || "kling-o3",
       vendorKey: sanitizedVendorKey,
       platformKey: sanitizedPlatformKey,
       providerChannel: sanitizedPlatformKey || sanitizedVendorKey,
       routedProvider: "kling-o3",
       klingModel: "kling-o3",
       mode: data.mode || "std",
-      sound: klingSoundEnabled ? "on" : "off",
+      sound: effectiveKlingSoundEnabled ? "on" : "off",
       duration:
         typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
           ? Math.round(data.clipDuration)
@@ -122,25 +165,34 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           ? Math.round(data.clipDuration)
           : 5,
       aspectRatio: data.aspectRatio,
-      inputType:
-        data.hasVideoInput === true ? "video" : "text",
-      hasVideoInput: data.hasVideoInput === true,
-      referenceVideoCount: data.hasVideoInput === true ? 1 : 0,
-      referenceImageCount: 0,
+      // 单轨：与 FlowOverlay 实际发送同源（videoMode/inputType/图片数），
+      // 让计费预估上下文与实扣完全一致，杜绝未来按这些维度计价时再分叉。
+      videoMode: previewVideoMode,
+      inputType: previewInputType,
+      hasVideoInput: hasEdgeVideoInput,
+      referenceVideoCount: hasEdgeVideoInput ? 1 : 0,
+      referenceImageCount: imageInputCount,
       audioInputCount: 0,
       referenceVideoType: data.referenceVideoType,
-      resolution: "1080P",
+      // 不再写死 1080P：画质由 mode 决定，按 mode 派生计费 resolution，与后端扣费同源
+      // (后端 buildVideoProviderCreditParams 对 kling-o3 也按 mode 派生)。原写死 1080P 会让
+      // std(720P)的预估按 1080P 算→预估 800 而实扣 600。
+      resolution: klingO3BillingResolutionFromMode(data.mode),
     }),
     [
       data.aspectRatio,
       data.clipDuration,
-      data.hasVideoInput,
       data.mode,
+      (data as any).resolution,
       sanitizedPlatformKey,
       data.referenceVideoType,
       sanitizedVendorKey,
       (data as any).managedModelKey,
-      klingSoundEnabled,
+      effectiveKlingSoundEnabled,
+      previewVideoMode,
+      previewInputType,
+      hasEdgeVideoInput,
+      imageInputCount,
     ]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -252,24 +304,6 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     typeof data.clipDuration === "number" ? data.clipDuration : undefined;
   const aspectRatioValue =
     typeof data.aspectRatio === "string" ? data.aspectRatio : "";
-  const imageInputCount = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.filter(
-      (edge) => edge.target === id && edge.targetHandle === "image"
-    ).length;
-  });
-  const elementImgInputCount = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.filter(
-      (edge) => edge.target === id && edge.targetHandle === "elementImg"
-    ).length;
-  });
-  const hasEdgeVideoInput = useStore((state) => {
-    const edges = state.edges || [];
-    return edges.some(
-      (edge) => edge.target === id && edge.targetHandle === "video"
-    );
-  });
   const referenceVideoType = data.referenceVideoType || "feature";
   const keepOriginalSound = data.keepOriginalSound || "no";
   // Tencent route removed: kling-o3 always follows the token via new-api. The
@@ -279,8 +313,8 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
   const totalImageCount = imageInputCount + elementImgInputCount;
   const totalImageCountWithUploads = totalImageCount;
 
-  // 自动判断图片类型（无需用户选择）
-  const imageType = React.useMemo(() => {
+  // 图片类型自动判断（用户未显式选择时的默认值）
+  const autoImageType = React.useMemo<"frame" | "reference">(() => {
     // 有elementImg连接 → 图片/主体参考
     if (elementImgInputCount > 0) return "reference";
     // image连接3张以上 → 图片/主体参考
@@ -290,24 +324,21 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
     // 默认首尾帧
     return "frame";
   }, [elementImgInputCount, imageInputCount]);
+  // 用户在节点上显式选择的图片模式（首尾帧 / 图片参考）。未选时回落自动判定。
+  const explicitImageType: "frame" | "reference" | undefined =
+    data.imageType === "frame" || data.imageType === "reference"
+      ? data.imageType
+      : undefined;
+  const imageType: "frame" | "reference" = explicitImageType ?? autoImageType;
 
-  // 4种模态场景检测
-  const isTextToVideo = !hasVideoInput && totalImageCountWithUploads === 0;
-  const isImageToVideo =
-    !hasVideoInput &&
-    imageType === "frame" &&
-    totalImageCountWithUploads >= 1 &&
-    totalImageCountWithUploads <= 2;
-  const isImageReference =
-    !hasVideoInput &&
-    (imageType === "reference" || totalImageCountWithUploads >= 3) &&
-    totalImageCountWithUploads >= 1 &&
-    totalImageCountWithUploads <= 7;
-  const isVideoReference = hasVideoInput && referenceVideoType === "feature";
+  // 视频编辑场景（refer_type=base）：用于隐藏时长选择等。其余场景由 imageType +
+  // 连线数量在发送侧(FlowOverlay)判定，这里不再重复推导。
   const isVideoEdit = hasVideoInput && referenceVideoType === "base";
 
   // 参数显示控制
-  const shouldShowAspectSelector = totalImageCountWithUploads === 0 && !hasVideoInput;
+  // 尺寸（aspect_ratio）始终展示可选：apimart kling-v3-omni 各模式均接受该参数
+  // （图生/首尾帧模式下上游可能用图片实际比例覆盖，但参数本身合法且会下发）。
+  const shouldShowAspectSelector = true;
   const shouldShowDurationSelector = !isVideoEdit;
 
   // Kling O3 支持 3-10 秒
@@ -1167,21 +1198,31 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
       <div style={{ marginBottom: 8 }}>
         <button
           type="button"
-          onClick={handleKlingSoundToggle}
+          onClick={hasEdgeVideoInput ? undefined : handleKlingSoundToggle}
+          disabled={hasEdgeVideoInput}
           style={{
             width: "100%",
             padding: "6px 10px",
             borderRadius: 8,
             border: "1px solid #e5e7eb",
-            background: klingSoundEnabled ? "#111827" : "#fff",
-            color: klingSoundEnabled ? "#fff" : "#111827",
+            background: effectiveKlingSoundEnabled ? "#111827" : "#fff",
+            color: effectiveKlingSoundEnabled ? "#fff" : "#111827",
             fontSize: 12,
-            cursor: "pointer",
+            cursor: hasEdgeVideoInput ? "not-allowed" : "pointer",
+            opacity: hasEdgeVideoInput ? 0.6 : 1,
           }}
         >
           {lt("音频", "Audio")}:{" "}
-          {klingSoundEnabled ? lt("开启", "On") : lt("关闭", "Off")}
+          {effectiveKlingSoundEnabled ? lt("开启", "On") : lt("关闭", "Off")}
         </button>
+        {hasEdgeVideoInput && (
+          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+            {lt(
+              "连接参考视频时音频不可用（与视频互斥），按无声计费",
+              "Audio unavailable with reference video (mutually exclusive); billed as silent"
+            )}
+          </div>
+        )}
       </div>
 
       {/* 画质模式：标准 / 专业 / 4K */}
@@ -1238,7 +1279,54 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
         />
       </div>
 
-      {/* 分镜（多镜头）：单镜头 / 智能 / 自定义 */}
+      {/* 图片模式：首尾帧 / 图片参考 —— 仅无视频且 image 句柄连了图时可选。
+          首尾帧=把图当 first_frame/last_frame；图片参考=全部当 role=reference（配 prompt @图N）。 */}
+      {!hasVideoInput && imageInputCount >= 1 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("图片模式", "Image mode")}
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {([
+              { value: "frame" as const, label: lt("首尾帧", "Start/End frame") },
+              { value: "reference" as const, label: lt("图片参考", "Reference") },
+            ]).map((option) => {
+              const isActive = option.value === imageType;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => patchNodeData({ imageType: option.value })}
+                  style={{
+                    flex: 1,
+                    padding: "6px 4px",
+                    borderRadius: 8,
+                    border: `1px solid ${isActive ? "#2563eb" : "#e5e7eb"}`,
+                    background: isActive ? "#111827" : "#fff",
+                    color: isActive ? "#fff" : "#111827",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+            {imageType === "frame"
+              ? lt("把图作为首/尾帧（最多2张）", "Use images as first/last frame (max 2)")
+              : lt("把图作为参考主体，配 @图N 引用（最多7张）", "Use images as reference subjects with @图N (max 7)")}
+          </div>
+        </div>
+      )}
+
+      {/* 分镜（多镜头）：单镜头 / 智能 / 自定义 —— 与参考视频互斥（上游不支持）。 */}
+      {hasVideoInput ? (
+        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 8 }}>
+          {lt("视频模式下不支持多分镜", "Multi-shot unavailable with video input")}
+        </div>
+      ) : (
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
           {lt("分镜", "Multi-shot")}
@@ -1288,6 +1376,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           />
         )}
       </div>
+      )}
 
       {/* 命名角色（element_list）：连接 elementImg 角色图后填写名字/描述，prompt 用 @名字 引用 */}
       {elementImgInputCount > 0 && (

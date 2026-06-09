@@ -1311,6 +1311,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         extraOptions?: {
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
+            idOverride?: string;
             forceAnchorPosition?: boolean;
             lockToBounds?: boolean;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
@@ -1416,6 +1417,30 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 !isPersisted || requiresManagedImageUpload(normalizedPersisted);
             if (shouldUploadManaged) {
                 asset = await ensureManagedAsset(trimmedPayload, resolvedName, 'oss_img');
+                if (!asset && isPersisted && isRemoteUrl(normalizedPersisted)) {
+                    logger.warn('Managed upload failed; falling back to remote image URL for canvas placement', {
+                        fileName: resolvedName,
+                        operationType,
+                        placeholderId: extraOptions?.placeholderId,
+                        urlHost: (() => {
+                            try {
+                                return new URL(normalizedPersisted).hostname;
+                            } catch {
+                                return undefined;
+                            }
+                        })(),
+                    });
+                    asset = {
+                        id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        url: normalizedPersisted,
+                        key: isAssetKeyRef(normalizedPersisted) ? normalizedPersisted : undefined,
+                        src: toRenderableImageSrc(normalizedPersisted) || normalizedPersisted,
+                        remoteUrl: normalizedPersisted,
+                        fileName: resolvedName,
+                        pendingUpload: false,
+                        localDataUrl: undefined,
+                    };
+                }
             } else {
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1535,7 +1560,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             }
             const placeholderBounds = placeholder?.data?.bounds;
-            const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const imageId = extraOptions?.idOverride || asset.id || placeholderId || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const defaultExpectedSize = 512;
             const expectedWidth = placeholderBounds?.width ?? extraOptions?.initialWidth ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? extraOptions?.initialHeight ?? defaultExpectedSize;
