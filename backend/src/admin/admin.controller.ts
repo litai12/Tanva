@@ -45,6 +45,9 @@ import {
   TemplateQueryDto,
 } from './dto/template.dto';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
+import { TenantAdminService } from './tenant-admin.service';
+import { CreateTenantDto, UpdateTenantDto, AddDomainDto, SetTenantApiKeysDto, SetTenantPaymentConfigDto } from './dto/tenant-admin.dto';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 
 interface AuthenticatedUser {
   id: string;
@@ -92,7 +95,21 @@ export class AdminController {
     private readonly businessPolicyService: BusinessPolicyService,
     private readonly membershipService: MembershipService,
     private readonly volcAssetService: VolcAssetService,
+    private readonly tenantAdminService: TenantAdminService,
   ) {}
+
+  /** 主站超管 = 全管角色 且 属于主站(default 租户) */
+  private isPlatformAdmin(req: AuthenticatedRequest): boolean {
+    const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
+    return role === FULL_ADMIN_ROLE && (req.user as any)?.tenantId === PLATFORM_TENANT_ID;
+  }
+
+  /** 要求主站超管，否则 403 */
+  private ensurePlatformAdmin(req: AuthenticatedRequest) {
+    if (!this.isPlatformAdmin(req)) {
+      throw new ForbiddenException('仅主站超管可访问租户管理');
+    }
+  }
 
   /**
    * 验证管理员权限
@@ -121,13 +138,98 @@ export class AdminController {
   @ApiOperation({ summary: '获取所有用户列表' })
   async getAllUsers(@Request() req: AuthenticatedRequest, @Query() query: UsersQueryDto) {
     this.checkAdmin(req, 'users:list');
+    // 仅主站超管能跨租户/按租户筛选；普通租户管理员忽略该参数，由 CLS 限定本租户
+    const tenantScope = this.isPlatformAdmin(req)
+      ? (query.tenantId && query.tenantId.trim() ? query.tenantId.trim() : 'all')
+      : undefined;
     return this.adminService.getAllUsers({
       page: query.page,
       pageSize: query.pageSize,
       search: query.search,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
+      tenantScope,
     });
+  }
+
+  // ===== 租户管理（仅主站超管）=====
+  @Get('tenants')
+  @ApiOperation({ summary: '租户列表（含域名/用户数）' })
+  async listTenants(@Request() req: AuthenticatedRequest) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.listTenants();
+  }
+
+  @Post('tenants')
+  @ApiOperation({ summary: '新建租户' })
+  async createTenant(@Request() req: AuthenticatedRequest, @Body() dto: CreateTenantDto) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.createTenant(dto);
+  }
+
+  @Patch('tenants/:id')
+  @ApiOperation({ summary: '更新租户（名称/状态）' })
+  async updateTenant(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateTenantDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.updateTenant(id, dto);
+  }
+
+  @Post('tenants/:id/domains')
+  @ApiOperation({ summary: '给租户添加域名' })
+  async addTenantDomain(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: AddDomainDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.addDomain(id, dto);
+  }
+
+  @Delete('tenants/:id/domains/:domainId')
+  @ApiOperation({ summary: '删除租户域名' })
+  async removeTenantDomain(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Param('domainId') domainId: string,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.removeDomain(id, domainId);
+  }
+
+  @Post('tenants/:id/api-keys')
+  @ApiOperation({ summary: '设置租户 new-api 三组 key' })
+  async setTenantApiKeys(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantApiKeysDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setApiKeys(id, dto);
+  }
+
+  @Get('tenants/:id/payment-config')
+  @ApiOperation({ summary: '查询租户支付商户配置（密文字段仅返回是否已配置）' })
+  async getTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.getPaymentConfig(id);
+  }
+
+  @Post('tenants/:id/payment-config')
+  @ApiOperation({ summary: '设置租户支付商户配置（私钥/证书加密入库）' })
+  async setTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantPaymentConfigDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setPaymentConfig(id, dto);
   }
 
   @Get('users/:userId')

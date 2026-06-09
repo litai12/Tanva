@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
@@ -30,6 +31,8 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  tenantId: string;
+  tenantName: string;
   wechatBound: boolean;
   createdAt: Date;
   lastLoginAt: Date | null;
@@ -111,6 +114,7 @@ export interface CreditChangeRecord {
 export class AdminService {
   constructor(
     private prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) {}
 
@@ -313,6 +317,7 @@ export class AdminService {
           },
         },
       }),
+      // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
       this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
         SELECT COUNT(DISTINCT "userId")::bigint AS count
         FROM "RefreshToken"
@@ -342,6 +347,7 @@ export class AdminService {
                 },
               },
             }),
+            // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
             this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
               SELECT COUNT(DISTINCT "userId")::bigint AS count
               FROM "RefreshToken"
@@ -397,8 +403,10 @@ export class AdminService {
     search?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    // 主站超管专用：'all' 跨所有租户；具体 tenantId 仅看该租户；undefined=按当前 CLS 租户（普通租户管理员）
+    tenantScope?: string;
   } = {}): Promise<{ users: UserWithCredits[]; pagination: any }> {
-    const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+    const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc', tenantScope } = options;
 
     const where: any = {};
     if (search) {
@@ -409,21 +417,36 @@ export class AdminService {
       ];
     }
 
-    const [users, total] = await Promise.all([
-      this.prisma.user.findMany({
-        where,
-        include: {
-          creditAccount: true,
-          _count: {
-            select: { apiUsageRecords: true },
+    // 根据 tenantScope 决定查询上下文：
+    //  - 'all'   → 平台态（跨所有租户）
+    //  - <id>    → 在该租户上下文
+    //  - undefined → 维持当前 CLS（租户管理员只看本租户）
+    const run = <T>(fn: () => Promise<T>): Promise<T> => {
+      if (tenantScope === 'all') return this.tenantContext.runAsPlatform(fn);
+      if (tenantScope) return this.tenantContext.runAsTenant(tenantScope, fn);
+      return fn();
+    };
+
+    const [users, total, tenantList] = await run(() =>
+      Promise.all([
+        this.prisma.user.findMany({
+          where,
+          include: {
+            creditAccount: true,
+            _count: { select: { apiUsageRecords: true } },
           },
-        },
-        orderBy: { [sortBy]: sortOrder },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.user.count({ where }),
-    ]);
+          orderBy: { [sortBy]: sortOrder },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.user.count({ where }),
+        // 租户名映射（平台态读全局白名单表 Tenant）
+        (this.prisma as any).tenant.findMany({ select: { id: true, name: true } }),
+      ]),
+    );
+    const tenantNameMap = new Map<string, string>(
+      (tenantList as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]),
+    );
 
     const usersWithCredits: UserWithCredits[] = users.map((user: any) => ({
       id: user.id,
@@ -432,6 +455,8 @@ export class AdminService {
       name: user.name,
       role: user.role,
       status: user.status,
+      tenantId: user.tenantId,
+      tenantName: tenantNameMap.get(user.tenantId) ?? user.tenantId,
       wechatBound: Boolean(user.wechatOfficialOpenId || user.wechatUnionId),
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,

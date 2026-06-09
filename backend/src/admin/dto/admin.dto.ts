@@ -28,6 +28,11 @@ export class UsersQueryDto {
   @ApiPropertyOptional({ description: '排序方向', enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()
   sortOrder?: 'asc' | 'desc' = 'desc';
+
+  @ApiPropertyOptional({ description: '租户筛选（仅主站超管）：租户id 或 "all"' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
 
 export class ApiUsageStatsQueryDto {

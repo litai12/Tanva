@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TenantIterationService } from '../../tenancy/tenant-iteration.service';
 import {
   createAsyncTask,
   updateAsyncTask,
@@ -43,6 +44,7 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly tenantIteration: TenantIterationService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
   ) {}
@@ -247,7 +249,15 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   }
 
 
+  /**
+   * 每个 active 租户在自己的 CLS 内兜底卡死/孤儿任务。
+   * 只有 default 一个租户时 = 原逻辑跑一次（回归安全）。
+   */
   private async reconcileStuckTasks(): Promise<void> {
+    await this.tenantIteration.forEachTenant(() => this.reconcileStuckTasksForTenant());
+  }
+
+  private async reconcileStuckTasksForTenant(): Promise<void> {
     const now = Date.now();
     // 每种任务用各自的阈值，且都比「正常最长耗时」更宽，纯粹兜底卡死/孤儿：
     //   图像 processing：worker 硬上限 + 上传缓冲（约 20min）

@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
+import { TenantIterationService } from '../tenancy/tenant-iteration.service';
 
 const RESERVE_TTL_MS = 10 * 60 * 1000; // 10 分钟预留超时
 
@@ -11,6 +12,7 @@ export class TeamCreditLedgerService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly tenantIteration: TenantIterationService,
     @Optional() private readonly publisher?: TeamCreditsPublisher,
   ) {}
 
@@ -31,6 +33,7 @@ export class TeamCreditLedgerService {
     try {
       await this.prisma.$transaction(async (tx) => {
         // 行锁：SELECT FOR UPDATE
+        // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId 锁团队积分账户，teamId(uuid)跨租户不撞
         const acc = await tx.$queryRaw<{ id: string; balance: number; frozenBalance: number }[]>`
           SELECT id, balance, "frozenBalance"
           FROM "TeamCreditAccount"
@@ -60,6 +63,7 @@ export class TeamCreditLedgerService {
         // 配额原子更新（行锁保证）
         if (actorUserId) {
           // 月度周期重置：超过 30 天自动开启新周期
+          // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId+userId 定位，uuid 跨租户不撞
           await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET "creditUsedThisCycle" = 0,
@@ -69,6 +73,7 @@ export class TeamCreditLedgerService {
               AND "userId" = ${actorUserId}
               AND "quotaCycleStartAt" < NOW() - INTERVAL '30 days'
           `;
+          // ALLOW_RAW_NO_TENANT: 按全局唯一 teamId+userId 定位，uuid 跨租户不撞
           const updatedCount: number = await tx.$executeRaw`
             UPDATE "TeamMembership"
             SET "creditUsedThisCycle" = "creditUsedThisCycle" + ${amount},
@@ -178,6 +183,7 @@ export class TeamCreditLedgerService {
         data: { frozenBalance: { decrement: amount } },
       });
       // 回退成员配额（月度 + 总量）
+      // ALLOW_RAW_NO_TENANT: 按全局唯一 taskId 关联 ledger 定位成员，uuid 跨租户不撞
       await tx.$executeRaw`
         UPDATE "TeamMembership" tm
         SET "creditUsedThisCycle" = GREATEST(0, tm."creditUsedThisCycle" - ${amount}),
@@ -201,6 +207,12 @@ export class TeamCreditLedgerService {
   /** 漏洞 2 修复：定时释放过期 reserve */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async releaseExpiredReserves() {
+    // cron 脱离 CLS（默认落主站）：逐租户在各自 CLS 内跑，入口 findMany 被扩展限定到本租户。
+    // 仅 default 一个 active 租户时 = 原逻辑跑一次（回归安全）。
+    await this.tenantIteration.forEachTenant(() => this.releaseExpiredReservesForCurrentTenant());
+  }
+
+  private async releaseExpiredReservesForCurrentTenant() {
     const expired = await this.prisma.teamCreditLedger.findMany({
       where: {
         entryType: 'reserve',

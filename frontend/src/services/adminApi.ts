@@ -50,6 +50,8 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  tenantId?: string;
+  tenantName?: string;
   wechatBound: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -144,6 +146,7 @@ export async function getUsers(params: {
   search?: string;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ users: UserWithCredits[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
@@ -151,8 +154,134 @@ export async function getUsers(params: {
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  if (params.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/users?${searchParams}`);
+  return response.json();
+}
+
+// ===== 租户管理（仅主站超管）=====
+export interface TenantDomainInfo {
+  id: string;
+  host: string;
+  isPrimary: boolean;
+  verified: boolean;
+}
+export interface TenantInfo {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  isPlatform: boolean;
+  createdAt: string;
+  userCount: number;
+  // 是否已配置各档 new-api key（不含明文）
+  apiKeys?: { normal: boolean; vip: boolean; svip: boolean };
+  // 各支付渠道是否已配置独立商户（否则回落主站）
+  payment?: { wechat: boolean; alipay: boolean };
+  domains: TenantDomainInfo[];
+}
+
+// 支付配置：商户号/appid/序列号明文回显；私钥/证书/APIv3 key 仅布尔
+export interface TenantPaymentConfig {
+  wechat: {
+    appId: string | null;
+    mchId: string | null;
+    serialNo: string | null;
+    privateKey: boolean;
+    certificate: boolean;
+    apiV3Key: boolean;
+  };
+  alipay: {
+    appId: string | null;
+    privateKey: boolean;
+    publicKey: boolean;
+  };
+}
+
+// 提交支付配置：传字符串=设置(空串=清除)，不传=不变
+export interface SetTenantPaymentConfigBody {
+  wechatAppId?: string;
+  wechatMchId?: string;
+  wechatSerialNo?: string;
+  wechatPrivateKey?: string;
+  wechatCertificate?: string;
+  wechatApiV3Key?: string;
+  alipayAppId?: string;
+  alipayPrivateKey?: string;
+  alipayPublicKey?: string;
+}
+
+export async function getTenants(): Promise<TenantInfo[]> {
+  const response = await request(`/api/admin/tenants`);
+  return response.json();
+}
+export async function createTenant(body: {
+  name: string;
+  slug: string;
+  host?: string;
+}): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function updateTenant(
+  id: string,
+  body: { name?: string; status?: "active" | "suspended" },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function addTenantDomain(
+  id: string,
+  body: { host: string; isPrimary?: boolean },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/domains`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function removeTenantDomain(id: string, domainId: string): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/domains/${domainId}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+export async function setTenantApiKeys(
+  id: string,
+  body: { newApiKey?: string; newApiKeyVip?: string; newApiKeySvip?: string },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/api-keys`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
+export async function getTenantPaymentConfig(id: string): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`);
+  return response.json();
+}
+
+export async function setTenantPaymentConfig(
+  id: string,
+  body: SetTenantPaymentConfigBody,
+): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
   return response.json();
 }
 

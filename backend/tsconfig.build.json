@@ -4,6 +4,7 @@
     "declaration": true,
     "removeComments": true,
     "sourceMap": false
-  }
+  },
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }
 

@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
+import { TenantPaymentResolver } from '../tenancy/tenant-payment-resolver.service';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import {
   PaymentMethod,
   PaymentStatus,
@@ -11,7 +14,10 @@ import {
   PaymentStatusResponse,
   RECHARGE_PACKAGES,
   CREDITS_PER_YUAN,
+  TEAM_SEAT_PLANS,
+  TEAM_SEAT_MIN_SEATS,
   type PaymentOrderType,
+  type TeamSeatCycle,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
@@ -21,17 +27,11 @@ import { BusinessPolicyService } from '../business-policy/business-policy.servic
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 // --- 🛡️ 兼容引用 ---
-const alipayLib = require('alipay-sdk');
-const AlipaySdk = alipayLib.default || alipayLib.AlipaySdk || alipayLib;
+// 支付 SDK（AlipaySdk / WeChatPay）的构建已下沉到 TenantPaymentResolver（支持租户级商户）。
 const QRCode = require('qrcode');
-// --- 微信支付 SDK ---
-const WeChatPay = require('wechatpay-node-v3');
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
-  private alipaySdk: any;
-  private wechatPay: any;
-  private wechatApiV3Key: string | null = null;
   private readonly logger = new Logger(PaymentService.name);
 
   constructor(
@@ -40,8 +40,20 @@ export class PaymentService implements OnModuleInit {
     private referralService: ReferralService,
     private membershipService: MembershipService,
     private readonly businessPolicyService: BusinessPolicyService,
+    private readonly tenantContext: TenantContextService,
+    private readonly paymentResolver: TenantPaymentResolver,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) { }
+
+  /**
+   * 异步入口（回调）无 CLS 时，把 notify_url 里的 tenantId 透传给 resolver；
+   * 请求态/已 runAsTenant 则取 CLS 当前租户。
+   */
+  private buildNotifyUrl(base: string | undefined, fallback: string): string {
+    const tenantId = this.tenantContext.getTenantId() || PLATFORM_TENANT_ID;
+    const root = (base || fallback).replace(/\/+$/, '');
+    return `${root}/${encodeURIComponent(tenantId)}`;
+  }
 
   private isAlipaySuccessStatus(status: string | null | undefined): boolean {
     return status === 'TRADE_SUCCESS' || status === 'TRADE_FINISHED';
@@ -139,135 +151,20 @@ export class PaymentService implements OnModuleInit {
     return snapshotName || order.businessCode || '会员订阅';
   }
 
-  /**
-   * 🛡️ 密钥标准化函数 (PKCS1 专用版)
-   */
-  private formatKey(key: string, type: 'PRIVATE' | 'PUBLIC'): string {
-    if (!key) return '';
-
-    // 1. 清洗：移除所有干扰字符
-    const content = key.replace(/-----BEGIN.*?-----/g, '')
-                       .replace(/-----END.*?-----/g, '')
-                       .replace(/\\n/g, '')
-                       .replace(/[\s"']/g, ''); 
-
-    // 2. 切分：每 64 字符换行
-    const chunked = content.match(/.{1,64}/g)?.join('\n');
-
-    // 3. 组装：优先使用 RSA 专用头，也支持 PKCS8 格式
-    let header, footer;
-    if (type === 'PRIVATE') {
-      // 支持 PKCS1 (RSA PRIVATE KEY) 和 PKCS8 (PRIVATE KEY)
-      if (key.includes('-----BEGIN PRIVATE KEY-----')) {
-        header = '-----BEGIN PRIVATE KEY-----';
-        footer = '-----END PRIVATE KEY-----';
-      } else {
-        header = '-----BEGIN RSA PRIVATE KEY-----';
-        footer = '-----END RSA PRIVATE KEY-----';
-      }
-    } else {
-      header = '-----BEGIN PUBLIC KEY-----';
-      footer = '-----END PUBLIC KEY-----';
-    }
-
-    return `${header}\n${chunked}\n${footer}`;
-  }
-
   onModuleInit() {
-    const appId = this.configService.get<string>('ALIPAY_APP_ID');
-    let privateKey = this.configService.get<string>('ALIPAY_PRIVATE_KEY');
-    let alipayPublicKey = this.configService.get<string>('ALIPAY_PUBLIC_KEY');
-
-    // ⚡️ 应用清洗
-    if (privateKey) {
-      privateKey = this.formatKey(privateKey, 'PRIVATE');
-      const lines = privateKey.split('\n');
-      console.log(`[Alipay] 私钥已配置(PKCS1): 头=${lines[0]} (共${lines.length}行)`);
-    }
-
-    if (alipayPublicKey) {
-      alipayPublicKey = this.formatKey(alipayPublicKey, 'PUBLIC');
-    }
-
-    // 初始化 SDK
-    if (appId && privateKey) {
-      try {
-        this.alipaySdk = new AlipaySdk({
-          appId,
-          privateKey,
-          alipayPublicKey,
-          signType: 'RSA2',
-          // ⚠️ 如果您用的是沙箱环境，请解开下行注释
-          // gateway: 'https://openapi-sandbox.dl.alipaydev.com/gateway.do',
-        });
-        console.log('✅ 支付宝SDK初始化成功');
-      } catch (error) {
-        console.error('❌ 支付宝SDK初始化异常:', error);
-      }
-    } else {
-      console.warn('⚠️ 支付宝配置缺失，支付功能不可用');
-    }
-
-    // --- 微信支付初始化 ---
-    const wechatMchId = this.configService.get<string>('WECHAT_MCH_ID');
-    const wechatPrivateKey = this.configService.get<string>('WECHAT_PRIVATE_KEY');
-    const wechatAppId = this.configService.get<string>('WECHAT_APP_ID');
-    const wechatCertificate = this.configService.get<string>('WECHAT_CERTIFICATE');
-    const wechatSerialNo = this.configService.get<string>('WECHAT_SERIAL_NO');
-    const wechatApiV3Key = this.configService.get<string>('WECHAT_API_V3_KEY');
-    this.wechatApiV3Key = wechatApiV3Key?.trim() || null;
-
-    if (wechatMchId && wechatPrivateKey && wechatAppId) {
-      try {
-        // 格式化商户私钥
-        let formattedPrivateKey = wechatPrivateKey;
-        if (wechatPrivateKey && !wechatPrivateKey.includes('-----BEGIN')) {
-          formattedPrivateKey = this.formatKey(wechatPrivateKey, 'PRIVATE');
-        }
-
-        console.log('🔧 微信支付初始化参数:', {
-          appid: wechatAppId,
-          mchid: wechatMchId,
-          privateKeyStart: formattedPrivateKey?.substring(0, 50),
-          hasCertificate: !!wechatCertificate,
-          hasSerialNo: !!wechatSerialNo,
-        });
-
-        // 优先使用证书序列号方式初始化（推荐）
-        if (wechatSerialNo && wechatCertificate) {
-          this.wechatPay = new WeChatPay({
-            appid: wechatAppId,
-            mchid: wechatMchId,
-            privateKey: formattedPrivateKey,
-            publicKey: wechatCertificate,
-            serial_no: wechatSerialNo,
-            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
-          });
-        } else if (wechatCertificate) {
-          // 如果只有证书，让SDK自动提取序列号
-          this.wechatPay = new WeChatPay({
-            appid: wechatAppId,
-            mchid: wechatMchId,
-            privateKey: formattedPrivateKey,
-            publicKey: wechatCertificate,
-            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
-          });
-        } else {
-          throw new Error('缺少商户证书（WECHAT_CERTIFICATE）');
-        }
-
-        console.log('✅ 微信支付SDK初始化成功');
-      } catch (error: any) {
-        console.error('❌ 微信支付SDK初始化异常:', error);
-        console.error('❌ 错误详情:', error?.message || error?.stack || error);
-      }
-    } else {
-      console.warn('⚠️ 微信支付配置缺失，支付功能不可用');
-      console.warn('  - WECHAT_MCH_ID:', wechatMchId ? '✅' : '❌ 缺失');
-      console.warn('  - WECHAT_APP_ID:', wechatAppId ? '✅' : '❌ 缺失');
-      console.warn('  - WECHAT_PRIVATE_KEY:', wechatPrivateKey ? '✅' : '❌ 缺失');
-    }
-
+    // SDK 构建已下沉到 TenantPaymentResolver（支持租户级独立商户）。
+    // 这里仅预热平台 ctx 并打印启动状态；子租户 SDK 按请求/回调懒加载。
+    const ready = this.paymentResolver.warmPlatform();
+    console.log(
+      ready.alipay
+        ? '✅ 支付宝SDK初始化成功（平台）'
+        : '⚠️ 支付宝平台配置缺失或无效，主站收款不可用（子租户可各自配置）',
+    );
+    console.log(
+      ready.wechat
+        ? '✅ 微信支付SDK初始化成功（平台）'
+        : '⚠️ 微信支付平台配置缺失或无效，主站收款不可用（子租户可各自配置）',
+    );
   }
 
   // --- 业务逻辑 ---
@@ -293,6 +190,61 @@ export class PaymentService implements OnModuleInit {
       return Math.max(0, Math.round(amount * CREDITS_PER_YUAN));
     }
     return packageConfig.credits;
+  }
+
+  /**
+   * 校验 team_seat 订单的归属与套餐价，返回服务端权威的 teamId/seats/cycle/金额/积分。
+   * - 调用者必须是该 team 的 owner/admin（防同租户内给自己不管理的团队买席位）。
+   * - 金额/积分一律按服务端套餐价（TEAM_SEAT_PLANS）重算，不采信客户端 metadata。
+   * 注意：调用方需处于正确租户的 CLS（请求态或已 runAsTenant），teamMembership 查询会自动按租户限定。
+   */
+  private async resolveTeamSeatOrder(
+    userId: string,
+    metadata: unknown,
+  ): Promise<{
+    teamId: string;
+    seats: number;
+    cycle: TeamSeatCycle;
+    amount: number;
+    credits: number;
+  }> {
+    const meta =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : null;
+    const teamId = typeof meta?.teamId === 'string' ? meta.teamId.trim() : '';
+    if (!teamId) {
+      throw new BadRequestException('席位订单缺少 teamId');
+    }
+
+    const seats = Number(meta?.seats);
+    if (!Number.isInteger(seats) || seats < TEAM_SEAT_MIN_SEATS) {
+      throw new BadRequestException(`最少购买 ${TEAM_SEAT_MIN_SEATS} 席位`);
+    }
+
+    const cycle = typeof meta?.cycle === 'string' ? (meta.cycle as TeamSeatCycle) : ('' as TeamSeatCycle);
+    const plan = TEAM_SEAT_PLANS[cycle];
+    if (!plan) {
+      throw new BadRequestException('无效的套餐周期');
+    }
+
+    // 权限校验：必须是该 team 的 owner/admin（与专用入口 assertRole 一致）。
+    const membership = await this.prisma.teamMembership.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+      select: { role: true },
+    });
+    if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+      throw new BadRequestException('仅团队 owner/admin 可购买席位套餐');
+    }
+
+    // 套餐价一律按服务端重算，忽略客户端传入的 amount/credits。
+    return {
+      teamId,
+      seats,
+      cycle,
+      amount: this.normalizeMoneyAmount(plan.pricePerSeat * seats),
+      credits: plan.creditsPerSeat * seats,
+    };
   }
 
   async getRechargePackages(_userId: string) {
@@ -368,8 +320,21 @@ export class PaymentService implements OnModuleInit {
     let membershipPlanId: string | null = null;
     let businessCode: string | null = null;
     let planSnapshot: Prisma.InputJsonValue | null = null;
+    // team_seat 订单经服务端重算后的权威 metadata（金额/积分/teamId/seats/cycle）。
+    let teamSeatMetadata: Record<string, unknown> | null = null;
 
-    if (orderType === 'membership') {
+    if (orderType === 'team_seat') {
+      // 通用下单入口同样收口 team_seat：校验调用者对 team 的 owner/admin 角色，
+      // 并按服务端套餐价重算金额/积分，杜绝越权购买与低价高席位。
+      const resolved = await this.resolveTeamSeatOrder(userId, dto.metadata);
+      orderAmount = resolved.amount;
+      orderCredits = resolved.credits;
+      teamSeatMetadata = {
+        teamId: resolved.teamId,
+        seats: resolved.seats,
+        cycle: resolved.cycle,
+      };
+    } else if (orderType === 'membership') {
       if (!dto.membershipPlanId) {
         throw new BadRequestException('会员订单缺少 membershipPlanId');
       }
@@ -446,7 +411,11 @@ export class PaymentService implements OnModuleInit {
         status: PaymentStatus.PENDING, qrCodeUrl, expiredAt,
         membershipPlanId,
         ...(planSnapshot ? { planSnapshot } : {}),
-        ...(dto.metadata ? { metadata: dto.metadata as Prisma.InputJsonValue } : {}),
+        ...(teamSeatMetadata
+          ? { metadata: teamSeatMetadata as Prisma.InputJsonValue }
+          : dto.metadata
+            ? { metadata: dto.metadata as Prisma.InputJsonValue }
+            : {}),
       },
     });
 
@@ -462,7 +431,8 @@ export class PaymentService implements OnModuleInit {
   }
 
   private async generateAlipayQrCode(orderNo: string, amount: number): Promise<string> {
-    if (!this.alipaySdk) {
+    const { alipaySdk } = await this.paymentResolver.resolve();
+    if (!alipaySdk) {
       throw new BadRequestException('支付宝SDK未初始化');
     }
 
@@ -474,8 +444,12 @@ export class PaymentService implements OnModuleInit {
       }
       const amountStr = numericAmount.toFixed(2);
       console.log(`[Alipay] 生成二维码请求 → out_trade_no=${orderNo}, total_amount=${amountStr}`);
-      const result = await this.alipaySdk.exec('alipay.trade.precreate', {
-        notify_url: process.env.ALIPAY_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/notify',
+      const result = await alipaySdk.exec('alipay.trade.precreate', {
+        // notify_url 末尾带 tenantId，回调据此定位租户（逐渠道回落平台）
+        notify_url: this.buildNotifyUrl(
+          process.env.ALIPAY_NOTIFY_URL,
+          'https://www.tanvas.cn/api/payment/notify',
+        ),
         bizContent: {
           out_trade_no: orderNo,
           total_amount: amountStr,
@@ -512,17 +486,22 @@ export class PaymentService implements OnModuleInit {
    * 使用 Native 支付模式：统一下单获取 code_url，然后生成二维码
    */
   private async generateWechatQrCode(orderNo: string, amount: number): Promise<string> {
-    if (!this.wechatPay) {
+    const { wechatPay, wechatAppId, wechatMchId } = await this.paymentResolver.resolve();
+    if (!wechatPay) {
       throw new BadRequestException('微信支付SDK未初始化');
     }
 
     try {
       const params = {
-        appid: this.configService.get<string>('WECHAT_APP_ID'),
-        mchid: this.configService.get<string>('WECHAT_MCH_ID'),
+        appid: wechatAppId,
+        mchid: wechatMchId,
         description: `积分充值 - ${amount}元`,
         out_trade_no: orderNo,
-        notify_url: process.env.WECHAT_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/wechat-notify',
+        // notify_url 末尾带 tenantId，回调据此定位租户解密/对账
+        notify_url: this.buildNotifyUrl(
+          process.env.WECHAT_NOTIFY_URL,
+          'https://www.tanvas.cn/api/payment/wechat-notify',
+        ),
         amount: {
           total: Math.round(amount * 100), // 金额单位：分
           currency: 'CNY',
@@ -531,7 +510,7 @@ export class PaymentService implements OnModuleInit {
 
       console.log('微信支付统一下单请求:', JSON.stringify(params, null, 2));
 
-      const result = await this.wechatPay.transactions_native(params);
+      const result = await wechatPay.transactions_native(params);
 
       console.log('微信支付统一下单响应:', JSON.stringify(result, null, 2));
 
@@ -614,11 +593,12 @@ export class PaymentService implements OnModuleInit {
     totalAmount: number | null;
     raw: Record<string, unknown> | null;
   }> {
-    if (!this.alipaySdk) {
+    const { alipaySdk } = await this.paymentResolver.resolve();
+    if (!alipaySdk) {
       return { status: null, tradeNo: null, totalAmount: null, raw: null };
     }
     try {
-      const result = await this.alipaySdk.exec('alipay.trade.query', { bizContent: { out_trade_no: orderNo } });
+      const result = await alipaySdk.exec('alipay.trade.query', { bizContent: { out_trade_no: orderNo } });
       if (result.code === '10000') {
         return {
           status: (result.tradeStatus ?? result.trade_status ?? null) as string | null,
@@ -648,19 +628,18 @@ export class PaymentService implements OnModuleInit {
     paidAt: Date | null;
     raw: Record<string, unknown> | null;
   }> {
-    if (!this.wechatPay) {
+    const { wechatPay, wechatAppId, wechatMchId } = await this.paymentResolver.resolve();
+    if (!wechatPay) {
       return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
 
     try {
       let result: any = null;
 
-      if (typeof this.wechatPay.query === 'function') {
-        result = await this.wechatPay.query({ out_trade_no: orderNo });
-      } else if (typeof this.wechatPay.orderQuery === 'function') {
-        const appid = this.configService.get<string>('WECHAT_APP_ID');
-        const mchid = this.configService.get<string>('WECHAT_MCH_ID');
-        result = await this.wechatPay.orderQuery({ appid, mchid, out_trade_no: orderNo });
+      if (typeof wechatPay.query === 'function') {
+        result = await wechatPay.query({ out_trade_no: orderNo });
+      } else if (typeof wechatPay.orderQuery === 'function') {
+        result = await wechatPay.orderQuery({ appid: wechatAppId, mchid: wechatMchId, out_trade_no: orderNo });
       } else {
         throw new Error('wechatpay-node-v3 SDK missing query method');
       }
@@ -713,6 +692,20 @@ export class PaymentService implements OnModuleInit {
       paidAt?: Date;
     },
   ): Promise<void> {
+    // 异步入口（支付回调/cron）无正确 Host 租户：按订单所属租户重新进入上下文，
+    // 否则发积分/会员/席位会落错租户或查不到订单（codex#1/#9）。一级递归，无死循环。
+    const owner = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.findUnique({
+        where: { id: orderId },
+        select: { tenantId: true },
+      }),
+    );
+    if (owner && owner.tenantId !== this.tenantContext.getTenantId()) {
+      return this.tenantContext.runAsTenant(owner.tenantId, () =>
+        this.processPaymentSuccess(orderId, userId, credits, options),
+      );
+    }
+
     type TopupBroadcast = { teamId: string; delta: number; taskId: string };
     // Use a ref-like wrapper because TS's flow analysis narrows the simple
     // `let x = null` to `never` when only assigned inside a closure.
@@ -774,8 +767,46 @@ export class PaymentService implements OnModuleInit {
         const meta = currentOrder.metadata as Record<string, unknown> | null;
         const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
         if (!teamId) return;
+        // 校验 metadata.teamId 与订单同租户：tx 已限定订单租户，team 查不到即跨租户/不存在，拒绝发货（codex#2/#6）
+        const team = await tx.team.findUnique({ where: { id: teamId }, select: { id: true } });
+        if (!team) {
+          this.logger.error(
+            `team_seat 订单的 teamId 不属于订单租户或不存在，拒绝发放席位: orderId=${orderId}, teamId=${teamId}`,
+          );
+          return;
+        }
+        // 纵深防御：发货前再校验下单者对该 team 的 owner/admin 角色，
+        // 拦截「同租户内给自己不管理的团队买席位」(H6)。
+        const buyerMembership = await tx.teamMembership.findUnique({
+          where: { teamId_userId: { teamId, userId: currentOrder.userId } },
+          select: { role: true },
+        });
+        if (
+          !buyerMembership ||
+          (buyerMembership.role !== 'owner' && buyerMembership.role !== 'admin')
+        ) {
+          this.logger.error(
+            `team_seat 订单下单者非该 team 的 owner/admin，拒绝发放席位: orderId=${orderId}, teamId=${teamId}, userId=${currentOrder.userId}`,
+          );
+          return;
+        }
+
         const seats = Number(meta?.seats) || 0;
         const cycle = typeof meta?.cycle === 'string' ? meta.cycle : 'monthly';
+        // 纵深防御：发货前按服务端套餐价复核金额/席位/积分，不采信客户端 metadata。
+        const plan = TEAM_SEAT_PLANS[cycle as TeamSeatCycle];
+        if (
+          !plan ||
+          !Number.isInteger(seats) ||
+          seats < TEAM_SEAT_MIN_SEATS ||
+          !this.isAmountMatched(this.normalizeMoneyAmount(plan.pricePerSeat * seats), Number(currentOrder.amount)) ||
+          credits !== plan.creditsPerSeat * seats
+        ) {
+          this.logger.error(
+            `team_seat 订单套餐价校验失败，拒绝发放席位: orderId=${orderId}, teamId=${teamId}, seats=${seats}, cycle=${cycle}, amount=${String(currentOrder.amount)}, credits=${credits}`,
+          );
+          return;
+        }
         const durationDays = cycle === 'annual' ? 365 : 30;
         const paidAt = options?.paidAt ?? new Date();
         const expiresAt = new Date(paidAt.getTime() + durationDays * 86_400_000);
@@ -1098,15 +1129,18 @@ export class PaymentService implements OnModuleInit {
   }
 
   async cleanupExpiredOrders() {
-    const result = await this.prisma.paymentOrder.updateMany({
-      where: {
-        status: PaymentStatus.PENDING,
-        expiredAt: { lt: new Date() },
-      },
-      data: {
-        status: PaymentStatus.EXPIRED,
-      },
-    });
+    // cron 无 CLS 上下文：平台态跨租户清理过期待支付订单
+    const result = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.updateMany({
+        where: {
+          status: PaymentStatus.PENDING,
+          expiredAt: { lt: new Date() },
+        },
+        data: {
+          status: PaymentStatus.EXPIRED,
+        },
+      }),
+    );
     return result.count;
   }
 
@@ -1143,12 +1177,15 @@ export class PaymentService implements OnModuleInit {
 
   async reconcileExpiredOrders(): Promise<number> {
     const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const expiredOrders = await this.prisma.paymentOrder.findMany({
-      where: {
-        status: PaymentStatus.EXPIRED,
-        createdAt: { gte: since },
-      },
-    });
+    // cron 无 CLS 上下文（默认会落主站）：平台态跨租户扫描，逐单由 processPaymentSuccess 切回各自租户
+    const expiredOrders = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.paymentOrder.findMany({
+        where: {
+          status: PaymentStatus.EXPIRED,
+          createdAt: { gte: since },
+        },
+      }),
+    );
 
     let rescued = 0;
     for (const order of expiredOrders) {
@@ -1225,7 +1262,10 @@ export class PaymentService implements OnModuleInit {
     return { synced: false, status: order.status };
   }
 
-  async handleAlipayNotify(data: any) {
+  /**
+   * @param pathTenantId 来自 notify_url 末段的租户 id（租户级商户回调）；旧全局路由为空。
+   */
+  async handleAlipayNotify(data: any, pathTenantId?: string) {
     try {
       const notifyData = this.parseNotifyData(data);
       const orderNo = notifyData.out_trade_no || notifyData.outTradeNo;
@@ -1242,37 +1282,49 @@ export class PaymentService implements OnModuleInit {
         return true;
       }
 
-      const order = await this.prisma.paymentOrder.findFirst({
-        where: { orderNo },
-      });
+      // 回调无正确 Host 租户：平台态按全局唯一 orderNo 定位订单（codex#9）
+      const order = await this.tenantContext.runAsPlatform(() =>
+        this.prisma.paymentOrder.findFirst({ where: { orderNo } }),
+      );
 
       if (!order) {
         this.logger.error(`支付宝回调订单不存在: orderNo=${orderNo}`);
         return false;
       }
 
-      // 优先使用支付宝主动查询做二次确认，避免因回调体解析/验签差异导致漏单。
-      const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
-      if (!this.isAlipaySuccessStatus(alipayTrade.status)) {
-        this.logger.warn(`支付宝回调核对失败: orderNo=${orderNo}, queryStatus=${String(alipayTrade.status)}`);
-        return false;
-      }
-
-      const expectedAmount = Number(order.amount);
-      if (!this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)) {
+      // 防跨租户：notify_url 带的 tenantId 必须与订单租户一致
+      if (pathTenantId && pathTenantId !== order.tenantId) {
         this.logger.error(
-          `支付宝回调金额不一致: orderNo=${orderNo}, expected=${expectedAmount}, actual=${String(alipayTrade.totalAmount)}`,
+          `支付宝回调租户不一致: orderNo=${orderNo}, path=${pathTenantId}, order=${order.tenantId}`,
         );
         return false;
       }
 
-      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
-        tradeNo: tradeNo || alipayTrade.tradeNo,
-        source: 'alipay_notify',
-        paymentMethod: PaymentMethod.ALIPAY,
+      // 切到订单所属租户，主动查询/发货才会用对该租户的商户 SDK 与上下文。
+      return await this.tenantContext.runAsTenant(order.tenantId, async () => {
+        // 优先使用支付宝主动查询做二次确认，避免因回调体解析/验签差异导致漏单。
+        const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
+        if (!this.isAlipaySuccessStatus(alipayTrade.status)) {
+          this.logger.warn(`支付宝回调核对失败: orderNo=${orderNo}, queryStatus=${String(alipayTrade.status)}`);
+          return false;
+        }
+
+        const expectedAmount = Number(order.amount);
+        if (!this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)) {
+          this.logger.error(
+            `支付宝回调金额不一致: orderNo=${orderNo}, expected=${expectedAmount}, actual=${String(alipayTrade.totalAmount)}`,
+          );
+          return false;
+        }
+
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: tradeNo || alipayTrade.tradeNo,
+          source: 'alipay_notify',
+          paymentMethod: PaymentMethod.ALIPAY,
+        });
+        this.logger.log(`支付宝回调处理成功: orderNo=${orderNo}, tradeNo=${tradeNo || alipayTrade.tradeNo || '-'}`);
+        return true;
       });
-      this.logger.log(`支付宝回调处理成功: orderNo=${orderNo}, tradeNo=${tradeNo || alipayTrade.tradeNo || '-'}`);
-      return true;
     } catch (error) {
       this.logger.error(
         '处理支付宝回调失败',
@@ -1285,9 +1337,13 @@ export class PaymentService implements OnModuleInit {
   /**
    * 处理微信支付异步回调通知
    */
+  /**
+   * @param pathTenantId 来自 notify_url 末段的租户 id；决定用哪个租户的 APIv3 key 解密。旧全局路由为空。
+   */
   async handleWechatNotify(
     data: any,
     headers?: Record<string, string | string[] | undefined>,
+    pathTenantId?: string,
   ): Promise<boolean> {
     void headers;
     try {
@@ -1307,18 +1363,22 @@ export class PaymentService implements OnModuleInit {
       let tradeState = '';
       const resource = payload?.resource;
 
+      // 用 notify_url 指定租户的商户 APIv3 key 解密回调密文（resource 内含 out_trade_no）。
+      const { wechatPay: notifyWechatPay, wechatApiV3Key } =
+        await this.paymentResolver.resolve(pathTenantId);
+
       if (
         resource?.ciphertext &&
         resource?.nonce &&
-        this.wechatApiV3Key &&
-        this.wechatPay?.decipher_gcm
+        wechatApiV3Key &&
+        notifyWechatPay?.decipher_gcm
       ) {
         try {
-          const decrypted = this.wechatPay.decipher_gcm(
+          const decrypted = notifyWechatPay.decipher_gcm(
             resource.ciphertext,
             resource.associated_data || '',
             resource.nonce,
-            this.wechatApiV3Key,
+            wechatApiV3Key,
           );
           const decryptedPayload =
             typeof decrypted === 'string'
@@ -1350,37 +1410,49 @@ export class PaymentService implements OnModuleInit {
         return true;
       }
 
-      const order = await this.prisma.paymentOrder.findFirst({
-        where: { orderNo: outTradeNo },
-      });
+      // 回调无正确 Host 租户：平台态按全局唯一 orderNo 定位订单（codex#9）
+      const order = await this.tenantContext.runAsPlatform(() =>
+        this.prisma.paymentOrder.findFirst({ where: { orderNo: outTradeNo } }),
+      );
       if (!order) {
         this.logger.error(`微信回调订单不存在: orderNo=${outTradeNo}`);
         return false;
       }
 
-      const wechatTrade = await this.queryWechatTradeStatus(outTradeNo);
-      if (!this.isWechatSuccessStatus(wechatTrade.status)) {
-        this.logger.warn(`微信回调核对失败: orderNo=${outTradeNo}, queryStatus=${String(wechatTrade.status)}`);
-        return false;
-      }
-
-      const expectedAmount = Number(order.amount);
-      if (!this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)) {
+      // 防跨租户：notify_url 带的 tenantId 必须与订单租户一致
+      if (pathTenantId && pathTenantId !== order.tenantId) {
         this.logger.error(
-          `微信回调金额不一致: orderNo=${outTradeNo}, expected=${expectedAmount}, actual=${String(wechatTrade.totalAmount)}`,
+          `微信回调租户不一致: orderNo=${outTradeNo}, path=${pathTenantId}, order=${order.tenantId}`,
         );
         return false;
       }
 
-      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
-        tradeNo: transactionId || wechatTrade.transactionId,
-        paymentMethod: PaymentMethod.WECHAT,
-        source: 'wechat_notify',
-        ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
-      });
+      // 切到订单所属租户，主动查询/发货用对该租户的商户 SDK 与上下文。
+      return await this.tenantContext.runAsTenant(order.tenantId, async () => {
+        const wechatTrade = await this.queryWechatTradeStatus(outTradeNo);
+        if (!this.isWechatSuccessStatus(wechatTrade.status)) {
+          this.logger.warn(`微信回调核对失败: orderNo=${outTradeNo}, queryStatus=${String(wechatTrade.status)}`);
+          return false;
+        }
 
-      this.logger.log(`微信回调处理成功: orderNo=${outTradeNo}, tradeNo=${transactionId || wechatTrade.transactionId || '-'}`);
-      return true;
+        const expectedAmount = Number(order.amount);
+        if (!this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)) {
+          this.logger.error(
+            `微信回调金额不一致: orderNo=${outTradeNo}, expected=${expectedAmount}, actual=${String(wechatTrade.totalAmount)}`,
+          );
+          return false;
+        }
+
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: transactionId || wechatTrade.transactionId,
+          paymentMethod: PaymentMethod.WECHAT,
+          source: 'wechat_notify',
+          ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
+        });
+
+        this.logger.log(`微信回调处理成功: orderNo=${outTradeNo}, tradeNo=${transactionId || wechatTrade.transactionId || '-'}`);
+        return true;
+      });
     } catch (error) {
       console.error('处理微信支付回调失败:', error);
       return false;

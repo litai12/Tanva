@@ -17,6 +17,7 @@ import { ReferralService } from "../referral/referral.service";
 import { CreditsService } from "../credits/credits.service";
 import { OpenObserveTelemetryService } from "../telemetry/openobserve-telemetry.service";
 import { TeamCoreService } from "../team-core/team-core.service";
+import { TenantContextService } from "../tenancy/tenant-context.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 type WatchaTokenResponse = {
@@ -131,7 +132,8 @@ export class AuthService {
     private readonly referralService: ReferralService,
     private readonly creditsService: CreditsService,
     private readonly openObserveTelemetryService: OpenObserveTelemetryService,
-    private readonly teamCoreService: TeamCoreService
+    private readonly teamCoreService: TeamCoreService,
+    private readonly tenantContext: TenantContextService
   ) {}
 
   private async touchUserLastLoginAt(userId: string) {
@@ -146,8 +148,14 @@ export class AuthService {
     id: string;
     email: string;
     role: string;
+    tenantId: string;
   }): Promise<TokenPair> {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+    };
     const accessTtl = this.config.get<string>("JWT_ACCESS_TTL") || "900s";
     const refreshTtl = this.config.get<string>("JWT_REFRESH_TTL") || "30d";
 
@@ -811,7 +819,7 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, existingWechatUser.id, profile);
       }
 
-      const userByPhone = await tx.user.findUnique({
+      const userByPhone = await tx.user.findFirst({
         where: { phone: normalizedPhone },
         select: { id: true, email: true, name: true, phone: true, role: true },
       });
@@ -979,13 +987,19 @@ export class AuthService {
       );
     }
 
-    const session = await this.prisma.wechatLoginSession.findUnique({
-      where: { sceneKey },
-      select: {
-        id: true,
-        expiresAt: true,
-      },
-    });
+    // 回调通常打到主站(CLS=default)，而扫码会话可能由第二租户站点发起。
+    // WechatLoginSession 不在全局白名单，直接查会被注入 where.tenantId 而漏掉跨租户会话。
+    // 先以平台态按全局唯一 sceneKey 定位 session，再切到 session.tenantId 处理后续绑定。
+    const session = await this.tenantContext.runAsPlatform(() =>
+      this.prisma.wechatLoginSession.findFirst({
+        where: { sceneKey },
+        select: {
+          id: true,
+          expiresAt: true,
+          tenantId: true,
+        },
+      })
+    );
 
     if (!session || session.expiresAt.getTime() <= Date.now()) {
       return this.buildWechatOfficialTextResponse(
@@ -1003,26 +1017,34 @@ export class AuthService {
       avatarUrl: fetchedProfile?.avatarUrl || null,
     };
 
-    const linkedUser = await this.prisma.$transaction(async (tx) => {
-      const user = await this.findWechatOfficialUserByIdentity(tx, profile);
-      if (!user) return null;
-      if (!this.isPrimaryPhone(user.phone)) return null;
-      return this.attachWechatIdentityToUser(tx, user.id, profile);
-    });
+    // 切到发起扫码的租户上下文，用户查/绑定与 session 更新都限定到该租户。
+    // 主站发起时 session.tenantId='default'，runAsTenant('default') = 原行为。
+    const linkedUser = await this.tenantContext.runAsTenant(
+      session.tenantId,
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          const user = await this.findWechatOfficialUserByIdentity(tx, profile);
+          if (!user) return null;
+          if (!this.isPrimaryPhone(user.phone)) return null;
+          return this.attachWechatIdentityToUser(tx, user.id, profile);
+        })
+    );
 
-    await this.prisma.wechatLoginSession.update({
-      where: { id: session.id },
-      data: {
-        status: linkedUser ? "authorized" : "needs_phone_bind",
-        openId: fromUserName,
-        unionId: profile.unionId,
-        nickname: profile.nickname,
-        avatarUrl: profile.avatarUrl,
-        userId: linkedUser?.id || null,
-        authorizedAt: linkedUser ? new Date() : null,
-      },
-      select: { id: true },
-    });
+    await this.tenantContext.runAsTenant(session.tenantId, () =>
+      this.prisma.wechatLoginSession.update({
+        where: { id: session.id },
+        data: {
+          status: linkedUser ? "authorized" : "needs_phone_bind",
+          openId: fromUserName,
+          unionId: profile.unionId,
+          nickname: profile.nickname,
+          avatarUrl: profile.avatarUrl,
+          userId: linkedUser?.id || null,
+          authorizedAt: linkedUser ? new Date() : null,
+        },
+        select: { id: true },
+      })
+    );
 
     await this.openObserveTelemetryService.ingestBackendEvent({
       traceId: null,
@@ -1116,14 +1138,14 @@ export class AuthService {
 
   private async pickWatchaPhoneCandidate(tx: any, watchaUserId: string, preferredPhone?: string | null) {
     if (preferredPhone) {
-      const exists = await tx.user.findUnique({ where: { phone: preferredPhone } });
+      const exists = await tx.user.findFirst({ where: { phone: preferredPhone } });
       if (!exists) return preferredPhone;
     }
 
     const slug = watchaUserId.replace(/[^0-9a-zA-Z]/g, "").slice(0, 16) || randomBytes(6).toString("hex");
     for (let i = 0; i < 20; i += 1) {
       const candidate = `watcha_${slug}_${i}`;
-      const exists = await tx.user.findUnique({ where: { phone: candidate } });
+      const exists = await tx.user.findFirst({ where: { phone: candidate } });
       if (!exists) return candidate;
     }
     return `watcha_${slug}_${Date.now()}`;
@@ -1141,14 +1163,14 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       const pickSafeEmail = async (targetUserId: string, currentEmail: string | null) => {
         if (currentEmail || !email) return currentEmail;
-        const owner = await tx.user.findUnique({ where: { email } });
+        const owner = await tx.user.findFirst({ where: { email } });
         if (!owner || owner.id === targetUserId) {
           return email;
         }
         return currentEmail;
       };
 
-      const byWatcha = await tx.user.findUnique({ where: { watchaUserId: profile.watchaUserId } });
+      const byWatcha = await tx.user.findFirst({ where: { watchaUserId: profile.watchaUserId } });
       if (byWatcha) {
         const safeEmail = await pickSafeEmail(byWatcha.id, byWatcha.email);
         return tx.user.update({
@@ -1164,10 +1186,10 @@ export class AuthService {
 
       let candidate: any = null;
       if (phone) {
-        candidate = await tx.user.findUnique({ where: { phone } });
+        candidate = await tx.user.findFirst({ where: { phone } });
       }
       if (!candidate && email) {
-        candidate = await tx.user.findUnique({ where: { email } });
+        candidate = await tx.user.findFirst({ where: { email } });
       }
 
       if (candidate) {
@@ -1189,7 +1211,7 @@ export class AuthService {
 
       let emailForCreate: string | null = null;
       if (email) {
-        const emailExists = await tx.user.findUnique({ where: { email } });
+        const emailExists = await tx.user.findFirst({ where: { email } });
         if (!emailExists) {
           emailForCreate = email;
         }
@@ -1273,18 +1295,18 @@ export class AuthService {
     const hash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const existsByPhone = await tx.user.findUnique({
+      const existsByPhone = await tx.user.findFirst({
         where: { phone: normalizedPhone },
       });
       if (existsByPhone) throw new UnauthorizedException("手机号已注册");
-      const existsPhoneMatchedByName = await tx.user.findUnique({
+      const existsPhoneMatchedByName = await tx.user.findFirst({
         where: { phone: trimmedName },
       });
       if (existsPhoneMatchedByName) {
         throw new BadRequestException("用户名不能与手机号相同");
       }
       if (normalizedEmail) {
-        const existsByEmail = await tx.user.findUnique({
+        const existsByEmail = await tx.user.findFirst({
           where: { email: normalizedEmail },
         });
         if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
@@ -1341,7 +1363,9 @@ export class AuthService {
     user: { id: string; email: string; role: string },
     meta?: { ip?: string; ua?: string }
   ) {
-    const tokens = await this.signTokens(user);
+    // 租户来自当前请求上下文（用户已在该租户内被查到/创建）
+    const tenantId = this.tenantContext.getTenantId();
+    const tokens = await this.signTokens({ ...user, tenantId });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
     const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
@@ -1413,6 +1437,7 @@ export class AuthService {
       id: userPayload.sub,
       email: userPayload.email,
       role: userPayload.role,
+      tenantId: userPayload.tenantId ?? this.tenantContext.getTenantId(),
     });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NewApiKeyResolver, type NewApiKeyTier } from '../../tenancy/new-api-key-resolver.service';
 import { Agent } from 'undici';
 import {
   AIProviderResponse,
@@ -63,7 +64,10 @@ export class NewApiProvider implements IAIProvider {
   private vipApiKey = '';
   private svipApiKey = '';
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly keyResolver: NewApiKeyResolver,
+  ) {}
 
   async initialize(): Promise<void> {
     this.baseUrl = this.normalizeBaseUrl(
@@ -405,7 +409,8 @@ export class NewApiProvider implements IAIProvider {
     'gemini-3.1-flash-image-preview',
   ]);
 
-  private resolveApiKey(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): string {
+  /** 选定档位（仍用平台 env key 是否存在来判定该档位是否开放） */
+  private resolveTier(providerOptions?: ProviderOptionsPayload, resolvedModel?: string): NewApiKeyTier {
     const imageRoute =
       providerOptions?.banana?.imageRoute ||
       (typeof (providerOptions as any)?.bananaImageRoute === 'string'
@@ -419,18 +424,32 @@ export class NewApiProvider implements IAIProvider {
       resolvedModel &&
       NewApiProvider.ULTRA_CAPABLE_MODELS.has(resolvedModel)
     ) {
-      return this.svipApiKey;
+      return 'svip';
     }
-    if (imageRoute === 'stable' && this.vipApiKey) return this.vipApiKey;
+    if (imageRoute === 'stable' && this.vipApiKey) return 'vip';
 
     // 通过模型路由系统选中 new_api 渠道时也走 VIP key
     const vendorKey = (providerOptions as any)?.vendorKey;
     const platformKey = (providerOptions as any)?.platformKey;
     if ((vendorKey === 'new_api' || platformKey === 'new_api') && this.vipApiKey) {
-      return this.vipApiKey;
+      return 'vip';
     }
 
-    return this.apiKey;
+    return 'normal';
+  }
+
+  /**
+   * 解析实际使用的 key：先定档位，再按当前租户取该档 key；
+   * 子租户未配置 → 回落平台 env key（不破坏主站/未配置租户）。
+   */
+  private async resolveApiKey(
+    providerOptions?: ProviderOptionsPayload,
+    resolvedModel?: string,
+  ): Promise<string> {
+    const tier = this.resolveTier(providerOptions, resolvedModel);
+    const envFallback =
+      tier === 'svip' ? this.svipApiKey : tier === 'vip' ? this.vipApiKey : this.apiKey;
+    return this.keyResolver.resolve(tier, envFallback);
   }
 
   private static readonly MODEL_ALIAS_MAP: Record<string, string> = {
@@ -481,7 +500,7 @@ export class NewApiProvider implements IAIProvider {
     errorCode: string,
     providerOptions?: ProviderOptionsPayload,
   ): Promise<AIProviderResponse<ImageResult>> {
-    const apiKey = this.resolveApiKey(providerOptions, payload.model as string | undefined);
+    const apiKey = await this.resolveApiKey(providerOptions, payload.model as string | undefined);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= IMAGE_MAX_RETRIES + 1; attempt++) {
@@ -558,7 +577,7 @@ export class NewApiProvider implements IAIProvider {
           method: 'POST',
           body: JSON.stringify(this.stripUndefined({ ...payload, stream: false })),
         },
-        this.resolveApiKey(providerOptions),
+        await this.resolveApiKey(providerOptions),
       );
       return {
         success: true,

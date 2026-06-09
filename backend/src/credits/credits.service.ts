@@ -2326,6 +2326,7 @@ export class CreditsService {
     const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
+      // ALLOW_RAW_NO_TENANT: 按全局唯一主键 id 取行级锁(FOR UPDATE)，id 跨租户不撞
       await tx.$queryRaw<Array<{ id: string }>>(
         Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${params.account.id} FOR UPDATE`,
       );
@@ -2495,6 +2496,7 @@ export class CreditsService {
       }
 
       const result = await this.prisma.$transaction(async (tx) => {
+        // ALLOW_RAW_NO_TENANT: 按全局唯一主键 id 取行级锁(FOR UPDATE)，id 跨租户不撞
         await tx.$queryRaw<Array<{ id: string }>>(
           Prisma.sql`SELECT id FROM "CreditAccount" WHERE id = ${item.accountId} FOR UPDATE`,
         );
@@ -5730,6 +5732,7 @@ export class CreditsService {
     tierCode?: string;
   }> {
     return await this.prisma.$transaction(async (tx) => {
+      // ALLOW_RAW_NO_TENANT: 按全局唯一 userId 取行级锁(FOR UPDATE)，userId(uuid)跨租户不撞
       await tx.$queryRaw<Array<{ id: string }>>(
         Prisma.sql`SELECT id FROM "CreditAccount" WHERE "userId" = ${userId} FOR UPDATE`,
       );

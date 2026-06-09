@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ClsModule } from 'nestjs-cls';
+import { TenancyModule } from './tenancy/tenancy.module';
+import { TenantResolverModule } from './tenancy/tenant-resolver.module';
+import { TenantResolverService } from './tenancy/tenant-resolver.service';
+import { CLS_TENANT_KEY } from './tenancy/tenant.constants';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
@@ -33,6 +38,21 @@ import { AgentModule } from './agent/agent.module';
       isGlobal: true,
       envFilePath: ['.env', '../.env'],
       expandVariables: true,
+    }),
+    TenancyModule,
+    // 在 CLS 上下文建立时（setup）解析 Host → tenantId 并写入，保证后续 Prisma 扩展可读
+    ClsModule.forRootAsync({
+      global: true,
+      imports: [TenantResolverModule],
+      inject: [TenantResolverService],
+      useFactory: (resolver: TenantResolverService) => ({
+        middleware: {
+          mount: true,
+          setup: async (cls, req) => {
+            cls.set(CLS_TENANT_KEY, await resolver.resolve(req));
+          },
+        },
+      }),
     }),
     ScheduleModule.forRoot(),
     PrismaModule,

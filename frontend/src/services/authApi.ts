@@ -13,6 +13,7 @@ export type UserInfo = {
   name?: string;
   role?: string;
   phone?: string;
+  tenantId?: string;
 };
 
 export type GoogleApiKeyInfo = {
