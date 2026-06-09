@@ -1551,7 +1551,9 @@ export class VideoProviderService {
     }
 
     // ── omni 多分镜 → multi_shot / shot_type / multi_prompt（复用历史 storyboard 校验）。 ──
-    if (isOmni) {
+    // multi_shot 与参考视频(video_list)互斥，上游报 "multi shot is not supported with
+    // video input"。连了参考视频时跳过分镜，保证视频输入可用。
+    if (isOmni && !hasVideo) {
       this.applyKlingOmniStoryboard(options, metadata, duration);
     }
 

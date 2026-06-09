@@ -1122,6 +1122,14 @@ export class AiController {
       params.managedModelKey = dto.managedModelKey.trim();
     }
 
+    // kling-o3(Omni) 计费的线路 modelKey 必须钉死为 'kling-o3'，命中专属的 kling-o3 计价书。
+    // 否则 managedModelKey 缺失时(老/新节点未带该字段)会按 klingModel='kling-v3-0' 推断成
+    // 'kling-3.0' 命中 Kling 3.0 计价书(audio/720P 0.9元/s)，与前端预估(节点带 klingModel
+    // 'kling-o3' → kling-o3 书 0.8元/s)分叉：实扣 900、预估 800。前端预估同样解析到 kling-o3。
+    if (dto.provider === 'kling-o3') {
+      params.managedModelKey = 'kling-o3';
+    }
+
     if (preferredVendorKey) {
       params.vendorKey = preferredVendorKey;
     }
@@ -1174,6 +1182,18 @@ export class AiController {
 
     if (typeof dto.resolution === 'string' && dto.resolution.trim().length > 0) {
       params.resolution = dto.resolution.trim().toUpperCase();
+    }
+
+    // kling-o3(Omni) 画质由 mode(std/pro/4k) 决定，前端不下发 resolution（避免被
+    // resolveNewApiVideoSize 转成上游 size 字段、与 omni 的 mode 画质冲突）。但线路计价按
+    // resolution 分档，缺省会一律按最低档(720P)计费 → pro/1080P、4k 少扣。这里仅为「计费
+    // 上下文」按 mode 派生 resolution（不影响上游请求 effectiveDto），与前端预估
+    // klingO3BillingResolutionFromMode 同一映射；改一处务必同步前端。
+    if (dto.provider === 'kling-o3' && !params.resolution) {
+      const klingMode =
+        typeof dto.mode === 'string' ? dto.mode.trim().toLowerCase() : '';
+      params.resolution =
+        klingMode === 'pro' ? '1080P' : klingMode === '4k' ? '4K' : '720P';
     }
 
     if (typeof dto.aspectRatio === 'string' && dto.aspectRatio.trim().length > 0) {
@@ -1312,10 +1332,13 @@ export class AiController {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
 
+    // kling-o3(Omni) 不能并入 kling-3.0 路由：它虽下发 klingModel='kling-v3-0'(为让 new-api
+    // 路由到 kling-v3-omni)，但计费/线路必须用 kling-o3 自己的计价书。否则 params.modelKey 会被
+    // 设成 'kling-3.0'，而 resolveManagedRoutePricing 中 modelKey 优先级高于 managedModelKey，
+    // 盖掉钉死的 'kling-o3' → 命中 Kling 3.0 书(audio 0.9元/s)→ 实扣 900 而预估 800。
+    // kling-o3 一律落到下面的 kling-o3 路由分支。
     if (
-      (dto.provider === 'kling' ||
-        dto.provider === 'kling-2.6' ||
-        dto.provider === 'kling-o3') &&
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
       normalizedKlingModel === 'kling-v3-0'
     ) {
       assignRouteParams(
@@ -1379,10 +1402,16 @@ export class AiController {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
 
+    // kling-o3(Omni) 计费一律走 kling-o3-video，不受其路由用的 klingModel 影响。
+    // Omni 节点为让 new-api 路由到 kling-v3-omni 固定带 klingModel='kling-v3-0'，
+    // 若把它并入下面的 kling-3.0-video 分支，会被 3.0 动态计价(std/5s=300)覆盖掉
+    // Omni 线路价(700)——导致前端预估(kling-o3-video=700)与实扣(300)不一致。
+    if (dto.provider === 'kling-o3') {
+      return 'kling-o3-video';
+    }
+
     if (
-      (dto.provider === 'kling' ||
-        dto.provider === 'kling-2.6' ||
-        dto.provider === 'kling-o3') &&
+      (dto.provider === 'kling' || dto.provider === 'kling-2.6') &&
       normalizedKlingModel === 'kling-v3-0'
     ) {
       return 'kling-3.0-video';

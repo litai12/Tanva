@@ -940,6 +940,11 @@ export class CreditsService {
     raw: unknown,
     serviceType: ServiceType,
   ): KlingBillingModel | null {
+    // Omni 服务永远按 kling-o3 计费/命名。Omni 节点为路由到 kling-v3-omni 固定带
+    // klingModel='kling-v3-0'，若按下面的 klingModel 字面值判定会被当成 Kling 3.0
+    // （触发 3.0 动态计价并把账单标成 Kling 3.0），故 serviceType 优先。
+    if (serviceType === 'kling-o3-video') return 'kling-o3';
+
     if (typeof raw === 'string') {
       const value = raw.trim().toLowerCase();
       if (value === 'kling-v2-6') return 'kling-v2-6';
@@ -2583,6 +2588,13 @@ export class CreditsService {
     model: string | undefined,
     requestParams?: Record<string, any> | null,
   ): string | null {
+    // kling-o3(Omni) 节点为路由到 kling-v3-omni 固定带 klingModel='kling-v3-0'/modelKey 可能
+    // 是 kling-3.0，会让账单备注的 model 标签错标成 kling-3.0(与标题"可灵 Kling O3 视频"不符)。
+    // 该服务的产品计费模型恒为 kling-o3，直接锁定，保持标题/备注一致。
+    if (serviceType === 'kling-o3-video') {
+      return 'kling-o3';
+    }
+
     const isVideoService =
       serviceType.includes('video') ||
       serviceType === 'sora-sd' ||
