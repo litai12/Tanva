@@ -177,7 +177,39 @@ export interface TenantInfo {
   userCount: number;
   // 是否已配置各档 new-api key（不含明文）
   apiKeys?: { normal: boolean; vip: boolean; svip: boolean };
+  // 各支付渠道是否已配置独立商户（否则回落主站）
+  payment?: { wechat: boolean; alipay: boolean };
   domains: TenantDomainInfo[];
+}
+
+// 支付配置：商户号/appid/序列号明文回显；私钥/证书/APIv3 key 仅布尔
+export interface TenantPaymentConfig {
+  wechat: {
+    appId: string | null;
+    mchId: string | null;
+    serialNo: string | null;
+    privateKey: boolean;
+    certificate: boolean;
+    apiV3Key: boolean;
+  };
+  alipay: {
+    appId: string | null;
+    privateKey: boolean;
+    publicKey: boolean;
+  };
+}
+
+// 提交支付配置：传字符串=设置(空串=清除)，不传=不变
+export interface SetTenantPaymentConfigBody {
+  wechatAppId?: string;
+  wechatMchId?: string;
+  wechatSerialNo?: string;
+  wechatPrivateKey?: string;
+  wechatCertificate?: string;
+  wechatApiV3Key?: string;
+  alipayAppId?: string;
+  alipayPrivateKey?: string;
+  alipayPublicKey?: string;
 }
 
 export async function getTenants(): Promise<TenantInfo[]> {
@@ -229,6 +261,23 @@ export async function setTenantApiKeys(
   body: { newApiKey?: string; newApiKeyVip?: string; newApiKeySvip?: string },
 ): Promise<TenantInfo> {
   const response = await request(`/api/admin/tenants/${id}/api-keys`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
+export async function getTenantPaymentConfig(id: string): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`);
+  return response.json();
+}
+
+export async function setTenantPaymentConfig(
+  id: string,
+  body: SetTenantPaymentConfigBody,
+): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(body),

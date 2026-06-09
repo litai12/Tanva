@@ -871,6 +871,18 @@ model Tenant {
   newApiKey     String?
   newApiKeyVip  String?
   newApiKeySvip String?
+  // 子租户独立支付商户配置（空则逐渠道回落平台 env）。
+  // 明文(非密)：商户号 / appid / 证书序列号
+  wechatAppId          String?
+  wechatMchId          String?
+  wechatSerialNo       String?
+  alipayAppId          String?
+  // 密文(AES-256-GCM，见 utils/secret-crypto)：私钥 / 证书 / APIv3 key
+  wechatPrivateKeyEnc  String?
+  wechatCertificateEnc String?
+  wechatApiV3KeyEnc    String?
+  alipayPrivateKeyEnc  String?
+  alipayPublicKeyEnc   String?
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
   domains    TenantDomain[]

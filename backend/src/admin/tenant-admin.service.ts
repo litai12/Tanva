@@ -4,10 +4,13 @@ import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { normalizeHost } from '../tenancy/host.util';
 import { NewApiKeyResolver } from '../tenancy/new-api-key-resolver.service';
+import { TenantPaymentResolver } from '../tenancy/tenant-payment-resolver.service';
+import { encryptSecret } from '../utils/secret-crypto';
 import {
   AddDomainDto,
   CreateTenantDto,
   SetTenantApiKeysDto,
+  SetTenantPaymentConfigDto,
   UpdateTenantDto,
 } from './dto/tenant-admin.dto';
 
@@ -20,6 +23,7 @@ export class TenantAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyResolver: NewApiKeyResolver,
+    private readonly paymentResolver: TenantPaymentResolver,
     private readonly tenantContext: TenantContextService,
   ) {}
 
@@ -51,6 +55,11 @@ export class TenantAdminService {
         normal: Boolean(t.newApiKey),
         vip: Boolean(t.newApiKeyVip),
         svip: Boolean(t.newApiKeySvip),
+      },
+      // 支付渠道是否已配置独立商户（足以构建 SDK 才算已配置；否则回落主站）
+      payment: {
+        wechat: Boolean(t.wechatMchId && t.wechatPrivateKeyEnc),
+        alipay: Boolean(t.alipayAppId && t.alipayPrivateKeyEnc),
       },
       domains: t.domains.map((d: any) => ({
         id: d.id,
@@ -135,6 +144,72 @@ export class TenantAdminService {
       this.keyResolver.invalidate(tenantId);
     }
     return this.getTenant(tenantId);
+  }
+
+  /** 查询租户支付配置：明文(商户号/appid/序列号)回显便于核对；私钥/证书/APIv3 key 仅回是否已配置。 */
+  async getPaymentConfig(tenantId: string) {
+    const t = await (this.prisma as any).tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        wechatAppId: true,
+        wechatMchId: true,
+        wechatSerialNo: true,
+        alipayAppId: true,
+        wechatPrivateKeyEnc: true,
+        wechatCertificateEnc: true,
+        wechatApiV3KeyEnc: true,
+        alipayPrivateKeyEnc: true,
+        alipayPublicKeyEnc: true,
+      },
+    });
+    if (!t) throw new NotFoundException('租户不存在');
+    return {
+      wechat: {
+        appId: t.wechatAppId ?? null,
+        mchId: t.wechatMchId ?? null,
+        serialNo: t.wechatSerialNo ?? null,
+        privateKey: Boolean(t.wechatPrivateKeyEnc),
+        certificate: Boolean(t.wechatCertificateEnc),
+        apiV3Key: Boolean(t.wechatApiV3KeyEnc),
+      },
+      alipay: {
+        appId: t.alipayAppId ?? null,
+        privateKey: Boolean(t.alipayPrivateKeyEnc),
+        publicKey: Boolean(t.alipayPublicKeyEnc),
+      },
+    };
+  }
+
+  /**
+   * 设置租户支付配置。每字段：传字符串=设置(空串=清除)，不传=不变。
+   * 私钥/证书/APIv3 key 加密入库；商户号/appid/序列号明文。设置后清解析器缓存。
+   */
+  async setPaymentConfig(tenantId: string, dto: SetTenantPaymentConfigDto) {
+    const tenant = await (this.prisma as any).tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('租户不存在');
+
+    const data: Record<string, string | null> = {};
+    const normPlain = (v?: string) => (v === undefined ? undefined : v.trim() ? v.trim() : null);
+    const normSecret = (v?: string) =>
+      v === undefined ? undefined : v.trim() ? encryptSecret(v.trim()) : null;
+
+    // 明文字段
+    if (dto.wechatAppId !== undefined) data.wechatAppId = normPlain(dto.wechatAppId) as any;
+    if (dto.wechatMchId !== undefined) data.wechatMchId = normPlain(dto.wechatMchId) as any;
+    if (dto.wechatSerialNo !== undefined) data.wechatSerialNo = normPlain(dto.wechatSerialNo) as any;
+    if (dto.alipayAppId !== undefined) data.alipayAppId = normPlain(dto.alipayAppId) as any;
+    // 密文字段 → *Enc 列
+    if (dto.wechatPrivateKey !== undefined) data.wechatPrivateKeyEnc = normSecret(dto.wechatPrivateKey) as any;
+    if (dto.wechatCertificate !== undefined) data.wechatCertificateEnc = normSecret(dto.wechatCertificate) as any;
+    if (dto.wechatApiV3Key !== undefined) data.wechatApiV3KeyEnc = normSecret(dto.wechatApiV3Key) as any;
+    if (dto.alipayPrivateKey !== undefined) data.alipayPrivateKeyEnc = normSecret(dto.alipayPrivateKey) as any;
+    if (dto.alipayPublicKey !== undefined) data.alipayPublicKeyEnc = normSecret(dto.alipayPublicKey) as any;
+
+    if (Object.keys(data).length > 0) {
+      await (this.prisma as any).tenant.update({ where: { id: tenantId }, data });
+      this.paymentResolver.invalidate(tenantId);
+    }
+    return this.getPaymentConfig(tenantId);
   }
 
   private async getTenant(id: string) {

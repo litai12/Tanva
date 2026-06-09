@@ -14,9 +14,11 @@ describe('PaymentService H6 team_seat 收口', () => {
     membership?: { role: string } | null;
     teamSeatPackageCreate?: jest.Mock;
   } = {}) {
+    // 注意用 'in' 区分「显式 null（非团队成员）」与「未提供（默认 owner）」，
+    // 否则 `?? {role:'owner'}` 会把 null 也变成 owner，掩盖非成员越权用例。
     const teamMembershipFindUnique = jest
       .fn()
-      .mockResolvedValue(overrides.membership ?? { role: 'owner' });
+      .mockResolvedValue('membership' in overrides ? overrides.membership : { role: 'owner' });
 
     const paymentOrderCreate = jest.fn(async (args: any) => ({
       id: 'order_1',
@@ -50,6 +52,21 @@ describe('PaymentService H6 team_seat 收口', () => {
       isPlatformMode: jest.fn(() => false),
     } as unknown as TenantContextService;
 
+    // 支付解析器 stub：返回可用的 alipay/wechat SDK，使 createOrder 的二维码生成不报错
+    const paymentResolver = {
+      resolve: jest.fn(async () => ({
+        alipaySdk: { exec: jest.fn(async () => ({ code: '10000', qrCode: 'https://qr.alipay.com/x' })) },
+        alipayAppId: 'app',
+        wechatPay: { transactions_native: jest.fn(async () => ({ code_url: 'weixin://wxpay/x' })) },
+        wechatApiV3Key: null,
+        wechatAppId: 'wxapp',
+        wechatMchId: 'mch',
+        source: { alipay: 'platform', wechat: 'platform' },
+      })),
+      warmPlatform: jest.fn(() => ({ alipay: true, wechat: true })),
+      invalidate: jest.fn(),
+    } as any;
+
     const svc = new PaymentService(
       prisma,
       { get: jest.fn() } as any,
@@ -57,6 +74,7 @@ describe('PaymentService H6 team_seat 收口', () => {
       {} as any,
       {} as any,
       tenantContext,
+      paymentResolver,
       undefined,
     );
 
@@ -214,6 +232,20 @@ describe('PaymentService H6 team_seat 收口', () => {
         getMembershipCreditPolicy: jest.fn().mockResolvedValue({ fixedCreditExpireDays: 0 }),
       } as any;
 
+      const paymentResolver = {
+        resolve: jest.fn(async () => ({
+          alipaySdk: null,
+          alipayAppId: null,
+          wechatPay: null,
+          wechatApiV3Key: null,
+          wechatAppId: null,
+          wechatMchId: null,
+          source: { alipay: 'none', wechat: 'none' },
+        })),
+        warmPlatform: jest.fn(() => ({ alipay: false, wechat: false })),
+        invalidate: jest.fn(),
+      } as any;
+
       const svc = new PaymentService(
         prisma as PrismaService,
         { get: jest.fn() } as any,
@@ -221,6 +253,7 @@ describe('PaymentService H6 team_seat 收口', () => {
         {} as any,
         businessPolicyService,
         tenantContext,
+        paymentResolver,
         undefined,
       );
 

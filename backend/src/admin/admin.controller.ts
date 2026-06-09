@@ -46,7 +46,7 @@ import {
 } from './dto/template.dto';
 import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../ai/services/model-routing.service';
 import { TenantAdminService } from './tenant-admin.service';
-import { CreateTenantDto, UpdateTenantDto, AddDomainDto, SetTenantApiKeysDto } from './dto/tenant-admin.dto';
+import { CreateTenantDto, UpdateTenantDto, AddDomainDto, SetTenantApiKeysDto, SetTenantPaymentConfigDto } from './dto/tenant-admin.dto';
 import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 
 interface AuthenticatedUser {
@@ -209,6 +209,27 @@ export class AdminController {
   ) {
     this.ensurePlatformAdmin(req);
     return this.tenantAdminService.setApiKeys(id, dto);
+  }
+
+  @Get('tenants/:id/payment-config')
+  @ApiOperation({ summary: '查询租户支付商户配置（密文字段仅返回是否已配置）' })
+  async getTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.getPaymentConfig(id);
+  }
+
+  @Post('tenants/:id/payment-config')
+  @ApiOperation({ summary: '设置租户支付商户配置（私钥/证书加密入库）' })
+  async setTenantPaymentConfig(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SetTenantPaymentConfigDto,
+  ) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.setPaymentConfig(id, dto);
   }
 
   @Get('users/:userId')

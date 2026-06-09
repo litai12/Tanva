@@ -4,6 +4,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
+import { TenantPaymentResolver } from '../tenancy/tenant-payment-resolver.service';
+import { PLATFORM_TENANT_ID } from '../tenancy/tenant.constants';
 import {
   PaymentMethod,
   PaymentStatus,
@@ -25,17 +27,11 @@ import { BusinessPolicyService } from '../business-policy/business-policy.servic
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
 // --- 🛡️ 兼容引用 ---
-const alipayLib = require('alipay-sdk');
-const AlipaySdk = alipayLib.default || alipayLib.AlipaySdk || alipayLib;
+// 支付 SDK（AlipaySdk / WeChatPay）的构建已下沉到 TenantPaymentResolver（支持租户级商户）。
 const QRCode = require('qrcode');
-// --- 微信支付 SDK ---
-const WeChatPay = require('wechatpay-node-v3');
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
-  private alipaySdk: any;
-  private wechatPay: any;
-  private wechatApiV3Key: string | null = null;
   private readonly logger = new Logger(PaymentService.name);
 
   constructor(
@@ -45,8 +41,19 @@ export class PaymentService implements OnModuleInit {
     private membershipService: MembershipService,
     private readonly businessPolicyService: BusinessPolicyService,
     private readonly tenantContext: TenantContextService,
+    private readonly paymentResolver: TenantPaymentResolver,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) { }
+
+  /**
+   * 异步入口（回调）无 CLS 时，把 notify_url 里的 tenantId 透传给 resolver；
+   * 请求态/已 runAsTenant 则取 CLS 当前租户。
+   */
+  private buildNotifyUrl(base: string | undefined, fallback: string): string {
+    const tenantId = this.tenantContext.getTenantId() || PLATFORM_TENANT_ID;
+    const root = (base || fallback).replace(/\/+$/, '');
+    return `${root}/${encodeURIComponent(tenantId)}`;
+  }
 
   private isAlipaySuccessStatus(status: string | null | undefined): boolean {
     return status === 'TRADE_SUCCESS' || status === 'TRADE_FINISHED';
@@ -144,135 +151,20 @@ export class PaymentService implements OnModuleInit {
     return snapshotName || order.businessCode || '会员订阅';
   }
 
-  /**
-   * 🛡️ 密钥标准化函数 (PKCS1 专用版)
-   */
-  private formatKey(key: string, type: 'PRIVATE' | 'PUBLIC'): string {
-    if (!key) return '';
-
-    // 1. 清洗：移除所有干扰字符
-    const content = key.replace(/-----BEGIN.*?-----/g, '')
-                       .replace(/-----END.*?-----/g, '')
-                       .replace(/\\n/g, '')
-                       .replace(/[\s"']/g, ''); 
-
-    // 2. 切分：每 64 字符换行
-    const chunked = content.match(/.{1,64}/g)?.join('\n');
-
-    // 3. 组装：优先使用 RSA 专用头，也支持 PKCS8 格式
-    let header, footer;
-    if (type === 'PRIVATE') {
-      // 支持 PKCS1 (RSA PRIVATE KEY) 和 PKCS8 (PRIVATE KEY)
-      if (key.includes('-----BEGIN PRIVATE KEY-----')) {
-        header = '-----BEGIN PRIVATE KEY-----';
-        footer = '-----END PRIVATE KEY-----';
-      } else {
-        header = '-----BEGIN RSA PRIVATE KEY-----';
-        footer = '-----END RSA PRIVATE KEY-----';
-      }
-    } else {
-      header = '-----BEGIN PUBLIC KEY-----';
-      footer = '-----END PUBLIC KEY-----';
-    }
-
-    return `${header}\n${chunked}\n${footer}`;
-  }
-
   onModuleInit() {
-    const appId = this.configService.get<string>('ALIPAY_APP_ID');
-    let privateKey = this.configService.get<string>('ALIPAY_PRIVATE_KEY');
-    let alipayPublicKey = this.configService.get<string>('ALIPAY_PUBLIC_KEY');
-
-    // ⚡️ 应用清洗
-    if (privateKey) {
-      privateKey = this.formatKey(privateKey, 'PRIVATE');
-      const lines = privateKey.split('\n');
-      console.log(`[Alipay] 私钥已配置(PKCS1): 头=${lines[0]} (共${lines.length}行)`);
-    }
-
-    if (alipayPublicKey) {
-      alipayPublicKey = this.formatKey(alipayPublicKey, 'PUBLIC');
-    }
-
-    // 初始化 SDK
-    if (appId && privateKey) {
-      try {
-        this.alipaySdk = new AlipaySdk({
-          appId,
-          privateKey,
-          alipayPublicKey,
-          signType: 'RSA2',
-          // ⚠️ 如果您用的是沙箱环境，请解开下行注释
-          // gateway: 'https://openapi-sandbox.dl.alipaydev.com/gateway.do',
-        });
-        console.log('✅ 支付宝SDK初始化成功');
-      } catch (error) {
-        console.error('❌ 支付宝SDK初始化异常:', error);
-      }
-    } else {
-      console.warn('⚠️ 支付宝配置缺失，支付功能不可用');
-    }
-
-    // --- 微信支付初始化 ---
-    const wechatMchId = this.configService.get<string>('WECHAT_MCH_ID');
-    const wechatPrivateKey = this.configService.get<string>('WECHAT_PRIVATE_KEY');
-    const wechatAppId = this.configService.get<string>('WECHAT_APP_ID');
-    const wechatCertificate = this.configService.get<string>('WECHAT_CERTIFICATE');
-    const wechatSerialNo = this.configService.get<string>('WECHAT_SERIAL_NO');
-    const wechatApiV3Key = this.configService.get<string>('WECHAT_API_V3_KEY');
-    this.wechatApiV3Key = wechatApiV3Key?.trim() || null;
-
-    if (wechatMchId && wechatPrivateKey && wechatAppId) {
-      try {
-        // 格式化商户私钥
-        let formattedPrivateKey = wechatPrivateKey;
-        if (wechatPrivateKey && !wechatPrivateKey.includes('-----BEGIN')) {
-          formattedPrivateKey = this.formatKey(wechatPrivateKey, 'PRIVATE');
-        }
-
-        console.log('🔧 微信支付初始化参数:', {
-          appid: wechatAppId,
-          mchid: wechatMchId,
-          privateKeyStart: formattedPrivateKey?.substring(0, 50),
-          hasCertificate: !!wechatCertificate,
-          hasSerialNo: !!wechatSerialNo,
-        });
-
-        // 优先使用证书序列号方式初始化（推荐）
-        if (wechatSerialNo && wechatCertificate) {
-          this.wechatPay = new WeChatPay({
-            appid: wechatAppId,
-            mchid: wechatMchId,
-            privateKey: formattedPrivateKey,
-            publicKey: wechatCertificate,
-            serial_no: wechatSerialNo,
-            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
-          });
-        } else if (wechatCertificate) {
-          // 如果只有证书，让SDK自动提取序列号
-          this.wechatPay = new WeChatPay({
-            appid: wechatAppId,
-            mchid: wechatMchId,
-            privateKey: formattedPrivateKey,
-            publicKey: wechatCertificate,
-            ...(this.wechatApiV3Key ? { key: this.wechatApiV3Key } : {}),
-          });
-        } else {
-          throw new Error('缺少商户证书（WECHAT_CERTIFICATE）');
-        }
-
-        console.log('✅ 微信支付SDK初始化成功');
-      } catch (error: any) {
-        console.error('❌ 微信支付SDK初始化异常:', error);
-        console.error('❌ 错误详情:', error?.message || error?.stack || error);
-      }
-    } else {
-      console.warn('⚠️ 微信支付配置缺失，支付功能不可用');
-      console.warn('  - WECHAT_MCH_ID:', wechatMchId ? '✅' : '❌ 缺失');
-      console.warn('  - WECHAT_APP_ID:', wechatAppId ? '✅' : '❌ 缺失');
-      console.warn('  - WECHAT_PRIVATE_KEY:', wechatPrivateKey ? '✅' : '❌ 缺失');
-    }
-
+    // SDK 构建已下沉到 TenantPaymentResolver（支持租户级独立商户）。
+    // 这里仅预热平台 ctx 并打印启动状态；子租户 SDK 按请求/回调懒加载。
+    const ready = this.paymentResolver.warmPlatform();
+    console.log(
+      ready.alipay
+        ? '✅ 支付宝SDK初始化成功（平台）'
+        : '⚠️ 支付宝平台配置缺失或无效，主站收款不可用（子租户可各自配置）',
+    );
+    console.log(
+      ready.wechat
+        ? '✅ 微信支付SDK初始化成功（平台）'
+        : '⚠️ 微信支付平台配置缺失或无效，主站收款不可用（子租户可各自配置）',
+    );
   }
 
   // --- 业务逻辑 ---
@@ -539,7 +431,8 @@ export class PaymentService implements OnModuleInit {
   }
 
   private async generateAlipayQrCode(orderNo: string, amount: number): Promise<string> {
-    if (!this.alipaySdk) {
+    const { alipaySdk } = await this.paymentResolver.resolve();
+    if (!alipaySdk) {
       throw new BadRequestException('支付宝SDK未初始化');
     }
 
@@ -551,8 +444,12 @@ export class PaymentService implements OnModuleInit {
       }
       const amountStr = numericAmount.toFixed(2);
       console.log(`[Alipay] 生成二维码请求 → out_trade_no=${orderNo}, total_amount=${amountStr}`);
-      const result = await this.alipaySdk.exec('alipay.trade.precreate', {
-        notify_url: process.env.ALIPAY_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/notify',
+      const result = await alipaySdk.exec('alipay.trade.precreate', {
+        // notify_url 末尾带 tenantId，回调据此定位租户（逐渠道回落平台）
+        notify_url: this.buildNotifyUrl(
+          process.env.ALIPAY_NOTIFY_URL,
+          'https://www.tanvas.cn/api/payment/notify',
+        ),
         bizContent: {
           out_trade_no: orderNo,
           total_amount: amountStr,
@@ -589,17 +486,22 @@ export class PaymentService implements OnModuleInit {
    * 使用 Native 支付模式：统一下单获取 code_url，然后生成二维码
    */
   private async generateWechatQrCode(orderNo: string, amount: number): Promise<string> {
-    if (!this.wechatPay) {
+    const { wechatPay, wechatAppId, wechatMchId } = await this.paymentResolver.resolve();
+    if (!wechatPay) {
       throw new BadRequestException('微信支付SDK未初始化');
     }
 
     try {
       const params = {
-        appid: this.configService.get<string>('WECHAT_APP_ID'),
-        mchid: this.configService.get<string>('WECHAT_MCH_ID'),
+        appid: wechatAppId,
+        mchid: wechatMchId,
         description: `积分充值 - ${amount}元`,
         out_trade_no: orderNo,
-        notify_url: process.env.WECHAT_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/wechat-notify',
+        // notify_url 末尾带 tenantId，回调据此定位租户解密/对账
+        notify_url: this.buildNotifyUrl(
+          process.env.WECHAT_NOTIFY_URL,
+          'https://www.tanvas.cn/api/payment/wechat-notify',
+        ),
         amount: {
           total: Math.round(amount * 100), // 金额单位：分
           currency: 'CNY',
@@ -608,7 +510,7 @@ export class PaymentService implements OnModuleInit {
 
       console.log('微信支付统一下单请求:', JSON.stringify(params, null, 2));
 
-      const result = await this.wechatPay.transactions_native(params);
+      const result = await wechatPay.transactions_native(params);
 
       console.log('微信支付统一下单响应:', JSON.stringify(result, null, 2));
 
@@ -691,11 +593,12 @@ export class PaymentService implements OnModuleInit {
     totalAmount: number | null;
     raw: Record<string, unknown> | null;
   }> {
-    if (!this.alipaySdk) {
+    const { alipaySdk } = await this.paymentResolver.resolve();
+    if (!alipaySdk) {
       return { status: null, tradeNo: null, totalAmount: null, raw: null };
     }
     try {
-      const result = await this.alipaySdk.exec('alipay.trade.query', { bizContent: { out_trade_no: orderNo } });
+      const result = await alipaySdk.exec('alipay.trade.query', { bizContent: { out_trade_no: orderNo } });
       if (result.code === '10000') {
         return {
           status: (result.tradeStatus ?? result.trade_status ?? null) as string | null,
@@ -725,19 +628,18 @@ export class PaymentService implements OnModuleInit {
     paidAt: Date | null;
     raw: Record<string, unknown> | null;
   }> {
-    if (!this.wechatPay) {
+    const { wechatPay, wechatAppId, wechatMchId } = await this.paymentResolver.resolve();
+    if (!wechatPay) {
       return { status: null, transactionId: null, totalAmount: null, paidAt: null, raw: null };
     }
 
     try {
       let result: any = null;
 
-      if (typeof this.wechatPay.query === 'function') {
-        result = await this.wechatPay.query({ out_trade_no: orderNo });
-      } else if (typeof this.wechatPay.orderQuery === 'function') {
-        const appid = this.configService.get<string>('WECHAT_APP_ID');
-        const mchid = this.configService.get<string>('WECHAT_MCH_ID');
-        result = await this.wechatPay.orderQuery({ appid, mchid, out_trade_no: orderNo });
+      if (typeof wechatPay.query === 'function') {
+        result = await wechatPay.query({ out_trade_no: orderNo });
+      } else if (typeof wechatPay.orderQuery === 'function') {
+        result = await wechatPay.orderQuery({ appid: wechatAppId, mchid: wechatMchId, out_trade_no: orderNo });
       } else {
         throw new Error('wechatpay-node-v3 SDK missing query method');
       }
@@ -1360,7 +1262,10 @@ export class PaymentService implements OnModuleInit {
     return { synced: false, status: order.status };
   }
 
-  async handleAlipayNotify(data: any) {
+  /**
+   * @param pathTenantId 来自 notify_url 末段的租户 id（租户级商户回调）；旧全局路由为空。
+   */
+  async handleAlipayNotify(data: any, pathTenantId?: string) {
     try {
       const notifyData = this.parseNotifyData(data);
       const orderNo = notifyData.out_trade_no || notifyData.outTradeNo;
@@ -1387,28 +1292,39 @@ export class PaymentService implements OnModuleInit {
         return false;
       }
 
-      // 优先使用支付宝主动查询做二次确认，避免因回调体解析/验签差异导致漏单。
-      const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
-      if (!this.isAlipaySuccessStatus(alipayTrade.status)) {
-        this.logger.warn(`支付宝回调核对失败: orderNo=${orderNo}, queryStatus=${String(alipayTrade.status)}`);
-        return false;
-      }
-
-      const expectedAmount = Number(order.amount);
-      if (!this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)) {
+      // 防跨租户：notify_url 带的 tenantId 必须与订单租户一致
+      if (pathTenantId && pathTenantId !== order.tenantId) {
         this.logger.error(
-          `支付宝回调金额不一致: orderNo=${orderNo}, expected=${expectedAmount}, actual=${String(alipayTrade.totalAmount)}`,
+          `支付宝回调租户不一致: orderNo=${orderNo}, path=${pathTenantId}, order=${order.tenantId}`,
         );
         return false;
       }
 
-      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
-        tradeNo: tradeNo || alipayTrade.tradeNo,
-        source: 'alipay_notify',
-        paymentMethod: PaymentMethod.ALIPAY,
+      // 切到订单所属租户，主动查询/发货才会用对该租户的商户 SDK 与上下文。
+      return await this.tenantContext.runAsTenant(order.tenantId, async () => {
+        // 优先使用支付宝主动查询做二次确认，避免因回调体解析/验签差异导致漏单。
+        const alipayTrade = await this.queryAlipayTradeStatus(orderNo);
+        if (!this.isAlipaySuccessStatus(alipayTrade.status)) {
+          this.logger.warn(`支付宝回调核对失败: orderNo=${orderNo}, queryStatus=${String(alipayTrade.status)}`);
+          return false;
+        }
+
+        const expectedAmount = Number(order.amount);
+        if (!this.isAmountMatched(expectedAmount, alipayTrade.totalAmount)) {
+          this.logger.error(
+            `支付宝回调金额不一致: orderNo=${orderNo}, expected=${expectedAmount}, actual=${String(alipayTrade.totalAmount)}`,
+          );
+          return false;
+        }
+
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: tradeNo || alipayTrade.tradeNo,
+          source: 'alipay_notify',
+          paymentMethod: PaymentMethod.ALIPAY,
+        });
+        this.logger.log(`支付宝回调处理成功: orderNo=${orderNo}, tradeNo=${tradeNo || alipayTrade.tradeNo || '-'}`);
+        return true;
       });
-      this.logger.log(`支付宝回调处理成功: orderNo=${orderNo}, tradeNo=${tradeNo || alipayTrade.tradeNo || '-'}`);
-      return true;
     } catch (error) {
       this.logger.error(
         '处理支付宝回调失败',
@@ -1421,9 +1337,13 @@ export class PaymentService implements OnModuleInit {
   /**
    * 处理微信支付异步回调通知
    */
+  /**
+   * @param pathTenantId 来自 notify_url 末段的租户 id；决定用哪个租户的 APIv3 key 解密。旧全局路由为空。
+   */
   async handleWechatNotify(
     data: any,
     headers?: Record<string, string | string[] | undefined>,
+    pathTenantId?: string,
   ): Promise<boolean> {
     void headers;
     try {
@@ -1443,18 +1363,22 @@ export class PaymentService implements OnModuleInit {
       let tradeState = '';
       const resource = payload?.resource;
 
+      // 用 notify_url 指定租户的商户 APIv3 key 解密回调密文（resource 内含 out_trade_no）。
+      const { wechatPay: notifyWechatPay, wechatApiV3Key } =
+        await this.paymentResolver.resolve(pathTenantId);
+
       if (
         resource?.ciphertext &&
         resource?.nonce &&
-        this.wechatApiV3Key &&
-        this.wechatPay?.decipher_gcm
+        wechatApiV3Key &&
+        notifyWechatPay?.decipher_gcm
       ) {
         try {
-          const decrypted = this.wechatPay.decipher_gcm(
+          const decrypted = notifyWechatPay.decipher_gcm(
             resource.ciphertext,
             resource.associated_data || '',
             resource.nonce,
-            this.wechatApiV3Key,
+            wechatApiV3Key,
           );
           const decryptedPayload =
             typeof decrypted === 'string'
@@ -1495,29 +1419,40 @@ export class PaymentService implements OnModuleInit {
         return false;
       }
 
-      const wechatTrade = await this.queryWechatTradeStatus(outTradeNo);
-      if (!this.isWechatSuccessStatus(wechatTrade.status)) {
-        this.logger.warn(`微信回调核对失败: orderNo=${outTradeNo}, queryStatus=${String(wechatTrade.status)}`);
-        return false;
-      }
-
-      const expectedAmount = Number(order.amount);
-      if (!this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)) {
+      // 防跨租户：notify_url 带的 tenantId 必须与订单租户一致
+      if (pathTenantId && pathTenantId !== order.tenantId) {
         this.logger.error(
-          `微信回调金额不一致: orderNo=${outTradeNo}, expected=${expectedAmount}, actual=${String(wechatTrade.totalAmount)}`,
+          `微信回调租户不一致: orderNo=${outTradeNo}, path=${pathTenantId}, order=${order.tenantId}`,
         );
         return false;
       }
 
-      await this.processPaymentSuccess(order.id, order.userId, order.credits, {
-        tradeNo: transactionId || wechatTrade.transactionId,
-        paymentMethod: PaymentMethod.WECHAT,
-        source: 'wechat_notify',
-        ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
-      });
+      // 切到订单所属租户，主动查询/发货用对该租户的商户 SDK 与上下文。
+      return await this.tenantContext.runAsTenant(order.tenantId, async () => {
+        const wechatTrade = await this.queryWechatTradeStatus(outTradeNo);
+        if (!this.isWechatSuccessStatus(wechatTrade.status)) {
+          this.logger.warn(`微信回调核对失败: orderNo=${outTradeNo}, queryStatus=${String(wechatTrade.status)}`);
+          return false;
+        }
 
-      this.logger.log(`微信回调处理成功: orderNo=${outTradeNo}, tradeNo=${transactionId || wechatTrade.transactionId || '-'}`);
-      return true;
+        const expectedAmount = Number(order.amount);
+        if (!this.isAmountMatched(expectedAmount, wechatTrade.totalAmount)) {
+          this.logger.error(
+            `微信回调金额不一致: orderNo=${outTradeNo}, expected=${expectedAmount}, actual=${String(wechatTrade.totalAmount)}`,
+          );
+          return false;
+        }
+
+        await this.processPaymentSuccess(order.id, order.userId, order.credits, {
+          tradeNo: transactionId || wechatTrade.transactionId,
+          paymentMethod: PaymentMethod.WECHAT,
+          source: 'wechat_notify',
+          ...(wechatTrade.paidAt ? { paidAt: wechatTrade.paidAt } : {}),
+        });
+
+        this.logger.log(`微信回调处理成功: orderNo=${outTradeNo}, tradeNo=${transactionId || wechatTrade.transactionId || '-'}`);
+        return true;
+      });
     } catch (error) {
       console.error('处理微信支付回调失败:', error);
       return false;

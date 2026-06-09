@@ -6,8 +6,36 @@ import {
   addTenantDomain,
   removeTenantDomain,
   setTenantApiKeys,
+  getTenantPaymentConfig,
+  setTenantPaymentConfig,
   type TenantInfo,
+  type TenantPaymentConfig,
+  type SetTenantPaymentConfigBody,
 } from "@/services/adminApi";
+
+// 支付配置表单字段：明文回显，密文留空=不变
+type PayForm = {
+  wechatAppId: string;
+  wechatMchId: string;
+  wechatSerialNo: string;
+  wechatPrivateKey: string;
+  wechatCertificate: string;
+  wechatApiV3Key: string;
+  alipayAppId: string;
+  alipayPrivateKey: string;
+  alipayPublicKey: string;
+};
+const EMPTY_PAY_FORM: PayForm = {
+  wechatAppId: "",
+  wechatMchId: "",
+  wechatSerialNo: "",
+  wechatPrivateKey: "",
+  wechatCertificate: "",
+  wechatApiV3Key: "",
+  alipayAppId: "",
+  alipayPrivateKey: "",
+  alipayPublicKey: "",
+};
 
 /** 主站超管的租户管理面板（系统设置 → 租户管理） */
 export default function TenantManagement() {
@@ -30,6 +58,12 @@ export default function TenantManagement() {
     newApiKeySvip: string;
   }>({ newApiKey: "", newApiKeyVip: "", newApiKeySvip: "" });
   const [keySaving, setKeySaving] = useState(false);
+
+  // 支付配置：展开的租户id + 当前配置 + 表单
+  const [payPanel, setPayPanel] = useState<string | null>(null);
+  const [payCfg, setPayCfg] = useState<TenantPaymentConfig | null>(null);
+  const [payForm, setPayForm] = useState<PayForm>(EMPTY_PAY_FORM);
+  const [paySaving, setPaySaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -117,6 +151,48 @@ export default function TenantManagement() {
       setErr(e?.message || "保存 key 失败");
     } finally {
       setKeySaving(false);
+    }
+  };
+
+  const openPayPanel = async (tenantId: string) => {
+    if (payPanel === tenantId) {
+      setPayPanel(null);
+      return;
+    }
+    setPayPanel(tenantId);
+    setPayCfg(null);
+    setPayForm(EMPTY_PAY_FORM);
+    try {
+      const cfg = await getTenantPaymentConfig(tenantId);
+      setPayCfg(cfg);
+      // 明文字段回显，便于核对；密文字段留空表示保持不变
+      setPayForm({
+        ...EMPTY_PAY_FORM,
+        wechatAppId: cfg.wechat.appId || "",
+        wechatMchId: cfg.wechat.mchId || "",
+        wechatSerialNo: cfg.wechat.serialNo || "",
+        alipayAppId: cfg.alipay.appId || "",
+      });
+    } catch (e: any) {
+      setErr(e?.message || "加载支付配置失败");
+    }
+  };
+
+  const handleSavePayment = async (tenantId: string) => {
+    setPaySaving(true);
+    try {
+      // 只提交有变化/有值的字段；要清除某项请输入一个空格
+      const body: SetTenantPaymentConfigBody = {};
+      (Object.keys(payForm) as (keyof PayForm)[]).forEach((k) => {
+        if (payForm[k] !== "") body[k] = payForm[k];
+      });
+      await setTenantPaymentConfig(tenantId, body);
+      setPayPanel(null);
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || "保存支付配置失败");
+    } finally {
+      setPaySaving(false);
     }
   };
 
@@ -313,6 +389,107 @@ export default function TenantManagement() {
                         className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                       >
                         {keySaving ? "保存中…" : "保存 key"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 支付商户配置（独立商户号/证书，未配则回落主站） */}
+              {!t.isPlatform && (
+                <div className="mt-3 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                      <span>支付商户</span>
+                      {(["wechat", "alipay"] as const).map((c) => (
+                        <span
+                          key={c}
+                          className={`rounded px-1.5 py-0.5 ${
+                            t.payment?.[c]
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-100 text-gray-400"
+                          }`}
+                          title={t.payment?.[c] ? "已配置独立商户" : "未配置(回落主站)"}
+                        >
+                          {c === "wechat" ? "微信" : "支付宝"}
+                          {t.payment?.[c] ? "✓" : "·"}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => void openPayPanel(t.id)}
+                      className="rounded-md border px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                    >
+                      {payPanel === t.id ? "收起" : "配置支付"}
+                    </button>
+                  </div>
+
+                  {payPanel === t.id && (
+                    <div className="mt-2 space-y-3 rounded-md bg-gray-50 p-3">
+                      <p className="text-xs text-gray-400">
+                        明文(appid/商户号/序列号)回显当前值；私钥/证书/APIv3 key 留空=保持不变，
+                        要清除请输入一个空格。整渠道未配则回落主站。
+                      </p>
+
+                      {(
+                        [
+                          {
+                            title: "微信支付",
+                            fields: [
+                              ["wechatAppId", "AppID", false, false],
+                              ["wechatMchId", "商户号 mchid", false, false],
+                              ["wechatSerialNo", "证书序列号", false, false],
+                              ["wechatPrivateKey", "商户私钥", true, payCfg?.wechat.privateKey],
+                              ["wechatCertificate", "平台证书", true, payCfg?.wechat.certificate],
+                              ["wechatApiV3Key", "APIv3 Key", true, payCfg?.wechat.apiV3Key],
+                            ] as const,
+                          },
+                          {
+                            title: "支付宝",
+                            fields: [
+                              ["alipayAppId", "AppID", false, false],
+                              ["alipayPrivateKey", "应用私钥", true, payCfg?.alipay.privateKey],
+                              ["alipayPublicKey", "支付宝公钥", true, payCfg?.alipay.publicKey],
+                            ] as const,
+                          },
+                        ] as const
+                      ).map((group) => (
+                        <div key={group.title} className="space-y-2">
+                          <div className="text-xs font-semibold text-gray-600">{group.title}</div>
+                          {group.fields.map(([field, label, isSecret, configured]) => (
+                            <div key={field} className="flex items-start gap-2">
+                              <span className="mt-1 w-24 shrink-0 text-xs text-gray-500">{label}</span>
+                              {isSecret ? (
+                                <textarea
+                                  className="flex-1 rounded-md border px-2 py-1 font-mono text-xs"
+                                  rows={2}
+                                  placeholder={configured ? "已配置，留空=保持不变" : "未配置"}
+                                  value={payForm[field as keyof PayForm]}
+                                  onChange={(e) =>
+                                    setPayForm((s) => ({ ...s, [field]: e.target.value }))
+                                  }
+                                />
+                              ) : (
+                                <input
+                                  className="flex-1 rounded-md border px-2 py-1 font-mono text-xs"
+                                  placeholder={label}
+                                  value={payForm[field as keyof PayForm]}
+                                  onChange={(e) =>
+                                    setPayForm((s) => ({ ...s, [field]: e.target.value }))
+                                  }
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+
+                      <button
+                        onClick={() => void handleSavePayment(t.id)}
+                        disabled={paySaving}
+                        className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {paySaving ? "保存中…" : "保存支付配置"}
                       </button>
                     </div>
                   )}

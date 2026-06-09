@@ -50,3 +50,23 @@ export class SetTenantApiKeysDto {
   @IsString()
   newApiKeySvip?: string;
 }
+
+/**
+ * 设置租户支付商户配置。每个字段：传字符串=设置(空串=清除)，不传=保持不变。
+ * 私钥/证书/APIv3 key 经 AES-256-GCM 加密后入库；商户号/appid/序列号明文存。
+ */
+export class SetTenantPaymentConfigDto {
+  // 微信（明文）
+  @IsOptional() @IsString() wechatAppId?: string;
+  @IsOptional() @IsString() wechatMchId?: string;
+  @IsOptional() @IsString() wechatSerialNo?: string;
+  // 微信（密文）
+  @IsOptional() @IsString() wechatPrivateKey?: string;
+  @IsOptional() @IsString() wechatCertificate?: string;
+  @IsOptional() @IsString() wechatApiV3Key?: string;
+  // 支付宝（明文）
+  @IsOptional() @IsString() alipayAppId?: string;
+  // 支付宝（密文）
+  @IsOptional() @IsString() alipayPrivateKey?: string;
+  @IsOptional() @IsString() alipayPublicKey?: string;
+}
