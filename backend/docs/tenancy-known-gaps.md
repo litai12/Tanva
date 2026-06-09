@@ -89,3 +89,14 @@ access token TTL 短，过渡期（一个 TTL 周期）后设 `TENANT_STRICT_TOK
 
 `$queryRaw/$executeRaw` 绕过租户扩展。CI 脚本 `npm run lint:raw-sql` 会拦截未带
 `tenant_id` 且无 `ALLOW_RAW_NO_TENANT` 注释的裸 SQL。存量命中需逐个补条件或标注。
+
+## 10. 支付域硬化项（2026-06-09 租户化支付自检发现，pre-existing）
+
+详见 `tenancy-payment-selfcheck-2026-06-09.md`。租户级商户配置上线不阻断，但建议后续处理：
+
+- **金额校验 null 旁路**：`isAmountMatched(expected, null)` 返回 true，上游成功但金额解析为 null 时校验失效。
+  建议成功路径下 `actual===null` 视为失败并告警（影响 reconcile/getOrderStatus/sync，需评估）。
+- **回调无签名校验**：支付宝 RSA2 / 微信 Wechatpay-Signature 未校验，安全压在主动查单。
+  建议至少对微信启用 SDK `verifySign`（用对应租户证书）。
+
+> 高危项「租户解密失败静默回落平台漏单」已在 `TenantPaymentResolver` 修复（fail-closed，见自检报告）。

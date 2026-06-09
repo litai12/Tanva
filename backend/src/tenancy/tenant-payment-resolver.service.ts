@@ -18,8 +18,17 @@ export interface ResolvedPaymentCtx {
   wechatApiV3Key: string | null;
   wechatAppId: string | null;
   wechatMchId: string | null;
-  /** 各渠道来源，便于日志/排障 */
-  source: { alipay: 'tenant' | 'platform' | 'none'; wechat: 'tenant' | 'platform' | 'none' };
+  /**
+   * 各渠道来源，便于日志/排障：
+   * - tenant   用租户自配商户
+   * - platform 回落平台 env（租户未配该渠道）
+   * - none     平台也没配
+   * - error    租户**已配**该渠道但解密/构建失败 → **fail-closed**，不回落平台（避免用错商户静默漏单）
+   */
+  source: {
+    alipay: 'tenant' | 'platform' | 'none' | 'error';
+    wechat: 'tenant' | 'platform' | 'none' | 'error';
+  };
 }
 
 interface AlipayChannel {
@@ -31,6 +40,13 @@ interface WechatChannel {
   appId: string | null;
   mchId: string | null;
   apiV3Key: string | null;
+}
+
+/** 租户某渠道的解析状态：configured=已配且成功；error=已配但解密/构建失败(fail-closed)；都 false=未配(回落平台)。 */
+interface ChannelState<T> {
+  channel: T;
+  configured: boolean;
+  error: boolean;
 }
 
 /** 原始（未格式化）支付凭证，用于构建 SDK。 */
@@ -66,7 +82,7 @@ export class TenantPaymentResolver {
   // 租户 ctx：带 TTL 的进程内缓存；admin 改配置会主动失效；多进程靠 TTL 兜底
   private tenantCache = new Map<
     string,
-    { alipay: AlipayChannel; wechat: WechatChannel; expireAt: number }
+    { alipay: ChannelState<AlipayChannel>; wechat: ChannelState<WechatChannel>; expireAt: number }
   >();
   private readonly ttlMs = 60_000;
 
@@ -209,7 +225,7 @@ export class TenantPaymentResolver {
   // ---- 租户 ctx ----
   private async getTenantChannels(
     tenantId: string,
-  ): Promise<{ alipay: AlipayChannel; wechat: WechatChannel }> {
+  ): Promise<{ alipay: ChannelState<AlipayChannel>; wechat: ChannelState<WechatChannel> }> {
     const cached = this.tenantCache.get(tenantId);
     if (cached && cached.expireAt > this.now()) {
       return { alipay: cached.alipay, wechat: cached.wechat };
@@ -229,36 +245,77 @@ export class TenantPaymentResolver {
       },
     });
 
-    let alipay: AlipayChannel = { sdk: null, appId: null };
-    let wechat: WechatChannel = { sdk: null, appId: null, mchId: null, apiV3Key: null };
-    if (t) {
-      try {
-        const cfg: RawPaymentConfig = {
+    const alipay = this.resolveAlipayChannel(t, tenantId);
+    const wechat = this.resolveWechatChannel(t, tenantId);
+    this.tenantCache.set(tenantId, { alipay, wechat, expireAt: this.now() + this.ttlMs });
+    return { alipay, wechat };
+  }
+
+  private resolveAlipayChannel(t: any, tenantId: string): ChannelState<AlipayChannel> {
+    const empty: AlipayChannel = { sdk: null, appId: null };
+    // 「是否配置该渠道」的意图：商户标识或密文存在即视为想用独立商户
+    const intent = Boolean(t?.alipayAppId || t?.alipayPrivateKeyEnc);
+    if (!intent) return { channel: empty, configured: false, error: false };
+    try {
+      const ch = this.buildAlipay(
+        {
           alipayAppId: t.alipayAppId,
           alipayPrivateKey: decryptSecret(t.alipayPrivateKeyEnc),
           alipayPublicKey: decryptSecret(t.alipayPublicKeyEnc),
+        },
+        `tenant:${tenantId}`,
+      );
+      if (!ch.sdk) {
+        // 解密成功但字段不全（如只填了 appId）→ 从未是可用商户，回落平台（宽松）
+        this.logger.warn(`租户 ${tenantId} 支付宝商户字段不全，回落平台 env`);
+        return { channel: empty, configured: false, error: false };
+      }
+      return { channel: ch, configured: true, error: false };
+    } catch (error) {
+      // 解密抛错（主密钥缺失/轮换、密文损坏）→ fail-closed：不回落平台，避免用错商户静默漏单
+      this.logger.error(
+        `租户 ${tenantId} 支付宝商户解密失败 → fail-closed（不回落平台）: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { channel: empty, configured: false, error: true };
+    }
+  }
+
+  private resolveWechatChannel(t: any, tenantId: string): ChannelState<WechatChannel> {
+    const empty: WechatChannel = { sdk: null, appId: null, mchId: null, apiV3Key: null };
+    const intent = Boolean(t?.wechatMchId || t?.wechatPrivateKeyEnc);
+    if (!intent) return { channel: empty, configured: false, error: false };
+    try {
+      const ch = this.buildWechat(
+        {
           wechatAppId: t.wechatAppId,
           wechatMchId: t.wechatMchId,
           wechatSerialNo: t.wechatSerialNo,
           wechatPrivateKey: decryptSecret(t.wechatPrivateKeyEnc),
           wechatCertificate: decryptSecret(t.wechatCertificateEnc),
           wechatApiV3Key: decryptSecret(t.wechatApiV3KeyEnc),
-        };
-        alipay = this.buildAlipay(cfg, `tenant:${tenantId}`);
-        wechat = this.buildWechat(cfg, `tenant:${tenantId}`);
-      } catch (error) {
-        // 解密失败（如主密钥缺失）→ 该租户回落平台，但要告警
-        this.logger.error(
-          `租户 ${tenantId} 支付配置解密失败，回落平台 env: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        },
+        `tenant:${tenantId}`,
+      );
+      if (!ch.sdk) {
+        // 解密成功但字段不全（如缺证书）→ 从未是可用商户，回落平台（宽松）
+        this.logger.warn(`租户 ${tenantId} 微信商户字段不全（缺证书？），回落平台 env`);
+        return { channel: empty, configured: false, error: false };
       }
+      return { channel: ch, configured: true, error: false };
+    } catch (error) {
+      // 解密抛错（主密钥缺失/轮换、密文损坏）→ fail-closed：不回落平台，避免用错商户静默漏单
+      this.logger.error(
+        `租户 ${tenantId} 微信商户解密失败 → fail-closed（不回落平台）: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { channel: empty, configured: false, error: true };
     }
-    this.tenantCache.set(tenantId, { alipay, wechat, expireAt: this.now() + this.ttlMs });
-    return { alipay, wechat };
   }
 
   /**
-   * 解析当前（或显式指定）租户的支付上下文。逐渠道回落平台。
+   * 解析当前（或显式指定）租户的支付上下文。逐渠道处理：
+   * - 租户已配且成功 → 用租户商户；
+   * - 租户已配但失败(error) → **fail-closed**，sdk=null，**不回落平台**（避免用错商户静默漏单）；
+   * - 租户未配 → 回落平台 env。
    * @param explicitTenantId 回调等无 CLS 场景显式传入（如从 notify_url path）
    */
   async resolve(explicitTenantId?: string): Promise<ResolvedPaymentCtx> {
@@ -281,10 +338,35 @@ export class TenantPaymentResolver {
     }
 
     const tenant = await this.getTenantChannels(tenantId);
-    const alipayFromTenant = Boolean(tenant.alipay.sdk);
-    const wechatFromTenant = Boolean(tenant.wechat.sdk);
-    const alipay = alipayFromTenant ? tenant.alipay : platform.alipay;
-    const wechat = wechatFromTenant ? tenant.wechat : platform.wechat;
+
+    // 支付宝渠道
+    let alipay: AlipayChannel;
+    let alipaySource: ResolvedPaymentCtx['source']['alipay'];
+    if (tenant.alipay.configured) {
+      alipay = tenant.alipay.channel;
+      alipaySource = 'tenant';
+    } else if (tenant.alipay.error) {
+      alipay = { sdk: null, appId: tenant.alipay.channel.appId };
+      alipaySource = 'error'; // fail-closed：不回落平台
+    } else {
+      alipay = platform.alipay;
+      alipaySource = platform.alipay.sdk ? 'platform' : 'none';
+    }
+
+    // 微信渠道
+    let wechat: WechatChannel;
+    let wechatSource: ResolvedPaymentCtx['source']['wechat'];
+    if (tenant.wechat.configured) {
+      wechat = tenant.wechat.channel;
+      wechatSource = 'tenant';
+    } else if (tenant.wechat.error) {
+      wechat = { sdk: null, appId: null, mchId: null, apiV3Key: null };
+      wechatSource = 'error'; // fail-closed：不回落平台
+    } else {
+      wechat = platform.wechat;
+      wechatSource = platform.wechat.sdk ? 'platform' : 'none';
+    }
+
     return {
       alipaySdk: alipay.sdk,
       alipayAppId: alipay.appId,
@@ -292,10 +374,7 @@ export class TenantPaymentResolver {
       wechatApiV3Key: wechat.apiV3Key,
       wechatAppId: wechat.appId,
       wechatMchId: wechat.mchId,
-      source: {
-        alipay: alipayFromTenant ? 'tenant' : alipay.sdk ? 'platform' : 'none',
-        wechat: wechatFromTenant ? 'tenant' : wechat.sdk ? 'platform' : 'none',
-      },
+      source: { alipay: alipaySource, wechat: wechatSource },
     };
   }
 }

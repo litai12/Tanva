@@ -112,6 +112,32 @@ describe('TenantPaymentResolver', () => {
     expect(ctx.wechatPay).toBe('wechat:tenant:t_acme');
   });
 
+  it('fail-closed：租户已配商户但密文解密抛错(主密钥缺失) → 该渠道 sdk=null 且不回落平台', async () => {
+    const saved = process.env.TENANT_SECRET_KEY;
+    delete process.env.TENANT_SECRET_KEY; // 让 decryptSecret 对 v1: 密文抛错
+    try {
+      const { resolver } = build({
+        cls: 't_acme',
+        tenantRow: {
+          // 看起来是已加密的密文（v1: 前缀）→ 无主密钥时 decryptSecret 抛错
+          alipayAppId: 'acme-ali',
+          alipayPrivateKeyEnc: 'v1:aaa:bbb:ccc',
+          wechatMchId: 'acme-mch',
+          wechatPrivateKeyEnc: 'v1:aaa:bbb:ccc',
+          wechatCertificateEnc: 'v1:aaa:bbb:ccc',
+        },
+      });
+      const ctx = await resolver.resolve();
+      // 关键：不能回落平台（否则用错商户静默漏单），应 fail-closed
+      expect(ctx.alipaySdk).toBeNull();
+      expect(ctx.wechatPay).toBeNull();
+      expect(ctx.source).toEqual({ alipay: 'error', wechat: 'error' });
+    } finally {
+      if (saved === undefined) delete process.env.TENANT_SECRET_KEY;
+      else process.env.TENANT_SECRET_KEY = saved;
+    }
+  });
+
   it('缓存：TTL 内只查一次；invalidate 后重查', async () => {
     const { resolver, findUnique } = build({
       cls: 't_acme',
