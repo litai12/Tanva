@@ -42,6 +42,12 @@ type Props = {
 const TEXT_CHAT_NODE_SIZE_VERSION = 2;
 const DEFAULT_TITLE = 'Text Chat';
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
+const DEEPSEEK_V4_TEXT_CREDITS: Record<string, number> = {
+  'deepseek-v4-flash': 30,
+  'deepseek-v4-flash-260425': 30,
+  'deepseek-v4-pro': 60,
+  'deepseek-v4-pro-260425': 60,
+};
 type TextChatSkillId = 'custom' | 'shotSplit' | 'promptOptimize' | 'translate';
 
 type TextChatSkillOption = {
@@ -86,6 +92,20 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   }
 };
 
+const resolveDeepSeekTextCredits = (
+  provider?: string | null,
+  model?: string | null
+): number | undefined => {
+  const candidates = [provider, model];
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+    if (!normalized) continue;
+    const credits = DEEPSEEK_V4_TEXT_CREDITS[normalized];
+    if (typeof credits === 'number') return credits;
+  }
+  return undefined;
+};
+
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
@@ -121,6 +141,16 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         value: 'banana-3.1',
         label: 'Ultra',
         description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
+      },
+      {
+        value: 'deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash',
+        description: lt('DeepSeek V4 Flash 文本模型', 'DeepSeek V4 Flash text model'),
+      },
+      {
+        value: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        description: lt('DeepSeek V4 Pro 文本模型', 'DeepSeek V4 Pro text model'),
       },
     ],
     [lt]
@@ -190,7 +220,8 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     },
     enabled: true,
   });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
+  const deepSeekCredits = resolveDeepSeekTextCredits(effectiveProvider, textModel);
+  const resolvedRunCredits = backendCredits ?? deepSeekCredits ?? data.creditsPerCall;
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()

@@ -81,6 +81,36 @@ export class OssService {
     return this.isOssEnabled();
   }
 
+  diagnostics(): {
+    enabled: boolean;
+    bucket: string;
+    region: string;
+    endpoint: string;
+    s3Endpoint: string;
+    cdnHost: string;
+    objectHost: string;
+    provider: 'tos' | 'oss';
+    hasAccessKeyId: boolean;
+    hasAccessKeySecret: boolean;
+    hasSessionToken: boolean;
+  } {
+    const conf = this.conf;
+    const objectHost = this.resolveObjectHost();
+    return {
+      enabled: this.isOssEnabled(),
+      bucket: conf.bucket,
+      region: conf.region,
+      endpoint: conf.endpoint || '',
+      s3Endpoint: conf.s3Endpoint || '',
+      cdnHost: conf.cdnHost || '',
+      objectHost,
+      provider: this.isTosHost(objectHost) ? 'tos' : 'oss',
+      hasAccessKeyId: Boolean(conf.accessKeyId && conf.accessKeyId !== 'test-id'),
+      hasAccessKeySecret: Boolean(conf.accessKeySecret && conf.accessKeySecret !== 'test-secret'),
+      hasSessionToken: Boolean(conf.sessionToken),
+    };
+  }
+
   private logDisabledOnce() {
     if (this.loggedDisabled) return;
     this.loggedDisabled = true;
@@ -136,6 +166,33 @@ export class OssService {
     return [accessKeyId, secret, bucket, region, this.resolveTosEndpoint(), sessionToken || ''].join('|');
   }
 
+  private ensureNoProxyForTosHosts(): void {
+    const { bucket } = this.conf;
+    const endpoint = this.resolveTosEndpoint();
+    const hosts = [
+      endpoint,
+      endpoint ? `.${endpoint}` : '',
+      endpoint ? `${bucket}.${endpoint}` : '',
+      this.resolveObjectHost(),
+    ].filter(Boolean);
+
+    if (hosts.length === 0) return;
+
+    for (const envKey of ['NO_PROXY', 'no_proxy']) {
+      const current = process.env[envKey] || '';
+      if (current.trim() === '*') continue;
+
+      const values = new Set(
+        current
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      );
+      hosts.forEach((host) => values.add(host));
+      process.env[envKey] = Array.from(values).join(',');
+    }
+  }
+
   private getTosClient(secret: string): TosClient {
     const cacheKey = this.buildTosClientCacheKey(secret);
     const cached = this.tosClients.get(cacheKey);
@@ -143,6 +200,7 @@ export class OssService {
 
     const { accessKeyId, bucket, region, sessionToken } = this.conf;
     const endpoint = this.resolveTosEndpoint();
+    this.ensureNoProxyForTosHosts();
     const client = new TosClient({
       accessKeyId,
       accessKeySecret: secret,
@@ -150,6 +208,7 @@ export class OssService {
       bucket,
       region,
       endpoint: endpoint || undefined,
+      secure: true,
       requestTimeout: this.timeoutMs(),
     });
     this.tosClients.set(cacheKey, client);
@@ -400,6 +459,11 @@ export class OssService {
     stream: NodeJS.ReadableStream,
     options?: any
   ): Promise<{ key: string; url: string }> {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      throw new Error('OSS is disabled');
+    }
+
     if (this.isTosHost(this.resolveObjectHost())) {
       const buffer = await this.readStreamToBuffer(stream);
       const contentType = options?.headers?.['Content-Type'] || options?.headers?.['content-type'];

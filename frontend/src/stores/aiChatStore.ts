@@ -907,7 +907,8 @@ const filterToolsForProvider = (
     return tools.filter(
       (tool) =>
         tool === "chatResponse" ||
-        tool === "analyzeImage"
+        tool === "analyzeImage" ||
+        tool === "analyzePdf"
     );
   }
   return tools;
@@ -919,7 +920,7 @@ const fallbackToolForProvider = (
   hasPdfForAnalysis: boolean
 ): AvailableTool => {
   if (isDeepSeekProvider(provider)) {
-    if (hasPdfForAnalysis) return "chatResponse";
+    if (hasPdfForAnalysis) return "analyzePdf";
     return totalImageCount > 0 ? "analyzeImage" : "chatResponse";
   }
   return "chatResponse";
@@ -6674,9 +6675,11 @@ export const useAIChatStore = create<AIChatState>()(
           let aiMessageId: string | undefined;
 
           // 格式化 PDF 数据
-          const formattedPdfData = sourcePdf.startsWith("data:application/pdf")
-            ? sourcePdf
-            : `data:application/pdf;base64,${sourcePdf}`;
+          const formattedPdfData =
+            sourcePdf.startsWith("data:application/pdf") ||
+            /^https?:\/\//i.test(sourcePdf)
+              ? sourcePdf
+              : `data:application/pdf;base64,${sourcePdf}`;
 
           if (override) {
             aiMessageId = override.aiMessageId;
@@ -8043,6 +8046,11 @@ export const useAIChatStore = create<AIChatState>()(
             }
           }
 
+          if (state.sourcePdfForAnalysis && selectedTool === "chatResponse") {
+            selectedTool = "analyzePdf";
+            logProcessStep(metrics, "pdf upload detected, text chat redirected to analyzePdf");
+          }
+
           if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
             selectedTool = hasMultiExplicitImages ? "blendImages" : "editImage";
             logProcessStep(
@@ -8732,6 +8740,10 @@ export const useAIChatStore = create<AIChatState>()(
                 );
               }
             }
+          }
+
+          if (state.sourcePdfForAnalysis && selectedTool === "chatResponse") {
+            selectedTool = "analyzePdf";
           }
 
           if (!selectedTool) {

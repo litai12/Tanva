@@ -31,7 +31,7 @@ import { AgentModule } from './agent/agent.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../.env'],
+      envFilePath: ['.env', 'backend/.env', '../.env'],
       expandVariables: true,
     }),
     ScheduleModule.forRoot(),

@@ -83,6 +83,12 @@ const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const CREDITS_PER_YUAN = 100;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
 const GPT_IMAGE2_CREDITS = 40;
+const DEEPSEEK_V4_MODEL_CREDITS: Record<string, number> = {
+  'deepseek-v4-flash': 30,
+  'deepseek-v4-flash-260425': 30,
+  'deepseek-v4-pro': 60,
+  'deepseek-v4-pro-260425': 60,
+};
 const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
   '1K': 20,
   '2K': 30,
@@ -738,6 +744,12 @@ export class CreditsService {
       params.model,
     );
 
+    creditsToDeduct = this.resolveDeepSeekV4ModelCredits(
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
     creditsToDeduct = this.resolveVideoAnalyzeRouteCredits(
       params.serviceType,
       creditsToDeduct,
@@ -819,6 +831,26 @@ export class CreditsService {
     if (serviceType === 'gemini-2.5-image-analyze') return 10;
     if (serviceType === 'gemini-image-analyze') return 10;
     if (serviceType === 'gemini-3.1-image-analyze') return 10;
+    return currentCredits;
+  }
+
+  private resolveDeepSeekV4ModelCredits(
+    currentCredits: number,
+    requestParams: any,
+    model?: string,
+  ): number {
+    const candidates = [
+      model,
+      requestParams?.model,
+      requestParams?.aiProvider,
+      requestParams?.requestedProvider,
+    ];
+    for (const candidate of candidates) {
+      const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+      if (!normalized) continue;
+      const credits = DEEPSEEK_V4_MODEL_CREDITS[normalized];
+      if (typeof credits === 'number') return credits;
+    }
     return currentCredits;
   }
 
@@ -2428,6 +2460,10 @@ export class CreditsService {
       });
 
       return true;
+    }, {
+      timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
+      maxWait: 10_000,
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
     });
   }
 
@@ -3144,6 +3180,37 @@ export class CreditsService {
     return !!paidOrder;
   }
 
+  private isClosedPrismaTransactionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return (
+      message.includes('Transaction not found') ||
+      message.includes('Transaction ID is invalid') ||
+      message.includes('old closed transaction')
+    );
+  }
+
+  private async grantFreeUserStarterQuotaBestEffort(params: {
+    userId: string;
+    account: {
+      id: string;
+      balance: number;
+      totalEarned: number;
+    };
+    now?: Date;
+  }): Promise<boolean> {
+    try {
+      return await this.grantFreeUserStarterQuotaIfNeeded(params);
+    } catch (error) {
+      if (this.isClosedPrismaTransactionError(error)) {
+        this.logger.warn(
+          `免费用户初始额度发放事务已关闭，跳过本次发放以不中断当前请求: userId=${params.userId}`,
+        );
+        return false;
+      }
+      throw error;
+    }
+  }
+
   /**
    * ???????????
    * ???????????Double-Checked Locking?????????
@@ -3159,7 +3226,7 @@ export class CreditsService {
         return account;
       }
 
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId,
         account,
       });
@@ -3205,7 +3272,7 @@ export class CreditsService {
         return account;
       }
 
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId,
         account,
       });
@@ -3232,7 +3299,7 @@ export class CreditsService {
           return existingAccount;
         }
 
-        const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+        const granted = await this.grantFreeUserStarterQuotaBestEffort({
           userId,
           account: existingAccount,
         });
@@ -3282,7 +3349,7 @@ export class CreditsService {
       }
 
       const account = await this.getOrCreateAccount(user.id, { skipStarterQuota: true });
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId: user.id,
         account,
         now,

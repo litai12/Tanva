@@ -75,7 +75,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsObject()
@@ -240,7 +240,7 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsObject()
@@ -355,7 +355,7 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsObject()
@@ -469,7 +469,7 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsObject()
@@ -496,7 +496,7 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'deepseek-v4-flash' | 'deepseek-v4-pro' | 'runninghub' | 'midjourney' | 'nano2' | 'seedream5';
 
   @IsOptional()
   @IsObject()

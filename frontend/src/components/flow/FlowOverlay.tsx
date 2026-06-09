@@ -3203,7 +3203,10 @@ const resolveStableRouteCredits = (params: {
       ? nodeData.modelProvider.trim()
       : aiProvider;
 
-  if (normalizedType === "textChat" || normalizedType === "promptOptimize") {
+  if (
+    normalizedType === "textChat" ||
+    normalizedType === "promptOptimize"
+  ) {
     const tier = resolveBananaPricingTierByProvider(providerForPricing);
     if (tier) {
       const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";

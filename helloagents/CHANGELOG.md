@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- AI Chat PDF Analyze: PDF uploads now go through the backend `/api/uploads/document` OSS/TOS relay and store the remote URL for `/api/ai/analyze-image`; the analyze request only falls back to inline PDF base64 for legacy in-memory values.
+- AI Analyze: new-api PDF analysis now accepts remote PDF URLs from OSS/TOS, fetches them server-side at runtime, and sends `input_file.file_data` upstream, avoiding incompatible `file_url` handling in the new-api Responses adapter.
+- AI Analyze: PDF analysis requests now bypass model file-input adapters entirely: the backend extracts PDF text locally with `pdf-parse` and sends the text to the selected text model, avoiding both new-api PDF file schema issues and direct Gemini official network requirements.
 - Canvas/Image Expand: quick-upload now falls back to placing a persistable remote result URL when managed re-upload fails, preventing the expand placeholder from disappearing without the generated image after a successful upstream edit.
 - Canvas/Image Expand: the composed red-mask expand input is uploaded to OSS and sent to edit-image as `sourceImageUrl`, avoiding new-api Gemini's `base64 image is not allowed` rejection.
 - Membership UI: VIP 套餐卡片“合计积分”改为预计月合计展示，明细包含套餐到账、每日签到 30 天，以及 7 天连签额外奖励按月 4 次计算（`frontend/src/components/payment/MembershipPanel.tsx`）。

@@ -5,6 +5,7 @@ import {
   Req,
   UseGuards,
   BadRequestException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { ApiCookieAuth, ApiTags, ApiConsumes } from '@nestjs/swagger';
@@ -26,6 +27,8 @@ const SUPPORTED_VIDEO_TYPES = [
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
 const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32MB
 const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB（与前端 AudioNode 一致）
+const MAX_DOCUMENT_SIZE = 15 * 1024 * 1024; // 15MB
+const SUPPORTED_DOCUMENT_TYPES = ['application/pdf'];
 const SUPPORTED_AUDIO_TYPES = [
   'audio/mpeg',
   'audio/mp3',
@@ -104,6 +107,12 @@ function inferAudioExtFromMime(mimeType?: string): string {
   return 'mp3';
 }
 
+function inferDocumentExtFromMime(mimeType?: string): string {
+  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (value === 'application/pdf') return 'pdf';
+  return 'bin';
+}
+
 function extractMultipartField(
   fields: Record<string, unknown> | undefined,
   key: string
@@ -134,6 +143,14 @@ export class UploadsController {
   private readonly logger = new Logger(UploadsController.name);
 
   constructor(private readonly oss: OssService) {}
+
+  private uploadDiagnosticsForLog(): string {
+    try {
+      return JSON.stringify(this.oss.diagnostics());
+    } catch {
+      return '{}';
+    }
+  }
 
   private async readSingleMultipartFile(
     req: FastifyRequest,
@@ -217,14 +234,22 @@ export class UploadsController {
       return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
     })();
 
-    const stream = Readable.from(file.buffer);
-    const result = await this.oss.putStream(key, stream, {
-      headers: {
-        'Content-Type': mimeType || 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-    });
-    return { url: result.url, key: result.key };
+    try {
+      const stream = Readable.from(file.buffer);
+      const result = await this.oss.putStream(key, stream, {
+        headers: {
+          'Content-Type': mimeType || 'image/png',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+      return { url: result.url, key: result.key };
+    } catch (error) {
+      this.logger.error(
+        `Image upload failed: ${error instanceof Error ? error.message : String(error)}; oss=${this.uploadDiagnosticsForLog()}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('Image upload failed; please check OSS/TOS configuration');
+    }
   }
 
   @Post('video')
@@ -255,11 +280,19 @@ export class UploadsController {
       return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
     })();
 
-    const stream = Readable.from(file.buffer);
-    const result = await this.oss.putStream(key, stream, {
-      headers: { 'Content-Type': file.mimeType },
-    });
-    return { url: result.url, key: result.key };
+    try {
+      const stream = Readable.from(file.buffer);
+      const result = await this.oss.putStream(key, stream, {
+        headers: { 'Content-Type': file.mimeType },
+      });
+      return { url: result.url, key: result.key };
+    } catch (error) {
+      this.logger.error(
+        `Video upload failed: ${error instanceof Error ? error.message : String(error)}; oss=${this.uploadDiagnosticsForLog()}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('Video upload failed; please check OSS/TOS configuration');
+    }
   }
 
   @Post('audio')
@@ -293,11 +326,66 @@ export class UploadsController {
       return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
     })();
 
-    const stream = Readable.from(file.buffer);
-    const result = await this.oss.putStream(key, stream, {
-      headers: { 'Content-Type': mimeType || 'audio/mpeg' },
-    });
-    return { url: result.url, key: result.key };
+    try {
+      const stream = Readable.from(file.buffer);
+      const result = await this.oss.putStream(key, stream, {
+        headers: { 'Content-Type': mimeType || 'audio/mpeg' },
+      });
+      return { url: result.url, key: result.key };
+    } catch (error) {
+      this.logger.error(
+        `Audio upload failed: ${error instanceof Error ? error.message : String(error)}; oss=${this.uploadDiagnosticsForLog()}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('Audio upload failed; please check OSS/TOS configuration');
+    }
+  }
+
+  @Post('document')
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  @ApiConsumes('multipart/form-data')
+  async uploadDocument(@Req() req: FastifyRequest) {
+    const file = await this.readSingleMultipartFile(req, MAX_DOCUMENT_SIZE);
+    const form = file.fields;
+
+    const mimeType = String(file.mimeType || '').toLowerCase();
+    if (!SUPPORTED_DOCUMENT_TYPES.includes(mimeType)) {
+      throw new BadRequestException(
+        `Unsupported document format: ${file.mimeType}. Supported: ${SUPPORTED_DOCUMENT_TYPES.join(', ')}`
+      );
+    }
+
+    const dir = normalizeUploadDir(extractMultipartField(form, 'dir'), 'uploads/documents/');
+    const explicitKey = (extractMultipartField(form, 'key') || '').trim().replace(/^\/+/, '');
+    const declaredFileName = extractMultipartField(form, 'fileName');
+    const safeFileName = sanitizeFileName(
+      declaredFileName || file.originalName || `document.${inferDocumentExtFromMime(mimeType)}`
+    );
+    const key = (() => {
+      if (explicitKey) return explicitKey;
+      const ext = safeFileName.includes('.')
+        ? safeFileName.split('.').pop() || inferDocumentExtFromMime(mimeType)
+        : inferDocumentExtFromMime(mimeType);
+      return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
+    })();
+
+    try {
+      const stream = Readable.from(file.buffer);
+      const result = await this.oss.putStream(key, stream, {
+        headers: {
+          'Content-Type': mimeType || 'application/pdf',
+          'Cache-Control': 'private, max-age=31536000',
+        },
+      });
+      return { url: result.url, key: result.key };
+    } catch (error) {
+      this.logger.error(
+        `Document upload failed: ${error instanceof Error ? error.message : String(error)}; oss=${this.uploadDiagnosticsForLog()}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('Document upload failed; please check OSS/TOS configuration');
+    }
   }
 
   @Post('transfer-video')

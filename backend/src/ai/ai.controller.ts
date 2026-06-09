@@ -78,6 +78,7 @@ import { verify } from 'jsonwebtoken';
 import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
+import { PDFParse } from 'pdf-parse';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -1914,22 +1915,19 @@ export class AiController {
 
   private resolvePdfAnalyzeModel(providerName: string | null, requestedModel?: string): string {
     const model = requestedModel?.trim();
-    if (model?.length && !this.isImageAnalyzeModel(model)) {
+    if (model?.length) {
       this.logger.debug(`[${providerName || 'default'}] Using requested PDF analyze model: ${model}`);
       return model;
     }
 
-    const providerKey = providerName || 'gemini';
-    const fallback =
-      this.providerDefaultTextModels[providerKey] ||
-      this.providerDefaultAnalyzeModels[providerKey] ||
-      this.providerDefaultTextModels.gemini;
-    if (model?.length) {
-      this.logger.debug(
-        `[${providerName || 'default'}] Replacing image analyze model ${model} with PDF-capable model ${fallback}`,
+    if (providerName) {
+      return (
+        this.providerDefaultAnalyzeModels[providerName] ||
+        this.providerDefaultTextModels[providerName] ||
+        this.providerDefaultAnalyzeModels.gemini
       );
     }
-    return fallback;
+    return this.providerDefaultAnalyzeModels.gemini;
   }
 
   private resolveGeminiVideoModel(requestedModel?: string): string {
@@ -2476,6 +2474,75 @@ export class AiController {
       }
     }
     throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
+  }
+
+  private async resolvePdfSourceForInline(source: string): Promise<string> {
+    const trimmed = String(source || '').trim();
+    if (!trimmed) return trimmed;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return trimmed.startsWith('data:application/pdf')
+        ? trimmed
+        : `data:application/pdf;base64,${trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '')}`;
+    }
+
+    const parsed = this.parseAndValidateAllowedImageUrl(trimmed);
+    const candidates = this.buildImageFetchCandidates(parsed);
+    const maxBytes = 15 * 1024 * 1024;
+    const errors: string[] = [];
+
+    for (const candidateUrl of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch(candidateUrl, { signal: controller.signal });
+        if (!response.ok) {
+          errors.push(`${candidateUrl} -> HTTP ${response.status}`);
+          continue;
+        }
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength && contentLength > maxBytes) {
+          throw new BadRequestException('PDF 文件过大，请使用 15MB 以内的文件');
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+          throw new BadRequestException('PDF 文件过大，请使用 15MB 以内的文件');
+        }
+        const header = buffer.subarray(0, 5).toString('ascii');
+        if (header !== '%PDF-') {
+          const contentType = response.headers.get('content-type') || '';
+          throw new BadRequestException(`PDF 文件格式无效: ${contentType || 'unknown content-type'}`);
+        }
+        return `data:application/pdf;base64,${buffer.toString('base64')}`;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          errors.push(`${candidateUrl} -> timeout`);
+          continue;
+        }
+        if (error instanceof HttpException) throw error;
+        errors.push(`${candidateUrl} -> ${this.summarizeError(error)}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+    this.logger.warn(`PDF source fetch failed: ${errors.join('; ')}`);
+    throw new BadGatewayException('PDF 文件不可访问，请确认文件链接有效且服务端可访问');
+  }
+
+  private async extractPdfTextForAnalysis(source: string): Promise<{ text: string; pages?: number }> {
+    const dataUrl = await this.resolvePdfSourceForInline(source);
+    const base64 = dataUrl.replace(/^data:application\/pdf(?:;[^,]*)?,/i, '').replace(/\s+/g, '');
+    const buffer = Buffer.from(base64, 'base64');
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const parsed = await parser.getText();
+      const text = String(parsed.text || '').replace(/\r/g, '').trim();
+      if (!text) {
+        throw new BadRequestException('PDF 未提取到可分析文本；如果这是扫描件，请先 OCR 或转换为可复制文本的 PDF');
+      }
+      return { text, pages: parsed.total };
+    } finally {
+      await parser.destroy().catch(() => undefined);
+    }
   }
 
   private async watermarkBufferIfNeeded(buffer: Buffer, req: any): Promise<Buffer> {
@@ -4054,6 +4121,52 @@ export class AiController {
         : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
+      if (hasPdf) {
+        const pdfTexts = await Promise.all(
+          normalizedImages
+            .filter((source) => this.isPdfAnalysisSource(source))
+            .map((source, index) =>
+              this.extractPdfTextForAnalysis(source).then((result) => ({
+                index,
+                ...result,
+              })),
+            ),
+        );
+        const maxCharsPerPdf = Math.max(12000, Math.floor(60000 / Math.max(1, pdfTexts.length)));
+        const pdfContext = pdfTexts
+          .map((item) => {
+            const text =
+              item.text.length > maxCharsPerPdf
+                ? `${item.text.slice(0, maxCharsPerPdf)}\n\n[PDF text truncated: ${item.text.length} chars total]`
+                : item.text;
+            return `PDF #${item.index + 1}${item.pages ? ` (${item.pages} pages)` : ''}:\n${text}`;
+          })
+          .join('\n\n---\n\n');
+        const analysisPrompt = [
+          '请基于以下 PDF 文本内容进行分析，使用中文回答。',
+          dto.prompt ? `用户要求：${dto.prompt}` : '用户要求：请详细分析这个 PDF 文件的内容。',
+          '如果文本中缺少图片、表格视觉细节，请明确说明只能基于可提取文本分析。',
+          '',
+          pdfContext,
+        ].join('\n');
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+        const result = await provider.generateText({
+          prompt: analysisPrompt,
+          model,
+          providerOptions: dto.providerOptions,
+        });
+        if (!result.success || !result.data) {
+          throw new ServiceUnavailableException(result.error?.message || 'Failed to analyze PDF');
+        }
+        const text = typeof result.data.text === 'string' ? result.data.text.trim() : '';
+        if (!text) {
+          throw new ServiceUnavailableException(
+            'Analysis returned empty response, please try again later',
+          );
+        }
+        return { text };
+      }
+
       if (!customApiKey) {
         const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.analyzeImage({

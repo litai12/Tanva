@@ -189,9 +189,12 @@ export class NewApiProvider implements IAIProvider {
     );
     const hasPdf = fileReferences.some((item) => this.isPdfReference(item));
 
+    const fileParts = await Promise.all(
+      fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+    );
     const content: Array<Record<string, unknown>> = [
       { type: 'text', text: request.prompt || (hasPdf ? '请分析这个 PDF 文件。' : '请分析这张图片。') },
-      ...fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+      ...fileParts,
     ];
 
     const result = await this.chat(
@@ -227,7 +230,9 @@ export class NewApiProvider implements IAIProvider {
       imageReferences.length > 0
         ? [
             { type: 'text', text: request.prompt },
-            ...imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+            ...(await Promise.all(
+              imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+            )),
           ]
         : request.prompt;
 
@@ -669,9 +674,23 @@ export class NewApiProvider implements IAIProvider {
         };
       }
       if (part?.type === 'file') {
+        const fileData = String(part?.file?.file_data || part?.file_data || '').trim();
+        if (fileData) {
+          if (/^https?:\/\//i.test(fileData)) {
+            return {
+              type: 'input_file',
+              file_url: fileData,
+            };
+          }
+          return {
+            type: 'input_file',
+            filename: String(part?.file?.filename || part?.filename || 'document.pdf'),
+            file_data: fileData,
+          };
+        }
         return {
           type: 'input_file',
-          file_url: String(part?.file?.file_data || part?.file?.url || part?.file_url || ''),
+          file_url: String(part?.file?.url || part?.file_url || ''),
         };
       }
       return part as Record<string, unknown>;
@@ -842,13 +861,30 @@ export class NewApiProvider implements IAIProvider {
     return `data:application/pdf;base64,${trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '')}`;
   }
 
-  private toAnalysisContentPart(value: string, index: number): Record<string, unknown> {
+  private async fetchPdfDataUrl(url: string): Promise<string> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF for analysis: ${response.status} ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const maxBytes = 15 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      throw new Error(`PDF is too large for analysis: ${(buffer.length / 1024 / 1024).toFixed(2)}MB`);
+    }
+    return `data:application/pdf;base64,${buffer.toString('base64')}`;
+  }
+
+  private async toAnalysisContentPart(value: string, index: number): Promise<Record<string, unknown>> {
     if (this.isPdfReference(value)) {
+      const trimmed = String(value || '').trim();
       return {
         type: 'file',
         file: {
           filename: `document-${index + 1}.pdf`,
-          file_data: this.toPdfFileReference(value),
+          file_data: /^https?:\/\//i.test(trimmed)
+            ? await this.fetchPdfDataUrl(trimmed)
+            : this.toPdfFileReference(value),
         },
       };
     }

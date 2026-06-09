@@ -15,6 +15,7 @@ import React, {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fetchWithAuth } from "@/services/authFetch";
+import { ossUploadService } from "@/services/ossUploadService";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -30,6 +31,7 @@ import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
 import SmartImage from "@/components/ui/SmartImage";
 import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useUIStore } from "@/stores";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
 import { clipboardJsonService } from "@/services/clipboardJsonService";
@@ -4069,7 +4071,7 @@ const AIChatDialog: React.FC = () => {
               type='file'
               accept='application/pdf'
               style={{ display: "none" }}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (file) {
                   console.log("📄 PDF文件:", file.name, "大小:", file.size);
@@ -4090,27 +4092,33 @@ const AIChatDialog: React.FC = () => {
                     return;
                   }
 
-                  // 读取文件为 base64
-                  const reader = new FileReader();
-                  reader.onload = (event) => {
-                    const base64Data = event.target?.result as string;
-                    if (base64Data) {
-                      console.log(
-                        "📄 PDF 已读取，数据长度:",
-                        base64Data.length
-                      );
-                      setSourcePdfForAnalysis(base64Data, file.name);
-                      // 设置默认提示词
-                      if (!currentInput.trim()) {
-                        setCurrentInput("请分析这个 PDF 文件的内容");
-                      }
+                  try {
+                    const projectId =
+                      useProjectContentStore.getState().projectId ?? null;
+                    const uploadResult = await ossUploadService.uploadToOSS(file, {
+                      dir: projectId
+                        ? `projects/${projectId}/ai-chat/pdfs/`
+                        : "uploads/ai-chat/pdfs/",
+                      fileName: file.name || `analysis-${Date.now()}.pdf`,
+                      contentType: file.type || "application/pdf",
+                      maxSize: MAX_SIZE,
+                    });
+
+                    const remoteUrl = uploadResult.url?.trim();
+                    if (!uploadResult.success || !remoteUrl) {
+                      throw new Error(uploadResult.error || "PDF upload failed");
                     }
-                  };
-                  reader.onerror = () => {
-                    console.error("❌ 读取 PDF 文件失败");
-                    alert("读取 PDF 文件失败，请重试");
-                  };
-                  reader.readAsDataURL(file);
+
+                    console.log("PDF uploaded for analysis:", remoteUrl);
+                    setSourcePdfForAnalysis(remoteUrl, file.name);
+                    if (!currentInput.trim()) {
+                      setCurrentInput("请分析这个 PDF 文件的内容");
+                    }
+                  } catch (error) {
+                    console.error("PDF upload failed", error);
+                    alert("PDF 上传失败，请重试");
+                    setSourcePdfForAnalysis(null);
+                  }
                 }
                 if (pdfInputRef.current) {
                   pdfInputRef.current.value = "";
