@@ -25,6 +25,8 @@ var ModelList = []string{
 	"doubao-seed-2.0-pro",
 	"doubao-seed-2.0-lite",
 	"doubao-seed-2.0-mini",
+	"deepseek-v4-flash-260425",
+	"deepseek-v4-pro-260425",
 }
 
 var ChannelName = "ark-doubao"

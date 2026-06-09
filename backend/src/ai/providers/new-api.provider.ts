@@ -99,7 +99,15 @@ export class NewApiProvider implements IAIProvider {
     return {
       name: 'new-api',
       version: 'openai-compatible',
-      supportedModels: ['gemini', 'gpt-image-2', 'sora-2', 'kling-v3', 'wan2.7-videoedit'],
+      supportedModels: [
+        'gemini',
+        'gpt-image-2',
+        'sora-2',
+        'kling-v3',
+        'wan2.7-videoedit',
+        'deepseek-v4-flash-260425',
+        'deepseek-v4-pro-260425',
+      ],
     };
   }
 
@@ -552,6 +560,9 @@ export class NewApiProvider implements IAIProvider {
       if (typeof payload.model === 'string') {
         payload = { ...payload, model: this.normalizeUpstreamModel(payload.model) };
       }
+      if (this.isDeepSeekArkModel(payload.model)) {
+        return this.responses(payload, providerOptions);
+      }
       const result = await this.requestJson(
         '/v1/chat/completions',
         {
@@ -574,6 +585,97 @@ export class NewApiProvider implements IAIProvider {
     } catch (error) {
       return this.errorResponse('TEXT_GENERATION_FAILED', error);
     }
+  }
+
+  private async responses(
+    payload: Record<string, unknown>,
+    providerOptions?: ProviderOptionsPayload,
+  ): Promise<AIProviderResponse<TextResult>> {
+    try {
+      const result = await this.requestJson(
+        '/v1/responses',
+        {
+          method: 'POST',
+          body: JSON.stringify(this.stripUndefined(this.toResponsesPayload(payload))),
+        },
+        this.resolveApiKey(providerOptions),
+      );
+      return {
+        success: true,
+        data: {
+          text: this.extractText(result),
+          metadata: {
+            provider: 'new-api',
+            model: payload.model,
+            raw: result,
+          },
+        },
+      };
+    } catch (error) {
+      return this.errorResponse('TEXT_GENERATION_FAILED', error);
+    }
+  }
+
+  private isDeepSeekArkModel(model: unknown): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return (
+      normalized === 'deepseek-v4-flash-260425' ||
+      normalized === 'deepseek-v4-pro-260425'
+    );
+  }
+
+  private toResponsesPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    return {
+      model: payload.model,
+      stream: false,
+      input: messages.map((message: any) => ({
+        role: typeof message?.role === 'string' ? message.role : 'user',
+        content: this.toResponsesContent(message?.content),
+      })),
+      tools: this.toResponsesTools(payload.tools),
+      temperature: payload.temperature,
+      top_p: payload.top_p,
+      max_output_tokens: payload.max_tokens || payload.max_completion_tokens,
+    };
+  }
+
+  private toResponsesTools(value: unknown): Array<Record<string, unknown>> | undefined {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    return value.map((tool) => {
+      const type = String((tool as any)?.type || '').trim();
+      if (type === 'web_search_preview' || type === 'web_search') {
+        return { type: 'web_search', max_keyword: 3 };
+      }
+      return tool as Record<string, unknown>;
+    });
+  }
+
+  private toResponsesContent(content: unknown): Array<Record<string, unknown>> {
+    if (typeof content === 'string') {
+      return [{ type: 'input_text', text: content }];
+    }
+    if (!Array.isArray(content)) {
+      return [{ type: 'input_text', text: String(content || '') }];
+    }
+    return content.map((part: any) => {
+      if (part?.type === 'text') {
+        return { type: 'input_text', text: String(part.text || '') };
+      }
+      if (part?.type === 'image_url') {
+        return {
+          type: 'input_image',
+          image_url: String(part?.image_url?.url || part?.image_url || ''),
+        };
+      }
+      if (part?.type === 'file') {
+        return {
+          type: 'input_file',
+          file_url: String(part?.file?.file_data || part?.file?.url || part?.file_url || ''),
+        };
+      }
+      return part as Record<string, unknown>;
+    });
   }
 
   private async requestJson(path: string, init: RequestInit, apiKey?: string): Promise<any> {
@@ -659,6 +761,13 @@ export class NewApiProvider implements IAIProvider {
         .join('');
     }
     if (typeof result?.output_text === 'string') return result.output_text;
+    if (Array.isArray(result?.output)) {
+      return result.output
+        .flatMap((item: any) => (Array.isArray(item?.content) ? item.content : []))
+        .map((part: any) => part?.text || part?.content || '')
+        .filter(Boolean)
+        .join('');
+    }
     if (typeof result?.text === 'string') return result.text;
     if (typeof result?.data?.text === 'string') return result.data.text;
     return '';

@@ -258,6 +258,8 @@ var defaultModelRatio = map[string]float64{
 	"deepseek-v3-0324":           0.27 / 2,
 	"deepseek-v3.1-250821":       0.27 / 2,
 	"deepseek-v3.1-think-250821": 0.55 / 2,
+	"deepseek-v4-flash-260425":   0.0100 * RMB,
+	"deepseek-v4-pro-260425":     0.0120 * RMB,
 	// Doubao Seed 1.6 (APIMart) 参考同级中文 chat / reasoner 模型
 	"doubao-seed-1-6-251015":          0.27 / 2,
 	"doubao-seed-1-6-flash-250828":    0.15,
@@ -410,6 +412,8 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-image-1":      8,
 	"gpt-4o-image":     8, // 参考 gpt-image-1
 	"gemini-3.5-flash": 6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
+	"deepseek-v4-flash-260425": 2,
+	"deepseek-v4-pro-260425":   2,
 	// Doubao Seed 2.0 completion ratio = output/input
 	"doubao-seed-2-0-pro-260428":  5,
 	"doubao-seed-2.0-pro":         5,

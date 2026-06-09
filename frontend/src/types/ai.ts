@@ -83,6 +83,8 @@ export type SupportedAIProvider =
   | 'banana'
   | 'banana-2.5'
   | 'banana-3.1'
+  | 'deepseek-v4-flash'
+  | 'deepseek-v4-pro'
   | 'runninghub'
   | 'midjourney'
   | 'nano2'

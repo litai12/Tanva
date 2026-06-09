@@ -36,11 +36,6 @@ INSERT INTO channels (
   NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-openai', NULL, NULL, NULL),
 
-(1, 'yunwu-deepseek', 'default',
-  'deepseek-v3.2',
-  NULL, 1, 'https://yunwu.ai', 'PLACEHOLDER_YUNWU_KEY',
-  EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'yunwu-deepseek', NULL, NULL, NULL),
-
 -- ── Ark / 火山方舟（doubao）──────────────────────────────────────────────────
 (54, 'ark-doubao-video', 'default',
   'doubao-seedance-2-0-260128,doubao-seedance-2-0-fast-260128',
@@ -53,6 +48,11 @@ INSERT INTO channels (
   1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_DOUBAO_KEY',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-doubao-image', NULL,
   '{"watermark":false}', NULL),
+
+(45, 'ark-deepseek', 'default',
+  'deepseek-v4-flash-260425,deepseek-v4-pro-260425',
+  NULL, 1, 'https://ark.cn-beijing.volces.com', 'PLACEHOLDER_ARK_API_KEY',
+  EXTRACT(EPOCH FROM NOW())::bigint, 0, 10, 100, 'ark-deepseek', NULL, NULL, NULL),
 
 -- ── 第三方代理渠道（各自独立 key）────────────────────────────────────────────
 (1, 'openai-official', 'default',

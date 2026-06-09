@@ -82,6 +82,14 @@ type ManualModeOption = {
   description: string;
 };
 
+type ProviderToggleOption = {
+  value: SupportedAIProvider;
+  familyLabel: string;
+  label: string;
+  description: string;
+  syncFlowNodes?: boolean;
+};
+
 const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: "auto", label: "Auto", description: "智能判断并选择最佳工具" },
   { value: "text", label: "Text", description: "文本对话模式" },
@@ -417,29 +425,59 @@ const AIChatDialog: React.FC = () => {
       (option) => option.value === manualAIMode
     ) ?? availableManualModeOptions[0];
 
-  const providerToggleOptions: {
-    value: SupportedAIProvider;
+  const providerToggleGroups: Array<{
     label: string;
-    description: string;
-  }[] = useMemo(
+    options: ProviderToggleOption[];
+  }> = useMemo(
     () => [
       {
-        value: "banana-2.5",
-        label: "Fast",
-        description: t("chat.provider.fastDesc"),
+        label: "Gemini / Nano Banana",
+        options: [
+          {
+            value: "banana-2.5",
+            familyLabel: "Gemini",
+            label: "Fast",
+            description: t("chat.provider.fastDesc"),
+          },
+          {
+            value: "banana",
+            familyLabel: "Gemini",
+            label: "Pro",
+            description: t("chat.provider.proDesc"),
+          },
+          {
+            value: "banana-3.1",
+            familyLabel: "Gemini",
+            label: "Ultra",
+            description: t("chat.provider.ultraDesc"),
+          },
+        ],
       },
       {
-        value: "banana",
-        label: "Pro",
-        description: t("chat.provider.proDesc"),
-      },
-      {
-        value: "banana-3.1",
-        label: "Ultra",
-        description: t("chat.provider.ultraDesc"),
+        label: "DeepSeek",
+        options: [
+          {
+            value: "deepseek-v4-flash",
+            familyLabel: "DeepSeek",
+            label: "V4 Flash",
+            description: lt("文本 + 图片分析", "Text + image analysis"),
+            syncFlowNodes: false,
+          },
+          {
+            value: "deepseek-v4-pro",
+            familyLabel: "DeepSeek",
+            label: "V4 Pro",
+            description: lt("文本 + 图片分析", "Text + image analysis"),
+            syncFlowNodes: false,
+          },
+        ],
       },
     ],
-    [t]
+    [lt, t]
+  );
+  const providerToggleOptions = useMemo(
+    () => providerToggleGroups.flatMap((group) => group.options),
+    [providerToggleGroups]
   );
   const currentProviderOption =
     providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
@@ -448,6 +486,8 @@ const AIChatDialog: React.FC = () => {
   );
   const isFastMode = aiProvider === "banana-2.5";
   const isUltraMode = aiProvider === "banana-3.1";
+  const isDeepSeekProvider =
+    aiProvider === "deepseek-v4-flash" || aiProvider === "deepseek-v4-pro";
   const isVideoMode =
     manualAIMode === "video" ||
     (manualAIMode === "auto" && autoSelectedTool === "generateVideo");
@@ -455,7 +495,19 @@ const AIChatDialog: React.FC = () => {
     manualAIMode === "vector" ||
     (manualAIMode === "auto" && autoSelectedTool === "generatePaperJS");
   const shouldHideImageParamControls = isVideoMode || isVectorMode;
+  const showAspectRatioControls =
+    !isDeepSeekProvider && !shouldHideImageParamControls;
+  const isModeSupportedByProvider = useCallback(
+    (mode: ManualAIMode) => {
+      if (isDeepSeekProvider) {
+        return mode === "text" || mode === "analyze";
+      }
+      return true;
+    },
+    [isDeepSeekProvider]
+  );
   const showImageSizeControls =
+    !isDeepSeekProvider &&
     !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
@@ -522,8 +574,9 @@ const AIChatDialog: React.FC = () => {
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
     t("chat.labels.selectMode");
-  const providerButtonLabel =
-    currentProviderOption?.label ?? t("chat.labels.domesticModel");
+  const providerButtonLabel = currentProviderOption
+    ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
+    : t("chat.labels.domesticModel");
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -564,6 +617,11 @@ const AIChatDialog: React.FC = () => {
       }
     }
   }, [aiProvider, availableManualModeOptions, manualAIMode, setManualAIMode]);
+
+  useEffect(() => {
+    if (isModeSupportedByProvider(manualAIMode)) return;
+    setManualAIMode("text");
+  }, [isModeSupportedByProvider, manualAIMode, setManualAIMode]);
 
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -2186,6 +2244,9 @@ const AIChatDialog: React.FC = () => {
 
   const getModeSupport = useCallback(
     (mode: ManualAIMode) => {
+      if (!isModeSupportedByProvider(mode)) {
+        return { supported: false };
+      }
       const count = selectedImageCount;
       switch (mode) {
         case "auto":
@@ -2207,6 +2268,9 @@ const AIChatDialog: React.FC = () => {
           }
           return { supported: true };
         case "analyze":
+          if (isDeepSeekProvider && hasPdfForAnalysis) {
+            return { supported: false };
+          }
           if (isTencentStableBanana && !isTencentBananaAnalyzeSupported()) {
             return { supported: false };
           }
@@ -2222,6 +2286,8 @@ const AIChatDialog: React.FC = () => {
     },
     [
       hasPdfForAnalysis,
+      isDeepSeekProvider,
+      isModeSupportedByProvider,
       isTencentStableBanana,
       selectedImageCount,
       tencentBananaMaxRefCount,
@@ -2245,6 +2311,12 @@ const AIChatDialog: React.FC = () => {
 
   const manualModeWarning = useMemo(() => {
     if (manualAIMode === "auto") return null;
+    if (!isModeSupportedByProvider(manualAIMode)) {
+      return lt(
+        "DeepSeek V4 仅支持 Text 与 Analysis 图片分析",
+        "DeepSeek V4 only supports Text and Analysis for uploaded images"
+      );
+    }
     if (isManualModeSupported) return null;
     // 根据模式提供更清晰的提示
     if (manualAIMode === "edit") {
@@ -2273,8 +2345,10 @@ const AIChatDialog: React.FC = () => {
     return `当前模式不支持${selectedImageCount}张图`;
   }, [
     hasPdfForAnalysis,
+    isModeSupportedByProvider,
     isTencentStableBanana,
     isManualModeSupported,
+    lt,
     manualAIMode,
     selectedImageCount,
     tencentBananaMaxRefCount,
@@ -3196,7 +3270,7 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                <DropdownMenu>
+                <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>
                     <Button
                       size='sm'
@@ -3204,7 +3278,7 @@ const AIChatDialog: React.FC = () => {
                       disabled={false}
                       data-dropdown-trigger='true'
                       className={cn(
-                        "order-2 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                         manualAIMode !== "auto"
                           ? "bg-gray-100 text-gray-800 border-gray-200"
@@ -3228,10 +3302,16 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuLabel>
                     {availableManualModeOptions.map((option) => {
                       const isActive = manualAIMode === option.value;
+                      const providerSupported = isModeSupportedByProvider(option.value);
+                      const isDisabled = !providerSupported;
                       return (
                         <DropdownMenuItem
                           key={option.value}
                           onClick={(event) => {
+                            if (isDisabled) {
+                              event.preventDefault();
+                              return;
+                            }
                             setManualAIMode(option.value);
                             const root = (
                               event.currentTarget as HTMLElement
@@ -3247,18 +3327,26 @@ const AIChatDialog: React.FC = () => {
                             "flex items-start gap-2 px-3 py-2 text-xs",
                             isActive
                               ? "bg-gray-100 text-gray-800"
+                              : isDisabled
+                              ? "cursor-not-allowed text-slate-300 hover:bg-transparent"
                               : "text-slate-600"
                           )}
+                          disabled={isDisabled}
                         >
                           <div className='flex-1 space-y-0.5'>
                             <div className='font-medium leading-none'>
                               {option.label}
                             </div>
                             <div className='text-[11px] text-slate-400 leading-snug'>
-                              {t(
-                                `chat.manualMode.${option.value}Desc`,
-                                option.description
-                              )}
+                              {!providerSupported
+                                ? lt(
+                                    "当前模型不支持该模式",
+                                    "Not supported by the current model"
+                                  )
+                                : t(
+                                    `chat.manualMode.${option.value}Desc`,
+                                    option.description
+                                  )}
                             </div>
                           </div>
                           {isActive && (
@@ -3271,7 +3359,7 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
 
                 {!shouldHideImageParamControls && (
-                  <DropdownMenu>
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
                         size='sm'
@@ -3279,7 +3367,7 @@ const AIChatDialog: React.FC = () => {
                         disabled={false}
                         data-dropdown-trigger='true'
                         className={cn(
-                          "order-1 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                           "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                           !generationStatus.isGenerating
                             ? "hover:bg-gray-100 text-gray-700"
@@ -3311,7 +3399,10 @@ const AIChatDialog: React.FC = () => {
                                   "🤖 切换 AI 提供商:",
                                   option.value
                                 );
-                                setAIProvider(option.value, { source: "dialog" });
+                                setAIProvider(option.value, {
+                                  source: "dialog",
+                                  syncFlowNodes: option.syncFlowNodes !== false,
+                                });
                               }
                               const root = (
                                 event.currentTarget as HTMLElement
@@ -3332,7 +3423,7 @@ const AIChatDialog: React.FC = () => {
                           >
                             <div className='flex-1 space-y-0.5'>
                               <div className='font-medium leading-none'>
-                                {option.label}
+                                {option.familyLabel} · {option.label}
                               </div>
                               <div className='text-[11px] text-slate-400 leading-snug dark:!text-slate-400'>
                                 {option.description}
@@ -3349,12 +3440,12 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
-                  <DropdownMenu>
+                  <DropdownMenu className='order-3 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <button
                         type='button'
                         className={cn(
-                          "order-3 h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
+                          "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
                         title={lt("选择生成倍数", "Select multiplier")}
@@ -3404,7 +3495,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {!shouldHideImageParamControls && (
+              {showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3569,7 +3660,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {isAspectOpen &&
+              {showAspectRatioControls &&
+                isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
                   <div
