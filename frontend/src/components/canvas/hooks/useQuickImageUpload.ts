@@ -1311,6 +1311,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         extraOptions?: {
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
+            idOverride?: string;
             forceAnchorPosition?: boolean;
             lockToBounds?: boolean;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
@@ -1535,7 +1536,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             }
             const placeholderBounds = placeholder?.data?.bounds;
-            const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const imageId = extraOptions?.idOverride || asset.id || placeholderId || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const defaultExpectedSize = 512;
             const expectedWidth = placeholderBounds?.width ?? extraOptions?.initialWidth ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? extraOptions?.initialHeight ?? defaultExpectedSize;

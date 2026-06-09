@@ -1884,6 +1884,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         sourceImages,
         videoInfo,
         placeholderId,
+        resultImageId,
         forceAnchorPosition,
         lockToBounds,
         preferHorizontal, // 🔥 新增：是否优先横向排列
@@ -1891,6 +1892,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         parallelGroupId,
         parallelGroupIndex,
         parallelGroupTotal,
+        initialWidth,
+        initialHeight,
       } = event.detail;
 
       logger.debug("🎨 [DEBUG] 收到AI图片快速上传触发事件:", {
@@ -1942,12 +1945,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              {
                 videoInfo,
                 placeholderId,
+                idOverride: resultImageId,
                 forceAnchorPosition,
                 lockToBounds,
                 preferHorizontal,
                 parallelGroupId,
                 parallelGroupIndex,
 	                parallelGroupTotal,
+                initialWidth,
+                initialHeight,
 	              } // 🔥 传递并行分组信息
 	            )
 	            .catch((err) => {

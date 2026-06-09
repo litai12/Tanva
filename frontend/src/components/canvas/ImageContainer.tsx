@@ -3241,6 +3241,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         expandPlaceholderId = `expand_${imageData.id}_${Date.now()}_${Math.random()
           .toString(36)
           .slice(2, 8)}`;
+        const expandResultImageId = `expand_result_${imageData.id}_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
         window.dispatchEvent(
           new CustomEvent("predictImagePlaceholder", {
             detail: {
@@ -3251,6 +3254,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               height: selectedBounds.height,
               operationType: "expand-image",
               sourceImageId: imageData.id,
+              lockToBounds: true,
             },
           })
         );
@@ -3317,6 +3321,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               operationType: "expand-image",
               sourceImageId: imageData.id,
               placeholderId: expandPlaceholderId,
+              resultImageId: expandResultImageId,
+              initialWidth: selectedBounds.width,
+              initialHeight: selectedBounds.height,
+              lockToBounds: true,
             },
           })
         );
