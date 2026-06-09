@@ -65,7 +65,7 @@ function splitBenefitText(value: unknown): string[] {
 
 function buildPlanCreditsSummary(plan: PaymentMembershipPlan): string {
   const total = plan.monthlyQuotaCredits + plan.signupBonusCredits;
-  return `套餐积分合计到账 ${total} `;
+  return `立即到账积分 ${total} `;
 }
 
 function vipFeatureLines(plan: PaymentMembershipPlan): { main: string[]; accent: string[] } {

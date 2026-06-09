@@ -68,6 +68,8 @@
 - 概览卡片右上角提供“立即充值”文字按钮；点击后在当前页弹出 `PaymentPanel` 充值面板。
 - `MembershipPanel` 中“积分充值”区域对所有用户开放，且在会员页顶部优先展示（打开即见），无需先选择或购买 VIP。
 - `MembershipPanel` 的 VIP 订阅视图使用紧凑的当前会员摘要栏承载计费周期切换、当前额度和刷新说明；套餐卡片按档位强化视觉区分，减少长卡片大留白，但不改变订单创建、支付方式切换和轮询逻辑。
+- `MembershipPanel` 的 VIP 套餐卡片合计积分按预计月合计展示：套餐到账积分 + `dailyGiftCredits * 30` 每日签到积分 + `dailyGiftCredits * (rewardMultiplier - 1) * 4` 连续 7 天签到额外奖励。
+- `MembershipPanel` 的 VIP 套餐权益列表不再展示“每日赠送”，改为展示每周连签 7 天按当前套餐可额外获得的积分：`dailyGiftCredits * (rewardMultiplier - 1)`。
 - `MembershipPanel` 的额度刷新提示使用警示色文案：月度套餐在计费日刷新并清零未使用额度，年付套餐按月发放并在年度到期日统一清零，单独购买额度不受套餐周期影响。
 - `MembershipPanel` 的标准版套餐卡片不显示王冠图标，权益列表不再重复展示“基础月卡积分：500”首行。
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）核心交互文案已接入 `useLocaleText`（订单状态、筛选、支付提示、二维码状态、手动核对按钮）。

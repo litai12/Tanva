@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Membership UI: VIP 套餐卡片“合计积分”改为预计月合计展示，明细包含套餐到账、每日签到 30 天，以及 7 天连签额外奖励按月 4 次计算（`frontend/src/components/payment/MembershipPanel.tsx`）。
+- Membership UI: VIP 套餐权益列表将“每日赠送”替换为每周连签 7 天额外积分展示，并按不同套餐的 `dailyGiftCredits` 动态计算（`frontend/src/components/payment/MembershipPanel.tsx`）。
 - NewApiProvider now snaps unsupported Gemini image aspect ratios to the nearest supported value before calling new-api, preventing Flow auto-detected ratios such as `2:1` or `9:21` from failing upstream.
 - Credits: free users now receive the 500-credit free quota only once (`free_starter_quota`); historical `free_monthly_quota` grants count as already claimed, and the scheduler no longer renews this quota every 30 days.
 - GPT-Image-2 routing now follows global `normal/stable` route in `nano2`: `stable` uses official model/profile (`gpt-image-2-official` with official parameter set), while `normal` keeps existing GPT2 behavior.
