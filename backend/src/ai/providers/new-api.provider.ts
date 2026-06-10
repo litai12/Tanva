@@ -572,7 +572,9 @@ export class NewApiProvider implements IAIProvider {
         '/v1/chat/completions',
         {
           method: 'POST',
-          body: JSON.stringify(this.stripUndefined({ ...payload, stream: false })),
+          body: JSON.stringify(
+            this.stripUndefined(this.stripUnsupportedTextPayloadFields({ ...payload, stream: false })),
+          ),
         },
         this.resolveApiKey(providerOptions),
       );
@@ -601,7 +603,9 @@ export class NewApiProvider implements IAIProvider {
         '/v1/responses',
         {
           method: 'POST',
-          body: JSON.stringify(this.stripUndefined(this.toResponsesPayload(payload))),
+          body: JSON.stringify(
+            this.stripUndefined(this.stripUnsupportedTextPayloadFields(this.toResponsesPayload(payload))),
+          ),
         },
         this.resolveApiKey(providerOptions),
       );
@@ -987,6 +991,12 @@ export class NewApiProvider implements IAIProvider {
     return Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined),
     );
+  }
+
+  private stripUnsupportedTextPayloadFields(payload: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...payload };
+    delete next.watermark;
+    return next;
   }
 
   private parseJsonObject(value: string): any {
