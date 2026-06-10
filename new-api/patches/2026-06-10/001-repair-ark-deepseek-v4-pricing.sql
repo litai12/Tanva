@@ -13,6 +13,28 @@
 
 BEGIN;
 
+INSERT INTO models (
+  model_name, description, icon, tags, vendor_id, endpoints, kind, status,
+  sync_official, created_time, updated_time, name_rule
+)
+SELECT n.model_name, 'VolcEngine Ark DeepSeek v4 model ' || n.model_name, NULL, NULL,
+       0, NULL, '', 1, 0,
+       EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint, 0
+FROM (VALUES
+  ('deepseek-v4-flash-260425'),
+  ('deepseek-v4-pro-260425')
+) AS n(model_name)
+WHERE NOT EXISTS (
+  SELECT 1 FROM models m WHERE m.model_name = n.model_name AND m.deleted_at IS NULL
+);
+
+UPDATE models
+SET status = 1,
+    kind = '',
+    updated_time = EXTRACT(EPOCH FROM NOW())::bigint
+WHERE deleted_at IS NULL
+  AND model_name IN ('deepseek-v4-flash-260425', 'deepseek-v4-pro-260425');
+
 INSERT INTO channels (type, name, "group", models, model_mapping, status, base_url, key,
   created_time, test_time, priority, weight, tag, setting, param_override, header_override)
 SELECT 45, 'ark-deepseek', 'default',
@@ -29,6 +51,27 @@ SET
   status = 1,
   tag = 'ark-deepseek'
 WHERE name = 'ark-deepseek' AND type = 45;
+
+WITH deepseek_models(model_name) AS (VALUES
+  ('deepseek-v4-flash-260425'),
+  ('deepseek-v4-pro-260425')
+),
+ability_matrix AS (
+  SELECT g.grp, dm.model_name
+  FROM deepseek_models AS dm
+  CROSS JOIN (VALUES ('default'), ('auto')) AS g(grp)
+)
+INSERT INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
+SELECT am.grp, am.model_name, c.id, true, 10, 100, 'ark-deepseek'
+FROM ability_matrix AS am
+JOIN channels AS c
+  ON c.name = 'ark-deepseek'
+ AND c.type = 45
+ON CONFLICT ("group", model, channel_id) DO UPDATE
+SET enabled  = EXCLUDED.enabled,
+    priority = EXCLUDED.priority,
+    weight   = EXCLUDED.weight,
+    tag      = EXCLUDED.tag;
 
 INSERT INTO options (key, value)
 VALUES (
@@ -60,6 +103,20 @@ SET value = (
 SELECT id, name, type, "group", models, status, base_url
 FROM channels
 WHERE name = 'ark-deepseek' AND type = 45;
+
+\echo '----- Ark DeepSeek models / abilities -----'
+SELECT model_name, kind, status
+FROM models
+WHERE model_name IN ('deepseek-v4-flash-260425', 'deepseek-v4-pro-260425')
+ORDER BY model_name;
+
+SELECT a."group", a.model, a.channel_id, a.enabled, a.priority, a.weight, a.tag
+FROM abilities a
+JOIN channels c ON c.id = a.channel_id
+WHERE c.name = 'ark-deepseek'
+  AND c.type = 45
+  AND a.model IN ('deepseek-v4-flash-260425', 'deepseek-v4-pro-260425')
+ORDER BY a."group", a.model;
 
 \echo '----- Ark DeepSeek ModelRatio / CompletionRatio -----'
 SELECT
