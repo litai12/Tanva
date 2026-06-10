@@ -426,6 +426,8 @@ const AIChatDialog: React.FC = () => {
     availableManualModeOptions.find(
       (option) => option.value === manualAIMode
     ) ?? availableManualModeOptions[0];
+  const supportsDeepSeekProviderSelection =
+    manualAIMode === "text" || manualAIMode === "analyze";
 
   const providerToggleGroups: Array<{
     label: string;
@@ -478,8 +480,16 @@ const AIChatDialog: React.FC = () => {
     [lt, t]
   );
   const providerToggleOptions = useMemo(
-    () => providerToggleGroups.flatMap((group) => group.options),
-    [providerToggleGroups]
+    () =>
+      providerToggleGroups
+        .flatMap((group) => group.options)
+        .filter(
+          (option) =>
+            supportsDeepSeekProviderSelection ||
+            (option.value !== "deepseek-v4-flash" &&
+              option.value !== "deepseek-v4-pro")
+        ),
+    [providerToggleGroups, supportsDeepSeekProviderSelection]
   );
   const currentProviderOption =
     providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
@@ -608,6 +618,18 @@ const AIChatDialog: React.FC = () => {
   }, [aiProvider, setAIProvider]);
 
   useEffect(() => {
+    if (!isDeepSeekProvider || supportsDeepSeekProviderSelection) return;
+    setAIProvider("banana-2.5", {
+      syncFlowNodes: false,
+      source: "internal",
+    });
+  }, [
+    isDeepSeekProvider,
+    setAIProvider,
+    supportsDeepSeekProviderSelection,
+  ]);
+
+  useEffect(() => {
     if (
       !availableManualModeOptions.some(
         (option) => option.value === manualAIMode
@@ -619,11 +641,6 @@ const AIChatDialog: React.FC = () => {
       }
     }
   }, [aiProvider, availableManualModeOptions, manualAIMode, setManualAIMode]);
-
-  useEffect(() => {
-    if (isModeSupportedByProvider(manualAIMode)) return;
-    setManualAIMode("text");
-  }, [isModeSupportedByProvider, manualAIMode, setManualAIMode]);
 
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
