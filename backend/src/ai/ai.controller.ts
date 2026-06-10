@@ -190,6 +190,28 @@ export class AiController {
     return messages[status] || `服务器返回错误 ${status}`;
   }
 
+  private isDeepSeekV4Model(model?: string | null, providerName?: string | null): boolean {
+    const normalizedModel = String(model || '').trim().toLowerCase();
+    const normalizedProvider = String(providerName || '').trim().toLowerCase();
+    return (
+      normalizedProvider === 'deepseek-v4-flash' ||
+      normalizedProvider === 'deepseek-v4-pro' ||
+      normalizedModel === 'deepseek-v4-flash-260425' ||
+      normalizedModel === 'deepseek-v4-pro-260425'
+    );
+  }
+
+  private isImageInputUnsupportedError(message?: string | null): boolean {
+    const normalized = String(message || '').toLowerCase();
+    return (
+      normalized.includes('do not support image input') ||
+      normalized.includes('does not support image input') ||
+      normalized.includes('not support image') ||
+      normalized.includes('不支持图片') ||
+      normalized.includes('不支持图像')
+    );
+  }
+
   private normalizeSeedance2Access(value: unknown): 'enabled' | 'disabled' {
     return this.normalizePlanFeatureAccess(value);
   }
@@ -4362,7 +4384,68 @@ export class AiController {
             text,
           };
         }
-        throw new ServiceUnavailableException(result.error?.message || 'Failed to analyze image');
+        const errorMessage = result.error?.message || 'Failed to analyze image';
+        if (
+          this.isDeepSeekV4Model(model, providerName) &&
+          this.isImageInputUnsupportedError(errorMessage)
+        ) {
+          this.logger.warn(
+            `[${model}] Direct image input rejected by upstream; using vision extraction bridge before DeepSeek final analysis.`,
+          );
+          const visionModel = this.providerDefaultAnalyzeModels['banana-2.5'] || 'gemini-2.5-flash-image-preview';
+          const visionProvider = this.factory.getProvider(visionModel, 'new-api');
+          const visionPrompt = [
+            '请详细识别并描述图片内容，使用中文输出，供后续文本模型进行最终分析。',
+            dto.prompt ? `用户原始要求：${dto.prompt}` : '',
+            '请覆盖主体、文字、布局、颜色、风格、可见细节、可能的用途或语义。不要编造不可见信息。',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          const visionResult = await visionProvider.analyzeImage({
+            prompt: visionPrompt,
+            sourceImage: primarySourceImage,
+            sourceImages: normalizedImages,
+            model: visionModel,
+          });
+          if (!visionResult.success || !visionResult.data) {
+            throw new ServiceUnavailableException(
+              visionResult.error?.message || errorMessage || 'Failed to extract image content',
+            );
+          }
+          const imageDescription =
+            typeof visionResult.data.text === 'string' ? visionResult.data.text.trim() : '';
+          if (!imageDescription) {
+            throw new ServiceUnavailableException(
+              'Image extraction returned empty response, please try again later',
+            );
+          }
+          const finalPrompt = [
+            '你是 DeepSeek V4。请基于下方图片内容描述，按用户要求完成最终图片分析，使用中文回答。',
+            dto.prompt ? `用户要求：${dto.prompt}` : '用户要求：请详细分析这张图片。',
+            '',
+            '图片内容描述：',
+            imageDescription,
+          ].join('\n');
+          const finalResult = await provider.generateText({
+            prompt: finalPrompt,
+            model,
+            providerOptions: dto.providerOptions,
+          });
+          if (!finalResult.success || !finalResult.data) {
+            throw new ServiceUnavailableException(
+              finalResult.error?.message || 'Failed to analyze image with DeepSeek',
+            );
+          }
+          const finalText =
+            typeof finalResult.data.text === 'string' ? finalResult.data.text.trim() : '';
+          if (!finalText) {
+            throw new ServiceUnavailableException(
+              'DeepSeek analysis returned empty response, please try again later',
+            );
+          }
+          return { text: finalText };
+        }
+        throw new ServiceUnavailableException(errorMessage);
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
