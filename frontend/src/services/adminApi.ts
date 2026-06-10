@@ -212,8 +212,30 @@ export interface SetTenantPaymentConfigBody {
   alipayPublicKey?: string;
 }
 
+// 分租户经营统计（下单/消耗走平台主账号，但数据按 tenantId 分开统计）
+export interface TenantStat {
+  tenantId: string;
+  name: string;
+  slug: string | null;
+  isPlatform: boolean;
+  known: boolean; // false=仅在统计里出现、无 Tenant 记录的孤儿 tenantId
+  paidOrderCount: number;
+  revenueYuan: number;
+  creditsSold: number;
+  creditsConsumed: number;
+  apiCallCount: number;
+}
+export interface TenantStatsResponse {
+  tenants: TenantStat[];
+  generatedAt: string;
+}
+
 export async function getTenants(): Promise<TenantInfo[]> {
   const response = await request(`/api/admin/tenants`);
+  return response.json();
+}
+export async function getTenantStats(): Promise<TenantStatsResponse> {
+  const response = await request(`/api/admin/tenants/stats`);
   return response.json();
 }
 export async function createTenant(body: {

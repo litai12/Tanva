@@ -70,6 +70,77 @@ export class TenantAdminService {
     }));
   }
 
+  /**
+   * 各租户经营统计：实付订单数/营收/售出积分 + 积分消耗/调用次数。
+   * 下单与消耗目前都走平台主账号(未配独立商户则回落)，但 PaymentOrder/ApiUsageRecord
+   * 都带 tenantId，故可按租户分开统计。
+   * 必须 runAsPlatform 平台态聚合，否则被租户扩展注入当前 CLS 租户 → 其它租户为空。
+   * amount 为 Decimal，_sum 返回 Prisma.Decimal，序列化前显式 toNumber 避免 JSON 丢精度。
+   * 注：ApiUsageRecord 暂无 tenantId 索引，数据量大后建议加 @@index([tenantId])。
+   */
+  async getTenantStats() {
+    const [tenants, paidOrders, usage]: [any[], any[], any[]] =
+      await this.tenantContext.runAsPlatform(() =>
+        Promise.all([
+          (this.prisma as any).tenant.findMany({
+            orderBy: [{ isPlatform: 'desc' }, { createdAt: 'asc' }],
+            select: { id: true, slug: true, name: true, isPlatform: true },
+          }),
+          (this.prisma as any).paymentOrder.groupBy({
+            by: ['tenantId'],
+            where: { status: 'paid' },
+            _count: { _all: true },
+            _sum: { amount: true, credits: true },
+          }),
+          (this.prisma as any).apiUsageRecord.groupBy({
+            by: ['tenantId'],
+            _count: { _all: true },
+            _sum: { creditsUsed: true },
+          }),
+        ]),
+      );
+
+    const toNum = (v: any): number =>
+      v == null ? 0 : typeof v?.toNumber === 'function' ? v.toNumber() : Number(v) || 0;
+
+    const orderMap = new Map<string, any>(paidOrders.map((o) => [o.tenantId, o]));
+    const usageMap = new Map<string, any>(usage.map((u) => [u.tenantId, u]));
+    const tenantMeta = new Map<string, any>(tenants.map((t) => [t.id, t]));
+
+    // 以租户表为主，并兜出只在统计里出现却无 Tenant 记录的孤儿 tenantId(脏数据不隐藏)
+    const ids = new Set<string>([
+      ...tenants.map((t) => t.id),
+      ...paidOrders.map((o) => o.tenantId),
+      ...usage.map((u) => u.tenantId),
+    ]);
+
+    const rows = [...ids].map((id) => {
+      const meta = tenantMeta.get(id);
+      const o = orderMap.get(id);
+      const u = usageMap.get(id);
+      const isPlatform = meta?.isPlatform ?? id === PLATFORM_TENANT_ID;
+      return {
+        tenantId: id,
+        name: meta?.name ?? (id === PLATFORM_TENANT_ID ? '主站' : '(未知租户)'),
+        slug: meta?.slug ?? null,
+        isPlatform,
+        known: Boolean(meta),
+        paidOrderCount: o?._count?._all ?? 0,
+        revenueYuan: toNum(o?._sum?.amount), // 元
+        creditsSold: o?._sum?.credits ?? 0,
+        creditsConsumed: u?._sum?.creditsUsed ?? 0,
+        apiCallCount: u?._count?._all ?? 0,
+      };
+    });
+
+    // 主站置顶，其余按营收降序
+    rows.sort((a, b) =>
+      a.isPlatform !== b.isPlatform ? (a.isPlatform ? -1 : 1) : b.revenueYuan - a.revenueYuan,
+    );
+
+    return { tenants: rows, generatedAt: new Date().toISOString() };
+  }
+
   async createTenant(dto: CreateTenantDto) {
     const slug = dto.slug.toLowerCase();
     const exists = await (this.prisma as any).tenant.findUnique({ where: { slug } });

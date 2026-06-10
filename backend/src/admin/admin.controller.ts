@@ -160,6 +160,13 @@ export class AdminController {
     return this.tenantAdminService.listTenants();
   }
 
+  @Get('tenants/stats')
+  @ApiOperation({ summary: '各租户经营统计（实付订单/营收/积分消耗，仅主站超管）' })
+  async getTenantStats(@Request() req: AuthenticatedRequest) {
+    this.ensurePlatformAdmin(req);
+    return this.tenantAdminService.getTenantStats();
+  }
+
   @Post('tenants')
   @ApiOperation({ summary: '新建租户' })
   async createTenant(@Request() req: AuthenticatedRequest, @Body() dto: CreateTenantDto) {

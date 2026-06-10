@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   getTenants,
+  getTenantStats,
   createTenant,
   updateTenant,
   addTenantDomain,
@@ -9,6 +10,7 @@ import {
   getTenantPaymentConfig,
   setTenantPaymentConfig,
   type TenantInfo,
+  type TenantStat,
   type TenantPaymentConfig,
   type SetTenantPaymentConfigBody,
 } from "@/services/adminApi";
@@ -40,6 +42,7 @@ const EMPTY_PAY_FORM: PayForm = {
 /** 主站超管的租户管理面板（系统设置 → 租户管理） */
 export default function TenantManagement() {
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
+  const [stats, setStats] = useState<TenantStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -69,7 +72,9 @@ export default function TenantManagement() {
     setLoading(true);
     setErr(null);
     try {
-      setTenants(await getTenants());
+      const [ts, st] = await Promise.all([getTenants(), getTenantStats()]);
+      setTenants(ts);
+      setStats(st.tenants);
     } catch (e: any) {
       setErr(e?.message || "加载失败");
     } finally {
@@ -218,6 +223,62 @@ export default function TenantManagement() {
 
       {err && (
         <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+      )}
+
+      {/* 分租户经营统计：下单/消耗走平台主账号，但数据按 tenantId 分开 */}
+      {stats.length > 0 && (
+        <div className="rounded-lg border bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-gray-700">分租户经营统计</h4>
+            <span className="text-xs text-gray-400">
+              下单/消耗走平台主账号，数据按租户隔离
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-400">
+                  <th className="py-1 pr-4 font-medium">租户</th>
+                  <th className="py-1 pr-4 text-right font-medium">实付订单</th>
+                  <th className="py-1 pr-4 text-right font-medium">营收(元)</th>
+                  <th className="py-1 pr-4 text-right font-medium">售出积分</th>
+                  <th className="py-1 pr-4 text-right font-medium">消耗积分</th>
+                  <th className="py-1 text-right font-medium">调用次数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.map((s) => (
+                  <tr key={s.tenantId} className="border-t">
+                    <td className="py-1.5 pr-4">
+                      <span className="font-medium">{s.name}</span>
+                      {s.slug && <span className="ml-1 text-gray-400">@{s.slug}</span>}
+                      {s.isPlatform && (
+                        <span className="ml-1 rounded bg-purple-100 px-1 text-purple-700">
+                          主站
+                        </span>
+                      )}
+                      {!s.known && (
+                        <span
+                          className="ml-1 rounded bg-amber-100 px-1 text-amber-700"
+                          title={s.tenantId}
+                        >
+                          孤儿
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">{s.paidOrderCount}</td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {s.revenueYuan.toFixed(2)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">{s.creditsSold}</td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">{s.creditsConsumed}</td>
+                    <td className="py-1.5 text-right tabular-nums">{s.apiCallCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {showCreate && (
