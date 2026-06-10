@@ -327,8 +327,15 @@ export const authApi = {
     const tokenExpiry = getStoredTokenExpiry();
     const localUser = loadSession();
 
-    // 如果本地有用户信息且token未过期（提前1分钟检查），直接返回本地数据
-    if (localUser && tokenExpiry && tokenExpiry > Date.now() + 60000) {
+    // 如果本地有用户信息且token未过期（提前1分钟检查），直接返回本地数据。
+    // 但缓存缺 tenantId（早期登录响应未带）时不能短路——否则前端 isPlatformAdmin 永远为 false、
+    // 多租户相关 UI（租户筛选等）出不来。此时强制走 /me 把 tenantId 补回来（自愈老会话）。
+    if (
+      localUser &&
+      localUser.tenantId &&
+      tokenExpiry &&
+      tokenExpiry > Date.now() + 60000
+    ) {
       console.log("[authApi] 使用本地缓存的用户信息，避免网络请求");
       return { user: localUser, source: "local" };
     }

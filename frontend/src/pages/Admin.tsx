@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
@@ -4807,9 +4807,8 @@ function UsersTab({
   const [users, setUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [search, setSearch] = useState("");
-  // 主站超管：租户筛选（'all'=全部租户）+ 租户下拉数据
-  const [tenantFilter, setTenantFilter] = useState<string>("all");
-  const [tenantOptions, setTenantOptions] = useState<TenantInfo[]>([]);
+  // 主站超管：租户筛选来自 header 全局下拉（'default'=主站, 子站id, 'all'=全部）
+  const { tenantFilter } = useAdminTenant();
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -4993,16 +4992,12 @@ function UsersTab({
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [tenantFilter]);
+
+  useEffect(() => {
     loadUsers();
   }, [page, search, tenantFilter]);
-
-  // 主站超管：加载租户下拉
-  useEffect(() => {
-    if (!isPlatformAdmin) return;
-    getTenants()
-      .then(setTenantOptions)
-      .catch(() => setTenantOptions([]));
-  }, [isPlatformAdmin]);
 
   const handleCreditOperation = async () => {
     if (!creditModal || !creditAmount || !creditReason) return;
@@ -5039,9 +5034,10 @@ function UsersTab({
     }
   };
 
-  const handleRoleChange = async (userId: string, role: string) => {
+  const handleRoleChange = async (userId: string, role: string, tenantId?: string) => {
     try {
-      await updateUserRole(userId, role);
+      // 主站超管按租户筛选后给子站用户设/取消管理员：带上目标用户所属租户，后端在该租户作用域内改 role
+      await updateUserRole(userId, role, isPlatformAdmin ? tenantId : undefined);
       if (userId === currentUserId) {
         const latestUser = await authApi.me().catch(() => null);
         if (latestUser) {
@@ -5464,24 +5460,6 @@ function UsersTab({
         >
           搜索
         </Button>
-        {isPlatformAdmin && (
-          <select
-            value={tenantFilter}
-            onChange={(e) => {
-              setTenantFilter(e.target.value);
-              setPage(1);
-            }}
-            className='rounded-md border px-3 py-2 text-sm'
-            title='按租户筛选'
-          >
-            <option value='all'>全部租户</option>
-            {tenantOptions.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        )}
       </div>}
 
       {view === 'users' && <div className='bg-white rounded-lg border overflow-hidden'>
@@ -5562,7 +5540,7 @@ function UsersTab({
                         <select
                           value={user.role}
                           onChange={(e) =>
-                            handleRoleChange(user.id, e.target.value)
+                            handleRoleChange(user.id, e.target.value, user.tenantId)
                           }
                           className='text-xs border rounded px-2 py-1'
                         >
@@ -6167,18 +6145,38 @@ function UsersTab({
   );
 }
 
+// 主站超管：全局租户筛选 Context（header 一个下拉，所有标签页共用）
+// tenantFilter: "default"=主站, 具体租户id=子站, "all"=全部租户
+type AdminTenantCtx = {
+  isPlatformAdmin: boolean;
+  tenantFilter: string;
+  setTenantFilter: (v: string) => void;
+};
+const AdminTenantContext = createContext<AdminTenantCtx>({
+  isPlatformAdmin: false,
+  tenantFilter: "default",
+  setTenantFilter: () => {},
+});
+function useAdminTenant() {
+  return useContext(AdminTenantContext);
+}
+
 // API 使用统计 Tab
 function ApiStatsTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [stats, setStats] = useState<ApiUsageStats[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
   useEffect(() => {
+    setPage(1);
     const loadStats = async () => {
       setLoading(true);
       try {
-        const result = await getApiUsageStats();
+        const result = await getApiUsageStats({
+          tenantId: isPlatformAdmin ? tenantFilter : undefined,
+        });
         setStats(result);
       } catch (error) {
         console.error("加载统计失败:", error);
@@ -6187,7 +6185,7 @@ function ApiStatsTab() {
       }
     };
     loadStats();
-  }, []);
+  }, [isPlatformAdmin, tenantFilter]);
 
   const totalPages = Math.max(1, Math.ceil(stats.length / pageSize));
   const pagedStats = stats.slice((page - 1) * pageSize, page * pageSize);
@@ -6312,6 +6310,7 @@ function ApiStatsTab() {
 
 // API 调用记录 Tab
 function ApiRecordsTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const OPENOBSERVE_LOGS_URL = "https://test.tanvas.cn/openobserve/web/logs";
   const [records, setRecords] = useState<ApiUsageRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -6333,6 +6332,7 @@ function ApiRecordsTab() {
         page,
         pageSize: 10,
         ...filters,
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
       });
       setRecords(result.records);
       setPagination(result.pagination);
@@ -6345,7 +6345,7 @@ function ApiRecordsTab() {
 
   useEffect(() => {
     loadRecords();
-  }, [page, filters]);
+  }, [page, filters, tenantFilter]);
 
   const updateFilters = (patch: Partial<typeof filters>) => {
     setPage(1);
@@ -6550,7 +6550,7 @@ function ApiRecordsTab() {
 
   return (
     <div>
-      <div className='mb-4 flex gap-2'>
+      <div className='mb-4 flex flex-wrap gap-2'>
         <Input
           value={filters.userSearch}
           onChange={(e) => updateFilters({ userSearch: e.target.value })}
@@ -7676,6 +7676,7 @@ function VolcReviewTab() {
 
 // 水印白名单管理 Tab
 function WatermarkWhitelistTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [whitelistUsers, setWhitelistUsers] = useState<WatermarkWhitelistUser[]>([]);
   const [allUsers, setAllUsers] = useState<UserWithCredits[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -7688,7 +7689,12 @@ function WatermarkWhitelistTab() {
   const loadWhitelist = async () => {
     setLoading(true);
     try {
-      const result = await getWatermarkWhitelist({ page, pageSize: 10, search });
+      const result = await getWatermarkWhitelist({
+        page,
+        pageSize: 10,
+        search,
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
+      });
       setWhitelistUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -7709,7 +7715,7 @@ function WatermarkWhitelistTab() {
 
   useEffect(() => {
     loadWhitelist();
-  }, [page, search]);
+  }, [page, search, tenantFilter]);
 
   useEffect(() => {
     if (showAddModal) {
@@ -7851,6 +7857,7 @@ function WatermarkWhitelistTab() {
 
 // 订单管理 Tab
 function OrdersTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -7874,6 +7881,7 @@ function OrdersTab() {
           status: status !== "all" ? status : undefined,
           paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
           orderType: orderType !== "all" ? orderType : undefined,
+          tenantId: isPlatformAdmin ? tenantFilter : undefined,
         });
         if (!cancelled) {
           setOrders(result.orders);
@@ -7887,7 +7895,7 @@ function OrdersTab() {
     };
     void run();
     return () => { cancelled = true; };
-  }, [page, committedSearch, status, paymentMethod, orderType]);
+  }, [page, committedSearch, status, paymentMethod, orderType, isPlatformAdmin, tenantFilter]);
 
   const handleSearch = () => {
     setCommittedSearch(searchInput);
@@ -8068,6 +8076,7 @@ function OrdersTab() {
 
 // 付费用户管理 Tab
 function PaidUsersTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [users, setUsers] = useState<PaidUser[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -8079,7 +8088,14 @@ function PaidUsersTab() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const result = await getPaidUsers({ page, pageSize: 10, search, sortBy, sortOrder });
+      const result = await getPaidUsers({
+        page,
+        pageSize: 10,
+        search,
+        sortBy,
+        sortOrder,
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
+      });
       setUsers(result.users);
       setPagination(result.pagination);
     } catch (error) {
@@ -8091,7 +8107,7 @@ function PaidUsersTab() {
 
   useEffect(() => {
     loadUsers();
-  }, [page, search, sortBy, sortOrder]);
+  }, [page, search, sortBy, sortOrder, tenantFilter]);
 
   return (
     <div>
@@ -8214,6 +8230,7 @@ function PaidUsersTab() {
 
 // 积分变更记录 Tab
 function CreditChangeRecordsTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [records, setRecords] = useState<CreditChangeRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -8229,6 +8246,7 @@ function CreditChangeRecordsTab() {
         pageSize: 20,
         search,
         source,
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
       });
       setRecords(result.records);
       setPagination(result.pagination);
@@ -8241,7 +8259,7 @@ function CreditChangeRecordsTab() {
 
   useEffect(() => {
     loadRecords();
-  }, [page, search, source]);
+  }, [page, search, source, tenantFilter]);
 
   const sourceText: Record<string, string> = {
     recharge: "充值到账",
@@ -8399,6 +8417,7 @@ function CreditChangeRecordsTab() {
 }
 
 function CreditAnomaliesTab() {
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const [records, setRecords] = useState<CreditAnomalyRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -8414,6 +8433,7 @@ function CreditAnomaliesTab() {
         pageSize: 20,
         search: search || undefined,
         severity: severity || undefined,
+        tenantId: isPlatformAdmin ? tenantFilter : undefined,
       });
       setRecords(result.records);
       setPagination(result.pagination);
@@ -8426,7 +8446,7 @@ function CreditAnomaliesTab() {
 
   useEffect(() => {
     loadRecords();
-  }, [page, search, severity]);
+  }, [page, search, severity, tenantFilter]);
 
   const severityText: Record<string, string> = {
     yellow: "黄色预警",
@@ -14475,6 +14495,16 @@ export default function Admin() {
   const isPlatformAdmin = isFullAdmin(userRole) && user?.tenantId === "default";
   const currentTab = canAccessAdminTab(userRole, activeTab) ? activeTab : "dashboard";
 
+  // 主站超管：header 全局租户筛选（默认主站；所有标签页共用，见 AdminTenantContext）
+  const [tenantFilter, setTenantFilter] = useState<string>("default");
+  const [tenantOptions, setTenantOptions] = useState<TenantInfo[]>([]);
+  useEffect(() => {
+    if (!isPlatformAdmin) return;
+    getTenants()
+      .then(setTenantOptions)
+      .catch(() => setTenantOptions([]));
+  }, [isPlatformAdmin]);
+
   useEffect(() => {
     if (user && !hasAdminPanelAccess) {
       navigate("/");
@@ -14498,7 +14528,9 @@ export default function Admin() {
     const loadDashboard = async (showLoading = false) => {
       if (showLoading) setLoading(true);
       try {
-        const data = await getDashboardStats();
+        const data = await getDashboardStats({
+          tenantId: isPlatformAdmin ? tenantFilter : undefined,
+        });
         if (cancelled) return;
         setStats(data);
         setDashboardError(null);
@@ -14523,7 +14555,7 @@ export default function Admin() {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [user, hasAdminPanelAccess, currentTab]);
+  }, [user, hasAdminPanelAccess, currentTab, isPlatformAdmin, tenantFilter]);
 
   if (!user || !hasAdminPanelAccess) {
     return (
@@ -14553,18 +14585,36 @@ export default function Admin() {
   const visibleTabs = tabs.filter((tab) => canAccessAdminTab(userRole, tab.key));
 
   return (
+    <AdminTenantContext.Provider value={{ isPlatformAdmin, tenantFilter, setTenantFilter }}>
     <div className='h-screen overflow-y-auto bg-gray-100'>
       {/* 顶部导航 */}
       <header className='bg-white border-b'>
         <div className='max-w-7xl mx-auto px-4 py-4 flex items-center justify-between'>
-          <div className='flex items-center gap-4'>
-            <h1 className='text-xl font-bold'>管理后台</h1>
-            <nav className='flex gap-1 ml-8'>
+          <div className='flex min-w-0 items-center gap-4'>
+            {/* 左上角：主站超管显示租户下拉（替换标题区），否则显示标题 */}
+            {isPlatformAdmin ? (
+              <select
+                value={tenantFilter}
+                onChange={(e) => setTenantFilter(e.target.value)}
+                className='shrink-0 rounded-md border px-3 py-2 text-sm font-bold'
+                title='按租户查看后台数据（默认主站，可切子站/全部）'
+              >
+                <option value='all'>全部租户</option>
+                {tenantOptions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <h1 className='shrink-0 text-xl font-bold'>管理后台</h1>
+            )}
+            <nav className='flex gap-1 overflow-x-auto'>
               {visibleTabs.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                  className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-medium transition ${
                     currentTab === tab.key
                       ? "bg-blue-100 text-blue-700"
                       : "text-gray-600 hover:bg-gray-100"
@@ -14716,5 +14766,6 @@ export default function Admin() {
         )}
       </main>
     </div>
+    </AdminTenantContext.Provider>
   );
 }

@@ -282,6 +282,26 @@ export class AdminService {
       return d;
     });
 
+    // 活跃用户(按 RefreshToken 去重 userId)。裸 SQL 绕过租户注入，需手动作用域：
+    //  - 平台态(选「全部租户」)→ 不过滤，跨租户统计；
+    //  - 租户态(选主站/某子站，或普通租户管理员)→ 按当前作用域租户过滤；
+    // 与上面 prisma 计数(随 runAsTenant/runAsPlatform 自动作用域)保持一致。
+    const platformMode = this.tenantContext.isPlatformMode();
+    const scopedTenantId = this.tenantContext.getTenantId();
+    const activeUserCount = (from: Date, to: Date) =>
+      platformMode
+        ? this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+            SELECT COUNT(DISTINCT "userId")::bigint AS count
+            FROM "RefreshToken"
+            WHERE "createdAt" >= ${from} AND "createdAt" < ${to}
+          `
+        : this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+            SELECT COUNT(DISTINCT "userId")::bigint AS count
+            FROM "RefreshToken"
+            WHERE "createdAt" >= ${from} AND "createdAt" < ${to}
+              AND "tenantId" = ${scopedTenantId}
+          `;
+
     const [
       totalUsers,
       todayActiveUsersByLastSeen,
@@ -317,13 +337,7 @@ export class AdminService {
           },
         },
       }),
-      // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
-      this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-        SELECT COUNT(DISTINCT "userId")::bigint AS count
-        FROM "RefreshToken"
-        WHERE "createdAt" >= ${startOfToday}
-          AND "createdAt" < ${endOfToday}
-      `,
+      activeUserCount(startOfToday, endOfToday),
       this.prisma.creditAccount.aggregate({
         _sum: {
           balance: true,
@@ -347,13 +361,7 @@ export class AdminService {
                 },
               },
             }),
-            // ALLOW_RAW_NO_TENANT: 平台超管全局统计(跨租户活跃用户数)，刻意不按租户过滤
-            this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-              SELECT COUNT(DISTINCT "userId")::bigint AS count
-              FROM "RefreshToken"
-              WHERE "createdAt" >= ${dayStart}
-                AND "createdAt" < ${dayEnd}
-            `,
+            activeUserCount(dayStart, dayEnd),
           ]);
           return {
             date: this.formatDayLabel(dayStart),

@@ -134,8 +134,9 @@ export interface PaginatedResponse<T> {
 
 
 // 获取管理后台统计数据
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await request("/api/admin/dashboard");
+export async function getDashboardStats(params?: { tenantId?: string }): Promise<DashboardStats> {
+  const qs = params?.tenantId ? `?tenantId=${encodeURIComponent(params.tenantId)}` : "";
+  const response = await request(`/api/admin/dashboard${qs}`);
   return response.json();
 }
 
@@ -323,12 +324,12 @@ export async function updateUserStatus(userId: string, status: string) {
   return response.json();
 }
 
-// 更新用户角色
-export async function updateUserRole(userId: string, role: string) {
+// 更新用户角色（tenantId：仅主站超管跨租户给子站用户设/取消管理员时传目标用户所属租户）
+export async function updateUserRole(userId: string, role: string, tenantId?: string) {
   const response = await request(`/api/admin/users/${userId}/role`, {
     method: "PATCH",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ role }),
+    body: JSON.stringify(tenantId ? { role, tenantId } : { role }),
   });
   return response.json();
 }
@@ -425,10 +426,12 @@ export async function getAdminUserCreditTransactions(
 export async function getApiUsageStats(params?: {
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<ApiUsageStats[]> {
   const searchParams = new URLSearchParams();
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/api-usage/stats?${searchParams}`);
   return response.json();
@@ -445,6 +448,7 @@ export async function getApiUsageRecords(params: {
   status?: string;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
@@ -456,6 +460,7 @@ export async function getApiUsageRecords(params: {
   if (params.status) searchParams.set("status", params.status);
   if (params.startDate) searchParams.set("startDate", params.startDate);
   if (params.endDate) searchParams.set("endDate", params.endDate);
+  if (params.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(
     `/api/admin/api-usage/records?${searchParams}`
@@ -1420,11 +1425,13 @@ export async function getWatermarkWhitelist(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  tenantId?: string;
 }): Promise<{ users: WatermarkWhitelistUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/watermark-whitelist?${searchParams}`);
   return response.json();
@@ -1475,6 +1482,7 @@ export async function getPaidUsers(params?: {
   search?: string;
   sortBy?: PaidUsersSortBy;
   sortOrder?: "asc" | "desc";
+  tenantId?: string;
 }): Promise<{ users: PaidUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1482,6 +1490,7 @@ export async function getPaidUsers(params?: {
   if (params?.search) searchParams.set("search", params.search);
   if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params?.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/paid-users?${searchParams}`);
   return response.json();
@@ -1532,6 +1541,7 @@ export async function getCreditChangeRecords(params?: {
   source?: CreditRecordFilterSource;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ records: CreditChangeRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1541,6 +1551,7 @@ export async function getCreditChangeRecords(params?: {
   if (params?.source) searchParams.set("source", params.source);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/credit-change-records?${searchParams}`);
   return response.json();
@@ -1584,6 +1595,7 @@ export async function getCreditAnomalyRecords(params?: {
   severity?: CreditAnomalySeverity;
   startDate?: string;
   endDate?: string;
+  tenantId?: string;
 }): Promise<{ records: CreditAnomalyRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1593,6 +1605,7 @@ export async function getCreditAnomalyRecords(params?: {
   if (params?.severity) searchParams.set("severity", params.severity);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/credit-anomalies?${searchParams}`);
   return response.json();
@@ -1713,6 +1726,7 @@ export async function getAdminOrders(params?: {
   orderType?: string;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ orders: AdminOrder[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1723,6 +1737,7 @@ export async function getAdminOrders(params?: {
   if (params?.orderType) searchParams.set("orderType", params.orderType);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
   const response = await request(`/api/admin/orders?${searchParams}`);
   return response.json();
 }

@@ -45,6 +45,11 @@ export class ApiUsageStatsQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({ description: '租户筛选（仅主站超管）：租户id 或 "all"' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
 
 export class ApiUsageRecordsQueryDto {
@@ -95,6 +100,11 @@ export class ApiUsageRecordsQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({ description: '租户筛选（仅主站超管）：租户id 或 "all"' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
 
 export class UpdateUserStatusDto {
@@ -107,6 +117,11 @@ export class UpdateUserRoleDto {
   @ApiProperty({ description: '用户角色', enum: ['user', 'admin', 'normal_admin'] })
   @IsString()
   role!: string;
+
+  @ApiPropertyOptional({ description: '目标用户所属租户（仅主站超管跨租户设管理员时传）' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
 
 export class CreditChangeRecordsQueryDto {
@@ -151,6 +166,11 @@ export class CreditChangeRecordsQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({ description: '租户筛选（仅主站超管）：租户id 或 "all"' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
 
 export class CreditAnomalyRecordsQueryDto {
@@ -195,4 +215,9 @@ export class CreditAnomalyRecordsQueryDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({ description: '租户筛选（仅主站超管）：租户id 或 "all"' })
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
 }
