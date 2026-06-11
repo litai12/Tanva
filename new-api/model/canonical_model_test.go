@@ -182,3 +182,37 @@ func TestBuildImplicitModelMappingResolvesCrossVendorAliasToSupportedChannelKey(
 		t.Fatalf("mapping[nanobanana2] = %q", got)
 	}
 }
+
+// kapon-vidu 场景：渠道显式映射把内部模型重命名为上游名（vidu-q3 → viduq3-pro），
+// 而 viduq3-pro 又是 vidu-q3 的别名。隐式映射若再补 viduq3-pro → vidu-q3，
+// MapModelName 会沿 vidu-q3 → viduq3-pro → vidu-q3 报 model_mapping_contains_cycle。
+// 显式映射的目标（值）不允许再作为隐式映射的键。
+func TestBuildImplicitModelMappingSkipsExplicitMappingTargets(t *testing.T) {
+	t.Parallel()
+
+	explicit := `{"vidu-q2":"viduq2-pro","vidu-q3":"viduq3-pro"}`
+	channel := &Channel{
+		Models:       "vidu-q2,vidu-q3",
+		ModelMapping: &explicit,
+	}
+	raw := BuildImplicitModelMapping(channel)
+
+	var mapping map[string]string
+	if err := json.Unmarshal([]byte(raw), &mapping); err != nil {
+		t.Fatalf("unmarshal mapping failed: %v", err)
+	}
+	if got, exists := mapping["viduq3-pro"]; exists {
+		t.Fatalf("unexpected mapping[viduq3-pro] = %q (cycles with explicit vidu-q3 → viduq3-pro)", got)
+	}
+	if got, exists := mapping["viduq2-pro"]; exists {
+		t.Fatalf("unexpected mapping[viduq2-pro] = %q (cycles with explicit vidu-q2 → viduq2-pro)", got)
+	}
+	// 显式重命名保持不变
+	if got := mapping["vidu-q3"]; got != "viduq3-pro" {
+		t.Fatalf("mapping[vidu-q3] = %q", got)
+	}
+	// 其余别名仍指向渠道内部模型
+	if got := mapping["viduq3"]; got != "vidu-q3" {
+		t.Fatalf("mapping[viduq3] = %q", got)
+	}
+}
