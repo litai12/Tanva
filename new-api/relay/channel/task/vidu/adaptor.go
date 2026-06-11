@@ -127,6 +127,12 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			body.Model = "viduq2"
 		}
 	}
+	if info.Action == constant.TaskActionTextGenerate {
+		// 文生视频不接受 pro/turbo 后缀（kapon 实测返回
+		// "model viduq2-pro does not support text2video"），降回基础模型名。
+		body.Model = strings.TrimSuffix(body.Model, "-pro")
+		body.Model = strings.TrimSuffix(body.Model, "-turbo")
+	}
 
 	data, err := common.Marshal(body)
 	if err != nil {
