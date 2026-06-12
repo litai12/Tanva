@@ -1076,17 +1076,22 @@ export class VideoProviderService {
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
     // on assets that already passed the upload-time check (volcAssetStatus === "active").
     // Other models fall back to raw HTTPS URLs.
-    const referenceImages = isSeedance2
+    const referenceImages = (isSeedance2
       ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
-      : this.extractReferenceImageUrls(options.referenceImages);
+      : this.extractReferenceImageUrls(options.referenceImages)
+    ).map((url) => this.normalizeFirstPartyAssetUrl(url));
     // Raw URLs for new-api's own asset re-upload path (only needed when not using asset://).
     const referenceImageRawUrls: string[] | undefined = isSeedance2
-      ? this.extractReferenceImageUrls(options.referenceImages)
+      ? this.extractReferenceImageUrls(options.referenceImages).map((url) =>
+          this.normalizeFirstPartyAssetUrl(url),
+        )
       : undefined;
     const referenceVideos = [
       ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
       ...(options.referenceVideo ? [options.referenceVideo] : []),
-    ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    ]
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((url) => this.normalizeFirstPartyAssetUrl(url));
 
     // wan2.7-videoedit requires the source video via metadata.video_url (the
     // new-api apimart adaptor reads it from metadata, not the top-level
@@ -1100,7 +1105,9 @@ export class VideoProviderService {
     // upstream only via metadata. See APIMart kling-v2-6 / kling-v3 / kling-v3-omni docs.
     // Kling omni 命名角色(element_list)经独立的 elementImages 字段下发，与 image 桩的
     // 首尾帧/参考图(image_with_roles)分离，避免被当成普通参考图。
-    const elementImages = this.extractReferenceImageUrls(options.elementImages);
+    const elementImages = this.extractReferenceImageUrls(options.elementImages).map(
+      (url) => this.normalizeFirstPartyAssetUrl(url),
+    );
     const kling = this.buildKlingApimartParams(
       options,
       model,
@@ -1514,16 +1521,41 @@ export class VideoProviderService {
     }
 
     // ── omni 命名角色 → element_list=[{name,description,element_input_urls}]（@name 引用）。 ──
+    // 上游硬约束（apimart kling-v3-omni 文档 + 实测）：description 必填（空串直接
+    // kling_element_create_failed）；element_input_urls 每主体 2-4 张，第 1 张为正面照、
+    // 其余为参考图（单图会报 "at least 1 reference image required"，同 URL 复制可过）。
     if (isOmni && elementImages.length > 0) {
       const elementName = String(options.elementName || "").trim() || "role1";
-      const elementDescription = String(options.elementDescription || "").trim();
+      const elementDescription =
+        String(options.elementDescription || "").trim() ||
+        `提示词中@${elementName}引用的主体角色，以参考图为准`;
+      let elementUrls = elementImages.slice(0, 4);
+      if (elementImages.length > 4) {
+        this.logger.warn(
+          `Kling omni element_input_urls 上限 4 张，已截断（原 ${elementImages.length} 张）`,
+        );
+      }
+      if (elementUrls.length === 1) {
+        elementUrls = [elementUrls[0], elementUrls[0]];
+      }
       metadata.element_list = [
         {
           name: elementName,
           description: elementDescription,
-          element_input_urls: elementImages,
+          element_input_urls: elementUrls,
         },
       ];
+      // 主体需经 prompt 的 @name 引用才会绑定进画面，否则上游会无视 element_list。
+      // prompt 缺少对本主体的引用时自动前置（经 metadata.prompt 覆盖顶层 prompt——
+      // apimart Extras 合并时同名字段以 metadata 为准）。判断用具体的 @name 而非任意
+      // @，避免 prompt 里的 @图N 等其它 @ 引用误判为已绑定主体。
+      const promptText = String(options.prompt || "").trim();
+      if (promptText && !promptText.includes(`@${elementName}`)) {
+        metadata.prompt = `@${elementName} ${promptText}`;
+        this.logger.warn(
+          `Kling omni prompt 未引用主体 @${elementName}，已自动前置`,
+        );
+      }
     }
 
     // ── omni 参考视频 → video_list (refer_type / keep_original_sound from user choice). ──
@@ -1550,11 +1582,24 @@ export class VideoProviderService {
       images = referenceImages[0] ? [referenceImages[0]] : undefined;
     }
 
+    // ── omni duration 上游范围 3-15s；超界经 metadata.duration 收敛（覆盖顶层 duration）。 ──
+    let effectiveDuration = duration;
+    if (isOmni && typeof duration === "number" && Number.isFinite(duration)) {
+      const clamped = Math.max(3, Math.min(15, Math.round(duration)));
+      if (clamped !== duration) {
+        metadata.duration = clamped;
+        effectiveDuration = clamped;
+        this.logger.warn(
+          `Kling omni duration ${duration}s 超出上游 3-15s 范围，已收敛为 ${clamped}s`,
+        );
+      }
+    }
+
     // ── omni 多分镜 → multi_shot / shot_type / multi_prompt（复用历史 storyboard 校验）。 ──
     // multi_shot 与参考视频(video_list)互斥，上游报 "multi shot is not supported with
     // video input"。连了参考视频时跳过分镜，保证视频输入可用。
     if (isOmni && !hasVideo) {
-      this.applyKlingOmniStoryboard(options, metadata, duration);
+      this.applyKlingOmniStoryboard(options, metadata, effectiveDuration);
     }
 
     return { image, images, metadata };
@@ -1637,6 +1682,32 @@ export class VideoProviderService {
       .map((item) => (typeof item === "string" ? item : item?.url))
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       .map((item) => item.trim());
+  }
+
+  // 存量画布数据中的第一方资产 URL 可能带历史坏 host（公网 NoSuchBucket），Kling/apimart
+  // 等上游按 URL 直接拉取会失败（element 创建报"拉不到文件"、任务卡到超时）。命中坏 host
+  // 时按同 key 用当前 OSS 配置重建公网 URL；query 一并丢弃——坏桶上签出的参数本就无效。
+  private static readonly LEGACY_BROKEN_ASSET_HOSTS = new Set([
+    "tanva-ai.tos-cn-guangzhou.volces.com",
+  ]);
+
+  private normalizeFirstPartyAssetUrl(url: string): string {
+    if (!url || !/^https?:\/\//i.test(url)) return url;
+    try {
+      const parsed = new URL(url);
+      if (!VideoProviderService.LEGACY_BROKEN_ASSET_HOSTS.has(parsed.hostname)) {
+        return url;
+      }
+      const key = parsed.pathname.replace(/^\/+/, "");
+      if (!key) return url;
+      const rebuilt = this.oss.publicUrl(key);
+      this.logger.warn(
+        `第一方资产 URL 命中历史坏 host，已按当前 OSS 配置重建: ${parsed.hostname}/${key} -> ${rebuilt}`,
+      );
+      return rebuilt;
+    } catch {
+      return url;
+    }
   }
 
   // Seedance 2.0: use asset:// for active volc assets; fall back to raw URL otherwise.
