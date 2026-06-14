@@ -721,6 +721,17 @@ func RelayTask(c *gin.Context) {
 			}
 			addRefUrl(submitReq.Image)
 			addRefUrl(submitReq.InputReference)
+			// Top-level reference_videos (Seedance 2.0 视频参考/换主体): surface for
+			// admin/debug just like metadata.content videos are recorded below.
+			for _, u := range submitReq.ReferenceVideos {
+				addRefUrl(u)
+			}
+			if len(submitReq.ReferenceVideos) > 0 {
+				if task.Properties.InputVideoUrl == "" {
+					task.Properties.InputVideoUrl = submitReq.ReferenceVideos[0]
+				}
+				task.Properties.HasInputRef = true
+			}
 			task.Properties.ReferenceCount = len(refUrls)
 			if len(refUrls) > 0 {
 				task.Properties.ReferenceUrls = refUrls
