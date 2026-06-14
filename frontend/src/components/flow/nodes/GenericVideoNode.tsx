@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 
 // Module-level registry so the same (url, version) pair always gets the same _ts.
 // Prevents remount of GenericVideoNode (or useMemo re-run) from producing a new
@@ -2609,7 +2609,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 display: "flex",
                 alignItems: "center",
               }}
-              title={lt("鐜╂硶璇存槑", "Help")}
+              title={lt("玩法说明", "Help")}
             >
               <HelpCircle size={14} />
             </button>
@@ -2692,7 +2692,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           >
             {isDownloading ? (
               <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>
-                下载中
+                下载中...
               </span>
             ) : (
               <Download size={14} />
