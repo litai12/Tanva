@@ -10736,7 +10736,7 @@ function FlowInner() {
                   : type === "doubaoVideo" || type === "seedVideo"
                   ? "doubao"
                   : type === "kling30Video"
-                  ? "kling-o3"
+                  ? "kling"
                   : "kling",
               klingModel:
                 type === "kling30Video" ? ("kling-v3-0" as const) : ("kling-v2-6" as const),
@@ -18479,8 +18479,12 @@ function FlowInner() {
             : "kling-v2-6");
         if (normalizedVideoNodeType === "klingO1Video") {
           provider = "kling-o3";
-        } else if (normalizedVideoNodeType === "klingVideo" || normalizedVideoNodeType === "kling26Video") {
-          provider = klingModel === "kling-v3-0" ? "kling-o3" : "kling-2.6";
+        } else if (
+          normalizedVideoNodeType === "klingVideo" ||
+          normalizedVideoNodeType === "kling26Video" ||
+          normalizedVideoNodeType === "kling30Video"
+        ) {
+          provider = klingModel === "kling-v3-0" ? "kling" : "kling-2.6";
         } else if (
           normalizedVideoNodeType === "doubaoVideo" ||
           normalizedVideoNodeType === "seedance20Video" ||
