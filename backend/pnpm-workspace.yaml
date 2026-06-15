@@ -1,0 +1,11 @@
+onlyBuiltDependencies:
+  - sharp
+  - onnxruntime-node
+  - esbuild
+  - protobufjs
+  - '@google/genai'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - prisma
+  - msgpackr-extract
+  - tos-crc64-js

@@ -73,14 +73,5 @@
     "ts-node-dev": "^2.0.0",
     "typescript": "~5.8.3",
     "undici": "^7.16.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "sharp",
-      "onnxruntime-node",
-      "esbuild",
-      "protobufjs",
-      "@google/genai"
-    ]
   }
 }
