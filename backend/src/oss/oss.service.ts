@@ -19,6 +19,21 @@ type PresignPolicy = {
   securityToken?: string;
 };
 
+/**
+ * Thrown when an object read exceeds the dedicated proxy read timeout. Callers
+ * (the asset proxy) use this to fail fast instead of falling back to another
+ * slow path. See getObjectBuffer().
+ */
+export class OssReadTimeoutError extends Error {
+  constructor(
+    readonly objectKey: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`OSS read timed out after ${timeoutMs}ms for key: ${objectKey}`);
+    this.name = 'OssReadTimeoutError';
+  }
+}
+
 @Injectable()
 export class OssService {
   constructor(private readonly config: ConfigService) {}
@@ -123,6 +138,18 @@ export class OssService {
     const n = raw ? Number(raw) : 300000;
     if (!Number.isFinite(n)) return 300000;
     return Math.max(1000, Math.min(600000, Math.floor(n)));
+  }
+
+  // Dedicated, short timeout for object *reads* (asset proxy). Kept separate
+  // from timeoutMs() — that default (5 min) must stay large for big uploads,
+  // but reusing it for proxy reads let slow/dangling objects hang for minutes
+  // and pile up full-image buffers, saturating the event loop (incident
+  // 2026-06-15). Default 12s, clamped to [1s, 60s], override via env.
+  private readTimeoutMs(): number {
+    const raw = this.config.get<string>('OSS_READ_TIMEOUT_MS');
+    const n = raw ? Number(raw) : 12000;
+    if (!Number.isFinite(n)) return 12000;
+    return Math.max(1000, Math.min(60000, Math.floor(n)));
   }
 
   private stripProtocolAndSlash(value: string): string {
@@ -566,16 +593,48 @@ export class OssService {
   }
 
   async getObjectBuffer(
-    key: string
+    key: string,
+    opts?: { timeoutMs?: number },
   ): Promise<{ key: string; buffer: Buffer; headers: Record<string, string> }> {
     const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
     if (!normalizedKey) throw new Error('Invalid object key');
     if (!this.isOssEnabled()) throw new Error('OSS is disabled');
 
-    if (this.isTosHost(this.resolveObjectHost())) {
-      const tosResult = await this.withTosSecretCandidates(async (client) => {
-        return await client.getObject({ key: normalizedKey });
+    const timeoutMs =
+      typeof opts?.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs)
+        ? Math.max(1000, Math.min(60000, Math.floor(opts.timeoutMs)))
+        : this.readTimeoutMs();
+
+    // Bound every read. The SDK clients carry timeoutMs() (default 5 min) so
+    // uploads can finish; that is far too long for a proxy read. We pass a
+    // short per-call timeout to the SDK *and* race a guard so the caller is
+    // unblocked even if the SDK ignores it. The background SDK promise is
+    // swallowed so a late settle after the race never becomes an unhandled
+    // rejection.
+    const withReadTimeout = <T>(work: Promise<T>): Promise<T> => {
+      let timer: NodeJS.Timeout | undefined;
+      const guard = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new OssReadTimeoutError(normalizedKey, timeoutMs)),
+          timeoutMs,
+        );
       });
+      work.catch(() => {
+        // Late settle after a race timeout — intentionally ignored.
+      });
+      return Promise.race([work, guard]).finally(() => {
+        if (timer) clearTimeout(timer);
+      }) as Promise<T>;
+    };
+
+    if (this.isTosHost(this.resolveObjectHost())) {
+      const tosResult = await withReadTimeout(
+        this.withTosSecretCandidates(async (client) => {
+          // requestTimeout is honored per-call by newer SDKs and harmlessly
+          // ignored by older ones (the Promise.race guard still applies).
+          return await client.getObject({ key: normalizedKey, requestTimeout: timeoutMs } as any);
+        }),
+      );
       const payload =
         (tosResult as any)?.data ??
         (tosResult as any)?.content ??
@@ -587,7 +646,11 @@ export class OssService {
     }
 
     const client = this.client();
-    const aliResult = await client.get(normalizedKey);
+    // 2-arg form: ali-oss treats a non-stream/non-string 2nd arg as options and
+    // returns the object body as a buffer in result.content.
+    const aliResult = await withReadTimeout(
+      client.get(normalizedKey, { timeout: timeoutMs } as any),
+    );
     const payload =
       (aliResult as any)?.content ??
       (aliResult as any)?.data ??

@@ -1,8 +1,17 @@
-import { BadGatewayException, BadRequestException, Controller, Get, Query, Req, Res } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Controller,
+  GatewayTimeoutException,
+  Get,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Readable } from 'node:stream';
-import { OssService } from './oss.service';
+import { OssReadTimeoutError, OssService } from './oss.service';
 
 const MANAGED_ASSET_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS = 12_000;
@@ -247,22 +256,42 @@ export class AssetsController {
       // fail-closed: signing unavailable → fall through to byte streaming below.
     }
 
+    // Managed keys (no range): stream the bytes from a short-lived presigned
+    // URL via the bounded streaming path below (real AbortController
+    // cancellation, no full-object buffering). This replaces an in-memory
+    // getObjectBuffer() read that ran on the SDK's 5-min request timeout, which
+    // let slow/dangling objects pile up full-image buffers and saturate the
+    // event loop (incident 2026-06-15). Only fall back to the authenticated
+    // buffer read — now bounded by a short read timeout — when a presigned URL
+    // cannot be produced (signing unavailable).
+    let managedStreamUrl: string | null = null;
     if (directManagedKey && !range) {
-      try {
-        const object = await this.oss.getObjectBuffer(directManagedKey);
-        this.setProxyCorsHeaders(reply);
-        this.setPassthroughHeaders(reply, object.headers || {});
-        if (!object.headers?.['cache-control']) {
-          reply.header('cache-control', 'public, max-age=3600');
+      const signed = this.oss.signUrl(directManagedKey, 300);
+      if (this.isPresignedUrl(signed)) {
+        // Reuse the signature for the streaming path below instead of
+        // re-signing via resolveTargetUrl().
+        managedStreamUrl = signed;
+      } else {
+        try {
+          const object = await this.oss.getObjectBuffer(directManagedKey);
+          this.setProxyCorsHeaders(reply);
+          this.setPassthroughHeaders(reply, object.headers || {});
+          if (!object.headers?.['cache-control']) {
+            reply.header('cache-control', 'public, max-age=3600');
+          }
+          reply.status(200).send(object.buffer);
+          return;
+        } catch (err) {
+          if (err instanceof OssReadTimeoutError) {
+            reply.header('cache-control', 'no-store');
+            throw new GatewayTimeoutException('Asset read timed out');
+          }
+          // Fall through to URL proxy path.
         }
-        reply.status(200).send(object.buffer);
-        return;
-      } catch {
-        // Fall through to URL proxy path.
       }
     }
 
-    const initialUrl = this.resolveTargetUrl({ url, key });
+    const initialUrl = managedStreamUrl ?? this.resolveTargetUrl({ url, key });
 
     let parsed: URL;
     try {
