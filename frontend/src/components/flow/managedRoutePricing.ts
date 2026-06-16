@@ -129,16 +129,16 @@ export const isTencentVendorKey = (vendorKey?: string | null): boolean => {
 };
 
 /**
- * Treat a Tencent vendorKey as empty so route resolution falls back to the first
- * surviving (non-Tencent) vendor / defaultVendor. Returns undefined for empty or
- * Tencent keys, the trimmed key otherwise.
+ * 尊享(tencent_vod)线路已恢复：不再把腾讯 vendorKey 当空值剥离，让用户能在
+ * vidu/kling 节点选择「腾讯 VOD」尊享线路，vendorKey 据此下发给后端，
+ * 后端再据其映射到 new-api 的 vip 分组(腾讯 VOD channel)。仅保留 trim/空值归一。
  */
 export const sanitizeVideoVendorKey = (
   vendorKey?: string | null
 ): string | undefined => {
   if (typeof vendorKey !== "string") return undefined;
   const trimmed = vendorKey.trim();
-  if (!trimmed || isTencentVendorKey(trimmed)) return undefined;
+  if (!trimmed) return undefined;
   return trimmed;
 };
 
@@ -153,26 +153,9 @@ export const sanitizeVideoVendorKey = (
 export const sanitizeVideoManagedRoutes = <T extends Record<string, any> | null | undefined>(
   metadata: T
 ): T => {
-  const root = asObject(metadata);
-  const managedRoutes = asObject(root?.managedRoutes);
-  if (!root || !managedRoutes) return metadata;
-  const vendors = Array.isArray(managedRoutes.vendors) ? managedRoutes.vendors : [];
-  const filteredVendors = vendors.filter(
-    (vendor) =>
-      !(vendor && typeof vendor === "object" && isTencentVendorKey((vendor as any).vendorKey))
-  );
-  if (filteredVendors.length === vendors.length) return metadata;
-  const nextDefault = isTencentVendorKey(managedRoutes.defaultVendor)
-    ? (filteredVendors[0] as Record<string, any> | undefined)?.vendorKey
-    : managedRoutes.defaultVendor;
-  return {
-    ...root,
-    managedRoutes: {
-      ...managedRoutes,
-      vendors: filteredVendors,
-      defaultVendor: nextDefault,
-    },
-  } as unknown as T;
+  // 尊享(tencent_vod)线路已恢复：保留后端下发的全部 managed routes（含腾讯 VOD vendor），
+  // 不再过滤腾讯线路或改写 defaultVendor，让用户可在节点上选择普通(kapon)/尊享(腾讯)。
+  return metadata;
 };
 
 export const getManagedRoutesMetadata = (

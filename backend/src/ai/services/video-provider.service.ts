@@ -792,14 +792,14 @@ export class VideoProviderService {
   ): Promise<boolean> {
     const modelKey = this.resolveManagedVideoModelKey(options);
     if (!modelKey) return false;
-    // Tencent route removed for managed video models: every model with a new-api
-    // channel ALWAYS goes through /v1/videos so new-api's own distributor picks
-    // the upstream per route (apimart / ark / its tencent-vod channel). The
-    // frontend no longer pins vidu/kling to tencent_vod; this guard also blocks
-    // any stale node data still carrying tencent_vod from forcing the legacy
-    // direct Tencent VOD path here. (Tencent VOD stays reachable only via
-    // new-api's tencent-vod channel calling back into /internal/tencent-vod →
-    // createViaTencentVod, which bypasses this decision entirely.)
+    // 尊享线路：用户显式选了腾讯 VOD（前端 vendorKey=tencent_vod）。直接走后端腾讯 VOD
+    // 路径(generateVideoLegacy → /proxy/tencent/vod，计费&被 new-api 记录、轮询用 queryTask)。
+    // 不走 /v1/videos 的 tencent-vod 渠道——其 new-api task 轮询有 task_id 映射 bug(任务卡
+    // NOT_START)。普通线路(下方)仍走 new-api /v1/videos → kapon。
+    if (this.isTencentPremiumRoute(options)) {
+      return true;
+    }
+    // 普通：有 new-api 渠道的视频模型走 /v1/videos，由 new-api 选上游(kapon/apimart)。
     if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
       return false;
     }
@@ -1195,9 +1195,19 @@ export class VideoProviderService {
     };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
 
+    // kapon-kling 原生请求（仅 v2-6/v3）：apimart 忽略此键，kapon-kling 适配器据其
+    // 选端点直发，从而让普通 kling 全模式经 kapon 而不破坏 apimart 回落。
+    const kaponKling = this.buildKaponKlingRequest(
+      model,
+      options,
+      referenceImages,
+      referenceVideos,
+      elementImages,
+    );
     const metadata = {
       ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
       ...(kling?.metadata ?? {}),
+      ...(kaponKling ? { kapon: kaponKling } : {}),
     };
     const hasMetadata = Object.keys(metadata).length > 0;
 
@@ -1370,6 +1380,15 @@ export class VideoProviderService {
     return { status, videoUrl, thumbnailUrl };
   }
 
+  /** 该请求是否尊享线路（前端 vendorKey/platformKey = tencent_vod/tengxun）。 */
+  private isTencentPremiumRoute(options: VideoProviderRequestDto): boolean {
+    const keys = [
+      (options as any).vendorKey,
+      (options as any).platformKey,
+    ].map((k) => String(k || "").trim().toLowerCase());
+    return keys.some((k) => k === "tencent_vod" || k === "tengxun");
+  }
+
   private resolveNewApiVideoModel(options: VideoProviderRequestDto): string {
     const explicit = String(
       options.managedModelKey || options.seedanceModel || options.klingModel || options.viduModel || "",
@@ -1409,6 +1428,11 @@ export class VideoProviderService {
       return "omni-flash-ext";
     }
     if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
+      // 命名元素(element_list) kapon omni-video 不支持 → 发 apimart 别名(仅 apimart 有该
+      // ability)精准命中 apimart；其余 omni 模式走 kapon omni-video(kling-v3-omni)。
+      if (this.extractReferenceImageUrls(options.elementImages).length > 0) {
+        return "kling-v3-omni-apimart";
+      }
       return "kling-v3-omni";
     }
     if (options.provider === "kling" || options.provider === "kling-2.6") {
@@ -1447,6 +1471,101 @@ export class VideoProviderService {
    *
    * Returns null for non-Kling models (leaves the generic payload path untouched).
    */
+  // 构造 kapon 原生 kling 请求（端点后缀 + body），写进 payload.metadata.kapon 供 new-api
+  // 的 kapon-kling 适配器直接转发。形状复刻已验证的历史客户端：
+  //   kling-v2-6    → generateKling26：kling/v1/videos/{text2video|image2video|image2video-tail|multi-image2video}
+  //   kling-v3 / o3 → generateKlingO1：kling/v1/videos/omni-video（model_name=kling-v3-omni）
+  // 命名元素(element_list) 历史 kapon 客户端不支持 → 返回 null → 仍由 apimart 服务
+  // （apimart 适配器忽略 metadata.kapon，不破坏回落）。
+  private buildKaponKlingRequest(
+    model: string,
+    options: VideoProviderRequestDto,
+    referenceImages: string[],
+    referenceVideos: string[] = [],
+    elementImages: string[] = [],
+  ): { suffix: string; body: Record<string, any> } | null {
+    const isV26 = model === "kling-v2-6";
+    const isV3 = model === "kling-v3";
+    const isOmni = model === "kling-v3-omni";
+    if (!isV26 && !isV3 && !isOmni) return null;
+    // 命名元素模式 kapon omni-video 不支持 → 回落 apimart。
+    if (elementImages.length > 0) return null;
+
+    const mode =
+      String(options.mode || "std").trim().toLowerCase() === "pro" ? "pro" : "std";
+    const prompt = options.prompt || "";
+    const aspectRatio = String(options.aspectRatio || "").trim();
+    const videoMode = String(options.videoMode || "").trim().toLowerCase();
+    const frameMode =
+      videoMode === "frame" || videoMode === "start_end" || videoMode === "start-end";
+    const imgs = referenceImages.filter((u) => typeof u === "string" && u.trim());
+    const REF_PROMPT = "参考图片内容生成视频";
+    // 多图：kapon 的 multi-image2video 仅认 kling-v1-6，而 kapon 已下架 v1-6 货源；唯一可用的
+    // 多图路径是 omni-video(kling-v3-omni)。故所有多图(含 v2-6/v3)走 omni-video（模型降级可接受）。
+    const isMulti = imgs.length >= 3 || (imgs.length === 2 && !frameMode);
+
+    // ── omni-video（kling-v3-omni）：o3 原生 + 任意多图。复刻历史 generateKlingO1。 ──
+    if (isOmni || isMulti) {
+      const hasVideo = referenceVideos.length > 0;
+      const dur = Math.max(3, Math.min(10, Number(options.duration) || 5));
+      const body: Record<string, any> = {
+        model_name: "kling-v3-omni",
+        mode,
+        prompt: prompt || (imgs.length > 0 ? "根据参考图片生成视频" : "生成视频"),
+        duration: String(dur),
+      };
+      const sound = String(options.sound || "").trim().toLowerCase();
+      if (sound === "on") body.sound = "on";
+      else if (sound === "off") body.sound = "off";
+      else if (mode === "pro") body.sound = "on";
+      const hasFirstFrame = imgs.length > 0 && !hasVideo;
+      const isVideoEdit = hasVideo && options.referenceVideoType === "base";
+      if (aspectRatio) body.aspect_ratio = aspectRatio;
+      else if (!hasFirstFrame && !isVideoEdit) body.aspect_ratio = "16:9";
+      if (imgs.length > 0) {
+        body.image_list = imgs.slice(0, 7).map((url, i) => {
+          const it: Record<string, any> = { image_url: url };
+          if (!hasVideo) {
+            if (i === 0) it.type = "first_frame";
+            else if (i === 1 && imgs.length === 2) it.type = "end_frame";
+          }
+          return it;
+        });
+      }
+      if (hasVideo) {
+        body.video_list = [
+          {
+            video_url: referenceVideos[0],
+            refer_type: options.referenceVideoType || "feature",
+            keep_original_sound: options.keepOriginalSound || "no",
+          },
+        ];
+      }
+      return { suffix: "omni-video", body };
+    }
+
+    // ── kling-v2-6 / kling-v3 非多图 → kling/v1/videos/* 用各自 kapon 模型名（不混 omni）。 ──
+    const kaponModel = isV3 ? "kling-v3" : "kling-v2-6";
+    const duration = Number(options.duration) === 10 ? "10" : "5";
+    const body: Record<string, any> = { model_name: kaponModel, mode, duration };
+    if (aspectRatio) body.aspect_ratio = aspectRatio;
+    if (imgs.length === 0) {
+      body.prompt = prompt;
+      return { suffix: "text2video", body };
+    }
+    if (imgs.length === 1) {
+      body.image = imgs[0];
+      if (prompt) body.prompt = prompt;
+      return { suffix: "image2video", body };
+    }
+    // 首尾帧（2 图 + frame）。kling-v2-6 的 image_tail 仅 pro 支持（std 报 1201）；v3 std 即可。
+    body.image = imgs[0];
+    body.image_tail = imgs[1];
+    body.prompt = prompt || REF_PROMPT;
+    if (isV26) body.mode = "pro";
+    return { suffix: "image2video", body };
+  }
+
   private buildKlingApimartParams(
     options: VideoProviderRequestDto,
     model: string,
