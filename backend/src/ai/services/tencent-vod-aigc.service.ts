@@ -92,7 +92,11 @@ export class TencentVodAigcService {
   private readonly maxPollAttempts: number;
 
   constructor(private readonly configService: ConfigService) {
+    // 腾讯 VOD 链路只服务尊享线路 → 优先用 vip 分组令牌(NEW_API_KEY_VIP)调 new-api
+    // /proxy/tencent/vod，使调用记账归属 vip 分组(与"前端选尊享走 vip token"一致)；
+    // 未配置 vip 令牌时回落默认令牌，保证不报错。
     this.newApiKey = this.normalizeEnvValue(
+      this.configService.get<string>('NEW_API_KEY_VIP') ||
       this.configService.get<string>('NEW_API_KEY') ||
       this.configService.get<string>('NEW_API_TOKEN'),
     );
