@@ -2649,17 +2649,17 @@ const FloatingHeader: React.FC = () => {
                     {isTeamMode ? (
                       <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-teal-400 via-teal-500 to-cyan-600 shadow-[0_1px_4px_rgba(20,184,166,0.5)]'>
                         <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-teal-300/80 to-teal-600/80' />
-                        <Users className='relative w-2.5 h-2.5 text-white' />
+                        <Users className='relative w-3 h-3 text-white' />
                       </span>
                     ) : (
                       <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
                         <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
-                        <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
+                        <Star className='relative w-3 h-3 text-amber-50 fill-amber-100/90' />
                       </span>
                     )}
                     <span className='tabular-nums font-medium'>{topCreditsText}</span>
                     {teamUnlimitedBadge && (
-                      <span className='ml-0.5 text-[9px] font-medium text-teal-600 bg-teal-100 rounded-full px-1 py-0.5 leading-none'>
+                      <span className='ml-0.5 text-[10px] font-medium text-teal-600 bg-teal-100 rounded-full px-1.5 py-0.5 leading-none'>
                         不限
                       </span>
                     )}

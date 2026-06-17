@@ -48,7 +48,7 @@ const CollabPresenceBar: React.FC<Props> = ({ online, currentUserId }) => {
       style={{ top: 12, right: 320, pointerEvents: 'none' }}
     >
       <div
-        className="flex items-center rounded-full bg-white/90 px-2 py-1 shadow-md backdrop-blur"
+        className="flex items-center rounded-full bg-white/90 px-2.5 py-1.5 shadow-md backdrop-blur"
         style={{ pointerEvents: 'auto' }}
         title={`${online.length} 人在线协作`}
       >
@@ -60,7 +60,7 @@ const CollabPresenceBar: React.FC<Props> = ({ online, currentUserId }) => {
               <div
                 key={u.userId}
                 title={isSelf ? `${u.name}（你）` : u.name}
-                className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white text-[11px] font-medium text-white"
+                className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-xs font-semibold text-white"
                 style={{ background: color }}
               >
                 {initials(u.name)}
@@ -69,7 +69,7 @@ const CollabPresenceBar: React.FC<Props> = ({ online, currentUserId }) => {
           })}
           {extra > 0 && (
             <div
-              className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gray-500 text-[11px] font-medium text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-gray-500 text-xs font-semibold text-white"
               title={`另有 ${extra} 人在线`}
             >
               +{extra}
