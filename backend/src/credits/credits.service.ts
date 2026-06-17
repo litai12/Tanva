@@ -289,6 +289,8 @@ type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
 type BananaTextPricingTier = 'fast' | 'pro' | 'ultra';
 
+const OMNI_FLASH_EXT_MODEL_KEY = 'omni-flash-ext';
+
 const BANANA_TENCENT_IMAGE_SERVICE_TIERS: Partial<
   Record<ServiceType, BananaTencentPricingTier>
 > = {
@@ -993,6 +995,20 @@ export class CreditsService {
     return null;
   }
 
+  private isOmniFlashExtRequest(requestParams: any, model?: string): boolean {
+    const candidates = [
+      requestParams?.modelKey,
+      requestParams?.managedModelKey,
+      requestParams?.model,
+      model,
+    ];
+    return candidates.some(
+      (candidate) =>
+        typeof candidate === 'string' &&
+        candidate.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY,
+    );
+  }
+
   private normalizeKlingMode(raw: unknown): 'std' | 'pro' {
     if (typeof raw === 'string' && raw.trim().toLowerCase() === 'pro') {
       return 'pro';
@@ -1028,13 +1044,14 @@ export class CreditsService {
         select: { value: true },
       });
       const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
-      const parsed = raw
+      const parsedBase = raw
         ? normalizeSeedance20DiscountPricing(
             JSON.parse(raw) as ManagedPricingMappingLike,
           )
         : normalizeSeedance20DiscountPricing({
             models: [{ modelKey: 'seedance-2.0' }],
           } as ManagedPricingMappingLike);
+      const parsed = this.withDefaultManagedPricingModels(parsedBase);
 
       // 腾讯路由已下线：vidu/kling 视频前端不再下发 vendor。计价与路由解耦——请求带
       // 空 vendor 或陈旧 tencent_vod 时，按该模型 defaultVendor 对应的“已启用”费率表
@@ -1080,6 +1097,47 @@ export class CreditsService {
    *   3) 首个已启用 vendor；4) 首个 vendor。
    * 模型不含 tencent_vod vendor 时返回 null，保持图片等模型计价不变。
    */
+  private withDefaultManagedPricingModels(
+    mapping: ManagedPricingMappingLike,
+  ): ManagedPricingMappingLike {
+    const models = Array.isArray(mapping?.models) ? mapping.models.filter(Boolean) : [];
+    const hasOmniFlashExt = models.some(
+      (item) =>
+        typeof item?.modelKey === 'string' &&
+        item.modelKey.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY,
+    );
+    if (hasOmniFlashExt) {
+      return mapping;
+    }
+
+    return {
+      ...mapping,
+      models: [
+        ...models,
+        {
+          modelKey: OMNI_FLASH_EXT_MODEL_KEY,
+          modelName: 'Omni Flash Ext',
+          taskType: 'video',
+          enabled: true,
+          defaultVendor: 'new_api',
+          vendors: [
+            {
+              vendorKey: 'new_api',
+              platformKey: 'new_api',
+              label: 'New API',
+              enabled: true,
+              route: 'legacy',
+              provider: 'new-api',
+              modelName: OMNI_FLASH_EXT_MODEL_KEY,
+              creditsPerCall: 600,
+              priceYuan: 6,
+            },
+          ],
+        },
+      ],
+    } as ManagedPricingMappingLike;
+  }
+
   private pickPricingFallbackVendorKey(
     mapping: ManagedPricingMappingLike,
     modelKey: string,
@@ -1098,6 +1156,20 @@ export class CreditsService {
       typeof v?.vendorKey === 'string' ? v.vendorKey.trim() : '';
     const isEnabled = (v: any): boolean =>
       (v as { enabled?: boolean })?.enabled !== false;
+    if (mk === OMNI_FLASH_EXT_MODEL_KEY) {
+      const defaultVendor = String(
+        (model as { defaultVendor?: string })?.defaultVendor || '',
+      ).trim();
+      const byDefault = vendors.find((v) => vk(v) && vk(v) === defaultVendor && isEnabled(v));
+      if (byDefault) return vk(byDefault);
+
+      const firstEnabled = vendors.find((v) => vk(v) && isEnabled(v));
+      if (firstEnabled) return vk(firstEnabled);
+
+      const first = vendors.find((v) => vk(v));
+      return first ? vk(first) : null;
+    }
+
     const hasTencent = vendors.some((v) => vk(v).toLowerCase() === 'tencent_vod');
     if (!hasTencent) return null;
 
@@ -1474,6 +1546,10 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return defaultCredits;
+    }
+
     const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
     if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
       return defaultCredits;
@@ -1501,6 +1577,10 @@ export class CreditsService {
     defaultServiceName: string,
     requestParams: any,
   ): string {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return defaultServiceName;
+    }
+
     const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
     if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
       return defaultServiceName;
@@ -1525,6 +1605,10 @@ export class CreditsService {
     defaultServiceName: string,
     requestParams: any,
   ): string {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return 'Omni Flash Ext 视频生成';
+    }
+
     if (serviceType !== 'doubao-video') {
       return defaultServiceName;
     }
@@ -2629,6 +2713,10 @@ export class CreditsService {
     // 该服务的产品计费模型恒为 kling-o3，直接锁定，保持标题/备注一致。
     if (serviceType === 'kling-o3-video') {
       return 'kling-o3';
+    }
+
+    if (this.isOmniFlashExtRequest(requestParams, model)) {
+      return OMNI_FLASH_EXT_MODEL_KEY;
     }
 
     const isVideoService =

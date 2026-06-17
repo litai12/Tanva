@@ -2327,7 +2327,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
-  omniFlashExtVideo: ["image", "text"],
+  omniFlashExtVideo: ["image", "video", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
   kling26Video: ["image", "image-2", "audio", "text"],
   kling30Video: ["image", "image-2", "audio", "text"],
@@ -10509,6 +10509,7 @@ function FlowInner() {
               resolution: "720P",
               duration: 6,
               aspectRatio: "16:9",
+              videoMode: "frame",
               videoVersion: 0,
               boxW: size.w,
               boxH: size.h,
@@ -11569,6 +11570,12 @@ function FlowInner() {
           return true;
         return false;
       };
+      const isOmniImageSource = (
+        node: typeof sourceNode,
+        handle?: string | null
+      ) =>
+        isImageSource(node, handle) ||
+        Boolean((node.data as any)?.imageUrl || (node.data as any)?.url || (node.data as any)?.src);
 
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
@@ -11704,7 +11711,10 @@ function FlowInner() {
 
       if (targetNode.type === "omniFlashExtVideo") {
         if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
-        if (targetHandle === "image") return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "image") return isOmniImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video") {
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -12232,6 +12242,14 @@ function FlowInner() {
           params.targetHandle === "audio"
         ) {
           return true;
+        }
+      }
+      if (targetNode?.type === "omniFlashExtVideo") {
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "video") return true;
+        if (params.targetHandle === "image") {
+          const mode = ((targetNode.data as any)?.videoMode === "reference") ? "reference" : "frame";
+          return incoming.length < (mode === "reference" ? 3 : 1);
         }
       }
       if (targetNode?.type === "audioUpload") {
@@ -18458,6 +18476,7 @@ function FlowInner() {
       if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
         const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+        const isOmniFlashExtNode = normalizedVideoNodeType === "omniFlashExtVideo";
         const isLegacyKling30Node = node.type === "kling30Video";
         const isLegacyKling26Node = node.type === "kling26Video";
         const inferredViduModel =
@@ -18493,6 +18512,8 @@ function FlowInner() {
           provider = "doubao";
         } else if (normalizedVideoNodeType === "viduVideo" || normalizedVideoNodeType === "viduQ3") {
           provider = getEffectiveViduProvider(viduNodeDataForProvider);
+        } else if (isOmniFlashExtNode) {
+          provider = rawNodeData.provider || "kling";
         } else {
           provider = rawNodeData.provider || "kling";
         }
@@ -18555,6 +18576,9 @@ function FlowInner() {
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
+            if (isOmniFlashExtNode) {
+              return e.targetHandle === "image";
+            }
             // 有视频输入时，只收集 image / image-2，排除 elementImg
             if (hasVideoInput) {
               return e.targetHandle === "image" || e.targetHandle === "image-2";
@@ -18622,7 +18646,33 @@ function FlowInner() {
           );
         };
 
-        if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
+        if (isOmniFlashExtNode) {
+          const omniVideoMode = rawNodeData.videoMode === "reference" ? "reference" : "frame";
+          const omniVideoCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          ).length;
+
+          if (!promptText) {
+            failCurrentVideoNode("Omni Flash Ext 需要连接非空提示词");
+            return;
+          }
+          if (omniVideoCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 最多支持 1 条参考视频");
+            return;
+          }
+          if (imageCount > 3) {
+            failCurrentVideoNode("Omni Flash Ext 图片最多 3 张");
+            return;
+          }
+          if (omniVideoMode === "frame" && imageCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 单图模式只接 1 张图");
+            return;
+          }
+          if (omniVideoMode === "reference" && imageCount === 2) {
+            failCurrentVideoNode("Omni Flash Ext 参考模式接 1 或 3 张图");
+            return;
+          }
+        } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
           const seedancePhysicalImageCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image"
           ).length;
@@ -18822,8 +18872,12 @@ function FlowInner() {
         const viduModelForApi = viduSemantics.viduModel;
 
         const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number" &&
-          Number.isFinite((node.data as any)?.clipDuration)
+          isOmniFlashExtNode &&
+          typeof rawNodeData.duration === "number" &&
+          Number.isFinite(rawNodeData.duration)
+            ? Math.round(rawNodeData.duration)
+            : typeof (node.data as any)?.clipDuration === "number" &&
+              Number.isFinite((node.data as any)?.clipDuration)
             ? Math.round((node.data as any).clipDuration)
             : undefined;
         const configuredDurationOptions = (() => {
@@ -19130,7 +19184,7 @@ function FlowInner() {
 
         let referenceVideoUrl: string | undefined = undefined;
         let referenceVideoUrls: string[] = [];
-        if (provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
+        if (isOmniFlashExtNode || provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
           const videoEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -19184,7 +19238,13 @@ function FlowInner() {
 
           if (referenceVideoUrl) {
             console.log(
-              `🎬 [${isSeedanceNode && isSeedance20Request ? "Seedance 2.0" : "Kling O1"}] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
+              `🎬 [${
+                isOmniFlashExtNode
+                  ? "Omni Flash Ext"
+                  : isSeedanceNode && isSeedance20Request
+                  ? "Seedance 2.0"
+                  : "Kling O1"
+              }] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
             );
           }
         }
@@ -19560,7 +19620,9 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          isSeedanceNode
+          isOmniFlashExtNode
+            ? aspectSetting || "16:9"
+            : isSeedanceNode
             ? aspectSetting || undefined
             : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
@@ -19579,6 +19641,11 @@ function FlowInner() {
             if (effectiveConfiguredDurationOptions.includes(clipDuration)) {
               durationForAPI = clipDuration;
             }
+          } else if (
+            isOmniFlashExtNode &&
+            (clipDuration === 4 || clipDuration === 6 || clipDuration === 8 || clipDuration === 10)
+          ) {
+            durationForAPI = clipDuration;
           } else if (
             provider === "kling" &&
             (clipDuration === 5 || clipDuration === 10)
@@ -19624,7 +19691,9 @@ function FlowInner() {
           }
           if (durationForAPI === undefined) {
             const fallbackDurationOptions =
-              isSeedanceNode
+              isOmniFlashExtNode
+                ? [4, 6, 8, 10]
+                : isSeedanceNode
                 ? isSeedance20Request
                   ? SEEDANCE20_DURATIONS
                   : SEEDANCE15_DURATIONS
@@ -19738,7 +19807,22 @@ function FlowInner() {
               : undefined;
 
           const requestPayload =
-            provider === "doubao"
+            isOmniFlashExtNode
+              ? {
+                  ...managedRoutePayload,
+                  managedModelKey: "omni-flash-ext",
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos:
+                    referenceVideoUrls.length > 0 ? referenceVideoUrls.slice(0, 1) : undefined,
+                  duration: referenceVideoUrls.length > 0 ? undefined : durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
+                  provider: provider as VideoProvider,
+                  videoMode: rawNodeData.videoMode === "reference" ? "reference" : "frame",
+                }
+              : provider === "doubao"
               ? {
                   ...managedRoutePayload,
                   prompt: finalPrompt || undefined,

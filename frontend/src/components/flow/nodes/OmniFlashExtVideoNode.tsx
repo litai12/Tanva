@@ -24,6 +24,7 @@ type Props = {
     resolution?: string;
     duration?: number;
     aspectRatio?: string;
+    videoMode?: string;
   };
   selected?: boolean;
 };
@@ -31,6 +32,18 @@ type Props = {
 const DURATION_OPTIONS = [4, 6, 8, 10];
 const RESOLUTION_OPTIONS = ["720P", "1080P", "4K"];
 const ASPECT_OPTIONS = ["16:9", "9:16"];
+const MODE_OPTIONS = [
+  {
+    value: "frame",
+    label: "单图模式",
+    description: "单图生成视频",
+  },
+  {
+    value: "reference",
+    label: "参考模式",
+    description: "图片作为参考图",
+  },
+];
 
 const getStyles = (selected?: boolean) => ({
   card: {
@@ -102,6 +115,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     typeof data.aspectRatio === "string" && ASPECT_OPTIONS.includes(data.aspectRatio)
       ? data.aspectRatio
       : "16:9";
+  const videoMode = data.videoMode === "reference" ? "reference" : "frame";
 
   const imageInputCount = useStore(
     React.useCallback(
@@ -112,28 +126,62 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       [id]
     )
   );
+  const videoInputCount = useStore(
+    React.useCallback(
+      (state: any) =>
+        (state.edges || []).filter(
+          (e: any) => e.target === id && e.targetHandle === "video"
+        ).length,
+      [id]
+    )
+  );
+  const textInputCount = useStore(
+    React.useCallback(
+      (state: any) =>
+        (state.edges || []).filter(
+          (e: any) => e.target === id && e.targetHandle === "text"
+        ).length,
+      [id]
+    )
+  );
 
   const validationMessages = React.useMemo(() => {
     const msgs: string[] = [];
-    if (imageInputCount === 2) {
-      msgs.push(lt("不支持 2 张图片输入，仅支持 0、1 或 3 张", "2-image input not supported; use 0, 1, or 3 images"));
+    if (textInputCount === 0) {
+      msgs.push(lt("请连接提示词", "Connect a prompt"));
+    }
+    if (videoInputCount > 1) {
+      msgs.push(lt("参考视频最多 1 条", "Reference video: max 1"));
     }
     if (imageInputCount > 3) {
-      msgs.push(lt("最多支持 3 张图片", "Maximum 3 images supported"));
+      msgs.push(lt("图片最多 3 张", "Images: max 3"));
+    } else if (videoMode === "frame" && imageInputCount > 1) {
+      msgs.push(lt("单图模式只接 1 张图", "Single-image mode accepts 1 image"));
+    } else if (videoMode === "reference" && imageInputCount === 2) {
+      msgs.push(lt("参考模式接 1 或 3 张图", "Reference mode accepts 1 or 3 images"));
     }
     return msgs;
-  }, [imageInputCount, lt]);
+  }, [imageInputCount, textInputCount, videoInputCount, videoMode, lt]);
+
+  const imageHandleTooltip = React.useMemo(
+    () =>
+      videoMode === "reference"
+        ? lt("参考图片：1 或 3 张", "Reference images: 1 or 3")
+        : lt("单图生成视频：1 张图", "Single-image video: 1 image"),
+    [videoMode, lt]
+  );
 
   const previewRequestParams = React.useMemo(
     () => ({
       managedModelKey: "omni-flash-ext",
       modelKey: "omni-flash-ext",
       resolution: resolution.toLowerCase(),
-      duration,
-      durationSec: duration,
+      ...(videoInputCount > 0 ? {} : { duration, durationSec: duration }),
       aspectRatio,
+      videoMode,
+      hasReferenceVideo: videoInputCount > 0,
     }),
-    [duration, resolution, aspectRatio]
+    [duration, resolution, aspectRatio, videoMode, videoInputCount]
   );
 
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -208,8 +256,16 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="image"
-        style={{ top: "50%" }}
+        style={{ top: "43%" }}
         onMouseEnter={() => setHover("image")}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="video"
+        style={{ top: "66%" }}
+        onMouseEnter={() => setHover("video-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
@@ -221,8 +277,9 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
 
-      {tooltip("text", "20%", lt("提示词（可选）", "Prompt (optional)"))}
-      {tooltip("image", "50%", lt("参考图片（0、1 或 3 张）", "Reference images (0, 1, or 3)"))}
+      {tooltip("text", "20%", lt("提示词（必填）", "Prompt (required)"))}
+      {tooltip("image", "43%", imageHandleTooltip)}
+      {tooltip("video-in", "66%", lt("参考视频（最多 1 个）", "Reference video (max 1)"))}
       {hover === "video-out" && (
         <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>
           {lt("生成视频输出", "Generated video output")}
@@ -288,7 +345,17 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       </div>
 
       {/* Controls */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: videoInputCount > 0 ? 4 : 8 }}>
+        <label style={{ fontSize: 11, color: "#475569" }}>
+          <div style={{ marginBottom: 3 }}>{lt("模式", "Mode")}</div>
+          <NodeSelect
+            value={videoMode}
+            options={MODE_OPTIONS}
+            onChange={(v) => updateNodeData({ videoMode: v })}
+            menuLabel={lt("模式", "Mode")}
+            title={lt("选择生成模式", "Select generation mode")}
+          />
+        </label>
         <label style={{ fontSize: 11, color: "#475569" }}>
           <div style={{ marginBottom: 3 }}>{lt("时长", "Duration")}</div>
           <NodeSelect
@@ -320,6 +387,11 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           />
         </label>
       </div>
+      {videoInputCount > 0 && (
+        <div style={{ marginBottom: 8, color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>
+          {lt("接入参考视频时不会下发时长参数。", "Duration is omitted when a reference video is connected.")}
+        </div>
+      )}
 
       {/* Video preview */}
       <div

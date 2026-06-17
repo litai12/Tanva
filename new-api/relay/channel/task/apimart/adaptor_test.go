@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // SubmitResponse must accept both the APIMart {code,data[]} envelope and the
@@ -110,4 +111,61 @@ func TestDetailResponseEnvelopes(t *testing.T) {
 			t.Errorf("AllURLs=%v", urls)
 		}
 	})
+}
+
+func TestBuildOmniFlashExtPayload(t *testing.T) {
+	payload, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:  "omni-flash-ext",
+		Prompt: "city night video",
+		Images: []string{
+			"https://example.com/a.png",
+			"https://example.com/b.png",
+			"https://example.com/c.png",
+		},
+		Resolution:  "720P",
+		AspectRatio: "16:9",
+		Duration:    6,
+		Metadata: map[string]interface{}{
+			"videoMode": "reference",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Model != omniFlashExtUpstreamModel {
+		t.Fatalf("Model=%q, want %q", payload.Model, omniFlashExtUpstreamModel)
+	}
+	if payload.GenerationType != "reference" {
+		t.Fatalf("GenerationType=%q, want reference", payload.GenerationType)
+	}
+	if len(payload.ImageUrls) != 3 {
+		t.Fatalf("ImageUrls=%v, want 3 urls", payload.ImageUrls)
+	}
+
+	payload, err = BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:           "omni-flash-ext-apimart",
+		Prompt:          "generate from reference video",
+		ReferenceVideos: []string{"https://example.com/ref.mp4"},
+		Duration:        8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Model != omniFlashExtUpstreamModel {
+		t.Fatalf("Model=%q, want %q", payload.Model, omniFlashExtUpstreamModel)
+	}
+	if len(payload.VideoUrls) != 1 || payload.VideoUrls[0] != "https://example.com/ref.mp4" {
+		t.Fatalf("VideoUrls=%v", payload.VideoUrls)
+	}
+	if payload.Duration != 0 {
+		t.Fatalf("Duration=%d, want omitted zero when video reference exists", payload.Duration)
+	}
+
+	if _, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:  "omni-flash-ext",
+		Prompt: "two images are unsupported",
+		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
+	}); err == nil {
+		t.Fatal("expected error for 2 image_urls")
+	}
 }

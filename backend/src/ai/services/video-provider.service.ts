@@ -782,6 +782,7 @@ export class VideoProviderService {
     "kling-2.6",
     "kling-3.0",
     "kling-o3",
+    "omni-flash-ext",
     "seedance-1.5",
     "seedance-2.0",
   ]);
@@ -821,6 +822,9 @@ export class VideoProviderService {
   private resolveManagedVideoModelKey(
     options: VideoProviderRequestDto
   ): string | null {
+    if (String(options.managedModelKey || "").trim().toLowerCase() === "omni-flash-ext") {
+      return "omni-flash-ext";
+    }
     const provider = options.provider;
     if (
       (provider === "kling" || provider === "kling-2.6") &&
@@ -1066,6 +1070,7 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
+    const isOmniFlashExt = model === "omni-flash-ext";
     // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
@@ -1195,8 +1200,20 @@ export class VideoProviderService {
     };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
 
+    const omniGenerationType =
+      referenceImages.length > 0
+        ? String(options.videoMode || "").trim().toLowerCase() === "reference"
+          ? "reference"
+          : "frame"
+        : undefined;
     const metadata = {
       ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
+      ...(isOmniFlashExt
+        ? {
+            ...(omniGenerationType ? { generation_type: omniGenerationType } : {}),
+            ...(referenceVideos[0] ? { video_urls: referenceVideos.slice(0, 1) } : {}),
+          }
+        : {}),
       ...(kling?.metadata ?? {}),
     };
     const hasMetadata = Object.keys(metadata).length > 0;
@@ -1204,21 +1221,43 @@ export class VideoProviderService {
     const payload = this.stripUndefined({
       model,
       prompt: options.prompt || "",
-      duration,
+      duration: isOmniFlashExt && referenceVideos.length > 0 ? undefined : duration,
       size,
       resolution: this.normalizeResolutionToken(options.resolution),
       // For Kling, image/images selection is decided by buildKlingApimartParams
       // (omni 首尾帧 uses image_with_roles and suppresses image_urls to satisfy the
       // upstream mutual-exclusion rule).
-      image: kling ? kling.image : seedanceImageFields.image,
-      images: kling ? kling.images : seedanceImageFields.images,
+      image: isOmniFlashExt
+        ? referenceImages[0]
+        : kling
+        ? kling.image
+        : seedanceImageFields.image,
+      images: isOmniFlashExt
+        ? referenceImages.length > 0
+          ? referenceImages
+          : undefined
+        : kling
+        ? kling.images
+        : seedanceImageFields.images,
       // Seedance 2.0 r2v：参考图经此字段下发，new-api 全部标 reference_image。
-      referenceImages: kling ? undefined : seedanceImageFields.referenceImages,
+      referenceImages: isOmniFlashExt
+        ? undefined
+        : kling
+        ? undefined
+        : seedanceImageFields.referenceImages,
       // Seedance 2.0 首尾帧：尾帧经此字段下发，new-api 标 last_frame（与 first_frame 成对）。
-      lastFrame: kling ? undefined : seedanceImageFields.lastFrame,
+      lastFrame: isOmniFlashExt
+        ? undefined
+        : kling
+        ? undefined
+        : seedanceImageFields.lastFrame,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
-      reference_videos: kling
+      reference_videos: isOmniFlashExt
+        ? referenceVideos.length > 0
+          ? referenceVideos.slice(0, 1)
+          : undefined
+        : kling
         ? undefined
         : referenceVideos.length > 0
         ? referenceVideos

@@ -1219,6 +1219,10 @@ export class AiController {
     if (typeof dto.managedModelKey === 'string' && dto.managedModelKey.trim().length > 0) {
       params.managedModelKey = dto.managedModelKey.trim();
     }
+    const normalizedManagedModelKey =
+      typeof dto.managedModelKey === 'string'
+        ? dto.managedModelKey.trim().toLowerCase()
+        : '';
 
     // kling-o3(Omni) 计费的线路 modelKey 必须钉死为 'kling-o3'，命中专属的 kling-o3 计价书。
     // 否则 managedModelKey 缺失时(老/新节点未带该字段)会按 klingModel='kling-v3-0' 推断成
@@ -1430,6 +1434,13 @@ export class AiController {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
 
+    if (normalizedManagedModelKey === 'omni-flash-ext') {
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('omni-flash-ext', preferredVendorKey),
+      );
+      return params;
+    }
+
     // kling-o3(Omni) 不能并入 kling-3.0 路由：它虽下发 klingModel='kling-v3-0'(为让 new-api
     // 路由到 kling-v3-omni)，但计费/线路必须用 kling-o3 自己的计价书。否则 params.modelKey 会被
     // 设成 'kling-3.0'，而 resolveManagedRoutePricing 中 modelKey 优先级高于 managedModelKey，
@@ -1499,6 +1510,14 @@ export class AiController {
   private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+    const normalizedManagedModelKey =
+      typeof dto.managedModelKey === 'string'
+        ? dto.managedModelKey.trim().toLowerCase()
+        : '';
+
+    if (normalizedManagedModelKey === 'omni-flash-ext') {
+      return 'kling-video';
+    }
 
     // kling-o3(Omni) 计费一律走 kling-o3-video，不受其路由用的 klingModel 影响。
     // Omni 节点为让 new-api 路由到 kling-v3-omni 固定带 klingModel='kling-v3-0'，

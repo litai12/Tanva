@@ -1,3 +1,8 @@
+## 2026-06-17 Omni Flash Ext APIMart
+- `omniFlashExtVideo` uses dedicated `text`, `image`, and `video` input handles. The `video` handle accepts video outputs only and is limited to one reference video.
+- Runtime validation follows APIMart `omni-flash-ext`: prompt required; image count must be 0, 1, or 3; 2 images and more than 3 images are rejected; 3 images require `videoMode=reference`.
+- Flow request assembly sends `managedModelKey=omni-flash-ext`, `referenceImages`, optional single `referenceVideos`, `aspectRatio`, `resolution`, and `videoMode`. When reference video is connected, `duration` is omitted and the run badge preview also omits duration.
+
 ## 2026-06-05 Prompt Mention Stability
 - Prompt `@` image mentions now treat the stored token as an anchored structured reference as long as the token text still exists, instead of requiring a trailing whitespace/token boundary. Continuing to type immediately after an inserted `@图...` token, including IME pinyin composition and ASCII suffix text, no longer removes the corresponding `data.mentions` entry or drops it from Generate runtime reference-image resolution.
 - `TextPromptNode` renders selected image mentions as blue inline text with a non-layout background highlight drawn on the existing inline token, avoiding DOM or spacing changes that can drift from textarea wrapping. Selected image mentions also appear as thumbnail chips below the prompt input. The preview resolves thumbnails from current mention candidates first, then falls back to stored remote library URLs for project/personal assets; workflow mentions resolve from downstream image-input candidates in the `@` picker and are stored as `flow` node/handle refs rather than remote URLs.

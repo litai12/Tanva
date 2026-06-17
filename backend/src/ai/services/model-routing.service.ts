@@ -786,6 +786,26 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
+    {
+      modelKey: 'omni-flash-ext',
+      modelName: 'Omni Flash Ext',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'new_api',
+      vendors: [
+        {
+          vendorKey: 'new_api',
+          platformKey: 'new_api',
+          label: 'New API',
+          enabled: true,
+          route: 'legacy',
+          provider: 'new-api',
+          modelName: 'omni-flash-ext',
+          creditsPerCall: 600,
+          priceYuan: 6,
+        },
+      ],
+    },
     // ---------- 图像模型 ----------
     {
       modelKey: 'gemini-2.5-image',
@@ -1022,7 +1042,25 @@ export class ModelRoutingService {
       ),
     ];
 
-    const mergedModels = Array.isArray(input.models) ? input.models.filter(Boolean) : fallback.models || [];
+    const existingModels = Array.isArray(input.models) ? input.models.filter(Boolean) : [];
+    const existingModelKeys = new Set(
+      existingModels
+        .map((item) => (typeof item?.modelKey === 'string' ? item.modelKey : ''))
+        .filter(Boolean),
+    );
+    const fallbackAppendModelKeys = new Set(['omni-flash-ext']);
+    const mergedModels = existingModels.length > 0
+      ? [
+          ...existingModels,
+          ...(fallback.models || []).filter(
+            (item) =>
+              item &&
+              typeof item.modelKey === 'string' &&
+              fallbackAppendModelKeys.has(item.modelKey) &&
+              !existingModelKeys.has(item.modelKey),
+          ),
+        ]
+      : fallback.models || [];
 
     return this.normalizeSpecialCases({
       version: input.version || fallback.version || 'v2',
