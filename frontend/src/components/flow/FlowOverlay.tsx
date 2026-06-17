@@ -256,6 +256,9 @@ import {
   type AlignmentLine,
   type ObjectBounds,
 } from "@/utils/snapAlignment";
+// collab: transport layer — import collaboration handle + payload types
+import { useCollab } from "@/collab/CollabContext";
+import type { NodePatchPayload, NodeLockPayload, TaskStatusPayload } from "@/collab/types";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
 const normalizeFlowTargetHandle = (
@@ -4401,6 +4404,14 @@ function FlowInner() {
   }>(null);
   const nodeDraggingRef = React.useRef(false);
   const lastSelectedFlowNodeIdsRef = React.useRef<string[]>([]);
+
+  // collab: collaboration handle (null when not in a team project / not connected)
+  const collab = useCollab();
+  // collab: guard — true while we are applying a remote patch (prevents echo)
+  const applyingRemoteRef = React.useRef(false);
+  // collab: tracks which nodes are locked by other users { nodeId -> userId }
+  const lockedByOthersRef = React.useRef<Map<string, string>>(new Map());
+
   React.useEffect(() => {
     nodesRef.current = nodes as RFNode[];
     if (nodeDraggingRef.current) return;
@@ -5048,6 +5059,173 @@ function FlowInner() {
     });
   }, [nodes]);
 
+  // collab: node-add capture — diff node ids; send full node objects for newly appeared nodes
+  const collabSeenNodeIdsRef = React.useRef<Set<string>>(new Set());
+  const collabSeenInitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!collab?.connected || applyingRemoteRef.current) return;
+    const curr = new Set<string>();
+    for (const n of nodes) curr.add(String(n.id));
+    // collab: 首次连接后只播种已存在节点(两端都从同一持久化项目加载, 无需广播),
+    // 避免把全量现有节点当作"新增"洪泛广播。
+    if (!collabSeenInitRef.current) {
+      collabSeenInitRef.current = true;
+      collabSeenNodeIdsRef.current = curr;
+      return;
+    }
+    const newNodes: any[] = [];
+    for (const n of nodes) {
+      if (!collabSeenNodeIdsRef.current.has(String(n.id))) {
+        newNodes.push(n);
+      }
+    }
+    collabSeenNodeIdsRef.current = curr;
+    if (newNodes.length > 0) {
+      try {
+        collab.sendPatch({ upsertNodes: newNodes });
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, collab]);
+
+  // collab: apply remote node_patch events from other collaborators
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("node_patch", (env: any) => {
+      const payload = env.payload as NodePatchPayload | undefined;
+      if (!payload) return;
+      applyingRemoteRef.current = true;
+      try {
+        if (Array.isArray(payload.upsertNodes) && payload.upsertNodes.length > 0) {
+          setNodes((ns: any[]) => {
+            const result = [...ns];
+            for (const incoming of payload.upsertNodes as any[]) {
+              if (!incoming?.id) continue;
+              const idx = result.findIndex((n) => n.id === incoming.id);
+              if (idx >= 0) {
+                const existing = result[idx];
+                result[idx] = {
+                  ...existing,
+                  ...incoming,
+                  data: incoming.data
+                    ? { ...(existing.data || {}), ...incoming.data }
+                    : existing.data,
+                };
+              } else {
+                result.push(incoming);
+              }
+            }
+            return result;
+          });
+        }
+        if (Array.isArray(payload.removeNodeIds) && payload.removeNodeIds.length > 0) {
+          const ids = payload.removeNodeIds as string[];
+          setNodes((ns: any[]) => ns.filter((n: any) => !ids.includes(n.id)));
+        }
+        if (Array.isArray(payload.upsertEdges) && payload.upsertEdges.length > 0) {
+          setEdges((es: any[]) => {
+            const result = [...es];
+            for (const incoming of payload.upsertEdges as any[]) {
+              if (!incoming?.id) continue;
+              const idx = result.findIndex((e) => e.id === incoming.id);
+              if (idx >= 0) {
+                result[idx] = { ...result[idx], ...incoming };
+              } else {
+                result.push(incoming);
+              }
+            }
+            return result;
+          });
+        }
+        if (Array.isArray(payload.removeEdgeIds) && payload.removeEdgeIds.length > 0) {
+          const ids = payload.removeEdgeIds as string[];
+          setEdges((es: any[]) => es.filter((e: any) => !ids.includes(e.id)));
+        }
+      } finally {
+        // collab: reset guard after state setters are queued (micro-task boundary)
+        queueMicrotask(() => {
+          applyingRemoteRef.current = false;
+        });
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab, setNodes, setEdges]);
+
+  // collab: sync remote task progress/result into node data
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("task_status", (env: any) => {
+      const payload = env.payload as TaskStatusPayload | undefined;
+      if (!payload?.nodeId) return;
+      const { nodeId, status, progress, resultPreview } = payload;
+      const mappedStatus =
+        status === "succeeded"
+          ? "succeeded"
+          : status === "failed"
+          ? "failed"
+          : "running"; // queued | processing → running
+      applyingRemoteRef.current = true;
+      try {
+        setNodes((ns: any[]) =>
+          ns.map((n: any) => {
+            if (n.id !== nodeId) return n;
+            const updated: any = {
+              ...n,
+              data: {
+                ...(n.data || {}),
+                status: mappedStatus,
+                ...(typeof progress === "number" ? { progress } : {}),
+              },
+            };
+            if (status === "succeeded" && resultPreview?.url) {
+              // collab: apply result url — match field names used by applyTerminal
+              updated.data.imageUrl = resultPreview.url;
+              if (resultPreview.thumbnailUrl) {
+                updated.data.thumbnail = resultPreview.thumbnailUrl;
+              }
+            }
+            return updated;
+          })
+        );
+      } finally {
+        queueMicrotask(() => {
+          applyingRemoteRef.current = false;
+        });
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab, setNodes]);
+
+  // collab: track node locks held by other users
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("node_lock", (env: any) => {
+      const payload = env.payload as NodeLockPayload | undefined;
+      if (!payload?.nodeId) return;
+      const { nodeId, action, userId } = payload;
+      if (action === "claim" || action === "renewed") {
+        lockedByOthersRef.current.set(nodeId, userId);
+      } else if (action === "release" || action === "expired") {
+        lockedByOthersRef.current.delete(nodeId);
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab]);
+
+  // collab: snapshot-required — trigger full project reload if possible
+  React.useEffect(() => {
+    const handler = () => {
+      // TODO: trigger full project content reload when a clean hook is available from this file.
+      // Currently the reload is owned by the layer above (CollabProvider → window 'collab:snapshot-required').
+      // This handler is a no-op placeholder; the upper layer already dispatches the event.
+    };
+    window.addEventListener("collab:snapshot-required", handler);
+    return () => window.removeEventListener("collab:snapshot-required", handler);
+  }, []);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       let processedChanges = changes;
@@ -5257,7 +5435,43 @@ function FlowInner() {
 
       processedChanges = applyFlowSnappingToChanges(processedChanges);
 
+      // collab: block edits to nodes locked by other users
+      if (!applyingRemoteRef.current && lockedByOthersRef.current.size > 0 && Array.isArray(processedChanges)) {
+        processedChanges = processedChanges.filter((c: any) => {
+          if (!c?.id) return true;
+          if ((c.type === "position" || c.type === "remove") && lockedByOthersRef.current.has(String(c.id))) {
+            return false;
+          }
+          return true;
+        });
+      }
+
       onNodesChange(processedChanges);
+
+      // collab: capture local node changes and broadcast to collaborators
+      try {
+        if (!applyingRemoteRef.current && collab?.connected && Array.isArray(processedChanges)) {
+          const upsertNodes: any[] = [];
+          const removeNodeIds: string[] = [];
+          for (const c of processedChanges) {
+            if (!c?.id) continue;
+            // collab: drop changes for nodes locked by others
+            if (lockedByOthersRef.current.has(String(c.id))) continue;
+            if (c.type === "position" && c.dragging === false && c.position) {
+              upsertNodes.push({ id: c.id, position: c.position });
+            } else if (c.type === "remove") {
+              removeNodeIds.push(String(c.id));
+            }
+          }
+          if (upsertNodes.length > 0 || removeNodeIds.length > 0) {
+            collab.sendPatch({
+              ...(upsertNodes.length > 0 ? { upsertNodes } : {}),
+              ...(removeNodeIds.length > 0 ? { removeNodeIds } : {}),
+            });
+          }
+        }
+      } catch {}
+
       try {
         const needCommit =
           Array.isArray(processedChanges) &&
@@ -5272,7 +5486,8 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [applyFlowSnappingToChanges, onNodesChange, setEdges, cancelPollingForRemovedNodes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyFlowSnappingToChanges, onNodesChange, setEdges, cancelPollingForRemovedNodes, collab]
   );
 
   const rf = useReactFlow();
@@ -5786,6 +6001,19 @@ function FlowInner() {
         }
       }
       onEdgesChange(changes);
+
+      // collab: capture local edge removes and broadcast to collaborators
+      try {
+        if (!applyingRemoteRef.current && collab?.connected && Array.isArray(changes)) {
+          const removeEdgeIds = changes
+            .filter((c: any) => c?.type === "remove" && c?.id)
+            .map((c: any) => String(c.id));
+          if (removeEdgeIds.length > 0) {
+            collab.sendPatch({ removeEdgeIds });
+          }
+        }
+      } catch {}
+
       try {
         const needCommit =
           Array.isArray(changes) &&
@@ -5800,7 +6028,8 @@ function FlowInner() {
         }
       } catch {}
     },
-    [onEdgesChange, edges, setNodes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onEdgesChange, edges, setNodes, collab]
   );
 
   React.useEffect(() => {
@@ -12953,6 +13182,21 @@ function FlowInner() {
         historyService.commit("flow-connect").catch(() => {});
       } catch {}
 
+      // collab: send newly created edge to collaborators
+      try {
+        if (!applyingRemoteRef.current && collab?.connected) {
+          const newEdge = {
+            id: `${params.source}-${params.sourceHandle ?? ""}-${params.target}-${params.targetHandle ?? ""}`,
+            source: params.source,
+            target: params.target,
+            sourceHandle: params.sourceHandle,
+            targetHandle: params.targetHandle,
+            type: "default",
+          };
+          collab.sendPatch({ upsertEdges: [newEdge] });
+        }
+      } catch {}
+
       // 通知节点边已变化（用于刷新外部提示词预览等）
       // 使用 setTimeout 确保在 setEdges 状态更新后再触发
       setTimeout(() => {
@@ -14080,6 +14324,14 @@ function FlowInner() {
         };
         const nextNodes = ns.slice();
         nextNodes[targetIndex] = nextNode;
+
+        // collab: broadcast the merged node data to collaborators (prompt/node data sync)
+        try {
+          if (!applyingRemoteRef.current && collab?.connected) {
+            collab.sendPatch({ upsertNodes: [{ id: nextNode.id, data: nextNode.data }] });
+          }
+        } catch {}
+
         return nextNodes;
       });
 
@@ -25862,6 +26114,10 @@ function FlowInner() {
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
         onNodeDragStart={(event, node) => {
+          // collab: claim lock for this node while dragging
+          if (collab?.connected) {
+            collab.claimLock(node.id).catch(() => {});
+          }
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);
           const allNodes = rf.getNodes() as RFNode[];
@@ -26007,6 +26263,10 @@ function FlowInner() {
           }
         }}
         onNodeDragStop={(event, node) => {
+          // collab: release lock after drag ends
+          if (collab?.connected) {
+            collab.releaseLock(node.id).catch(() => {});
+          }
           nodeDraggingRef.current = false;
           draggingGroupNodeRef.current = false;
           groupDragSnapshotRef.current = null;

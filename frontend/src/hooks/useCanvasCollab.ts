@@ -55,6 +55,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const cleanupRef = useRef<(() => void) | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const patchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatch = useRef<NodePatchPayload | null>(null);
   const cursorLastSent = useRef<number>(0);
   const lastSeqRef = useRef<number>(0);
   const seenSeqs = useRef<number[]>([]);
@@ -163,12 +164,35 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const sendPatch = useCallback(
     (patch: NodePatchPayload) => {
       if (!connIdRef.current) return;
+      // 合并待发送 patch：200ms 去抖窗口内多次调用（移动/增删/Prompt 等不同来源）
+      // 必须累积合并，否则后一次会覆盖前一次导致编辑丢失。upsert 按 id 去重保留最新。
+      const dedupById = (arr?: unknown[]): unknown[] | undefined => {
+        if (!arr || arr.length === 0) return undefined;
+        const byId = new Map<string, unknown>();
+        const noId: unknown[] = [];
+        for (const it of arr) {
+          const id = (it as { id?: unknown })?.id;
+          if (typeof id === 'string') byId.set(id, it);
+          else noId.push(it);
+        }
+        return [...noId, ...byId.values()];
+      };
+      const prev = pendingPatch.current ?? {};
+      pendingPatch.current = {
+        upsertNodes: dedupById([...(prev.upsertNodes ?? []), ...(patch.upsertNodes ?? [])]),
+        removeNodeIds: [...new Set([...(prev.removeNodeIds ?? []), ...(patch.removeNodeIds ?? [])])],
+        upsertEdges: dedupById([...(prev.upsertEdges ?? []), ...(patch.upsertEdges ?? [])]),
+        removeEdgeIds: [...new Set([...(prev.removeEdgeIds ?? []), ...(patch.removeEdgeIds ?? [])])],
+      };
       if (patchDebounce.current) clearTimeout(patchDebounce.current);
       patchDebounce.current = setTimeout(() => {
+        const toSend = pendingPatch.current;
+        pendingPatch.current = null;
+        if (!toSend) return;
         fetchWithAuth(`${base}/api/canvas/${projectId}/patch?teamId=${activeTeamId ?? ''}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ patch, connId: connIdRef.current }),
+          body: JSON.stringify({ patch: toSend, connId: connIdRef.current }),
         }).catch(() => undefined);
       }, PATCH_DEBOUNCE_MS);
     },
