@@ -5,6 +5,7 @@ import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { projectApi, type Project } from "@/services/projectApi";
+import { useTeamStore } from "@/stores/teamStore";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function Workspace() {
@@ -36,7 +37,11 @@ export default function Workspace() {
         t("workspacePage.prompt.projectName"),
         t("workspacePage.prompt.defaultName")
       ) || undefined;
-    const p = await projectApi.create({ name });
+    // 跟随当前团队身份：团队模式下新建项目归属该团队，否则为个人项目。
+    const { activeTeamId, teams } = useTeamStore.getState();
+    const activeTeam = teams.find((tm) => tm.id === activeTeamId) ?? null;
+    const teamId = activeTeam && !activeTeam.isPersonal ? activeTeam.id : undefined;
+    const p = await projectApi.create({ name, teamId });
     navigate(`/app?projectId=${p.id}`);
   };
 

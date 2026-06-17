@@ -45,7 +45,8 @@ const CollabPresenceBar: React.FC<Props> = ({ online, currentUserId }) => {
   return (
     <div
       className="fixed z-[8000] flex items-center"
-      style={{ top: 12, right: 320, pointerEvents: 'none' }}
+      // 放在顶部浮动栏【下方】右侧, 避免与团队/积分 pill 重叠。
+      style={{ top: 72, right: 24, pointerEvents: 'none' }}
     >
       <div
         className="flex items-center rounded-full bg-white/90 px-2.5 py-1.5 shadow-md backdrop-blur"

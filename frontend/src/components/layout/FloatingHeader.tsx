@@ -324,9 +324,13 @@ const FloatingHeader: React.FC = () => {
     quickCreateInFlightRef.current = true;
     setIsQuickCreatingProject(true);
     try {
-      // 个人tab下创建项目：若当前是团队模式，先切换到个人团队再创建，避免新项目混入团队项目列表
-      if (dropdownContextId === 'personal') {
-        const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+      // 顶部"+"按当前【实际团队身份】创建：团队身份→团队项目，个人身份→个人项目。
+      // 不再依据下拉视图的 personal/team 状态(其默认 'personal' 会导致在团队身份下误把
+      // 新项目创建为个人、并使顶部切回个人)。create() 依据 activeTeam 自动决定 x-team-id。
+      const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+      const activeTeam = curTeams.find((t) => t.id === curTeamId) ?? null;
+      const inTeam = !!(activeTeam && !activeTeam.isPersonal);
+      if (!inTeam) {
         const personalTeam = curTeams.find((t) => t.isPersonal);
         if (personalTeam && curTeamId !== personalTeam.id) {
           setActiveTeamId(personalTeam.id);
@@ -340,7 +344,7 @@ const FloatingHeader: React.FC = () => {
       quickCreateInFlightRef.current = false;
       setIsQuickCreatingProject(false);
     }
-  }, [create, dropdownContextId]);
+  }, [create]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
