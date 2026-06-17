@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { teamApi } from '../../services/teamApi';
-import { teamCreditsApi, teamSeatPackageApi } from '../../services/teamCreditsApi';
+import { teamCreditsApi, teamSeatPackageApi, teamCreditsTopupApi } from '../../services/teamCreditsApi';
 import { getPaymentStatus } from '../../services/adminApi';
 import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore, refreshTeams } from '../../stores/authStore';
@@ -13,10 +13,10 @@ import { cn } from '@/lib/utils';
 interface Props {
   teamId: string;
   onClose: () => void;
-  initialTab?: 'members' | 'subscription' | 'ledger';
+  initialTab?: 'members' | 'subscription' | 'topup' | 'ledger';
 }
 
-type Tab = 'members' | 'subscription' | 'ledger';
+type Tab = 'members' | 'subscription' | 'topup' | 'ledger';
 
 export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
   const { teams } = useTeamStore();
@@ -50,7 +50,7 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
 
         {/* Tabs */}
         <div className="flex px-6 border-b border-slate-100 gap-4">
-          {(['members', 'subscription', 'ledger'] as Tab[]).map((t) => (
+          {(['members', 'subscription', 'topup', 'ledger'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -61,7 +61,7 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
                   : 'border-transparent text-slate-400 hover:text-slate-600',
               )}
             >
-              {t === 'members' ? '成员' : t === 'subscription' ? '套餐' : '记录'}
+              {t === 'members' ? '成员' : t === 'subscription' ? '套餐' : t === 'topup' ? '积分充值' : '记录'}
             </button>
           ))}
         </div>
@@ -78,6 +78,8 @@ export function TeamManagementModal({ teamId, onClose, initialTab }: Props) {
             />
           ) : tab === 'subscription' ? (
             <SubscriptionTab teamId={teamId} myRole={myRole} />
+          ) : tab === 'topup' ? (
+            <CreditsTopupTab teamId={teamId} myRole={myRole} />
           ) : (
             <LedgerTab teamId={teamId} />
           )}
@@ -861,6 +863,207 @@ function SubscriptionTab({ teamId, myRole }: { teamId: string; myRole?: string }
 
       {!canManage && (
         <p className="text-xs text-slate-400 text-center pb-2">只有团队所有者或管理员可以购买套餐</p>
+      )}
+
+      {/* QR modal */}
+      {qrOrder && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={handleCloseQr}>
+          <div className="bg-white rounded-3xl shadow-2xl p-6 w-80 text-center space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800">扫码完成支付</h3>
+              <button onClick={handleCloseQr} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="text-2xl font-bold text-slate-800">¥{qrOrder.amount.toLocaleString()}</div>
+            <div className="text-xs text-slate-400">支付后将发放 {qrOrder.credits.toLocaleString()} 积分</div>
+            {qrOrder.qrCodeUrl ? (
+              <img src={qrOrder.qrCodeUrl} alt="支付二维码" className="w-48 h-48 mx-auto rounded-xl" />
+            ) : (
+              <div className="w-48 h-48 mx-auto rounded-xl bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                二维码加载中…
+              </div>
+            )}
+            <p className="text-xs text-slate-400">请使用{paymentMethod === 'alipay' ? '支付宝' : '微信'}扫码</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Credits topup tab ───────────────────────────────────────────── */
+
+const TOPUP_PRESETS = [25, 50, 100, 200, 500, 1000];
+const CREDITS_PER_YUAN = 100;
+
+function CreditsTopupTab({ teamId, myRole }: { teamId: string; myRole?: string }) {
+  const canManage = myRole === 'owner' || myRole === 'admin';
+
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(true);
+  const [selectedAmount, setSelectedAmount] = useState<number>(100);
+  const [paymentMethod, setPaymentMethod] = useState<'alipay' | 'wechat'>('alipay');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const [qrOrder, setQrOrder] = useState<{
+    orderNo: string;
+    qrCodeUrl: string;
+    amount: number;
+    credits: number;
+  } | null>(null);
+  const [paySuccess, setPaySuccess] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadBalance = async () => {
+    setBalanceLoading(true);
+    try {
+      const acc = await teamCreditsApi.getAccount(teamId);
+      setBalance(typeof acc?.balance === 'number' ? acc.balance : null);
+    } catch {
+      setBalance(null);
+    } finally {
+      setBalanceLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBalance();
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [teamId]);
+
+  const startPolling = (orderNo: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const status = await getPaymentStatus(orderNo);
+        if (status.status === 'paid') {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+          setPaySuccess(true);
+          setQrOrder(null);
+          loadBalance();
+          window.dispatchEvent(new CustomEvent('refresh-credits'));
+        }
+      } catch {}
+    }, 3000);
+  };
+
+  const handleBuy = async () => {
+    if (!canManage || submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const order = await teamCreditsTopupApi.createOrder(teamId, {
+        amount: selectedAmount,
+        paymentMethod,
+      });
+      setQrOrder({
+        orderNo: order.orderNo,
+        qrCodeUrl: order.qrCodeUrl,
+        amount: order.amount,
+        credits: order.credits,
+      });
+      startPolling(order.orderNo);
+    } catch (e: any) {
+      setError(e?.message || '创建订单失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCloseQr = () => {
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+    setQrOrder(null);
+  };
+
+  return (
+    <div className="px-6 py-4 space-y-5">
+      {paySuccess && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 flex items-center justify-between">
+          <span>充值成功！积分已发放至团队账户。</span>
+          <button onClick={() => setPaySuccess(false)} className="text-emerald-400 hover:text-emerald-600 ml-3">✕</button>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">团队积分余额</p>
+        {balanceLoading ? (
+          <p className="text-2xl font-bold text-slate-300">…</p>
+        ) : (
+          <p className="text-2xl font-bold text-slate-800">
+            {balance != null ? balance.toLocaleString() : '—'}
+            <span className="text-sm font-normal text-slate-400 ml-1">积分</span>
+          </p>
+        )}
+      </div>
+
+      {canManage ? (
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">充值积分</p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              {TOPUP_PRESETS.map((price) => (
+                <button
+                  key={price}
+                  onClick={() => setSelectedAmount(price)}
+                  className={cn(
+                    'flex flex-col items-center py-2.5 rounded-xl border text-sm transition-colors',
+                    selectedAmount === price
+                      ? 'border-slate-800 bg-slate-800 text-white'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300',
+                  )}
+                >
+                  <span className="font-semibold">¥{price}</span>
+                  <span className={cn('text-xs mt-0.5', selectedAmount === price ? 'text-slate-300' : 'text-slate-400')}>
+                    {(price * CREDITS_PER_YUAN).toLocaleString()} 积分
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm">
+              <div className="flex justify-between text-slate-600">
+                <span>将获得积分</span>
+                <span className="font-semibold text-blue-700">+{(selectedAmount * CREDITS_PER_YUAN).toLocaleString()} 积分</span>
+              </div>
+              <div className="flex justify-between text-slate-400 text-xs mt-1">
+                <span>1元 = {CREDITS_PER_YUAN} 积分</span>
+                <span>充值后立即到账</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              {(['alipay', 'wechat'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPaymentMethod(m)}
+                  className={cn(
+                    'flex-1 py-2 rounded-xl text-sm border transition-colors',
+                    paymentMethod === m
+                      ? 'border-slate-800 bg-slate-800 text-white'
+                      : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                  )}
+                >
+                  {m === 'alipay' ? '支付宝' : '微信支付'}
+                </button>
+              ))}
+            </div>
+
+            {error && <p className="text-xs text-red-500">{error}</p>}
+
+            <button
+              onClick={handleBuy}
+              disabled={submitting}
+              className="w-full py-3 rounded-xl bg-slate-800 text-white text-sm font-medium hover:bg-slate-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? '创建订单…' : `充值 ¥${selectedAmount.toLocaleString()}`}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400 text-center pb-2">只有团队所有者或管理员可以充值积分</p>
       )}
 
       {/* QR modal */}

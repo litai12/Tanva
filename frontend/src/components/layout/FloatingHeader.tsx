@@ -53,7 +53,15 @@ import {
   Users,
   Share2,
   Image as ImageIcon,
+  Building2,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { teamMyQuotaApi, type MyTeamQuota } from "@/services/teamCreditsApi";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
 import { useProjectStore } from "@/stores/projectStore";
@@ -387,6 +395,9 @@ const FloatingHeader: React.FC = () => {
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
+  // 团队模式：当前用户的个人配额信息
+  const [teamMyQuota, setTeamMyQuota] = useState<MyTeamQuota | null>(null);
+  const [teamMyQuotaLoading, setTeamMyQuotaLoading] = useState(false);
   const [bananaRouteSuccessRates, setBananaRouteSuccessRates] =
     useState<BananaRouteSuccessRatesResponse | null>(null);
   const [dailyRewardStatus, setDailyRewardStatus] =
@@ -954,14 +965,29 @@ const FloatingHeader: React.FC = () => {
     refreshCreditsAndDailyReward();
   }, [isSettingsOpen, refreshCreditsAndDailyReward, user]);
 
+  const refreshTeamMyQuota = useCallback(async (teamId: string) => {
+    setTeamMyQuotaLoading(true);
+    try {
+      const quota = await teamMyQuotaApi.getMyQuota(teamId);
+      setTeamMyQuota(quota);
+    } catch (e) {
+      console.warn('Failed to fetch team quota:', e);
+      setTeamMyQuota(null);
+    } finally {
+      setTeamMyQuotaLoading(false);
+    }
+  }, []);
+
   // 监听全局积分刷新事件
   useEffect(() => {
     const handleRefreshCredits = () => {
       const activeTeam = useTeamStore.getState().getActiveTeam();
       if (activeTeam && !activeTeam.isPersonal) {
-        // 团队模式：刷新团队积分
+        // 团队模式：刷新团队积分 + 个人配额
         void refreshTeams();
+        void refreshTeamMyQuota(activeTeam.id);
       } else {
+        setTeamMyQuota(null);
         refreshCreditsAndDailyReward();
       }
     };
@@ -969,7 +995,17 @@ const FloatingHeader: React.FC = () => {
     return () => {
       window.removeEventListener("refresh-credits", handleRefreshCredits);
     };
-  }, [refreshCreditsAndDailyReward]);
+  }, [refreshCreditsAndDailyReward, refreshTeamMyQuota]);
+
+  // 团队切换时自动拉取个人配额
+  useEffect(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      void refreshTeamMyQuota(activeTeamForCredits.id);
+    } else {
+      setTeamMyQuota(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamForCredits?.id]);
 
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
@@ -1012,14 +1048,39 @@ const FloatingHeader: React.FC = () => {
     setIsMembershipOpen(true);
   }, [activeTeamForCredits]);
 
+  const isTeamMode = !!(activeTeamForCredits && !activeTeamForCredits.isPersonal);
+
+  /**
+   * 团队模式下积分显示规则：
+   * - 无限配额 (personalAvailable === null) → 显示团队可用余额，badge 标「不限·团队额度」
+   * - 有限配额 → 显示 min(剩余配额, 团队余额)
+   * 个人模式 → 原逻辑不变
+   */
   const topCreditsText = useMemo(() => {
-    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
-      return activeTeamForCredits.availableCredits.toLocaleString();
+    if (isTeamMode) {
+      if (teamMyQuotaLoading && !teamMyQuota) return "...";
+      if (teamMyQuota) {
+        if (teamMyQuota.personalAvailable === null) {
+          // 无限配额：显示团队可用余额
+          return teamMyQuota.teamAvailableCredits.toLocaleString();
+        }
+        return teamMyQuota.personalAvailable.toLocaleString();
+      }
+      // 尚未加载到配额数据时回退到 availableCredits
+      return activeTeamForCredits!.availableCredits.toLocaleString();
     }
     if (creditsLoading && !creditsInfo) return "...";
     if (creditsInfo) return creditsInfo.balance.toLocaleString();
     return "--";
-  }, [creditsInfo, creditsLoading, activeTeamForCredits]);
+  }, [isTeamMode, teamMyQuota, teamMyQuotaLoading, activeTeamForCredits, creditsInfo, creditsLoading]);
+
+  /** 团队无限配额时显示的 badge 文字 */
+  const teamUnlimitedBadge = useMemo(() => {
+    if (!isTeamMode) return null;
+    if (!teamMyQuota) return null;
+    if (teamMyQuota.personalAvailable === null) return '不限·团队额度';
+    return null;
+  }, [isTeamMode, teamMyQuota]);
   const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
   const isDarkTheme = chatTheme === "black";
   const themeToggleLabel =
@@ -2570,19 +2631,47 @@ const FloatingHeader: React.FC = () => {
             {/* 团队切换器 */}
             <TeamSwitcher onManage={setTeamManagementId} variant="header" />
 
-            <Button
-              variant='ghost'
-              size='sm'
-              className='h-7 px-2.5 text-xs rounded-full border border-liquid-glass-light bg-liquid-glass-light backdrop-blur-minimal text-gray-700 hover:bg-liquid-glass-hover transition-all duration-200 flex items-center gap-1.5'
-              title={t("workspace.header.myCredits")}
-              onClick={openMembershipHub}
-            >
-              <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
-                <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
-                <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
-              </span>
-              <span className='tabular-nums font-medium'>{topCreditsText}</span>
-            </Button>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className={cn(
+                      'h-7 px-2.5 text-xs rounded-full border backdrop-blur-minimal transition-all duration-200 flex items-center gap-1.5',
+                      isTeamMode
+                        ? 'border-teal-200/70 bg-teal-50/60 text-teal-800 hover:bg-teal-100/80'
+                        : 'border-liquid-glass-light bg-liquid-glass-light text-gray-700 hover:bg-liquid-glass-hover',
+                    )}
+                    title={isTeamMode ? '团队额度' : t("workspace.header.myCredits")}
+                    onClick={openMembershipHub}
+                  >
+                    {isTeamMode ? (
+                      <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-teal-400 via-teal-500 to-cyan-600 shadow-[0_1px_4px_rgba(20,184,166,0.5)]'>
+                        <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-teal-300/80 to-teal-600/80' />
+                        <Users className='relative w-2.5 h-2.5 text-white' />
+                      </span>
+                    ) : (
+                      <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
+                        <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
+                        <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
+                      </span>
+                    )}
+                    <span className='tabular-nums font-medium'>{topCreditsText}</span>
+                    {teamUnlimitedBadge && (
+                      <span className='ml-0.5 text-[9px] font-medium text-teal-600 bg-teal-100 rounded-full px-1 py-0.5 leading-none'>
+                        不限
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                {isTeamMode && (
+                  <TooltipContent side='bottom'>
+                    当前使用团队额度，显示为你的个人可用配额
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
 
             <DropdownMenu>
               <DropdownMenuTrigger

@@ -7,6 +7,7 @@ import { TeamCreditsController } from './team-credits.controller';
 import { TeamCreditsService } from './team-credits.service';
 import { TeamCreditLedgerService } from './team-credit-ledger.service';
 import { TeamSeatPackageService } from './team-seat-package.service';
+import { TeamCreditsTopupService } from './team-credits-topup.service';
 
 @Module({
   imports: [PrismaModule, TeamCoreModule, PaymentModule, TeamCollabModule],
@@ -15,6 +16,7 @@ import { TeamSeatPackageService } from './team-seat-package.service';
     TeamCreditsService,
     TeamCreditLedgerService,
     TeamSeatPackageService,
+    TeamCreditsTopupService,
   ],
   exports: [TeamCreditsService, TeamCreditLedgerService],
 })

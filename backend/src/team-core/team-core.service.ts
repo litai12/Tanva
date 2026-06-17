@@ -220,6 +220,58 @@ export class TeamCoreService {
     return m;
   }
 
+  async getMyQuota(teamId: string, userId: string) {
+    await this.assertMember(teamId, userId);
+    const [membership, creditAccount] = await Promise.all([
+      this.prisma.teamMembership.findUniqueOrThrow({
+        where: { teamId_userId: { teamId, userId } },
+        select: {
+          creditQuotaMonthly: true,
+          creditQuotaTotal: true,
+          creditUsedThisCycle: true,
+          creditUsedTotal: true,
+          quotaCycleStartAt: true,
+        },
+      }),
+      this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      }),
+    ]);
+
+    const teamAvailableCredits =
+      (creditAccount?.balance ?? 0) - (creditAccount?.frozenBalance ?? 0);
+
+    const { creditQuotaMonthly, creditQuotaTotal, creditUsedThisCycle, creditUsedTotal } = membership;
+
+    // 计算个人可用配额
+    let personalAvailable: number | null = null;
+    if (creditQuotaMonthly === null && creditQuotaTotal === null) {
+      // 无限配额
+      personalAvailable = null;
+    } else {
+      // 有限配额：取月度剩余和总量剩余中较小的那个，再与团队余额取最小
+      let remaining = Infinity;
+      if (creditQuotaMonthly !== null) {
+        remaining = Math.min(remaining, Math.max(0, creditQuotaMonthly - creditUsedThisCycle));
+      }
+      if (creditQuotaTotal !== null) {
+        remaining = Math.min(remaining, Math.max(0, creditQuotaTotal - creditUsedTotal));
+      }
+      personalAvailable = Math.min(remaining, teamAvailableCredits);
+    }
+
+    return {
+      creditQuotaMonthly,
+      creditQuotaTotal,
+      creditUsedThisCycle,
+      creditUsedTotal,
+      quotaCycleStartAt: membership.quotaCycleStartAt,
+      teamAvailableCredits,
+      personalAvailable,
+    };
+  }
+
   async getPersonalTeam(userId: string) {
     return this.prisma.team.findFirst({
       where: { ownerId: userId, isPersonal: true },

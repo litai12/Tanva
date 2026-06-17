@@ -3,6 +3,7 @@ import { ApiTags, ApiCookieAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { TeamCreditsService } from './team-credits.service';
 import { TeamSeatPackageService } from './team-seat-package.service';
+import { TeamCreditsTopupService } from './team-credits-topup.service';
 import { TeamSeatCycle } from '../payment/dto/payment.dto';
 
 @ApiTags('team-credits')
@@ -13,6 +14,7 @@ export class TeamCreditsController {
   constructor(
     private readonly svc: TeamCreditsService,
     private readonly seatPackageSvc: TeamSeatPackageService,
+    private readonly creditsTopupSvc: TeamCreditsTopupService,
   ) {}
 
   @Get('credits')
@@ -47,5 +49,14 @@ export class TeamCreditsController {
   @Get('seat-packages')
   listSeatPackages(@Req() req: any, @Param('teamId') teamId: string) {
     return this.seatPackageSvc.listPackages(teamId, req.user.sub);
+  }
+
+  @Post('credits/topup-orders')
+  createCreditsTopupOrder(
+    @Req() req: any,
+    @Param('teamId') teamId: string,
+    @Body() body: { amount: number; paymentMethod: 'alipay' | 'wechat' },
+  ) {
+    return this.creditsTopupSvc.createOrder(teamId, req.user.sub, body);
   }
 }

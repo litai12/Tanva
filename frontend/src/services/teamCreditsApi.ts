@@ -14,6 +14,22 @@ async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+export interface MyTeamQuota {
+  creditQuotaMonthly: number | null;
+  creditQuotaTotal: number | null;
+  creditUsedThisCycle: number;
+  creditUsedTotal: number;
+  quotaCycleStartAt: string;
+  teamAvailableCredits: number;
+  /** null = unlimited quota (show team balance) */
+  personalAvailable: number | null;
+}
+
+export const teamMyQuotaApi = {
+  getMyQuota: (teamId: string) =>
+    fetchWithAuth(`${base}/api/teams/${teamId}/my-quota`).then((r) => json<MyTeamQuota>(r)),
+};
+
 export const teamCreditsApi = {
   getAccount: (teamId: string) =>
     fetchWithAuth(`${base}/api/teams/${teamId}/credits`).then((r) => json<any>(r)),
@@ -57,4 +73,16 @@ export const teamSeatPackageApi = {
 
   listPackages: (teamId: string) =>
     fetchWithAuth(`${base}/api/teams/${teamId}/seat-packages`).then((r) => json<any>(r)),
+};
+
+export const teamCreditsTopupApi = {
+  createOrder: (
+    teamId: string,
+    body: { amount: number; paymentMethod: 'alipay' | 'wechat' },
+  ) =>
+    fetchWithAuth(`${base}/api/teams/${teamId}/credits/topup-orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => json<any>(r)),
 };
