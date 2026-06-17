@@ -12738,6 +12738,9 @@ function FlowInner() {
       }
       closeConnectQuickMenu({ resetSource: true });
 
+      // collab: 捕获 addEdge 实际创建的边(含 ReactFlow 自分配的 id), 用真实对象广播,
+      // 避免重建 id 与本地不一致导致跨端删边对不上。
+      let collabNewEdge: any = null;
       setEdges((eds) => {
         let next = eds;
         const tgt = rf.getNode(params.target!);
@@ -13205,24 +13208,19 @@ function FlowInner() {
           }
         }
         const out = addEdge({ ...params, type: "default" }, next);
+        // collab: 找出本次真正新增的边(addEdge 已去重, 仅追加不存在的边)
+        const prevIds = new Set((next as any[]).map((e) => e.id));
+        collabNewEdge = (out as any[]).find((e) => !prevIds.has(e.id)) ?? null;
         return out;
       });
       try {
         historyService.commit("flow-connect").catch(() => {});
       } catch {}
 
-      // collab: send newly created edge to collaborators
+      // collab: 广播真实创建的边(含 ReactFlow 自分配 id), 保证两端边身份一致
       try {
-        if (!applyingRemoteRef.current && collab?.connected) {
-          const newEdge = {
-            id: `${params.source}-${params.sourceHandle ?? ""}-${params.target}-${params.targetHandle ?? ""}`,
-            source: params.source,
-            target: params.target,
-            sourceHandle: params.sourceHandle,
-            targetHandle: params.targetHandle,
-            type: "default",
-          };
-          collab.sendPatch({ upsertEdges: [newEdge] });
+        if (!applyingRemoteRef.current && collab?.connected && collabNewEdge) {
+          collab.sendPatch({ upsertEdges: [collabNewEdge] });
         }
       } catch {}
 
@@ -26165,7 +26163,11 @@ function FlowInner() {
           // collab: 选中即对对象加锁(满足"选中/拖动 → 他人看到边框且不能同时编辑"),
           // 取消选中则释放。不抢占他人已锁定的对象。
           if (!collab?.connected) return;
-          const selIds = new Set<string>(((sel?.nodes as any[]) || []).map((n) => String(n.id)));
+          const selArr = ((sel?.nodes as any[]) || []).map((n) => String(n.id));
+          // collab: 框选/多选大批节点属批量操作, 不逐个加锁(避免锁请求洪泛)。
+          // 仅对小规模选择(<=8)做单对象锁保护, 超过则只释放旧锁不再 claim。
+          const SEL_LOCK_CAP = 8;
+          const selIds = new Set<string>(selArr.length <= SEL_LOCK_CAP ? selArr : []);
           for (const id of selIds) {
             if (collabMyLocksRef.current.has(id)) continue;
             if (lockedByOthersRef.current.has(id)) continue;
