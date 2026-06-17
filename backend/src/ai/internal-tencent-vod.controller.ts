@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Logger,
   Param,
   Post,
@@ -42,7 +43,10 @@ export class InternalTencentVodController {
     }
   }
 
+  // new-api 的 task relay 只接受上游返回 200；NestJS @Post 默认 201 会被判定为
+  // "channel error (status code: 201)" 导致 tencent-vod 渠道任务失败。强制 200。
   @Post('video')
+  @HttpCode(200)
   async create(
     @Body() body: any,
     @Headers('x-internal-token') token?: string,
