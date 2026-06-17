@@ -140,6 +140,30 @@ export class TeamCollabController {
     return { ok: true, seq };
   }
 
+  @Post(':projectId/canvas-patch')
+  @HttpCode(202)
+  async canvasPatch(
+    @Req() req: any,
+    @Param('projectId') projectId: string,
+    @Query('teamId') _teamId: string,
+    @Body() dto: CanvasPatchDto,
+  ) {
+    const userId: string = req.user.sub;
+    this.assertConnAndRate(dto.connId, userId);
+    const seq = await this.log.nextSeq(projectId);
+    const envelope: CollabEnvelope = {
+      type: 'canvas_patch',
+      payload: dto.patch,
+      ts: Date.now(),
+      senderConnId: dto.connId,
+      senderUserId: userId,
+      seq,
+    };
+    await this.log.append(projectId, envelope);
+    await this.bus.publish(projectId, envelope);
+    return { ok: true, seq };
+  }
+
   @Post(':projectId/cursor')
   @HttpCode(202)
   async cursor(

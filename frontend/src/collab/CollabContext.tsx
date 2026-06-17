@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext } from 'react';
+import React, { createContext, useCallback, useContext, useEffect } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useCanvasCollab, type CanvasCollabHandle } from '@/hooks/useCanvasCollab';
+import { collabCanvasBridge } from './collabCanvasBridge';
 
 /**
  * 共享的画布协作句柄。此前 useCanvasCollab 只在 CollabRoot 内部实例化，
@@ -30,6 +31,11 @@ export const CollabProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onAccessRevoked,
     onSnapshotRequired,
   });
+
+  // 画布图片协作桥：订阅远端 canvas_patch 并以 window 事件下发给画布层。
+  useEffect(() => {
+    collabCanvasBridge.init();
+  }, []);
 
   return <CollabContext.Provider value={collab}>{children}</CollabContext.Provider>;
 };

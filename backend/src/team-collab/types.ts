@@ -1,6 +1,7 @@
 export type CollabEventType =
   | 'cursor'
   | 'node_patch'
+  | 'canvas_patch'
   | 'node_lock'
   | 'task_status'
   | 'toast'
@@ -39,6 +40,16 @@ export interface NodePatchPayload {
   removeNodeIds?: string[];
   upsertEdges?: unknown[];
   removeEdgeIds?: string[];
+}
+
+/**
+ * 画布(Paper.js)图片对象的协作 patch。仅同步「图片」对象(有稳定 imageId 的 Raster/Group)：
+ * 移动/缩放=upsertImages 携带 {imageId, bounds, ...}; 插入=携带完整快照; 删除=removeImageIds。
+ * 笔迹/涂鸦不走此通道(无逐笔 id, 走保存+广播, 且本在规格"不做"列表)。
+ */
+export interface CanvasPatchPayload {
+  upsertImages?: unknown[];
+  removeImageIds?: string[];
 }
 
 export type NodeLockAction = 'claim' | 'release' | 'expired' | 'renewed';
@@ -108,6 +119,7 @@ export interface UserCreditsChangedPayload {
 
 export const PERSISTED_EVENT_TYPES: ReadonlySet<CollabEventType> = new Set([
   'node_patch',
+  'canvas_patch',
   'task_status',
 ]);
 

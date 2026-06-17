@@ -1,6 +1,7 @@
 export type CollabEventType =
   | 'cursor'
   | 'node_patch'
+  | 'canvas_patch'
   | 'node_lock'
   | 'task_status'
   | 'toast'
@@ -41,6 +42,12 @@ export interface NodePatchPayload {
   removeNodeIds?: string[];
   upsertEdges?: unknown[];
   removeEdgeIds?: string[];
+}
+
+/** 画布图片对象协作 patch：移动/缩放/插入=upsertImages(含 imageId+bounds[+快照]); 删除=removeImageIds。 */
+export interface CanvasImagePatchPayload {
+  upsertImages?: Array<Record<string, unknown>>;
+  removeImageIds?: string[];
 }
 
 export type NodeLockAction = 'claim' | 'release' | 'expired' | 'renewed';

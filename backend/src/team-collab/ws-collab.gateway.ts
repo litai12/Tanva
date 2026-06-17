@@ -28,6 +28,7 @@ const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'presence_join',
   'presence_leave',
   'node_patch',
+  'canvas_patch',
   'node_lock',
   'toast',
   'snapshot_required',

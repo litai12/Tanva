@@ -3,8 +3,9 @@
  * 处理图片上传、占位框创建、图片实例管理、选择、移动和调整大小等功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
+import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
@@ -139,6 +140,58 @@ function findRasterByImageId(imageId: string): paper.Raster | null {
     }
   } catch {}
   return null;
+}
+
+// ===== 协作（实时多人）相关：图片对象同步辅助 =====
+// 仅在 collabCanvasBridge.connected 且非应用远端 patch 时发送；未连接时行为与原先完全一致。
+
+/** 是否允许向协作通道发送（已连接且不在应用远端 patch 中）。 */
+function collabCanSend(): boolean {
+  try {
+    return collabCanvasBridge.connected && !collabCanvasBridge.isApplyingRemote;
+  } catch {
+    return false;
+  }
+}
+
+/** 由 ImageInstance 构建一份 INSERT 用的图片快照（供远端 createImageFromSnapshot 还原）。 */
+function buildImageInsertSnapshot(img: ImageInstance): Record<string, unknown> {
+  return {
+    imageId: img.id,
+    id: img.id,
+    url: img.imageData?.url,
+    src: img.imageData?.src,
+    key: img.imageData?.key,
+    remoteUrl: img.imageData?.remoteUrl,
+    fileName: img.imageData?.fileName,
+    width: img.imageData?.width,
+    height: img.imageData?.height,
+    contentType: img.imageData?.contentType,
+    locked: img.imageData?.locked ?? img.locked,
+    bounds: {
+      x: img.bounds.x,
+      y: img.bounds.y,
+      width: img.bounds.width,
+      height: img.bounds.height,
+    },
+    layerId: img.layerId ?? null,
+  };
+}
+
+/** 安全读取 patch item 中的 bounds。 */
+function readPatchBounds(
+  item: Record<string, unknown>
+): { x: number; y: number; width: number; height: number } | null {
+  const b = item?.bounds as
+    | { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+    | undefined;
+  if (!b) return null;
+  const x = Number(b.x);
+  const y = Number(b.y);
+  const width = Number(b.width);
+  const height = Number(b.height);
+  if ([x, y, width, height].some((n) => !Number.isFinite(n))) return null;
+  return { x, y, width, height };
 }
 
 interface UseImageToolProps {
@@ -437,6 +490,36 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
         if (!suppressAutoSave) {
           try { paperSaveService.triggerAutoSave('image-loaded'); } catch {}
+        }
+
+        // 协作：广播新插入图片（上传 / AI 结果落地共用此路径），携带完整快照供远端还原。
+        if (collabCanSend()) {
+          try {
+            collabCanvasBridge.sendImagePatch({
+              upsertImages: [
+                {
+                  imageId,
+                  id: imageId,
+                  url: persistedUrl || asset.url,
+                  src: preferredSrcForState || persistedSrc || persistedUrl || asset.url,
+                  key: normalizedKey || asset.key,
+                  remoteUrl: isRemoteUrl(persistedSrc) ? persistedSrc : asset.remoteUrl,
+                  fileName: asset.fileName,
+                  width: originalWidth,
+                  height: originalHeight,
+                  contentType: asset.contentType,
+                  locked: Boolean(asset.locked),
+                  bounds: {
+                    x: finalBounds.x,
+                    y: finalBounds.y,
+                    width: finalBounds.width,
+                    height: finalBounds.height,
+                  },
+                  layerId: paper.project.activeLayer?.name ?? null,
+                },
+              ],
+            });
+          } catch {}
         }
 
         try {
@@ -1127,6 +1210,25 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         eventHandlers.onImageMove?.(id, position);
       });
     }
+
+    // 协作：广播移动后的图片 bounds（仅在已连接且非应用远端 patch 时）。
+    if (commitState && collabCanSend()) {
+      try {
+        const upsertImages = validMoves
+          .map(({ id, position }) => {
+            const raster = findRasterByImageId(id);
+            const rb = raster?.bounds;
+            const bounds = rb
+              ? { x: rb.x, y: rb.y, width: rb.width, height: rb.height }
+              : { x: position.x, y: position.y, width: 0, height: 0 };
+            return { imageId: id, bounds };
+          })
+          .filter((u) => u.bounds.width > 0 && u.bounds.height > 0);
+        if (upsertImages.length > 0) {
+          collabCanvasBridge.sendImagePatch({ upsertImages });
+        }
+      } catch {}
+    }
   }, [applyPaperMoveToImage, eventHandlers.onImageMove, isImageLocked]);
 
   // ========== 图片移动 ==========
@@ -1309,6 +1411,25 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
+
+    // 协作：广播缩放后的图片 bounds。
+    if (collabCanSend()) {
+      try {
+        collabCanvasBridge.sendImagePatch({
+          upsertImages: [
+            {
+              imageId,
+              bounds: {
+                x: newBounds.x,
+                y: newBounds.y,
+                width: newBounds.width,
+                height: newBounds.height,
+              },
+            },
+          ],
+        });
+      } catch {}
+    }
   }, [eventHandlers.onImageResize, isImageLocked, isRasterItem]);
 
   // ========== 图片删除 ==========
@@ -1371,6 +1492,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
+
+    // 协作：广播删除。
+    if (collabCanSend()) {
+      try {
+        collabCanvasBridge.sendImagePatch({ removeImageIds: [imageId] });
+      } catch {}
+    }
+
     try { paperSaveService.triggerAutoSave(); } catch {}
     historyService.commit('delete-image').catch(() => {});
   }, [eventHandlers.onImageDelete]);
@@ -1813,6 +1942,68 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     logger.debug('🖼️ 从快照创建图片副本:', imageId);
     return imageId;
   }, [ensureDrawingLayer, addImageSelectionElements]);
+
+  // ========== 协作：应用远端图片 patch ==========
+  // 远端的 upsert/remove 通过 window 事件 'collab:canvas-apply' 到达；
+  // 应用期间置位 isApplyingRemote，使 capture 路径（move/resize/delete/insert）不会回发。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { upsertImages?: Array<Record<string, unknown>>; removeImageIds?: string[] }
+        | undefined;
+      if (!detail) return;
+
+      collabCanvasBridge.setApplyingRemote(true);
+      try {
+        const upserts = Array.isArray(detail.upsertImages) ? detail.upsertImages : [];
+        for (const item of upserts) {
+          const imageId = typeof item?.imageId === 'string' ? item.imageId : null;
+          if (!imageId) continue;
+
+          const existing = findRasterByImageId(imageId);
+          if (existing) {
+            // 已存在 → 仅更新位置/尺寸（复用 handleImageResize：同步 Paper + React 状态）。
+            const bounds = readPatchBounds(item);
+            if (bounds) {
+              try { handleImageResize(imageId, bounds); } catch {}
+            }
+          } else {
+            // 不存在 → 还原插入（INSERT 快照含 url/bounds/layerId 等）。
+            const bounds = readPatchBounds(item);
+            if (!bounds) continue; // 没有 bounds 的纯位置 patch 无法独立还原，跳过
+            const snapshot: ImageAssetSnapshot = {
+              id: imageId,
+              url: typeof item.url === 'string' ? item.url : '',
+              src: typeof item.src === 'string' ? item.src : undefined,
+              key: typeof item.key === 'string' ? item.key : undefined,
+              remoteUrl: typeof item.remoteUrl === 'string' ? item.remoteUrl : undefined,
+              fileName: typeof item.fileName === 'string' ? item.fileName : undefined,
+              width: typeof item.width === 'number' ? item.width : undefined,
+              height: typeof item.height === 'number' ? item.height : undefined,
+              contentType: typeof item.contentType === 'string' ? item.contentType : undefined,
+              locked: typeof item.locked === 'boolean' ? item.locked : undefined,
+              bounds,
+              layerId: typeof item.layerId === 'string' ? item.layerId : null,
+            };
+            if (!snapshot.url) continue; // 无可渲染来源则无法插入
+            try { createImageFromSnapshot(snapshot, { idOverride: imageId }); } catch {}
+          }
+        }
+
+        const removeIds = Array.isArray(detail.removeImageIds) ? detail.removeImageIds : [];
+        for (const id of removeIds) {
+          if (typeof id !== 'string' || !id) continue;
+          try { handleImageDelete(id); } catch {}
+        }
+      } finally {
+        // 微任务后复位，确保由本次应用引发的同步状态更新仍处于被抑制区间。
+        queueMicrotask(() => collabCanvasBridge.setApplyingRemote(false));
+      }
+    };
+
+    window.addEventListener('collab:canvas-apply', handler as EventListener);
+    return () => window.removeEventListener('collab:canvas-apply', handler as EventListener);
+  }, [handleImageResize, handleImageDelete, createImageFromSnapshot]);
 
   return {
     // 状态
