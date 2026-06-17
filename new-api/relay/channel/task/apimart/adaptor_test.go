@@ -160,6 +160,9 @@ func TestBuildOmniFlashExtPayload(t *testing.T) {
 	if payload.Duration != 0 {
 		t.Fatalf("Duration=%d, want omitted zero when video reference exists", payload.Duration)
 	}
+	if payload.GenerationType != "reference" {
+		t.Fatalf("GenerationType=%q, want reference for reference video", payload.GenerationType)
+	}
 
 	if _, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
 		Model:  "omni-flash-ext",

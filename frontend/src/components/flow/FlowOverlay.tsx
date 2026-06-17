@@ -1344,6 +1344,8 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "doubaoVideo",
   "seedance20Video",
   "seedVideo",
+  "genericVideo",
+  "seedanceVideo",
   "volcEnhanceVideo",
 ];
 
@@ -11713,6 +11715,7 @@ function FlowInner() {
         if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
         if (targetHandle === "image") return isOmniImageSource(sourceNode, sourceHandle);
         if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
           return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
         }
         return false;
@@ -12248,7 +12251,13 @@ function FlowInner() {
         if (params.targetHandle === "text") return true;
         if (params.targetHandle === "video") return true;
         if (params.targetHandle === "image") {
-          const mode = ((targetNode.data as any)?.videoMode === "reference") ? "reference" : "frame";
+          const hasVideoInput = edges.some(
+            (e) => e.target === params.target && e.targetHandle === "video"
+          );
+          const mode =
+            hasVideoInput || (targetNode.data as any)?.videoMode === "reference"
+              ? "reference"
+              : "frame";
           return incoming.length < (mode === "reference" ? 3 : 1);
         }
       }
@@ -18647,10 +18656,11 @@ function FlowInner() {
         };
 
         if (isOmniFlashExtNode) {
-          const omniVideoMode = rawNodeData.videoMode === "reference" ? "reference" : "frame";
           const omniVideoCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           ).length;
+          const omniVideoMode =
+            omniVideoCount > 0 || rawNodeData.videoMode === "reference" ? "reference" : "frame";
 
           if (!promptText) {
             failCurrentVideoNode("Omni Flash Ext 需要连接非空提示词");
@@ -19805,6 +19815,12 @@ function FlowInner() {
                     return { url, volcAssetId, volcAssetStatus };
                   }))
               : undefined;
+          const omniVideoModeForAPI =
+            isOmniFlashExtNode && referenceVideoUrls.length > 0
+              ? "reference"
+              : rawNodeData.videoMode === "reference"
+              ? "reference"
+              : "frame";
 
           const requestPayload =
             isOmniFlashExtNode
@@ -19820,7 +19836,7 @@ function FlowInner() {
                   aspectRatio: aspectRatioForAPI,
                   resolution: rawNodeData.resolution,
                   provider: provider as VideoProvider,
-                  videoMode: rawNodeData.videoMode === "reference" ? "reference" : "frame",
+                  videoMode: omniVideoModeForAPI,
                 }
               : provider === "doubao"
               ? {

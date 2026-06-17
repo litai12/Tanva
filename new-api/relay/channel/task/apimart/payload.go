@@ -379,6 +379,7 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 	if len(p.VideoUrls) > 0 {
 		p.VideoUrls = p.VideoUrls[:1]
 		p.Duration = 0
+		p.GenerationType = "reference"
 	}
 
 	if md != nil {

@@ -36,12 +36,12 @@ const MODE_OPTIONS = [
   {
     value: "frame",
     label: "单图模式",
-    description: "单图生成视频",
+    description: "1 张图生成视频",
   },
   {
     value: "reference",
     label: "参考模式",
-    description: "图片作为参考图",
+    description: "1 或 3 张图，或 1 条参考视频",
   },
 ];
 
@@ -115,7 +115,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     typeof data.aspectRatio === "string" && ASPECT_OPTIONS.includes(data.aspectRatio)
       ? data.aspectRatio
       : "16:9";
-  const videoMode = data.videoMode === "reference" ? "reference" : "frame";
+  const configuredVideoMode = data.videoMode === "reference" ? "reference" : "frame";
 
   const imageInputCount = useStore(
     React.useCallback(
@@ -145,6 +145,8 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     )
   );
 
+  const effectiveVideoMode = videoInputCount > 0 ? "reference" : configuredVideoMode;
+
   const validationMessages = React.useMemo(() => {
     const msgs: string[] = [];
     if (textInputCount === 0) {
@@ -155,20 +157,20 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     }
     if (imageInputCount > 3) {
       msgs.push(lt("图片最多 3 张", "Images: max 3"));
-    } else if (videoMode === "frame" && imageInputCount > 1) {
+    } else if (effectiveVideoMode === "frame" && imageInputCount > 1) {
       msgs.push(lt("单图模式只接 1 张图", "Single-image mode accepts 1 image"));
-    } else if (videoMode === "reference" && imageInputCount === 2) {
+    } else if (effectiveVideoMode === "reference" && imageInputCount === 2) {
       msgs.push(lt("参考模式接 1 或 3 张图", "Reference mode accepts 1 or 3 images"));
     }
     return msgs;
-  }, [imageInputCount, textInputCount, videoInputCount, videoMode, lt]);
+  }, [imageInputCount, textInputCount, videoInputCount, effectiveVideoMode, lt]);
 
   const imageHandleTooltip = React.useMemo(
     () =>
-      videoMode === "reference"
+      effectiveVideoMode === "reference"
         ? lt("参考图片：1 或 3 张", "Reference images: 1 or 3")
         : lt("单图生成视频：1 张图", "Single-image video: 1 image"),
-    [videoMode, lt]
+    [effectiveVideoMode, lt]
   );
 
   const previewRequestParams = React.useMemo(
@@ -178,10 +180,10 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       resolution: resolution.toLowerCase(),
       ...(videoInputCount > 0 ? {} : { duration, durationSec: duration }),
       aspectRatio,
-      videoMode,
+      videoMode: effectiveVideoMode,
       hasReferenceVideo: videoInputCount > 0,
     }),
-    [duration, resolution, aspectRatio, videoMode, videoInputCount]
+    [duration, resolution, aspectRatio, effectiveVideoMode, videoInputCount]
   );
 
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -349,7 +351,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         <label style={{ fontSize: 11, color: "#475569" }}>
           <div style={{ marginBottom: 3 }}>{lt("模式", "Mode")}</div>
           <NodeSelect
-            value={videoMode}
+            value={effectiveVideoMode}
             options={MODE_OPTIONS}
             onChange={(v) => updateNodeData({ videoMode: v })}
             menuLabel={lt("模式", "Mode")}
@@ -389,7 +391,10 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       </div>
       {videoInputCount > 0 && (
         <div style={{ marginBottom: 8, color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>
-          {lt("接入参考视频时不会下发时长参数。", "Duration is omitted when a reference video is connected.")}
+          {lt(
+            "已接入参考视频：本次按参考模式发送，不下发时长。",
+            "Reference video connected: this run uses reference mode and omits duration."
+          )}
         </div>
       )}
 

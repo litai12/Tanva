@@ -1200,11 +1200,15 @@ export class VideoProviderService {
     };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
 
+    const omniEffectiveVideoMode =
+      isOmniFlashExt && referenceVideos.length > 0
+        ? "reference"
+        : String(options.videoMode || "").trim().toLowerCase() === "reference"
+        ? "reference"
+        : "frame";
     const omniGenerationType =
-      referenceImages.length > 0
-        ? String(options.videoMode || "").trim().toLowerCase() === "reference"
-          ? "reference"
-          : "frame"
+      isOmniFlashExt && (referenceImages.length > 0 || referenceVideos.length > 0)
+        ? omniEffectiveVideoMode
         : undefined;
     // kapon-kling 原生请求（仅 v2-6/v3）：apimart 忽略此键，kapon-kling 适配器据其
     // 选端点直发，从而让普通 kling 全模式经 kapon 而不破坏 apimart 回落。
@@ -1282,7 +1286,7 @@ export class VideoProviderService {
       generate_audio: options.generateAudio,
       provider_options: {
         sourceProvider: options.provider,
-        videoMode: options.videoMode,
+        videoMode: isOmniFlashExt ? omniEffectiveVideoMode : options.videoMode,
         klingModel: options.klingModel,
         viduModel: options.viduModel,
         viduModelVariant: options.viduModelVariant,
