@@ -28,6 +28,12 @@
 - `POST minimax-speech` / `POST minimax-music`
 - `GET banana-route-success-rates`：按客户端时区统计当天 Banana `normal/stable` 路线成功率，返回成功/失败/处理中调用数，供工作区顶部路线切换展示
 
+## 2026-06-17 Omni Flash Ext APIMart
+- `managedModelKey=omni-flash-ext` resolves to the APIMart new-api video model via the default `model_provider_mapping_v2` `new_api` vendor and keeps credit routing on the same managed model instead of falling through to Kling 2.6 defaults.
+- The new-api APIMart payload builder has an `omni-flash-ext` branch: prompt is required; `image_urls` are collected from standard image fields and metadata content; up to 3 images are accepted, and 2+ image requests require `generation_type=reference`; `video_urls` are collected from reference video fields/metadata, limited to one URL, and cause `duration` to be omitted.
+- Omni reference-video requests now force `generation_type=reference` at both backend and new-api layers, so upstream no longer sees `frame` plus `video_urls`.
+- APIMart accepts the upstream model string as `Omni-Flash-Ext`; the lowercase `omni-flash-ext` remains only the Tanva/new-api internal route key. If new-api admin/task data is missing on PostgreSQL, run `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sql` through the patch runner and restart/reload new-api caches. Local SQLite-only runs can apply the companion `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sqlite` manually; it intentionally has no `.sql` suffix so the PostgreSQL runner skips it.
+
 ## Agent Runtime
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.
 - Current Agent runs are planning/trace-only and intentionally hand off actual generation/edit/text execution to the existing AI Chat tool paths, preserving current billing, async task, OSS, and refund semantics.

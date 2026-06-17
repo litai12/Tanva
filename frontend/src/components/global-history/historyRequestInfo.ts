@@ -46,7 +46,7 @@ const pickString = (...values: unknown[]): string | undefined => {
 };
 
 const GENERATED_HISTORY_TITLE_PATTERN =
-  /^(Generate(?:Pro4|Pro|Ref)?|Generate4|ViewAngle|Seedream|Nano2|GPT-Image-2|Midjourney V7|Niji 7)(?:\s+#\d+)?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?$/i;
+  /^(Generate(?:Pro4|Pro|Ref)?|Generate4|ViewAngle|Seedream|Nano2|GPT-Image-2|Midjourney(?: V[78])?|Niji 7)(?:\s+#\d+)?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?$/i;
 
 const isLegacyGeneratedHistoryTitle = (
   value: string | undefined,

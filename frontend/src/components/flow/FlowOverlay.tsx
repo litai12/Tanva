@@ -232,6 +232,7 @@ import {
 } from "./utils/promptMentionWiring";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import { formatVideoProviderError } from "@/utils/videoProviderError";
 import {
   projectLoadDebug,
   projectLoadNow,
@@ -1347,6 +1348,8 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "doubaoVideo",
   "seedance20Video",
   "seedVideo",
+  "genericVideo",
+  "seedanceVideo",
   "volcEnhanceVideo",
 ];
 
@@ -1421,6 +1424,18 @@ const resolveNano2LikeMaxReferenceImages = (
     ? Math.max(1, Math.min(16, Math.floor(raw)))
     : 14;
 };
+
+const resolveMidjourneyModelVersionFromData = (
+  nodeData?: Record<string, unknown>
+): "v7" | "v8" => (nodeData?.modelVersion === "v8" ? "v8" : "v7");
+
+const resolveMidjourneyMaxReferenceImages = (
+  nodeType?: string | null,
+  nodeData?: Record<string, unknown>
+): number =>
+  nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+    ? 20
+    : 10;
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -2330,7 +2345,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
-  omniFlashExtVideo: ["image", "text"],
+  omniFlashExtVideo: ["image", "video", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
   kling26Video: ["image", "image-2", "audio", "text"],
   kling30Video: ["image", "image-2", "audio", "text"],
@@ -4386,7 +4401,7 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
-  const { lt, isZh } = useLocaleText();
+  const { lt, isZh, language } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
@@ -10774,6 +10789,7 @@ function FlowInner() {
               resolution: "720P",
               duration: 6,
               aspectRatio: "16:9",
+              videoMode: "frame",
               videoVersion: 0,
               boxW: size.w,
               boxH: size.h,
@@ -10790,6 +10806,7 @@ function FlowInner() {
           : type === "midjourneyV7" || type === "niji7"
           ? {
               status: "idle" as const,
+              modelVersion: type === "midjourneyV7" ? "v7" : undefined,
               aspectRatio: "1:1",
               speedMode: "fast" as const,
               raw: false,
@@ -11834,6 +11851,12 @@ function FlowInner() {
           return true;
         return false;
       };
+      const isOmniImageSource = (
+        node: typeof sourceNode,
+        handle?: string | null
+      ) =>
+        isImageSource(node, handle) ||
+        Boolean((node.data as any)?.imageUrl || (node.data as any)?.url || (node.data as any)?.src);
 
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
@@ -11969,7 +11992,11 @@ function FlowInner() {
 
       if (targetNode.type === "omniFlashExtVideo") {
         if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
-        if (targetHandle === "image") return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "image") return isOmniImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -12499,6 +12526,20 @@ function FlowInner() {
           return true;
         }
       }
+      if (targetNode?.type === "omniFlashExtVideo") {
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "video") return true;
+        if (params.targetHandle === "image") {
+          const hasVideoInput = edges.some(
+            (e) => e.target === params.target && e.targetHandle === "video"
+          );
+          const mode =
+            hasVideoInput || (targetNode.data as any)?.videoMode === "reference"
+              ? "reference"
+              : "frame";
+          return incoming.length < (mode === "reference" ? 3 : 1);
+        }
+      }
       if (targetNode?.type === "audioUpload") {
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
       }
@@ -12633,7 +12674,15 @@ function FlowInner() {
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
         if (params.targetHandle === "text") return true;
-        if (params.targetHandle === "img") return incoming.length < 10;
+        if (params.targetHandle === "img") {
+          return (
+            incoming.length <
+            resolveMidjourneyMaxReferenceImages(
+              targetNode.type,
+              (targetNode.data || {}) as Record<string, unknown>
+            )
+          );
+        }
         if (
           params.targetHandle === "omniImage" ||
           params.targetHandle === "omniimage"
@@ -13906,7 +13955,10 @@ function FlowInner() {
         (nodeType === "midjourneyV7" || nodeType === "niji7") &&
         targetHandle === "img"
       ) {
-        return 10;
+        return resolveMidjourneyMaxReferenceImages(
+          nodeType,
+          (targetNode?.data || {}) as Record<string, unknown>
+        );
       }
       if (
         (nodeType === "nano2" || nodeType === "gptImage2") &&
@@ -16273,8 +16325,60 @@ function FlowInner() {
         return trimmed.length > 0 ? trimmed : undefined;
       };
 
+      const isMidjourneyV8Node = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): boolean =>
+        nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8";
+
+      const parseMidjourneyNumber = (
+        value: unknown,
+        label: string,
+        min: number,
+        max: number,
+        errors: string[],
+        options: { integer?: boolean; allowed?: number[] } = {}
+      ): string | undefined => {
+        const raw = normalizeMidjourneyValue(value);
+        if (!raw) return undefined;
+        const numeric = Number(raw);
+        const isValidNumber =
+          Number.isFinite(numeric) &&
+          numeric >= min &&
+          numeric <= max &&
+          (!options.integer || Number.isInteger(numeric)) &&
+          (!options.allowed || options.allowed.includes(numeric));
+        if (!isValidNumber) {
+          const rangeText = options.allowed?.length
+            ? options.allowed.join(" / ")
+            : `${min}-${max}`;
+          errors.push(`${label} 仅支持 ${rangeText}`);
+          return undefined;
+        }
+        return options.integer ? String(Math.trunc(numeric)) : raw;
+      };
+
+      const resolveMidjourneyModelName = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "midjourney-niji-7";
+        return resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+          ? "midjourney-v8"
+          : "midjourney-v7";
+      };
+
+      const resolveMidjourneyActionTitle = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "Niji 7";
+        return "Midjourney";
+      };
+
       /**
-       * Midjourney V7 / Niji 7：走悠船 /v1/tob/diffusion，后端会剥离 iw/sv/sw/ow/exp/cref/sref/oref 等片段；
+       * Midjourney V7 / Niji 7：保持原有提示词参数逻辑。
+       * Midjourney V8：走悠船 v8.1 参数规则，使用 --v 8.1 并隐藏/拒绝不支持的参数。
        * 且禁止把 data: base64 写进提示词（会撑爆请求体导致 500）。参考图仅通过 imageUrls 上传。
        * 速度见 backend/docs/mj v7和Niji 7速度模式文档说明.md（需显式 --fast / --turbo / --draft）。
        */
@@ -16285,20 +16389,23 @@ function FlowInner() {
         hasImages: boolean
       ) => {
         const isNiji = nodeType === "niji7";
+        const isV8 = isMidjourneyV8Node(nodeType, nodeData);
         const errors: string[] = [];
         const flags: string[] = [];
         const basePrompt = (promptText || "").trim();
 
         if (basePrompt.includes("::")) {
-          errors.push("Midjourney V7 / Niji 7 暂不支持多提示词 ::");
+          errors.push("Midjourney V7/V8 / Niji 7 暂不支持多提示词 ::");
         }
 
-        flags.push(isNiji ? "--niji 7" : "--v 7");
+        flags.push(isNiji ? "--niji 7" : isV8 ? "--v 8.1" : "--v 7");
 
         if (nodeData.aspectRatio) flags.push(`--ar ${nodeData.aspectRatio}`);
 
         const resolvedSpeed =
-          nodeData.speedMode === "turbo"
+          isV8
+            ? "fast"
+            : nodeData.speedMode === "turbo"
             ? "turbo"
             : !isNiji &&
               (nodeData.speedMode === "draft" || nodeData.draft)
@@ -16315,16 +16422,70 @@ function FlowInner() {
         const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? "100";
         if (stylize && stylize !== "100") flags.push(`--stylize ${stylize}`);
         const weird = normalizeMidjourneyValue(nodeData.weird);
-        if (weird) flags.push(`--weird ${weird}`);
+        if (weird && !isV8) flags.push(`--weird ${weird}`);
         const seed = normalizeMidjourneyValue(nodeData.seed);
         if (seed) flags.push(`--seed ${seed}`);
 
         if (!isNiji) {
-          const quality = normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          const quality = isV8 && nodeData.quality === "2"
+            ? "1"
+            : normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          if (isV8 && quality !== "1" && quality !== "4") {
+            errors.push("V8 质量仅支持 1 或 4");
+          }
           if (quality && quality !== "1") flags.push(`--q ${quality}`);
           const noPrompt = normalizeMidjourneyValue(nodeData.noPrompt);
           if (noPrompt) flags.push(`--no ${noPrompt}`);
-          if (nodeData.tile) flags.push("--tile");
+          if (nodeData.tile && !isV8) flags.push("--tile");
+        }
+
+        if (isV8) {
+          if (nodeData.hd) flags.push("--hd");
+
+          const imageWeight = parseMidjourneyNumber(
+            nodeData.imageWeight,
+            "V8 图像权重",
+            0,
+            3,
+            errors
+          );
+          if (imageWeight && imageWeight !== "1") flags.push(`--iw ${imageWeight}`);
+
+          const styleRefs = parseMidjourneyList(nodeData.styleRefs).slice(0, 20);
+          const rawStyleRefCount = parseMidjourneyList(nodeData.styleRefs).length;
+          if (rawStyleRefCount > 20) {
+            errors.push("V8 风格参考最多支持 20 个 URL");
+          }
+          if (styleRefs.length > 0) {
+            flags.push(`--sref ${styleRefs.join(" ")}`);
+            const styleWeight = parseMidjourneyNumber(
+              nodeData.styleWeight,
+              "V8 风格权重",
+              0,
+              1000,
+              errors
+            );
+            if (styleWeight && styleWeight !== "100") flags.push(`--sw ${styleWeight}`);
+            flags.push("--sv 6");
+          }
+
+          const objectRefs = parseMidjourneyList(
+            nodeData.objectReference || nodeData.omniReference
+          );
+          if (objectRefs.length > 1) {
+            errors.push("V8 物体参考 --oref 仅支持 1 个 URL");
+          } else if (objectRefs.length === 1) {
+            flags.push(`--oref ${objectRefs[0]}`);
+          }
+
+          const exp = parseMidjourneyNumber(
+            nodeData.exp,
+            "V8 EXP",
+            0,
+            100,
+            errors
+          );
+          if (exp && exp !== "0") flags.push(`--exp ${exp}`);
         }
 
         const finalPrompt = [basePrompt, ...flags].filter(Boolean).join(" ").trim();
@@ -18745,6 +18906,7 @@ function FlowInner() {
       if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
         const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+        const isOmniFlashExtNode = normalizedVideoNodeType === "omniFlashExtVideo";
         const isLegacyKling30Node = node.type === "kling30Video";
         const isLegacyKling26Node = node.type === "kling26Video";
         const inferredViduModel =
@@ -18780,6 +18942,8 @@ function FlowInner() {
           provider = "doubao";
         } else if (normalizedVideoNodeType === "viduVideo" || normalizedVideoNodeType === "viduQ3") {
           provider = getEffectiveViduProvider(viduNodeDataForProvider);
+        } else if (isOmniFlashExtNode) {
+          provider = rawNodeData.provider || "kling";
         } else {
           provider = rawNodeData.provider || "kling";
         }
@@ -18842,6 +19006,9 @@ function FlowInner() {
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
+            if (isOmniFlashExtNode) {
+              return e.targetHandle === "image";
+            }
             // 有视频输入时，只收集 image / image-2，排除 elementImg
             if (hasVideoInput) {
               return e.targetHandle === "image" || e.targetHandle === "image-2";
@@ -18909,7 +19076,34 @@ function FlowInner() {
           );
         };
 
-        if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
+        if (isOmniFlashExtNode) {
+          const omniVideoCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          ).length;
+          const omniVideoMode =
+            omniVideoCount > 0 || rawNodeData.videoMode === "reference" ? "reference" : "frame";
+
+          if (!promptText) {
+            failCurrentVideoNode("Omni Flash Ext 需要连接非空提示词");
+            return;
+          }
+          if (omniVideoCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 最多支持 1 条参考视频");
+            return;
+          }
+          if (imageCount > 3) {
+            failCurrentVideoNode("Omni Flash Ext 图片最多 3 张");
+            return;
+          }
+          if (omniVideoMode === "frame" && imageCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 单图模式只接 1 张图");
+            return;
+          }
+          if (omniVideoMode === "reference" && imageCount === 0) {
+            failCurrentVideoNode("Omni Flash Ext 参考模式至少接 1 张图");
+            return;
+          }
+        } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
           const seedancePhysicalImageCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image"
           ).length;
@@ -19109,8 +19303,12 @@ function FlowInner() {
         const viduModelForApi = viduSemantics.viduModel;
 
         const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number" &&
-          Number.isFinite((node.data as any)?.clipDuration)
+          isOmniFlashExtNode &&
+          typeof rawNodeData.duration === "number" &&
+          Number.isFinite(rawNodeData.duration)
+            ? Math.round(rawNodeData.duration)
+            : typeof (node.data as any)?.clipDuration === "number" &&
+              Number.isFinite((node.data as any)?.clipDuration)
             ? Math.round((node.data as any).clipDuration)
             : undefined;
         const configuredDurationOptions = (() => {
@@ -19417,7 +19615,7 @@ function FlowInner() {
 
         let referenceVideoUrl: string | undefined = undefined;
         let referenceVideoUrls: string[] = [];
-        if (provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
+        if (isOmniFlashExtNode || provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
           const videoEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -19471,7 +19669,13 @@ function FlowInner() {
 
           if (referenceVideoUrl) {
             console.log(
-              `🎬 [${isSeedanceNode && isSeedance20Request ? "Seedance 2.0" : "Kling O1"}] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
+              `🎬 [${
+                isOmniFlashExtNode
+                  ? "Omni Flash Ext"
+                  : isSeedanceNode && isSeedance20Request
+                  ? "Seedance 2.0"
+                  : "Kling O1"
+              }] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
             );
           }
         }
@@ -19847,7 +20051,9 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          isSeedanceNode
+          isOmniFlashExtNode
+            ? aspectSetting || "16:9"
+            : isSeedanceNode
             ? aspectSetting || undefined
             : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
@@ -19866,6 +20072,11 @@ function FlowInner() {
             if (effectiveConfiguredDurationOptions.includes(clipDuration)) {
               durationForAPI = clipDuration;
             }
+          } else if (
+            isOmniFlashExtNode &&
+            (clipDuration === 4 || clipDuration === 6 || clipDuration === 8 || clipDuration === 10)
+          ) {
+            durationForAPI = clipDuration;
           } else if (
             provider === "kling" &&
             (clipDuration === 5 || clipDuration === 10)
@@ -19911,7 +20122,9 @@ function FlowInner() {
           }
           if (durationForAPI === undefined) {
             const fallbackDurationOptions =
-              isSeedanceNode
+              isOmniFlashExtNode
+                ? [4, 6, 8, 10]
+                : isSeedanceNode
                 ? isSeedance20Request
                   ? SEEDANCE20_DURATIONS
                   : SEEDANCE15_DURATIONS
@@ -20023,9 +20236,30 @@ function FlowInner() {
                     return { url, volcAssetId, volcAssetStatus };
                   }))
               : undefined;
+          const omniVideoModeForAPI =
+            isOmniFlashExtNode && referenceVideoUrls.length > 0
+              ? "reference"
+              : rawNodeData.videoMode === "reference"
+              ? "reference"
+              : "frame";
 
           const requestPayload =
-            provider === "doubao"
+            isOmniFlashExtNode
+              ? {
+                  ...managedRoutePayload,
+                  managedModelKey: "omni-flash-ext",
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos:
+                    referenceVideoUrls.length > 0 ? referenceVideoUrls.slice(0, 1) : undefined,
+                  duration: referenceVideoUrls.length > 0 ? undefined : durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
+                  provider: provider as VideoProvider,
+                  videoMode: omniVideoModeForAPI,
+                }
+              : provider === "doubao"
               ? {
                   ...managedRoutePayload,
                   prompt: finalPrompt || undefined,
@@ -20225,6 +20459,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务查询超时", {
+                  language,
+                  fallbackZh: "视频生成任务查询超时，请稍后重试。",
+                  fallbackEn: "Video generation query timed out. Please try again later.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20233,7 +20472,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务查询超时",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20334,6 +20573,14 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError(
+                  (queryResult as any).error || "任务生成失败",
+                  {
+                    language,
+                    fallbackZh: "任务生成失败，请重试。",
+                    fallbackEn: "Video generation failed. Please try again.",
+                  }
+                );
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20342,7 +20589,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: (queryResult as any).error || "任务生成失败",
+                            error: failureMessage,
                           },
                       }
                     : n
@@ -20380,6 +20627,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务状态查询失败，请重试", {
+                  language,
+                  fallbackZh: "任务状态查询失败，请重试。",
+                  fallbackEn: "Task status query failed. Please retry.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20388,7 +20640,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务状态查询失败，请重试",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20407,16 +20659,21 @@ function FlowInner() {
           // 立即执行一次，后续按 setTimeout 串行轮询，避免并发 poll 导致重复写 history
           void pollTask();
         } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
             provider,
-            error: error instanceof Error ? error.message : String(error),
+            error: rawMessage,
           });
-          const msg = error instanceof Error ? error.message : "视频生成失败";
+          const msg = formatVideoProviderError(rawMessage, {
+            language,
+            fallbackZh: "视频生成失败，请检查提示词或素材后重试。",
+            fallbackEn: "Video generation failed. Please check the prompt or media and try again.",
+          });
 
           // If the backend reported a specific image review failure (e.g. "参考图审核未通过 image[0]"),
           // mark the corresponding source ImageNode with the review-failed icon.
-          const reviewFailMatch = msg.match(/参考图审核未通过 image\[(\d+)\]/);
+          const reviewFailMatch = rawMessage.match(/参考图审核未通过 image\[(\d+)\]/);
           if (reviewFailMatch) {
             const failedIdx = parseInt(reviewFailMatch[1], 10);
             const srcEdge = referenceImageSourceEdges[failedIdx];
@@ -21021,17 +21278,24 @@ function FlowInner() {
 
       // Nano2 节点处理逻辑
       if (node.type === "midjourneyV7" || node.type === "niji7") {
+        const nodeData = (node.data || {}) as Record<string, any>;
+        const maxMidjourneyReferenceImages = resolveMidjourneyMaxReferenceImages(
+          node.type,
+          nodeData
+        );
+        const isMidjourneyV8 = isMidjourneyV8Node(node.type, nodeData);
         const { text: promptText } = getTextPromptForNode(nodeId);
-        const presetRaw = (node.data as any)?.presetPrompt;
+        const presetRaw = nodeData.presetPrompt;
         const preset =
           typeof presetRaw === "string" ? presetRaw.trim() : "";
-        const mergedPromptText = sanitizeFlowTextForMidjourneyV7(
-          [preset, promptText].filter(Boolean).join(" ").trim()
-        );
+        const rawMergedPromptText = [preset, promptText].filter(Boolean).join(" ").trim();
+        const mergedPromptText = isMidjourneyV8
+          ? rawMergedPromptText
+          : sanitizeFlowTextForMidjourneyV7(rawMergedPromptText);
         const totalImgEdges = currentEdges.filter(
           (e) => e.target === nodeId && e.targetHandle === "img"
         );
-        const imgEdges = totalImgEdges.slice(0, 10);
+        const imgEdges = totalImgEdges.slice(0, maxMidjourneyReferenceImages);
         let imageDatas = await resolveEdgesAsDataUrls(imgEdges);
 
         const omniImageEdges = currentEdges.filter(
@@ -21039,7 +21303,7 @@ function FlowInner() {
             e.target === nodeId &&
             (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
         );
-        if (omniImageEdges.length > 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length > 1) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -21049,27 +21313,36 @@ function FlowInner() {
           );
           return;
         }
-        if (omniImageEdges.length === 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length === 1) {
           const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
           if (crefDatas.length > 0) {
             const beforeCount = imageDatas.length;
-            imageDatas = [crefDatas[0], ...imageDatas].slice(0, 10);
-            if (beforeCount >= 10) {
+            imageDatas = [crefDatas[0], ...imageDatas].slice(0, maxMidjourneyReferenceImages);
+            if (beforeCount >= maxMidjourneyReferenceImages) {
               window.dispatchEvent(
                 new CustomEvent("toast", {
                   detail: {
-                    message: `参考图已满 10 张，万物参考已插入队首并去掉最后一张`,
+                    message: `参考图已满 ${maxMidjourneyReferenceImages} 张，万物参考已插入队首并去掉最后一张`,
                     type: "warning",
                   },
                 })
               );
             }
           }
+        } else if (isMidjourneyV8 && omniImageEdges.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "V8 不支持 CREF 连线；如需物体参考，请在 OREF URL 中填写 1 个远程图片地址",
+                type: "warning",
+              },
+            })
+          );
         }
 
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
-          (node.data || {}) as Record<string, any>,
+          nodeData,
           mergedPromptText,
           imageDatas.length > 0
         );
@@ -21092,11 +21365,11 @@ function FlowInner() {
           return;
         }
 
-        if (totalImgEdges.length > 10) {
+        if (totalImgEdges.length > maxMidjourneyReferenceImages) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: `Midjourney 仅支持最多 10 张参考图，当前已自动截取前 10 张`,
+                message: `Midjourney 仅支持最多 ${maxMidjourneyReferenceImages} 张参考图，当前已自动截取前 ${maxMidjourneyReferenceImages} 张`,
                 type: "warning",
               },
             })
@@ -21115,8 +21388,8 @@ function FlowInner() {
         );
 
         try {
-          const modelName = node.type === "niji7" ? "midjourney-niji-7" : "midjourney-v7";
-          const actionTitle = node.type === "niji7" ? "Niji 7" : "Midjourney V7";
+          const modelName = resolveMidjourneyModelName(node.type, nodeData);
+          const actionTitle = resolveMidjourneyActionTitle(node.type, nodeData);
           const mjResult = await generateImageViaAPI({
             prompt: finalPrompt,
             outputFormat: "png",
@@ -21163,7 +21436,7 @@ function FlowInner() {
             }
           } catch (persistErr) {
             console.warn(
-              "[Flow] Midjourney V7/Niji7: failed to persist preview to stable storage",
+              "[Flow] Midjourney V7/V8/Niji7: failed to persist preview to stable storage",
               persistErr
             );
             previewSource = rawPreviewSource;
@@ -21196,7 +21469,7 @@ function FlowInner() {
               );
             } catch (persistErr) {
               console.warn(
-                "[Flow] Midjourney V7/Niji7: failed to persist imageUrls item",
+                "[Flow] Midjourney V7/V8/Niji7: failed to persist imageUrls item",
                 persistErr
               );
               stableMidjourneyImageUrls.push(trimmed);
@@ -21402,7 +21675,7 @@ function FlowInner() {
               ? error.message
               : node.type === "niji7"
               ? "Niji 7 生成失败"
-              : "Midjourney V7 生成失败";
+              : "Midjourney 生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -23150,6 +23423,7 @@ function FlowInner() {
       getSeedanceModeSpec,
       imageModel,
       inferSeedanceMode,
+      language,
       pollHappyhorseTask,
       recordFlowVideoHistory,
       rf,
@@ -23363,7 +23637,7 @@ function FlowInner() {
               node.type === "niji7"
                 ? "Niji 7"
                 : node.type === "midjourneyV7"
-                ? "Midjourney V7"
+                ? "Midjourney"
                 : node.type === "generatePro4"
                 ? "GeneratePro4"
                 : "Generate4"

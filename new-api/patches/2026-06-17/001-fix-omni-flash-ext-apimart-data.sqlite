@@ -1,0 +1,132 @@
+-- SQLite companion for 001-fix-omni-flash-ext-apimart-data.sql.
+-- This file intentionally does not use a .sql suffix because the PostgreSQL
+-- patch runner executes every *.sql file under new-api/patches.
+--
+-- Example:
+--   sqlite3 new-api/one-api.db < new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sqlite
+
+BEGIN TRANSACTION;
+
+INSERT INTO vendors (name, description, icon, status, created_time, updated_time, deleted_at)
+SELECT 'APIMart AI',
+       'APIMart unified gateway - chat, image and video tasks',
+       NULL, 1,
+       strftime('%s','now'),
+       strftime('%s','now'),
+       NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM vendors WHERE name = 'APIMart AI' AND deleted_at IS NULL
+);
+
+UPDATE vendors
+SET description = 'APIMart unified gateway - chat, image and video tasks',
+    status = 1,
+    updated_time = strftime('%s','now')
+WHERE name = 'APIMart AI' AND deleted_at IS NULL;
+
+INSERT INTO channels (
+  name, type, "group", models, model_mapping, status, base_url, key,
+  created_time, test_time, priority, weight, tag, setting, param_override, header_override
+)
+SELECT 'apimart', 59, 'default',
+       'omni-flash-ext,omni-flash-ext-apimart',
+       '{"omni-flash-ext-apimart":"omni-flash-ext"}',
+       1, 'https://api.apimart.ai', 'PLACEHOLDER_APIMART_KEY',
+       strftime('%s','now'), 0, 0, 0, 'apimart', NULL, NULL, NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM channels WHERE name = 'apimart' AND type = 59
+);
+
+INSERT INTO models (
+  model_name, description, icon, tags, vendor_id, endpoints, kind, status,
+  sync_official, created_time, updated_time, name_rule, capabilities, params_def, deleted_at
+)
+SELECT m.model_name, m.description, NULL, NULL, v.id, NULL, 'video', 1, 0,
+       strftime('%s','now'), strftime('%s','now'), 0,
+       '["reference_images","reference_video"]',
+       '[
+         {"key":"duration","type":"enum","label":"Duration","default":6,"options":[{"value":4,"label":"4s"},{"value":6,"label":"6s"},{"value":8,"label":"8s"},{"value":10,"label":"10s"}]},
+         {"key":"size","type":"enum","label":"Aspect ratio","default":"16:9","options":[{"value":"16:9","label":"16:9","aspectRatio":"16:9","orientation":"landscape"},{"value":"9:16","label":"9:16","aspectRatio":"9:16","orientation":"portrait"}]},
+         {"key":"resolution","type":"enum","label":"Resolution","default":"720p","options":[{"value":"720p","label":"720p"},{"value":"1080p","label":"1080p"},{"value":"4k","label":"4K"}]},
+         {"key":"generation_type","type":"enum","label":"Mode","default":"frame","options":[{"value":"frame","label":"Frame"},{"value":"reference","label":"Reference"}]}
+       ]',
+       NULL
+FROM (
+  SELECT 'omni-flash-ext' AS model_name,
+         'APIMart Omni-Flash-Ext video generation - text/image/video to video' AS description
+  UNION ALL
+  SELECT 'omni-flash-ext-apimart',
+         'APIMart vendor-suffixed alias for omni-flash-ext'
+) AS m
+CROSS JOIN (
+  SELECT id FROM vendors WHERE name = 'APIMart AI' AND deleted_at IS NULL LIMIT 1
+) AS v
+WHERE NOT EXISTS (
+  SELECT 1 FROM models AS existing
+  WHERE existing.model_name = m.model_name AND existing.deleted_at IS NULL
+);
+
+UPDATE models
+SET kind = 'video',
+    status = 1,
+    capabilities = '["reference_images","reference_video"]',
+    params_def = '[
+      {"key":"duration","type":"enum","label":"Duration","default":6,"options":[{"value":4,"label":"4s"},{"value":6,"label":"6s"},{"value":8,"label":"8s"},{"value":10,"label":"10s"}]},
+      {"key":"size","type":"enum","label":"Aspect ratio","default":"16:9","options":[{"value":"16:9","label":"16:9","aspectRatio":"16:9","orientation":"landscape"},{"value":"9:16","label":"9:16","aspectRatio":"9:16","orientation":"portrait"}]},
+      {"key":"resolution","type":"enum","label":"Resolution","default":"720p","options":[{"value":"720p","label":"720p"},{"value":"1080p","label":"1080p"},{"value":"4k","label":"4K"}]},
+      {"key":"generation_type","type":"enum","label":"Mode","default":"frame","options":[{"value":"frame","label":"Frame"},{"value":"reference","label":"Reference"}]}
+    ]',
+    updated_time = strftime('%s','now')
+WHERE deleted_at IS NULL
+  AND model_name IN ('omni-flash-ext', 'omni-flash-ext-apimart');
+
+UPDATE channels
+SET models = CASE
+      WHEN models IS NULL OR trim(models) = '' THEN 'omni-flash-ext,omni-flash-ext-apimart'
+      WHEN instr(',' || models || ',', ',omni-flash-ext,') = 0
+       AND instr(',' || models || ',', ',omni-flash-ext-apimart,') = 0
+        THEN models || ',omni-flash-ext,omni-flash-ext-apimart'
+      WHEN instr(',' || models || ',', ',omni-flash-ext,') = 0
+        THEN models || ',omni-flash-ext'
+      WHEN instr(',' || models || ',', ',omni-flash-ext-apimart,') = 0
+        THEN models || ',omni-flash-ext-apimart'
+      ELSE models
+    END,
+    model_mapping = CASE
+      WHEN model_mapping IS NULL OR trim(model_mapping) = '' THEN '{"omni-flash-ext-apimart":"omni-flash-ext"}'
+      WHEN instr(model_mapping, '"omni-flash-ext-apimart"') = 0
+        THEN substr(model_mapping, 1, length(model_mapping) - 1) || ',"omni-flash-ext-apimart":"omni-flash-ext"}'
+      ELSE model_mapping
+    END,
+    status = 1
+WHERE name = 'apimart' AND type = 59;
+
+INSERT OR REPLACE INTO abilities ("group", model, channel_id, enabled, priority, weight, tag)
+SELECT g.grp, m.model_name, c.id, 1, COALESCE(c.priority, 0), COALESCE(c.weight, 0), 'apimart'
+FROM channels AS c
+CROSS JOIN (
+  SELECT 'default' AS grp UNION ALL SELECT 'auto' UNION ALL SELECT 'vip'
+) AS g
+CROSS JOIN (
+  SELECT 'omni-flash-ext' AS model_name UNION ALL SELECT 'omni-flash-ext-apimart'
+) AS m
+WHERE c.name = 'apimart' AND c.type = 59;
+
+INSERT INTO options (key, value)
+SELECT 'ModelPrice', '{"omni-flash-ext": 6.0, "omni-flash-ext-apimart": 6.0}'
+WHERE NOT EXISTS (SELECT 1 FROM options WHERE key = 'ModelPrice');
+
+UPDATE options
+SET value = CASE
+  WHEN instr(value, '"omni-flash-ext"') = 0
+   AND instr(value, '"omni-flash-ext-apimart"') = 0
+    THEN substr(value, 1, length(value) - 1) || ',"omni-flash-ext":6.0,"omni-flash-ext-apimart":6.0}'
+  WHEN instr(value, '"omni-flash-ext"') = 0
+    THEN substr(value, 1, length(value) - 1) || ',"omni-flash-ext":6.0}'
+  WHEN instr(value, '"omni-flash-ext-apimart"') = 0
+    THEN substr(value, 1, length(value) - 1) || ',"omni-flash-ext-apimart":6.0}'
+  ELSE value
+END
+WHERE key = 'ModelPrice';
+
+COMMIT;

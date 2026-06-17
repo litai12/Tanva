@@ -93,7 +93,7 @@ export type SupportedAIProvider =
 export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
-  modelVersion?: '4.0' | '4.5' | '5.0';
+  modelVersion?: '4.0' | '4.5' | '5.0' | 'v7' | 'v8';
   aiProvider?: SupportedAIProvider;
   providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';

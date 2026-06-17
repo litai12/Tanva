@@ -812,8 +812,8 @@ video::-webkit-media-controls-fullscreen-button {
 .run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
   display: inline-flex !important;
   opacity: 1;
-  background: rgba(20, 20, 20, 0.98) !important;
-  border-color: rgba(120, 120, 120, 0.6) !important;
+  background: var(--run-credit-hover-bg, rgba(20, 20, 20, 0.98)) !important;
+  border-color: var(--run-credit-hover-border, rgba(120, 120, 120, 0.6)) !important;
 }
 
 .run-btn-with-credit:disabled .run-credit-badge {

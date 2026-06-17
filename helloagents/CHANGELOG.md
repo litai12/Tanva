@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Flow/Midjourney UI: moved Midjourney V7 and Niji 7 run-credit display into the Run button hover interaction so credits no longer render beside the node title.
+- Flow/Midjourney: renamed the Midjourney V7 node chrome to Midjourney and added a V7/V8 model selector that drives the prompt version flag, backend model name, and credit preview.
+- new-api/APIMart: added a repair data patch for `omni-flash-ext` model/channel/ability/pricing rows and locked the APIMart payload to upstream `model=Omni-Flash-Ext` to avoid APIMart `model_not_found`.
+- Flow/APIMart: `omni-flash-ext` video now has explicit image/video handles and APIMart parameter validation. Requests use `managedModelKey=omni-flash-ext`, require a prompt, allow 1 image in single-image mode or 1-3 images in reference mode, limit reference video to one URL, omit `duration` when video input exists, and route credits through the managed Omni Flash Ext model with a default `new_api` route instead of Kling 2.6 fallback pricing.
+- Flow/APIMart: `omni-flash-ext` now auto-switches to reference mode whenever a reference video is connected, and the runtime/connect validation allows `video` outputs plus `text`/`image` inputs only. This avoids sending `frame` mode together with `referenceVideos`, which APIMart rejects.
+- Flow/APIMart: video task failures now map upstream `PUBLIC_ERROR_*` raw codes (including `PUBLIC_ERROR_UNDERSPECIFIED_ANIMAL`) to localized user-facing copy in Flow nodes while keeping the raw message in console logs.
 - AI Chat PDF Analyze: PDF uploads now go through the backend `/api/uploads/document` OSS/TOS relay and store the remote URL for `/api/ai/analyze-image`; the analyze request only falls back to inline PDF base64 for legacy in-memory values.
 - AI Analyze: new-api PDF analysis now accepts remote PDF URLs from OSS/TOS, fetches them server-side at runtime, and sends `input_file.file_data` upstream, avoiding incompatible `file_url` handling in the new-api Responses adapter.
 - AI Analyze: PDF analysis requests now bypass model file-input adapters entirely: the backend extracts PDF text locally with `pdf-parse` and sends the text to the selected text model, avoiding both new-api PDF file schema issues and direct Gemini official network requirements.
