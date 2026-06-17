@@ -329,7 +329,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <Sparkles size={16} color={accentColor} />
             <span style={{ fontWeight: 600, color: accentColor }}>
               {title}
-              <RunCreditBadge credits={resolvedRunCredits} inline />
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -353,17 +352,40 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <button
               onClick={onRun}
               disabled={status === 'running'}
+              className='run-btn-with-credit'
+              title={
+                status === 'running'
+                  ? 'Running...'
+                  : resolvedRunCredits
+                    ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
+                    : lt('Run generation', 'Run generation')
+              }
               style={{
                 fontSize: 12,
-                padding: '4px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxSizing: 'border-box',
+                minHeight: 30,
+                padding: '0 10px',
                 background: status === 'running' ? '#e5e7eb' : accentColor,
                 color: '#fff',
                 borderRadius: 6,
                 border: 'none',
                 cursor: status === 'running' ? 'not-allowed' : 'pointer',
+                gap: 6,
+                ['--run-credit-hover-bg' as any]: accentColor,
+                ['--run-credit-hover-border' as any]: accentBorder,
               }}
             >
-              {status === 'running' ? 'Running...' : 'Run'}
+              {status === 'running' ? (
+                <span className='run-text-trigger'>Running...</span>
+              ) : (
+                <>
+                  <span className='run-text-trigger'>Run</span>
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
+                </>
+              )}
             </button>
             <button
               onClick={onSend}
