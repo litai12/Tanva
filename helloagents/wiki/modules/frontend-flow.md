@@ -1,6 +1,6 @@
 ## 2026-06-17 Omni Flash Ext APIMart
 - `omniFlashExtVideo` uses dedicated `text`, `image`, and `video` input handles. The `video` handle accepts video outputs only and is limited to one reference video.
-- Runtime validation follows APIMart `omni-flash-ext`: prompt required; image count must be 0, 1, or 3; 2 images and more than 3 images are rejected; 3 images require `videoMode=reference`.
+- Runtime validation follows APIMart `omni-flash-ext`: prompt required; single-image mode accepts 1 image, reference mode accepts 1-3 images, and more than 3 images are rejected.
 - Flow request assembly sends `managedModelKey=omni-flash-ext`, `referenceImages`, optional single `referenceVideos`, `aspectRatio`, `resolution`, and `videoMode`. When reference video is connected, `duration` is omitted and the run badge preview also omits duration.
 - When any reference video is connected, the node UI and request path force `videoMode=reference`; frame mode is only for image-only runs. This prevents APIMart from receiving `frame` together with `video_urls`.
 

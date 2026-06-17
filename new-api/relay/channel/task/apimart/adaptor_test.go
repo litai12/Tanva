@@ -164,11 +164,29 @@ func TestBuildOmniFlashExtPayload(t *testing.T) {
 		t.Fatalf("GenerationType=%q, want reference for reference video", payload.GenerationType)
 	}
 
+	payload, err = BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:  "omni-flash-ext",
+		Prompt: "two reference images",
+		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
+		Metadata: map[string]interface{}{
+			"videoMode": "reference",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.GenerationType != "reference" {
+		t.Fatalf("GenerationType=%q, want reference for 2 images", payload.GenerationType)
+	}
+	if len(payload.ImageUrls) != 2 {
+		t.Fatalf("ImageUrls=%v, want 2 urls", payload.ImageUrls)
+	}
+
 	if _, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
 		Model:  "omni-flash-ext",
-		Prompt: "two images are unsupported",
+		Prompt: "two images need reference mode",
 		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
 	}); err == nil {
-		t.Fatal("expected error for 2 image_urls")
+		t.Fatal("expected error for 2 image_urls without reference mode")
 	}
 }

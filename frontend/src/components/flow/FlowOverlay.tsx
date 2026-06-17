@@ -18678,8 +18678,8 @@ function FlowInner() {
             failCurrentVideoNode("Omni Flash Ext 单图模式只接 1 张图");
             return;
           }
-          if (omniVideoMode === "reference" && imageCount === 2) {
-            failCurrentVideoNode("Omni Flash Ext 参考模式接 1 或 3 张图");
+          if (omniVideoMode === "reference" && imageCount === 0) {
+            failCurrentVideoNode("Omni Flash Ext 参考模式至少接 1 张图");
             return;
           }
         } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {

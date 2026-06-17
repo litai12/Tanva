@@ -41,7 +41,7 @@ const MODE_OPTIONS = [
   {
     value: "reference",
     label: "参考模式",
-    description: "1 或 3 张图，或 1 条参考视频",
+    description: "1~3 张参考图，或 1 条参考视频",
   },
 ];
 
@@ -159,8 +159,6 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       msgs.push(lt("图片最多 3 张", "Images: max 3"));
     } else if (effectiveVideoMode === "frame" && imageInputCount > 1) {
       msgs.push(lt("单图模式只接 1 张图", "Single-image mode accepts 1 image"));
-    } else if (effectiveVideoMode === "reference" && imageInputCount === 2) {
-      msgs.push(lt("参考模式接 1 或 3 张图", "Reference mode accepts 1 or 3 images"));
     }
     return msgs;
   }, [imageInputCount, textInputCount, videoInputCount, effectiveVideoMode, lt]);
@@ -168,7 +166,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
   const imageHandleTooltip = React.useMemo(
     () =>
       effectiveVideoMode === "reference"
-        ? lt("参考图片：1 或 3 张", "Reference images: 1 or 3")
+        ? lt("参考图片：1~3 张", "Reference images: 1-3")
         : lt("单图生成视频：1 张图", "Single-image video: 1 image"),
     [effectiveVideoMode, lt]
   );

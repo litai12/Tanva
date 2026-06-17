@@ -314,7 +314,8 @@ func collectMetadataContentUrls(md map[string]interface{}) (images []string, vid
 }
 
 // buildOmniFlashExtPayload constructs APIMart omni-flash-ext requests.
-// Contract: prompt required; image_urls count must be 0/1/3; video_urls count
+// Contract: prompt required; image_urls count must be 0..3; 2+ images require
+// reference generation; video_urls count
 // must be 0/1; generation_type only applies when image_urls is present; omit
 // duration when a reference video is present.
 func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) {
@@ -359,8 +360,8 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 	p.ImageUrls = uniqueStrings(p.ImageUrls)
 	p.VideoUrls = uniqueStrings(p.VideoUrls)
 
-	if len(p.ImageUrls) == 2 || len(p.ImageUrls) > 3 {
-		return nil, fmt.Errorf("apimart omni-flash-ext: image_urls count must be 0, 1, or 3 (got %d)", len(p.ImageUrls))
+	if len(p.ImageUrls) > 3 {
+		return nil, fmt.Errorf("apimart omni-flash-ext: image_urls count must be 0 to 3 (got %d)", len(p.ImageUrls))
 	}
 	if len(p.VideoUrls) > 1 {
 		return nil, fmt.Errorf("apimart omni-flash-ext: video_urls supports at most 1 item (got %d)", len(p.VideoUrls))
@@ -371,8 +372,8 @@ func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, e
 		if generationType != "reference" {
 			generationType = "frame"
 		}
-		if len(p.ImageUrls) == 3 && generationType != "reference" {
-			return nil, fmt.Errorf("apimart omni-flash-ext: 3 image_urls require generation_type=reference")
+		if len(p.ImageUrls) >= 2 && generationType != "reference" {
+			return nil, fmt.Errorf("apimart omni-flash-ext: 2+ image_urls require generation_type=reference")
 		}
 		p.GenerationType = generationType
 	}
