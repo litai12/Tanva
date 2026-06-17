@@ -4407,6 +4407,11 @@ function FlowInner() {
 
   // collab: collaboration handle (null when not in a team project / not connected)
   const collab = useCollab();
+  // collab: 始终指向最新句柄。useCanvasCollab 每次渲染返回新对象，长生命周期的事件监听器
+  // (如 flow:updateNodeData，其 deps 不含 collab)会闭包捕获到旧的(未连接)句柄，导致
+  // connected 永远为 false、永不发送。所有采集点统一读 collabRef.current 规避闭包陈旧。
+  const collabRef = React.useRef(collab);
+  collabRef.current = collab;
   // collab: guard — true while we are applying a remote patch (prevents echo)
   const applyingRemoteRef = React.useRef(false);
   // collab: tracks which nodes are locked by other users { nodeId -> userId }
@@ -5479,7 +5484,8 @@ function FlowInner() {
 
       // collab: capture local node changes and broadcast to collaborators
       try {
-        if (!applyingRemoteRef.current && collab?.connected && Array.isArray(processedChanges)) {
+        const c0 = collabRef.current;
+        if (!applyingRemoteRef.current && c0?.connected && Array.isArray(processedChanges)) {
           const upsertNodes: any[] = [];
           const removeNodeIds: string[] = [];
           for (const c of processedChanges) {
@@ -5493,7 +5499,7 @@ function FlowInner() {
             }
           }
           if (upsertNodes.length > 0 || removeNodeIds.length > 0) {
-            collab.sendPatch({
+            c0.sendPatch({
               ...(upsertNodes.length > 0 ? { upsertNodes } : {}),
               ...(removeNodeIds.length > 0 ? { removeNodeIds } : {}),
             });
@@ -6033,12 +6039,13 @@ function FlowInner() {
 
       // collab: capture local edge removes and broadcast to collaborators
       try {
-        if (!applyingRemoteRef.current && collab?.connected && Array.isArray(changes)) {
+        const c0 = collabRef.current;
+        if (!applyingRemoteRef.current && c0?.connected && Array.isArray(changes)) {
           const removeEdgeIds = changes
             .filter((c: any) => c?.type === "remove" && c?.id)
             .map((c: any) => String(c.id));
           if (removeEdgeIds.length > 0) {
-            collab.sendPatch({ removeEdgeIds });
+            c0.sendPatch({ removeEdgeIds });
           }
         }
       } catch {}
@@ -13219,8 +13226,8 @@ function FlowInner() {
 
       // collab: 广播真实创建的边(含 ReactFlow 自分配 id), 保证两端边身份一致
       try {
-        if (!applyingRemoteRef.current && collab?.connected && collabNewEdge) {
-          collab.sendPatch({ upsertEdges: [collabNewEdge] });
+        if (!applyingRemoteRef.current && collabRef.current?.connected && collabNewEdge) {
+          collabRef.current.sendPatch({ upsertEdges: [collabNewEdge] });
         }
       } catch {}
 
@@ -14354,8 +14361,9 @@ function FlowInner() {
 
         // collab: broadcast the merged node data to collaborators (prompt/node data sync)
         try {
-          if (!applyingRemoteRef.current && collab?.connected) {
-            collab.sendPatch({ upsertNodes: [{ id: nextNode.id, data: nextNode.data }] });
+          const c = collabRef.current;
+          if (!applyingRemoteRef.current && c?.connected) {
+            c.sendPatch({ upsertNodes: [{ id: nextNode.id, data: nextNode.data }] });
           }
         } catch {}
 
