@@ -33,12 +33,13 @@ function colorFor(userId: string): string {
  * Subscribes to presence events and cursor frames. Returns the live set of
  * online users and a map of their latest cursor positions.
  */
-export function usePresence(collab: CanvasCollabHandle): PresenceState {
+export function usePresence(collab: CanvasCollabHandle | null | undefined): PresenceState {
   const [online, setOnline] = useState<PresenceUser[]>([]);
   const [cursors, setCursors] = useState<Record<string, PeerCursor>>({});
   const sweepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (!collab) return;
     const offConnected = collab.subscribe('connected', (env: CollabEnvelope) => {
       const payload = env.payload as ConnectedPayload;
       setOnline(

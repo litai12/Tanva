@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useTeamStore } from '@/stores/teamStore';
-import { useCanvasCollab } from '@/hooks/useCanvasCollab';
+import { useCollab } from '@/collab/CollabContext';
 import { usePresence } from '@/hooks/usePresence';
 import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
 import { useCollabToast } from '@/hooks/useCollabToast';
@@ -31,24 +31,27 @@ const CollabRoot: React.FC = () => {
     toastApiRef.current = api;
   }, []);
 
-  const onAccessRevoked = useCallback(() => {
-    toastApiRef.current?.show('您对此项目的访问权限已被撤销', 'info');
-  }, []);
-
-  const onSnapshotRequired = useCallback(() => {
-    toastApiRef.current?.show('远程变更过多，正在同步最新状态…', 'info');
+  // access_revoked / snapshot_required 由 CollabProvider 经 window 事件转发到此处展示提示。
+  useEffect(() => {
+    const onRevoked = () =>
+      toastApiRef.current?.show('您对此项目的访问权限已被撤销', 'info');
+    const onSnapshot = () =>
+      toastApiRef.current?.show('远程变更过多，正在同步最新状态…', 'info');
+    window.addEventListener('collab:access-revoked', onRevoked);
+    window.addEventListener('collab:snapshot-required', onSnapshot);
+    return () => {
+      window.removeEventListener('collab:access-revoked', onRevoked);
+      window.removeEventListener('collab:snapshot-required', onSnapshot);
+    };
   }, []);
 
   // Always call the hook with a placeholder when no project; React rules.
   const activeTeam = useTeamStore((s) => s.getActiveTeam());
   const isTeamMode = Boolean(activeTeam && !activeTeam.isPersonal);
 
-  const collab = useCanvasCollab({
-    projectId: projectId ?? '',
-    onAccessRevoked,
-    onSnapshotRequired,
-  });
-  const presence = usePresence(collab);
+  // 协作句柄由顶层 CollabProvider 提供（与 FlowOverlay 共享同一连接）。
+  const collab = useCollab();
+  const presence = usePresence(collab ?? undefined);
 
   const showToast = useCallback((text: string, kind: ToastKind) => {
     toastApiRef.current?.show(text, kind);
@@ -84,7 +87,7 @@ const CollabRoot: React.FC = () => {
       const now = Date.now();
       if (now - lastMouseSent.current < MOUSE_THROTTLE_MS) return;
       lastMouseSent.current = now;
-      collab.sendCursor(e.clientX, e.clientY);
+      collab?.sendCursor(e.clientX, e.clientY);
     };
     window.addEventListener('mousemove', handler, { passive: true });
     return () => window.removeEventListener('mousemove', handler);

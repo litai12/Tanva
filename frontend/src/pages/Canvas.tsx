@@ -23,6 +23,7 @@ import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
+import { CollabProvider } from '@/collab/CollabContext';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -76,6 +77,7 @@ const Canvas: React.FC = () => {
     }, [chatTheme]);
 
     return (
+        <CollabProvider>
         <div className="relative w-full h-full overflow-hidden">
             <GlobalEventCapture />
             <GlobalZoomCapture />
@@ -151,6 +153,7 @@ const Canvas: React.FC = () => {
             {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}
         </div>
+        </CollabProvider>
     );
 };
 

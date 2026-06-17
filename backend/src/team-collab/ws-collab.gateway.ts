@@ -11,12 +11,15 @@ import {
   channelForTeam,
   channelForUser,
 } from './collab-event-bus.service';
+import { CollabEventLog } from './collab-event-log.service';
 import { CollabEnvelope, CursorPayload, PresenceUserPayload } from './types';
 
 const WS_PATH = '/ws/collab';
 const HEARTBEAT_MS = 25_000;
 
-// 只把这几类信号下发给客户端（其余事件一律不走 WS）
+// 下发给客户端的事件类型（其余事件一律不走 WS）。
+// node_patch / node_lock / toast 是协作编辑的核心信号，必须转发，
+// 否则远端编辑、锁、提示都无法到达其他在线成员。
 const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'team_credits_changed',
   'user_credits_changed',
@@ -24,6 +27,11 @@ const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'task_status',
   'presence_join',
   'presence_leave',
+  'node_patch',
+  'node_lock',
+  'toast',
+  'snapshot_required',
+  'access_revoked',
 ]);
 
 interface WsConn {
@@ -42,6 +50,8 @@ interface UpgradeCtx {
   userName: string;
   teamId: string;
   projectId: string | null;
+  /** 断线重连时客户端携带的最后已处理 seq，用于补帧。 */
+  afterSeq: number;
 }
 
 @Injectable()
@@ -50,6 +60,8 @@ export class WsCollabGateway implements OnModuleDestroy {
   private readonly wss = new WebSocketServer({ noServer: true });
   private readonly conns = new Set<WsConn>();
   private readonly projectConns = new Map<string, Set<WsConn>>();
+  /** connId -> conn，供 HTTP patch/lock 端点校验连接归属。 */
+  private readonly connIndex = new Map<string, WsConn>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private originAllowed: ((origin: string) => boolean) | null = null;
 
@@ -57,8 +69,19 @@ export class WsCollabGateway implements OnModuleDestroy {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly bus: CollabEventBus,
+    private readonly log: CollabEventLog,
   ) {
     this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
+  }
+
+  /** 连接是否存在（HTTP patch/lock 端点用它替代失效的 SSE 校验）。 */
+  hasConn(connId: string): boolean {
+    return this.connIndex.has(connId);
+  }
+
+  /** 连接所属用户（校验 connId 与发起用户一致）。 */
+  getConnUserId(connId: string): string | undefined {
+    return this.connIndex.get(connId)?.userId;
   }
 
   /** main.ts 注入 Origin 白名单（与 CORS 配置一致）。 */
@@ -100,6 +123,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     const token = url.searchParams.get('token') ?? '';
     const teamId = url.searchParams.get('teamId') ?? '';
     const projectId = url.searchParams.get('projectId');
+    const afterSeq = Number.parseInt(url.searchParams.get('after') ?? '0', 10) || 0;
 
     let userId = '';
     let userName = '';
@@ -139,7 +163,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     }
 
     this.wss.handleUpgrade(req, socket, head, (ws) => {
-      void this.register(ws, { userId, userName, teamId, projectId });
+      void this.register(ws, { userId, userName, teamId, projectId, afterSeq });
     });
   }
 
@@ -182,10 +206,13 @@ export class WsCollabGateway implements OnModuleDestroy {
       isAlive: true,
     };
     this.conns.add(conn);
+    this.connIndex.set(conn.connId, conn);
 
     const forward = (env: CollabEnvelope) => {
       if (!FORWARD_TYPES.has(env.type)) return;
-      // 不把自己的光标回推给自己
+      // 不把自己发出的事件回推给自己（patch/lock/toast/cursor 统一按 connId 抑制）。
+      if (env.senderConnId && env.senderConnId === conn.connId) return;
+      // 光标额外按 userId 抑制（同一用户多连接时也不回推）。
       if (env.type === 'cursor' && env.senderUserId === conn.userId) return;
       this.safeSend(conn, env);
     };
@@ -223,6 +250,24 @@ export class WsCollabGateway implements OnModuleDestroy {
       },
       ts: Date.now(),
     } as CollabEnvelope);
+
+    // 断线重连补帧：客户端带上最后已处理 seq，回放其后持久化的事件（node_patch 等）。
+    // 缺帧过多（事件日志已截断）则下发 snapshot_required，客户端转为拉取全量快照。
+    if (ctx.projectId && ctx.afterSeq > 0) {
+      try {
+        const { envelopes, truncated } = await this.log.readAfter(ctx.projectId, ctx.afterSeq, 200);
+        if (truncated) {
+          this.safeSend(conn, {
+            type: 'snapshot_required' as any,
+            payload: { after: ctx.afterSeq },
+            ts: Date.now(),
+          } as CollabEnvelope);
+        }
+        for (const env of envelopes) {
+          this.safeSend(conn, env);
+        }
+      } catch {}
+    }
 
     ws.on('pong', () => {
       conn.isAlive = true;
@@ -279,6 +324,7 @@ export class WsCollabGateway implements OnModuleDestroy {
   private cleanup(conn: WsConn): void {
     if (!this.conns.has(conn)) return;
     this.conns.delete(conn);
+    this.connIndex.delete(conn.connId);
     for (const u of conn.unsubs) {
       try {
         u();

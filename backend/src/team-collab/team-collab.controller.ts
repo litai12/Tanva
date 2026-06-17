@@ -24,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CollabEventBus } from './collab-event-bus.service';
 import { CollabEventLog } from './collab-event-log.service';
 import { NodeLockService } from './node-lock.service';
+import { WsCollabGateway } from './ws-collab.gateway';
 import {
   CollabEnvelope,
   CursorPayload,
@@ -46,6 +47,7 @@ export class TeamCollabController {
     private readonly bus: CollabEventBus,
     private readonly log: CollabEventLog,
     private readonly locks: NodeLockService,
+    private readonly ws: WsCollabGateway,
   ) {}
 
   @Get(':projectId/stream')
@@ -277,10 +279,12 @@ export class TeamCollabController {
   }
 
   private assertConnAndRate(connId: string, userId: string): void {
-    if (!this.sse.hasConn(connId)) {
+    // 当前客户端走 WS 网关；同时兼容遗留 SSE 连接。
+    let owner = this.ws.getConnUserId(connId);
+    if (owner === undefined) owner = this.sse.getConnUserId(connId);
+    if (owner === undefined) {
       throw new ForbiddenException('connection_not_found');
     }
-    const owner = this.sse.getConnUserId(connId);
     if (owner !== userId) {
       throw new ForbiddenException('conn_user_mismatch');
     }

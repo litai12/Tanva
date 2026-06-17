@@ -102,6 +102,8 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
       if (envelope.seq > lastSeqRef.current) {
         lastSeqRef.current = envelope.seq;
       }
+      // 向 realtimeClient 推进补帧游标，断线重连时带上 after=seq。
+      realtimeClient.noteSeq(envelope.seq);
     }
     const set = listenersRef.current.get(envelope.type);
     if (set) for (const fn of set) fn(envelope);
@@ -118,7 +120,9 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
         const data = env.payload as ConnectedPayload;
         setConnected(true);
         setDegraded(Boolean(data?.degraded));
-        // 注意：connId 故意不写入 connIdRef（锁功能 v1 不启用，保持 no-op）。
+        // 写入 connId：激活 sendPatch / claimLock / sendToast（此前为 no-op 导致协作编辑不生效）。
+        connIdRef.current = data?.connId ?? null;
+        setConnId(data?.connId ?? null);
         dispatch({ type: 'connected', payload: data, ts: Date.now() });
         return;
       }
