@@ -109,11 +109,14 @@ export const projectApi = {
     });
     return json<Project>(res);
   },
-  async create(payload: { name?: string }): Promise<Project> {
+  async create(payload: { name?: string; teamId?: string | null }): Promise<Project> {
+    // 后端从 x-team-id 头读取团队上下文：团队模式下新建项目会立即共享给该团队。
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (payload.teamId) headers["x-team-id"] = payload.teamId;
     const res = await fetchWithAuth(`${base}/api/projects`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers,
+      body: JSON.stringify({ name: payload.name }),
     });
     return json<Project>(res);
   },

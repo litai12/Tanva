@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { projectApi, type Project } from '@/services/projectApi';
 import { deleteProjectCache } from '@/services/projectCacheStore';
 import { useTeamStore } from '@/stores/teamStore';
-import { useAuthStore } from '@/stores/authStore';
 import i18n from '@/i18n';
 
 type ProjectState = {
@@ -187,7 +186,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   create: async (name?: string) => {
     const normalizedName = name?.trim();
-    const project = await projectApi.create({ name: normalizedName || getDefaultProjectName() });
+    // 团队身份下新建的项目应归属当前团队（后端按 x-team-id 立即共享到该团队），
+    // 否则会落为个人项目。个人模式下不带 teamId。
+    const { activeTeamId, teams } = useTeamStore.getState();
+    const activeTeam = teams.find((t) => t.id === activeTeamId) ?? null;
+    const teamIdForCreate = activeTeam && !activeTeam.isPersonal ? activeTeam.id : undefined;
+    const project = await projectApi.create({
+      name: normalizedName || getDefaultProjectName(),
+      teamId: teamIdForCreate,
+    });
     const recentProjectIds = rememberRecentProjectId(
       project.id,
       get().recentProjectIds
@@ -222,21 +229,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       try {
         const proj = await projectApi.get(id);
 
-        // 若当前处于团队模式，但项目属于当前用户（个人项目），
-        // 则切回个人上下文并重新拉取项目列表，保证左侧列表与项目一致。
-        const currentUser = useAuthStore.getState().user;
+        // 通过 URL 打开项目时，依据「项目实际所属团队」对齐团队上下文，
+        // 修复复制/重开团队项目链接后顶部仍是个人身份/余额的问题。
+        // proj.teamId 由后端返回：项目被共享到的、当前用户为成员的团队；null=个人项目。
         const { activeTeamId, teams, setActiveTeamId } = useTeamStore.getState();
-        const activeTeam = teams.find((t) => t.id === activeTeamId);
-        if (activeTeam && !activeTeam.isPersonal && currentUser && proj.userId === (currentUser as any).sub) {
-          const personalTeam = teams.find((t) => t.isPersonal);
-          if (personalTeam) {
-            setActiveTeamId(personalTeam.id);
-            await get().load();
-            // load() 会根据 savedId 或首个项目设置 currentProject，
-            // 此处再确保 URL 指定的项目被激活。
-            get().open(id);
-            return;
-          }
+        const projTeamId: string | null = (proj as any).teamId ?? null;
+        const personalTeam = teams.find((t) => t.isPersonal) ?? null;
+        // 期望上下文：团队项目→该团队；个人项目→个人团队。
+        const desiredTeamId = projTeamId ?? personalTeam?.id ?? null;
+        if (
+          desiredTeamId &&
+          desiredTeamId !== activeTeamId &&
+          teams.some((t) => t.id === desiredTeamId)
+        ) {
+          setActiveTeamId(desiredTeamId);
+          await get().load();
+          // load() 会按新上下文拉取项目列表；再确保 URL 指定的项目被激活。
+          get().open(id);
+          return;
         }
 
         set((s) => {

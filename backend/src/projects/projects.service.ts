@@ -123,7 +123,19 @@ export class ProjectsService {
     });
     if (!p) throw new NotFoundException('项目不存在');
     if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
-    return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
+    // 解析该项目对当前用户而言所属的团队（被共享到的、用户为成员的团队）。
+    // 前端据此在通过 URL 打开项目时把团队上下文切到项目所属团队，
+    // 避免复制/重开团队项目链接时顶部仍停留在个人身份/余额。null = 个人项目。
+    const teamShare = await this.prisma.teamProjectShare.findFirst({
+      where: { projectId: id, team: { memberships: { some: { userId } } } },
+      select: { teamId: true },
+    });
+    return {
+      ...p,
+      teamId: teamShare?.teamId ?? null,
+      mainUrl: this.oss.publicUrl(p.mainKey),
+      thumbnailUrl: this.extractThumbnail(p) || undefined,
+    };
   }
 
   async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }, role?: string) {
