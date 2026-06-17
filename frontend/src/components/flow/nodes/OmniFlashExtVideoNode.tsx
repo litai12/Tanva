@@ -4,6 +4,7 @@ import { Video, Download, Share2, AlertTriangle } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import { formatVideoProviderError } from "@/utils/videoProviderError";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
@@ -27,6 +28,15 @@ type Props = {
     videoMode?: string;
   };
   selected?: boolean;
+};
+
+type FlowEdgeLike = {
+  target?: string | null;
+  targetHandle?: string | null;
+};
+
+type FlowStoreStateLike = {
+  edges?: FlowEdgeLike[];
 };
 
 const DURATION_OPTIONS = [4, 6, 8, 10];
@@ -78,13 +88,13 @@ const getStyles = (selected?: boolean) => ({
 });
 
 function OmniFlashExtVideoNode({ id, data, selected }: Props) {
-  const { lt } = useLocaleText();
+  const { lt, language } = useLocaleText();
   const styles = getStyles(selected);
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [isDownloading, setIsDownloading] = React.useState(false);
 
-  const updateNodeData = React.useCallback((patch: Record<string, any>) => {
+  const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
   }, [id]);
 
@@ -119,27 +129,27 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
 
   const imageInputCount = useStore(
     React.useCallback(
-      (state: any) =>
+      (state: FlowStoreStateLike) =>
         (state.edges || []).filter(
-          (e: any) => e.target === id && e.targetHandle === "image"
+          (e) => e.target === id && e.targetHandle === "image"
         ).length,
       [id]
     )
   );
   const videoInputCount = useStore(
     React.useCallback(
-      (state: any) =>
+      (state: FlowStoreStateLike) =>
         (state.edges || []).filter(
-          (e: any) => e.target === id && e.targetHandle === "video"
+          (e) => e.target === id && e.targetHandle === "video"
         ).length,
       [id]
     )
   );
   const textInputCount = useStore(
     React.useCallback(
-      (state: any) =>
+      (state: FlowStoreStateLike) =>
         (state.edges || []).filter(
-          (e: any) => e.target === id && e.targetHandle === "text"
+          (e) => e.target === id && e.targetHandle === "text"
         ).length,
       [id]
     )
@@ -237,6 +247,17 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     ) : null;
 
   const previewAspectStyle = aspectRatio === "9:16" ? "9/16" : "16/9";
+  const displayError = React.useMemo(
+    () =>
+      data.error
+        ? formatVideoProviderError(data.error, {
+            language,
+            fallbackZh: "视频生成失败，请调整提示词或素材后重试。",
+            fallbackEn: "Video generation failed. Please revise the prompt or media and try again.",
+          })
+        : "",
+    [data.error, language]
+  );
 
   React.useEffect(() => {
     setPreviewAspect(previewAspectStyle);
@@ -458,7 +479,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         </div>
       )}
 
-      {data.error && (
+      {displayError && (
         <div
           style={{
             marginTop: 6,
@@ -474,7 +495,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           }}
         >
           <AlertTriangle size={14} />
-          <span>{data.error}</span>
+          <span>{displayError}</span>
         </div>
       )}
     </div>

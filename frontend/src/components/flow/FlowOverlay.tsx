@@ -232,6 +232,7 @@ import {
 } from "./utils/promptMentionWiring";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import { formatVideoProviderError } from "@/utils/videoProviderError";
 import {
   projectLoadDebug,
   projectLoadNow,
@@ -4385,7 +4386,7 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
-  const { lt, isZh } = useLocaleText();
+  const { lt, isZh, language } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
@@ -20038,6 +20039,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务查询超时", {
+                  language,
+                  fallbackZh: "视频生成任务查询超时，请稍后重试。",
+                  fallbackEn: "Video generation query timed out. Please try again later.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20046,7 +20052,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务查询超时",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20147,6 +20153,14 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError(
+                  (queryResult as any).error || "任务生成失败",
+                  {
+                    language,
+                    fallbackZh: "任务生成失败，请重试。",
+                    fallbackEn: "Video generation failed. Please try again.",
+                  }
+                );
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20155,7 +20169,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: (queryResult as any).error || "任务生成失败",
+                            error: failureMessage,
                           },
                       }
                     : n
@@ -20193,6 +20207,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务状态查询失败，请重试", {
+                  language,
+                  fallbackZh: "任务状态查询失败，请重试。",
+                  fallbackEn: "Task status query failed. Please retry.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20201,7 +20220,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务状态查询失败，请重试",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20220,16 +20239,21 @@ function FlowInner() {
           // 立即执行一次，后续按 setTimeout 串行轮询，避免并发 poll 导致重复写 history
           void pollTask();
         } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
             provider,
-            error: error instanceof Error ? error.message : String(error),
+            error: rawMessage,
           });
-          const msg = error instanceof Error ? error.message : "视频生成失败";
+          const msg = formatVideoProviderError(rawMessage, {
+            language,
+            fallbackZh: "视频生成失败，请检查提示词或素材后重试。",
+            fallbackEn: "Video generation failed. Please check the prompt or media and try again.",
+          });
 
           // If the backend reported a specific image review failure (e.g. "参考图审核未通过 image[0]"),
           // mark the corresponding source ImageNode with the review-failed icon.
-          const reviewFailMatch = msg.match(/参考图审核未通过 image\[(\d+)\]/);
+          const reviewFailMatch = rawMessage.match(/参考图审核未通过 image\[(\d+)\]/);
           if (reviewFailMatch) {
             const failedIdx = parseInt(reviewFailMatch[1], 10);
             const srcEdge = referenceImageSourceEdges[failedIdx];
@@ -22963,6 +22987,7 @@ function FlowInner() {
       getSeedanceModeSpec,
       imageModel,
       inferSeedanceMode,
+      language,
       pollHappyhorseTask,
       recordFlowVideoHistory,
       rf,

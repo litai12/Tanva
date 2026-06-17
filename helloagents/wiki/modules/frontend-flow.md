@@ -3,6 +3,7 @@
 - Runtime validation follows APIMart `omni-flash-ext`: prompt required; single-image mode accepts 1 image, reference mode accepts 1-3 images, and more than 3 images are rejected.
 - Flow request assembly sends `managedModelKey=omni-flash-ext`, `referenceImages`, optional single `referenceVideos`, `aspectRatio`, `resolution`, and `videoMode`. When reference video is connected, `duration` is omitted and the run badge preview also omits duration.
 - When any reference video is connected, the node UI and request path force `videoMode=reference`; frame mode is only for image-only runs. This prevents APIMart from receiving `frame` together with `video_urls`.
+- Flow video failure display now formats upstream raw codes before writing them to node UI. `PUBLIC_ERROR_UNDERSPECIFIED_ANIMAL` becomes a localized prompt telling the user to describe the animal subject more clearly, and unknown `PUBLIC_ERROR_*` codes fall back to a localized upstream-rejected message while raw codes remain in console logs.
 
 ## 2026-06-05 Prompt Mention Stability
 - Prompt `@` image mentions now treat the stored token as an anchored structured reference as long as the token text still exists, instead of requiring a trailing whitespace/token boundary. Continuing to type immediately after an inserted `@图...` token, including IME pinyin composition and ASCII suffix text, no longer removes the corresponding `data.mentions` entry or drops it from Generate runtime reference-image resolution.
