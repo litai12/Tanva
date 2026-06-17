@@ -1,0 +1,84 @@
+import React from 'react';
+import type { PresenceUser } from '@/collab/types';
+
+interface Props {
+  online: PresenceUser[];
+  /** 当前用户 id，用于把"自己"标出来并排到最前。 */
+  currentUserId?: string | null;
+}
+
+const PALETTE = [
+  '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
+  '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e',
+];
+
+function colorFor(userId: string): string {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) | 0;
+  return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+function initials(name: string): string {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return '?';
+  // 中文取末字，英文取首字母
+  const cjk = trimmed.match(/[一-龥]/);
+  if (cjk) return trimmed.slice(-1);
+  return trimmed.slice(0, 1).toUpperCase();
+}
+
+/**
+ * 团队项目在线成员头像条（"看见彼此在线"）。展示当前项目内的在线协作者头像，
+ * hover 显示昵称。数据来自 usePresence().online（presence_join/leave + 握手快照）。
+ */
+const CollabPresenceBar: React.FC<Props> = ({ online, currentUserId }) => {
+  if (!online || online.length === 0) return null;
+  // 自己排最前
+  const sorted = [...online].sort((a, b) => {
+    if (a.userId === currentUserId) return -1;
+    if (b.userId === currentUserId) return 1;
+    return 0;
+  });
+  const shown = sorted.slice(0, 6);
+  const extra = sorted.length - shown.length;
+
+  return (
+    <div
+      className="fixed z-[8000] flex items-center"
+      style={{ top: 12, right: 320, pointerEvents: 'none' }}
+    >
+      <div
+        className="flex items-center rounded-full bg-white/90 px-2 py-1 shadow-md backdrop-blur"
+        style={{ pointerEvents: 'auto' }}
+        title={`${online.length} 人在线协作`}
+      >
+        <div className="flex -space-x-2">
+          {shown.map((u) => {
+            const color = u.color ?? colorFor(u.userId);
+            const isSelf = u.userId === currentUserId;
+            return (
+              <div
+                key={u.userId}
+                title={isSelf ? `${u.name}（你）` : u.name}
+                className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white text-[11px] font-medium text-white"
+                style={{ background: color }}
+              >
+                {initials(u.name)}
+              </div>
+            );
+          })}
+          {extra > 0 && (
+            <div
+              className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gray-500 text-[11px] font-medium text-white"
+              title={`另有 ${extra} 人在线`}
+            >
+              +{extra}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CollabPresenceBar;

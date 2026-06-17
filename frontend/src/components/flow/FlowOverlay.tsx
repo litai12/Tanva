@@ -4411,6 +4411,10 @@ function FlowInner() {
   const applyingRemoteRef = React.useRef(false);
   // collab: tracks which nodes are locked by other users { nodeId -> userId }
   const lockedByOthersRef = React.useRef<Map<string, string>>(new Map());
+  // collab: 渲染用的他人锁状态(state 触发重渲染, ref 供同步阻断编辑判断)
+  const [collabLockedNodes, setCollabLockedNodes] = React.useState<Record<string, string>>({});
+  // collab: 本端为"选中对象"持有的锁集合(选中 claim / 取消选中 release / 定时 renew)
+  const collabMyLocksRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
     nodesRef.current = nodes as RFNode[];
@@ -5207,12 +5211,37 @@ function FlowInner() {
       const { nodeId, action, userId } = payload;
       if (action === "claim" || action === "renewed") {
         lockedByOthersRef.current.set(nodeId, userId);
+        setCollabLockedNodes((m) => (m[nodeId] === userId ? m : { ...m, [nodeId]: userId }));
       } else if (action === "release" || action === "expired") {
         lockedByOthersRef.current.delete(nodeId);
+        setCollabLockedNodes((m) => {
+          if (!(nodeId in m)) return m;
+          const next = { ...m };
+          delete next[nodeId];
+          return next;
+        });
       }
     });
     return unsub;
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab]);
+
+  // collab: 定时续约本端持有的对象锁(后端 TTL 10s), 防止长时间选中期间锁过期被他人抢占;
+  // 断连/卸载时释放本端全部锁。
+  React.useEffect(() => {
+    if (!collab?.connected) return;
+    const timer = setInterval(() => {
+      for (const id of collabMyLocksRef.current) {
+        collab.renewLock(id).catch(() => {});
+      }
+    }, 7000);
+    return () => {
+      clearInterval(timer);
+      for (const id of collabMyLocksRef.current) {
+        collab.releaseLock(id).catch(() => {});
+      }
+      collabMyLocksRef.current.clear();
+    };
   }, [collab]);
 
   // collab: snapshot-required — trigger full project reload if possible
@@ -24612,22 +24641,41 @@ function FlowInner() {
 
   const nodesForRender = React.useMemo(
     () => {
-      if (collapsedChildNodeIds.size === 0) {
-        return nodesWithHandlers;
-      }
+      const base =
+        collapsedChildNodeIds.size === 0
+          ? nodesWithHandlers
+          : nodesWithHandlers.map((node) => {
+              if (!collapsedChildNodeIds.has(node.id)) return node;
+              return {
+                ...node,
+                hidden: true,
+                selected: false,
+                draggable: false,
+                selectable: false,
+              };
+            });
 
-      return nodesWithHandlers.map((node) => {
-        if (!collapsedChildNodeIds.has(node.id)) return node;
+      // collab: 给被他人锁定/选中的对象加可视边框(虚线描边, 颜色按持有者)。
+      // 仅作用于渲染数组 nodesForRender, 不写回 nodes, 因此不会被广播或持久化。
+      if (!collabLockedNodes || Object.keys(collabLockedNodes).length === 0) return base;
+      const lockColor = (uid: string) => {
+        let h = 0;
+        for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) | 0;
+        const palette = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e'];
+        return palette[Math.abs(h) % palette.length];
+      };
+      return base.map((node: any) => {
+        const holder = collabLockedNodes[node.id];
+        if (!holder) return node;
+        const c = lockColor(holder);
         return {
           ...node,
-          hidden: true,
-          selected: false,
-          draggable: false,
-          selectable: false,
+          style: { ...(node.style || {}), outline: `2px dashed ${c}`, outlineOffset: 2 },
+          className: [node.className, 'collab-locked-by-other'].filter(Boolean).join(' '),
         };
       });
     },
-    [nodesWithHandlers, collapsedChildNodeIds]
+    [nodesWithHandlers, collapsedChildNodeIds, collabLockedNodes]
   );
 
   const edgesForRender = React.useMemo(
@@ -26113,9 +26161,32 @@ function FlowInner() {
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
+        onSelectionChange={(sel: any) => {
+          // collab: 选中即对对象加锁(满足"选中/拖动 → 他人看到边框且不能同时编辑"),
+          // 取消选中则释放。不抢占他人已锁定的对象。
+          if (!collab?.connected) return;
+          const selIds = new Set<string>(((sel?.nodes as any[]) || []).map((n) => String(n.id)));
+          for (const id of selIds) {
+            if (collabMyLocksRef.current.has(id)) continue;
+            if (lockedByOthersRef.current.has(id)) continue;
+            collabMyLocksRef.current.add(id);
+            collab
+              .claimLock(id)
+              .then((r) => { if (!r?.acquired) collabMyLocksRef.current.delete(id); })
+              .catch(() => { collabMyLocksRef.current.delete(id); });
+          }
+          for (const id of [...collabMyLocksRef.current]) {
+            if (!selIds.has(id)) {
+              collabMyLocksRef.current.delete(id);
+              collab.releaseLock(id).catch(() => {});
+            }
+          }
+        }}
         onNodeDragStart={(event, node) => {
-          // collab: claim lock for this node while dragging
+          // collab: claim lock for this node while dragging; 记入本端锁集合, 由选中生命周期/续约维持,
+          // 拖拽结束不在此释放(否则仍处选中态的对象会失去锁)。
           if (collab?.connected) {
+            collabMyLocksRef.current.add(node.id);
             collab.claimLock(node.id).catch(() => {});
           }
           nodeDraggingRef.current = true;
@@ -26263,10 +26334,8 @@ function FlowInner() {
           }
         }}
         onNodeDragStop={(event, node) => {
-          // collab: release lock after drag ends
-          if (collab?.connected) {
-            collab.releaseLock(node.id).catch(() => {});
-          }
+          // collab: 拖拽结束不主动释放锁——对象通常仍处选中态, 锁由 onSelectionChange
+          // 在取消选中时释放、由续约定时器维持。若该节点未被选中持有(纯拖拽), 退回 TTL 自动过期。
           nodeDraggingRef.current = false;
           draggingGroupNodeRef.current = false;
           groupDragSnapshotRef.current = null;

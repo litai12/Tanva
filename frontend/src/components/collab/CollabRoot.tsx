@@ -7,6 +7,7 @@ import { usePresence } from '@/hooks/usePresence';
 import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
 import { useCollabToast } from '@/hooks/useCollabToast';
 import CollabCursorLayer from './CollabCursorLayer';
+import CollabPresenceBar from './CollabPresenceBar';
 import CollabToastHost, { type CollabToastApi } from './CollabToastHost';
 import type { ToastKind } from '@/collab/types';
 
@@ -100,6 +101,9 @@ const CollabRoot: React.FC = () => {
   return (
     <>
       <CollabCursorLayer cursors={presence.cursors} />
+      {isTeamMode && (
+        <CollabPresenceBar online={presence.online} currentUserId={currentUserId} />
+      )}
       <CollabToastHost apiRef={setToastApi} />
     </>
   );
