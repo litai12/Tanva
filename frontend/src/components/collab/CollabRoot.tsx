@@ -36,13 +36,22 @@ const CollabRoot: React.FC = () => {
   useEffect(() => {
     const onRevoked = () =>
       toastApiRef.current?.show('您对此项目的访问权限已被撤销', 'info');
-    const onSnapshot = () =>
-      toastApiRef.current?.show('远程变更过多，正在同步最新状态…', 'info');
+    // 补帧失败(缺帧过多)：本地状态已与服务端发散，拉取全量快照恢复。
+    // 此为长时间断线后的兜底场景，整页重载可确保干净地获取最新全量项目。
+    let snapshotReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const onSnapshot = () => {
+      toastApiRef.current?.show('远程变更过多，正在拉取最新全量内容…', 'info');
+      if (snapshotReloadTimer) return; // 防重复
+      snapshotReloadTimer = setTimeout(() => {
+        try { window.location.reload(); } catch {}
+      }, 1500);
+    };
     window.addEventListener('collab:access-revoked', onRevoked);
     window.addEventListener('collab:snapshot-required', onSnapshot);
     return () => {
       window.removeEventListener('collab:access-revoked', onRevoked);
       window.removeEventListener('collab:snapshot-required', onSnapshot);
+      if (snapshotReloadTimer) clearTimeout(snapshotReloadTimer);
     };
   }, []);
 
