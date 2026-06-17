@@ -179,6 +179,18 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (!this.collabBus || !this.collabLog) return;
     try {
+      // 进度同步：后端无细粒度进度列，按状态给出与本人轮询一致的粗粒度进度
+      // (queued=10 / processing=50 / succeeded=100 / failed=0)，让其他在线成员
+      // 的节点进度随状态推进，而非仅起止两点。已带 progress 时不覆盖。
+      if (typeof payload.progress !== 'number') {
+        const p =
+          payload.status === 'succeeded' ? 100
+          : payload.status === 'processing' ? 50
+          : payload.status === 'queued' ? 10
+          : payload.status === 'failed' ? 0
+          : undefined;
+        if (typeof p === 'number') payload = { ...payload, progress: p };
+      }
       const seq = await this.collabLog.nextSeq(projectId);
       const envelope: CollabEnvelope<TaskStatusPayload> = {
         type: 'task_status',

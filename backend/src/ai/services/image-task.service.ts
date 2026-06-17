@@ -95,6 +95,14 @@ export class ImageTaskService {
   ): Promise<void> {
     if (!projectId || !this.collabBus || !this.collabLog) return;
     try {
+      // 进度同步：与本人轮询一致的粗粒度进度(queued=10/processing=50/succeeded=100/failed=0)，
+      // 让其他在线成员节点进度随状态推进。
+      const coarseProgress =
+        payload.status === 'succeeded' ? 100
+        : payload.status === 'processing' ? 50
+        : payload.status === 'queued' ? 10
+        : payload.status === 'failed' ? 0
+        : undefined;
       const seq = await this.collabLog.nextSeq(projectId);
       const envelope: CollabEnvelope<TaskStatusPayload> = {
         type: 'task_status',
@@ -104,6 +112,7 @@ export class ImageTaskService {
           taskType: payload.taskType,
           category: 'image',
           status: payload.status,
+          ...(typeof coarseProgress === 'number' ? { progress: coarseProgress } : {}),
           resultPreview: payload.resultPreview ?? null,
           error: payload.error ?? null,
         },
