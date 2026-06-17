@@ -191,6 +191,17 @@ export const projectApi = {
         workflowHistoryMeta: payload.workflowHistoryMeta,
       }),
     });
+    // 乐观并发冲突：服务端检测到 baseVersion 落后(他人已保存)。抛出带 latestVersion 的
+    // 错误，调用方据此把本地版本对齐到最新后重试，避免覆盖他人改动。
+    if (res.status === 409) {
+      let body: any = null;
+      try { body = await res.json(); } catch {}
+      const err = new Error('version_conflict') as Error & { conflict?: boolean; latestVersion?: number };
+      err.conflict = true;
+      const latest = body?.latestVersion ?? body?.message?.latestVersion;
+      if (typeof latest === 'number') err.latestVersion = latest;
+      throw err;
+    }
     const data = await json<{
       version: number;
       updatedAt: string | null;

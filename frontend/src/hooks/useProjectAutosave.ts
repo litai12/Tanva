@@ -200,7 +200,18 @@ export function useProjectAutosave(projectId: string | null) {
       lastPersistedAtRef.current = Date.now();
       console.log(`autosave success (${attempt}/${MAX_RETRY_ATTEMPTS})`);
     } catch (err) {
-      console.warn(`autosave failed (${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
+      // 版本冲突(他人协作保存导致 baseVersion 落后)：把本地版本对齐到服务端最新，
+      // 交由重试再次保存。协作下两端经实时 patch 已收敛，对齐后重试即可成功且不丢改动。
+      const conflict = (err as { conflict?: boolean })?.conflict === true;
+      if (conflict) {
+        const latest = (err as { latestVersion?: number }).latestVersion;
+        if (typeof latest === 'number') {
+          try { useProjectContentStore.setState({ version: latest }); } catch {}
+        }
+        console.warn(`autosave version conflict; realigned to v${latest ?? '?'}, will retry`);
+      } else {
+        console.warn(`autosave failed (${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
+      }
 
       const rawMessage = err instanceof Error ? err.message : '';
       const errorMessage =

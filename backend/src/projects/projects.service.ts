@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -244,7 +244,6 @@ export class ProjectsService {
     },
     role?: string
   ) {
-    void version;
     return this.runProjectSaveSerialized(id, async () => {
       const saveStartedAt = Date.now();
       const timings: Record<string, number> = {};
@@ -300,6 +299,20 @@ export class ProjectsService {
           mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
           thumbnailUrl: this.extractThumbnail(project) || undefined,
         };
+      }
+
+      // 乐观并发：客户端携带其加载时的 baseVersion(version)。若已落后于服务端当前版本，
+      // 说明期间有他人(协作)保存过，拒绝本次全量覆盖并回传最新版本，避免互相覆盖。
+      // 仅在 version 显式提供且内容不同(已过上面的去重)时校验；个人模式版本始终同步, 不会触发。
+      const currentContentVersion = project.contentVersion ?? 0;
+      if (typeof version === 'number' && version > 0 && version < currentContentVersion) {
+        throw new ConflictException({
+          error: 'version_conflict',
+          conflict: true,
+          latestVersion: currentContentVersion,
+          updatedAt: project.updatedAt,
+          message: '内容版本落后，已基于最新版本，请重试保存',
+        });
       }
 
       try {
