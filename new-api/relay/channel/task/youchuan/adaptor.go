@@ -41,6 +41,7 @@ import (
 // ModelList — managed Youchuan models (route via abilities; price via ModelPrice).
 var ModelList = []string{
 	"midjourney-v7",
+	"midjourney-v8",
 	"niji-7",
 	"midjourney-niji-7",
 }
@@ -51,9 +52,8 @@ const ChannelName = "youchuan"
 // maxYouchuanTextChars caps the prompt; 悠船 returns 5xx on overly long text.
 const maxYouchuanTextChars = 10000
 
-// youchuanUnsupportedParams are MJ V7-only flags the /v1/tob/diffusion endpoint
-// does not accept; stripped before sending (mirrors the backend).
-var youchuanUnsupportedParams = []*regexp.Regexp{
+// youchuanV7UnsupportedParams are legacy V7/Niji flags stripped for compatibility.
+var youchuanV7UnsupportedParams = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)--cref\s+\S+`),
 	regexp.MustCompile(`(?i)--sref\s+\S+`),
 	regexp.MustCompile(`(?i)--oref\s+\S+`),
@@ -62,6 +62,19 @@ var youchuanUnsupportedParams = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)--sv\s+\S+`),
 	regexp.MustCompile(`(?i)--ow\s+\S+`),
 	regexp.MustCompile(`(?i)--exp\s+\S+`),
+}
+
+// youchuanV8UnsupportedParams are not supported by the Youchuan v8.1 diffusion API.
+var youchuanV8UnsupportedParams = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)--cref\s+\S+`),
+	regexp.MustCompile(`(?i)--cw\s+\S+`),
+	regexp.MustCompile(`(?i)--bs\s+\S+`),
+	regexp.MustCompile(`(?i)--stop\s+\S+`),
+	regexp.MustCompile(`(?i)--weird\s+\S+`),
+	regexp.MustCompile(`(?i)--tile\b`),
+	regexp.MustCompile(`(?i)--draft\b`),
+	regexp.MustCompile(`(?i)--turbo\b`),
+	regexp.MustCompile(`::`),
 }
 
 type TaskAdaptor struct {
@@ -99,12 +112,13 @@ func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *r
 
 // BuildRequestBody builds the Youchuan {text} payload from the standard task
 // request: prepend image URLs, strip unsupported V7 flags, cap length.
-func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, _ *relaycommon.RelayInfo) (io.Reader, error) {
+func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
 		return nil, err
 	}
-	text := buildYouchuanText(req.Images, req.Prompt)
+	modelName := firstNonEmpty(req.Model, info.UpstreamModelName, info.OriginModelName)
+	text := buildYouchuanText(req.Images, req.Prompt, modelName)
 	if text == "" {
 		return nil, fmt.Errorf("youchuan: prompt or reference image required")
 	}
@@ -224,10 +238,14 @@ func splitYouchuanKey(key string) (appID, secret string) {
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
-// buildYouchuanText prepends image URLs, strips unsupported V7 flags, caps length.
-func buildYouchuanText(images []string, prompt string) string {
+// buildYouchuanText prepends image URLs, strips unsupported flags by model, caps length.
+func buildYouchuanText(images []string, prompt string, modelName string) string {
 	cleaned := strings.TrimSpace(prompt)
-	for _, re := range youchuanUnsupportedParams {
+	unsupportedParams := youchuanV7UnsupportedParams
+	if strings.EqualFold(strings.TrimSpace(modelName), "midjourney-v8") {
+		unsupportedParams = youchuanV8UnsupportedParams
+	}
+	for _, re := range unsupportedParams {
 		cleaned = re.ReplaceAllString(cleaned, "")
 	}
 	cleaned = strings.TrimSpace(cleaned)

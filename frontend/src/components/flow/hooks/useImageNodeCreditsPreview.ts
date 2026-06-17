@@ -220,11 +220,19 @@ export const useImageNodeCreditsPreview = ({
       nodeType === "niji7"
     ) {
       const modelKey = resolveManagedModelKey(nodeType, "midjourney", managedModelKey);
+      const midjourneyModel =
+        nodeType === "niji7"
+          ? "midjourney-niji-7"
+          : modelVersion === "v8"
+          ? "midjourney-v8"
+          : "midjourney-v7";
       return {
         serviceType: "midjourney-imagine",
-        model: nodeType === "niji7" ? "midjourney-niji-7" : "midjourney-v7",
+        model: midjourneyModel,
         requestParams: {
           aiProvider: "midjourney",
+          model: midjourneyModel,
+          modelVersion: nodeType === "niji7" ? "niji-7" : modelVersion === "v8" ? "v8" : "v7",
           aspectRatio: safeAspectRatio,
           referenceImageCount: safeReferenceCount,
           modelKey,
@@ -284,6 +292,7 @@ export const useImageNodeCreditsPreview = ({
     gptImage2Quality,
     imageSize,
     managedModelKey,
+    modelVersion,
     nodeType,
     platformKey,
     referenceImageCount,

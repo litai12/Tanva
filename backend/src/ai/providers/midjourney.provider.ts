@@ -145,7 +145,11 @@ export class MidjourneyProvider implements IAIProvider {
   // 仅允许 V7/Niji 两个显式模型；其余(缺失/普通 MJ 旧名)一律拒绝。
   private isSupportedModel(model?: string): boolean {
     const normalized = (model ?? '').trim().toLowerCase();
-    return normalized === 'midjourney-v7' || normalized === 'midjourney-niji-7';
+    return (
+      normalized === 'midjourney-v7' ||
+      normalized === 'midjourney-v8' ||
+      normalized === 'midjourney-niji-7'
+    );
   }
 
   private resolveRequestMode(model?: string): MidjourneyAuthMode {
@@ -699,7 +703,8 @@ export class MidjourneyProvider implements IAIProvider {
 
   private async buildYouchuanDiffusionPayload(
     prompt: string,
-    imageInputs: string[] = []
+    imageInputs: string[] = [],
+    model?: string
   ): Promise<Record<string, any>> {
     const promptImageUrls = (
       await Promise.all(
@@ -710,16 +715,29 @@ export class MidjourneyProvider implements IAIProvider {
     ).filter(Boolean);
 
     // youchuan /v1/tob/diffusion 不支持 MJ V7 专属参数，过滤掉
-    const unsupportedPatterns = [
-      /--cref\s+\S+/gi,
-      /--sref\s+\S+/gi,
-      /--oref\s+\S+/gi,
-      /--iw\s+\S+/gi,
-      /--sw\s+\S+/gi,
-      /--sv\s+\S+/gi,
-      /--ow\s+\S+/gi,
-      /--exp\s+\S+/gi,
-    ];
+    const isV8 = (model ?? '').trim().toLowerCase() === 'midjourney-v8';
+    const unsupportedPatterns = isV8
+      ? [
+          /--cref\s+\S+/gi,
+          /--cw\s+\S+/gi,
+          /--bs\s+\S+/gi,
+          /--stop\s+\S+/gi,
+          /--weird\s+\S+/gi,
+          /--tile\b/gi,
+          /--draft\b/gi,
+          /--turbo\b/gi,
+          /::/g,
+        ]
+      : [
+          /--cref\s+\S+/gi,
+          /--sref\s+\S+/gi,
+          /--oref\s+\S+/gi,
+          /--iw\s+\S+/gi,
+          /--sw\s+\S+/gi,
+          /--sv\s+\S+/gi,
+          /--ow\s+\S+/gi,
+          /--exp\s+\S+/gi,
+        ];
     let cleanedPrompt = prompt.trim();
     for (const pattern of unsupportedPatterns) {
       cleanedPrompt = cleanedPrompt.replace(pattern, '');
@@ -985,7 +1003,7 @@ export class MidjourneyProvider implements IAIProvider {
       success: false,
       error: {
         code: 'MIDJOURNEY_IMAGE_ERROR',
-        message: '普通 Midjourney 已下线，请使用 Midjourney V7 或 Niji 7。',
+        message: '普通 Midjourney 已下线，请使用 Midjourney V7/V8 或 Niji 7。',
       },
     };
   }
@@ -1004,7 +1022,8 @@ export class MidjourneyProvider implements IAIProvider {
       const requestMode = this.resolveRequestMode(request.model);
       const payload = await this.buildYouchuanDiffusionPayload(
         request.prompt ?? '',
-        Array.isArray(request.imageUrls) ? request.imageUrls : []
+        Array.isArray(request.imageUrls) ? request.imageUrls : [],
+        request.model as string
       );
       const taskId = await this.submitTask(
         '/v1/tob/diffusion',
@@ -1057,9 +1076,11 @@ export class MidjourneyProvider implements IAIProvider {
     try {
       const requestMode = this.resolveRequestMode(request.model);
 
-      const payload = await this.buildYouchuanDiffusionPayload(request.prompt ?? '', [
-        request.sourceImage,
-      ]);
+      const payload = await this.buildYouchuanDiffusionPayload(
+        request.prompt ?? '',
+        [request.sourceImage],
+        request.model as string
+      );
       const taskId = await this.submitTask(
         '/v1/tob/diffusion',
         payload,
@@ -1105,7 +1126,8 @@ export class MidjourneyProvider implements IAIProvider {
 
       const payload = await this.buildYouchuanDiffusionPayload(
         request.prompt ?? '',
-        request.sourceImages
+        request.sourceImages,
+        request.model as string
       );
       const taskId = await this.submitTask(
         '/v1/tob/diffusion',
@@ -1137,7 +1159,7 @@ export class MidjourneyProvider implements IAIProvider {
       success: false,
       error: {
         code: 'MIDJOURNEY_DESCRIBE_ERROR',
-        message: 'MJ Describe（图生文）已下线，请使用 Midjourney V7 或 Niji 7 的生图能力。',
+        message: 'MJ Describe（图生文）已下线，请使用 Midjourney V7/V8 或 Niji 7 的生图能力。',
       },
     };
   }
@@ -1229,7 +1251,7 @@ export class MidjourneyProvider implements IAIProvider {
     return {
       name: 'midjourney',
       version: '1.0.0',
-      supportedModels: ['midjourney-v7', 'midjourney-niji-7'],
+      supportedModels: ['midjourney-v7', 'midjourney-v8', 'midjourney-niji-7'],
     };
   }
 }

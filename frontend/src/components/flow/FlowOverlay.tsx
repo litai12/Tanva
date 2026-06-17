@@ -1422,6 +1422,18 @@ const resolveNano2LikeMaxReferenceImages = (
     : 14;
 };
 
+const resolveMidjourneyModelVersionFromData = (
+  nodeData?: Record<string, unknown>
+): "v7" | "v8" => (nodeData?.modelVersion === "v8" ? "v8" : "v7");
+
+const resolveMidjourneyMaxReferenceImages = (
+  nodeType?: string | null,
+  nodeData?: Record<string, unknown>
+): number =>
+  nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+    ? 20
+    : 10;
+
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
 const ADD_PANEL_TAB_STORAGE_KEY = "tanva-add-panel-tab";
@@ -10529,6 +10541,7 @@ function FlowInner() {
           : type === "midjourneyV7" || type === "niji7"
           ? {
               status: "idle" as const,
+              modelVersion: type === "midjourneyV7" ? "v7" : undefined,
               aspectRatio: "1:1",
               speedMode: "fast" as const,
               raw: false,
@@ -12396,7 +12409,15 @@ function FlowInner() {
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
         if (params.targetHandle === "text") return true;
-        if (params.targetHandle === "img") return incoming.length < 10;
+        if (params.targetHandle === "img") {
+          return (
+            incoming.length <
+            resolveMidjourneyMaxReferenceImages(
+              targetNode.type,
+              (targetNode.data || {}) as Record<string, unknown>
+            )
+          );
+        }
         if (
           params.targetHandle === "omniImage" ||
           params.targetHandle === "omniimage"
@@ -13656,7 +13677,10 @@ function FlowInner() {
         (nodeType === "midjourneyV7" || nodeType === "niji7") &&
         targetHandle === "img"
       ) {
-        return 10;
+        return resolveMidjourneyMaxReferenceImages(
+          nodeType,
+          (targetNode?.data || {}) as Record<string, unknown>
+        );
       }
       if (
         (nodeType === "nano2" || nodeType === "gptImage2") &&
@@ -16014,8 +16038,60 @@ function FlowInner() {
         return trimmed.length > 0 ? trimmed : undefined;
       };
 
+      const isMidjourneyV8Node = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): boolean =>
+        nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8";
+
+      const parseMidjourneyNumber = (
+        value: unknown,
+        label: string,
+        min: number,
+        max: number,
+        errors: string[],
+        options: { integer?: boolean; allowed?: number[] } = {}
+      ): string | undefined => {
+        const raw = normalizeMidjourneyValue(value);
+        if (!raw) return undefined;
+        const numeric = Number(raw);
+        const isValidNumber =
+          Number.isFinite(numeric) &&
+          numeric >= min &&
+          numeric <= max &&
+          (!options.integer || Number.isInteger(numeric)) &&
+          (!options.allowed || options.allowed.includes(numeric));
+        if (!isValidNumber) {
+          const rangeText = options.allowed?.length
+            ? options.allowed.join(" / ")
+            : `${min}-${max}`;
+          errors.push(`${label} 仅支持 ${rangeText}`);
+          return undefined;
+        }
+        return options.integer ? String(Math.trunc(numeric)) : raw;
+      };
+
+      const resolveMidjourneyModelName = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "midjourney-niji-7";
+        return resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+          ? "midjourney-v8"
+          : "midjourney-v7";
+      };
+
+      const resolveMidjourneyActionTitle = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "Niji 7";
+        return "Midjourney";
+      };
+
       /**
-       * Midjourney V7 / Niji 7：走悠船 /v1/tob/diffusion，后端会剥离 iw/sv/sw/ow/exp/cref/sref/oref 等片段；
+       * Midjourney V7 / Niji 7：保持原有提示词参数逻辑。
+       * Midjourney V8：走悠船 v8.1 参数规则，使用 --v 8.1 并隐藏/拒绝不支持的参数。
        * 且禁止把 data: base64 写进提示词（会撑爆请求体导致 500）。参考图仅通过 imageUrls 上传。
        * 速度见 backend/docs/mj v7和Niji 7速度模式文档说明.md（需显式 --fast / --turbo / --draft）。
        */
@@ -16026,20 +16102,23 @@ function FlowInner() {
         hasImages: boolean
       ) => {
         const isNiji = nodeType === "niji7";
+        const isV8 = isMidjourneyV8Node(nodeType, nodeData);
         const errors: string[] = [];
         const flags: string[] = [];
         const basePrompt = (promptText || "").trim();
 
         if (basePrompt.includes("::")) {
-          errors.push("Midjourney V7 / Niji 7 暂不支持多提示词 ::");
+          errors.push("Midjourney V7/V8 / Niji 7 暂不支持多提示词 ::");
         }
 
-        flags.push(isNiji ? "--niji 7" : "--v 7");
+        flags.push(isNiji ? "--niji 7" : isV8 ? "--v 8.1" : "--v 7");
 
         if (nodeData.aspectRatio) flags.push(`--ar ${nodeData.aspectRatio}`);
 
         const resolvedSpeed =
-          nodeData.speedMode === "turbo"
+          isV8
+            ? "fast"
+            : nodeData.speedMode === "turbo"
             ? "turbo"
             : !isNiji &&
               (nodeData.speedMode === "draft" || nodeData.draft)
@@ -16056,16 +16135,70 @@ function FlowInner() {
         const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? "100";
         if (stylize && stylize !== "100") flags.push(`--stylize ${stylize}`);
         const weird = normalizeMidjourneyValue(nodeData.weird);
-        if (weird) flags.push(`--weird ${weird}`);
+        if (weird && !isV8) flags.push(`--weird ${weird}`);
         const seed = normalizeMidjourneyValue(nodeData.seed);
         if (seed) flags.push(`--seed ${seed}`);
 
         if (!isNiji) {
-          const quality = normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          const quality = isV8 && nodeData.quality === "2"
+            ? "1"
+            : normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          if (isV8 && quality !== "1" && quality !== "4") {
+            errors.push("V8 质量仅支持 1 或 4");
+          }
           if (quality && quality !== "1") flags.push(`--q ${quality}`);
           const noPrompt = normalizeMidjourneyValue(nodeData.noPrompt);
           if (noPrompt) flags.push(`--no ${noPrompt}`);
-          if (nodeData.tile) flags.push("--tile");
+          if (nodeData.tile && !isV8) flags.push("--tile");
+        }
+
+        if (isV8) {
+          if (nodeData.hd) flags.push("--hd");
+
+          const imageWeight = parseMidjourneyNumber(
+            nodeData.imageWeight,
+            "V8 图像权重",
+            0,
+            3,
+            errors
+          );
+          if (imageWeight && imageWeight !== "1") flags.push(`--iw ${imageWeight}`);
+
+          const styleRefs = parseMidjourneyList(nodeData.styleRefs).slice(0, 20);
+          const rawStyleRefCount = parseMidjourneyList(nodeData.styleRefs).length;
+          if (rawStyleRefCount > 20) {
+            errors.push("V8 风格参考最多支持 20 个 URL");
+          }
+          if (styleRefs.length > 0) {
+            flags.push(`--sref ${styleRefs.join(" ")}`);
+            const styleWeight = parseMidjourneyNumber(
+              nodeData.styleWeight,
+              "V8 风格权重",
+              0,
+              1000,
+              errors
+            );
+            if (styleWeight && styleWeight !== "100") flags.push(`--sw ${styleWeight}`);
+            flags.push("--sv 6");
+          }
+
+          const objectRefs = parseMidjourneyList(
+            nodeData.objectReference || nodeData.omniReference
+          );
+          if (objectRefs.length > 1) {
+            errors.push("V8 物体参考 --oref 仅支持 1 个 URL");
+          } else if (objectRefs.length === 1) {
+            flags.push(`--oref ${objectRefs[0]}`);
+          }
+
+          const exp = parseMidjourneyNumber(
+            nodeData.exp,
+            "V8 EXP",
+            0,
+            100,
+            errors
+          );
+          if (exp && exp !== "0") flags.push(`--exp ${exp}`);
         }
 
         const finalPrompt = [basePrompt, ...flags].filter(Boolean).join(" ").trim();
@@ -20858,17 +20991,24 @@ function FlowInner() {
 
       // Nano2 节点处理逻辑
       if (node.type === "midjourneyV7" || node.type === "niji7") {
+        const nodeData = (node.data || {}) as Record<string, any>;
+        const maxMidjourneyReferenceImages = resolveMidjourneyMaxReferenceImages(
+          node.type,
+          nodeData
+        );
+        const isMidjourneyV8 = isMidjourneyV8Node(node.type, nodeData);
         const { text: promptText } = getTextPromptForNode(nodeId);
-        const presetRaw = (node.data as any)?.presetPrompt;
+        const presetRaw = nodeData.presetPrompt;
         const preset =
           typeof presetRaw === "string" ? presetRaw.trim() : "";
-        const mergedPromptText = sanitizeFlowTextForMidjourneyV7(
-          [preset, promptText].filter(Boolean).join(" ").trim()
-        );
+        const rawMergedPromptText = [preset, promptText].filter(Boolean).join(" ").trim();
+        const mergedPromptText = isMidjourneyV8
+          ? rawMergedPromptText
+          : sanitizeFlowTextForMidjourneyV7(rawMergedPromptText);
         const totalImgEdges = currentEdges.filter(
           (e) => e.target === nodeId && e.targetHandle === "img"
         );
-        const imgEdges = totalImgEdges.slice(0, 10);
+        const imgEdges = totalImgEdges.slice(0, maxMidjourneyReferenceImages);
         let imageDatas = await resolveEdgesAsDataUrls(imgEdges);
 
         const omniImageEdges = currentEdges.filter(
@@ -20876,7 +21016,7 @@ function FlowInner() {
             e.target === nodeId &&
             (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
         );
-        if (omniImageEdges.length > 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length > 1) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -20886,27 +21026,36 @@ function FlowInner() {
           );
           return;
         }
-        if (omniImageEdges.length === 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length === 1) {
           const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
           if (crefDatas.length > 0) {
             const beforeCount = imageDatas.length;
-            imageDatas = [crefDatas[0], ...imageDatas].slice(0, 10);
-            if (beforeCount >= 10) {
+            imageDatas = [crefDatas[0], ...imageDatas].slice(0, maxMidjourneyReferenceImages);
+            if (beforeCount >= maxMidjourneyReferenceImages) {
               window.dispatchEvent(
                 new CustomEvent("toast", {
                   detail: {
-                    message: `参考图已满 10 张，万物参考已插入队首并去掉最后一张`,
+                    message: `参考图已满 ${maxMidjourneyReferenceImages} 张，万物参考已插入队首并去掉最后一张`,
                     type: "warning",
                   },
                 })
               );
             }
           }
+        } else if (isMidjourneyV8 && omniImageEdges.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "V8 不支持 CREF 连线；如需物体参考，请在 OREF URL 中填写 1 个远程图片地址",
+                type: "warning",
+              },
+            })
+          );
         }
 
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
-          (node.data || {}) as Record<string, any>,
+          nodeData,
           mergedPromptText,
           imageDatas.length > 0
         );
@@ -20929,11 +21078,11 @@ function FlowInner() {
           return;
         }
 
-        if (totalImgEdges.length > 10) {
+        if (totalImgEdges.length > maxMidjourneyReferenceImages) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: `Midjourney 仅支持最多 10 张参考图，当前已自动截取前 10 张`,
+                message: `Midjourney 仅支持最多 ${maxMidjourneyReferenceImages} 张参考图，当前已自动截取前 ${maxMidjourneyReferenceImages} 张`,
                 type: "warning",
               },
             })
@@ -20952,8 +21101,8 @@ function FlowInner() {
         );
 
         try {
-          const modelName = node.type === "niji7" ? "midjourney-niji-7" : "midjourney-v7";
-          const actionTitle = node.type === "niji7" ? "Niji 7" : "Midjourney V7";
+          const modelName = resolveMidjourneyModelName(node.type, nodeData);
+          const actionTitle = resolveMidjourneyActionTitle(node.type, nodeData);
           const mjResult = await generateImageViaAPI({
             prompt: finalPrompt,
             outputFormat: "png",
@@ -21000,7 +21149,7 @@ function FlowInner() {
             }
           } catch (persistErr) {
             console.warn(
-              "[Flow] Midjourney V7/Niji7: failed to persist preview to stable storage",
+              "[Flow] Midjourney V7/V8/Niji7: failed to persist preview to stable storage",
               persistErr
             );
             previewSource = rawPreviewSource;
@@ -21033,7 +21182,7 @@ function FlowInner() {
               );
             } catch (persistErr) {
               console.warn(
-                "[Flow] Midjourney V7/Niji7: failed to persist imageUrls item",
+                "[Flow] Midjourney V7/V8/Niji7: failed to persist imageUrls item",
                 persistErr
               );
               stableMidjourneyImageUrls.push(trimmed);
@@ -21239,7 +21388,7 @@ function FlowInner() {
               ? error.message
               : node.type === "niji7"
               ? "Niji 7 生成失败"
-              : "Midjourney V7 生成失败";
+              : "Midjourney 生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -23201,7 +23350,7 @@ function FlowInner() {
               node.type === "niji7"
                 ? "Niji 7"
                 : node.type === "midjourneyV7"
-                ? "Midjourney V7"
+                ? "Midjourney"
                 : node.type === "generatePro4"
                 ? "GeneratePro4"
                 : "Generate4"
