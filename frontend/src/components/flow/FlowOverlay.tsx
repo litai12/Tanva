@@ -5507,7 +5507,9 @@ function FlowInner() {
             if (!c?.id) continue;
             // collab: drop changes for nodes locked by others
             if (lockedByOthersRef.current.has(String(c.id))) continue;
-            if (c.type === "position" && c.dragging === false && c.position) {
+            // collab: 拖拽过程中(dragging===true)与结束(false)都广播位置, 实现实时跟随;
+            // sendPatch 的 maxWait 节流保证持续拖动时也能每 ~150ms 推送一次。
+            if (c.type === "position" && c.position) {
               upsertNodes.push({ id: c.id, position: c.position });
             } else if (c.type === "remove") {
               removeNodeIds.push(String(c.id));

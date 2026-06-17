@@ -12,6 +12,7 @@ import type {
 } from '../collab/types';
 
 const PATCH_DEBOUNCE_MS = 200;
+const PATCH_MAXWAIT_MS = 150; // 持续拖动时最长 150ms 强制推送一次, 保证 <300ms 实时跟随
 const CURSOR_THROTTLE_MS = 150;
 const RECONNECT_MS = 3000;
 const SEQ_DEDUP_WINDOW = 200;
@@ -56,6 +57,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const patchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPatch = useRef<NodePatchPayload | null>(null);
+  const patchLastFlush = useRef<number>(0);
   const cursorLastSent = useRef<number>(0);
   const lastSeqRef = useRef<number>(0);
   const seenSeqs = useRef<number[]>([]);
@@ -184,17 +186,26 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
         upsertEdges: dedupById([...(prev.upsertEdges ?? []), ...(patch.upsertEdges ?? [])]),
         removeEdgeIds: [...new Set([...(prev.removeEdgeIds ?? []), ...(patch.removeEdgeIds ?? [])])],
       };
-      if (patchDebounce.current) clearTimeout(patchDebounce.current);
-      patchDebounce.current = setTimeout(() => {
+      const flush = () => {
+        if (patchDebounce.current) { clearTimeout(patchDebounce.current); patchDebounce.current = null; }
         const toSend = pendingPatch.current;
         pendingPatch.current = null;
+        patchLastFlush.current = Date.now();
         if (!toSend) return;
         fetchWithAuth(`${base}/api/canvas/${projectId}/patch?teamId=${activeTeamId ?? ''}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ patch: toSend, connId: connIdRef.current }),
         }).catch(() => undefined);
-      }, PATCH_DEBOUNCE_MS);
+      };
+      // maxWait 节流：持续拖动(每帧调用)时, 距上次发送 >=150ms 立即推送, 实现实时跟随;
+      // 否则按 200ms 去抖在停顿后发出最终值。两者都保证不丢、不积压。
+      if (Date.now() - patchLastFlush.current >= PATCH_MAXWAIT_MS) {
+        flush();
+        return;
+      }
+      if (patchDebounce.current) clearTimeout(patchDebounce.current);
+      patchDebounce.current = setTimeout(flush, PATCH_DEBOUNCE_MS);
     },
     [projectId, activeTeamId],
   );
