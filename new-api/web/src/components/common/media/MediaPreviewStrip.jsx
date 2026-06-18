@@ -4,6 +4,10 @@ import { IconPlayCircle } from '@douyinfe/semi-icons';
 
 const { Text } = Typography;
 
+// Semi added `Image.PreviewGroup` after 2.69.x; older versions only ship `Image`.
+// Use the group when available (gallery navigation), otherwise render plainly.
+const ImagePreviewGroup = Image.PreviewGroup || React.Fragment;
+
 const TILE_W = 140;
 const TILE_H = 96;
 
@@ -60,13 +64,16 @@ const MediaPreviewStrip = ({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         {images.length > 0 ? (
-          <Image.PreviewGroup>
+          // Image.PreviewGroup only exists in newer Semi versions; fall back to a
+          // Fragment so each image still previews on click via its own `preview` prop.
+          <ImagePreviewGroup>
             {images.map((src) => (
               <Image
                 key={src}
                 src={src}
                 width={TILE_W}
                 height={TILE_H}
+                preview
                 style={tileBaseStyle}
                 imgStyle={{
                   width: TILE_W,
@@ -78,7 +85,7 @@ const MediaPreviewStrip = ({
                 loading='lazy'
               />
             ))}
-          </Image.PreviewGroup>
+          </ImagePreviewGroup>
         ) : null}
 
         {videos.map((src) => (
