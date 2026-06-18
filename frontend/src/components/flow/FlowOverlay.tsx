@@ -26622,6 +26622,18 @@ function FlowInner() {
         onNodeDragStop={(event, node) => {
           // collab: 拖拽结束不主动释放锁——对象通常仍处选中态, 锁由 onSelectionChange
           // 在取消选中时释放、由续约定时器维持。若该节点未被选中持有(纯拖拽), 退回 TTL 自动过期。
+          // collab: 显式广播【最终位置】——拖拽过程中的位置流是尽力而为(单次 POST 可能丢),
+          // 这里把被拖动节点(含多选)的终态位置再确定性发一次, 确保对端最终对齐。
+          try {
+            const c0 = collabRef.current;
+            if (c0?.connected && !applyingRemoteRef.current) {
+              const selected = (rf.getNodes() as RFNode[]).filter((n) => n.selected);
+              const finalNodes = (selected.length > 0 ? selected : [node])
+                .filter((n) => n && n.id && n.position && !lockedByOthersRef.current.has(String(n.id)))
+                .map((n) => ({ id: n.id, position: n.position }));
+              if (finalNodes.length > 0) c0.sendPatch({ upsertNodes: finalNodes });
+            }
+          } catch {}
           nodeDraggingRef.current = false;
           draggingGroupNodeRef.current = false;
           groupDragSnapshotRef.current = null;

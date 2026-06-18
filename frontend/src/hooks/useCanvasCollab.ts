@@ -186,17 +186,30 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
         upsertEdges: dedupById([...(prev.upsertEdges ?? []), ...(patch.upsertEdges ?? [])]),
         removeEdgeIds: [...new Set([...(prev.removeEdgeIds ?? []), ...(patch.removeEdgeIds ?? [])])],
       };
+      const post = (payload: NodePatchPayload, attempt: number) => {
+        // 用当前(可能刚重连刷新过的) connId 发送；失败(网络抖动/重连后旧 connId 被判 403)
+        // 重试一次, 避免单次丢包导致对端漏掉该次编辑(尤其拖拽最终位置)。
+        fetchWithAuth(`${base}/api/canvas/${projectId}/patch?teamId=${activeTeamId ?? ''}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ patch: payload, connId: connIdRef.current }),
+        })
+          .then((res) => {
+            if (!res.ok && attempt === 0 && connIdRef.current) {
+              setTimeout(() => post(payload, 1), 300);
+            }
+          })
+          .catch(() => {
+            if (attempt === 0 && connIdRef.current) setTimeout(() => post(payload, 1), 300);
+          });
+      };
       const flush = () => {
         if (patchDebounce.current) { clearTimeout(patchDebounce.current); patchDebounce.current = null; }
         const toSend = pendingPatch.current;
         pendingPatch.current = null;
         patchLastFlush.current = Date.now();
         if (!toSend) return;
-        fetchWithAuth(`${base}/api/canvas/${projectId}/patch?teamId=${activeTeamId ?? ''}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ patch: toSend, connId: connIdRef.current }),
-        }).catch(() => undefined);
+        post(toSend, 0);
       };
       // maxWait 节流：持续拖动(每帧调用)时, 距上次发送 >=150ms 立即推送, 实现实时跟随;
       // 否则按 200ms 去抖在停顿后发出最终值。两者都保证不丢、不积压。
