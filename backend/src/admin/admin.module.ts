@@ -11,6 +11,7 @@ import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 import { TeamCollabModule } from '../team-collab/team-collab.module';
+import { TeamCoreModule } from '../team-core/team-core.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     MembershipModule,
     VolcAssetModule,
     TeamCollabModule,
+    TeamCoreModule,
   ],
   controllers: [AdminController, SettingsPublicController],
   providers: [AdminService, TemplateService, NodeConfigService],

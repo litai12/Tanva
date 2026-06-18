@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Flow/3D Upload: GLB/GLTF uploads now use the backend `/api/uploads/model` OSS/TOS relay by default, keeping persisted model refs as remote URLs/keys while avoiding browser direct POST 403/CORS failures against TOS.
+- Admin/Users: full admins can now create users from the user-management page with phone, password, nickname, and optional email; the backend exposes `POST /api/admin/users` and initializes the user's personal team and credit account.
 - Flow/Text Chat: Text Chat node Skill, prompt, and response regions now pass canvas zoom wheel gestures through to the Flow canvas while preserving native scrolling for normal wheel input, preventing browser page zoom over the node body.
 - Flow/Midjourney UI: moved Midjourney V7 and Niji 7 run-credit display into the Run button hover interaction so credits no longer render beside the node title.
 - Flow/Midjourney: renamed the Midjourney V7 node chrome to Midjourney and added a V7/V8 model selector that drives the prompt version flag, backend model name, and credit preview.

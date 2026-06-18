@@ -28,7 +28,14 @@ const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
 const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32MB
 const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB（与前端 AudioNode 一致）
 const MAX_DOCUMENT_SIZE = 15 * 1024 * 1024; // 15MB
+const MAX_MODEL_SIZE = 50 * 1024 * 1024; // 50MB
 const SUPPORTED_DOCUMENT_TYPES = ['application/pdf'];
+const SUPPORTED_MODEL_TYPES = [
+  'model/gltf-binary',
+  'model/gltf+json',
+  'application/octet-stream',
+  'application/json',
+];
 const SUPPORTED_AUDIO_TYPES = [
   'audio/mpeg',
   'audio/mp3',
@@ -111,6 +118,20 @@ function inferDocumentExtFromMime(mimeType?: string): string {
   const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
   if (value === 'application/pdf') return 'pdf';
   return 'bin';
+}
+
+function inferModelExtFromMime(mimeType?: string): string {
+  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : '';
+  if (value === 'model/gltf-binary') return 'glb';
+  if (value === 'model/gltf+json' || value === 'application/json') return 'gltf';
+  return 'glb';
+}
+
+function inferModelMimeFromFileName(fileName?: string, fallbackMimeType?: string): string {
+  const lower = typeof fileName === 'string' ? fileName.trim().toLowerCase() : '';
+  if (lower.endsWith('.glb')) return 'model/gltf-binary';
+  if (lower.endsWith('.gltf')) return 'model/gltf+json';
+  return fallbackMimeType || 'model/gltf-binary';
 }
 
 function extractMultipartField(
@@ -385,6 +406,56 @@ export class UploadsController {
         error instanceof Error ? error.stack : undefined,
       );
       throw new ServiceUnavailableException('Document upload failed; please check OSS/TOS configuration');
+    }
+  }
+
+  @Post('model')
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  @ApiConsumes('multipart/form-data')
+  async uploadModel(@Req() req: FastifyRequest) {
+    const file = await this.readSingleMultipartFile(req, MAX_MODEL_SIZE);
+    const form = file.fields;
+
+    const declaredFileName = extractMultipartField(form, 'fileName');
+    const safeFileName = sanitizeFileName(
+      declaredFileName || file.originalName || `model.${inferModelExtFromMime(file.mimeType)}`
+    );
+    const lowerName = safeFileName.toLowerCase();
+    if (!lowerName.endsWith('.glb') && !lowerName.endsWith('.gltf')) {
+      throw new BadRequestException('Unsupported 3D model format. Supported: .glb, .gltf');
+    }
+
+    const mimeType = inferModelMimeFromFileName(safeFileName, String(file.mimeType || '').toLowerCase());
+    if (!SUPPORTED_MODEL_TYPES.includes(mimeType)) {
+      throw new BadRequestException(
+        `Unsupported 3D model content type: ${file.mimeType}. Supported: ${SUPPORTED_MODEL_TYPES.join(', ')}`
+      );
+    }
+
+    const dir = normalizeUploadDir(extractMultipartField(form, 'dir'), 'uploads/models/');
+    const explicitKey = (extractMultipartField(form, 'key') || '').trim().replace(/^\/+/, '');
+    const key = (() => {
+      if (explicitKey) return explicitKey;
+      const ext = lowerName.endsWith('.gltf') ? 'gltf' : 'glb';
+      return `${dir}${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeFileName.replace(/\.[^.]+$/, '')}.${ext}`;
+    })();
+
+    try {
+      const stream = Readable.from(file.buffer);
+      const result = await this.oss.putStream(key, stream, {
+        headers: {
+          'Content-Type': mimeType,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+      return { url: result.url, key: result.key };
+    } catch (error) {
+      this.logger.error(
+        `3D model upload failed: ${error instanceof Error ? error.message : String(error)}; oss=${this.uploadDiagnosticsForLog()}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('3D model upload failed; please check OSS/TOS configuration');
     }
   }
 

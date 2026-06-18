@@ -95,6 +95,13 @@ function isBackendAudioRelayEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function isBackendModelRelayEnabled(): boolean {
+  const raw = String((import.meta.env.VITE_MODEL_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -233,6 +240,13 @@ function isLikelyDocumentUpload(data: Blob | File, options: OssUploadOptions): b
   if (type === "application/pdf") return true;
   const name = String(options.fileName || (data as File).name || "");
   return /\.pdf$/i.test(name);
+}
+
+function isLikelyModelUpload(data: Blob | File, options: OssUploadOptions): boolean {
+  const type = String(options.contentType || (data as File).type || "").toLowerCase();
+  if (type === "model/gltf-binary" || type === "model/gltf+json") return true;
+  const name = String(options.fileName || (data as File).name || "");
+  return /\.(glb|gltf)$/i.test(name);
 }
 
 async function verifyUploadedAssetReadable(
@@ -536,6 +550,71 @@ async function uploadDocumentViaBackend(
   }
 }
 
+function resolveModelContentType(data: Blob | File, options: OssUploadOptions): string {
+  const declared = String(options.contentType || (data as File).type || "").toLowerCase();
+  if (declared === "model/gltf-binary" || declared === "model/gltf+json") return declared;
+  const name = String(options.fileName || (data as File).name || "").toLowerCase();
+  if (name.endsWith(".gltf")) return "model/gltf+json";
+  return "model/gltf-binary";
+}
+
+async function uploadModelViaBackend(
+  data: Blob | File,
+  options: OssUploadOptions,
+  fallbackKey?: string,
+): Promise<OssUploadResult> {
+  const API_BASE = getApiBaseUrl();
+  const fileName = options.fileName || (data as File).name || "upload-model.glb";
+  const modelType = resolveModelContentType(data, options);
+  const file = data instanceof File && (data.type || "").toLowerCase() === modelType
+    ? data
+    : new File([data], fileName, { type: modelType });
+  const formData = new FormData();
+  formData.append("file", file);
+  if (options.dir) formData.append("dir", options.dir);
+  if (fileName) formData.append("fileName", fileName);
+  if (fallbackKey) formData.append("key", fallbackKey);
+
+  const headers: Record<string, string> = {};
+  if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+
+  try {
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/uploads/model`,
+      {
+        method: "POST",
+        body: formData,
+        headers,
+        auth: options.authToken ? "omit" : "auto",
+        credentials: options.authToken ? "omit" : "include",
+      },
+      5 * 60_000
+    );
+    const dataJson = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        success: false,
+        error:
+          dataJson?.message ||
+          dataJson?.error ||
+          `Backend 3D model upload failed: ${res.status}`,
+      };
+    }
+
+    const url = typeof dataJson?.url === "string" ? dataJson.url : "";
+    const key = typeof dataJson?.key === "string" ? dataJson.key : "";
+    if (!url) {
+      return { success: false, error: "Backend 3D model upload returned empty url" };
+    }
+    return { success: true, url, key: key || undefined, size: data.size };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error?.message || "Backend 3D model upload failed",
+    };
+  }
+}
+
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   const ext = inferExtension(fileName, undefined) || extensionHint || "";
   const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -615,6 +694,20 @@ export async function uploadToOSS(
     }
     return backendUpload;
   };
+  const tryBackendModelFallback = async (
+    dir: string,
+    fallbackKey?: string
+  ): Promise<OssUploadResult | null> => {
+    if (!isLikelyModelUpload(data, options)) return null;
+    const backendUpload = await uploadModelViaBackend(data, { ...options, dir }, fallbackKey);
+    if (!backendUpload.success || !backendUpload.url) {
+      return {
+        success: false,
+        error: backendUpload.error || "Backend 3D model upload fallback failed",
+      };
+    }
+    return backendUpload;
+  };
 
   try {
     const dir = normalizeDir(options.dir, options.projectId);
@@ -622,6 +715,7 @@ export async function uploadToOSS(
     const isVideo = isLikelyVideoUpload(data, options);
     const isAudio = isLikelyAudioUpload(data, options);
     const isDocument = isLikelyDocumentUpload(data, options);
+    const isModel = isLikelyModelUpload(data, options);
 
     if (isImage && isBackendImageRelayEnabled()) {
       const extension = inferExtension(
@@ -731,6 +825,35 @@ export async function uploadToOSS(
       };
     }
 
+    if (isModel && isBackendModelRelayEnabled()) {
+      const extension = inferExtension(
+        options.fileName,
+        options.contentType || (data as File).type
+      );
+      const preferredKey = (() => {
+        const forced = typeof options.key === "string" ? options.key.trim() : "";
+        if (forced) return forced.replace(/^\/+/, "");
+        return buildKey(dir, options.fileName, extension);
+      })();
+      const backendUpload = await uploadModelViaBackend(data, { ...options, dir }, preferredKey);
+      if (backendUpload.success && backendUpload.url) {
+        const backendReadable = await verifyUploadedAssetReadable(
+          backendUpload.key,
+          backendUpload.url,
+          options.authToken
+        );
+        if (backendReadable) return backendUpload;
+        return {
+          success: false,
+          error: "Backend 3D model upload succeeded but asset is still not readable",
+        };
+      }
+      return {
+        success: false,
+        error: backendUpload.error || "Backend 3D model upload failed",
+      };
+    }
+
     const presign = await requestPresign(dir, options.maxSize, options.authToken);
 
     const extension = inferExtension(
@@ -794,6 +917,8 @@ export async function uploadToOSS(
       if (fallback) return fallback;
       const videoFallback = await tryBackendVideoFallback(dir, key);
       if (videoFallback) return videoFallback;
+      const modelFallback = await tryBackendModelFallback(dir, key);
+      if (modelFallback) return modelFallback;
       throw directError;
     }
 
@@ -839,6 +964,8 @@ export async function uploadToOSS(
       if (audioFallback) return audioFallback;
       const documentFallback = await tryBackendDocumentFallback(dir, fallbackKey);
       if (documentFallback) return documentFallback;
+      const modelFallback = await tryBackendModelFallback(dir, fallbackKey);
+      if (modelFallback) return modelFallback;
     } catch {
       // keep original error
     }

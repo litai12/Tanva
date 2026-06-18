@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UsersQueryDto {
@@ -28,6 +28,26 @@ export class UsersQueryDto {
   @ApiPropertyOptional({ description: '排序方向', enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()
   sortOrder?: 'asc' | 'desc' = 'desc';
+}
+
+export class CreateAdminUserDto {
+  @ApiProperty({ description: '手机号' })
+  @IsString()
+  phone!: string;
+
+  @ApiProperty({ description: '登录密码' })
+  @IsString()
+  @MinLength(6)
+  password!: string;
+
+  @ApiProperty({ description: '昵称' })
+  @IsString()
+  name!: string;
+
+  @ApiPropertyOptional({ description: '邮箱' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 }
 
 export class ApiUsageStatsQueryDto {

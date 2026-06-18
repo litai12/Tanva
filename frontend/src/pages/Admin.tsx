@@ -18,6 +18,7 @@ import { WECHAT_QR_ACTION_URL } from "@/utils/wechatQrPanel";
 import {
   getDashboardStats,
   getUsers,
+  createAdminUser,
   getApiUsageStats,
   getApiUsageRecords,
   addCredits,
@@ -4805,6 +4806,14 @@ function UsersTab({
   const [page, setPage] = useState(1);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [unbindingWechatUserId, setUnbindingWechatUserId] = useState<string | null>(null);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState({
+    phone: "",
+    password: "",
+    confirmPassword: "",
+    name: "",
+    email: "",
+  });
 
   // 积分操作弹窗
   const [creditModal, setCreditModal] = useState<{
@@ -5003,6 +5012,64 @@ function UsersTab({
       loadUsers();
     } catch (error: any) {
       alert(error.message || "操作失败");
+    }
+  };
+
+  const handleCreateUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const phone = createUserForm.phone.trim();
+    const password = createUserForm.password;
+    const confirmPassword = createUserForm.confirmPassword;
+    const name = createUserForm.name.trim();
+    const email = createUserForm.email.trim().toLowerCase();
+
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      alert("请输入正确的手机号");
+      return;
+    }
+    if (!name) {
+      alert("请输入昵称");
+      return;
+    }
+    if (name === phone) {
+      alert("昵称不能与手机号相同");
+      return;
+    }
+    if (email && name.toLowerCase() === email) {
+      alert("昵称不能与邮箱相同");
+      return;
+    }
+    if (password.length < 6) {
+      alert("密码至少需要 6 位");
+      return;
+    }
+    if (password !== confirmPassword) {
+      alert("两次输入的密码不一致");
+      return;
+    }
+
+    setCreatingUser(true);
+    try {
+      await createAdminUser({
+        phone,
+        password,
+        name,
+        email: email || undefined,
+      });
+      setCreateUserForm({
+        phone: "",
+        password: "",
+        confirmPassword: "",
+        name: "",
+        email: "",
+      });
+      setPage(1);
+      await loadUsers();
+      alert("用户创建成功");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "创建用户失败");
+    } finally {
+      setCreatingUser(false);
     }
   };
 
@@ -5425,6 +5492,78 @@ function UsersTab({
       )}
 
       {/* 用户视图 */}
+      {view === 'users' && canManageSensitiveUserFields && (
+        <form
+          onSubmit={handleCreateUser}
+          className='mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm'
+        >
+          <div className='mb-4'>
+            <div className='text-sm font-semibold text-gray-900'>添加用户信息</div>
+            <div className='mt-1 text-xs font-medium text-gray-500'>
+              手机号和密码必填，昵称按注册信息填写。
+            </div>
+          </div>
+          <div className='grid grid-cols-1 gap-3 lg:grid-cols-5'>
+            <Input
+              placeholder='手机号'
+              value={createUserForm.phone}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, phone: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='登录密码'
+              type='password'
+              value={createUserForm.password}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, password: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='确认密码'
+              type='password'
+              value={createUserForm.confirmPassword}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='昵称'
+              value={createUserForm.name}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='邮箱（可选）'
+              type='email'
+              value={createUserForm.email}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+            />
+          </div>
+          <div className='mt-3 flex justify-end'>
+            <Button
+              type='submit'
+              disabled={creatingUser}
+              className='h-11 rounded-md bg-gray-900 px-5 text-sm font-semibold text-white hover:bg-gray-800'
+            >
+              {creatingUser ? "创建中..." : "添加用户"}
+            </Button>
+          </div>
+        </form>
+      )}
+
       {view === 'users' && <div className='mb-4 flex gap-2'>
         <Input
           placeholder='搜索手机号/邮箱/昵称'
