@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Flow/Text Chat: Text Chat node Skill, prompt, and response regions now pass canvas zoom wheel gestures through to the Flow canvas while preserving native scrolling for normal wheel input, preventing browser page zoom over the node body.
 - Flow/Midjourney UI: moved Midjourney V7 and Niji 7 run-credit display into the Run button hover interaction so credits no longer render beside the node title.
 - Flow/Midjourney: renamed the Midjourney V7 node chrome to Midjourney and added a V7/V8 model selector that drives the prompt version flag, backend model name, and credit preview.
 - new-api/APIMart: added a repair data patch for `omni-flash-ext` model/channel/ability/pricing rows and locked the APIMart payload to upstream `model=Omni-Flash-Ext` to avoid APIMart `model_not_found`.
