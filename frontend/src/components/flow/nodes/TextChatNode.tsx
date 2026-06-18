@@ -9,6 +9,7 @@ import {
   type Edge,
 } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
+import { useCanvasStore } from '@/stores';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
@@ -89,6 +90,20 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   };
   if (native?.stopImmediatePropagation) {
     native.stopImmediatePropagation();
+  }
+};
+
+const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) => {
+  const store = useCanvasStore.getState();
+  const isModifierWheel = event.ctrlKey || event.metaKey;
+  return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+};
+
+const stopFlowPanUnlessCanvasZoom = (event: React.WheelEvent<HTMLElement>) => {
+  if (shouldPassWheelToCanvas(event)) return;
+  event.stopPropagation();
+  if (event.nativeEvent?.stopImmediatePropagation) {
+    event.nativeEvent.stopImmediatePropagation();
   }
 };
 
@@ -822,7 +837,10 @@ Rules:
         </div>
 
         <div style={{ fontSize: 11, color: themePalette.secondaryText }}>{lt('已连接提示', 'Connected prompts')}: {incomingTexts.length} {lt('条', 'item(s)')}</div>
-        <div style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? themePalette.panelText : themePalette.panelMutedText }}>
+        <div
+          onWheelCapture={stopFlowPanUnlessCanvasZoom}
+          style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? themePalette.panelText : themePalette.panelMutedText }}
+        >
           {incomingTexts.length
             ? incomingTexts.map((text, index) => (
               <div key={`${index}-${text.slice(0, 12)}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
@@ -833,7 +851,10 @@ Rules:
             : <span>{lt('连接多个 Prompt 节点以聚合输入', 'Connect multiple Prompt nodes to aggregate input')}</span>}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div
+          onWheelCapture={stopFlowPanUnlessCanvasZoom}
+          style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={labelStyle}>{lt('Skill', 'Skill')}</div>
             <DropdownMenu>
@@ -929,7 +950,7 @@ Rules:
                 fontFamily: 'inherit',
                 boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
               }}
-              onWheelCapture={stopFlowPan}
+              onWheelCapture={stopFlowPanUnlessCanvasZoom}
               onPointerDownCapture={stopFlowPan}
               onMouseDownCapture={stopFlowPan}
             />
@@ -938,7 +959,10 @@ Rules:
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={labelStyle}>{lt('回复结果', 'Response')}</div>
-          <div style={{ ...panelStyle, minHeight: 64, maxHeight: 180, overflowY: 'auto' }}>
+          <div
+            onWheelCapture={stopFlowPanUnlessCanvasZoom}
+            style={{ ...panelStyle, minHeight: 64, maxHeight: 180, overflowY: 'auto' }}
+          >
             {responseText || lt('运行后将在此处展示回复内容', 'Run to see response text here')}
           </div>
         </div>

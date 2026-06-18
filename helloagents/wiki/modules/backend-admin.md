@@ -12,6 +12,7 @@
 ## API（前缀 `/api/admin`，节选）
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
+- `POST users`: full-admin user creation using phone, password, name, and optional email; creates the personal team and credit account just like registration.
 - `DELETE users/:userId`
 - `POST users/:userId/unbind-wechat`
 - `PATCH users/:userId/status` / `PATCH users/:userId/role`

@@ -32,6 +32,7 @@ import { VolcAssetService } from '../volc-asset/volc-asset.service';
 import { MembershipService } from '../membership/membership.service';
 import {
   UsersQueryDto,
+  CreateAdminUserDto,
   ApiUsageStatsQueryDto,
   ApiUsageRecordsQueryDto,
   UpdateUserStatusDto,
@@ -128,6 +129,13 @@ export class AdminController {
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });
+  }
+
+  @Post('users')
+  @ApiOperation({ summary: '创建用户' })
+  async createUser(@Request() req: AuthenticatedRequest, @Body() dto: CreateAdminUserDto) {
+    this.checkAdmin(req);
+    return this.adminService.createUser(dto);
   }
 
   @Get('users/:userId')

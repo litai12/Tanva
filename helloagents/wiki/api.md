@@ -28,6 +28,9 @@
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
 
 ## 近期接口变更（摘要）
+- `POST /api/uploads/model`:
+  - Authenticated GLB/GLTF 3D model upload relay; backend writes to OSS/TOS and returns `{ url, key }`.
+  - Flow 3D nodes use this by default to avoid browser direct POST 403/CORS failures against TOS. Design JSON still persists only remote URLs/keys.
 - `GET /api/settings/login-notice`：
   - 公开读取登录后用户提醒弹窗配置，返回 `{ enabled, content, contentHtml, mediaType, mediaUrl, posterUrl, primaryButtonText, primaryButtonUrl, secondaryButtonText, secondaryButtonUrl, updatedAt }`。
   - 管理端对应系统设置 key 为 `login_notice`，值为 JSON 字符串；`contentHtml` 为受限富文本，`content` 为兼容用纯文本，`mediaUrl` / `posterUrl` 只保存远程 URL 或站内路径。

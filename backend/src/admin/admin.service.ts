@@ -1,8 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
+import { CreditsService } from '../credits/credits.service';
+import { TeamCoreService } from '../team-core/team-core.service';
 
 export interface AdminDashboardStats {
   totalUsers: number;
@@ -111,6 +114,8 @@ export interface CreditChangeRecord {
 export class AdminService {
   constructor(
     private prisma: PrismaService,
+    private readonly creditsService: CreditsService,
+    private readonly teamCoreService: TeamCoreService,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) {}
 
@@ -449,6 +454,104 @@ export class AdminService {
         total,
         totalPages: Math.ceil(total / pageSize),
       },
+    };
+  }
+
+  async createUser(input: {
+    phone: string;
+    password: string;
+    name: string;
+    email?: string | null;
+  }): Promise<UserWithCredits> {
+    const phone = input.phone.trim();
+    const password = input.password;
+    const name = input.name.trim();
+    const email = input.email?.trim().toLowerCase() || null;
+
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      throw new BadRequestException('手机号格式不正确');
+    }
+    if (password.length < 6) {
+      throw new BadRequestException('密码至少需要 6 位');
+    }
+    if (!name) {
+      throw new BadRequestException('昵称不能为空');
+    }
+    if (name === phone) {
+      throw new BadRequestException('昵称不能与手机号相同');
+    }
+    if (email && name.toLowerCase() === email) {
+      throw new BadRequestException('昵称不能与邮箱相同');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existsByPhone = await tx.user.findUnique({ where: { phone } });
+      if (existsByPhone) {
+        throw new BadRequestException('手机号已注册');
+      }
+
+      const existsPhoneMatchedByName = await tx.user.findUnique({ where: { phone: name } });
+      if (existsPhoneMatchedByName) {
+        throw new BadRequestException('昵称不能与手机号相同');
+      }
+
+      if (email) {
+        const existsByEmail = await tx.user.findUnique({ where: { email } });
+        if (existsByEmail) {
+          throw new BadRequestException('邮箱已存在');
+        }
+      }
+
+      const newUser = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          name,
+          phone,
+        },
+        include: {
+          creditAccount: true,
+          _count: {
+            select: { apiUsageRecords: true },
+          },
+        },
+      });
+
+      await this.teamCoreService.createPersonalTeam(newUser.id, tx);
+
+      return newUser;
+    });
+
+    try {
+      await this.creditsService.getOrCreateAccount(user.id);
+    } catch (error) {
+      console.warn(
+        `[AdminCreateUser] Failed to create credit account: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    const account = await this.prisma.creditAccount.findUnique({
+      where: { userId: user.id },
+    });
+
+    return {
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      name: user.name,
+      role: user.role,
+      status: user.status,
+      wechatBound: Boolean(user.wechatOfficialOpenId || user.wechatUnionId),
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt,
+      creditBalance: account?.balance || 0,
+      totalSpent: account?.totalSpent || 0,
+      totalEarned: account?.totalEarned || 0,
+      apiCallCount: user._count.apiUsageRecords,
     };
   }
 

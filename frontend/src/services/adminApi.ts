@@ -59,6 +59,13 @@ export interface UserWithCredits {
   apiCallCount: number;
 }
 
+export interface CreateAdminUserPayload {
+  phone: string;
+  password: string;
+  name: string;
+  email?: string;
+}
+
 export interface ApiUsageStats {
   serviceType: string;
   serviceName: string;
@@ -157,6 +164,15 @@ export async function getUsers(params: {
 }
 
 // 获取用户详情
+export async function createAdminUser(payload: CreateAdminUserPayload): Promise<UserWithCredits> {
+  const response = await request("/api/admin/users", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
 export async function getUserDetail(userId: string) {
   const response = await request(`/api/admin/users/${userId}`);
   return response.json();
