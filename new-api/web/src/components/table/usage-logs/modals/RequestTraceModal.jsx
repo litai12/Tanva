@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Button, Empty, Modal, Spin, Typography } from '@douyinfe/semi-ui';
 import { IconCopy } from '@douyinfe/semi-icons';
 import { copy, showError, showSuccess } from '../../../../helpers';
+import { collectMediaUrls } from '../../../../helpers/mediaPreview';
+import MediaPreviewStrip from '../../../common/media/MediaPreviewStrip';
 
 const { Text } = Typography;
 
@@ -52,6 +54,16 @@ const RequestTraceModal = ({
   const attempts = Array.isArray(requestTraceData?.attempts)
     ? requestTraceData.attempts
     : [];
+
+  // Extract input reference media from the original request + upstream request bodies.
+  const requestMedia = useMemo(
+    () =>
+      collectMediaUrls(
+        requestTraceData?.original_request_body,
+        ...attempts.map((attempt) => attempt?.upstream_request_body),
+      ),
+    [requestTraceData],
+  );
 
   return (
     <Modal
@@ -132,6 +144,13 @@ const RequestTraceModal = ({
                 <Text style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>
                   {t('原始请求 Body')}
                 </Text>
+                <MediaPreviewStrip
+                  images={requestMedia.images}
+                  videos={requestMedia.videos}
+                  totalImages={requestMedia.totalImages}
+                  totalVideos={requestMedia.totalVideos}
+                  t={t}
+                />
                 {renderCodeBlock(
                   requestTraceData.original_request_body,
                   t('当前没有记录原始请求体'),
