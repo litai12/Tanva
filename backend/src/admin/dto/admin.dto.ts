@@ -96,6 +96,11 @@ export class ApiUsageRecordsQueryDto {
   @IsString()
   provider?: string;
 
+  @ApiPropertyOptional({ description: 'Model' })
+  @IsOptional()
+  @IsString()
+  model?: string;
+
   @ApiPropertyOptional({ description: '响应状态' })
   @IsOptional()
   @IsString()

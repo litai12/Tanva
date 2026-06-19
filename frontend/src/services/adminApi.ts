@@ -126,6 +126,35 @@ export interface Pagination {
   totalPages: number;
 }
 
+export interface ApiUsageRecordsSummary {
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  successfulCredits: number;
+  pendingCredits: number;
+  refundedCredits: number;
+  rawCreditsRecorded: number;
+  inputTokens: number;
+  outputTokens: number;
+  uniqueUsers: number;
+  averageProcessingTime: number | null;
+}
+
+export interface ApiUsageFilterOption {
+  value: string;
+  label: string;
+  source: "credit-transactions" | "usage";
+  count?: number;
+}
+
+export interface ApiUsageFilterOptions {
+  providers: ApiUsageFilterOption[];
+  models: ApiUsageFilterOption[];
+  sources: string[];
+}
+
 export interface UserCreditsInfo {
   balance: number;
   totalEarned: number;
@@ -307,10 +336,11 @@ export async function getApiUsageRecords(params: {
   userSearch?: string;
   serviceType?: string;
   provider?: string;
+  model?: string;
   status?: string;
   startDate?: string;
   endDate?: string;
-}): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
+}): Promise<{ records: ApiUsageRecord[]; summary: ApiUsageRecordsSummary; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
   if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
@@ -318,6 +348,7 @@ export async function getApiUsageRecords(params: {
   if (params.userSearch) searchParams.set("userSearch", params.userSearch);
   if (params.serviceType) searchParams.set("serviceType", params.serviceType);
   if (params.provider) searchParams.set("provider", params.provider);
+  if (params.model) searchParams.set("model", params.model);
   if (params.status) searchParams.set("status", params.status);
   if (params.startDate) searchParams.set("startDate", params.startDate);
   if (params.endDate) searchParams.set("endDate", params.endDate);
@@ -329,6 +360,11 @@ export async function getApiUsageRecords(params: {
 }
 
 // 获取服务定价
+export async function getApiUsageFilterOptions(): Promise<ApiUsageFilterOptions> {
+  const response = await request("/api/admin/api-usage/filter-options");
+  return response.json();
+}
+
 export async function getPricing() {
   const response = await request("/api/admin/pricing");
   return response.json();

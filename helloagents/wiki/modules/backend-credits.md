@@ -1,5 +1,10 @@
 # 后端模块：积分系统（backend-credits）
 
+## 2026-06-19 Admin API credit audit filters
+- `GET /api/admin/api-usage/filter-options` returns provider and model filter choices for the admin API usage records page.
+- The options are sourced from `CreditTransaction.apiUsageId -> ApiUsageRecord.provider/model`, matching the provider/model data shown in credit details. Recent API usage is used only as a fallback when no linked credit transactions exist.
+- Record queries accept `provider`, `model`, day/month date ranges, and return a filtered credit summary from `GET /api/admin/api-usage/records`.
+
 ## 2026-04-15 Update
 - Image analysis deduction mapping is fixed to: Fast (gemini-2.5-image-analyze) = 10, Pro (gemini-image-analyze) = 30, Ultra (gemini-3.1-image-analyze) = 20.
 - POST /api/ai/analyze-image serviceType routing now follows provider tier (banana-2.5 / banana / banana-3.1|nano2) for consistent billing.
@@ -170,6 +175,11 @@
   - `toolVersion=professional`: `720P/1080P/2K/4K => 750/1500/3000/6000` for `<=30fps`, `1500/3000/6000/12000` for `>30fps`
 - Credits detail no longer relies on time-window merge; multi-item merge only happens when an explicit `parallelGroupId` exists.
 - Billing remarks include resolved `volcVersion / volcResolutionTier / volcFpsBand / volcFactor / volcUnitPriceYuan / volcPlatformPrice` so frontend/admin credits pages can explain the chosen档位 and platform price.
+
+## 2026-06-19 Admin API Credit Usage Audit
+- `GET /api/admin/api-usage/records` supports `model` filtering in addition to user, service type, provider, status, and date range.
+- The response includes `summary` for the filtered result set: actual consumed credits (`success + pending`), refunded failed credits, status call counts, token totals, unique users, and average processing time.
+- The admin API records page exposes model plus day/month period controls and shows the filtered credit summary above the record table.
 
 ## 2026-04-13 Pre-Deduct Idempotency
 - `CreditsService.preDeductCredits` now accepts `idempotencyKey` and optional `idempotencyWindowMs`.

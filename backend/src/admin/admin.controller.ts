@@ -259,10 +259,18 @@ export class AdminController {
       userSearch: query.userSearch,
       serviceType: query.serviceType,
       provider: query.provider,
+      model: query.model,
       status: query.status,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
+  }
+
+  @Get('api-usage/filter-options')
+  @ApiOperation({ summary: 'Get API usage filter options' })
+  async getApiUsageFilterOptions(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req, 'api-usage:records');
+    return this.adminService.getApiUsageFilterOptions();
   }
 
   @Get('pricing')

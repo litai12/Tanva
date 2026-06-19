@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException,
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
-import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { ApiResponseStatus, TransactionType } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { CreditsService } from '../credits/credits.service';
 import { TeamCoreService } from '../team-core/team-core.service';
@@ -58,6 +58,19 @@ export interface ApiUsageStats {
     userEmail: string | null;
     callCount: number;
   }>;
+}
+
+export interface ApiUsageFilterOption {
+  value: string;
+  label: string;
+  source: 'credit-transactions' | 'usage';
+  count?: number;
+}
+
+export interface ApiUsageFilterOptions {
+  providers: ApiUsageFilterOption[];
+  models: ApiUsageFilterOption[];
+  sources: string[];
 }
 
 export type CreditChangeSource = 'recharge' | 'admin_add' | 'admin_deduct';
@@ -144,6 +157,56 @@ export class AdminService {
       return value as Record<string, any>;
     }
     return null;
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  private addFilterOption(
+    map: Map<string, ApiUsageFilterOption>,
+    value: unknown,
+    source: ApiUsageFilterOption['source'],
+    label?: unknown,
+    count?: number,
+  ) {
+    const normalizedValue = this.asNonEmptyString(value);
+    if (!normalizedValue) return;
+    const key = normalizedValue.toLowerCase();
+    const existing = map.get(key);
+    if (existing) {
+      existing.count = (existing.count || 0) + (count || 0);
+      if (existing.source === 'usage' && source !== 'usage') existing.source = source;
+      return;
+    }
+    map.set(key, {
+      value: normalizedValue,
+      label: this.asNonEmptyString(label) || normalizedValue,
+      source,
+      ...(count ? { count } : {}),
+    });
+  }
+
+  private sortFilterOptions(map: Map<string, ApiUsageFilterOption>) {
+    return [...map.values()].sort((a, b) => {
+      const byCount = (b.count || 0) - (a.count || 0);
+      if (byCount !== 0) return byCount;
+      return a.label.localeCompare(b.label);
+    });
+  }
+
+  private getRequestChannelFromParams(params: unknown): string | null {
+    const objectValue = this.asJsonObject(params);
+    if (!objectValue) return null;
+    return (
+      this.asNonEmptyString(objectValue.channel) ||
+      this.asNonEmptyString(objectValue.executionChannel) ||
+      this.asNonEmptyString(objectValue.providerChannel) ||
+      this.asNonEmptyString(objectValue.platformKey) ||
+      this.asNonEmptyString(objectValue.vendorKey) ||
+      this.asNonEmptyString(objectValue.channelHint) ||
+      this.asNonEmptyString(objectValue.routedProvider)
+    );
   }
 
   private extractLoginNoticeTextFromHtml(value: string): string {
@@ -1001,6 +1064,61 @@ export class AdminService {
   /**
    * 获取所有 API 使用记录
    */
+  async getApiUsageFilterOptions(): Promise<ApiUsageFilterOptions> {
+    const providers = new Map<string, ApiUsageFilterOption>();
+    const models = new Map<string, ApiUsageFilterOption>();
+    const sources = new Set<string>(['credit-transactions']);
+
+    const transactionRows = await this.prisma.creditTransaction.findMany({
+      where: {
+        apiUsageId: { not: null },
+        type: { in: [TransactionType.SPEND, TransactionType.ADJUSTMENT] },
+      },
+      select: { apiUsageId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+    });
+
+    const apiUsageIds = Array.from(
+      new Set(
+        transactionRows
+          .map((row) => row.apiUsageId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    if (apiUsageIds.length > 0) {
+      const usageRows = await this.prisma.apiUsageRecord.findMany({
+        where: { id: { in: apiUsageIds } },
+        select: { provider: true, model: true },
+      });
+
+      usageRows.forEach((row) => {
+        this.addFilterOption(providers, row.provider, 'credit-transactions');
+        this.addFilterOption(models, row.model, 'credit-transactions');
+      });
+    }
+
+    if (providers.size === 0 && models.size === 0) {
+      sources.add('usage');
+      const recentUsageRows = await this.prisma.apiUsageRecord.findMany({
+        select: { provider: true, model: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+      });
+      recentUsageRows.forEach((row) => {
+        this.addFilterOption(providers, row.provider, 'usage');
+        this.addFilterOption(models, row.model, 'usage');
+      });
+    }
+
+    return {
+      providers: this.sortFilterOptions(providers),
+      models: this.sortFilterOptions(models),
+      sources: [...sources],
+    };
+  }
+
   async getAllApiUsageRecords(options: {
     page?: number;
     pageSize?: number;
@@ -1008,11 +1126,12 @@ export class AdminService {
     userSearch?: string;
     serviceType?: string;
     provider?: string;
+    model?: string;
     status?: string;
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 10, userId, userSearch, serviceType, provider, status, startDate, endDate } = options;
+    const { page = 1, pageSize = 10, userId, userSearch, serviceType, provider, model, status, startDate, endDate } = options;
 
     const where: any = {};
     if (userId) where.userId = userId;
@@ -1027,6 +1146,7 @@ export class AdminService {
     }
     if (serviceType) where.serviceType = serviceType;
     if (provider) where.provider = provider;
+    if (model) where.model = { contains: model, mode: 'insensitive' };
     if (status) where.responseStatus = status;
     if (startDate || endDate) {
       where.createdAt = {};
@@ -1034,7 +1154,7 @@ export class AdminService {
       if (endDate) where.createdAt.lte = endDate;
     }
 
-    const [records, total] = await Promise.all([
+    const [records, total, summaryAggregate, statusGroups, userGroups] = await Promise.all([
       this.prisma.apiUsageRecord.findMany({
         where,
         include: {
@@ -1052,10 +1172,58 @@ export class AdminService {
         take: pageSize,
       }),
       this.prisma.apiUsageRecord.count({ where }),
+      this.prisma.apiUsageRecord.aggregate({
+        where,
+        _sum: {
+          creditsUsed: true,
+          inputTokens: true,
+          outputTokens: true,
+        },
+        _avg: {
+          processingTime: true,
+        },
+      }),
+      this.prisma.apiUsageRecord.groupBy({
+        by: ['responseStatus'],
+        where,
+        _count: true,
+        _sum: {
+          creditsUsed: true,
+        },
+      }),
+      this.prisma.apiUsageRecord.groupBy({
+        by: ['userId'],
+        where,
+        _count: true,
+      }),
     ]);
+
+    const successfulGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.SUCCESS);
+    const pendingGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.PENDING);
+    const failedGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.FAILED);
+    const successfulCredits = successfulGroup?._sum.creditsUsed || 0;
+    const pendingCredits = pendingGroup?._sum.creditsUsed || 0;
+    const failedCredits = failedGroup?._sum.creditsUsed || 0;
 
     return {
       records,
+      summary: {
+        totalCalls: total,
+        successfulCalls: successfulGroup?._count || 0,
+        failedCalls: failedGroup?._count || 0,
+        pendingCalls: pendingGroup?._count || 0,
+        totalCreditsUsed: successfulCredits + pendingCredits,
+        successfulCredits,
+        pendingCredits,
+        refundedCredits: failedCredits,
+        rawCreditsRecorded: summaryAggregate._sum.creditsUsed || 0,
+        inputTokens: summaryAggregate._sum.inputTokens || 0,
+        outputTokens: summaryAggregate._sum.outputTokens || 0,
+        uniqueUsers: userGroups.length,
+        averageProcessingTime: summaryAggregate._avg.processingTime
+          ? Math.round(summaryAggregate._avg.processingTime)
+          : null,
+      },
       pagination: {
         page,
         pageSize,

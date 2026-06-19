@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Admin/Credits: API records now support model plus day/month filtering and show the filtered credit consumption summary below the filters; the backend returns filtered usage totals from `/api/admin/api-usage/records`.
+- Admin/Credits: API record provider/model filters now load dynamic options from `/api/admin/api-usage/filter-options`, using the same credit-transaction-linked API usage provider/model data shown in credit details, with recent usage as fallback.
 - Flow/3D Upload: GLB/GLTF uploads now use the backend `/api/uploads/model` OSS/TOS relay by default, keeping persisted model refs as remote URLs/keys while avoiding browser direct POST 403/CORS failures against TOS.
 - Admin/Users: full admins can now create users from the user-management page with phone, password, nickname, and optional email; the backend exposes `POST /api/admin/users` and initializes the user's personal team and credit account.
 - Flow/Text Chat: Text Chat node Skill, prompt, and response regions now pass canvas zoom wheel gestures through to the Flow canvas while preserving native scrolling for normal wheel input, preventing browser page zoom over the node body.
