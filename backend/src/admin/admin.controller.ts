@@ -34,6 +34,7 @@ import {
   UsersQueryDto,
   CreateAdminUserDto,
   ApiUsageStatsQueryDto,
+  ApiUsageModelStatsQueryDto,
   ApiUsageRecordsQueryDto,
   UpdateUserStatusDto,
   UpdateUserRoleDto,
@@ -248,6 +249,21 @@ export class AdminController {
     });
   }
 
+  @Get('api-usage/model-stats')
+  @ApiOperation({ summary: '获取模型用量监测统计' })
+  async getApiUsageModelStats(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: ApiUsageModelStatsQueryDto,
+  ) {
+    this.checkAdmin(req, 'api-usage:stats');
+    return this.adminService.getApiUsageModelStats({
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      modelNode: query.modelNode,
+      channel: query.channel,
+    });
+  }
+
   @Get('api-usage/records')
   @ApiOperation({ summary: '获取所有API使用记录' })
   async getAllApiUsageRecords(@Request() req: AuthenticatedRequest, @Query() query: ApiUsageRecordsQueryDto) {
@@ -259,10 +275,18 @@ export class AdminController {
       userSearch: query.userSearch,
       serviceType: query.serviceType,
       provider: query.provider,
+      model: query.model,
       status: query.status,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
+  }
+
+  @Get('api-usage/filter-options')
+  @ApiOperation({ summary: 'Get API usage filter options' })
+  async getApiUsageFilterOptions(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req, 'api-usage:records');
+    return this.adminService.getApiUsageFilterOptions();
   }
 
   @Get('pricing')

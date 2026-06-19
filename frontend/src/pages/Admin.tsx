@@ -5,6 +5,7 @@ import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import ApiModelStatsTab from "@/components/admin/ApiModelStatsTab";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
@@ -21,6 +22,7 @@ import {
   createAdminUser,
   getApiUsageStats,
   getApiUsageRecords,
+  getApiUsageFilterOptions,
   addCredits,
   deductCredits,
   deleteUserAccount,
@@ -69,6 +71,8 @@ import {
   type UserWithCredits,
   type ApiUsageStats,
   type ApiUsageRecord,
+  type ApiUsageFilterOptions,
+  type ApiUsageRecordsSummary,
   type Pagination,
   type SystemSetting,
   type ManagedPricingPreviewResponse,
@@ -6401,7 +6405,9 @@ function ApiStatsTab() {
 function ApiRecordsTab() {
   const OPENOBSERVE_LOGS_URL = "https://test.tanvas.cn/openobserve/web/logs";
   const [records, setRecords] = useState<ApiUsageRecord[]>([]);
+  const [summary, setSummary] = useState<ApiUsageRecordsSummary | null>(null);
   const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [filterOptions, setFilterOptions] = useState<ApiUsageFilterOptions | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedRequestRecord, setSelectedRequestRecord] =
@@ -6410,18 +6416,50 @@ function ApiRecordsTab() {
     userSearch: "",
     serviceType: "",
     provider: "",
+    model: "",
     status: "",
+    periodType: "day" as "day" | "month",
+    periodValue: new Date().toISOString().slice(0, 10),
   });
+
+  const getPeriodRange = () => {
+    const value = filters.periodValue;
+    if (!value) return {};
+
+    if (filters.periodType === "month") {
+      const [yearText, monthText] = value.split("-");
+      const year = Number(yearText);
+      const monthIndex = Number(monthText) - 1;
+      if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) return {};
+      const start = new Date(year, monthIndex, 1);
+      const end = new Date(year, monthIndex + 1, 1);
+      return {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      };
+    }
+
+    const start = new Date(`${value}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return {
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    };
+  };
 
   const loadRecords = async () => {
     setLoading(true);
     try {
+      const { periodType, periodValue, ...apiFilters } = filters;
       const result = await getApiUsageRecords({
         page,
         pageSize: 10,
-        ...filters,
+        ...apiFilters,
+        ...getPeriodRange(),
       });
       setRecords(result.records);
+      setSummary(result.summary);
       setPagination(result.pagination);
     } catch (error) {
       console.error("加载记录失败:", error);
@@ -6433,6 +6471,22 @@ function ApiRecordsTab() {
   useEffect(() => {
     loadRecords();
   }, [page, filters]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFilterOptions = async () => {
+      try {
+        const result = await getApiUsageFilterOptions();
+        if (!cancelled) setFilterOptions(result);
+      } catch (error) {
+        console.error("加载 API 筛选项失败:", error);
+      }
+    };
+    void loadFilterOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateFilters = (patch: Partial<typeof filters>) => {
     setPage(1);
@@ -6637,7 +6691,7 @@ function ApiRecordsTab() {
 
   return (
     <div>
-      <div className='mb-4 flex gap-2'>
+      <div className='mb-4 flex flex-wrap gap-2'>
         <Input
           value={filters.userSearch}
           onChange={(e) => updateFilters({ userSearch: e.target.value })}
@@ -6660,11 +6714,50 @@ function ApiRecordsTab() {
           className='border rounded px-3 py-2 text-sm'
         >
           <option value=''>全部提供商</option>
-          <option value='gemini'>Gemini</option>
-          <option value='sora'>Sora</option>
-          <option value='midjourney'>Midjourney</option>
-          <option value='imgly'>IMGLY</option>
+          {(filterOptions?.providers || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+              {option.count ? ` (${option.count})` : ""}
+            </option>
+          ))}
         </select>
+        <select
+          value={filters.model}
+          onChange={(e) => updateFilters({ model: e.target.value })}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value=''>全部模型</option>
+          {(filterOptions?.models || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+              {option.count ? ` (${option.count})` : ""}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.periodType}
+          onChange={(e) =>
+            updateFilters({
+              periodType: e.target.value as "day" | "month",
+              periodValue:
+                e.target.value === "month"
+                  ? filters.periodValue.slice(0, 7)
+                  : filters.periodValue.length === 7
+                  ? `${filters.periodValue}-01`
+                  : filters.periodValue,
+            })
+          }
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value='day'>按日</option>
+          <option value='month'>按月</option>
+        </select>
+        <Input
+          type={filters.periodType === "month" ? "month" : "date"}
+          value={filters.periodValue}
+          onChange={(e) => updateFilters({ periodValue: e.target.value })}
+          className='max-w-[170px] text-sm'
+        />
         <Button
           variant='outline'
           onClick={() => {
@@ -6675,6 +6768,31 @@ function ApiRecordsTab() {
           刷新
         </Button>
       </div>
+
+      {summary && (
+        <div className='mb-4 grid gap-3 md:grid-cols-4'>
+          <StatCard
+            title='筛选后实际消费'
+            value={summary.totalCreditsUsed}
+            subtitle={`调用 ${summary.totalCalls} 次`}
+          />
+          <StatCard
+            title='成功消费'
+            value={summary.successfulCredits}
+            subtitle={`成功 ${summary.successfulCalls} 次`}
+          />
+          <StatCard
+            title='处理中预扣'
+            value={summary.pendingCredits}
+            subtitle={`处理中 ${summary.pendingCalls} 次`}
+          />
+          <StatCard
+            title='失败已退/不计'
+            value={summary.refundedCredits}
+            subtitle={`失败 ${summary.failedCalls} 次`}
+          />
+        </div>
+      )}
 
       <div className='bg-white rounded-lg border overflow-hidden'>
         <div className='max-h-[1100px] overflow-auto'>
@@ -14753,7 +14871,7 @@ export default function Admin() {
         {currentTab === "paid-users" && <PaidUsersTab />}
         {currentTab === "credit-records" && <CreditChangeRecordsTab />}
         {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}
-        {currentTab === "api-stats" && <ApiStatsTab />}
+        {currentTab === "api-stats" && <ApiModelStatsTab />}
         {currentTab === "api-records" && <ApiRecordsTab />}
         {currentTab === "watermark" && <WatermarkWhitelistTab />}
         {currentTab === "node-configs" && <NodeConfigsTab />}

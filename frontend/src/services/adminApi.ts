@@ -84,6 +84,59 @@ export interface ApiUsageStats {
   }>;
 }
 
+export interface ApiUsageModelTopUser {
+  userId: string;
+  userName: string | null;
+  userPhone: string;
+  userEmail: string | null;
+  callCount: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+}
+
+export interface ApiUsageModelChannelStats {
+  channel: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  userCount: number;
+}
+
+export interface ApiUsageModelStats {
+  modelNode: string;
+  modelName: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number;
+  totalCreditsUsed: number;
+  userCount: number;
+  serviceTypes: string[];
+  providers: string[];
+  models: string[];
+  channels: ApiUsageModelChannelStats[];
+  topUsers: ApiUsageModelTopUser[];
+}
+
+export interface ApiUsageModelStatsResponse {
+  items: ApiUsageModelStats[];
+  summary: {
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    pendingCalls: number;
+    totalCreditsUsed: number;
+    uniqueUsers: number;
+  };
+  modelNodes: Array<{ key: string; name: string }>;
+  channels: string[];
+}
+
 export interface ApiUsageRecord {
   id: string;
   userId: string;
@@ -124,6 +177,35 @@ export interface Pagination {
   pageSize: number;
   total: number;
   totalPages: number;
+}
+
+export interface ApiUsageRecordsSummary {
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  successfulCredits: number;
+  pendingCredits: number;
+  refundedCredits: number;
+  rawCreditsRecorded: number;
+  inputTokens: number;
+  outputTokens: number;
+  uniqueUsers: number;
+  averageProcessingTime: number | null;
+}
+
+export interface ApiUsageFilterOption {
+  value: string;
+  label: string;
+  source: "credit-transactions" | "usage";
+  count?: number;
+}
+
+export interface ApiUsageFilterOptions {
+  providers: ApiUsageFilterOption[];
+  models: ApiUsageFilterOption[];
+  sources: string[];
 }
 
 export interface UserCreditsInfo {
@@ -299,7 +381,23 @@ export async function getApiUsageStats(params?: {
   return response.json();
 }
 
-// 获取 API 使用记录
+// 获取模型用量监测统计
+export async function getApiUsageModelStats(params?: {
+  startDate?: string;
+  endDate?: string;
+  modelNode?: string;
+  channel?: string;
+}): Promise<ApiUsageModelStatsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.modelNode) searchParams.set("modelNode", params.modelNode);
+  if (params?.channel) searchParams.set("channel", params.channel);
+
+  const response = await request(`/api/admin/api-usage/model-stats?${searchParams}`);
+  return response.json();
+}
+
 export async function getApiUsageRecords(params: {
   page?: number;
   pageSize?: number;
@@ -307,10 +405,11 @@ export async function getApiUsageRecords(params: {
   userSearch?: string;
   serviceType?: string;
   provider?: string;
+  model?: string;
   status?: string;
   startDate?: string;
   endDate?: string;
-}): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
+}): Promise<{ records: ApiUsageRecord[]; summary: ApiUsageRecordsSummary; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
   if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
@@ -318,6 +417,7 @@ export async function getApiUsageRecords(params: {
   if (params.userSearch) searchParams.set("userSearch", params.userSearch);
   if (params.serviceType) searchParams.set("serviceType", params.serviceType);
   if (params.provider) searchParams.set("provider", params.provider);
+  if (params.model) searchParams.set("model", params.model);
   if (params.status) searchParams.set("status", params.status);
   if (params.startDate) searchParams.set("startDate", params.startDate);
   if (params.endDate) searchParams.set("endDate", params.endDate);
@@ -329,6 +429,11 @@ export async function getApiUsageRecords(params: {
 }
 
 // 获取服务定价
+export async function getApiUsageFilterOptions(): Promise<ApiUsageFilterOptions> {
+  const response = await request("/api/admin/api-usage/filter-options");
+  return response.json();
+}
+
 export async function getPricing() {
   const response = await request("/api/admin/pricing");
   return response.json();

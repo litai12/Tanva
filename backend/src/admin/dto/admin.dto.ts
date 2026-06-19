@@ -62,6 +62,18 @@ export class ApiUsageStatsQueryDto {
   endDate?: string;
 }
 
+export class ApiUsageModelStatsQueryDto extends ApiUsageStatsQueryDto {
+  @ApiPropertyOptional({ description: '模型节点' })
+  @IsOptional()
+  @IsString()
+  modelNode?: string;
+
+  @ApiPropertyOptional({ description: '渠道' })
+  @IsOptional()
+  @IsString()
+  channel?: string;
+}
+
 export class ApiUsageRecordsQueryDto {
   @ApiPropertyOptional({ description: '页码', default: 1 })
   @IsOptional()
@@ -95,6 +107,11 @@ export class ApiUsageRecordsQueryDto {
   @IsOptional()
   @IsString()
   provider?: string;
+
+  @ApiPropertyOptional({ description: 'Model' })
+  @IsOptional()
+  @IsString()
+  model?: string;
 
   @ApiPropertyOptional({ description: '响应状态' })
   @IsOptional()
