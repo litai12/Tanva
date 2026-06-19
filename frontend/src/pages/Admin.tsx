@@ -5,6 +5,7 @@ import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import ApiModelStatsTab from "@/components/admin/ApiModelStatsTab";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
@@ -14870,7 +14871,7 @@ export default function Admin() {
         {currentTab === "paid-users" && <PaidUsersTab />}
         {currentTab === "credit-records" && <CreditChangeRecordsTab />}
         {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}
-        {currentTab === "api-stats" && <ApiStatsTab />}
+        {currentTab === "api-stats" && <ApiModelStatsTab />}
         {currentTab === "api-records" && <ApiRecordsTab />}
         {currentTab === "watermark" && <WatermarkWhitelistTab />}
         {currentTab === "node-configs" && <NodeConfigsTab />}

@@ -60,6 +60,64 @@ export interface ApiUsageStats {
   }>;
 }
 
+interface ApiUsageModelNode {
+  key: string;
+  name: string;
+}
+
+interface ApiUsageModelTopUser {
+  userId: string;
+  userName: string | null;
+  userPhone: string;
+  userEmail: string | null;
+  callCount: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+}
+
+interface ApiUsageModelChannelStats {
+  channel: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  userCount: number;
+}
+
+export interface ApiUsageModelStats {
+  modelNode: string;
+  modelName: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number;
+  totalCreditsUsed: number;
+  userCount: number;
+  serviceTypes: string[];
+  providers: string[];
+  models: string[];
+  channels: ApiUsageModelChannelStats[];
+  topUsers: ApiUsageModelTopUser[];
+}
+
+export interface ApiUsageModelStatsResponse {
+  items: ApiUsageModelStats[];
+  summary: {
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    pendingCalls: number;
+    totalCreditsUsed: number;
+    uniqueUsers: number;
+  };
+  modelNodes: ApiUsageModelNode[];
+  channels: string[];
+}
+
 export interface ApiUsageFilterOption {
   value: string;
   label: string;
@@ -78,6 +136,28 @@ export type CreditChangeSource = 'recharge' | 'admin_add' | 'admin_deduct';
 export const LOGIN_NOTICE_SETTING_KEY = 'login_notice';
 export const LOGIN_NOTICE_BUTTON_QRCODE_SETTING_KEY = 'login_notice_button_qrcode';
 export const CONTEST_REGISTRATION_QRCODE_SETTING_KEY = 'contest_registration_qrcode';
+
+const API_USAGE_MODEL_NODES: ApiUsageModelNode[] = [
+  { key: 'banana', name: 'NANO BANANA GEMINI IMAGE GENERATION / EDIT / BLEND' },
+  { key: 'banana-analyze', name: 'NANO BANANA GEMINI IMAGE ANALYSIS' },
+  { key: 'gpt2', name: 'GPT-IMAGE-2 IMAGE GENERATION' },
+  { key: 'seedream', name: 'DOUBAO SEEDREAM 5.0 IMAGE GENERATION' },
+  { key: 'midjourney', name: 'MIDJOURNEY V7 / V8 / NIJI 7 IMAGE GENERATION' },
+  { key: 'chat', name: 'GEMINI AI TEXT CHAT' },
+  { key: 'prompt', name: 'GEMINI PROMPT OPTIMIZE / STORYBOARD TEXT' },
+  { key: 'seedance', name: 'SEEDANCE 1.5 / SEEDANCE 2.0 / SEED 2.0 VIDEO' },
+  { key: 'kling', name: 'KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO' },
+  { key: 'vidu', name: 'VIDU Q2 / VIDU Q3 VIDEO' },
+  { key: 'wan', name: 'WAN 2.6 / WAN 2.7 VIDEO' },
+  { key: 'happyhorse', name: 'HAPPYHORSE 1.0 R2V VIDEO' },
+  { key: 'omni', name: 'OMNI FLASH EXT VIDEO' },
+  { key: 'video-analyze', name: 'GEMINI VIDEO ANALYSIS' },
+  { key: '3d', name: 'SEED3D / 2D-TO-3D MODEL GENERATION' },
+  { key: 'audio', name: 'MINIMAX / TENCENT AUDIO GENERATION' },
+  { key: 'other', name: 'OTHER AI SERVICES' },
+];
+
+const API_USAGE_MODEL_NODE_MAP = new Map(API_USAGE_MODEL_NODES.map((item) => [item.key, item]));
 
 export interface LoginNoticeView {
   enabled: boolean;
@@ -207,6 +287,144 @@ export class AdminService {
       this.asNonEmptyString(objectValue.channelHint) ||
       this.asNonEmptyString(objectValue.routedProvider)
     );
+  }
+
+  private includesAny(haystack: string, needles: string[]): boolean {
+    return needles.some((needle) => haystack.includes(needle));
+  }
+
+  private resolveApiUsageModelNode(params: {
+    serviceType?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    requestParams?: Prisma.JsonValue | Record<string, unknown> | null;
+  }): ApiUsageModelNode {
+    const serviceType = (this.asNonEmptyString(params.serviceType) || '').toLowerCase();
+    const provider = (this.asNonEmptyString(params.provider) || '').toLowerCase();
+    const model = (this.asNonEmptyString(params.model) || '').toLowerCase();
+    const requestParams = this.asJsonObject(params.requestParams) || {};
+    const managedModelKey = (this.asNonEmptyString(requestParams.managedModelKey) || '').toLowerCase();
+    const modelKey = (this.asNonEmptyString(requestParams.modelKey) || '').toLowerCase();
+    const seedanceModel = (this.asNonEmptyString(requestParams.seedanceModel) || '').toLowerCase();
+    const viduModel = (
+      this.asNonEmptyString(requestParams.viduModelVariant) ||
+      this.asNonEmptyString(requestParams.viduModel) ||
+      ''
+    ).toLowerCase();
+    const requestModel = (this.asNonEmptyString(requestParams.model) || '').toLowerCase();
+    const search = [
+      serviceType,
+      provider,
+      model,
+      managedModelKey,
+      modelKey,
+      seedanceModel,
+      viduModel,
+      requestModel,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    let key = 'other';
+
+    if (managedModelKey === 'omni-flash-ext' || model === 'omni-flash-ext') {
+      key = 'omni';
+    } else if (serviceType === 'convert-2d-to-3d' || this.includesAny(search, ['seed3d', 'seed-3d'])) {
+      key = '3d';
+    } else if (
+      serviceType === 'gemini-text' &&
+      this.includesAny(search, ['storyboard', 'shot-split', 'prompt-split'])
+    ) {
+      key = 'prompt';
+    } else if (serviceType === 'gemini-text') {
+      key = 'chat';
+    } else if (serviceType === 'gemini-prompt-optimize') {
+      key = 'prompt';
+    } else if (serviceType === 'gemini-video-analyze') {
+      key = 'video-analyze';
+    } else if (
+      this.includesAny(serviceType, [
+        'gemini-image-analyze',
+        'gemini-2.5-image-analyze',
+        'gemini-3.1-image-analyze',
+      ])
+    ) {
+      key = 'banana-analyze';
+    } else if (serviceType === 'gpt-image-2' || this.includesAny(search, ['gpt-image-2'])) {
+      key = 'gpt2';
+    } else if (
+      serviceType === 'doubao-seedream-5-0-260128' ||
+      this.includesAny(search, ['seedream', 'doubao-seedream'])
+    ) {
+      key = 'seedream';
+    } else if (serviceType.startsWith('midjourney') || this.includesAny(search, ['midjourney', 'niji'])) {
+      key = 'midjourney';
+    } else if (
+      this.includesAny(serviceType, [
+        'gemini-2.5-image',
+        'gemini-3-pro-image',
+        'gemini-3.1-image',
+        'gemini-image-edit',
+        'gemini-3.1-image-edit',
+        'gemini-2.5-image-edit',
+        'gemini-image-blend',
+        'gemini-3.1-image-blend',
+        'gemini-2.5-image-blend',
+      ])
+    ) {
+      key = 'banana';
+    } else if (serviceType.includes('kling') || search.includes('kling')) {
+      key = 'kling';
+    } else if (serviceType.includes('vidu') || this.includesAny(search, ['vidu', 'q2', 'q3'])) {
+      key = 'vidu';
+    } else if (serviceType.includes('wan') || this.includesAny(search, ['wan2.6', 'wan2.7', 'wan-2.7'])) {
+      key = 'wan';
+    } else if (serviceType.includes('happyhorse') || search.includes('happyhorse')) {
+      key = 'happyhorse';
+    } else if (
+      serviceType === 'doubao-video' ||
+      this.includesAny(search, [
+        'seedance',
+        'seed-2.0',
+        'seed-2-0',
+        'doubao-seedance',
+        'doubao-seed-2-0',
+      ])
+    ) {
+      key = 'seedance';
+    } else if (
+      this.includesAny(serviceType, ['minimax-speech', 'minimax-music', 'tencent-speech']) ||
+      this.includesAny(search, ['speech', 'music', 'audio'])
+    ) {
+      key = 'audio';
+    }
+
+    return API_USAGE_MODEL_NODE_MAP.get(key) || API_USAGE_MODEL_NODE_MAP.get('other')!;
+  }
+
+  private normalizeApiUsageChannel(params: {
+    provider?: string | null;
+    requestParams?: Prisma.JsonValue | Record<string, unknown> | null;
+  }): string {
+    const requestParams = this.asJsonObject(params.requestParams) || {};
+    const raw =
+      this.getRequestChannelFromParams(requestParams) ||
+      this.asNonEmptyString(params.provider) ||
+      'UNKNOWN';
+    const normalized = raw.toLowerCase();
+
+    if (normalized === 'legacy' || normalized.includes('147')) return '147';
+    if (normalized.includes('apimart')) return 'APIMART';
+    if (normalized === 'tencent_vod' || normalized.includes('tencent-vod')) return 'TENCENT VOD';
+    if (normalized === 'tencent' || normalized.includes('tencent')) return 'TENCENT';
+    if (normalized.includes('doubao') || normalized.includes('ark') || normalized.includes('seedance')) return 'DOUBAO / ARK';
+    if (normalized.includes('dashscope') || normalized.includes('wan') || normalized.includes('happyhorse')) return 'DASHSCOPE';
+    if (normalized.includes('kling')) return 'KLING';
+    if (normalized.includes('vidu')) return 'VIDU';
+    if (normalized.includes('midjourney')) return 'MIDJOURNEY';
+    if (normalized.includes('seedream') || normalized.includes('watcha')) return 'SEEDREAM';
+    if (normalized.includes('new_api') || normalized.includes('new-api')) return 'NEW API';
+    return raw.toUpperCase();
   }
 
   private extractLoginNoticeTextFromHtml(value: string): string {
@@ -1059,6 +1277,224 @@ export class AdminService {
     }
 
     return result;
+  }
+
+  async getApiUsageModelStats(options: {
+    startDate?: Date;
+    endDate?: Date;
+    modelNode?: string;
+    channel?: string;
+  } = {}): Promise<ApiUsageModelStatsResponse> {
+    const { startDate, endDate } = options;
+    const requestedModelNode = this.asNonEmptyString(options.modelNode)?.toLowerCase();
+    const requestedChannel = this.asNonEmptyString(options.channel)?.toUpperCase();
+
+    const where: Prisma.ApiUsageRecordWhereInput = {};
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = startDate;
+      if (endDate) where.createdAt.lte = endDate;
+    }
+
+    const records = await this.prisma.apiUsageRecord.findMany({
+      where,
+      select: {
+        userId: true,
+        serviceType: true,
+        provider: true,
+        model: true,
+        creditsUsed: true,
+        responseStatus: true,
+        requestParams: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    type MutableStats = ApiUsageModelStats & {
+      serviceTypeSet: Set<string>;
+      providerSet: Set<string>;
+      modelSet: Set<string>;
+      userSet: Set<string>;
+      channelMap: Map<string, ApiUsageModelChannelStats & { userSet: Set<string> }>;
+      topUserMap: Map<string, ApiUsageModelTopUser>;
+    };
+
+    const createStats = (node: ApiUsageModelNode): MutableStats => ({
+      modelNode: node.key,
+      modelName: node.name,
+      totalCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      pendingCalls: 0,
+      successRate: 0,
+      totalCreditsUsed: 0,
+      userCount: 0,
+      serviceTypes: [],
+      providers: [],
+      models: [],
+      channels: [],
+      topUsers: [],
+      serviceTypeSet: new Set<string>(),
+      providerSet: new Set<string>(),
+      modelSet: new Set<string>(),
+      userSet: new Set<string>(),
+      channelMap: new Map<string, ApiUsageModelChannelStats & { userSet: Set<string> }>(),
+      topUserMap: new Map<string, ApiUsageModelTopUser>(),
+    });
+
+    const statsByNode = new Map<string, MutableStats>();
+    const allChannels = new Set<string>();
+    const summaryUserIds = new Set<string>();
+
+    records.forEach((record) => {
+      const node = this.resolveApiUsageModelNode(record);
+      if (requestedModelNode && requestedModelNode !== node.key) return;
+
+      const channel = this.normalizeApiUsageChannel(record);
+      allChannels.add(channel);
+      if (requestedChannel && requestedChannel !== channel.toUpperCase()) return;
+
+      const isSuccess = record.responseStatus === ApiResponseStatus.SUCCESS;
+      const isFailed = record.responseStatus === ApiResponseStatus.FAILED;
+      const isPending = record.responseStatus === ApiResponseStatus.PENDING;
+      const consumedCredits = isFailed ? 0 : Math.max(0, record.creditsUsed || 0);
+
+      if (!statsByNode.has(node.key)) {
+        statsByNode.set(node.key, createStats(node));
+      }
+
+      const stats = statsByNode.get(node.key)!;
+      stats.totalCalls += 1;
+      stats.successfulCalls += isSuccess ? 1 : 0;
+      stats.failedCalls += isFailed ? 1 : 0;
+      stats.pendingCalls += isPending ? 1 : 0;
+      stats.totalCreditsUsed += consumedCredits;
+      stats.userSet.add(record.userId);
+      summaryUserIds.add(record.userId);
+
+      const serviceType = this.asNonEmptyString(record.serviceType);
+      const provider = this.asNonEmptyString(record.provider);
+      const model = this.asNonEmptyString(record.model);
+      if (serviceType) stats.serviceTypeSet.add(serviceType);
+      if (provider) stats.providerSet.add(provider);
+      if (model) stats.modelSet.add(model);
+
+      if (!stats.channelMap.has(channel)) {
+        stats.channelMap.set(channel, {
+          channel,
+          totalCalls: 0,
+          successfulCalls: 0,
+          failedCalls: 0,
+          pendingCalls: 0,
+          totalCreditsUsed: 0,
+          userCount: 0,
+          userSet: new Set<string>(),
+        });
+      }
+      const channelStats = stats.channelMap.get(channel)!;
+      channelStats.totalCalls += 1;
+      channelStats.successfulCalls += isSuccess ? 1 : 0;
+      channelStats.failedCalls += isFailed ? 1 : 0;
+      channelStats.pendingCalls += isPending ? 1 : 0;
+      channelStats.totalCreditsUsed += consumedCredits;
+      channelStats.userSet.add(record.userId);
+
+      if (!stats.topUserMap.has(record.userId)) {
+        stats.topUserMap.set(record.userId, {
+          userId: record.userId,
+          userName: null,
+          userPhone: '',
+          userEmail: null,
+          callCount: 0,
+          successfulCalls: 0,
+          failedCalls: 0,
+          pendingCalls: 0,
+          totalCreditsUsed: 0,
+        });
+      }
+      const userStats = stats.topUserMap.get(record.userId)!;
+      userStats.callCount += 1;
+      userStats.successfulCalls += isSuccess ? 1 : 0;
+      userStats.failedCalls += isFailed ? 1 : 0;
+      userStats.pendingCalls += isPending ? 1 : 0;
+      userStats.totalCreditsUsed += consumedCredits;
+    });
+
+    const userIds = Array.from(
+      new Set(
+        Array.from(statsByNode.values()).flatMap((stats) =>
+          Array.from(stats.topUserMap.values())
+            .sort((a, b) => b.totalCreditsUsed - a.totalCreditsUsed || b.callCount - a.callCount)
+            .slice(0, 10)
+            .map((user) => user.userId),
+        ),
+      ),
+    );
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, phone: true, email: true },
+        })
+      : [];
+    const userMap = new Map(users.map((user) => [user.id, user]));
+
+    const items = Array.from(statsByNode.values())
+      .map((stats) => {
+        const topUsers = Array.from(stats.topUserMap.values())
+          .sort((a, b) => b.totalCreditsUsed - a.totalCreditsUsed || b.callCount - a.callCount)
+          .slice(0, 10)
+          .map((userStats) => {
+            const user = userMap.get(userStats.userId);
+            return {
+              ...userStats,
+              userName: user?.name || null,
+              userPhone: user?.phone || '',
+              userEmail: user?.email || null,
+            };
+          });
+
+        const channels = Array.from(stats.channelMap.values())
+          .map((channelStats) => {
+            const { userSet, ...rest } = channelStats;
+            return {
+              ...rest,
+              userCount: userSet.size,
+            };
+          })
+          .sort((a, b) => b.totalCreditsUsed - a.totalCreditsUsed || b.totalCalls - a.totalCalls);
+
+        return {
+          modelNode: stats.modelNode,
+          modelName: stats.modelName,
+          totalCalls: stats.totalCalls,
+          successfulCalls: stats.successfulCalls,
+          failedCalls: stats.failedCalls,
+          pendingCalls: stats.pendingCalls,
+          successRate: stats.totalCalls > 0 ? stats.successfulCalls / stats.totalCalls : 0,
+          totalCreditsUsed: stats.totalCreditsUsed,
+          userCount: stats.userSet.size,
+          serviceTypes: Array.from(stats.serviceTypeSet).sort(),
+          providers: Array.from(stats.providerSet).sort(),
+          models: Array.from(stats.modelSet).sort(),
+          channels,
+          topUsers,
+        };
+      })
+      .sort((a, b) => b.totalCreditsUsed - a.totalCreditsUsed || b.totalCalls - a.totalCalls);
+
+    return {
+      items,
+      summary: {
+        totalCalls: items.reduce((sum, item) => sum + item.totalCalls, 0),
+        successfulCalls: items.reduce((sum, item) => sum + item.successfulCalls, 0),
+        failedCalls: items.reduce((sum, item) => sum + item.failedCalls, 0),
+        pendingCalls: items.reduce((sum, item) => sum + item.pendingCalls, 0),
+        totalCreditsUsed: items.reduce((sum, item) => sum + item.totalCreditsUsed, 0),
+        uniqueUsers: summaryUserIds.size,
+      },
+      modelNodes: API_USAGE_MODEL_NODES.filter((node) => node.key !== 'other'),
+      channels: Array.from(allChannels).sort(),
+    };
   }
 
   /**

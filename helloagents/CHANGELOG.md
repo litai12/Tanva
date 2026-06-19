@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Admin/Usage: added model usage monitoring at `/api/admin/api-usage/model-stats`, grouping raw API usage into uppercase model nodes such as NANO BANANA GEMINI IMAGE GENERATION / EDIT / BLEND, GPT-IMAGE-2 IMAGE GENERATION, MIDJOURNEY V7 / V8 / NIJI 7 IMAGE GENERATION, GEMINI AI TEXT CHAT, SEEDANCE 1.5 / SEEDANCE 2.0 / SEED 2.0 VIDEO, KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO, VIDU Q2 / VIDU Q3 VIDEO, WAN 2.6 / WAN 2.7 VIDEO, HAPPYHORSE 1.0 R2V VIDEO, OMNI FLASH EXT VIDEO, SEED3D / 2D-TO-3D MODEL GENERATION, and MINIMAX / TENCENT AUDIO GENERATION. The admin stats tab now supports total/today/yesterday/day/week/custom ranges, channel filtering, channel breakdowns, and Top10 users ranked by consumed credits.
 - Admin/Credits: API records now support model plus day/month filtering and show the filtered credit consumption summary below the filters; the backend returns filtered usage totals from `/api/admin/api-usage/records`.
 - Admin/Credits: API record provider/model filters now load dynamic options from `/api/admin/api-usage/filter-options`, using the same credit-transaction-linked API usage provider/model data shown in credit details, with recent usage as fallback.
 - Flow/3D Upload: GLB/GLTF uploads now use the backend `/api/uploads/model` OSS/TOS relay by default, keeping persisted model refs as remote URLs/keys while avoiding browser direct POST 403/CORS failures against TOS.

@@ -34,6 +34,7 @@ import {
   UsersQueryDto,
   CreateAdminUserDto,
   ApiUsageStatsQueryDto,
+  ApiUsageModelStatsQueryDto,
   ApiUsageRecordsQueryDto,
   UpdateUserStatusDto,
   UpdateUserRoleDto,
@@ -245,6 +246,21 @@ export class AdminController {
     return this.adminService.getApiUsageStats({
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
+    });
+  }
+
+  @Get('api-usage/model-stats')
+  @ApiOperation({ summary: '获取模型用量监测统计' })
+  async getApiUsageModelStats(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: ApiUsageModelStatsQueryDto,
+  ) {
+    this.checkAdmin(req, 'api-usage:stats');
+    return this.adminService.getApiUsageModelStats({
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      modelNode: query.modelNode,
+      channel: query.channel,
     });
   }
 

@@ -84,6 +84,59 @@ export interface ApiUsageStats {
   }>;
 }
 
+export interface ApiUsageModelTopUser {
+  userId: string;
+  userName: string | null;
+  userPhone: string;
+  userEmail: string | null;
+  callCount: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+}
+
+export interface ApiUsageModelChannelStats {
+  channel: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  userCount: number;
+}
+
+export interface ApiUsageModelStats {
+  modelNode: string;
+  modelName: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number;
+  totalCreditsUsed: number;
+  userCount: number;
+  serviceTypes: string[];
+  providers: string[];
+  models: string[];
+  channels: ApiUsageModelChannelStats[];
+  topUsers: ApiUsageModelTopUser[];
+}
+
+export interface ApiUsageModelStatsResponse {
+  items: ApiUsageModelStats[];
+  summary: {
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    pendingCalls: number;
+    totalCreditsUsed: number;
+    uniqueUsers: number;
+  };
+  modelNodes: Array<{ key: string; name: string }>;
+  channels: string[];
+}
+
 export interface ApiUsageRecord {
   id: string;
   userId: string;
@@ -328,7 +381,23 @@ export async function getApiUsageStats(params?: {
   return response.json();
 }
 
-// 获取 API 使用记录
+// 获取模型用量监测统计
+export async function getApiUsageModelStats(params?: {
+  startDate?: string;
+  endDate?: string;
+  modelNode?: string;
+  channel?: string;
+}): Promise<ApiUsageModelStatsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.modelNode) searchParams.set("modelNode", params.modelNode);
+  if (params?.channel) searchParams.set("channel", params.channel);
+
+  const response = await request(`/api/admin/api-usage/model-stats?${searchParams}`);
+  return response.json();
+}
+
 export async function getApiUsageRecords(params: {
   page?: number;
   pageSize?: number;
