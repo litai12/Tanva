@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import paper from 'paper';
+import { clientToProject } from '@/utils/paperCoords';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useTeamStore } from '@/stores/teamStore';
@@ -10,8 +12,6 @@ import CollabCursorLayer from './CollabCursorLayer';
 import CollabPresenceBar from './CollabPresenceBar';
 import CollabToastHost, { type CollabToastApi } from './CollabToastHost';
 import type { ToastKind } from '@/collab/types';
-
-const MOUSE_THROTTLE_MS = 10000;
 
 /**
  * Top-level wiring for canvas real-time collaboration. Mounted once inside
@@ -89,18 +89,36 @@ const CollabRoot: React.FC = () => {
     },
   });
 
-  // Throttled mouse-move → cursor publish. Only in team mode, max once per 10s.
-  const lastMouseSent = useRef(0);
+  // pointer-move → 换算为画布世界坐标后发布光标。仅团队模式。
+  // 用 pointermove（而非 mousemove）：React Flow 拖拽节点时会对 pointerdown
+  // preventDefault 并接管指针捕获，这会抑制兼容性 mousemove 事件——若监听
+  // mousemove，拖动节点期间光标就会卡住不动。pointermove 在整个拖拽过程持续触发。
+  // 用 rAF 合并高频事件（把 getBoundingClientRect 限制为每帧一次），
+  // 实际发送频率再由 useCanvasCollab 的 CURSOR_THROTTLE_MS 兜底限流。
   useEffect(() => {
     if (!projectId || !isTeamMode) return;
-    const handler = (e: MouseEvent) => {
-      const now = Date.now();
-      if (now - lastMouseSent.current < MOUSE_THROTTLE_MS) return;
-      lastMouseSent.current = now;
-      collab?.sendCursor(e.clientX, e.clientY);
+    let rafId: number | null = null;
+    let pending: { x: number; y: number } | null = null;
+    const flush = () => {
+      rafId = null;
+      const next = pending;
+      pending = null;
+      if (!next) return;
+      // 仅在 Paper 画布就绪时才能换算世界坐标。
+      const canvas = (paper?.view?.element as HTMLCanvasElement | undefined) ?? null;
+      if (!canvas || !paper?.view) return;
+      const p = clientToProject(canvas, next.x, next.y);
+      collab?.sendCursor(p.x, p.y);
     };
-    window.addEventListener('mousemove', handler, { passive: true });
-    return () => window.removeEventListener('mousemove', handler);
+    const handler = (e: PointerEvent) => {
+      pending = { x: e.clientX, y: e.clientY };
+      if (rafId == null) rafId = window.requestAnimationFrame(flush);
+    };
+    window.addEventListener('pointermove', handler, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', handler);
+      if (rafId != null) window.cancelAnimationFrame(rafId);
+    };
   }, [projectId, isTeamMode, collab]);
 
   if (!projectId) {

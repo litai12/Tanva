@@ -13,7 +13,7 @@ import type {
 
 const PATCH_DEBOUNCE_MS = 200;
 const PATCH_MAXWAIT_MS = 150; // 持续拖动时最长 150ms 强制推送一次, 保证 <300ms 实时跟随
-const CURSOR_THROTTLE_MS = 150;
+const CURSOR_THROTTLE_MS = 80;
 const RECONNECT_MS = 3000;
 const SEQ_DEDUP_WINDOW = 200;
 
@@ -34,7 +34,8 @@ export interface CanvasCollabHandle {
   degraded: boolean;
   subscribe: (type: CollabEventType | CollabEventType[], listener: CollabListener) => () => void;
   sendPatch: (patch: NodePatchPayload) => void;
-  sendCursor: (x: number, y: number, viewport?: { zoom?: number; offsetX?: number; offsetY?: number }) => void;
+  /** x/y 为画布世界坐标（Paper project 坐标），由调用方换算后传入。 */
+  sendCursor: (x: number, y: number) => void;
   claimLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number; holder?: { userId: string } }>;
   renewLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number }>;
   releaseLock: (nodeId: string) => Promise<boolean>;
@@ -224,11 +225,11 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   );
 
   const sendCursor = useCallback(
-    (x: number, y: number, viewport?: { zoom?: number; offsetX?: number; offsetY?: number }) => {
+    (x: number, y: number) => {
       const now = Date.now();
       if (now - cursorLastSent.current < CURSOR_THROTTLE_MS) return;
       cursorLastSent.current = now;
-      realtimeClient.send({ type: 'cursor', payload: { x, y, viewport } });
+      realtimeClient.send({ type: 'cursor', payload: { x, y } });
     },
     [],
   );

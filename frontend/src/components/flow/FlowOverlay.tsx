@@ -85,6 +85,7 @@ import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
+import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
@@ -1065,6 +1066,7 @@ const rawNodeTypes = {
   gptImage2: Nano2Node,
   seedream5: Seedream5Node,
   video: VideoNode,
+  videoCompose: VideoComposeNode,
   audioUpload: AudioNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
@@ -1351,6 +1353,7 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "genericVideo",
   "seedanceVideo",
   "volcEnhanceVideo",
+  "videoCompose",
 ];
 
 const normalizeSeedanceModelValue = (
@@ -1728,6 +1731,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
+  videoCompose: 0, // 视频合成 - 浏览器端合成，不消耗积分
   volcEnhanceVideo: 0, // 视频画质增强
   minimaxSpeech: 10, // MiniMax 语音合成
   tencentSpeech: 10, // 腾讯语音合成
@@ -1785,6 +1789,7 @@ const NODE_PALETTE_ITEMS = [
     category: "video",
   },
   { key: "seedVideo", zh: "Seed 2.0", en: "Seed 2.0", category: "video" },
+  { key: "videoCompose", zh: "视频合成", en: "Video Compose", category: "video" },
   // 其他节点
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
@@ -1907,6 +1912,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoAnalyze: "video",
   videoFrameExtract: "video",
   videoToGif: "video",
+  videoCompose: "video",
   audioUpload: "audio",
   minimaxSpeech: "audio",
   tencentSpeech: "audio",
@@ -1967,6 +1973,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   gptImage2: { w: 260, h: 200 },
   seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
+  videoCompose: { w: 320, h: 360 },
   audioUpload: { w: 320, h: 128 },
   videoAnalyze: { w: 280, h: 360 },
   videoFrameExtract: { w: 300, h: 420 },
@@ -2307,6 +2314,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   seedVideo: ["video"],
   volcEnhanceVideo: ["video"],
   videoFrameExtract: ["images", "image", "images-range"],
+  videoCompose: ["video"],
   audioUpload: ["audio"],
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
@@ -2359,6 +2367,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoAnalyze: ["video"],
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
+  videoCompose: ["video", "audio"],
   audioUpload: ["audio"],
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
@@ -12041,6 +12050,20 @@ function FlowInner() {
       }
 
       if (targetNode.type === "audioUpload") {
+        if (targetHandle === "audio") {
+          if (sourceHandle !== "audio") return false;
+          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "videoCompose") {
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
           return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
@@ -24952,6 +24975,10 @@ function FlowInner() {
         const c = lockColor(holder);
         return {
           ...node,
+          // 锁优先级最高：即便本端把它选中(聚焦)，也强制按"被他人锁定"渲染——
+          // 抑制蓝色选中边框(selected:false)，只保留虚线锁定描边，明确告知不可编辑。
+          // 仅作用于渲染数组，不写回 nodes；锁释放后恢复真实 selected 状态。
+          selected: false,
           style: { ...(node.style || {}), outline: `2px dashed ${c}`, outlineOffset: 2 },
           className: [node.className, 'collab-locked-by-other'].filter(Boolean).join(' '),
         };
