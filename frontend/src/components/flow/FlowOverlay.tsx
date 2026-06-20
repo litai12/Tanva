@@ -5143,6 +5143,10 @@ function FlowInner() {
                   data: incoming.data
                     ? { ...(existing.data || {}), ...incoming.data }
                     : existing.data,
+                  // collab: 合并 style(缩放=style.width/height),避免整体替换丢掉其它样式。
+                  style: incoming.style
+                    ? { ...(existing.style || {}), ...incoming.style }
+                    : existing.style,
                 };
               } else {
                 result.push(incoming);
@@ -14437,10 +14441,18 @@ function FlowInner() {
         nextNodes[targetIndex] = nextNode;
 
         // collab: broadcast the merged node data to collaborators (prompt/node data sync)
+        // 缩放也走这条路：节点尺寸存于 data.boxW/boxH，随 data 一并广播；
+        // 若缩放移动了原点(从上/左角拖拽,带 _positionOffset),则一并广播 position。
         try {
           const c = collabRef.current;
           if (!applyingRemoteRef.current && c?.connected) {
-            c.sendPatch({ upsertNodes: [{ id: nextNode.id, data: nextNode.data }] });
+            c.sendPatch({
+              upsertNodes: [{
+                id: nextNode.id,
+                data: nextNode.data,
+                ...(positionOffset ? { position: nextNode.position } : {}),
+              }],
+            });
           }
         } catch {}
 

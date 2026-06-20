@@ -1181,30 +1181,21 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.round(height));
     const nextX = Math.round(x);
     const nextY = Math.round(y);
-    rf.setNodes((ns) => {
-      const targetIndex = ns.findIndex((node) => node.id === id);
-      if (targetIndex < 0) return ns;
+    const current = rf.getNode(id);
+    if (!current) return;
+    const curData = current.data || {};
+    const sizeChanged = curData.boxW !== nextWidth || curData.boxH !== nextHeight;
+    const dx = nextX - Math.round(current.position.x);
+    const dy = nextY - Math.round(current.position.y);
+    const positionChanged = dx !== 0 || dy !== 0;
+    if (!sizeChanged && !positionChanged) return;
 
-      const targetNode = ns[targetIndex];
-      const targetData = targetNode.data || {};
-      const positionChanged = targetNode.position.x !== nextX || targetNode.position.y !== nextY;
-      const sizeChanged = targetData.boxW !== nextWidth || targetData.boxH !== nextHeight;
-      if (!positionChanged && !sizeChanged) {
-        return ns;
-      }
-
-      const nextNodes = ns.slice();
-      nextNodes[targetIndex] = {
-        ...targetNode,
-        position: positionChanged
-          ? { x: nextX, y: nextY }
-          : targetNode.position,
-        data: sizeChanged
-          ? { ...targetData, boxW: nextWidth, boxH: nextHeight }
-          : targetData,
-      };
-      return nextNodes;
-    });
+    // collab: 走 flow:updateNodeData 提交尺寸(存于 data.boxW/boxH)，
+    // 该路径会同时更新本地状态并广播给协作者(与文本编辑同一通道，已验证可同步)。
+    // 直接 rf.setNodes 不会广播，这正是此前缩放不同步的原因。
+    const patch: Record<string, unknown> = { boxW: nextWidth, boxH: nextHeight };
+    if (positionChanged) patch._positionOffset = { x: dx, y: dy };
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id, patch } }));
   }, [id, rf]);
 
   React.useEffect(() => {
