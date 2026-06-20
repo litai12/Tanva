@@ -26,9 +26,10 @@ export interface CursorPayload {
   userId: string;
   name: string;
   color?: string;
+  // 画布世界坐标（Paper project 坐标），与各端的平移/缩放/窗口无关。
+  // 接收端用本地视口把它投影回自己的屏幕坐标，从而做到跨视窗对齐。
   x: number;
   y: number;
-  viewport?: { zoom?: number; offsetX?: number; offsetY?: number };
 }
 
 export interface PresenceUser {

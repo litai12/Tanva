@@ -32,6 +32,7 @@
     "@types/paper": "^0.11.14",
     "@types/three": "^0.180.0",
     "@types/uuid": "^10.0.0",
+    "@webav/av-cliper": "^1.2.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fflate": "^0.8.2",
