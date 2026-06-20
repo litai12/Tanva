@@ -632,6 +632,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
   const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
   const resizePreviewRafRef = React.useRef<number | null>(null);
+  // collab: 拖拽缩放期间实时广播尺寸的节流时间戳
+  const liveResizeSentRef = React.useRef(0);
 
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
@@ -1235,10 +1237,23 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     if (resizePreviewRafRef.current !== null) return false;
     resizePreviewRafRef.current = window.requestAnimationFrame(() => {
       resizePreviewRafRef.current = null;
-      setResizePreview(resizePendingRef.current);
+      const p = resizePendingRef.current;
+      setResizePreview(p);
+      // collab: 拖拽缩放过程中实时广播尺寸(节流~80ms),协作者实时看到缩放。
+      // 只广播 boxW/boxH(不带 _positionOffset:它是相对起点的累计量,逐帧重复
+      // 施加会让对端位置漂移);最终位置在 handleResizeEnd 的 commitResize 一次性提交。
+      if (p) {
+        const now = Date.now();
+        if (now - liveResizeSentRef.current >= 80) {
+          liveResizeSentRef.current = now;
+          window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+            detail: { id, patch: { boxW: p.width, boxH: p.height } },
+          }));
+        }
+      }
     });
     return false;
-  }, []);
+  }, [id]);
 
   const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
     setIsResizing(false);

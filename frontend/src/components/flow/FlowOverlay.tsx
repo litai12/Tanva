@@ -86,6 +86,7 @@ import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
+import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
@@ -1067,6 +1068,7 @@ const rawNodeTypes = {
   seedream5: Seedream5Node,
   video: VideoNode,
   videoCompose: VideoComposeNode,
+  directorConsole: DirectorConsoleNode,
   audioUpload: AudioNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
@@ -1732,6 +1734,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
   videoCompose: 0, // 视频合成 - 浏览器端合成，不消耗积分
+  directorConsole: 0, // 导演台 - 3D 搭景截图，不消耗积分
   volcEnhanceVideo: 0, // 视频画质增强
   minimaxSpeech: 10, // MiniMax 语音合成
   tencentSpeech: 10, // 腾讯语音合成
@@ -1790,6 +1793,7 @@ const NODE_PALETTE_ITEMS = [
   },
   { key: "seedVideo", zh: "Seed 2.0", en: "Seed 2.0", category: "video" },
   { key: "videoCompose", zh: "视频合成", en: "Video Compose", category: "video" },
+  { key: "directorConsole", zh: "导演台", en: "Director Console", category: "image" },
   // 其他节点
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
@@ -1913,6 +1917,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoFrameExtract: "video",
   videoToGif: "video",
   videoCompose: "video",
+  directorConsole: "three",
   audioUpload: "audio",
   minimaxSpeech: "audio",
   tencentSpeech: "audio",
@@ -1974,6 +1979,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
   videoCompose: { w: 320, h: 360 },
+  directorConsole: { w: 320, h: 220 },
   audioUpload: { w: 320, h: 128 },
   videoAnalyze: { w: 280, h: 360 },
   videoFrameExtract: { w: 300, h: 420 },
@@ -2315,6 +2321,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   volcEnhanceVideo: ["video"],
   videoFrameExtract: ["images", "image", "images-range"],
   videoCompose: ["video"],
+  directorConsole: ["out-image"],
   audioUpload: ["audio"],
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
@@ -2368,6 +2375,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
   videoCompose: ["video", "audio"],
+  directorConsole: ["in-image"],
   audioUpload: ["audio"],
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
@@ -12073,6 +12081,14 @@ function FlowInner() {
           return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "directorConsole") {
+        // 全景背景图输入：接受任意图片源
+        if (targetHandle === "in-image") {
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -24985,13 +25001,21 @@ function FlowInner() {
         const holder = collabLockedNodes[node.id];
         if (!holder) return node;
         const c = lockColor(holder);
+        // 锁定描边落在 react-flow 外层包裹元素上，而该元素的尺寸不会随 data.boxW/boxH
+        // 自适应(节点内容尺寸存于 data.boxW/boxH)。故对可缩放节点显式把包裹尺寸设为
+        // boxW/boxH,让虚线框紧贴节点真实大小(否则缩放后锁框尺寸不跟随)。
+        const boxW = Number(node.data?.boxW);
+        const boxH = Number(node.data?.boxH);
+        const sizeStyle: Record<string, number> = {};
+        if (Number.isFinite(boxW) && boxW > 0) sizeStyle.width = boxW;
+        if (Number.isFinite(boxH) && boxH > 0) sizeStyle.height = boxH;
         return {
           ...node,
           // 锁优先级最高：即便本端把它选中(聚焦)，也强制按"被他人锁定"渲染——
           // 抑制蓝色选中边框(selected:false)，只保留虚线锁定描边，明确告知不可编辑。
           // 仅作用于渲染数组，不写回 nodes；锁释放后恢复真实 selected 状态。
           selected: false,
-          style: { ...(node.style || {}), outline: `2px dashed ${c}`, outlineOffset: 2 },
+          style: { ...(node.style || {}), ...sizeStyle, outline: `2px dashed ${c}`, outlineOffset: 2 },
           className: [node.className, 'collab-locked-by-other'].filter(Boolean).join(' '),
         };
       });
