@@ -28,6 +28,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
     creditsPerCall?: number;
     clipDuration?: number;
@@ -825,40 +826,59 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
           >
             <HelpCircle size={14} />
           </button>
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={onRun}
-            onMouseDown={handleButtonMouseDown}
-            disabled={data.status === "running"}
-            style={{
-              width: hasRunCredits ? "auto" : 36,
-              minWidth: hasRunCredits ? 64 : 36,
-              height: 32,
-              padding: hasRunCredits ? "0 10px" : undefined,
-              borderRadius: 8,
-              border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-              opacity: data.status === "running" ? 0.6 : 1,
-              gap: 0,
-            }}
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run"
+              onClick={() => data.onStop?.(id)}
+              onMouseDown={handleButtonMouseDown}
+              title="停止并重置，可重新生成"
+              style={{
+                width: hasRunCredits ? "auto" : 36,
+                minWidth: hasRunCredits ? 64 : 36,
+                height: 32,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                borderRadius: 8,
+                border: "none",
+                background: "#dc2626",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
             >
-            {data.status === "running" ? (
-              <span className="run-text-trigger">Running...</span>
-            ) : (
-              <>
-                <span className="run-text-trigger">Run</span>
-                {hasRunCredits ? (
-                  <RunCreditBadge credits={resolvedRunCredits} runButton />
-                ) : null}
-              </>
-            )}
-          </button>
+              <span>停止</span>
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={onRun}
+              onMouseDown={handleButtonMouseDown}
+              style={{
+                width: hasRunCredits ? "auto" : 36,
+                minWidth: hasRunCredits ? 64 : 36,
+                height: 32,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {hasRunCredits ? (
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              ) : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}

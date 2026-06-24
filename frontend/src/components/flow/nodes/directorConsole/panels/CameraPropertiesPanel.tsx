@@ -26,6 +26,7 @@ const selectStyle: React.CSSProperties = {
 
 export function CameraPropertiesPanel({ camera, scene, tab, onTab, shotGroups, busy, onPatch, onSwitchCamera, onClearAll, onSendAll, onSendShot, onDeleteShot }: Props) {
   const total = shotGroups.reduce((n, g) => n + g.shots.length, 0)
+  const activeCameraId = scene.activeCameraId ?? camera.id
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600 }}>摄像机</div>
@@ -42,10 +43,15 @@ export function CameraPropertiesPanel({ camera, scene, tab, onTab, shotGroups, b
         <div style={{ overflowY: 'auto' }}>
           <Section title="名称"><TextField value={camera.name} onChange={(v) => onPatch({ name: v })} /></Section>
           <Section title="切换机位">
-            <select style={selectStyle} value={scene.activeCameraId ?? camera.id} onChange={(e) => onSwitchCamera(e.target.value)}>
+            <select style={selectStyle} value={activeCameraId} onChange={(e) => onSwitchCamera(e.target.value)}>
               {scene.cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Section>
+          {activeCameraId !== camera.id ? (
+            <div style={{ padding: '0 16px 8px', fontSize: 12, color: '#fbbf24' }}>
+              当前编辑的是 {camera.name}，预览显示的是 {scene.cameras.find((c) => c.id === activeCameraId)?.name ?? '当前机位'}。
+            </div>
+          ) : null}
           <Section title="位置"><Vec3Row value={camera.position} onChange={(v) => onPatch({ position: v })} /></Section>
           <Section title="注视目标">
             <select style={selectStyle} value={camera.lookAtMode} onChange={(e) => onPatch({ lookAtMode: e.target.value })}>

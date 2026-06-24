@@ -15,7 +15,6 @@ export function addCharacter(
   const next = clone(d)
   const idx = next.scene.characters.length
   const item = getLibraryItem(init.modelId)
-  // 道具按库名计数命名（桌子、桌子2…），角色按字母序且不被道具占位
   let name = init.name
   if (!name) {
     if (item?.kind === 'prop') {
@@ -30,7 +29,7 @@ export function addCharacter(
     id: init.id,
     name,
     modelId: init.modelId,
-    position: init.position ?? [idx * 0.9, 0, 0], // 错开生成，避免叠在一起
+    position: init.position ?? [idx * 0.9, 0, 0],
     rotation: [0, 0, 0],
     scale: [1, 1, 1],
     uniformScale: 1,

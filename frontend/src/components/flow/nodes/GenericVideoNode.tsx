@@ -78,6 +78,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
     creditsPerCall?: number;
     managedModelKey?: string;
@@ -1140,6 +1141,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
+  const onStop = React.useCallback(() => data.onStop?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
 
   const clipDuration =
@@ -2614,40 +2616,59 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               <HelpCircle size={14} />
             </button>
           )}
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={onRun}
-            onMouseDown={handleButtonMouseDown}
-            disabled={data.status === "running"}
-            style={{
-              width: showRunCredits ? "auto" : 36,
-              minWidth: showRunCredits ? 64 : 36,
-              padding: showRunCredits ? "0 10px" : undefined,
-              height: 32,
-              borderRadius: 8,
-              border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-              opacity: data.status === "running" ? 0.6 : 1,
-              gap: 0,
-            }}
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-stop"
+              onClick={onStop}
+              onMouseDown={handleButtonMouseDown}
+              title={lt("停止并重置，可重新生成", "Stop and reset to regenerate")}
+              style={{
+                width: 64,
+                minWidth: 64,
+                padding: "0 10px",
+                height: 32,
+                borderRadius: 8,
+                border: "none",
+                background: "#dc2626",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
             >
-              {data.status === "running" ? (
-                <span className="run-text-trigger">Running...</span>
-              ) : (
-                <>
-                  <span className="run-text-trigger">Run</span>
-                  {showRunCredits ? (
-                    <RunCreditBadge credits={selectedCredits} runButton />
-                  ) : null}
-                </>
-              )}
-          </button>
+              <span>{lt("停止", "Stop")}</span>
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={onRun}
+              onMouseDown={handleButtonMouseDown}
+              style={{
+                width: showRunCredits ? "auto" : 36,
+                minWidth: showRunCredits ? 64 : 36,
+                padding: showRunCredits ? "0 10px" : undefined,
+                height: 32,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {showRunCredits ? (
+                <RunCreditBadge credits={selectedCredits} runButton />
+              ) : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}

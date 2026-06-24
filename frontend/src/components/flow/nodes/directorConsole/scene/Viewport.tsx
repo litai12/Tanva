@@ -1,7 +1,6 @@
-// @ts-nocheck
 import React from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport, PerspectiveCamera, TransformControls, useProgress, useGLTF } from '@react-three/drei'
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, PerspectiveCamera, TransformControls, useProgress } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DirectorScene, CharacterObj, CameraObj, Vec3 } from '../types'
 import { CharacterObject, resolveCharacterPose } from './CharacterObject'
@@ -10,10 +9,6 @@ import { poseEulerFromRig, type JointRole, type RigState } from '../state/pose'
 import { aspectRatio, captureSize } from '../state/aspect'
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
 
-// 预加载默认素体，避免首次加角色时白屏
-try { useGLTF.preload('/director/xbot.glb') } catch { /* ignore */ }
-
-/** 跨域全景图：走同源 /api/assets/proxy 取字节，避开 CORS / 脏缓存 */
 async function fetchProxiedImageBlob(url: string): Promise<Blob> {
   const proxied = proxifyRemoteAssetUrl(url, { forceProxy: true })
   const res = await fetch(proxied)
@@ -55,7 +50,6 @@ function corsSafeImageUrl(url: string): string {
   return url + (url.includes('?') ? '&' : '?') + 'tc-cors=1'
 }
 
-/** 等距全景图作为场景天空盒背景；清除时恢复纯色 */
 function Skybox({ url }: { url?: string }) {
   const { scene, invalidate } = useThree()
   React.useEffect(() => {
@@ -102,7 +96,10 @@ function ActiveCameraView({ cam, lookAt }: { cam: CameraObj; lookAt: Vec3 }) {
   return <PerspectiveCamera ref={ref} makeDefault position={cam.position} fov={cam.fovDeg} near={0.1} far={1000} />
 }
 
-/** Suspense 边界内的就绪探针：用 drei useProgress 跟踪全局加载，无在途加载才算就绪 */
+function EmptyCameraView() {
+  return <PerspectiveCamera makeDefault position={DIRECTOR_CAM_POS} fov={45} near={0.1} far={1000} />
+}
+
 function ReadySignal({ onReady }: { onReady?: () => void }) {
   const { invalidate } = useThree()
   const { active } = useProgress()
@@ -115,10 +112,20 @@ function ReadySignal({ onReady }: { onReady?: () => void }) {
   React.useEffect(() => {
     if (!onReady || !settled) return
     let fired = false
-    const fire = () => { if (fired) return; fired = true; onReady() }
+    const fire = () => {
+      if (fired) return
+      fired = true
+      onReady()
+    }
     let raf2 = 0
-    const raf1 = requestAnimationFrame(() => { invalidate(); raf2 = requestAnimationFrame(fire) })
-    const timer = window.setTimeout(() => { invalidate(); fire() }, 800)
+    const raf1 = requestAnimationFrame(() => {
+      invalidate()
+      raf2 = requestAnimationFrame(fire)
+    })
+    const timer = window.setTimeout(() => {
+      invalidate()
+      fire()
+    }, 800)
     return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); window.clearTimeout(timer) }
   }, [onReady, settled, invalidate])
   return null
@@ -129,10 +136,22 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
   const selectedChar = scene.characters.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const anchorRef = React.useRef<THREE.Object3D>(null)
+  const [jointEditingEnabled, setJointEditingEnabled] = React.useState(false)
 
   const rigsRef = React.useRef(new Map<string, RigState>())
   const [jointRole, setJointRole] = React.useState<JointRole | null>(null)
   React.useEffect(() => { setJointRole(null) }, [selectedId, viewpoint])
+  React.useEffect(() => {
+    const onToggle = (e: Event) => {
+      const detail = (e as CustomEvent<{ characterId?: string; enabled?: boolean }>).detail
+      if (!detail) return
+      if (detail.characterId && detail.characterId !== selectedId) return
+      setJointEditingEnabled(Boolean(detail.enabled))
+      if (!detail.enabled) setJointRole(null)
+    }
+    window.addEventListener('director:toggleJointEditing', onToggle as EventListener)
+    return () => window.removeEventListener('director:toggleJointEditing', onToggle as EventListener)
+  }, [selectedId])
 
   const groupsRef = React.useRef(new Map<string, THREE.Group>())
   const [, bumpRefs] = React.useReducer((x: number) => x + 1, 0)
@@ -165,7 +184,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
     const eul = poseEulerFromRig(rig, jointRole)
     if (!eul) return
     const base = resolveCharacterPose(selectedChar) ?? {}
-    onPatchCharacter(selectedChar.id, { pose: { ...base, [jointRole]: eul } as CharacterObj['pose'] })
+    onPatchCharacter(selectedChar.id, { pose: { ...base, [jointRole]: eul } as CharacterObj['pose'], posePresetId: undefined })
   }
 
   const jointBone = selectedChar && jointRole ? rigsRef.current.get(selectedChar.id)?.joints[jointRole]?.bone : undefined
@@ -176,7 +195,9 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
         <OrbitControls makeDefault enableDamping target={DIRECTOR_TARGET} />
       ) : activeCam ? (
         <ActiveCameraView cam={activeCam} lookAt={resolveLookAt(activeCam, scene)} />
-      ) : null}
+      ) : (
+        <EmptyCameraView />
+      )}
 
       <Skybox url={skyboxUrl ?? scene.skybox} />
       <ambientLight intensity={1.1} />
@@ -191,7 +212,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
           character={c}
           selected={c.id === selectedId}
           onSelect={() => { setJointRole(null); onSelect(c.id) }}
-          jointEditing={viewpoint === 'director' && c.id === selectedChar?.id}
+          jointEditing={viewpoint === 'director' && jointEditingEnabled && c.id === selectedChar?.id}
           selectedJointRole={c.id === selectedChar?.id ? jointRole : null}
           onPickJoint={(role) => setJointRole((r) => (r === role ? null : role))}
           onRigChange={(rig) => { if (rig) rigsRef.current.set(c.id, rig); else rigsRef.current.delete(c.id) }}

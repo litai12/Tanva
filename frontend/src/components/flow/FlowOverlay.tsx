@@ -87,6 +87,7 @@ import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
+import { DirectorCaptureRunner } from "./nodes/directorConsole/DirectorCaptureRunner";
 import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
@@ -1589,6 +1590,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "happyhorseR2V", targetHandle: "image-1" },
   ],
   video: [
+    { nodeType: "videoCompose", targetHandle: "video" },
     { nodeType: "videoAnalyze", targetHandle: "video" },
     { nodeType: "videoFrameExtract", targetHandle: "video" },
     { nodeType: "videoToGif", targetHandle: "video" },
@@ -1641,6 +1643,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "happyhorseR2V", sourceHandle: "video" },
     { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
+    { nodeType: "videoCompose", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
   ],
   audio: [
@@ -7073,6 +7076,7 @@ function FlowInner() {
       return ns.map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
         delete rawData.onRun;
+        delete rawData.onStop;
         delete rawData.onSend;
         const data = sanitizeNodeData(rawData, options);
         if (data) {
@@ -9071,6 +9075,7 @@ function FlowInner() {
     // 不导出回调函数/运行时状态字段
     const {
       onRun,
+      onStop,
       onSend,
       status,
       error,
@@ -16207,6 +16212,10 @@ function FlowInner() {
         console.log(`[resolveEdgesAsDataUrls] 解析完成，成功 ${out.length}/${edges.length}`);
         return out;
       };
+      // 发给上游前统一规范化 prompt：合并连续空白（含换行）为单个空格，去首尾空格
+      const normalizePromptForUpstream = (text: string): string =>
+        text.replace(/\s+/g, " ").trim();
+
       const getTextPromptForNode = (targetId: string) => {
         const textEdge = currentEdges.find(
           (e) => e.target === targetId && e.targetHandle === "text"
@@ -16218,7 +16227,10 @@ function FlowInner() {
           promptNode,
           textEdge.sourceHandle
         );
-        return { text: resolved?.trim() || "", hasEdge: true };
+        return {
+          text: normalizePromptForUpstream(resolved?.trim() || ""),
+          hasEdge: true,
+        };
       };
 
       const getTextPromptsForNode = (targetId: string) => {
@@ -16235,8 +16247,8 @@ function FlowInner() {
             promptNode,
             edge.sourceHandle
           );
-          const trimmed = resolved?.trim() || "";
-          if (trimmed) texts.push(trimmed);
+          const normalized = normalizePromptForUpstream(resolved?.trim() || "");
+          if (normalized) texts.push(normalized);
         }
 
         return { texts, hasEdge: true };
@@ -24340,6 +24352,41 @@ function FlowInner() {
     );
   }, [runningGroupIds]);
 
+  const stopNode = React.useCallback(
+    async (nodeId: string) => {
+      const node = rf.getNode(nodeId);
+      if (!node) return;
+      if ((node.data as any)?.status !== "running") return;
+
+      // 取消前端轮询
+      const { cancelTask: cancelTaskFn, cancelTasksByOwner: cancelByOwner } =
+        await import("@/utils/imageTaskPoller");
+      cancelByOwner([nodeId]);
+      const taskId = typeof (node.data as any)?.taskId === "string"
+        ? (node.data as any).taskId.trim()
+        : "";
+      if (taskId) cancelTaskFn(taskId);
+
+      // 重置节点为 idle，用户可重新生成
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: "idle",
+                  error: undefined,
+                  taskId: undefined,
+                },
+              }
+            : n
+        )
+      );
+    },
+    [rf, setNodes]
+  );
+
   const runGlobalNodes = React.useCallback(async () => {
     let started = false;
     setIsGlobalRunning((prev) => {
@@ -24765,6 +24812,7 @@ function FlowInner() {
     imageSize,
     imageModel,
     runNode,
+    stopNode,
     onSendHandler,
     promptGroupName,
     updateGroupName,
@@ -24899,6 +24947,7 @@ function FlowInner() {
             data: {
               ...runtimeNodeData,
               onRun: runNode,
+              onStop: stopNode,
               onSend: onSendHandler,
               creditsPerCall,
             },
@@ -24926,6 +24975,7 @@ function FlowInner() {
             data: {
               ...runtimeNodeData,
               onRun: runNode,
+              onStop: stopNode,
               creditsPerCall,
               seedance2AccessEnabled,
               seedance2AccessResolved,
@@ -24955,6 +25005,7 @@ function FlowInner() {
       imageSize,
       imageModel,
       runNode,
+      stopNode,
       onSendHandler,
       promptGroupName,
       updateGroupName,
@@ -26166,6 +26217,7 @@ function FlowInner() {
         const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
         delete data.onRun;
+        delete data.onStop;
         delete data.onSend;
         delete data.status;
         delete data.error;
@@ -26258,6 +26310,7 @@ function FlowInner() {
         nodesToSave.map(async (n: any) => {
           const raw = { ...(n.data || {}) };
           delete raw.onRun;
+          delete raw.onStop;
           delete raw.onSend;
           const data: any = sanitizeNodeData(raw) || {};
           delete data.status;
@@ -26592,6 +26645,7 @@ function FlowInner() {
                   ...((n.data || {}) as Record<string, unknown>),
                 };
                 delete rawData.onRun;
+                delete rawData.onStop;
                 delete rawData.onSend;
                 let data = sanitizeNodeData(rawData, {
                   preserveImagePayload: true,
@@ -26788,6 +26842,8 @@ function FlowInner() {
           </>
         )}
       </ReactFlow>
+
+      <DirectorCaptureRunner nodes={nodes} />
 
       {!effectiveFlowLowDetailMode && flowSnapAlignments.length > 0 && (
         <svg className='tanva-flow-snap-guides' aria-hidden='true'>

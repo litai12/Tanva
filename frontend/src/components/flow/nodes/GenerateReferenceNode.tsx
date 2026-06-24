@@ -32,6 +32,7 @@ type Props = {
     vendorKey?: string;
     platformKey?: string;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
   };
   selected?: boolean;
@@ -204,23 +205,40 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
       >
         <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>Generate Refer</div>
         <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={onRun}
-            disabled={status === "running"}
-            className='run-btn-with-credit'
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: status === "running" ? "not-allowed" : "pointer",
-            }}
-          >
-            <span className='run-text-trigger'>Run</span>
-            <RunCreditBadge credits={resolvedRunCredits} runButton />
-          </button>
+          {status === "running" ? (
+            <button
+              onClick={() => data.onStop?.(id)}
+              title="停止并重置，可重新生成"
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                background: "#dc2626",
+                color: "#fff",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              停止
+            </button>
+          ) : (
+            <button
+              onClick={onRun}
+              className='run-btn-with-credit'
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                background: "#111827",
+                color: "#fff",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <span className='run-text-trigger'>Run</span>
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            </button>
+          )}
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

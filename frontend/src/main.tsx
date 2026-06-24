@@ -19,6 +19,7 @@ import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
+import DirectorHarnessPage from '@/pages/DirectorHarnessPage';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 
 function RootRoutes() {
@@ -39,6 +40,7 @@ function RootRoutes() {
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal/community" element={<CommunityGuidelines />} />
         <Route path="/oss" element={<OSSDemo />} />
+        <Route path="/director-harness" element={<DirectorHarnessPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/app" element={<App />} />

@@ -20,6 +20,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     creditsPerCall?: number;
     managedModelKey?: string;
     resolution?: string;
@@ -314,31 +315,42 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           <span>Omni Flash Ext</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={() => data.onRun?.(id)}
-            onMouseDown={(e) => e.stopPropagation()}
-            disabled={data.status === "running"}
-            style={{
-              ...styles.iconBtn,
-              width: hasRunCredits ? "auto" : styles.iconBtn.width,
-              minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
-              padding: hasRunCredits ? "0 10px" : undefined,
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              opacity: data.status === "running" ? 0.6 : 1,
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-            }}
-          >
-            {data.status === "running" ? (
-              <span className="run-text-trigger">Running...</span>
-            ) : (
-              <>
-                <span className="run-text-trigger">Run</span>
-                {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
-              </>
-            )}
-          </button>
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run"
+              onClick={() => data.onStop?.(id)}
+              onMouseDown={(e) => e.stopPropagation()}
+              title="停止并重置，可重新生成"
+              style={{
+                ...styles.iconBtn,
+                width: hasRunCredits ? "auto" : styles.iconBtn.width,
+                minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                background: "#dc2626",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              <span>停止</span>
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={() => data.onRun?.(id)}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                ...styles.iconBtn,
+                width: hasRunCredits ? "auto" : styles.iconBtn.width,
+                minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}

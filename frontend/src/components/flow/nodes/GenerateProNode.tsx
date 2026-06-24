@@ -63,6 +63,7 @@ type Props = {
     platformKey?: string;
     modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
   };
   selected?: boolean;
@@ -2061,27 +2062,46 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               )}
 
               {/* Run 按钮 */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onRun();
-                }}
-                onMouseDown={(e) => {
-                  // 阻止点击时节点失去选中状态
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                disabled={status === 'running'}
-                onPointerDownCapture={stopNodeDrag}
-                className="tanva-agent-toolbar-btn run-btn-with-credit p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                title={status === 'running' ? lt('生成中...', 'Generating...') : lt('运行生成', 'Run generation')}
-              >
-                <span className='run-text-trigger'>
-                  <Play style={{ width: 14, height: 14 }} />
-                </span>
-                <RunCreditBadge credits={resolvedRunCredits} runButton />
-              </button>
+              {status === 'running' ? (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    data.onStop?.(id);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  title="停止并重置，可重新生成"
+                  className="tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full flex items-center justify-center"
+                  style={{ background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", fontSize: 12 }}
+                >
+                  停止
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRun();
+                  }}
+                  onMouseDown={(e) => {
+                    // 阻止点击时节点失去选中状态
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className="tanva-agent-toolbar-btn run-btn-with-credit p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center"
+                  title={lt('运行生成', 'Run generation')}
+                >
+                  <span className='run-text-trigger'>
+                    <Play style={{ width: 14, height: 14 }} />
+                  </span>
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
+                </button>
+              )}
             </div>
 
             {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}

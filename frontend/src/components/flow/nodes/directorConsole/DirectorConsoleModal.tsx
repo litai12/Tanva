@@ -19,7 +19,6 @@ import { sendShotsToCanvas } from './sendToCanvas'
 let uidCounter = 0
 const uid = (p: string) => `${p}-${Date.now()}-${uidCounter++}`
 
-/** reactflow v11/v12 兼容地从 store 取节点数组 */
 function getNodesFromState(state: any): any[] {
   if (Array.isArray(state?.nodes)) return state.nodes
   if (state?.nodeInternals && typeof state.nodeInternals.values === 'function') return Array.from(state.nodeInternals.values())
@@ -42,11 +41,9 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const viewportRef = React.useRef<ViewportHandle | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [gizmoMode, setGizmoMode] = React.useState<GizmoMode>('translate')
-  // 截图画廊：本地内存（dataURL），不写 node.data，发送到画布时才上传
   const [shots, setShots] = React.useState<Record<string, CameraShot[]>>({})
   const [cameraTab, setCameraTab] = React.useState<'props' | 'shots'>('props')
 
-  // 变换模式快捷键 V/R/S
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -66,7 +63,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     updateNodeData({ scene: next.scene, activeViewpoint: next.activeViewpoint, selectedObjectId: next.selectedObjectId })
   }, [updateNodeData])
 
-  // 选中对象键盘微调：←→↑↓ 沿地面、Alt+↑↓ 调高度；Shift=0.5m，默认 0.1m；Delete 删除（锁定不响应）
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isArrow = e.key.startsWith('Arrow')
@@ -82,7 +78,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
       const obj = ch ?? cam
       if (!obj || obj.locked) return
       e.preventDefault()
-      if (isDelete) { apply(removeObject(data, id)); return }
+      if (isDelete) {
+        apply(removeObject(data, id))
+        return
+      }
       const step = e.shiftKey ? 0.5 : 0.1
       let dx = 0, dy = 0, dz = 0
       if (e.altKey) {
@@ -111,7 +110,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [data, apply])
 
-  // 全景背景：读取连入导演台输入口的图片节点 URL（Tanva 图片节点形状）
   const connectedPanoUrl = useStore((state: any) => {
     const edges = Array.isArray(state?.edges) ? state.edges : []
     const nodes = getNodesFromState(state)
@@ -132,7 +130,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const selectedCamera = scene?.cameras.find((c) => c.id === selectedId)
   const selectedCharacter = scene?.characters.find((c) => c.id === selectedId)
 
-  // 截图：在当前视角新建一个机位 + 给它拍 1 张图
   const onCapture = React.useCallback(() => {
     const view = viewportRef.current?.getCurrentCamera()
     const dataUrl = viewportRef.current?.captureView()
@@ -154,7 +151,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     setShots((prev) => ({ ...prev, [cameraId]: (prev[cameraId] ?? []).filter((s) => s.id !== shotId) }))
   }, [])
 
-  // 发送：直接把截图 dataURL 交给 Tanva triggerQuickImageUpload（自带上传 + 建节点）
   const sendList = React.useCallback((list: CameraShot[]) => {
     if (!list.length) { toast('该机位还没有截图', 'warning'); return }
     setBusy(true)
@@ -202,10 +198,9 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
 
   return createPortal(
     <div className="nodrag nopan nowheel"
-      onPointerDownCapture={(e) => e.stopPropagation()}
-      onWheelCapture={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
       style={{ position: 'fixed', inset: 0, zIndex: 8200, background: '#0a0b0d', display: 'flex', flexDirection: 'column', color: '#e5e7eb' }}>
-      {/* 顶部栏 */}
       <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid #1c1f26' }}>
         <div style={{ fontSize: 15, fontWeight: 600 }}>3D导演台</div>
         <div style={{ display: 'flex', gap: 2, background: '#16181d', borderRadius: 10, padding: 3 }}>
@@ -224,7 +219,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           <IconX size={20} color="#9ca3af" style={{ cursor: 'pointer' }} onClick={onClose} />
         </div>
       </div>
-      {/* 主体三栏 */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ width: 240, borderRight: '1px solid #1c1f26', overflowY: 'auto' }}>
           <SceneTreePanel
@@ -270,7 +264,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               shotGroups={shotGroups}
               busy={busy}
               onPatch={(patch) => apply(patchCamera(data, selectedCamera.id, patch))}
-              onSwitchCamera={(id) => apply(setActiveCamera(data, id))}
+              onSwitchCamera={(id) => apply(selectObject(setActiveCamera(data, id), id))}
               onClearAll={onClearAll}
               onSendAll={onSendAll}
               onSendShot={onSendShot}
@@ -286,7 +280,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           )}
         </div>
       </div>
-      {/* 底部工具条 */}
       <Toolbar
         busy={busy}
         aspect={scene.aspect}

@@ -43,6 +43,7 @@ type Props = {
     creditsPerCall?: number;
     modelProvider?: FlowModelProvider;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
     boxW?: number;
     boxH?: number;
@@ -975,27 +976,48 @@ function Generate4NodeInner({ id, data, selected }: Props) {
             gap: 8,
           }}
         >
-          <button
-            onClick={onRun}
-            disabled={status === "running"}
-            className='run-btn-with-credit'
-            style={headerRunButtonStyle(status === "running")}
-            title={
-              status === "running"
-                ? lt("生成中...", "Generating...")
-                : resolvedRunCredits
-                ? `${lt("本次消耗", "Cost")}: ${resolvedRunCredits} ${lt(
-                    "积分",
-                    "credits"
-                  )}`
-                : lt("运行生成", "Run generation")
-            }
-          >
-            <span className='run-text-trigger'>Run</span>
-            {resolvedRunCredits ? (
-              <RunCreditBadge credits={resolvedRunCredits} runButton />
-            ) : null}
-          </button>
+          {status === "running" ? (
+            <button
+              onClick={() => data.onStop?.(id)}
+              title="停止并重置，可重新生成"
+              style={{
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxSizing: "border-box",
+                minHeight: 30,
+                padding: "0 12px",
+                background: "#dc2626",
+                color: "#fff",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+                gap: 6,
+              }}
+            >
+              停止
+            </button>
+          ) : (
+            <button
+              onClick={onRun}
+              className='run-btn-with-credit'
+              style={headerRunButtonStyle(false)}
+              title={
+                resolvedRunCredits
+                  ? `${lt("本次消耗", "Cost")}: ${resolvedRunCredits} ${lt(
+                      "积分",
+                      "credits"
+                    )}`
+                  : lt("运行生成", "Run generation")
+              }
+            >
+              <span className='run-text-trigger'>Run</span>
+              {resolvedRunCredits ? (
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              ) : null}
+            </button>
+          )}
           <button
             onClick={onSend}
             disabled={!(images.length || imageUrls.length)}

@@ -54,6 +54,7 @@ const poseGroups = POSE_PRESETS.reduce<{ category: string; items: typeof POSE_PR
 
 function PoseTab({ character, onPatch }: Props) {
   const pose = (character.pose ?? {}) as Record<string, [number, number, number]>
+  const [jointEditEnabled, setJointEditEnabled] = React.useState(false)
   const applyPreset = (presetId: string, p: Record<string, [number, number, number]>) => onPatch({ pose: { ...p }, posePresetId: presetId })
   const setJoint = (role: JointRole, axis: 0 | 1 | 2, valDeg: number) => {
     const cur = (pose[role] ?? [0, 0, 0]).slice() as [number, number, number]
@@ -78,6 +79,18 @@ function PoseTab({ character, onPatch }: Props) {
         </div>
       </Section>
       <Section title="逐关节调节">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: '#cdd3dc' }}>
+          <input
+            type="checkbox"
+            checked={jointEditEnabled}
+            onChange={(e) => {
+              const enabled = e.target.checked
+              setJointEditEnabled(enabled)
+              window.dispatchEvent(new CustomEvent('director:toggleJointEditing', { detail: { characterId: character.id, enabled } }))
+            }}
+          />
+          显示关节球并启用骨骼调整
+        </label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {JOINT_SLIDERS.map((j) => {
             const v = toDeg((pose[j.role]?.[j.axis]) ?? 0)

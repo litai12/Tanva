@@ -90,8 +90,18 @@ export function mapBones(root: THREE.Object3D): Partial<Record<JointRole, THREE.
 }
 
 // —— 姿势标定与应用（解剖学规范坐标系，骨骼局部轴无关）——
-// 规范坐标系（角色空间）：X=角色左、Y=上、Z=面朝方向。由肩线推导。
-// 应用公式：local = P⁻¹ · Ĉ · P · local0，Ĉ=basis·Euler·basis⁻¹。
+//
+// 规范坐标系（角色空间）：X=角色左、Y=上、Z=面朝方向。由肩线推导（左肩-右肩 → left 轴）。
+// 预设/滑块中的欧拉角（'XYZ'，z 先转）一律按此坐标系解释：
+//   spine/neck: x+前倾(低头) y+左转 z+右倾
+//   shoulderL:  z+抬起 z-放下 x-前摆 x+后摆；shoulderR: z 取反
+//   elbowL:     y-弯曲；elbowR: y+弯曲（绕 y 轴！）
+//   hip:        x-前抬腿 x+后摆；hipL z+外展，hipR z-外展
+//   knee:       x+弯曲（小腿向后折）
+//
+// 应用公式：local = P⁻¹ · Ĉ · P · local0，其中 P=该骨父级绑定姿态世界四元数（根相对）、
+// Ĉ=basis·Euler·basis⁻¹（规范系→根系）。祖先关节的增量在推导中相消，链式解剖跟随天然成立，
+// 对任意绑定局部轴（含上传模型）都给出同样的世界空间效果。
 
 type JointCalib = { bone: THREE.Object3D; baseQuat: THREE.Quaternion; parentBind: THREE.Quaternion; parentBindInv: THREE.Quaternion }
 
@@ -101,9 +111,9 @@ export type RigState = {
   basis: THREE.Quaternion
   basisInv: THREE.Quaternion
   allBones: THREE.Object3D[]
-  bindMinY: number
-  bindPosY: number
-  scaleY: number
+  bindMinY: number   // 绑定姿态下全骨骼最低点（根内容空间）
+  bindPosY: number   // 标定时根节点 position.y（归一化落地后）
+  scaleY: number     // 根 y 缩放（内容空间 → 父级空间）
 }
 
 /** 在根节点尚未挂入场景树时调用（useMemo 内），以根内容空间完成标定 */
@@ -156,7 +166,7 @@ const _q = new THREE.Quaternion()
 const _m = new THREE.Matrix4()
 const _v = new THREE.Vector3()
 
-/** 应用姿势：复位到绑定姿态 → 叠加规范系旋转 → 自动落地（最低骨点回到绑定高度） */
+/** 应用姿势：复位到绑定姿态 → 叠加规范系旋转 → 自动落地（最低骨点回到绑定高度，跪/坐不悬空） */
 export function applyPoseToRig(root: THREE.Object3D, rig: RigState, pose: PoseMap | undefined): void {
   for (const j of Object.values(rig.joints)) j?.bone.quaternion.copy(j.baseQuat)
   if (pose) {
@@ -183,7 +193,9 @@ export function applyPoseToRig(root: THREE.Object3D, rig: RigState, pose: PoseMa
 
 /**
  * 从骨骼当前局部四元数反解规范系欧拉角（applyPoseToRig 的精确逆），供视口直接拖拽
- * 骨骼的 rotate gizmo 在松手时回写 pose。
+ * 骨骼的 rotate gizmo 在松手时回写 pose：
+ *   local = P⁻¹·B·C·B⁻¹·P·local0  →  C = B⁻¹·P·local·local0⁻¹·P⁻¹·B
+ * 反解出的欧拉角再经 applyPoseToRig 重放，必定还原出相同的局部四元数（所见即所得）。
  */
 export function poseEulerFromRig(rig: RigState, role: JointRole): Euler3 | null {
   const j = rig.joints[role]
@@ -218,7 +230,8 @@ export const JOINT_SLIDERS: JointSlider[] = [
   { role: 'kneeR', axis: 0, label: '右膝弯曲（+弯）', min: -5, max: 140 },
 ]
 
-// 姿势预设（弧度，规范坐标系）。基于标准 Mixamo T-pose 骨架（xbot.glb）校准。
+// 姿势预设（弧度，规范坐标系，见上方注释）。基于标准 Mixamo T-pose 骨架（xbot.glb）校准。
+// 镜像规则：左右对称姿势 R = L 的 y、z 取反，x 同号。
 export type PosePreset = { id: string; name: string; category: string; pose: PoseMap }
 export const POSE_PRESETS: PosePreset[] = [
   // —— 基础 ——

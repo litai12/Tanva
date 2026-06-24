@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF, Html } from '@react-three/drei'
@@ -10,9 +9,26 @@ import { calibrateRig, applyPoseToRig, POSE_PRESETS, type RigState, type PoseMap
 
 /** 显式 pose 优先（用户/进阶覆盖），否则按 posePresetId 解析预设 */
 export function resolveCharacterPose(character: Pick<CharacterObj, 'pose' | 'posePresetId'>): PoseMap | undefined {
+  if (!character.pose && !character.posePresetId) {
+    return POSE_PRESETS.find((p) => p.id === 'arms-down')?.pose
+  }
   if (character.pose && Object.keys(character.pose).length > 0) return character.pose as PoseMap
   if (character.posePresetId) return POSE_PRESETS.find((p) => p.id === character.posePresetId)?.pose
   return undefined
+}
+
+type Props = {
+  character: CharacterObj
+  selected: boolean
+  onSelect: () => void
+  /** 选中态（导演视角）下显示可点选关节球，点选后由 Viewport 挂 rotate gizmo 直掰骨骼 */
+  jointEditing?: boolean
+  selectedJointRole?: JointRole | null
+  onPickJoint?: (role: JointRole) => void
+  /** 骨架标定完成/卸载时上报 rig，供 Viewport 把 gizmo 挂到具体骨骼 */
+  onRigChange?: (rig: RigState | null) => void
+  /** 上报角色根 group，供 Viewport 把变换 gizmo 直接挂在实体上（拖拽实时所见即所得） */
+  onGroupChange?: (group: THREE.Group | null) => void
 }
 
 function Label({ name, selected }: { name: string; selected: boolean }) {
@@ -29,6 +45,8 @@ const _markerPos = new THREE.Vector3()
 /**
  * 可点选关节球：每帧把球同步到骨骼世界位置（骨骼姿势/拖拽实时跟随）。
  * userData.directorHelper 标记让截图时与 gizmo 一起隐藏，不进出图。
+ * 注意：球大多藏在身体网格内部，射线总是先命中体表，球自己的 onClick 收不到事件——
+ * 点选逻辑在外层 group 的 onClick 里扫 e.intersections（按 userData.jointRole 识别）。
  */
 function JointMarkers({ rig, selectedRole }: { rig: RigState; selectedRole?: JointRole | null }) {
   const groupRef = React.useRef<THREE.Group>(null)
@@ -118,11 +136,12 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, jointEditing, sele
   )
 }
 
-/** 几何/家具道具：程序化组合几何体（真实米制尺寸、底面落地 y=0），主色 + 暗部辅色区分结构 */
+/** 几何/家具道具：程序化组合几何体（blocking 占位风格，真实米制尺寸、底面落地 y=0），主色 + 暗部辅色区分结构 */
 function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string }) {
   const darkHex = React.useMemo(() => `#${new THREE.Color(colorHex).multiplyScalar(0.7).getHexString()}`, [colorHex])
   const mat = <meshStandardMaterial color={colorHex} roughness={0.6} metalness={0.05} />
   const mat2 = <meshStandardMaterial color={darkHex} roughness={0.65} metalness={0.05} />
+  // 四腿：xz 平面位置列表 + 腿高（中心 y = h/2）
   const legs = (xz: Array<[number, number]>, h: number, r: number) =>
     xz.map(([x, z], i) => (
       <mesh key={`leg${i}`} position={[x, h / 2, z]}>
@@ -171,6 +190,7 @@ function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string })
       </group>
     )
     case 'bed': return (
+      // 床头朝 -Z
       <group>
         <mesh position={[0, 0.21, 0]}><boxGeometry args={[1.5, 0.22, 2.0]} />{mat2}</mesh>
         <mesh position={[0, 0.41, 0]}><boxGeometry args={[1.4, 0.18, 1.9]} />{mat}</mesh>
@@ -180,6 +200,7 @@ function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string })
       </group>
     )
     case 'cabinet': return (
+      // 柜门朝 +Z
       <group>
         <mesh position={[0, 0.95, 0]}><boxGeometry args={[0.9, 1.9, 0.45]} />{mat}</mesh>
         <mesh position={[-0.2225, 0.95, 0.225]}><boxGeometry args={[0.42, 1.78, 0.03]} />{mat2}</mesh>
@@ -197,6 +218,7 @@ function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string })
       </group>
     )
     case 'shelf': return (
+      // 开放书架，背板朝 -Z
       <group>
         <mesh position={[-0.45, 0.9, 0]}><boxGeometry args={[0.04, 1.8, 0.32]} />{mat}</mesh>
         <mesh position={[0.45, 0.9, 0]}><boxGeometry args={[0.04, 1.8, 0.32]} />{mat}</mesh>
@@ -217,7 +239,7 @@ function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string })
   }
 }
 
-/** 无 GLB 时用分段人形 mannequin 占位（头/躯干/四肢） */
+/** 无 GLB 时用分段人形 mannequin 占位（头/躯干/四肢），观感接近素体 */
 function PlaceholderBody({ colorHex }: { colorHex: string }) {
   const mat = <meshStandardMaterial color={colorHex} roughness={0.55} metalness={0.05} />
   const limb = (key: string, pos: [number, number, number], len: number, r = 0.07) => (
@@ -228,14 +250,20 @@ function PlaceholderBody({ colorHex }: { colorHex: string }) {
   )
   return (
     <group>
+      {/* 头 */}
       <mesh position={[0, 1.62, 0]}><sphereGeometry args={[0.13, 20, 20]} />{mat}</mesh>
+      {/* 颈 */}
       <mesh position={[0, 1.46, 0]}><cylinderGeometry args={[0.05, 0.06, 0.1, 12]} />{mat}</mesh>
+      {/* 躯干 */}
       <mesh position={[0, 1.1, 0]}><capsuleGeometry args={[0.17, 0.5, 6, 14]} />{mat}</mesh>
+      {/* 髋 */}
       <mesh position={[0, 0.78, 0]}><sphereGeometry args={[0.15, 16, 16]} />{mat}</mesh>
+      {/* 上臂/前臂 */}
       {limb('lUpper', [-0.26, 1.18, 0], 0.32)}
       {limb('lFore', [-0.3, 0.82, 0], 0.3, 0.06)}
       {limb('rUpper', [0.26, 1.18, 0], 0.32)}
       {limb('rFore', [0.3, 0.82, 0], 0.3, 0.06)}
+      {/* 大腿/小腿 */}
       {limb('lThigh', [-0.1, 0.5, 0], 0.42, 0.09)}
       {limb('lCalf', [-0.1, 0.05, 0], 0.4, 0.07)}
       {limb('rThigh', [0.1, 0.5, 0], 0.42, 0.09)}
@@ -244,18 +272,10 @@ function PlaceholderBody({ colorHex }: { colorHex: string }) {
   )
 }
 
-export function CharacterObject({ character, selected, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange }: {
-  character: CharacterObj
-  selected: boolean
-  onSelect: () => void
-  jointEditing?: boolean
-  selectedJointRole?: JointRole | null
-  onPickJoint?: (role: JointRole) => void
-  onRigChange?: (rig: RigState | null) => void
-  onGroupChange?: (group: THREE.Group | null) => void
-}) {
+export function CharacterObject({ character, selected, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange }: Props) {
   const item = getLibraryItem(character.modelId)
   const s = character.uniformScale
+  // 稳定 ref 回调（inline 箭头会让 React 每次渲染都 detach/attach，上游 bump 会死循环）
   const onGroupChangeRef = React.useRef(onGroupChange)
   onGroupChangeRef.current = onGroupChange
   const groupRefCb = React.useCallback((g: THREE.Group | null) => { onGroupChangeRef.current?.(g) }, [])
