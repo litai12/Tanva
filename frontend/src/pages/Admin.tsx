@@ -132,9 +132,10 @@ type SettingsSubTabKey =
 const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "dashboard",
   "users",
+  "credit-records",
+  "credit-anomalies",
   "api-stats",
   "api-records",
-  "watermark",
   "templates",
 ]);
 
@@ -151,6 +152,21 @@ const canAccessAdminPanel = (role?: string | null) => {
 };
 
 const isFullAdmin = (role?: string | null) => normalizeRole(role) === FULL_ADMIN_ROLE;
+
+const roleLabel: Record<string, string> = {
+  user: "用户",
+  normal_admin: "普通管理",
+  admin: "管理员",
+};
+
+const statusLabel: Record<string, string> = {
+  active: "正常",
+  inactive: "禁用",
+  banned: "封禁",
+};
+
+const formatRoleLabel = (role?: string | null) => roleLabel[role || ""] || role || "-";
+const formatStatusLabel = (status?: string | null) => statusLabel[status || ""] || status || "-";
 
 const canAccessAdminTab = (role: string | null | undefined, tab: AdminTabKey) => {
   if (isFullAdmin(role)) return true;
@@ -4859,7 +4875,7 @@ function UsersTab({
   const [membershipEffectiveMode, setMembershipEffectiveMode] = useState<
     "immediate" | "next_cycle"
   >("immediate");
-  const tableColumnCount = canManageSensitiveUserFields ? 9 : 7;
+  const tableColumnCount = 9;
 
   // ── 团队视图 ──
   const [view, setView] = useState<'users' | 'teams'>('users');
@@ -4900,7 +4916,7 @@ function UsersTab({
 
   useEffect(() => {
     if (view === 'teams') void loadTeams(1);
-  }, [view]);
+  }, [loadTeams, view]);
 
   const submitTeamCredit = async () => {
     if (!teamCreditModal) return;
@@ -5333,14 +5349,14 @@ function UsersTab({
                       <th className='px-4 py-3 text-left'>成员</th>
                       <th className='px-4 py-3 text-left'>积分余额</th>
                       <th className='px-4 py-3 text-left'>总积分</th>
-                      {canManageSensitiveUserFields && <th className='px-4 py-3 text-left'>状态</th>}
+                      <th className='px-4 py-3 text-left'>状态</th>
                       <th className='px-4 py-3 text-left'>创建时间</th>
                       <th className='px-4 py-3 text-left'>操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {teams.length === 0 ? (
-                      <tr><td colSpan={canManageSensitiveUserFields ? 8 : 7} className='px-4 py-8 text-center text-gray-400'>暂无团队</td></tr>
+                      <tr><td colSpan={8} className='px-4 py-8 text-center text-gray-400'>暂无团队</td></tr>
                     ) : teams.map((team) => (
                       <tr key={team.id} className='border-t hover:bg-gray-50'>
                         <td className='px-4 py-3'>
@@ -5354,8 +5370,8 @@ function UsersTab({
                         <td className='px-4 py-3'>{team.memberCount} / {team.maxSeats}</td>
                         <td className='px-4 py-3 font-medium text-blue-600'>{team.availableCredits.toLocaleString()}</td>
                         <td className='px-4 py-3 text-gray-500'>{team.totalCredits.toLocaleString()}</td>
-                        {canManageSensitiveUserFields && (
-                          <td className='px-4 py-3'>
+                        <td className='px-4 py-3'>
+                          {canManageSensitiveUserFields ? (
                             <select
                               value={team.status}
                               onChange={(e) => void handleTeamStatusChange(team.id, e.target.value)}
@@ -5365,25 +5381,29 @@ function UsersTab({
                               <option value='inactive'>禁用</option>
                               <option value='banned'>封禁</option>
                             </select>
-                          </td>
-                        )}
+                          ) : (
+                            <span className='text-xs text-gray-600'>{formatStatusLabel(team.status)}</span>
+                          )}
+                        </td>
                         <td className='px-4 py-3 text-xs text-gray-500'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
                         <td className='px-4 py-3'>
                           <div className='flex flex-wrap gap-1'>
                             <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.maxSeats }); setTeamSeatValue(String(team.maxSeats)); setTeamSeatError(''); }}>
                               席位
                             </Button>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
-                              充值
-                            </Button>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'deduct' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
-                              扣除
-                            </Button>
                             {canManageSensitiveUserFields && (
-                              <Button size='sm' variant='outline' onClick={() => void openTeamDetail(team)}>
-                                详情
-                              </Button>
+                              <>
+                                <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                                  充值
+                                </Button>
+                                <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'deduct' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                                  扣除
+                                </Button>
+                              </>
                             )}
+                            <Button size='sm' variant='outline' onClick={() => void openTeamDetail(team)}>
+                              详情
+                            </Button>
                             {canManageSensitiveUserFields && (
                               <Button
                                 size='sm'
@@ -5595,12 +5615,8 @@ function UsersTab({
                 <th className='px-4 py-3 text-left'>积分余额</th>
                 <th className='px-4 py-3 text-left'>总消费</th>
                 <th className='px-4 py-3 text-left'>API调用</th>
-                {canManageSensitiveUserFields && (
-                  <th className='px-4 py-3 text-left'>角色</th>
-                )}
-                {canManageSensitiveUserFields && (
-                  <th className='px-4 py-3 text-left'>状态</th>
-                )}
+                <th className='px-4 py-3 text-left'>角色</th>
+                <th className='px-4 py-3 text-left'>状态</th>
                 <th className='px-4 py-3 text-left'>注册时间</th>
                 <th className='px-4 py-3 text-left'>操作</th>
               </tr>
@@ -5648,8 +5664,8 @@ function UsersTab({
                     </td>
                     <td className='px-4 py-3'>{user.totalSpent}</td>
                     <td className='px-4 py-3'>{user.apiCallCount}</td>
-                    {canManageSensitiveUserFields && (
-                      <td className='px-4 py-3'>
+                    <td className='px-4 py-3'>
+                      {canManageSensitiveUserFields ? (
                         <select
                           value={user.role}
                           onChange={(e) =>
@@ -5661,10 +5677,12 @@ function UsersTab({
                           <option value='normal_admin'>普通管理</option>
                           <option value='admin'>管理员</option>
                         </select>
-                      </td>
-                    )}
-                    {canManageSensitiveUserFields && (
-                      <td className='px-4 py-3'>
+                      ) : (
+                        <span className='text-xs text-gray-600'>{formatRoleLabel(user.role)}</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {canManageSensitiveUserFields ? (
                         <select
                           value={user.status}
                           onChange={(e) =>
@@ -5676,39 +5694,45 @@ function UsersTab({
                           <option value='inactive'>禁用</option>
                           <option value='banned'>封禁</option>
                         </select>
-                      </td>
-                    )}
+                      ) : (
+                        <span className='text-xs text-gray-600'>{formatStatusLabel(user.status)}</span>
+                      )}
+                    </td>
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className='px-4 py-3'>
                       <div className='flex flex-wrap gap-1'>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() =>
-                            setCreditModal({
-                              userId: user.id,
-                              userName: user.name || user.phone,
-                              type: "add",
-                            })
-                          }
-                        >
-                          充值
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() =>
-                            setCreditModal({
-                              userId: user.id,
-                              userName: user.name || user.phone,
-                              type: "deduct",
-                            })
-                          }
-                        >
-                          扣除
-                        </Button>
+                        {canManageSensitiveUserFields && (
+                          <>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() =>
+                                setCreditModal({
+                                  userId: user.id,
+                                  userName: user.name || user.phone,
+                                  type: "add",
+                                })
+                              }
+                            >
+                              充值
+                            </Button>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() =>
+                                setCreditModal({
+                                  userId: user.id,
+                                  userName: user.name || user.phone,
+                                  type: "deduct",
+                                })
+                              }
+                            >
+                              扣除
+                            </Button>
+                          </>
+                        )}
                         {canManageSensitiveUserFields && (
                           <Button
                             size='sm'
@@ -5718,16 +5742,14 @@ function UsersTab({
                             会员
                           </Button>
                         )}
-                        {canManageSensitiveUserFields && (
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => loadCreditDetails(user)}
-                          >
-                            详情
-                          </Button>
-                        )}
-                        {canManageSensitiveUserFields && user.wechatBound && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => loadCreditDetails(user)}
+                        >
+                          详情
+                        </Button>
+                        {user.wechatBound && (
                           <Button
                             size='sm'
                             variant='outline'

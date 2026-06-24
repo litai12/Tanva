@@ -24,6 +24,12 @@
 - `POST templates` / `GET templates` / `GET templates/:id` / `PATCH templates/:id` / `DELETE templates/:id`
 - `GET templates/categories` / `POST templates/categories`
 
+## Admin RBAC
+- `admin` is the highest admin-console role. It bypasses admin permission checks and can see/use all admin tabs and operations.
+- `normal_admin` can enter the admin console; this is based on `User.role` and is independent of team roles/permissions.
+- `normal_admin` keeps non-sensitive admin views including dashboard, user list, user details, order list, credit records/anomalies, API stats/records, public templates, team list, and team credit history.
+- `normal_admin` is blocked from paid-user management, watermark whitelist, system settings, node management, user creation/deletion, user credit add/deduct, and user membership operations. Team credit add/deduct and team deletion are also backend-blocked because they mirror the same sensitive recharge/deduct/delete operations.
+
 ## API usage model monitoring
 - `GET api-usage/model-stats` returns model-node usage monitoring data for the admin stats tab.
 - Query params: `startDate`, `endDate`, `modelNode`, `channel`.

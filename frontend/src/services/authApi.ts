@@ -625,9 +625,15 @@ export const authApi = {
       }
       const data = await res.json().catch(() => null);
       if (!data) return null;
-      return data && typeof data === "object" && "user" in data
+      const user = data && typeof data === "object" && "user" in data
         ? (data.user as UserInfo)
         : (data as UserInfo);
+      if (user) {
+        saveSession(user);
+        setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+        setStoredLastAuthAt(Date.now());
+      }
+      return user;
     } catch (e) {
       console.warn("authApi.me network error:", e);
       return loadSession();

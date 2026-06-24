@@ -1757,9 +1757,20 @@ export class AdminService {
         data: { invitedById: null },
       });
 
+      await tx.wechatLoginSession.updateMany({
+        where: { userId },
+        data: { userId: null },
+      });
       await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.userTemplate.deleteMany({ where: { userId } });
       await tx.workflowHistory.deleteMany({ where: { userId } });
       await tx.project.deleteMany({ where: { userId } });
+      await this.runWithMissingTableTolerance(() =>
+        tx.$executeRaw`DELETE FROM "GenerationImageReuse" WHERE "userId" = ${userId}`,
+      );
+      await this.runWithMissingTableTolerance(() =>
+        tx.$executeRaw`DELETE FROM "GenerationImageAsset" WHERE "userId" = ${userId}`,
+      );
 
       const account = await tx.creditAccount.findUnique({
         where: { userId },
@@ -1783,6 +1794,7 @@ export class AdminService {
       await tx.membershipEntitlementSnapshot.deleteMany({ where: { userId } });
       await tx.apiUsageRecord.deleteMany({ where: { userId } });
       await tx.globalImageHistory.deleteMany({ where: { userId } });
+      await tx.bioAuthGroup.deleteMany({ where: { userId } });
 
       await tx.invitationRedemption.deleteMany({
         where: {
@@ -1796,6 +1808,9 @@ export class AdminService {
 
       await tx.paymentOrder.deleteMany({ where: { userId } });
       await tx.imageTask.deleteMany({ where: { userId } });
+      await tx.videoTask.deleteMany({ where: { userId } });
+      await tx.teamMembership.deleteMany({ where: { userId } });
+      await tx.team.deleteMany({ where: { ownerId: userId } });
       await tx.user.delete({ where: { id: userId } });
 
       return {
