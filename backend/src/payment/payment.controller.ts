@@ -147,7 +147,9 @@ export class PaymentController {
   @UseGuards(JwtAuthGuard)
   async adminSyncOrder(@Request() req: any, @Param('orderNo') orderNo: string) {
     const role = typeof req.user?.role === 'string' ? req.user.role.toLowerCase() : '';
-    if (role !== 'admin') throw new ForbiddenException('仅管理员可操作');
+    if (role !== 'admin' && role !== 'normal_admin') {
+      throw new ForbiddenException('仅管理员可操作');
+    }
     return this.paymentService.syncOrderByAdmin(orderNo);
   }
 }

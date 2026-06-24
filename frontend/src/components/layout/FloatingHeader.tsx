@@ -209,6 +209,11 @@ const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
   return 1;
 };
 
+const hasAdminPanelRole = (role?: string | null): boolean => {
+  const normalized = (role || "").trim().toLowerCase();
+  return normalized === "admin" || normalized === "normal_admin";
+};
+
 const FloatingHeader: React.FC = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -415,6 +420,7 @@ const FloatingHeader: React.FC = () => {
   const wechatQrContainerRef = useRef<HTMLDivElement | null>(null);
   const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
   const [teamModalInitialTab, setTeamModalInitialTab] = useState<'members' | 'subscription'>('members');
+  const [serverHasAdminPanelAccess, setServerHasAdminPanelAccess] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -917,6 +923,36 @@ const FloatingHeader: React.FC = () => {
     authApi.getGoogleApiKey().then(setGoogleApiKeyInfo).catch(console.warn);
   }, [user]);
 
+  useEffect(() => {
+    if (!user) {
+      setServerHasAdminPanelAccess(false);
+      return;
+    }
+    let cancelled = false;
+
+    authApi
+      .me()
+      .then((latestUser) => {
+        if (cancelled || !latestUser || latestUser.id !== user.id) return;
+
+        const currentRole = (user.role || "").trim().toLowerCase();
+        const latestRole = (latestUser.role || "").trim().toLowerCase();
+        setServerHasAdminPanelAccess(hasAdminPanelRole(latestRole));
+        if (latestRole && latestRole !== currentRole) {
+          useAuthStore.setState((state) => ({
+            user: state.user?.id === latestUser.id ? latestUser : state.user,
+          }));
+        }
+      })
+      .catch((error) => {
+        console.warn("[FloatingHeader] Failed to refresh user role:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role]);
+
   // 加载用户积分信息
   useEffect(() => {
     if (!user) return;
@@ -1192,8 +1228,7 @@ const FloatingHeader: React.FC = () => {
         return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
-  const normalizedRole = (user?.role || "").trim().toLowerCase();
-  const isAdmin = normalizedRole === "admin" || normalizedRole === "normal_admin";
+  const isAdmin = hasAdminPanelRole(user?.role) || serverHasAdminPanelAccess;
   useEffect(() => {
     if (!isAdmin || typeof window === "undefined") {
       setFpsOverlayAdminButtonLayout(null);
@@ -2561,20 +2596,6 @@ const FloatingHeader: React.FC = () => {
           </div>
         </div>
 
-        {isAdmin && !fpsOverlayAdminButtonLayout && (
-          <div className='flex items-center h-[46px] pointer-events-auto'>
-            <Button
-              variant='ghost'
-              size='sm'
-              className='h-8 w-8 p-0 text-slate-600 transition-all duration-200 border rounded-full bg-white/80 border-slate-300 hover:bg-slate-100 hover:text-slate-700'
-              onClick={() => navigate("/admin")}
-              title='Admin 后台'
-              aria-label='打开 Admin 后台'
-            >
-              <Activity className='w-3.5 h-3.5' />
-            </Button>
-          </div>
-        )}
         {isAdmin && fpsOverlayAdminButtonLayout && (
           <div
             className='pointer-events-auto'
@@ -2608,6 +2629,20 @@ const FloatingHeader: React.FC = () => {
         {/* 右侧栏：功能按钮 */}
         <div className='pointer-events-auto'>
           <div className='tanva-header-card tanva-header-card-right flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
+            {isAdmin && (
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-7 rounded-full border border-slate-300 bg-white/80 px-2.5 text-xs font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900'
+                onClick={() => navigate("/admin")}
+                title='后台管理'
+                aria-label='打开后台管理'
+              >
+                <Activity className='mr-1.5 h-3.5 w-3.5' />
+                后台
+              </Button>
+            )}
+
             {/* 素材库按钮 */}
             {showLibraryButton && (
               <Button
