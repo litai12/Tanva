@@ -18,6 +18,20 @@ export default function DirectorHarnessPage() {
   const ref = React.useRef<ViewportHandle | null>(null)
   const [shot, setShot] = React.useState<string>('')
   const [log, setLog] = React.useState<string>('ready')
+  const selectedCharacterId = React.useMemo(() => {
+    const selected = data.scene.characters.find((c) => c.id === data.selectedObjectId)
+    return selected?.id ?? data.scene.characters[0]?.id ?? null
+  }, [data])
+
+  const applyPoseToSelected = React.useCallback((presetId: string) => {
+    const pose = POSE_PRESETS.find((p) => p.id === presetId)?.pose
+    if (!pose || !selectedCharacterId) {
+      setLog('未选中角色，无法应用姿势')
+      return
+    }
+    setData((d) => patchCharacter(d, selectedCharacterId, { pose: pose as any }))
+    setLog(`applied ${presetId} to ${selectedCharacterId}`)
+  }, [selectedCharacterId])
 
   const capture = () => {
     try {
@@ -58,19 +72,22 @@ export default function DirectorHarnessPage() {
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'c' + (d.scene.characters.length + 1), modelId: 'female' }))}>
             加女性
           </Button>
-          <Button onClick={() => setData((d) => patchCharacter(d, 'c1', { pose: POSE_PRESETS.find((p) => p.id === 'wave')!.pose as any }))}>
-            姿势: 招手(c1)
+          <Button onClick={() => applyPoseToSelected('wave')}>
+            姿势: 招手(当前选中)
           </Button>
-          <Button onClick={() => setData((d) => patchCharacter(d, 'c1', { pose: POSE_PRESETS.find((p) => p.id === 'sit')!.pose as any }))}>
-            姿势: 坐姿(c1)
+          <Button onClick={() => applyPoseToSelected('sit')}>
+            姿势: 坐姿(当前选中)
           </Button>
-          <Button onClick={() => setData((d) => patchCharacter(d, 'c1', { pose: POSE_PRESETS.find((p) => p.id === 'akimbo')!.pose as any }))}>
-            姿势: 叉腰(c1)
+          <Button onClick={() => applyPoseToSelected('akimbo')}>
+            姿势: 叉腰(当前选中)
           </Button>
           <Button onClick={capture}>截图</Button>
           <div className="text-xs text-slate-400">状态：{log}</div>
           <div className="text-xs text-slate-400">
             机位数 {data.scene.cameras.length} / 角色数 {data.scene.characters.length} / 选中 {data.selectedObjectId || '无'}
+          </div>
+          <div className="text-xs text-slate-400">
+            当前姿势目标：{selectedCharacterId || '无'}
           </div>
           {shot ? <img src={shot} alt="shot" className="w-full border border-white/10 rounded" /> : null}
         </div>

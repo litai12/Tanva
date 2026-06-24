@@ -33,6 +33,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id: nodeId, patch } }))
   }, [nodeId])
+  const storeData = useStore((state: any) => {
+    const nodes = getNodesFromState(state)
+    return nodes.find((n) => n.id === nodeId)?.data as DirectorConsoleData | undefined
+  })
 
   const [data, setData] = React.useState<DirectorConsoleData>(() => {
     const seed = rf.getNode(nodeId)?.data as DirectorConsoleData | undefined
@@ -43,6 +47,22 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const [gizmoMode, setGizmoMode] = React.useState<GizmoMode>('translate')
   const [shots, setShots] = React.useState<Record<string, CameraShot[]>>({})
   const [cameraTab, setCameraTab] = React.useState<'props' | 'shots'>('props')
+  const selectedCharacterId = React.useMemo(() => {
+    const selected = data.scene?.characters.find((c) => c.id === data.selectedObjectId)
+    return selected?.id ?? data.scene?.characters[0]?.id ?? null
+  }, [data])
+
+  const commit = React.useCallback((recipe: (prev: DirectorConsoleData) => DirectorConsoleData) => {
+    setData((prev) => {
+      const next = recipe(prev)
+      updateNodeData({ scene: next.scene, activeViewpoint: next.activeViewpoint, selectedObjectId: next.selectedObjectId })
+      return next
+    })
+  }, [updateNodeData])
+
+  React.useEffect(() => {
+    if (storeData?.scene) setData(storeData)
+  }, [storeData])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -57,11 +77,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const apply = React.useCallback((next: DirectorConsoleData) => {
-    setData(next)
-    updateNodeData({ scene: next.scene, activeViewpoint: next.activeViewpoint, selectedObjectId: next.selectedObjectId })
-  }, [updateNodeData])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -79,7 +94,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
       if (!obj || obj.locked) return
       e.preventDefault()
       if (isDelete) {
-        apply(removeObject(data, id))
+        commit((prev) => removeObject(prev, id))
         return
       }
       const step = e.shiftKey ? 0.5 : 0.1
@@ -104,11 +119,11 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
       }
       const r3 = (v: number) => Math.round(v * 1000) / 1000
       const pos: Vec3 = [r3(obj.position[0] + dx), r3(obj.position[1] + dy), r3(obj.position[2] + dz)]
-      apply(ch ? patchCharacter(data, id, { position: pos }) : patchCamera(data, id, { position: pos }))
+      commit((prev) => (ch ? patchCharacter(prev, id, { position: pos }) : patchCamera(prev, id, { position: pos })))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [data, apply])
+  }, [data, commit])
 
   const connectedPanoUrl = useStore((state: any) => {
     const edges = Array.isArray(state?.edges) ? state.edges : []
@@ -135,15 +150,17 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     const dataUrl = viewportRef.current?.captureView()
     if (!view || !dataUrl) { toast('截图失败，请重试', 'error'); return }
     const newCamId = uid('cam')
-    const next = addCamera(data, { id: newCamId, position: view.position, lookAt: view.lookAt, fovDeg: view.fovDeg })
-    apply(next)
-    const camName = next.scene.cameras.find((c) => c.id === newCamId)?.name ?? '机位'
-    setShots((prev) => ({
-      ...prev,
-      [newCamId]: [{ id: uid('shot'), name: `${camName}-截图01`, imageUrl: dataUrl, aspect: scene.aspect, createdAt: Date.now() }],
-    }))
-    setCameraTab('shots')
-  }, [scene, data, apply])
+    commit((prev) => {
+      const next = addCamera(prev, { id: newCamId, position: view.position, lookAt: view.lookAt, fovDeg: view.fovDeg })
+      const camName = next.scene.cameras.find((c) => c.id === newCamId)?.name ?? '机位'
+      setShots((shotsPrev) => ({
+        ...shotsPrev,
+        [newCamId]: [{ id: uid('shot'), name: `${camName}-截图01`, imageUrl: dataUrl, aspect: next.scene.aspect, createdAt: Date.now() }],
+      }))
+      setCameraTab('shots')
+      return next
+    })
+  }, [commit])
 
   const onClearAll = React.useCallback(() => setShots({}), [])
 
@@ -175,24 +192,26 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     .filter((g) => g.shots.length > 0)
 
   const onAddCrowd = React.useCallback(() => {
-    let next = data
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 3; c++) {
-        next = addCharacter(next, { id: uid('char'), modelId: 'male', position: [(c - 1) * 1.2, 0, (r - 1) * 1.2] })
+    commit((prev) => {
+      let next = prev
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          next = addCharacter(next, { id: uid('char'), modelId: 'male', position: [(c - 1) * 1.2, 0, (r - 1) * 1.2] })
+        }
       }
-    }
-    apply(next)
-  }, [data, apply])
+      return next
+    })
+  }, [commit])
 
   const onUploadModel = React.useCallback((file: File) => {
     const url = URL.createObjectURL(file)
-    apply(addCharacter(data, { id: uid('char'), modelId: url }))
+    commit((prev) => addCharacter(prev, { id: uid('char'), modelId: url }))
     toast('已加载本地模型', 'success')
-  }, [data, apply])
+  }, [commit])
 
   const onSetSkybox = React.useCallback((file: File | null) => {
-    apply(setSkybox(data, file ? URL.createObjectURL(file) : undefined))
-  }, [data, apply])
+    commit((prev) => setSkybox(prev, file ? URL.createObjectURL(file) : undefined))
+  }, [commit])
 
   if (!scene) return null
 
@@ -205,7 +224,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         <div style={{ fontSize: 15, fontWeight: 600 }}>3D导演台</div>
         <div style={{ display: 'flex', gap: 2, background: '#16181d', borderRadius: 10, padding: 3 }}>
           {(['director', 'camera'] as const).map((vp) => (
-            <button key={vp} onClick={() => apply(setViewpoint(data, vp))}
+            <button key={vp} onClick={() => commit((prev) => setViewpoint(prev, vp))}
               style={{ padding: '6px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, background: data.activeViewpoint === vp ? '#2c313c' : 'transparent', color: data.activeViewpoint === vp ? '#fff' : '#8b93a1' }}>
               {vp === 'director' ? '导演视角' : '机位视角'}
             </button>
@@ -224,14 +243,18 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           <SceneTreePanel
             scene={scene}
             selectedId={selectedId}
-            onSelect={(id) => apply(selectObject(data, id))}
+            onSelect={(id) => commit((prev) => {
+              if (!id) return selectObject(prev, id)
+              const isCam = prev.scene.cameras.some((c) => c.id === id)
+              return isCam ? selectObject(setActiveCamera(prev, id), id) : selectObject(prev, id)
+            })}
             onToggleHidden={(id, hidden) => {
               const isCam = scene.cameras.some((c) => c.id === id)
-              apply(isCam ? patchCamera(data, id, { hidden }) : patchCharacter(data, id, { hidden }))
+              commit((prev) => (isCam ? patchCamera(prev, id, { hidden }) : patchCharacter(prev, id, { hidden })))
             }}
             onToggleLocked={(id, locked) => {
               const isCam = scene.cameras.some((c) => c.id === id)
-              apply(isCam ? patchCamera(data, id, { locked }) : patchCharacter(data, id, { locked }))
+              commit((prev) => (isCam ? patchCamera(prev, id, { locked }) : patchCharacter(prev, id, { locked })))
             }}
           />
         </div>
@@ -243,9 +266,9 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             selectedId={selectedId}
             gizmoMode={gizmoMode}
             skyboxUrl={connectedPanoUrl ?? scene.skybox}
-            onSelect={(id) => apply(selectObject(data, id))}
-            onPatchCharacter={(id, patch) => apply(patchCharacter(data, id, patch))}
-            onPatchCamera={(id, patch) => apply(patchCamera(data, id, patch))}
+            onSelect={(id) => commit((prev) => selectObject(prev, id))}
+            onPatchCharacter={(id, patch) => commit((prev) => patchCharacter(prev, id, patch))}
+            onPatchCamera={(id, patch) => commit((prev) => patchCamera(prev, id, patch))}
           />
           {data.activeViewpoint === 'director' ? (
             <button
@@ -263,8 +286,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               onTab={setCameraTab}
               shotGroups={shotGroups}
               busy={busy}
-              onPatch={(patch) => apply(patchCamera(data, selectedCamera.id, patch))}
-              onSwitchCamera={(id) => apply(selectObject(setActiveCamera(data, id), id))}
+              onPatch={(patch) => commit((prev) => patchCamera(prev, selectedCamera.id, patch))}
+              onSwitchCamera={(id) => commit((prev) => selectObject(setActiveCamera(prev, id), id))}
               onClearAll={onClearAll}
               onSendAll={onSendAll}
               onSendShot={onSendShot}
@@ -273,7 +296,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           ) : selectedCharacter ? (
             <CharacterPropertiesPanel
               character={selectedCharacter}
-              onPatch={(patch) => apply(patchCharacter(data, selectedCharacter.id, patch))}
+              onPatch={(patch) => commit((prev) => patchCharacter(prev, selectedCharacterId ?? selectedCharacter.id, patch))}
             />
           ) : (
             <div style={{ padding: 16, color: '#6b7280', fontSize: 13 }}>选中机位或角色以编辑属性</div>
@@ -285,16 +308,16 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         aspect={scene.aspect}
         gizmoMode={gizmoMode}
         onSetGizmoMode={setGizmoMode}
-        onAddCharacter={(modelId) => apply(addCharacter(data, { id: uid('char'), modelId }))}
+        onAddCharacter={(modelId) => commit((prev) => addCharacter(prev, { id: uid('char'), modelId }))}
         onAddCrowd={onAddCrowd}
         onUploadModel={onUploadModel}
         onSetSkybox={onSetSkybox}
         hasSkybox={!!scene.skybox}
         panoConnected={!!connectedPanoUrl}
-        onAddCamera={() => apply(addCamera(data, { id: uid('cam') }))}
-        onSetAspect={(a) => apply(setAspect(data, a))}
+        onAddCamera={() => commit((prev) => addCamera(prev, { id: uid('cam') }))}
+        onSetAspect={(a) => commit((prev) => setAspect(prev, a))}
         onCapture={onCapture}
-        onDeleteSelected={selectedId ? () => apply(removeObject(data, selectedId)) : undefined}
+        onDeleteSelected={selectedId ? () => commit((prev) => removeObject(prev, selectedId)) : undefined}
       />
     </div>,
     document.body,

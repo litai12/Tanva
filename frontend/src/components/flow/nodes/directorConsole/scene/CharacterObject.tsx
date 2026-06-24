@@ -86,7 +86,7 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, jointEditing, sele
   jointEditing?: boolean; selectedJointRole?: JointRole | null; onRigChange?: (rig: RigState | null) => void
 }) {
   const { scene } = useGLTF(url)
-  const rigState = React.useRef<RigState | null>(null)
+  const mountedRigRef = React.useRef<RigState | null>(null)
   const cloned = React.useMemo(() => {
     const c = skeletonClone(scene)
     c.traverse((o) => {
@@ -108,29 +108,31 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, jointEditing, sele
     c.position.x -= center.x
     c.position.z -= center.z
     c.position.y -= box2.min.y
-    // 标定骨架：关节映射 + 绑定姿态 + 解剖学规范坐标系（pose.ts）
-    rigState.current = calibrateRig(c)
     return c
   }, [scene, colorHex, heightM, widthScale])
 
+  React.useLayoutEffect(() => {
+    mountedRigRef.current = calibrateRig(cloned)
+  }, [cloned])
+
   // 应用姿势：规范坐标系旋转 + 自动落地（pose.ts applyPoseToRig）
   React.useEffect(() => {
-    if (rigState.current) applyPoseToRig(cloned, rigState.current, pose)
+    if (mountedRigRef.current) applyPoseToRig(cloned, mountedRigRef.current, pose)
   }, [pose, cloned])
 
   // 上报 rig 给 Viewport（骨骼 gizmo 挂载点）；回调身份用 ref 解耦，只随模型重建触发
   const onRigChangeRef = React.useRef(onRigChange)
   onRigChangeRef.current = onRigChange
   React.useEffect(() => {
-    onRigChangeRef.current?.(rigState.current)
+    onRigChangeRef.current?.(mountedRigRef.current)
     return () => onRigChangeRef.current?.(null)
   }, [cloned])
 
   return (
     <>
       <primitive object={cloned} />
-      {jointEditing && rigState.current ? (
-        <JointMarkers rig={rigState.current} selectedRole={selectedJointRole} />
+      {jointEditing && mountedRigRef.current ? (
+        <JointMarkers rig={mountedRigRef.current} selectedRole={selectedJointRole} />
       ) : null}
     </>
   )

@@ -20,6 +20,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
 import DirectorHarnessPage from '@/pages/DirectorHarnessPage';
+import ForcedRigTestPage from '@/pages/ForcedRigTestPage';
+import ForcedCameraTestPage from '@/pages/ForcedCameraTestPage';
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 
 function RootRoutes() {
@@ -41,6 +43,8 @@ function RootRoutes() {
         <Route path="/legal/community" element={<CommunityGuidelines />} />
         <Route path="/oss" element={<OSSDemo />} />
         <Route path="/director-harness" element={<DirectorHarnessPage />} />
+        <Route path="/forced-rig-test" element={<ForcedRigTestPage />} />
+        <Route path="/forced-camera-test" element={<ForcedCameraTestPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/app" element={<App />} />

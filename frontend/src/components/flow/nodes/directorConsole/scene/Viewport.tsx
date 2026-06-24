@@ -89,15 +89,34 @@ function Skybox({ url }: { url?: string }) {
 }
 
 function ActiveCameraView({ cam, lookAt }: { cam: CameraObj; lookAt: Vec3 }) {
+  const { set, invalidate } = useThree()
   const ref = React.useRef<THREE.PerspectiveCamera>(null)
+
+  React.useLayoutEffect(() => {
+    const c = ref.current
+    if (!c) return
+    c.position.set(cam.position[0], cam.position[1], cam.position[2])
+    c.fov = cam.fovDeg
+    c.updateProjectionMatrix()
+    c.lookAt(lookAt[0], lookAt[1], lookAt[2])
+    c.updateMatrixWorld(true)
+    set({ camera: c })
+    invalidate()
+  }, [cam.id, cam.position, cam.fovDeg, lookAt, set, invalidate])
+
   useFrame(() => {
     ref.current?.lookAt(lookAt[0], lookAt[1], lookAt[2])
   })
-  return <PerspectiveCamera ref={ref} makeDefault position={cam.position} fov={cam.fovDeg} near={0.1} far={1000} />
-}
-
-function EmptyCameraView() {
-  return <PerspectiveCamera makeDefault position={DIRECTOR_CAM_POS} fov={45} near={0.1} far={1000} />
+  return (
+    <perspectiveCamera
+      key={cam.id}
+      ref={ref}
+      position={cam.position}
+      fov={cam.fovDeg}
+      near={0.1}
+      far={1000}
+    />
+  )
 }
 
 function ReadySignal({ onReady }: { onReady?: () => void }) {
@@ -136,22 +155,10 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
   const selectedChar = scene.characters.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const anchorRef = React.useRef<THREE.Object3D>(null)
-  const [jointEditingEnabled, setJointEditingEnabled] = React.useState(false)
 
   const rigsRef = React.useRef(new Map<string, RigState>())
   const [jointRole, setJointRole] = React.useState<JointRole | null>(null)
   React.useEffect(() => { setJointRole(null) }, [selectedId, viewpoint])
-  React.useEffect(() => {
-    const onToggle = (e: Event) => {
-      const detail = (e as CustomEvent<{ characterId?: string; enabled?: boolean }>).detail
-      if (!detail) return
-      if (detail.characterId && detail.characterId !== selectedId) return
-      setJointEditingEnabled(Boolean(detail.enabled))
-      if (!detail.enabled) setJointRole(null)
-    }
-    window.addEventListener('director:toggleJointEditing', onToggle as EventListener)
-    return () => window.removeEventListener('director:toggleJointEditing', onToggle as EventListener)
-  }, [selectedId])
 
   const groupsRef = React.useRef(new Map<string, THREE.Group>())
   const [, bumpRefs] = React.useReducer((x: number) => x + 1, 0)
@@ -184,7 +191,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
     const eul = poseEulerFromRig(rig, jointRole)
     if (!eul) return
     const base = resolveCharacterPose(selectedChar) ?? {}
-    onPatchCharacter(selectedChar.id, { pose: { ...base, [jointRole]: eul } as CharacterObj['pose'], posePresetId: undefined })
+    onPatchCharacter(selectedChar.id, { pose: { ...base, [jointRole]: eul } as CharacterObj['pose'] })
   }
 
   const jointBone = selectedChar && jointRole ? rigsRef.current.get(selectedChar.id)?.joints[jointRole]?.bone : undefined
@@ -195,9 +202,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
         <OrbitControls makeDefault enableDamping target={DIRECTOR_TARGET} />
       ) : activeCam ? (
         <ActiveCameraView cam={activeCam} lookAt={resolveLookAt(activeCam, scene)} />
-      ) : (
-        <EmptyCameraView />
-      )}
+      ) : null}
 
       <Skybox url={skyboxUrl ?? scene.skybox} />
       <ambientLight intensity={1.1} />
@@ -212,7 +217,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
           character={c}
           selected={c.id === selectedId}
           onSelect={() => { setJointRole(null); onSelect(c.id) }}
-          jointEditing={viewpoint === 'director' && jointEditingEnabled && c.id === selectedChar?.id}
+          jointEditing={viewpoint === 'director' && c.id === selectedChar?.id}
           selectedJointRole={c.id === selectedChar?.id ? jointRole : null}
           onPickJoint={(role) => setJointRole((r) => (r === role ? null : role))}
           onRigChange={(rig) => { if (rig) rigsRef.current.set(c.id, rig); else rigsRef.current.delete(c.id) }}
