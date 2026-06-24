@@ -535,14 +535,23 @@ export class AdminService {
     try {
       return await operation();
     } catch (error: any) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2021'
-      ) {
+      if (this.isMissingTableError(error)) {
         return null;
       }
       throw error;
     }
+  }
+
+  private isMissingTableError(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+    if (error.code === 'P2021') return true;
+
+    const meta = error.meta as Record<string, unknown> | null | undefined;
+    const rawCode = typeof meta?.code === 'string' ? meta.code : '';
+    if (error.code === 'P2010' && rawCode === '42P01') return true;
+
+    const message = `${error.message} ${typeof meta?.message === 'string' ? meta.message : ''}`.toLowerCase();
+    return message.includes('does not exist') && message.includes('relation');
   }
 
   /**
