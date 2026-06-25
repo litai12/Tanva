@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Canvas/3D: uploading or clearing 3D models now clears stale canvas drag body classes and ignores invalid 3D overlay bounds, preventing 3D upload state from disabling 2D/Flow node dragging on other canvases.
 - Admin/Users: add-user now follows the public registration validation rules for phone and password. Phone input is restricted to 11 numeric digits matching `^1[3-9]\d{9}$`; passwords must be 8-100 characters and include uppercase, lowercase, and digits, with the same constraints enforced by the backend DTO and service.
 - Admin/Users: user deletion now checks production table/column presence before cleanup for optional or not-yet-migrated related tables, and explicitly clears user project shares plus owned-team child rows before deleting the account to prevent foreign-key rollback while leaving other admin behavior unchanged.
 - Admin/Users: user deletion now treats PostgreSQL raw-query `42P01` missing-table errors as skippable legacy-table cleanup failures, so production databases without `GenerationImageReuse` / `GenerationImageAsset` can still delete users.

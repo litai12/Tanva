@@ -4388,6 +4388,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       clearTextItems();
       clearSelections();
+      document.body.classList.remove("tanva-canvas-dragging");
+      document.body.classList.remove("tanva-selection-dragging");
+      document.body.classList.remove("tanva-image-dragging");
 
       try {
         (window as any).tanvaImageInstances = [];
@@ -4484,6 +4487,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 清空选择工具状态
       clearProjectSelections();
+      document.body.classList.remove("tanva-canvas-dragging");
+      document.body.classList.remove("tanva-selection-dragging");
+      document.body.classList.remove("tanva-image-dragging");
 
       blobUrlsToRevoke.forEach((url) => {
         try {
