@@ -1705,7 +1705,8 @@ export interface AdminTeamItem {
   ownerId: string;
   ownerName: string;
   memberCount: number;
-  maxSeats: number;
+  /** 席位容量（唯一口径）：永久席位 + 有效席位包 */
+  seatCapacity: number;
   status: string;
   availableCredits: number;
   totalCredits: number;

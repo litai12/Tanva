@@ -6,6 +6,7 @@ import { ApiResponseStatus, TransactionType } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { CreditsService } from '../credits/credits.service';
 import { TeamCoreService } from '../team-core/team-core.service';
+import { TEAM_PERMANENT_SEATS } from '../payment/dto/payment.dto';
 
 export interface AdminDashboardStats {
   totalUsers: number;
@@ -2273,6 +2274,18 @@ export class AdminService {
       this.prisma.team.count({ where }),
     ]);
 
+    // 席位容量唯一口径：永久席位 + 有效席位包（含后台 admin 包）。按页聚合，避免 N+1。
+    const pkgSums = await this.prisma.teamSeatPackage.groupBy({
+      by: ['teamId'],
+      where: {
+        teamId: { in: teams.map((t) => t.id) },
+        status: 'active',
+        expiresAt: { gt: new Date() },
+      },
+      _sum: { seats: true },
+    });
+    const seatPkgMap = new Map(pkgSums.map((p) => [p.teamId, p._sum.seats ?? 0]));
+
     return {
       teams: teams.map((t) => ({
         id: t.id,
@@ -2280,7 +2293,7 @@ export class AdminService {
         ownerId: t.ownerId,
         ownerName: t.owner?.name || t.owner?.phone || t.ownerId,
         memberCount: t._count.memberships,
-        maxSeats: t.maxSeats,
+        seatCapacity: TEAM_PERMANENT_SEATS + (seatPkgMap.get(t.id) ?? 0),
         status: t.status,
         availableCredits: (t.creditAccount?.balance ?? 0) - (t.creditAccount?.frozenBalance ?? 0),
         totalCredits: t.creditAccount?.balance ?? 0,
@@ -2295,13 +2308,53 @@ export class AdminService {
     };
   }
 
-  async adminUpdateTeamSeats(teamId: string, maxSeats: number) {
-    if (maxSeats < 1) throw new Error('席位数不能小于 1');
+  /**
+   * 后台调整团队席位（单轨）：targetSeats 为期望的「总容量」。
+   * 容量 = 永久席位 + 有效席位包，因此管理员的调整落地为一条 cycle='admin' 的永久包：
+   *   adminSeats = max(0, target - 永久席位 - 已购(非 admin)有效席位)
+   * 已付费席位不可被管理员撤销；upsert 唯一 admin 包，保证仍是单一容量来源。
+   */
+  async adminUpdateTeamSeats(teamId: string, targetSeats: number) {
+    if (!Number.isInteger(targetSeats) || targetSeats < 1) throw new Error('席位数不能小于 1');
     const team = await this.prisma.team.findUniqueOrThrow({ where: { id: teamId } });
     if (team.isPersonal) throw new Error('不能修改个人团队席位');
     const memberCount = await this.prisma.teamMembership.count({ where: { teamId } });
-    if (maxSeats < memberCount) throw new Error(`当前已有 ${memberCount} 名成员，席位数不能小于此值`);
-    return this.prisma.team.update({ where: { id: teamId }, data: { maxSeats } });
+    if (targetSeats < memberCount) throw new Error(`当前已有 ${memberCount} 名成员，席位数不能小于此值`);
+
+    const now = new Date();
+    // 已购(非 admin)有效席位 —— 管理员不能撤销用户已付费的席位
+    const purchased = await this.prisma.teamSeatPackage.aggregate({
+      where: { teamId, status: 'active', cycle: { not: 'admin' }, expiresAt: { gt: now } },
+      _sum: { seats: true },
+    });
+    const adminSeats = Math.max(0, targetSeats - TEAM_PERMANENT_SEATS - (purchased._sum.seats ?? 0));
+    const FAR_FUTURE = new Date('2999-12-31T00:00:00.000Z');
+
+    const existing = await this.prisma.teamSeatPackage.findFirst({
+      where: { teamId, cycle: 'admin' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      await this.prisma.teamSeatPackage.update({
+        where: { id: existing.id },
+        data: { seats: adminSeats, status: adminSeats > 0 ? 'active' : 'expired', expiresAt: FAR_FUTURE },
+      });
+    } else if (adminSeats > 0) {
+      await this.prisma.teamSeatPackage.create({
+        data: {
+          teamId,
+          seats: adminSeats,
+          cycle: 'admin',
+          credits: 0,
+          status: 'active',
+          purchasedAt: now,
+          expiresAt: FAR_FUTURE,
+        },
+      });
+    }
+
+    const seatCapacity = await this.teamCoreService.getSeatCapacity(teamId);
+    return { teamId, seatCapacity };
   }
 
   async adminUpdateTeamStatus(teamId: string, status: string) {

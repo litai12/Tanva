@@ -45,21 +45,6 @@ export const teamCreditsApi = {
     }).then((r) => json<any>(r)),
 };
 
-export const teamSubscriptionApi = {
-  listPlans: () =>
-    fetchWithAuth(`${base}/api/team-plans`).then((r) => json<any[]>(r)),
-  getSubscription: (teamId: string) =>
-    fetchWithAuth(`${base}/api/teams/${teamId}/subscription`).then((r) => json<any>(r)),
-  createSubscription: (teamId: string, data: { planId: string; billingCycle: string; seatCount: number }) =>
-    fetchWithAuth(`${base}/api/teams/${teamId}/subscription`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }).then((r) => json<any>(r)),
-  cancelSubscription: (teamId: string) =>
-    fetchWithAuth(`${base}/api/teams/${teamId}/subscription`, { method: 'DELETE' }).then((r) => json<any>(r)),
-};
-
 export const teamSeatPackageApi = {
   createOrder: (
     teamId: string,

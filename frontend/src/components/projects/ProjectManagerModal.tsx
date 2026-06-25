@@ -271,14 +271,21 @@ export default function ProjectManagerModal() {
   const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const lt = (zhText: string, enText: string) => (isZh ? zhText : enText);
   const locale = isZh ? 'zh-CN' : 'en-US';
-  const { modalOpen, closeModal, projects: personalProjects, create, open, rename, remove, load, error: personalError } = useProjectStore();
+  const { modalOpen, closeModal, create, open, rename, remove } = useProjectStore();
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const teams = useTeamStore((s) => s.teams);
+  const activeTeam = useTeamStore((s) => s.getActiveTeam());
   const nonPersonalTeams = useMemo(() => teams.filter((t) => !t.isPersonal), [teams]);
+  // 当前【实际身份】对应的团队 id（个人身份为 null）。打开面板时默认落在该身份的 tab。
+  const activeOrgTeamId = activeTeam && !activeTeam.isPersonal ? activeTeam.id : null;
   const guardLeave = usePendingUploadLeaveGuard();
 
   // 'personal' | teamId
   const [contextId, setContextId] = useState<string>('personal');
+  // 个人项目独立拉取（scope=personal），不再经由 store.load()——后者按 activeTeamId
+  // 取列表，团队身份下会把团队项目错当成个人项目展示（即“个人项目不正确”的根因）。
+  const [personalProjects, setPersonalProjects] = useState<Project[]>([]);
+  const [personalError, setPersonalError] = useState('');
   const [teamProjects, setTeamProjects] = useState<Project[]>([]);
   const [teamError, setTeamError] = useState('');
   const [cloningToTeam, setCloningToTeam] = useState<string | null>(null);
@@ -287,6 +294,14 @@ export default function ProjectManagerModal() {
   const isPersonal = contextId === 'personal';
   const projects = isPersonal ? personalProjects : teamProjects;
   const error = isPersonal ? personalError : teamError;
+  const loadPersonalProjects = useCallback(async () => {
+    setPersonalError('');
+    try {
+      setPersonalProjects(await projectApi.list());
+    } catch (e) {
+      setPersonalError(e instanceof Error ? e.message : '加载失败');
+    }
+  }, []);
   const loadTeamProjects = useCallback(async (teamId: string) => {
     setTeamError('');
     try {
@@ -296,6 +311,11 @@ export default function ProjectManagerModal() {
       setTeamError(e instanceof Error ? e.message : '加载失败');
     }
   }, []);
+  // 增删改后刷新当前 tab 的列表（个人/团队 tab 均为本地拉取，store 变更不会自动反映）。
+  const reloadCurrentContext = useCallback(async () => {
+    if (isPersonal) await loadPersonalProjects();
+    else await loadTeamProjects(contextId);
+  }, [isPersonal, contextId, loadPersonalProjects, loadTeamProjects]);
 
   const [creating, setCreating] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -306,14 +326,12 @@ export default function ProjectManagerModal() {
   const [previewCache, setPreviewCache] = useState<Record<string, ProjectPreviewCacheEntry>>({});
   const previewRequestsRef = useRef<Set<string>>(new Set());
 
-  // 切换到个人时始终刷新，确保 backend 过滤后的数据是最新的
+  // 切换到个人时拉取真实个人项目（scope=personal），与 activeTeamId 解耦
   useEffect(() => {
     if (modalOpen && isPersonal) {
-      void load();
+      void loadPersonalProjects();
     }
-    // load 引用稳定，不需加入 deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalOpen, isPersonal]);
+  }, [modalOpen, isPersonal, loadPersonalProjects]);
 
   // 切换到团队时加载对应团队的项目，切换离开时清空
   useEffect(() => {
@@ -324,14 +342,16 @@ export default function ProjectManagerModal() {
     }
   }, [modalOpen, contextId, isPersonal, loadTeamProjects]);
 
+  // 打开时默认落在当前身份对应的 tab（团队身份→该团队，个人→个人），与顶部所选身份一致；
+  // 之后用户可自由切 tab 浏览其它上下文（面板覆盖了顶部，打开期间身份不会变）。
   useEffect(() => {
     if (!modalOpen) {
-      setContextId('personal');
       setShareMenuProjectId(null);
       return;
     }
+    setContextId(activeOrgTeamId ?? 'personal');
     setPage(0);
-  }, [modalOpen]);
+  }, [modalOpen, activeOrgTeamId]);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -495,6 +515,7 @@ export default function ProjectManagerModal() {
       }
     }
     setIsDeleting(false);
+    await reloadCurrentContext();
 
     if (failed.length === 0) {
       setSelectedIds(new Set());
@@ -525,7 +546,8 @@ export default function ProjectManagerModal() {
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-3">
             <span className="font-medium">{lt('项目管理', 'Project Manager')}</span>
-            {/* Context switcher - flat tabs */}
+            {/* Context switcher - flat tabs (hidden: team switching entry disabled) */}
+            {false && (
             <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 rounded-lg">
               <button
                 type="button"
@@ -546,6 +568,7 @@ export default function ProjectManagerModal() {
                 </button>
               ))}
             </div>
+            )}
           </div>
           <div />
         </div>
@@ -564,7 +587,7 @@ export default function ProjectManagerModal() {
                 guardLeave(async () => {
                   setCreating(true);
                   try {
-                    await create(lt('未命名', 'Untitled'));
+                    await create(lt('未命名', 'Untitled'), { teamId: isPersonal ? null : contextId });
                   } finally {
                     setCreating(false);
                   }
@@ -586,7 +609,7 @@ export default function ProjectManagerModal() {
                   guardLeave(async () => {
                     setCreating(true);
                     try {
-                      await create(newName.trim());
+                      await create(newName.trim(), { teamId: isPersonal ? null : contextId });
                       setNewName('');
                     } finally {
                       setCreating(false);
@@ -727,6 +750,7 @@ export default function ProjectManagerModal() {
                               if (name && name !== p.name) {
                                 try {
                                   await rename(p.id, name);
+                                  await reloadCurrentContext();
                                 } catch (e) {
                                   alert(lt('重命名失败：', 'Rename failed: ') + (e as Error).message);
                                 }
@@ -783,6 +807,7 @@ export default function ProjectManagerModal() {
                               if (confirm(lt('确定删除该项目？', 'Delete this project?'))) {
                                 try {
                                   await remove(p.id);
+                                  await reloadCurrentContext();
                                 } catch (e) {
                                   alert(lt('删除失败：', 'Delete failed: ') + (e as Error).message);
                                 }

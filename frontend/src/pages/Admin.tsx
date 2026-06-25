@@ -5367,7 +5367,7 @@ function UsersTab({
                           <div className='text-xs text-gray-400'>{team.ownerName}</div>
                         </td>
                         <td className='px-4 py-3 text-gray-600 text-xs'>{team.ownerId}</td>
-                        <td className='px-4 py-3'>{team.memberCount} / {team.maxSeats}</td>
+                        <td className='px-4 py-3'>{team.memberCount} / {team.seatCapacity}</td>
                         <td className='px-4 py-3 font-medium text-blue-600'>{team.availableCredits.toLocaleString()}</td>
                         <td className='px-4 py-3 text-gray-500'>{team.totalCredits.toLocaleString()}</td>
                         <td className='px-4 py-3'>
@@ -5388,7 +5388,7 @@ function UsersTab({
                         <td className='px-4 py-3 text-xs text-gray-500'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
                         <td className='px-4 py-3'>
                           <div className='flex flex-wrap gap-1'>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.maxSeats }); setTeamSeatValue(String(team.maxSeats)); setTeamSeatError(''); }}>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.seatCapacity }); setTeamSeatValue(String(team.seatCapacity)); setTeamSeatError(''); }}>
                               席位
                             </Button>
                             {canManageSensitiveUserFields && (

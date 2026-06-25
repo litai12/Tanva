@@ -905,8 +905,23 @@ const FloatingHeader: React.FC = () => {
   const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
   const allTeams = useTeamStore((s) => s.teams);
   const nonPersonalTeams = useMemo(() => allTeams.filter((t) => !t.isPersonal), [allTeams]);
+  // 当前【实际身份】对应的团队 id（个人身份为 null）。下拉视图必须跟随它，
+  // 否则会一直停留在默认 'personal' 并回退到 nonPersonalTeams[0]（首个团队），
+  // 导致顶部已切到团队 A、下拉里却显示/分享到团队 B。
+  const activeOrgTeamId = activeTeamForCredits && !activeTeamForCredits.isPersonal
+    ? activeTeamForCredits.id
+    : null;
   const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
   const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
+  // 顶部身份变化时，把下拉的视图上下文同步到当前身份。
+  useEffect(() => {
+    setDropdownContextId(activeOrgTeamId ?? 'personal');
+  }, [activeOrgTeamId]);
+  // 下拉中“分享/标签”指向的目标团队：优先视图选中的团队，其次当前身份团队，
+  // 最后才回退到首个团队（仅在个人身份且存在团队时用于“切入团队”开关的标签）。
+  const dropdownTargetTeamId = dropdownContextId !== 'personal'
+    ? dropdownContextId
+    : (activeOrgTeamId ?? nonPersonalTeams[0]?.id);
 
   useEffect(() => {
     if (dropdownContextId === 'personal') return;
@@ -2454,12 +2469,12 @@ const FloatingHeader: React.FC = () => {
                   {nonPersonalTeams.length > 0 && (
                     <div className="px-3 pt-2 pb-1.5 flex items-center justify-between gap-3">
                       <span className={cn("text-xs", isDarkTheme ? "text-slate-400" : "text-slate-400")}>
-                        {nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? nonPersonalTeams[0]?.name}
+                        {nonPersonalTeams.find((tm) => tm.id === dropdownTargetTeamId)?.name ?? nonPersonalTeams[0]?.name}
                       </span>
                       <Switch
                         checked={dropdownContextId !== 'personal'}
                         onCheckedChange={(checked) => {
-                          setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
+                          setDropdownContextId(checked ? (activeOrgTeamId ?? nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
                         }}
                         className="h-5 w-9"
                       />
@@ -2552,25 +2567,34 @@ const FloatingHeader: React.FC = () => {
                         className='my-1'
                         style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
                       />
-                      <DropdownMenuItem
-                        onClick={() => {
-                          const targetTeamId = dropdownContextId !== 'personal'
-                            ? dropdownContextId
-                            : nonPersonalTeams[0]?.id;
-                          const targetTeamName = nonPersonalTeams.find((tm) => tm.id === targetTeamId)?.name ?? '团队';
-                          if (!targetTeamId || !currentProject) return;
-                          void projectApi.cloneToTeam(currentProject.id, targetTeamId)
-                            .then(() => alert(`已分享至 ${targetTeamName}`))
-                            .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
-                        }}
+                      {/* 多团队时逐个列出，点哪个就分享到哪个团队（自定义 dropdown 无子菜单，故平铺） */}
+                      <DropdownMenuLabel
                         className={cn(
-                          "flex items-center gap-2 px-2 py-1 text-sm",
-                          isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                          "px-2 py-0.5 text-[11px] font-normal flex items-center gap-1.5",
+                          isDarkTheme ? "text-slate-400" : "text-slate-400"
                         )}
                       >
-                        <Share2 className='w-4 h-4' />
-                        {`分享至 ${nonPersonalTeams.find((tm) => tm.id === (dropdownContextId !== 'personal' ? dropdownContextId : nonPersonalTeams[0]?.id))?.name ?? '团队'}`}
-                      </DropdownMenuItem>
+                        <Share2 className='w-3.5 h-3.5' />
+                        分享至团队
+                      </DropdownMenuLabel>
+                      {nonPersonalTeams.map((tm) => (
+                        <DropdownMenuItem
+                          key={tm.id}
+                          onClick={() => {
+                            if (!currentProject) return;
+                            void projectApi.cloneToTeam(currentProject.id, tm.id)
+                              .then(() => alert(`已分享至 ${tm.name}`))
+                              .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1 text-sm",
+                            isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                          )}
+                        >
+                          <Users className='w-4 h-4 shrink-0' />
+                          <span className='truncate'>{tm.name}</span>
+                        </DropdownMenuItem>
+                      ))}
                     </>
                   )}
                 </DropdownMenuContent>

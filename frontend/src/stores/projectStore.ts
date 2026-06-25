@@ -15,7 +15,7 @@ type ProjectState = {
   load: () => Promise<void>;
   openModal: () => void;
   closeModal: () => void;
-  create: (name?: string) => Promise<Project>;
+  create: (name?: string, opts?: { teamId?: string | null }) => Promise<Project>;
   open: (id: string) => void;
   rename: (id: string, name: string) => Promise<void>;
   updateMeta: (id: string, payload: { name?: string; thumbnailUrl?: string | null }) => Promise<Project>;
@@ -184,13 +184,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   openModal: () => set({ modalOpen: true }),
   closeModal: () => set({ modalOpen: false }),
 
-  create: async (name?: string) => {
+  create: async (name?: string, opts?: { teamId?: string | null }) => {
     const normalizedName = name?.trim();
     // 团队身份下新建的项目应归属当前团队（后端按 x-team-id 立即共享到该团队），
     // 否则会落为个人项目。个人模式下不带 teamId。
-    const { activeTeamId, teams } = useTeamStore.getState();
-    const activeTeam = teams.find((t) => t.id === activeTeamId) ?? null;
-    const teamIdForCreate = activeTeam && !activeTeam.isPersonal ? activeTeam.id : undefined;
+    // opts.teamId 为显式上下文（项目管理面板按所看的 tab 指定）：传 null/undefined=个人，
+    // 传团队 id=该团队；不传 opts 时回退到当前身份。
+    let teamIdForCreate: string | undefined;
+    if (opts && 'teamId' in opts) {
+      teamIdForCreate = opts.teamId ?? undefined;
+    } else {
+      const { activeTeamId, teams } = useTeamStore.getState();
+      const activeTeam = teams.find((t) => t.id === activeTeamId) ?? null;
+      teamIdForCreate = activeTeam && !activeTeam.isPersonal ? activeTeam.id : undefined;
+    }
     const project = await projectApi.create({
       name: normalizedName || getDefaultProjectName(),
       teamId: teamIdForCreate,

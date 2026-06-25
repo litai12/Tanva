@@ -82,14 +82,11 @@ export class TeamInviteService {
     // 漏洞 7 修复：在同一事务内原子检查座位上限，防止并发超额
     // 订阅信息在事务内读取，避免 TOCTOU
     await this.prisma.$transaction(async (tx) => {
-      const team = await tx.team.findUniqueOrThrow({
-        where: { id: invite.teamId },
-        include: { subscriptions: { where: { status: 'active' }, take: 1 } },
-      });
       const memberCount = await tx.teamMembership.count({
         where: { teamId: invite.teamId },
       });
-      const seatLimit = team.subscriptions[0]?.seatCount ?? team.maxSeats;
+      // 唯一席位口径：永久席位 + 有效席位包（含后台 admin 包）。见 TeamCoreService.getSeatCapacity。
+      const seatLimit = await this.teamCore.getSeatCapacity(invite.teamId, tx);
       if (memberCount >= seatLimit) throw new BadRequestException('团队座位已满');
 
       await tx.teamMembership.create({
