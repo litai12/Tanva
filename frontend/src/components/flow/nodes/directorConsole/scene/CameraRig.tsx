@@ -10,7 +10,7 @@ type Props = { camera: CameraObj; scene: DirectorScene; active: boolean; selecte
 function resolveLookAt(cam: CameraObj, scene: DirectorScene): Vec3 {
   if (cam.lookAtMode !== 'manual') {
     const target = scene.characters.find((c) => c.id === cam.lookAtMode)
-    if (target) return [target.position[0], target.position[1] + 1.2, target.position[2]]
+    if (target) return [target.position[0], target.position[1] + 1.2 + (scene.groundY ?? 0), target.position[2]]
   }
   return cam.lookAt
 }

@@ -46,6 +46,10 @@ export type DirectorScene = {
   activeCameraId?: string
   /** 等距全景图 URL，作为 3D 场景天空盒背景 */
   skybox?: string
+  /** 地平线/地面高度偏移（米）：整体上下移动网格与角色/道具，使地面与天空盒对齐。默认 0 */
+  groundY?: number
+  /** 天空盒俯仰角（度）：上下旋转全景背景，使全景图地平线落到网格地平线上（处理拍摄不水平/未居中）。默认 0 */
+  skyboxPitch?: number
 }
 
 export type DirectorConsoleData = {

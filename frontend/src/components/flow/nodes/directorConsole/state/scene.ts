@@ -93,6 +93,14 @@ export function setSkybox(d: DirectorConsoleData, skybox?: string): DirectorCons
   return { ...d, scene: { ...d.scene, skybox } }
 }
 
+export function setGroundY(d: DirectorConsoleData, groundY: number): DirectorConsoleData {
+  return { ...d, scene: { ...d.scene, groundY } }
+}
+
+export function setSkyboxPitch(d: DirectorConsoleData, skyboxPitch: number): DirectorConsoleData {
+  return { ...d, scene: { ...d.scene, skyboxPitch } }
+}
+
 export function setViewpoint(d: DirectorConsoleData, vp: 'director' | 'camera'): DirectorConsoleData {
   return { ...d, activeViewpoint: vp }
 }

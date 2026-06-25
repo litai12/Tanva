@@ -41,7 +41,7 @@ type Props = {
 function resolveLookAt(cam: CameraObj, scene: DirectorScene): Vec3 {
   if (cam.lookAtMode !== 'manual') {
     const target = scene.characters.find((c) => c.id === cam.lookAtMode)
-    if (target) return [target.position[0], target.position[1] + 1.2, target.position[2]]
+    if (target) return [target.position[0], target.position[1] + 1.2 + (scene.groundY ?? 0), target.position[2]]
   }
   return cam.lookAt
 }
@@ -50,8 +50,15 @@ function corsSafeImageUrl(url: string): string {
   return url + (url.includes('?') ? '&' : '?') + 'tc-cors=1'
 }
 
-function Skybox({ url }: { url?: string }) {
+function Skybox({ url, pitch = 0 }: { url?: string; pitch?: number }) {
   const { scene, invalidate } = useThree()
+  React.useEffect(() => {
+    // 全景背景俯仰：上下旋转天空盒，让全景图地平线对齐网格地平线
+    const rot = (scene as any).backgroundRotation
+    if (rot && typeof rot.set === 'function') rot.set(THREE.MathUtils.degToRad(pitch), 0, 0)
+    invalidate?.()
+    return () => { if (rot && typeof rot.set === 'function') rot.set(0, 0, 0) }
+  }, [pitch, scene, invalidate])
   React.useEffect(() => {
     const DARK = () => { scene.background = new THREE.Color('#0a0b0d') }
     if (!url) { DARK(); return }
@@ -204,30 +211,33 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
         <ActiveCameraView cam={activeCam} lookAt={resolveLookAt(activeCam, scene)} />
       ) : null}
 
-      <Skybox url={skyboxUrl ?? scene.skybox} />
+      <Skybox url={skyboxUrl ?? scene.skybox} pitch={scene.skyboxPitch ?? 0} />
       <ambientLight intensity={1.1} />
       <hemisphereLight args={['#ffffff', '#444a55', 0.8]} />
       <directionalLight position={[5, 10, 7]} intensity={1.4} />
       <directionalLight position={[-6, 4, -4]} intensity={0.5} />
-      <Grid args={[40, 40]} cellColor="#1d3a5f" sectionColor="#626872" infiniteGrid fadeDistance={60} position={[0, 0, 0]} />
+      {/* 地面组：网格与角色/道具一起随 groundY 上下移动，使地面与天空盒对齐 */}
+      <group position={[0, scene.groundY ?? 0, 0]}>
+        <Grid args={[40, 40]} cellColor="#1d3a5f" sectionColor="#626872" infiniteGrid fadeDistance={60} position={[0, 0, 0]} />
 
-      {scene.characters.filter((c) => !c.hidden).map((c) => (
-        <CharacterObject
-          key={c.id}
-          character={c}
-          selected={c.id === selectedId}
-          onSelect={() => { setJointRole(null); onSelect(c.id) }}
-          jointEditing={viewpoint === 'director' && c.id === selectedChar?.id}
-          selectedJointRole={c.id === selectedChar?.id ? jointRole : null}
-          onPickJoint={(role) => setJointRole((r) => (r === role ? null : role))}
-          onRigChange={(rig) => { if (rig) rigsRef.current.set(c.id, rig); else rigsRef.current.delete(c.id) }}
-          onGroupChange={(g) => {
-            if (g === groupsRef.current.get(c.id)) return
-            if (g) groupsRef.current.set(c.id, g); else groupsRef.current.delete(c.id)
-            bumpRefs()
-          }}
-        />
-      ))}
+        {scene.characters.filter((c) => !c.hidden).map((c) => (
+          <CharacterObject
+            key={c.id}
+            character={c}
+            selected={c.id === selectedId}
+            onSelect={() => { setJointRole(null); onSelect(c.id) }}
+            jointEditing={viewpoint === 'director' && c.id === selectedChar?.id}
+            selectedJointRole={c.id === selectedChar?.id ? jointRole : null}
+            onPickJoint={(role) => setJointRole((r) => (r === role ? null : role))}
+            onRigChange={(rig) => { if (rig) rigsRef.current.set(c.id, rig); else rigsRef.current.delete(c.id) }}
+            onGroupChange={(g) => {
+              if (g === groupsRef.current.get(c.id)) return
+              if (g) groupsRef.current.set(c.id, g); else groupsRef.current.delete(c.id)
+              bumpRefs()
+            }}
+          />
+        ))}
+      </group>
       {scene.cameras.filter((c) => !c.hidden).map((c) => (
         <CameraRig key={c.id} camera={c} scene={scene} active={viewpoint === 'director'} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />
       ))}
@@ -330,12 +340,13 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
       const lp = new THREE.Vector3()
       const lm = new THREE.Matrix4()
       const lq = new THREE.Quaternion()
+      const gY = p.scene.groundY ?? 0
       for (const ch of p.scene.characters) {
         if (ch.hidden) continue
         const us = ch.uniformScale
         lq.setFromEuler(new THREE.Euler(ch.rotation[0], ch.rotation[1], ch.rotation[2]))
         lm.compose(
-          new THREE.Vector3(ch.position[0], ch.position[1], ch.position[2]),
+          new THREE.Vector3(ch.position[0], ch.position[1] + gY, ch.position[2]),
           lq,
           new THREE.Vector3(ch.scale[0] * us, ch.scale[1] * us, ch.scale[2] * us),
         )

@@ -7,7 +7,7 @@ import { toast } from './toast'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import {
   addCharacter, addCamera, selectObject, removeObject,
-  patchCharacter, patchCamera, setAspect, setViewpoint, setActiveCamera, setSkybox,
+  patchCharacter, patchCamera, setAspect, setViewpoint, setActiveCamera, setSkybox, setGroundY, setSkyboxPitch,
 } from './state/scene'
 import { Viewport, type ViewportHandle, type GizmoMode } from './scene/Viewport'
 import { SceneTreePanel } from './panels/SceneTreePanel'
@@ -256,6 +256,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               const isCam = scene.cameras.some((c) => c.id === id)
               commit((prev) => (isCam ? patchCamera(prev, id, { locked }) : patchCharacter(prev, id, { locked })))
             }}
+            onSetGroundY={(v) => commit((prev) => setGroundY(prev, v))}
+            onSetSkyboxPitch={(v) => commit((prev) => setSkyboxPitch(prev, v))}
           />
         </div>
         <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
