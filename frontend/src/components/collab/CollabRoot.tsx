@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
-import { clientToProject } from '@/utils/paperCoords';
+import { clientToProject, getDpr } from '@/utils/paperCoords';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useTeamStore } from '@/stores/teamStore';
@@ -108,7 +108,12 @@ const CollabRoot: React.FC = () => {
       const canvas = (paper?.view?.element as HTMLCanvasElement | undefined) ?? null;
       if (!canvas || !paper?.view) return;
       const p = clientToProject(canvas, next.x, next.y);
-      collab?.sendCursor(p.x, p.y);
+      // Paper 的 world 坐标以「设备像素」为基准（pan/matrix 都乘了 devicePixelRatio），
+      // 因此同一块内容在不同 DPR 的客户端上 world 值不同：world = 共享坐标 × dpr。
+      // 跨端广播必须用与 DPR 无关的共享坐标（等价于 React Flow flow 坐标 = world / dpr），
+      // 否则两台分辨率/缩放不同的电脑光标会按 dpr 比例错位。接收端再乘回本地 dpr 还原。
+      const dpr = getDpr();
+      collab?.sendCursor(p.x / dpr, p.y / dpr);
     };
     const handler = (e: PointerEvent) => {
       pending = { x: e.clientX, y: e.clientY };

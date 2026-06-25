@@ -5145,12 +5145,22 @@ function FlowInner() {
             const result = [...ns];
             for (const incoming of payload.upsertNodes as any[]) {
               if (!incoming?.id) continue;
+              // collab: 远端补丁可能携带别名/历史 type(模板插入、粘贴等未规范化路径产生)。
+              // 必须与快照水合 tplNodesToRfNodes 一样先归一化,否则:
+              // ①新增节点的 type 不在 nodeTypes 注册表里 → RF 渲染为未知/默认节点;
+              // ②已存在节点(水合时已归一化)被 ...incoming 用原始 type 覆盖回去 → 同样渲染失败。
+              // 新成员侧尤为明显,因为老成员本地状态可能恰好是规范化后的值。
+              const incomingType =
+                typeof incoming.type === "string"
+                  ? (normalizeFlowNodeType(incoming.type) || incoming.type)
+                  : undefined;
               const idx = result.findIndex((n) => n.id === incoming.id);
               if (idx >= 0) {
                 const existing = result[idx];
                 result[idx] = {
                   ...existing,
                   ...incoming,
+                  ...(incomingType ? { type: incomingType } : {}),
                   data: incoming.data
                     ? { ...(existing.data || {}), ...incoming.data }
                     : existing.data,
@@ -5160,7 +5170,7 @@ function FlowInner() {
                     : existing.style,
                 };
               } else {
-                result.push(incoming);
+                result.push(incomingType ? { ...incoming, type: incomingType } : incoming);
               }
             }
             return result;
@@ -7531,7 +7541,8 @@ function FlowInner() {
       }
       return {
         id: newId,
-        type: node.type || "default",
+        // 粘贴节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
+        type: normalizeFlowNodeType(node.type) || node.type || "default",
         position: {
           x: node.position.x + OFFSET,
           y: node.position.y + OFFSET,
@@ -26224,7 +26235,8 @@ function FlowInner() {
         }
         return {
           id: newId,
-          type: n.type as any,
+          // 模板节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
+          type: (normalizeFlowNodeType(n.type) || n.type) as any,
           position: {
             x: world.x + (n.position.x - minX),
             y: world.y + (n.position.y - minY),
