@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import { AlertTriangle, Video, Share2, Download } from 'lucide-react';
+import { AlertTriangle, Video, Share2, Download, Square } from 'lucide-react';
 import SmartImage from '../../ui/SmartImage';
 import GenerationProgressBar from './GenerationProgressBar';
 import { type Sora2VideoQuality } from '@/stores/aiChatStore';
@@ -600,7 +600,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                 height: 32,
                 borderRadius: 8,
                 border: 'none',
-                background: '#dc2626',
+                background: '#111827',
                 color: '#fff',
                 display: 'flex',
                 alignItems: 'center',
@@ -610,7 +610,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                 gap: 0
               }}
             >
-              <span>停止</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

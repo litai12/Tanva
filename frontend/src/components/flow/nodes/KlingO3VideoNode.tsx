@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
+import { AlertTriangle, Video, Share2, Download, HelpCircle, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -839,7 +839,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 padding: hasRunCredits ? "0 10px" : undefined,
                 borderRadius: 8,
                 border: "none",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
@@ -849,7 +849,7 @@ function KlingO1VideoNode({ id, data, selected }: Props) {
                 gap: 0,
               }}
             >
-              <span>停止</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

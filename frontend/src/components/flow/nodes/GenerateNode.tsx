@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
-import { Send as SendIcon, Check } from "lucide-react";
+import { Send as SendIcon, Check, Square } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -1008,8 +1008,9 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 justifyContent: "center",
                 boxSizing: "border-box",
                 minHeight: 30,
+                minWidth: 56,
                 padding: "0 10px",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 borderRadius: 6,
                 border: "none",
@@ -1017,7 +1018,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 gap: 6,
               }}
             >
-              <span>{lt("停止", "Stop")}</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button
@@ -1030,6 +1031,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
                 justifyContent: "center",
                 boxSizing: "border-box",
                 minHeight: 30,
+                minWidth: 56,
                 padding: "0 10px",
                 background: "#111827",
                 color: "#fff",

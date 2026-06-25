@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
-import { AlertTriangle, UserRound } from "lucide-react";
+import { AlertTriangle, UserRound, Square } from "lucide-react";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
@@ -120,13 +120,16 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
               padding: "0 10px",
               borderRadius: 8,
               border: "none",
-              background: "#dc2626",
+              background: "#111827",
               color: "#fff",
               cursor: "pointer",
               fontSize: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            停止
+            <Square size={12} fill="currentColor" />
           </button>
         ) : (
           <button

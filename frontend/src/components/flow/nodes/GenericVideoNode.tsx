@@ -14,7 +14,7 @@ function getStableVideoTimestamp(url: string, version: number): number {
   return ts;
 }
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
-import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
+import { AlertTriangle, Video, Share2, Download, HelpCircle, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -2629,7 +2629,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 height: 32,
                 borderRadius: 8,
                 border: "none",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
@@ -2639,7 +2639,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 gap: 0,
               }}
             >
-              <span>{lt("停止", "Stop")}</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

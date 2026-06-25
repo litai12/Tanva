@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { Send as SendIcon } from "lucide-react";
+import { Send as SendIcon, Square } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -212,14 +212,17 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
               style={{
                 fontSize: 12,
                 padding: "4px 8px",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 borderRadius: 6,
                 border: "none",
                 cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              停止
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
-import { Send as SendIcon, Check } from "lucide-react";
+import { Send as SendIcon, Check, Square } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { toRenderableImageSrc } from "@/utils/imageSource";
@@ -839,6 +839,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
     justifyContent: "center",
     boxSizing: "border-box",
     minHeight: 30,
+    minWidth: 56,
     padding: "0 12px",
     background: running ? "#e5e7eb" : "#111827",
     color: "#fff",
@@ -987,8 +988,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 justifyContent: "center",
                 boxSizing: "border-box",
                 minHeight: 30,
+                minWidth: 56,
                 padding: "0 12px",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 borderRadius: 6,
                 border: "none",
@@ -996,7 +998,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
                 gap: 6,
               }}
             >
-              停止
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

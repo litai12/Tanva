@@ -8,7 +8,7 @@ import {
   type Node as FlowNode,
   type ReactFlowState,
 } from "reactflow";
-import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon, Check } from "lucide-react";
+import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon, Check, Square } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -1374,9 +1374,9 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 onPointerDownCapture={stopNodeDrag}
                 title="停止并重置，可重新生成"
                 className='tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full flex items-center justify-center'
-                style={{ background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", fontSize: 12 }}
+                style={{ background: "#111827", color: "#fff", border: "none", cursor: "pointer", fontSize: 12 }}
               >
-                停止
+                <Square style={{ width: 12, height: 12 }} fill="currentColor" />
               </button>
             ) : (
               <button

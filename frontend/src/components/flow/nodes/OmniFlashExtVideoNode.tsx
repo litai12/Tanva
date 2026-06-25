@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { Video, Download, Share2, AlertTriangle } from "lucide-react";
+import { Video, Download, Share2, AlertTriangle, Square } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
@@ -326,12 +326,15 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
                 width: hasRunCredits ? "auto" : styles.iconBtn.width,
                 minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
                 padding: hasRunCredits ? "0 10px" : undefined,
-                background: "#dc2626",
+                background: "#111827",
                 cursor: "pointer",
                 fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <span>停止</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

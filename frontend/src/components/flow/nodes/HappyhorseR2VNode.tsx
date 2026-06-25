@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
-import { Video, Share2, Download, Plus, Minus } from "lucide-react";
+import { Video, Share2, Download, Plus, Minus, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -593,7 +593,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                 padding: hasRunCredits ? "0 10px" : undefined,
                 borderRadius: 8,
                 border: "none",
-                background: "#dc2626",
+                background: "#111827",
                 color: "#fff",
                 display: "flex",
                 alignItems: "center",
@@ -602,7 +602,7 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
                 fontSize: 12,
               }}
             >
-              <span>停止</span>
+              <Square size={12} fill="currentColor" />
             </button>
           ) : (
             <button

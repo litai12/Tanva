@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, useReactFlow, useStore, type Node as RFNode, type Node as FlowNode, type ReactFlowState } from 'reactflow';
-import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe } from 'lucide-react';
+import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe, Square } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
@@ -2076,9 +2076,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                   onPointerDownCapture={stopNodeDrag}
                   title="停止并重置，可重新生成"
                   className="tanva-agent-toolbar-btn p-0 h-8 w-8 rounded-full flex items-center justify-center"
-                  style={{ background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", fontSize: 12 }}
+                  style={{ background: "#111827", color: "#fff", border: "none", cursor: "pointer" }}
                 >
-                  停止
+                  <Square style={{ width: 12, height: 12 }} fill="currentColor" />
                 </button>
               ) : (
                 <button
