@@ -62,6 +62,7 @@ function normalizeBananaRoute(
 @Injectable()
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
+  private static readonly TASK_TIMEOUT_ERROR_MESSAGE = '生成超时（15分钟），积分将自动返还。';
 
   // 单个图像任务最大执行时长，超过即判定卡死并标记失败（默认 15 分钟，可用环境变量覆盖）
   private static readonly TASK_MAX_DURATION_MS = Number(
@@ -670,9 +671,7 @@ export class ImageTaskService {
       if (task.status === 'processing' || task.status === 'queued') {
         const ageMs = Date.now() - new Date(task.createdAt).getTime();
         if (ageMs > ImageTaskService.TASK_MAX_DURATION_MS) {
-          const reason = `任务超过 ${Math.round(
-            ImageTaskService.TASK_MAX_DURATION_MS / 60000,
-          )} 分钟未完成，已判定为孤儿任务`;
+          const reason = ImageTaskService.TASK_TIMEOUT_ERROR_MESSAGE;
           // 原子翻转，避免并发轮询重复处理。
           await this.prisma.imageTask.updateMany({
             where: { id: taskId, status: { in: ['queued', 'processing'] } },
