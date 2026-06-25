@@ -37,6 +37,7 @@
 - Default monitored nodes include NANO BANANA GEMINI IMAGE GENERATION / EDIT / BLEND, NANO BANANA GEMINI IMAGE ANALYSIS, GPT-IMAGE-2 IMAGE GENERATION, DOUBAO SEEDREAM 5.0 IMAGE GENERATION, MIDJOURNEY V7 / V8 / NIJI 7 IMAGE GENERATION, GEMINI AI TEXT CHAT, GEMINI PROMPT OPTIMIZE / STORYBOARD TEXT, SEEDANCE 1.5 / SEEDANCE 2.0 / SEED 2.0 VIDEO, KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO, VIDU Q2 / VIDU Q3 VIDEO, WAN 2.6 / WAN 2.7 VIDEO, HAPPYHORSE 1.0 R2V VIDEO, OMNI FLASH EXT VIDEO, GEMINI VIDEO ANALYSIS, SEED3D / 2D-TO-3D MODEL GENERATION, and MINIMAX / TENCENT AUDIO GENERATION.
 - Fast/Pro/Ultra or version variants are grouped into the same model node where they share the same product family; `channels[]` keeps provider/channel breakdowns separately. Seedance grouping is limited to the Seedance/Seed video node family, while Kling, Seed3D/2D-to-3D, Wan, Vidu, and HappyHorse are resolved before the Seedance fallback.
 - `topUsers` is limited to the Top10 users per model node and is sorted by consumed credits, then call count.
+- User deletion probes production table/column presence before optional cleanup, so databases missing newer tables can still delete the account. It also clears `TeamProjectShare` rows for the user's projects and owned-team child rows before deleting owned `Team` records.
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。
