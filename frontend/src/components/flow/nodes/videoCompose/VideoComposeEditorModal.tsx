@@ -175,6 +175,7 @@ export function VideoComposeEditorModal({
   const scrubStartXRef = React.useRef(0);
   const wasPlayingRef = React.useRef(false);
   const pointerIsDownRef = React.useRef(false);
+  const dragModeRef = React.useRef<"ruler" | "track" | null>(null);
   type TrimDrag = {
     clipId: string;
     side: "start" | "end";
@@ -287,6 +288,12 @@ export function VideoComposeEditorModal({
             thumbs,
           });
         }
+
+        newClips.sort((a, b) =>
+          (a.sourceMeta.title || a.sourceUrl).localeCompare(
+            b.sourceMeta.title || b.sourceUrl
+          )
+        );
 
         if (cancelled) {
           destroyEditClips(newClips);
@@ -599,11 +606,13 @@ export function VideoComposeEditorModal({
   );
 
   const handleRulerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
     pointerIsDownRef.current = true;
+    dragModeRef.current = "ruler";
     scrubActiveRef.current = false;
     scrubStartXRef.current = e.clientX;
     wasPlayingRef.current = playing;
+    const px = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    setCurrentUs(snapToClipBoundary(pxToUs(px, pxPerUs), pxPerUs));
   };
 
   const handleRulerPointerMove = (
@@ -633,10 +642,10 @@ export function VideoComposeEditorModal({
     pxPerUs: number
   ) => {
     pointerIsDownRef.current = true;
+    dragModeRef.current = "track";
     scrubStartXRef.current = e.clientX;
     scrubActiveRef.current = false;
     wasPlayingRef.current = playing;
-    e.currentTarget.setPointerCapture(e.pointerId);
     const px = e.clientX - e.currentTarget.getBoundingClientRect().left;
     const clickedUs = pxToUs(px, pxPerUs);
     let cum = 0;
@@ -650,6 +659,7 @@ export function VideoComposeEditorModal({
       cum += ud;
     }
     setSelectedIdx(foundIdx);
+    setCurrentUs(snapToClipBoundary(clickedUs, pxPerUs));
   };
 
   const handleClipTrackPointerMove = (
@@ -671,7 +681,46 @@ export function VideoComposeEditorModal({
     pointerIsDownRef.current = false;
     if (scrubActiveRef.current && wasPlayingRef.current) setPlaying(true);
     scrubActiveRef.current = false;
+    dragModeRef.current = null;
   };
+
+  React.useEffect(() => {
+    if (!opened) return;
+
+    const handleWindowPointerMove = (event: PointerEvent) => {
+      if (!pointerIsDownRef.current || !dragModeRef.current) return;
+      const timelineEl = scrollRef.current?.querySelector<HTMLElement>("[data-compose-track='1']");
+      if (!timelineEl) return;
+      const pxPerUsLocal = (BASE_PX_PER_SEC * zoomLevel) / US_PER_S;
+      const rect = timelineEl.getBoundingClientRect();
+      const rawPx = event.clientX - rect.left;
+      const boundedPx = Math.max(0, Math.min(rect.width, rawPx));
+      const moved = Math.abs(event.clientX - scrubStartXRef.current) > 2;
+      if (!moved && !scrubActiveRef.current) return;
+      if (!scrubActiveRef.current) {
+        scrubActiveRef.current = true;
+        setPlaying(false);
+      }
+      setCurrentUs(
+        snapToClipBoundary(pxToUs(boundedPx, pxPerUsLocal), pxPerUsLocal)
+      );
+    };
+
+    const handleWindowPointerUp = () => {
+      if (!pointerIsDownRef.current) return;
+      pointerIsDownRef.current = false;
+      if (scrubActiveRef.current && wasPlayingRef.current) setPlaying(true);
+      scrubActiveRef.current = false;
+      dragModeRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handleWindowPointerMove, true);
+    window.addEventListener("pointerup", handleWindowPointerUp, true);
+    return () => {
+      window.removeEventListener("pointermove", handleWindowPointerMove, true);
+      window.removeEventListener("pointerup", handleWindowPointerUp, true);
+    };
+  }, [opened, pxToUs, snapToClipBoundary, zoomLevel]);
 
   // ── Trim drag ─────────────────────────────────────────────────────────────
   const handleTrimDown = (
@@ -794,7 +843,6 @@ export function VideoComposeEditorModal({
   const overlay = (
     <div
       className="nodrag nopan nowheel"
-      onPointerDownCapture={(e) => e.stopPropagation()}
       onWheelCapture={(e) => e.stopPropagation()}
       style={{
         position: "fixed",
@@ -1039,7 +1087,7 @@ export function VideoComposeEditorModal({
               paddingBottom: 48,
             }}
           >
-            <div style={{ width: contentWidthPx, position: "relative" }}>
+            <div style={{ width: contentWidthPx, position: "relative" }} data-compose-track="1">
               {/* Ruler */}
               <div
                 style={{
