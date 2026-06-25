@@ -12602,6 +12602,10 @@ function FlowInner() {
         if (params.targetHandle.startsWith("image-")) return true; // 每个 image-N 句柄最多一个
         if (params.targetHandle === "video") return true; // video-edit 模式：唯一一个 video 输入
       }
+      if (targetNode?.type === "videoCompose") {
+        if (params.targetHandle === "video") return true;
+        if (params.targetHandle === "audio") return true;
+      }
       // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
         const targetData = ((targetNode.data || {}) as Record<string, any>);
@@ -12615,21 +12619,6 @@ function FlowInner() {
           ).length;
           const projectedTotal = totalImageCount - sameHandleCount + 1;
           return projectedTotal <= maxImages;
-        }
-        if (params.targetHandle === "text") return true;
-      }
-
-      // Vidu Q3 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数最多 2 条
-      if (targetNode?.type === "viduQ3") {
-        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
-          const sameHandleCount = edges.filter(
-            (e) => e.target === params.target && e.targetHandle === params.targetHandle
-          ).length;
-          const totalImageCount = edges.filter(
-            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
-          ).length;
-          const projectedTotal = totalImageCount - sameHandleCount + 1;
-          return projectedTotal <= VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }

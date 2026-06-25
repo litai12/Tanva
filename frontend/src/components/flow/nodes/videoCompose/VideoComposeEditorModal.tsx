@@ -218,14 +218,26 @@ export function VideoComposeEditorModal({
 
   // ── Load ──────────────────────────────────────────────────────────────────
   const destroyEditClips = React.useCallback((clips: EditableClip[]) => {
-    clips.forEach(({ clip, thumbs }) => {
-      clip.destroy();
-      thumbs.forEach(({ url }) => URL.revokeObjectURL(url));
-    });
+    for (const ec of clips) {
+      ec.clip.destroy();
+      ec.thumbs.forEach((t) => URL.revokeObjectURL(t.url));
+    }
   }, []);
 
+  const resolvedUpstreamVideos = React.useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: ComposeVideoSource[] = [];
+    for (const item of upstreamVideos) {
+      const key = `${item.url}::${item.title || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(item);
+    }
+    return deduped;
+  }, [upstreamVideos]);
+
   React.useEffect(() => {
-    if (!opened || upstreamVideos.length === 0) return;
+    if (!opened || resolvedUpstreamVideos.length === 0) return;
     let cancelled = false;
 
     async function load() {
@@ -239,7 +251,7 @@ export function VideoComposeEditorModal({
 
       const newClips: EditableClip[] = [];
       try {
-        for (const src of upstreamVideos) {
+        for (const src of resolvedUpstreamVideos) {
           if (cancelled) break;
           const res = await fetchClip(src.url);
           if (!res.body) throw new Error(`无法加载：${src.title || src.url}`);
@@ -304,7 +316,7 @@ export function VideoComposeEditorModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, upstreamVideos]);
+  }, [opened, resolvedUpstreamVideos]);
 
   // ── Cleanup on close ──────────────────────────────────────────────────────
   React.useEffect(() => {

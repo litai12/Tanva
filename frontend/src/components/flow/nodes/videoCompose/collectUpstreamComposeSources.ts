@@ -79,7 +79,7 @@ export function collectUpstreamComposeSources(
   edges: Edge[]
 ): ComposeVideoSource[] {
   const incoming = edges.filter(
-    (e) => e.target === nodeId && (e.targetHandle ?? "video") === "video"
+    (e) => e.target === nodeId && (e.targetHandle === "video" || e.targetHandle === "video-out")
   );
   const results: ComposeVideoSource[] = [];
 
