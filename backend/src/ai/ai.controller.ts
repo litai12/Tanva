@@ -2250,6 +2250,17 @@ export class AiController {
     const path = await import('path');
     const fsp = await import('fs/promises');
 
+    // Hard internal ceilings so this can never balloon the heap regardless of
+    // what a caller passes. All frames are base64-encoded and held in one array
+    // (~1.33x raw bytes each), so an unbounded frame count / huge frames is a
+    // heap-OOM risk (incident 2026-06-25).
+    const MAX_FRAMES_CEILING = 16;
+    const MAX_TOTAL_FRAME_BYTES = 48 * 1024 * 1024; // 48MB of raw jpg bytes
+    const frameCount = Math.min(
+      MAX_FRAMES_CEILING,
+      Math.max(1, Math.floor(params.maxFrames)),
+    );
+
     const framesDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'video-frames-'));
     try {
       const outputPattern = path.join(framesDir, 'frame-%03d.jpg');
@@ -2262,7 +2273,7 @@ export class AiController {
         '-vf',
         `fps=1/${Math.max(1, Math.floor(params.intervalSeconds))}`,
         '-frames:v',
-        String(Math.max(1, Math.floor(params.maxFrames))),
+        String(frameCount),
         outputPattern,
       ];
 
@@ -2278,13 +2289,22 @@ export class AiController {
 
       const files = (await fsp.readdir(framesDir))
         .filter((f) => f.toLowerCase().endsWith('.jpg'))
-        .sort();
+        .sort()
+        .slice(0, frameCount);
 
       const dataUrls: string[] = [];
+      let totalBytes = 0;
       for (const file of files) {
         const buf = await fsp.readFile(path.join(framesDir, file));
-        const base64 = buf.toString('base64');
-        dataUrls.push(`data:image/jpeg;base64,${base64}`);
+        totalBytes += buf.length;
+        if (totalBytes > MAX_TOTAL_FRAME_BYTES) {
+          // Stop accumulating rather than risk OOM; return what we have so far.
+          this.logger?.warn?.(
+            `extractFramesAsDataUrls: frame bytes exceeded ${MAX_TOTAL_FRAME_BYTES}, truncating at ${dataUrls.length} frames`,
+          );
+          break;
+        }
+        dataUrls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
       }
       return dataUrls;
     } finally {

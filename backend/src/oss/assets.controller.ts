@@ -4,6 +4,7 @@ import {
   Controller,
   GatewayTimeoutException,
   Get,
+  PayloadTooLargeException,
   Query,
   Req,
   Res,
@@ -11,7 +12,15 @@ import {
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Readable } from 'node:stream';
-import { OssReadTimeoutError, OssService } from './oss.service';
+import { OssObjectTooLargeError, OssReadTimeoutError, OssService } from './oss.service';
+
+// Cap for the rare full-buffer fallbacks below (no presigned URL / no upstream
+// body stream). Streaming is always preferred; this only bounds the worst case
+// so a giant object can't OOM the process. Overridable via env.
+const PROXY_BUFFER_FALLBACK_MAX_BYTES = (() => {
+  const raw = Number(process.env.ASSET_PROXY_MAX_BUFFER_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 64 * 1024 * 1024; // 64MB
+})();
 
 const MANAGED_ASSET_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS = 12_000;
@@ -273,7 +282,9 @@ export class AssetsController {
         managedStreamUrl = signed;
       } else {
         try {
-          const object = await this.oss.getObjectBuffer(directManagedKey);
+          const object = await this.oss.getObjectBuffer(directManagedKey, {
+            maxBytes: PROXY_BUFFER_FALLBACK_MAX_BYTES,
+          });
           this.setProxyCorsHeaders(reply);
           this.setPassthroughHeaders(reply, object.headers || {});
           if (!object.headers?.['cache-control']) {
@@ -285,6 +296,12 @@ export class AssetsController {
           if (err instanceof OssReadTimeoutError) {
             reply.header('cache-control', 'no-store');
             throw new GatewayTimeoutException('Asset read timed out');
+          }
+          if (err instanceof OssObjectTooLargeError) {
+            // Object too big to buffer; never OOM. Fail fast — client can retry
+            // a presigned/streamed path or the object is genuinely oversized.
+            reply.header('cache-control', 'no-store');
+            throw new PayloadTooLargeException('Asset too large to proxy');
           }
           // Fall through to URL proxy path.
         }
@@ -430,16 +447,34 @@ export class AssetsController {
     reply.status(upstream.status);
 
     if (!upstream.body) {
-      reply.send(Buffer.from(await upstream.arrayBuffer()));
+      reply.send(await this.readUpstreamArrayBufferCapped(upstream));
       return;
     }
 
     const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
     const nodeStream: Readable = typeof fromWeb === 'function'
       ? fromWeb(upstream.body as unknown)
-      : Readable.from(Buffer.from(await upstream.arrayBuffer()));
+      : Readable.from(await this.readUpstreamArrayBufferCapped(upstream));
 
     upstreamNodeStream = nodeStream;
     reply.send(nodeStream);
+  }
+
+  // Bounded read for the rare full-buffer fallbacks (no body stream / no
+  // Readable.fromWeb). Rejects via Content-Length up-front and re-checks the
+  // realized size so an oversized upstream object can't OOM the proxy.
+  private async readUpstreamArrayBufferCapped(upstream: {
+    headers: { get(name: string): string | null };
+    arrayBuffer(): Promise<ArrayBuffer>;
+  }): Promise<Buffer> {
+    const declared = Number(upstream.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > PROXY_BUFFER_FALLBACK_MAX_BYTES) {
+      throw new PayloadTooLargeException('Upstream asset too large to proxy');
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > PROXY_BUFFER_FALLBACK_MAX_BYTES) {
+      throw new PayloadTooLargeException('Upstream asset too large to proxy');
+    }
+    return buf;
   }
 }

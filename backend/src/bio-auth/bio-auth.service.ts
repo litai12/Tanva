@@ -59,7 +59,29 @@ type BioAuthGroupDelegate = {
 export class BioAuthService implements OnModuleInit {
   private readonly logger = new Logger(BioAuthService.name);
   private readonly tasks = new Map<string, TaskRecord>();
+  // In-memory task records were only ever set, never deleted (no TTL/cap) — a
+  // slow leak over the process lifetime. Prune lazily on each new task: drop
+  // anything older than the TTL (the whole flow finishes in minutes) plus a
+  // hard entry cap as a backstop.
+  private readonly TASK_TTL_MS = 60 * 60 * 1000; // 1h
+  private readonly TASK_MAX_ENTRIES = 5000;
   private env!: VolcEnv;
+
+  private pruneTasks(): void {
+    const now = Date.now();
+    for (const [id, rec] of this.tasks) {
+      if (now - rec.createdAt > this.TASK_TTL_MS) {
+        this.tasks.delete(id);
+      }
+    }
+    if (this.tasks.size > this.TASK_MAX_ENTRIES) {
+      const oldestFirst = [...this.tasks.entries()].sort(
+        (a, b) => a[1].createdAt - b[1].createdAt,
+      );
+      const excess = this.tasks.size - this.TASK_MAX_ENTRIES;
+      for (let i = 0; i < excess; i += 1) this.tasks.delete(oldestFirst[i][0]);
+    }
+  }
 
   constructor(
     private readonly config: ConfigService,
@@ -141,6 +163,7 @@ export class BioAuthService implements OnModuleInit {
   }
 
   async startTask(userId: string, imageUrl: string): Promise<StartBioAuthResponse> {
+    this.pruneTasks();
     const callbackUrl = `${this.env.callbackBaseUrl}/api/bio-auth/callback`;
     const resp = await this.call<{ H5Link?: string; BytedToken?: string }>(
       'CreateVisualValidateSession',

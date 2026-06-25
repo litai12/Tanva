@@ -161,7 +161,19 @@ export class Seed3DService {
     const deadline = Date.now() + this.maxWaitMs;
     const taskUrl = `${this.queryUrl}/${encodeURIComponent(jobId)}`;
 
-    while (Date.now() < deadline) {
+    // Attempt ceiling independent of the wall-clock deadline. This loop treats
+    // any unknown upstream status as "keep polling" (see below), so the only
+    // thing stopping an infinite loop is the time bound — if maxWaitMs were ever
+    // misconfigured to 0/negative or the clock misbehaved, an unknown/changed
+    // upstream shape would spin forever. The poll counter is a hard backstop.
+    const maxPolls = Math.max(
+      1,
+      Math.min(2000, Math.ceil(this.maxWaitMs / Math.max(1, this.pollIntervalMs)) + 5),
+    );
+    let polls = 0;
+
+    while (Date.now() < deadline && polls < maxPolls) {
+      polls += 1;
       const response = await this.requestJson(taskUrl, 'GET');
 
       // new-api 有两种 polling 响应格式：
@@ -193,7 +205,9 @@ export class Seed3DService {
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
 
-    throw new ServiceUnavailableException(`Seed3D task timeout after ${this.maxWaitMs}ms`);
+    throw new ServiceUnavailableException(
+      `Seed3D task timeout after ${this.maxWaitMs}ms (polls=${polls})`,
+    );
   }
 
   private async requestJson(

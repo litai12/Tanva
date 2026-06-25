@@ -8,6 +8,7 @@ import {
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
 import type { ReferenceImageItem } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
+import { bufferResponseWithLimit } from "../../common/http-buffer.util";
 import { Readable } from "node:stream";
 import { TencentVodAigcService } from "./tencent-vod-aigc.service";
 import {
@@ -21,6 +22,16 @@ import { VolcAssetService } from "../../volc-asset/volc-asset.service";
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
 const QUERY_FETCH_TIMEOUT = 60000; // 60秒（避免触发阿里云 ESA 300秒超时限制，采用短超时+快速轮询策略）
 const IMAGE_FETCH_TIMEOUT = 60000;
+// Byte caps for full-buffer downloads so a single oversized payload can't OOM
+// the process. Videos are normally streamed; this only bounds the fallback.
+const VIDEO_DOWNLOAD_MAX_BYTES = (() => {
+  const raw = Number(process.env.VIDEO_DOWNLOAD_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 512 * 1024 * 1024; // 512MB
+})();
+const IMAGE_DOWNLOAD_MAX_BYTES = (() => {
+  const raw = Number(process.env.IMAGE_DOWNLOAD_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 64 * 1024 * 1024; // 64MB
+})();
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const MANAGED_KLING26_TENCENT_TASK_PREFIX = "tencentvod-kling26-";
 const MANAGED_KLING30_TENCENT_TASK_PREFIX = "tencentvod-kling30-";
@@ -487,7 +498,7 @@ export class VideoProviderService {
     const nodeStream =
       typeof fromWeb === "function"
         ? fromWeb(body as unknown)
-        : Readable.from(Buffer.from(await response.arrayBuffer()));
+        : Readable.from(await bufferResponseWithLimit(response, VIDEO_DOWNLOAD_MAX_BYTES));
 
     const { url } = await this.oss.putStream(key, nodeStream, {
       headers: { "Content-Type": contentType },
@@ -545,7 +556,7 @@ export class VideoProviderService {
               errors.push(`${candidate} -> invalid content-type ${nextContentType}`);
               continue;
             }
-            imageBuffer = Buffer.from(await response.arrayBuffer());
+            imageBuffer = await bufferResponseWithLimit(response, IMAGE_DOWNLOAD_MAX_BYTES);
             if (!imageBuffer.length) {
               errors.push(`${candidate} -> empty body`);
               continue;
@@ -690,7 +701,7 @@ export class VideoProviderService {
       throw new Error(`Failed to fetch image url: HTTP ${response.status}`);
     }
     const contentType = response.headers.get("content-type") || "image/png";
-    const buf = Buffer.from(await response.arrayBuffer());
+    const buf = await bufferResponseWithLimit(response, IMAGE_DOWNLOAD_MAX_BYTES);
     return `data:${contentType};base64,${buf.toString("base64")}`;
   }
 

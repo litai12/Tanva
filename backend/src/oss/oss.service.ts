@@ -34,6 +34,26 @@ export class OssReadTimeoutError extends Error {
   }
 }
 
+/**
+ * Thrown when an object read exceeds the byte cap. getObjectBuffer() buffers the
+ * whole object into the JS heap; without a size cap a single large image/video
+ * could balloon the heap past V8's limit and crash the process with
+ * "JavaScript heap out of memory" (incident 2026-06-25). Callers fail fast
+ * (502/413) instead of OOMing. See getObjectBuffer().
+ */
+export class OssObjectTooLargeError extends Error {
+  constructor(
+    readonly limitBytes: number,
+    readonly actualBytes?: number,
+  ) {
+    super(
+      `OSS object exceeds byte cap of ${limitBytes}` +
+        (typeof actualBytes === 'number' ? ` (read ${actualBytes})` : ''),
+    );
+    this.name = 'OssObjectTooLargeError';
+  }
+}
+
 @Injectable()
 export class OssService {
   constructor(private readonly config: ConfigService) {}
@@ -371,18 +391,38 @@ export class OssService {
     };
   }
 
-  private async readStreamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  // Default ceiling for in-memory object reads. Overridable via env. The asset
+  // proxy fallback and any getObjectBuffer() caller buffer the whole object into
+  // the JS heap, so this bounds the worst-case single allocation.
+  private maxObjectBytes(): number {
+    const raw = Number(this.config.get<string>('OSS_MAX_OBJECT_BYTES'));
+    if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+    return 64 * 1024 * 1024; // 64MB
+  }
+
+  private async readStreamToBuffer(
+    stream: NodeJS.ReadableStream,
+    maxBytes?: number,
+  ): Promise<Buffer> {
+    const cap = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : undefined;
     const chunks: Buffer[] = [];
+    let total = 0;
     for await (const chunk of stream as unknown as AsyncIterable<Buffer | Uint8Array | string>) {
-      if (Buffer.isBuffer(chunk)) {
-        chunks.push(chunk);
-      } else if (typeof chunk === 'string') {
-        chunks.push(Buffer.from(chunk));
-      } else {
-        chunks.push(Buffer.from(chunk));
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any);
+      total += buf.length;
+      if (cap !== undefined && total > cap) {
+        // Stop pulling bytes the instant we cross the cap so an oversized object
+        // can never balloon the heap; best-effort destroy the source stream.
+        try {
+          (stream as any)?.destroy?.();
+        } catch {
+          /* ignore */
+        }
+        throw new OssObjectTooLargeError(cap, total);
       }
+      chunks.push(buf);
     }
-    return Buffer.concat(chunks);
+    return Buffer.concat(chunks, total);
   }
 
   private normalizeHeaders(input: unknown): Record<string, string> {
@@ -402,23 +442,31 @@ export class OssService {
     return out;
   }
 
-  private async toBuffer(input: unknown): Promise<Buffer> {
-    if (Buffer.isBuffer(input)) return input;
-    if (input instanceof Uint8Array) return Buffer.from(input);
-    if (input instanceof ArrayBuffer) return Buffer.from(input);
-    if (typeof input === 'string') return Buffer.from(input);
+  private async toBuffer(input: unknown, maxBytes?: number): Promise<Buffer> {
+    const cap = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : undefined;
+    const check = (buf: Buffer): Buffer => {
+      if (cap !== undefined && buf.length > cap) {
+        throw new OssObjectTooLargeError(cap, buf.length);
+      }
+      return buf;
+    };
+
+    if (Buffer.isBuffer(input)) return check(input);
+    if (input instanceof Uint8Array) return check(Buffer.from(input));
+    if (input instanceof ArrayBuffer) return check(Buffer.from(input));
+    if (typeof input === 'string') return check(Buffer.from(input));
 
     const anyInput = input as any;
     if (anyInput && typeof anyInput.arrayBuffer === 'function') {
       const ab = await anyInput.arrayBuffer();
-      return Buffer.from(ab);
+      return check(Buffer.from(ab));
     }
 
     if (anyInput && typeof anyInput.read === 'function') {
-      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream);
+      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream, cap);
     }
     if (anyInput && typeof anyInput[Symbol.asyncIterator] === 'function') {
-      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream);
+      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream, cap);
     }
 
     throw new Error('Unsupported object body type');
@@ -594,7 +642,7 @@ export class OssService {
 
   async getObjectBuffer(
     key: string,
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; maxBytes?: number },
   ): Promise<{ key: string; buffer: Buffer; headers: Record<string, string> }> {
     const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
     if (!normalizedKey) throw new Error('Invalid object key');
@@ -604,6 +652,11 @@ export class OssService {
       typeof opts?.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs)
         ? Math.max(1000, Math.min(60000, Math.floor(opts.timeoutMs)))
         : this.readTimeoutMs();
+
+    const maxBytes =
+      typeof opts?.maxBytes === 'number' && Number.isFinite(opts.maxBytes) && opts.maxBytes > 0
+        ? Math.floor(opts.maxBytes)
+        : this.maxObjectBytes();
 
     // Bound every read. The SDK clients carry timeoutMs() (default 5 min) so
     // uploads can finish; that is far too long for a proxy read. We pass a
@@ -640,7 +693,7 @@ export class OssService {
         (tosResult as any)?.content ??
         (tosResult as any)?.body ??
         tosResult;
-      const buffer = await this.toBuffer(payload);
+      const buffer = await this.toBuffer(payload, maxBytes);
       const headers = this.normalizeHeaders((tosResult as any)?.headers);
       return { key: normalizedKey, buffer, headers };
     }
@@ -655,7 +708,7 @@ export class OssService {
       (aliResult as any)?.content ??
       (aliResult as any)?.data ??
       aliResult;
-    const buffer = await this.toBuffer(payload);
+    const buffer = await this.toBuffer(payload, maxBytes);
     const headers = this.normalizeHeaders((aliResult as any)?.res?.headers || (aliResult as any)?.headers);
     return { key: normalizedKey, buffer, headers };
   }
