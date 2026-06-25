@@ -106,6 +106,8 @@ import type { PublicTemplate } from "@/services/publicTemplateService";
 
 const FULL_ADMIN_ROLE = "admin";
 const NORMAL_ADMIN_ROLE = "normal_admin";
+const REGISTER_PHONE_PATTERN = /^1[3-9]\d{9}$/;
+const REGISTER_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 type AdminTabKey =
   | "dashboard"
@@ -5043,8 +5045,8 @@ function UsersTab({
     const name = createUserForm.name.trim();
     const email = createUserForm.email.trim().toLowerCase();
 
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
-      alert("请输入正确的手机号");
+    if (!REGISTER_PHONE_PATTERN.test(phone)) {
+      alert("请输入正确的 11 位手机号");
       return;
     }
     if (!name) {
@@ -5059,8 +5061,12 @@ function UsersTab({
       alert("昵称不能与邮箱相同");
       return;
     }
-    if (password.length < 6) {
-      alert("密码至少需要 6 位");
+    if (password.length < 8 || password.length > 100) {
+      alert("密码长度必须在 8 到 100 位之间");
+      return;
+    }
+    if (!REGISTER_PASSWORD_PATTERN.test(password)) {
+      alert("密码需包含大小写字母和数字");
       return;
     }
     if (password !== confirmPassword) {
@@ -5524,7 +5530,7 @@ function UsersTab({
           <div className='mb-4'>
             <div className='text-sm font-semibold text-gray-900'>添加用户信息</div>
             <div className='mt-1 text-xs font-medium text-gray-500'>
-              手机号和密码必填，昵称按注册信息填写。
+              手机号按注册规则填写；密码 8-100 位，需包含大小写字母和数字。
             </div>
           </div>
           <div className='grid grid-cols-1 gap-3 lg:grid-cols-5'>
@@ -5532,8 +5538,13 @@ function UsersTab({
               placeholder='手机号'
               value={createUserForm.phone}
               onChange={(e) =>
-                setCreateUserForm((prev) => ({ ...prev, phone: e.target.value }))
+                setCreateUserForm((prev) => ({
+                  ...prev,
+                  phone: e.target.value.replace(/\D/g, "").slice(0, 11),
+                }))
               }
+              inputMode='numeric'
+              maxLength={11}
               className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
               required
             />

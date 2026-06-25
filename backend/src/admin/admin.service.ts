@@ -558,6 +558,130 @@ export class AdminService {
   /**
    * 获取管理后台统计数据
    */
+  private assertSqlIdentifier(identifier: string) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+      throw new Error(`Invalid SQL identifier: ${identifier}`);
+    }
+  }
+
+  private async tableColumnExists(
+    tx: Prisma.TransactionClient,
+    tableName: string,
+    columnName: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = ${tableName}
+          AND column_name = ${columnName}
+      ) AS "exists"
+    `;
+    return rows[0]?.exists === true;
+  }
+
+  private async deleteFromTableByColumnIfExists(
+    tx: Prisma.TransactionClient,
+    tableName: string,
+    columnName: string,
+    value: string,
+  ) {
+    this.assertSqlIdentifier(tableName);
+    this.assertSqlIdentifier(columnName);
+
+    if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
+
+    await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE "${columnName}" = $1`, value);
+  }
+
+  private async updateTableColumnToNullIfExists(
+    tx: Prisma.TransactionClient,
+    tableName: string,
+    columnName: string,
+    value: string,
+  ) {
+    this.assertSqlIdentifier(tableName);
+    this.assertSqlIdentifier(columnName);
+
+    if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
+
+    await tx.$executeRawUnsafe(`UPDATE "${tableName}" SET "${columnName}" = NULL WHERE "${columnName}" = $1`, value);
+  }
+
+  private async deleteFromTableByAnyColumnIfExists(
+    tx: Prisma.TransactionClient,
+    tableName: string,
+    columnNames: string[],
+    value: string,
+  ) {
+    this.assertSqlIdentifier(tableName);
+
+    const existingColumns: string[] = [];
+    for (const columnName of columnNames) {
+      this.assertSqlIdentifier(columnName);
+      if (await this.tableColumnExists(tx, tableName, columnName)) {
+        existingColumns.push(columnName);
+      }
+    }
+
+    if (existingColumns.length === 0) return;
+
+    const where = existingColumns.map((columnName) => `"${columnName}" = $1`).join(' OR ');
+    await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE ${where}`, value);
+  }
+
+  private async deleteTeamProjectSharesForUserProjectsIfExists(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ) {
+    if (
+      !(await this.tableColumnExists(tx, 'TeamProjectShare', 'projectId')) ||
+      !(await this.tableColumnExists(tx, 'Project', 'userId'))
+    ) {
+      return;
+    }
+
+    await tx.$executeRawUnsafe(
+      `DELETE FROM "TeamProjectShare"
+       WHERE "projectId" IN (SELECT "id" FROM "Project" WHERE "userId" = $1)`,
+      userId,
+    );
+  }
+
+  private async deleteOwnedTeamsIfExists(tx: Prisma.TransactionClient, userId: string) {
+    if (!(await this.tableColumnExists(tx, 'Team', 'ownerId'))) return;
+
+    const ownedTeams = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT "id" FROM "Team" WHERE "ownerId" = $1`,
+      userId,
+    );
+
+    for (const team of ownedTeams) {
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamMembership', 'teamId', team.id);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamInvite', 'teamId', team.id);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamProjectShare', 'teamId', team.id);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamSubscription', 'teamId', team.id);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamSeatPackage', 'teamId', team.id);
+
+      if (await this.tableColumnExists(tx, 'TeamCreditAccount', 'teamId')) {
+        const teamCreditAccounts = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT "id" FROM "TeamCreditAccount" WHERE "teamId" = $1`,
+          team.id,
+        );
+
+        for (const account of teamCreditAccounts) {
+          await this.deleteFromTableByColumnIfExists(tx, 'TeamCreditLedger', 'teamAccId', account.id);
+          await this.deleteFromTableByColumnIfExists(tx, 'TeamCreditLot', 'teamCreditAccId', account.id);
+        }
+
+        await this.deleteFromTableByColumnIfExists(tx, 'TeamCreditAccount', 'teamId', team.id);
+      }
+    }
+
+    await tx.$executeRawUnsafe(`DELETE FROM "Team" WHERE "ownerId" = $1`, userId);
+  }
+
   async getDashboardStats(): Promise<AdminDashboardStats> {
     const now = new Date();
     const startOfToday = this.startOfDay(now);
@@ -760,10 +884,13 @@ export class AdminService {
     const email = input.email?.trim().toLowerCase() || null;
 
     if (!/^1[3-9]\d{9}$/.test(phone)) {
-      throw new BadRequestException('手机号格式不正确');
+      throw new BadRequestException('手机号格式不正确，请输入有效的11位手机号');
     }
-    if (password.length < 6) {
-      throw new BadRequestException('密码至少需要 6 位');
+    if (password.length < 8 || password.length > 100) {
+      throw new BadRequestException('密码长度必须在8到100位之间');
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/.test(password)) {
+      throw new BadRequestException('密码需包含大小写字母和数字');
     }
     if (!name) {
       throw new BadRequestException('昵称不能为空');
@@ -1762,25 +1889,15 @@ export class AdminService {
         }
       }
 
-      await tx.user.updateMany({
-        where: { invitedById: userId },
-        data: { invitedById: null },
-      });
-
-      await tx.wechatLoginSession.updateMany({
-        where: { userId },
-        data: { userId: null },
-      });
+      await this.updateTableColumnToNullIfExists(tx, 'User', 'invitedById', userId);
+      await this.updateTableColumnToNullIfExists(tx, 'WechatLoginSession', 'userId', userId);
       await tx.refreshToken.deleteMany({ where: { userId } });
-      await tx.userTemplate.deleteMany({ where: { userId } });
-      await tx.workflowHistory.deleteMany({ where: { userId } });
+      await this.deleteFromTableByColumnIfExists(tx, 'UserTemplate', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'WorkflowHistory', 'userId', userId);
+      await this.deleteTeamProjectSharesForUserProjectsIfExists(tx, userId);
       await tx.project.deleteMany({ where: { userId } });
-      await this.runWithMissingTableTolerance(() =>
-        tx.$executeRaw`DELETE FROM "GenerationImageReuse" WHERE "userId" = ${userId}`,
-      );
-      await this.runWithMissingTableTolerance(() =>
-        tx.$executeRaw`DELETE FROM "GenerationImageAsset" WHERE "userId" = ${userId}`,
-      );
+      await this.deleteFromTableByColumnIfExists(tx, 'GenerationImageReuse', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'GenerationImageAsset', 'userId', userId);
 
       const account = await tx.creditAccount.findUnique({
         where: { userId },
@@ -1788,39 +1905,34 @@ export class AdminService {
       });
 
       if (account) {
-        await this.runWithMissingTableTolerance(() =>
-          tx.creditAnomalyRecord.deleteMany({ where: { accountId: account.id } }),
-        );
+        await this.deleteFromTableByColumnIfExists(tx, 'CreditAnomalyRecord', 'accountId', account.id);
         await tx.creditTransaction.deleteMany({ where: { accountId: account.id } });
         await tx.creditLot.deleteMany({ where: { accountId: account.id } });
         await tx.creditAccount.delete({ where: { id: account.id } });
       }
 
-      await this.runWithMissingTableTolerance(() =>
-        tx.creditAnomalyRecord.deleteMany({ where: { userId } }),
+      await this.deleteFromTableByColumnIfExists(tx, 'CreditAnomalyRecord', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'MembershipSubscriptionChange', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'UserMembershipSubscription', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'MembershipEntitlementSnapshot', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'ApiUsageRecord', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'GlobalImageHistory', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'BioAuthGroup', 'userId', userId);
+
+      await this.deleteFromTableByAnyColumnIfExists(
+        tx,
+        'InvitationRedemption',
+        ['inviteeUserId', 'inviterUserId'],
+        userId,
       );
-      await tx.membershipSubscriptionChange.deleteMany({ where: { userId } });
-      await tx.userMembershipSubscription.deleteMany({ where: { userId } });
-      await tx.membershipEntitlementSnapshot.deleteMany({ where: { userId } });
-      await tx.apiUsageRecord.deleteMany({ where: { userId } });
-      await tx.globalImageHistory.deleteMany({ where: { userId } });
-      await tx.bioAuthGroup.deleteMany({ where: { userId } });
+      await this.updateTableColumnToNullIfExists(tx, 'InvitationCode', 'inviterUserId', userId);
 
-      await tx.invitationRedemption.deleteMany({
-        where: {
-          OR: [{ inviteeUserId: userId }, { inviterUserId: userId }],
-        },
-      });
-      await tx.invitationCode.updateMany({
-        where: { inviterUserId: userId },
-        data: { inviterUserId: null },
-      });
-
-      await tx.paymentOrder.deleteMany({ where: { userId } });
-      await tx.imageTask.deleteMany({ where: { userId } });
-      await tx.videoTask.deleteMany({ where: { userId } });
-      await tx.teamMembership.deleteMany({ where: { userId } });
-      await tx.team.deleteMany({ where: { ownerId: userId } });
+      await this.deleteFromTableByColumnIfExists(tx, 'PaymentOrder', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'ImageTask', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'VideoTask', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamMembership', 'userId', userId);
+      await this.deleteFromTableByColumnIfExists(tx, 'TeamProjectShare', 'sharedByUserId', userId);
+      await this.deleteOwnedTeamsIfExists(tx, userId);
       await tx.user.delete({ where: { id: userId } });
 
       return {
