@@ -26,7 +26,9 @@ BEGIN;
 
 -- -----------------------------------------------------------------------------
 -- Step 1: insert 'hunyuan3d' 透传渠道 (skip if same name+type already exists)。
---   type=1 占位(走 /proxy 透传, 不经 distributor, 故 models 留空)。
+--   type=1 占位(走 /proxy 透传, 不经 distributor)。
+--   models 对透传无功能意义(GenericChannelProxy 按渠道名+路径转发, 不读 models),
+--   这里填 'hunyuan-3d' 仅为面板里可读地标识用途; 留空亦可(参 youchuan 透传渠道)。
 --   key 为腾讯混元 3D 独立 API 的 sk- 令牌 —— 占位, 由管理员在面板补真实值。
 -- -----------------------------------------------------------------------------
 INSERT INTO channels (
@@ -34,7 +36,7 @@ INSERT INTO channels (
   created_time, test_time, priority, weight, tag
 )
 SELECT
-  'hunyuan3d', 1, 'default', '', 1, 'https://api.ai3d.cloud.tencent.com',
+  'hunyuan3d', 1, 'default', 'hunyuan-3d', 1, 'https://api.ai3d.cloud.tencent.com',
   'PLACEHOLDER_HUNYUAN_3D_SK',
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 0, 0, 'hunyuan3d-passthrough'
 WHERE NOT EXISTS (
@@ -42,12 +44,13 @@ WHERE NOT EXISTS (
 );
 
 -- -----------------------------------------------------------------------------
--- Step 2: keep base_url/group/tag aligned on re-run, but never overwrite `key`
---         (so a panel-entered sk- survives repeated patch runs)，也不动 `status`
---         (避免重跑时把管理员手动停用的渠道又重新启用)。
+-- Step 2: keep base_url/models/group/tag aligned on re-run, but never overwrite
+--         `key`(so a panel-entered sk- survives repeated patch runs)，也不动
+--         `status`(避免重跑时把管理员手动停用的渠道又重新启用)。
 -- -----------------------------------------------------------------------------
 UPDATE channels
 SET base_url = 'https://api.ai3d.cloud.tencent.com',
+    models   = 'hunyuan-3d',
     "group"  = 'default',
     tag      = 'hunyuan3d-passthrough'
 WHERE name = 'hunyuan3d' AND type = 1;
