@@ -1,7 +1,7 @@
 import React from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
-import { projectToClient } from '@/utils/paperCoords';
+import { projectToClient, getDpr } from '@/utils/paperCoords';
 import type { PeerCursor } from '@/hooks/usePresence';
 
 interface Props {
@@ -29,7 +29,11 @@ const CollabCursorLayer: React.FC<Props> = ({ cursors }) => {
   const project = (c: PeerCursor): { x: number; y: number } => {
     if (canvas && paper?.view) {
       try {
-        return projectToClient(canvas, new paper.Point(c.x, c.y));
+        // 对端发来的是与 DPR 无关的共享坐标（world / dpr_sender）。先乘回本地 dpr 还原成
+        // 本端 Paper world 坐标，再投影到屏幕——这样同一块内容在不同分辨率/缩放的客户端
+        // 上都能精确对齐（见 CollabRoot 发送侧注释）。
+        const dpr = getDpr();
+        return projectToClient(canvas, new paper.Point(c.x * dpr, c.y * dpr));
       } catch {
         /* fall through */
       }

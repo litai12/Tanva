@@ -323,7 +323,6 @@ const FloatingHeader: React.FC = () => {
   }, []);
   const quickCreateInFlightRef = useRef(false);
   const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
-  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
   const handleQuickCreateProject = useCallback(async () => {
     if (quickCreateInFlightRef.current) return;
     quickCreateInFlightRef.current = true;
@@ -913,24 +912,31 @@ const FloatingHeader: React.FC = () => {
     : null;
   const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
   const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
-  // 顶部身份变化时，把下拉的视图上下文同步到当前身份。
-  useEffect(() => {
-    setDropdownContextId(activeOrgTeamId ?? 'personal');
-  }, [activeOrgTeamId]);
-  // 下拉中“分享/标签”指向的目标团队：优先视图选中的团队，其次当前身份团队，
-  // 最后才回退到首个团队（仅在个人身份且存在团队时用于“切入团队”开关的标签）。
+  // 下拉视图始终跟随顶部【实际身份】：团队身份显示该团队项目，个人身份显示个人项目。
+  const dropdownContextId = activeOrgTeamId ?? 'personal';
+  // 下拉中“分享/标签”指向的目标团队：优先当前身份团队，否则回退到首个团队。
   const dropdownTargetTeamId = dropdownContextId !== 'personal'
     ? dropdownContextId
     : (activeOrgTeamId ?? nonPersonalTeams[0]?.id);
 
-  useEffect(() => {
-    if (dropdownContextId === 'personal') return;
+  // 刷新下拉里的项目列表：个人身份走 store.load()（与团队切换同一条加载路径，
+  // recentProjects 会随 store 重算），团队身份重新拉取该团队项目。
+  const refreshDropdownProjects = useCallback(() => {
+    if (dropdownContextId === 'personal') {
+      void useProjectStore.getState().load();
+      return;
+    }
     setDropdownTeamLoading(true);
     projectApi.listByTeam(dropdownContextId)
       .then(setDropdownTeamProjects)
       .catch(() => setDropdownTeamProjects([]))
       .finally(() => setDropdownTeamLoading(false));
   }, [dropdownContextId]);
+
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    refreshDropdownProjects();
+  }, [dropdownContextId, refreshDropdownProjects]);
 
   // 加载用户的 Google API Key 设置
   useEffect(() => {
@@ -2423,7 +2429,12 @@ const FloatingHeader: React.FC = () => {
                 }}
               />
             ) : (
-              <DropdownMenu>
+              <DropdownMenu
+                onOpenChange={(isOpen) => {
+                  // 每次拉开项目下拉时刷新列表，避免别处新建/重命名后不刷新页面看不到。
+                  if (isOpen) refreshDropdownProjects();
+                }}
+              >
                 <DropdownMenuTrigger
                   className={cn(
                     "tanva-project-selector flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none",
@@ -2465,21 +2476,6 @@ const FloatingHeader: React.FC = () => {
                       : undefined
                   }
                 >
-                  {/* Workspace context switcher — Switch toggle */}
-                  {nonPersonalTeams.length > 0 && (
-                    <div className="px-3 pt-2 pb-1.5 flex items-center justify-between gap-3">
-                      <span className={cn("text-xs", isDarkTheme ? "text-slate-400" : "text-slate-400")}>
-                        {nonPersonalTeams.find((tm) => tm.id === dropdownTargetTeamId)?.name ?? nonPersonalTeams[0]?.name}
-                      </span>
-                      <Switch
-                        checked={dropdownContextId !== 'personal'}
-                        onCheckedChange={(checked) => {
-                          setDropdownContextId(checked ? (activeOrgTeamId ?? nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
-                        }}
-                        className="h-5 w-9"
-                      />
-                    </div>
-                  )}
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
                     {dropdownTeamLoading ? (
                       <DropdownMenuItem disabled className={cn("cursor-default", isDarkTheme ? "text-slate-500" : "text-slate-400")}>
