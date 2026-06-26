@@ -126,6 +126,29 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
+// 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
+const AUDIO_STUDIO_MODEL_KEYS = [
+  'doubao-seed-audio-1-0',
+  'minimax-speech-2.6-hd',
+  'minimax-speech-2.5',
+  'minimax-music-2.5+',
+  'minimax-music-2.5',
+  'tencent-dub',
+];
+const AUDIO_STUDIO_DEFAULT_MODEL_KEY = 'doubao-seed-audio-1-0';
+
+const buildAudioStudioNodeMetadata = (): Record<string, any> => ({
+  type: 'audioStudio',
+  routeStrategy: 'model_management_v2',
+  nodeKind: 'ai_audio_generation',
+  modelKeys: [...AUDIO_STUDIO_MODEL_KEYS],
+  managedModelKey: AUDIO_STUDIO_DEFAULT_MODEL_KEY,
+  defaultData: {
+    managedModelKey: AUDIO_STUDIO_DEFAULT_MODEL_KEY,
+    mode: 'seed-audio',
+  },
+});
+
 const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0'];
 const SEED20_SUPPORTED_MODELS = ['seed-2.0-pro', 'seed-2.0-lite', 'seed-2.0-mini'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
@@ -163,18 +186,19 @@ export class NodeConfigService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private normalizeManagedTaskType(value?: string): 'text' | 'image' | 'video' {
+  private normalizeManagedTaskType(value?: string): 'text' | 'image' | 'video' | 'audio' {
     const normalized = String(value || '')
       .trim()
       .toLowerCase();
     if (normalized === 'text' || normalized === 'input') return 'text';
     if (normalized === 'image') return 'image';
+    if (normalized === 'audio') return 'audio';
     return 'video';
   }
 
   private normalizeManagedNodeCategory(
     value: string | undefined,
-    taskType: 'text' | 'image' | 'video',
+    taskType: 'text' | 'image' | 'video' | 'audio',
   ): 'input' | 'image' | 'video' | 'audio' | 'other' {
     const normalized = String(value || '')
       .trim()
@@ -190,6 +214,7 @@ export class NodeConfigService {
     }
     if (taskType === 'text') return 'input';
     if (taskType === 'image') return 'image';
+    if (taskType === 'audio') return 'audio';
     return 'video';
   }
 
@@ -470,6 +495,57 @@ export class NodeConfigService {
                 (nextMetadata.vod as Record<string, any>).modelVersion,
             };
           }
+        }
+      }
+    }
+
+    // 音频工作台：把节点声明的全部音频模型聚合成 managedRoutes.vendors（每个模型一项），
+    // 并把各模型 metadata.audioSpec 原样透出给前端（buildManagedRouteView 不透传 metadata，
+    // 故这里专门挂上 audioSpec，前端据此渲染 spec 表单）。
+    if (nodeKey === 'audioStudio' && currentModelKeys.length > 0) {
+      const audioVendors = currentModelKeys
+        .map((key) => {
+          const model = managedModelMap.get(key);
+          if (!model) return null;
+          const view = this.buildManagedRouteView(model);
+          const defaultVendor =
+            view?.vendors.find((vendor) => vendor.vendorKey === view.defaultVendor) ||
+            view?.vendors[0];
+          const audioSpec =
+            model.metadata && typeof model.metadata === 'object'
+              ? (model.metadata as Record<string, any>).audioSpec
+              : undefined;
+          return {
+            vendorKey: model.modelKey,
+            platformKey: defaultVendor?.platformKey,
+            label: model.modelName || model.modelKey,
+            provider: defaultVendor?.provider,
+            route: defaultVendor?.route,
+            creditsPerCall: defaultVendor?.creditsPerCall,
+            priceYuan: defaultVendor?.priceYuan,
+            pricing: defaultVendor?.pricing,
+            audioSpec:
+              audioSpec && typeof audioSpec === 'object' ? audioSpec : undefined,
+          };
+        })
+        .filter(Boolean) as Array<Record<string, any>>;
+
+      if (audioVendors.length > 0) {
+        const defaultKey =
+          explicitManagedModelKey && audioVendors.some((v) => v.vendorKey === explicitManagedModelKey)
+            ? explicitManagedModelKey
+            : audioVendors[0].vendorKey;
+        nextMetadata.managedModelKey = defaultKey;
+        nextMetadata.managedRoutes = {
+          modelKey: 'audioStudio',
+          defaultVendor: defaultKey,
+          vendors: audioVendors,
+        };
+        if (nextMetadata.defaultData && typeof nextMetadata.defaultData === 'object') {
+          nextMetadata.defaultData = {
+            ...(nextMetadata.defaultData as Record<string, any>),
+            managedModelKey: defaultKey,
+          };
         }
       }
     }
@@ -1607,7 +1683,7 @@ export class NodeConfigService {
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
       // 统一音频工作台（seed-audio/minimax 语音·音乐/腾讯配音/导入合一），常驻面板。
       // 计费按模式与时长由后端动态决定（seed-audio 经 new-api 单轨后扣），故不设固定 serviceType/价。
-      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）' },
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）', metadata: buildAudioStudioNodeMetadata() },
     ];
 
     let created = 0;
@@ -2295,7 +2371,7 @@ export class NodeConfigService {
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
       // 统一音频工作台，常驻面板（详见 initializeDefaultConfigs 注释）。
-      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）' },
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）', metadata: buildAudioStudioNodeMetadata() },
     ];
   }
 

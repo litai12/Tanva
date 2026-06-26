@@ -109,7 +109,8 @@ import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
 import AudioStudioNode from "./nodes/AudioStudioNode";
 import * as audioService from "@/services/audioService";
-import { getAudioStudioModeConfig } from "./nodes/audioStudioModes";
+import { getAudioStudioModeConfig, type AudioStudioMode } from "./nodes/audioStudioModes";
+import { getAudioSpecFromManagedRoute, MODE_DEFAULT_MODEL } from "./nodes/audioSpec";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import Seed3DNode from "./nodes/Seed3DNode";
@@ -2613,6 +2614,19 @@ const migrateAudioStudioData = (
     typeof data.model === "string"
   ) {
     data.musicModel = data.model === "music-2.5" ? "music-2.5" : "music-2.5+";
+  }
+
+  // 默认 managedModelKey：按 mode 映射到默认模型，保证旧画布在 spec 驱动下可用
+  if (
+    !data.managedModelKey ||
+    typeof data.managedModelKey !== "string" ||
+    !data.managedModelKey.trim()
+  ) {
+    const mode = typeof data.mode === "string" ? data.mode : "seed-audio";
+    const defaultModel = MODE_DEFAULT_MODEL[mode as AudioStudioMode];
+    if (defaultModel) {
+      data.managedModelKey = defaultModel;
+    }
   }
 
   // tencentSpeech：speakerUrl(旧结果字段) 不参与表单，speakerUrlInput 已同名保留
@@ -20977,26 +20991,67 @@ function FlowInner() {
         };
 
         try {
-          let payload: audioService.AudioGeneratePayload;
-          let promptForHistory = finalText;
+          // ---- 模型 + spec 解析（后端 managedRoutes 驱动）----
+          const audioMetadata =
+            audioData?.nodeConfigMetadata && typeof audioData.nodeConfigMetadata === "object"
+              ? (audioData.nodeConfigMetadata as Record<string, any>)
+              : managedRuntimeByType.get("audioStudio")?.nodeConfigMetadata;
+          const managedModelKey =
+            (typeof audioData?.managedModelKey === "string" && audioData.managedModelKey.trim()
+              ? audioData.managedModelKey.trim()
+              : MODE_DEFAULT_MODEL[audioMode as AudioStudioMode]) || "";
+          const route = getManagedRouteOption(audioMetadata, managedModelKey);
+          const spec = getAudioSpecFromManagedRoute(route);
+          if (!spec) {
+            failAudioNode("未找到音频模型配置");
+            return;
+          }
 
-          if (audioMode === "seed-audio") {
-            if (!finalText) {
-              failAudioNode("缺少合成文本");
-              return;
-            }
-            // 收集参考音频（@音频N）与参考图片（二选一）
-            const referenceAudioUrls: string[] = [];
-            let referenceImageUrl: string | undefined;
-            for (const edge of currentEdges.filter((e) => e.target === nodeId)) {
-              const src = rf.getNode(edge.source);
-              if (!src) continue;
-              const sdata = (src.data || {}) as Record<string, any>;
-              if (edge.targetHandle === "audio") {
+          const payload: audioService.AudioGeneratePayload = {
+            mode: spec.mode,
+            projectId: projectId || undefined,
+            managedModelKey,
+          };
+          const payloadRecord = payload as Record<string, unknown>;
+          if (spec.modelField && spec.modelValue) {
+            payloadRecord[spec.modelField] = spec.modelValue;
+          }
+
+          // 表单字段（key ≡ AudioGenerateDto 字段名）逐项拷贝
+          for (const field of spec.fields) {
+            const value = audioData?.[field.key];
+            if (value === undefined || value === null) continue;
+            if (typeof value === "string" && value.trim() === "") continue;
+            if (Array.isArray(value) && value.length === 0) continue;
+            payloadRecord[field.key] = value;
+          }
+
+          // 连线输入（text/prompt/参考音频/参考图/视频）
+          let promptForHistory = finalText;
+          for (const input of spec.inputs) {
+            if (input.dtoField === "text" || input.dtoField === "prompt") {
+              if (finalText) {
+                payloadRecord[input.dtoField] = finalText;
+                if (input.dtoField === "prompt") promptForHistory = finalText;
+              }
+            } else if (input.dtoField === "referenceAudioUrls") {
+              const urls: string[] = [];
+              for (const edge of currentEdges.filter(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              )) {
+                const src = rf.getNode(edge.source);
+                const sdata = (src?.data || {}) as Record<string, any>;
                 const candidate =
                   typeof sdata.audioUrl === "string" ? sdata.audioUrl.trim() : "";
-                if (candidate) referenceAudioUrls.push(candidate);
-              } else if (edge.targetHandle === "image") {
+                if (candidate) urls.push(candidate);
+              }
+              if (urls.length > 0) payload.referenceAudioUrls = urls.slice(0, 3);
+            } else if (input.dtoField === "referenceImageUrl") {
+              for (const edge of currentEdges.filter(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              )) {
+                const src = rf.getNode(edge.source);
+                const sdata = (src?.data || {}) as Record<string, any>;
                 const candidate =
                   (typeof sdata.imageUrl === "string" && sdata.imageUrl.trim()) ||
                   (Array.isArray(sdata.imageUrls)
@@ -21005,183 +21060,67 @@ function FlowInner() {
                       )
                     : undefined);
                 if (typeof candidate === "string" && candidate.trim()) {
-                  referenceImageUrl = candidate.trim();
+                  payload.referenceImageUrl = candidate.trim();
+                  break;
                 }
               }
+            } else if (input.dtoField === "inputVideoUrl") {
+              const videoEdge = currentEdges.find(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              );
+              if (videoEdge) {
+                const srcNode = rf.getNode(videoEdge.source);
+                const d = (srcNode?.data as any) || {};
+                const direct =
+                  d.videoUrl ||
+                  d.video_url ||
+                  d.output?.video_url ||
+                  (Array.isArray(d.output) ? d.output[0]?.video_url : undefined) ||
+                  d.raw?.output?.video_url ||
+                  d.raw?.video_url;
+                const fromHistory = Array.isArray(d.history)
+                  ? d.history[0]?.videoUrl
+                  : undefined;
+                const url = sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+                if (url) payload.inputVideoUrl = url;
+              }
             }
-            payload = {
-              mode: "seed-audio",
-              projectId: projectId || undefined,
-              text: finalText,
-              voice:
-                typeof audioData?.voice === "string" && audioData.voice.trim()
-                  ? audioData.voice.trim()
-                  : undefined,
-              format: audioData?.format || undefined,
-              sampleRate:
-                typeof audioData?.sampleRate === "number"
-                  ? audioData.sampleRate
-                  : undefined,
-              speechRate:
-                typeof audioData?.speechRate === "number"
-                  ? audioData.speechRate
-                  : undefined,
-              pitchRate:
-                typeof audioData?.pitchRate === "number"
-                  ? audioData.pitchRate
-                  : undefined,
-              loudnessRate:
-                typeof audioData?.loudnessRate === "number"
-                  ? audioData.loudnessRate
-                  : undefined,
-            };
-            // 参考图与参考音频互斥：有图优先用图
-            if (referenceImageUrl) {
-              payload.referenceImageUrl = referenceImageUrl;
-            } else if (referenceAudioUrls.length > 0) {
-              payload.referenceAudioUrls = referenceAudioUrls.slice(0, 3);
-            }
-          } else if (audioMode === "minimax-speech") {
-            if (!hasTextEdge && !finalText) {
-              failAudioNode("缺少 Prompt 输入");
+          }
+
+          // seed-audio：参考图与参考音频互斥，有图优先
+          if (spec.mode === "seed-audio" && payload.referenceImageUrl) {
+            payload.referenceAudioUrls = undefined;
+          }
+          // minimax-music：prompt 兜底取 text，并校验
+          if (spec.mode === "minimax-music") {
+            if (!payload.prompt && finalText) payload.prompt = finalText;
+            promptForHistory = payload.prompt || promptForHistory;
+          }
+
+          // 必填校验
+          for (const input of spec.inputs) {
+            if (!input.required) continue;
+            if (input.dtoField === "text" && !payload.text) {
+              failAudioNode("缺少合成文本");
               return;
             }
-            if (!finalText) {
-              failAudioNode("Prompt 为空");
-              return;
-            }
-            const modelRaw =
-              typeof audioData?.model === "string" ? audioData.model.trim() : "";
-            const soundEffects = Array.isArray(audioData?.soundEffects)
-              ? (audioData.soundEffects as string[]).filter((item) =>
-                  ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(
-                    item
-                  )
-                )
-              : undefined;
-            payload = {
-              mode: "minimax-speech",
-              projectId: projectId || undefined,
-              text: finalText,
-              voiceId: audioData?.voiceId,
-              model: modelRaw || "speech-2.6-hd",
-              outputFormat: audioData?.outputFormat === "hex" ? "hex" : "url",
-              audioMode: audioData?.audioMode === "hex" ? "hex" : "json",
-              emotion:
-                typeof audioData?.emotion === "string" && audioData.emotion
-                  ? audioData.emotion
-                  : undefined,
-              soundEffects: soundEffects && soundEffects.length ? soundEffects : undefined,
-            };
-          } else if (audioMode === "minimax-music") {
-            const isInstrumental = audioData?.isInstrumental === true;
-            const lyricsOptimizer = audioData?.lyricsOptimizer === true;
-            const localPrompt =
-              typeof audioData?.prompt === "string" ? audioData.prompt.trim() : "";
-            const finalPrompt = (upstreamText || localPrompt).trim();
-            const lyrics =
-              typeof audioData?.lyrics === "string" ? audioData.lyrics.trim() : "";
-            if (isInstrumental && !finalPrompt) {
-              failAudioNode("纯音乐模式需要填写 Prompt");
-              return;
-            }
-            if (!isInstrumental && !lyrics && !lyricsOptimizer) {
-              failAudioNode("请填写歌词，或开启 AI 自动填词");
-              return;
-            }
-            const modelRaw =
-              typeof audioData?.musicModel === "string"
-                ? audioData.musicModel.trim()
-                : "";
-            promptForHistory = finalPrompt;
-            payload = {
-              mode: "minimax-music",
-              projectId: projectId || undefined,
-              prompt: finalPrompt || undefined,
-              lyrics: !isInstrumental && lyrics ? lyrics : undefined,
-              isInstrumental,
-              lyricsOptimizer,
-              musicModel: modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+",
-            };
-          } else if (audioMode === "tencent-dub") {
-            const videoEdge = currentEdges.find(
-              (e) => e.target === nodeId && e.targetHandle === "video"
-            );
-            let inputVideoUrl: string | undefined;
-            if (videoEdge) {
-              const srcNode = rf.getNode(videoEdge.source);
-              const d = (srcNode?.data as any) || {};
-              const direct =
-                d.videoUrl ||
-                d.video_url ||
-                d.output?.video_url ||
-                (Array.isArray(d.output) ? d.output[0]?.video_url : undefined) ||
-                d.raw?.output?.video_url ||
-                d.raw?.video_url;
-              const fromHistory = Array.isArray(d.history)
-                ? d.history[0]?.videoUrl
-                : undefined;
-              inputVideoUrl =
-                sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
-            }
-            if (!inputVideoUrl) {
+            if (input.dtoField === "inputVideoUrl" && !payload.inputVideoUrl) {
               failAudioNode("请连接视频输入");
               return;
             }
-            payload = {
-              mode: "tencent-dub",
-              projectId: projectId || undefined,
-              inputVideoUrl,
-              text: finalText || undefined,
-              speakerUrl:
-                typeof audioData?.speakerUrlInput === "string"
-                  ? audioData.speakerUrlInput.trim() || undefined
-                  : undefined,
-              voiceId:
-                typeof audioData?.voiceId === "string"
-                  ? audioData.voiceId.trim() || undefined
-                  : undefined,
-              speakerGender:
-                typeof audioData?.speakerGender === "string"
-                  ? audioData.speakerGender.trim() || undefined
-                  : undefined,
-              srcLang:
-                typeof audioData?.srcLang === "string"
-                  ? audioData.srcLang.trim() || undefined
-                  : undefined,
-              dstLang:
-                typeof audioData?.dstLang === "string"
-                  ? audioData.dstLang.trim() || undefined
-                  : undefined,
-              srcSubtitleUrl:
-                typeof audioData?.srcSubtitleUrl === "string"
-                  ? audioData.srcSubtitleUrl.trim() || undefined
-                  : undefined,
-              dstSubtitleUrl:
-                typeof audioData?.dstSubtitleUrl === "string"
-                  ? audioData.dstSubtitleUrl.trim() || undefined
-                  : undefined,
-              embedSubtitle: audioData?.embedSubtitle,
-              font:
-                typeof audioData?.font === "string"
-                  ? audioData.font.trim() || undefined
-                  : undefined,
-              fontSize:
-                typeof audioData?.fontSize === "number"
-                  ? audioData.fontSize
-                  : undefined,
-              marginV:
-                typeof audioData?.marginV === "number"
-                  ? audioData.marginV
-                  : undefined,
-              outputPattern:
-                typeof audioData?.outputPattern === "string"
-                  ? audioData.outputPattern.trim() || undefined
-                  : undefined,
-            };
-          } else {
-            return;
           }
+          if (spec.mode === "minimax-music") {
+            const isInstrumental = payload.isInstrumental === true;
+            if (isInstrumental && !payload.prompt) {
+              failAudioNode("纯音乐模式需要填写 Prompt");
+              return;
+            }
+            if (!isInstrumental && !payload.lyrics && payload.lyricsOptimizer !== true) {
+              failAudioNode("请填写歌词，或开启 AI 自动填词");
+              return;
+            }
+          }
+          void hasTextEdge;
 
           setAudioNodeData({ status: "running", error: undefined, text: finalText });
 
@@ -21731,7 +21670,16 @@ function FlowInner() {
             const raw = nodeData?.resolution ?? defaultData?.resolution;
             if (typeof raw !== "string") return "1K";
             const normalized = raw.trim().toUpperCase();
-            return normalized || "1K";
+            const value = normalized || "1K";
+            // gpt-image-2 的 2K/4K 仅尊享(stable)渠道支持；普通/极速渠道(含离屏未回落的旧节点)一律夹到 1K。
+            if (
+              node.type === "gptImage2" &&
+              latestBananaImageRoute !== "stable" &&
+              (value === "2K" || value === "4K")
+            ) {
+              return "1K";
+            }
+            return value;
           })();
           const gptImage2OfficialFallback =
             typeof nodeData?.officialFallback === "boolean"

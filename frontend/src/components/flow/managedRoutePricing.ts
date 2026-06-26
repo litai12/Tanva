@@ -9,6 +9,8 @@ export interface ManagedRouteOption {
   modelName?: string;
   modelVersion?: string;
   creditsPerCall?: number;
+  /** Audio capability spec (audioStudio only); passed through untouched. */
+  audioSpec?: Record<string, any>;
   pricing?: {
     version?: string;
     dimensions?: Array<
@@ -202,6 +204,10 @@ export const getManagedRoutesMetadata = (
                 : undefined,
             creditsPerCall:
               Number.isFinite(credits) && credits >= 0 ? credits : undefined,
+            audioSpec:
+              vendor.audioSpec && typeof vendor.audioSpec === "object"
+                ? (vendor.audioSpec as Record<string, any>)
+                : undefined,
             pricing:
               vendor.pricing && typeof vendor.pricing === "object"
                 ? (vendor.pricing as ManagedRouteOption["pricing"])
