@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../../ai/services/model-routing.service';
+import {
+  MODEL_PROVIDER_MAPPING_SETTING_KEY,
+  DEFAULT_MODEL_PROVIDER_MAPPING_V2,
+} from '../../ai/services/model-routing.service';
 import {
   resolveManagedModelPricingV2,
   resolveManagedVendorDefaultPricing,
@@ -236,7 +239,20 @@ export class NodeConfigService {
       const parsed = normalizeSeedance20DiscountPricing(
         JSON.parse(raw) as ModelProviderMappingV2Like,
       );
-      const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+      const savedModels = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+
+      // 音频模型只存在于代码默认(DEFAULT_MODEL_PROVIDER_MAPPING_V2)，由 model-routing 的
+      // fallbackAppendModelKeys 在其读取路径合并；但本方法直读 SystemSetting，不经那条合并。
+      // 故在此补齐缺失的 audio 默认模型，确保 audioStudio 能拿到 managedRoutes(模型下拉)。
+      const presentKeys = new Set(
+        savedModels
+          .map((m) => String((m as any)?.modelKey || '').trim())
+          .filter(Boolean),
+      );
+      const audioDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
+        (m) => m && m.taskType === 'audio' && !presentKeys.has(String(m.modelKey).trim()),
+      );
+      const models = [...savedModels, ...(audioDefaults as typeof savedModels)];
 
       return new Map(
         models

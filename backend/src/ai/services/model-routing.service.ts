@@ -830,7 +830,7 @@ const AUDIO_MODEL_DEFAULTS: ManagedModelConfig[] = [
   },
 ];
 
-const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
+export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
   version: 'v2',
   platforms: [
     {
