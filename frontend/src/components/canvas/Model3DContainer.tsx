@@ -70,6 +70,12 @@ const boundsEqual = (
   Math.abs(a.width - b.width) < MODEL3D_EPSILON &&
   Math.abs(a.height - b.height) < MODEL3D_EPSILON;
 
+const isFiniteRect = (rect: { x: number; y: number; width: number; height: number }) =>
+  Number.isFinite(rect.x) &&
+  Number.isFinite(rect.y) &&
+  Number.isFinite(rect.width) &&
+  Number.isFinite(rect.height);
+
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
   modelData,
   modelId,
@@ -540,6 +546,24 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     return () => cancelAnimationFrame(timer);
   }, []);
 
+  const hasUsableScreenBounds =
+    isFiniteRect(screenBounds) &&
+    screenBounds.width >= 8 &&
+    screenBounds.height >= 8 &&
+    Math.abs(screenBounds.x) < 1_000_000 &&
+    Math.abs(screenBounds.y) < 1_000_000 &&
+    screenBounds.width < 1_000_000 &&
+    screenBounds.height < 1_000_000;
+
+  const canReceivePointerEvents =
+    hasUsableScreenBounds &&
+    visible &&
+    ((drawMode === 'select' && !isSelectionDragging) || isSelected);
+
+  if (!hasUsableScreenBounds) {
+    return null;
+  }
+
   return (
     <div
       ref={containerRef}
@@ -554,7 +578,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         zIndex: isSelected ? 6 : 5,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: canReceivePointerEvents ? 'auto' : 'none',
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}

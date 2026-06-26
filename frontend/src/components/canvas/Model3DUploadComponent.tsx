@@ -52,11 +52,14 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
       onUploadError(lt('3D模型处理失败，请重试', '3D model processing failed. Please try again.'));
     }
 
+    document.body.classList.remove('tanva-canvas-dragging');
+    document.body.classList.remove('tanva-selection-dragging');
+
     // Clear input value to allow selecting the same file again.
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, [lt, onModel3DUploaded, onUploadError]);
+  }, [lt, onModel3DUploaded, onUploadError, projectId]);
 
   // Handle external trigger.
   React.useEffect(() => {
