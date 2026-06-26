@@ -30,7 +30,8 @@ const (
 
 	// 单轨计费唯一价格源：每秒 original_duration 对应的积分。env 可覆盖（运维侧调价），
 	// 后端按响应头 X-NewApi-Consumed-Credits 实扣，不在后端再设一份价格。
-	seedAudioDefaultCreditsPerSecond = 1.0
+	// 定价 1.2 元/分钟，1 元=100 积分 → 120 积分/分钟 → 2 积分/秒（封顶 120s=240 积分/次）。
+	seedAudioDefaultCreditsPerSecond = 2.0
 	seedAudioCreditsPerSecondEnv     = "SEED_AUDIO_CREDITS_PER_SECOND"
 
 	// 响应头桥：把 new-api 算出的实际积分与时长回传给后端做单轨后扣。

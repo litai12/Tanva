@@ -121,7 +121,9 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
 // seed-audio 单轨网关计费的【最坏情况】保底门槛（120s 上限的封顶价）。
 // 仅用于调用前的余额护栏，绝不是实际扣费金额——实际扣费以 new-api 回报的
 // X-NewApi-Consumed-Credits 为准（见 withCreditsFromGateway / deductExact）。
-const SEED_AUDIO_MAX_CREDITS = 120;
+// 取最坏情况 = 封顶 120s × 单价 2 积分/秒（1.2 元/分钟，1 元=100 积分）= 240。
+// 必须 >= new-api 实际可能扣的最大值，否则余额介于护栏与真实最大值之间会漏扣一次。
+const SEED_AUDIO_MAX_CREDITS = 240;
 
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 

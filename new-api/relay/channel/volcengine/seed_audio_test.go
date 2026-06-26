@@ -58,12 +58,12 @@ func TestBuildSeedAudioBody_ReferenceClearsSpeaker(t *testing.T) {
 }
 
 func TestComputeSeedAudioCredits(t *testing.T) {
-	// default 1 credit/sec, ceil, capped at 120
-	if c := computeSeedAudioCredits(65.2); c != 66 {
-		t.Fatalf("expected ceil(65.2)=66, got %d", c)
+	// default 2 credits/sec (1.2 元/分钟), ceil, capped at 120s -> 240
+	if c := computeSeedAudioCredits(65.2); c != 131 {
+		t.Fatalf("expected ceil(65.2*2)=131, got %d", c)
 	}
-	if c := computeSeedAudioCredits(200); c != 120 {
-		t.Fatalf("expected cap 120, got %d", c)
+	if c := computeSeedAudioCredits(200); c != 240 {
+		t.Fatalf("expected cap 120s*2=240, got %d", c)
 	}
 	if c := computeSeedAudioCredits(0); c != 0 {
 		t.Fatalf("expected 0, got %d", c)
