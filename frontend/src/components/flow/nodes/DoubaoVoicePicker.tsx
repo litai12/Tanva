@@ -52,18 +52,25 @@ export default function DoubaoVoicePicker({
   const nameColor = isDark ? '#e5e7eb' : '#111827';
   const panelBg = flowNodeMutedWellBackground(isDark);
 
-  // 拉取动态音色目录（失败回落静态库）
-  React.useEffect(() => {
-    let alive = true;
+  // 拉取动态音色目录（含头像/试听）；失败回落静态库（无头像/试听）。
+  // 仅当还没拿到「富数据」时才拉，拿到后不再重复请求。
+  const fetchedRichRef = React.useRef(false);
+  const loadVoices = React.useCallback(() => {
     fetchSeedAudioVoices()
       .then((list) => {
-        if (alive) setVoices(list);
+        setVoices(list);
+        if (list.some((v) => v.avatar || v.trialUrl)) fetchedRichRef.current = true;
       })
       .catch(() => {});
-    return () => {
-      alive = false;
-    };
   }, []);
+  // 挂载即拉一次
+  React.useEffect(() => {
+    loadVoices();
+  }, [loadVoices]);
+  // 打开下拉时，若还是静态回落（后端启动时短暂不可用导致），重试拉取，自愈到富数据
+  React.useEffect(() => {
+    if (open && !fetchedRichRef.current) loadVoices();
+  }, [open, loadVoices]);
 
   // 卸载清理
   React.useEffect(() => {
