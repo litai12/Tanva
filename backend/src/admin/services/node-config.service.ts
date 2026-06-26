@@ -1605,9 +1605,9 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      // 统一音频工作台（seed-audio/minimax 语音·音乐/腾讯配音/导入合一），常驻面板。
+      // 计费按模式与时长由后端动态决定（seed-audio 经 new-api 单轨后扣），故不设固定 serviceType/价。
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）' },
     ];
 
     let created = 0;
@@ -1626,7 +1626,19 @@ export class NodeConfigService {
       }
     }
 
-    this.logger.log(`节点配置初始化完成: 创建 ${created} 个, 跳过 ${skipped} 个`);
+    // 旧 4 个音频节点已合并为 audioStudio：隐藏旧节点，避免面板出现无法渲染/重名的旧卡片。
+    // 幂等，每次启动执行；已迁移的画布节点在前端按别名映射为 audioStudio。
+    const hidden = await this.prisma.nodeConfig.updateMany({
+      where: {
+        nodeKey: { in: ['minimaxSpeech', 'tencentSpeech', 'minimaxMusic', 'audioUpload'] },
+        isVisible: true,
+      },
+      data: { isVisible: false },
+    });
+
+    this.logger.log(
+      `节点配置初始化完成: 创建 ${created} 个, 跳过 ${skipped} 个, 隐藏旧音频节点 ${hidden.count} 个`,
+    );
     return { created, skipped };
   }
 
@@ -2282,9 +2294,8 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      // 统一音频工作台，常驻面板（详见 initializeDefaultConfigs 注释）。
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）' },
     ];
   }
 
