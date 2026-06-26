@@ -88,7 +88,6 @@ import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
 import { DirectorCaptureRunner } from "./nodes/directorConsole/DirectorCaptureRunner";
-import AudioNode from "./nodes/AudioNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
@@ -108,9 +107,6 @@ import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
-import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
-import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
-import TencentSpeechNode from "./nodes/TencentSpeechNode";
 import AudioStudioNode from "./nodes/AudioStudioNode";
 import * as audioService from "@/services/audioService";
 import { getAudioStudioModeConfig } from "./nodes/audioStudioModes";
@@ -1074,7 +1070,6 @@ const rawNodeTypes = {
   video: VideoNode,
   videoCompose: VideoComposeNode,
   directorConsole: DirectorConsoleNode,
-  audioUpload: AudioNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
   videoToGif: VideoToGifNode,
@@ -1082,9 +1077,6 @@ const rawNodeTypes = {
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
-  minimaxSpeech: MinimaxSpeechNode,
-  minimaxMusic: MinimaxMusicNode,
-  tencentSpeech: TencentSpeechNode,
   audioStudio: AudioStudioNode,
 };
 
@@ -2511,11 +2503,20 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   klingo3: "klingO1Video",
   "kling-o3": "klingO1Video",
   "kling-o3-video": "klingO1Video",
-  audio: "audioUpload",
-  audionode: "audioUpload",
-  "audio-node": "audioUpload",
-  minimaxmusic: "minimaxMusic",
-  "minimax-music": "minimaxMusic",
+  // 旧的 4 个音频节点统一迁移到 audioStudio（数据映射见 tplNodesToRfNodes）
+  audio: "audioStudio",
+  audionode: "audioStudio",
+  "audio-node": "audioStudio",
+  audioupload: "audioStudio",
+  "audio-upload": "audioStudio",
+  audiostudio: "audioStudio",
+  "audio-studio": "audioStudio",
+  minimaxspeech: "audioStudio",
+  "minimax-speech": "audioStudio",
+  minimaxmusic: "audioStudio",
+  "minimax-music": "audioStudio",
+  tencentspeech: "audioStudio",
+  "tencent-speech": "audioStudio",
   gptimage2: "gptImage2",
   "gpt-image-2": "gptImage2",
   gpt2image: "gptImage2",
@@ -2579,6 +2580,43 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (fuzzyMatched) return fuzzyMatched[1];
 
   return null;
+};
+
+/**
+ * 旧音频节点数据 → 统一 audioStudio 数据迁移。
+ * 根据原始 type（rawType）设置 data.mode，并把旧字段对齐到 AudioStudioData。
+ * audioUrl / videoUrl / history 等已同名字段原样保留。
+ */
+const AUDIO_STUDIO_RAW_TYPE_TO_MODE: Record<string, string> = {
+  audioUpload: "upload",
+  minimaxSpeech: "minimax-speech",
+  tencentSpeech: "tencent-dub",
+  minimaxMusic: "minimax-music",
+};
+
+const migrateAudioStudioData = (
+  rawType: string,
+  data: Record<string, any>
+): void => {
+  // 已是新节点（带 mode）则不覆盖
+  const inferredMode = AUDIO_STUDIO_RAW_TYPE_TO_MODE[rawType];
+  if (!data.mode) {
+    data.mode =
+      inferredMode ||
+      (typeof data.mode === "string" ? data.mode : "seed-audio");
+  }
+
+  // minimaxMusic 旧字段 model → musicModel
+  if (
+    rawType === "minimaxMusic" &&
+    !data.musicModel &&
+    typeof data.model === "string"
+  ) {
+    data.musicModel = data.model === "music-2.5" ? "music-2.5" : "music-2.5+";
+  }
+
+  // tencentSpeech：speakerUrl(旧结果字段) 不参与表单，speakerUrlInput 已同名保留
+  // audioUpload：audioUrl/audioName/mimeType/duration 已同名保留
 };
 
 // 该 type 是否能被 nodeTypes 渲染(归一化别名后再判定)。无法渲染者即"未知节点"。
@@ -7199,6 +7237,10 @@ function FlowInner() {
       const isGroup = type === FLOW_GROUP_NODE_TYPE;
       const data: Record<string, any> = { ...(n?.data || {}) };
 
+      if (type === "audioStudio") {
+        migrateAudioStudioData(rawType, data);
+      }
+
       if (type === "klingVideo") {
         const currentKlingModel = String(data.klingModel || "").trim();
         if (!currentKlingModel) {
@@ -7577,10 +7619,14 @@ function FlowInner() {
           new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
         );
       }
+      const pastedType = normalizeFlowNodeType(node.type) || node.type || "default";
+      if (pastedType === "audioStudio") {
+        migrateAudioStudioData(String(node.type || ""), data);
+      }
       return {
         id: newId,
         // 粘贴节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
-        type: normalizeFlowNodeType(node.type) || node.type || "default",
+        type: pastedType,
         position: {
           x: node.position.x + OFFSET,
           y: node.position.y + OFFSET,
@@ -26097,10 +26143,14 @@ function FlowInner() {
             new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
           );
         }
+        const tplNodeType = (normalizeFlowNodeType(n.type) || n.type) as any;
+        if (tplNodeType === "audioStudio") {
+          migrateAudioStudioData(String(n.type || ""), data);
+        }
         return {
           id: newId,
           // 模板节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
-          type: (normalizeFlowNodeType(n.type) || n.type) as any,
+          type: tplNodeType,
           position: {
             x: world.x + (n.position.x - minX),
             y: world.y + (n.position.y - minY),
