@@ -58,6 +58,9 @@ import { ImageReuseCacheService, type ImageReuseSignature } from './services/ima
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
+import { AudioGenerateDto } from './audio/audio-generate.dto';
+import { AudioRoutingService } from './audio/audio-routing.service';
+import { AudioGenerateResult } from './audio/audio-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
@@ -468,6 +471,7 @@ export class AiController {
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
     private readonly minimaxMusicService: MinimaxMusicService,
+    private readonly audioRouting: AudioRoutingService,
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
@@ -7689,23 +7693,135 @@ export class AiController {
     };
   }
 
-  @Post('tencent-speech')
-  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+  // 各非网关 mode → 后端固定计费 serviceType。
+  private static readonly AUDIO_MODE_SERVICE_TYPE: Record<string, ServiceType> = {
+    'minimax-speech': 'minimax-speech',
+    'minimax-music': 'minimax-music',
+    'tencent-dub': 'tencent-speech',
+  };
+
+  /**
+   * 统一音频生成入口：按 dto.mode 路由 provider 并计费。
+   *  - seed-audio → withCreditsFromGateway（单轨，后扣 new-api 实际积分）。
+   *  - minimax-* / tencent-dub → 既有 withCredits(固定计费)。
+   *  - upload → 由前端处理，这里拒绝。
+   */
+  private async runAudioGenerate(
+    dto: AudioGenerateDto,
+    req: any,
+  ): Promise<AudioGenerateResult> {
+    if (dto.mode === 'upload') {
+      throw new BadRequestException('upload 模式由前端直接上传，无需调用音频生成接口');
+    }
+
+    const ctx = {
+      userId: this.getUserId(req),
+      teamId: this.getTeamId(req),
+      projectId: dto.projectId,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    };
+    const provider = this.audioRouting.resolve(dto.mode);
+
+    if (dto.mode === 'seed-audio') {
+      return this.withCreditsFromGateway<AudioGenerateResult>(
+        req,
+        'seed-audio',
+        async () => {
+          const result = await provider.generate(dto, ctx);
+          return { result, consumedCredits: result.consumedCredits };
+        },
+        {
+          mode: dto.mode,
+          projectId: dto.projectId,
+          textLength: (dto.text || '').trim().length || undefined,
+          voice: dto.voice,
+          format: dto.format,
+        },
+      );
+    }
+
+    const serviceType = AiController.AUDIO_MODE_SERVICE_TYPE[dto.mode];
+    if (!serviceType) {
+      throw new BadRequestException(`不支持的音频模式: ${dto.mode}`);
+    }
+
+    const requestParams: Record<string, any> =
+      dto.mode === 'tencent-dub'
+        ? {
+            inputVideoUrl: dto.inputVideoUrl,
+            textLength: (dto.text || '').trim().length || undefined,
+            speakerUrl: dto.speakerUrl,
+            srcSubtitleUrl: dto.srcSubtitleUrl,
+            dstLangs: dto.dstLangs,
+          }
+        : dto.mode === 'minimax-speech'
+          ? { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
+          : { promptLength: (dto.prompt || '').trim().length || undefined };
+
     return this.withCredits(
       req,
-      'tencent-speech',
-      undefined,
-      async () => this.tencentSpeechService.synthesizeSpeech(dto),
+      serviceType,
+      dto.model,
+      async () => provider.generate(dto, ctx),
       undefined,
       undefined,
       false,
+      requestParams,
+    );
+  }
+
+  @Post('audio/generate')
+  async generateAudio(
+    @Body() dto: AudioGenerateDto,
+    @Req() req: any,
+  ): Promise<AudioGenerateResult> {
+    return this.runAudioGenerate(dto, req);
+  }
+
+  @Post('audio/generate/async')
+  async generateAudioAsync(@Body() dto: AudioGenerateDto) {
+    if (dto.mode !== 'tencent-dub') {
+      throw new BadRequestException('仅 tencent-dub 模式支持异步任务');
+    }
+    return this.audioRouting.tencent().createAsyncTask(dto);
+  }
+
+  @Get('audio/task/:taskId')
+  async queryAudioTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId 参数不能为空');
+    }
+    return this.audioRouting.tencent().queryTask(normalizedTaskId);
+  }
+
+  // ---- 旧路由：薄 shim，构造 AudioGenerateDto 走统一入口；保留原响应关键字段 ----
+
+  @Post('tencent-speech')
+  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+    return this.runAudioGenerate(
       {
+        mode: 'tencent-dub',
         inputVideoUrl: dto.inputVideoUrl,
-        textLength: (dto.text || '').trim().length || undefined,
+        text: dto.text,
         speakerUrl: dto.speakerUrl,
-        srcSubtitleUrl: dto.srcSubtitleUrl,
+        voiceId: dto.voiceId,
+        speakerGender: dto.speakerGender,
+        srcLang: dto.srcLang,
         dstLangs: dto.dstLangs,
-      },
+        dstLang: dto.dstLang,
+        srcSubtitleUrl: dto.srcSubtitleUrl,
+        dstSubtitleUrls: dto.dstSubtitleUrls,
+        dstSubtitleUrl: dto.dstSubtitleUrl,
+        embedSubtitle: dto.embedSubtitle,
+        font: dto.font,
+        fontSize: dto.fontSize,
+        marginV: dto.marginV,
+        outputPattern: dto.outputPattern,
+        notifyUrl: dto.notifyUrl,
+      } as AudioGenerateDto,
+      req,
     );
   }
 
@@ -7725,15 +7841,18 @@ export class AiController {
 
   @Post('minimax-speech')
   async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-speech',
+        text: dto.text,
+        voiceId: dto.voiceId,
+        model: dto.model,
+        outputFormat: dto.outputFormat,
+        audioMode: dto.audioMode,
+        emotion: dto.emotion,
+        soundEffects: dto.soundEffects,
+      } as AudioGenerateDto,
       req,
-      'minimax-speech',
-      dto.model,
-      async () => this.minimaxSpeechService.synthesizeSpeech(dto),
-      undefined,
-      undefined,
-      false,
-      { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
     );
   }
 
@@ -7753,11 +7872,16 @@ export class AiController {
 
   @Post('minimax-music')
   async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-music',
+        prompt: dto.prompt,
+        lyrics: dto.lyrics,
+        isInstrumental: dto.isInstrumental,
+        lyricsOptimizer: dto.lyricsOptimizer,
+        musicModel: dto.model,
+      } as AudioGenerateDto,
       req,
-      'minimax-music',
-      dto.model,
-      async () => this.minimaxMusicService.generateMusic(dto),
     );
   }
 

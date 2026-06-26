@@ -39,6 +39,11 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCreditsModule } from '../team-credits/team-credits.module';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 import { TeamCollabModule } from '../team-collab/team-collab.module';
+import { AudioRoutingService } from './audio/audio-routing.service';
+import { SeedAudioProvider } from './audio/providers/seed-audio.provider';
+import { MinimaxSpeechProvider } from './audio/providers/minimax-speech.provider';
+import { MinimaxMusicProvider } from './audio/providers/minimax-music.provider';
+import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 
 @Module({
   imports: [
@@ -74,6 +79,11 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     MinimaxSpeechService,
     MinimaxMusicService,
     TencentSpeechService,
+    SeedAudioProvider,
+    MinimaxSpeechProvider,
+    MinimaxMusicProvider,
+    TencentDubProvider,
+    AudioRoutingService,
     TencentVodAigcService,
     ModelRoutingService,
     ImageTaskService,
