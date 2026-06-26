@@ -3529,6 +3529,9 @@ const UNIFIED_VIDEO_NODE_TITLES: Partial<
   klingVideo: { nameZh: "Kling", nameEn: "Kling" },
   viduVideo: { nameZh: "Vidu", nameEn: "Vidu" },
   doubaoVideo: { nameZh: "Seedance", nameEn: "Seedance" },
+  // 统一音频节点：即便后端仍返回旧的 minimaxSpeech/tencentSpeech/minimaxMusic 配置
+  // （会被 normalizeFlowNodeType 归一化为 audioStudio 去重成一张卡），也强制显示「音频工作台」。
+  audioStudio: { nameZh: "音频工作台", nameEn: "Audio Studio" },
 };
 
 const mergeUniqueStrings = (...lists: Array<string[] | undefined>): string[] | undefined => {
