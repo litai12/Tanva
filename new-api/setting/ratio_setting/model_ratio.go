@@ -120,6 +120,10 @@ var defaultModelRatio = map[string]float64{
 	"code-davinci-edit-001":                     10,
 	"whisper-1":                                 15,  // $0.006 / minute -> $0.006 / 150 words -> $0.006 / 200 tokens -> $0.03 / 1k tokens
 	"tts-1":                                     7.5, // 1k characters -> $0.015
+	// doubao-seed-audio：用户侧积分以响应头 X-NewApi-Consumed-Credits 为唯一口径
+	// （按 original_duration 秒 × SEED_AUDIO_CREDITS_PER_SECOND）。此处仅为网关内部
+	// 共享 token 记账兜底，避免未定价模型报错；不影响后端单轨扣费。
+	"doubao-seed-audio-1-0":                     7.5,
 	"tts-1-1106":                                7.5, // 1k characters -> $0.015
 	"tts-1-hd":                                  15,  // 1k characters -> $0.03
 	"tts-1-hd-1106":                             15,  // 1k characters -> $0.03
