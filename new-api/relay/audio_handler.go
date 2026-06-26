@@ -79,10 +79,23 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	var httpResp *http.Response
+	var responseRecorder *responseTraceRecorder
 	if resp != nil {
 		httpResp = resp.(*http.Response)
+		// tee 上游响应体到「请求链路」记录（base64 由 model 层 truncateTraceBase64 截断）
+		httpResp, responseRecorder = attachResponseTraceRecorder(httpResp)
 		if httpResp.StatusCode != http.StatusOK {
 			NewAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+			respBody := ""
+			if responseRecorder != nil {
+				respBody = string(responseRecorder.data)
+			}
+			upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
+				UpstreamURL:          upstreamURL,
+				UpstreamRequestBody:  upstreamReqBody,
+				UpstreamResponseBody: respBody,
+				ErrorMessage:         NewAPIError.Error(),
+			})
 			// reset status code 重置状态码
 			service.ResetStatusCode(NewAPIError, statusCodeMappingStr)
 			return NewAPIError
@@ -91,9 +104,27 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (NewAPIError *type
 
 	usage, NewAPIError := adaptor.DoResponse(c, httpResp, info)
 	if NewAPIError != nil {
+		respBody := ""
+		if responseRecorder != nil {
+			respBody = string(responseRecorder.data)
+		}
+		upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
+			UpstreamURL:          upstreamURL,
+			UpstreamRequestBody:  upstreamReqBody,
+			UpstreamResponseBody: respBody,
+			ErrorMessage:         NewAPIError.Error(),
+		})
 		// reset status code 重置状态码
 		service.ResetStatusCode(NewAPIError, statusCodeMappingStr)
 		return NewAPIError
+	}
+	// 成功：记录上游响应体（seed-audio 为含 code/duration/url 的 JSON，base64 已截断）
+	if responseRecorder != nil {
+		upsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
+			UpstreamURL:          upstreamURL,
+			UpstreamRequestBody:  upstreamReqBody,
+			UpstreamResponseBody: string(responseRecorder.data),
+		})
 	}
 	if usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0 {
 		service.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")
