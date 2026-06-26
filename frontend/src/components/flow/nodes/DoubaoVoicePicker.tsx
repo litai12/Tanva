@@ -42,6 +42,8 @@ export default function DoubaoVoicePicker({
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollingRef = React.useRef(false);
   const scrollTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 当前鼠标悬停的音色：滚动结束后用它补一次自动试听（滚动时鼠标停在某行不会再触发 mouseEnter）
+  const hoveredVoiceRef = React.useRef<SeedAudioVoice | null>(null);
 
   const controlField = flowNodeControlField(isDark);
   const accent = isDark ? '#3b82f6' : '#2563eb';
@@ -118,8 +120,9 @@ export default function DoubaoVoicePicker({
     audio.play().then(() => setPlayingId(voice.id)).catch(() => setPlayingId(''));
   };
 
-  // 悬停自动试听（防抖；滚动时不触发）
+  // 悬停自动试听（防抖；滚动时不触发，滚动结束后由 handleListScroll 补播）
   const handleRowEnter = (voice: SeedAudioVoice) => {
+    hoveredVoiceRef.current = voice;
     if (!voice.trialUrl || scrollingRef.current) return;
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = setTimeout(() => {
@@ -129,6 +132,7 @@ export default function DoubaoVoicePicker({
   };
 
   const handleRowLeave = () => {
+    hoveredVoiceRef.current = null;
     stopPlayback();
   };
 
@@ -152,6 +156,9 @@ export default function DoubaoVoicePicker({
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
       scrollingRef.current = false;
+      // 滚动停下后，鼠标若仍停在某行上（不会再触发 mouseEnter），补一次自动试听
+      const hovered = hoveredVoiceRef.current;
+      if (hovered?.trialUrl) playVoice(hovered);
     }, 200);
   };
 
