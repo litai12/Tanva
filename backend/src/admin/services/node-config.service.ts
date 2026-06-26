@@ -1712,6 +1712,17 @@ export class NodeConfigService {
       data: { isVisible: false },
     });
 
+    // audioStudio 早期版本插入时没有托管元数据(modelKeys)；insert-missing 不会更新已存在行，
+    // 导致前端拿不到 managedRoutes(模型下拉只剩“导入”)。这里幂等强制对齐其 metadata。
+    await this.prisma.nodeConfig.updateMany({
+      where: { nodeKey: 'audioStudio' },
+      data: {
+        category: 'audio',
+        isVisible: true,
+        metadata: buildAudioStudioNodeMetadata() as any,
+      },
+    });
+
     this.logger.log(
       `节点配置初始化完成: 创建 ${created} 个, 跳过 ${skipped} 个, 隐藏旧音频节点 ${hidden.count} 个`,
     );
