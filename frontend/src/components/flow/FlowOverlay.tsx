@@ -263,6 +263,7 @@ import {
 // collab: transport layer — import collaboration handle + payload types
 import { useCollab } from "@/collab/CollabContext";
 import type { NodePatchPayload, NodeLockPayload, TaskStatusPayload } from "@/collab/types";
+import { colorFor } from "@/collab/presenceColors";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
 const normalizeFlowTargetHandle = (
@@ -1082,6 +1083,11 @@ const rawNodeTypes = {
   minimaxMusic: MinimaxMusicNode,
   tencentSpeech: TencentSpeechNode,
 };
+
+// nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
+// "幽灵节点"——这些 type 不在注册表里，reactflow 会回退成内置默认节点(一个空白小方框，
+// 即用户看到的"未知节点")。协作局部补丁/历史脏数据是其来源。
+const NODE_TYPE_KEYS = new Set(Object.keys(rawNodeTypes));
 
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
@@ -2564,6 +2570,14 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (fuzzyMatched) return fuzzyMatched[1];
 
   return null;
+};
+
+// 该 type 是否能被 nodeTypes 渲染(归一化别名后再判定)。无法渲染者即"未知节点"。
+const isRenderableFlowNodeType = (type?: unknown): boolean => {
+  if (typeof type !== "string" || !type) return false;
+  if (NODE_TYPE_KEYS.has(type)) return true;
+  const normalized = normalizeFlowNodeType(type);
+  return Boolean(normalized && NODE_TYPE_KEYS.has(normalized));
 };
 
 const isHiddenFlowNodeType = (rawType?: string): boolean => {
@@ -5169,8 +5183,12 @@ function FlowInner() {
                     ? { ...(existing.style || {}), ...incoming.style }
                     : existing.style,
                 };
-              } else {
-                result.push(incomingType ? { ...incoming, type: incomingType } : incoming);
+              } else if (incomingType && NODE_TYPE_KEYS.has(incomingType)) {
+                // collab: 仅当补丁自带可渲染的 type 时才允许"新建"节点。
+                // 位置/数据等局部补丁(无 type)若指向本端尚不存在的节点，贸然 push 会
+                // 合成一个无法渲染、且会被持久化的"未知节点"(空白小方框)。直接丢弃，
+                // 等待携带完整 type 的新增补丁(或下次整图水合)补上该节点。
+                result.push({ ...incoming, type: incomingType });
               }
             }
             return result;
@@ -7083,7 +7101,8 @@ function FlowInner() {
       ns: RFNode[],
       options?: { preserveImagePayload?: boolean; preserveRunningState?: boolean }
     ): ClipboardFlowNode[] => {
-      return ns.map((n: any) => {
+      // 序列化前丢弃无法渲染(无 type/未知 type)的"幽灵节点"，避免把它们持久化/复制出去。
+      return ns.filter((n: any) => isRenderableFlowNodeType(n?.type)).map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
         delete rawData.onRun;
         delete rawData.onStop;
@@ -7145,6 +7164,16 @@ function FlowInner() {
   );
 
   const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
+    // 水合时丢弃历史脏数据里无法渲染(无 type/"default"/未知 type)的"幽灵节点"，
+    // 否则它们会以 reactflow 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
+    // 且每次刷新都复现。来源为旧版协作局部补丁误建后被持久化。
+    const before = ns.length;
+    ns = ns.filter((n: any) => isRenderableFlowNodeType(n?.type));
+    if (ns.length !== before) {
+      console.warn(
+        `[collab] 水合时丢弃了 ${before - ns.length} 个无法渲染的未知节点(脏数据)`
+      );
+    }
     const legacyChildrenByGroupId = new Map<string, string[]>();
     ns.forEach((node: any) => {
       const parentId =
@@ -25042,31 +25071,22 @@ function FlowInner() {
       // collab: 给被他人锁定/选中的对象加可视边框(虚线描边, 颜色按持有者)。
       // 仅作用于渲染数组 nodesForRender, 不写回 nodes, 因此不会被广播或持久化。
       if (!collabLockedNodes || Object.keys(collabLockedNodes).length === 0) return base;
-      const lockColor = (uid: string) => {
-        let h = 0;
-        for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) | 0;
-        const palette = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e'];
-        return palette[Math.abs(h) % palette.length];
-      };
       return base.map((node: any) => {
         const holder = collabLockedNodes[node.id];
         if (!holder) return node;
-        const c = lockColor(holder);
-        // 锁定描边落在 react-flow 外层包裹元素上，而该元素的尺寸不会随 data.boxW/boxH
-        // 自适应(节点内容尺寸存于 data.boxW/boxH)。故对可缩放节点显式把包裹尺寸设为
-        // boxW/boxH,让虚线框紧贴节点真实大小(否则缩放后锁框尺寸不跟随)。
-        const boxW = Number(node.data?.boxW);
-        const boxH = Number(node.data?.boxH);
-        const sizeStyle: Record<string, number> = {};
-        if (Number.isFinite(boxW) && boxW > 0) sizeStyle.width = boxW;
-        if (Number.isFinite(boxH) && boxH > 0) sizeStyle.height = boxH;
+        // 锁定者用色与其在线头像/光标一致(同一 colorFor 口径)。
+        const c = colorFor(holder);
+        // 锁定虚线改为像"选中框"那样画在节点内层卡片(`> div`)上(见 flow.css 的
+        // .collab-locked-by-other > div),用 outline-offset:-2px 内贴，天然跟随节点真实
+        // 尺寸(含自适应高度的 Generate 系列),不再依赖 data.boxW/boxH 强制包裹尺寸——
+        // 那套对无 boxW/boxH 的自适应节点会让虚线框比卡片大一圈。颜色经 CSS 变量下传。
         return {
           ...node,
           // 锁优先级最高：即便本端把它选中(聚焦)，也强制按"被他人锁定"渲染——
           // 抑制蓝色选中边框(selected:false)，只保留虚线锁定描边，明确告知不可编辑。
           // 仅作用于渲染数组，不写回 nodes；锁释放后恢复真实 selected 状态。
           selected: false,
-          style: { ...(node.style || {}), ...sizeStyle, outline: `2px dashed ${c}`, outlineOffset: 2 },
+          style: { ...(node.style || {}), ['--collab-lock-color' as any]: c },
           className: [node.className, 'collab-locked-by-other'].filter(Boolean).join(' '),
         };
       });

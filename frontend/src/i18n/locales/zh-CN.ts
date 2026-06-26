@@ -192,6 +192,15 @@ const zhCN = {
       },
       workspaceTab: {
         greeting: "你好, {{name}}",
+        name: {
+          edit: "修改用户名",
+          save: "保存",
+          cancel: "取消",
+          placeholder: "请输入用户名",
+          empty: "用户名不能为空",
+          tooLong: "用户名不能超过 50 个字符",
+          error: "保存失败，请稍后重试",
+        },
         loading: "加载中...",
         openManageFile: "打开/管理文件",
         backHome: "返回首页",

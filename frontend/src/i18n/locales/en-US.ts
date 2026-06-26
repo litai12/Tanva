@@ -192,6 +192,15 @@ const enUS = {
       },
       workspaceTab: {
         greeting: "Hi, {{name}}",
+        name: {
+          edit: "Edit username",
+          save: "Save",
+          cancel: "Cancel",
+          placeholder: "Enter username",
+          empty: "Username cannot be empty",
+          tooLong: "Username cannot exceed 50 characters",
+          error: "Failed to save, please try again",
+        },
         loading: "Loading...",
         openManageFile: "Open/Manage Files",
         backHome: "Back to Home",

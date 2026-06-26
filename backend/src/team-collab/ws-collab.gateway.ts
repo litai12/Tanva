@@ -127,17 +127,22 @@ export class WsCollabGateway implements OnModuleDestroy {
     const afterSeq = Number.parseInt(url.searchParams.get('after') ?? '0', 10) || 0;
 
     let userId = '';
-    let userName = '';
+    let tokenName = '';
     let role = '';
     try {
       const payload = await this.jwt.verifyAsync<any>(token);
       userId = String(payload?.sub ?? '');
-      userName = String(payload?.name ?? payload?.username ?? userId.slice(0, 8));
+      tokenName = String(payload?.name ?? payload?.username ?? '').trim();
       role = String(payload?.role ?? '');
     } catch {
       return this.reject(socket, 401, 'Unauthorized');
     }
     if (!userId) return this.reject(socket, 401, 'Unauthorized');
+
+    // presence 显示名以 DB 当前用户名为准（JWT 里的 name 可能是登录时的旧值，且
+    // 普通访问令牌并不携带 name → 旧逻辑会回落成 userId 前 8 位的占位 id）。
+    // 团队内所有人据此看到彼此真实用户名，改名后重连即生效。
+    const userName = await this.resolveDisplayName(userId, tokenName);
 
     // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
     // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
@@ -166,6 +171,18 @@ export class WsCollabGateway implements OnModuleDestroy {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       void this.register(ws, { userId, userName, teamId, projectId, afterSeq });
     });
+  }
+
+  /**
+   * 解析 presence 显示名：DB 当前用户名优先，其次 token 内名字，最后回落 userId 前 8 位。
+   * 每次连接查一次（非逐消息），开销可忽略；保证团队成员看到的是真实、最新的用户名。
+   */
+  private async resolveDisplayName(userId: string, tokenName: string): Promise<string> {
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { name: true } })
+      .catch(() => null);
+    const dbName = typeof user?.name === 'string' ? user.name.trim() : '';
+    return dbName || tokenName || userId.slice(0, 8);
   }
 
   /** 以数据库当前角色为准判断超级管理员，避免信任可能过期的 JWT role。 */
