@@ -111,6 +111,9 @@ import ImageCompressNode from "./nodes/ImageCompressNode";
 import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
 import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
 import TencentSpeechNode from "./nodes/TencentSpeechNode";
+import AudioStudioNode from "./nodes/AudioStudioNode";
+import * as audioService from "@/services/audioService";
+import { getAudioStudioModeConfig } from "./nodes/audioStudioModes";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import Seed3DNode from "./nodes/Seed3DNode";
@@ -1082,6 +1085,7 @@ const rawNodeTypes = {
   minimaxSpeech: MinimaxSpeechNode,
   minimaxMusic: MinimaxMusicNode,
   tencentSpeech: TencentSpeechNode,
+  audioStudio: AudioStudioNode,
 };
 
 // nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
@@ -1305,6 +1309,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "minimaxSpeech",
   "tencentSpeech",
   "minimaxMusic",
+  "audioStudio",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "textChat",
@@ -1651,12 +1656,14 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
     { nodeType: "videoCompose", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
+    { nodeType: "audioStudio", sourceHandle: "video" },
   ],
   audio: [
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
     { nodeType: "minimaxMusic", sourceHandle: "audio" },
     { nodeType: "tencentSpeech", sourceHandle: "audio" },
+    { nodeType: "audioStudio", sourceHandle: "audio" },
   ],
   character: [
     { nodeType: "video", sourceHandle: "video" },
@@ -1749,6 +1756,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   tencentSpeech: 10, // 腾讯语音合成
   minimaxMusic: 30, // MiniMax 音乐生成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
+  audioStudio: 0, // 统一音频节点 - 按模式由后端计费
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
@@ -1809,10 +1817,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "videoToGif", zh: "视频转GIF节点", en: "Video to GIF", category: "other" },
   { key: "volcEnhanceVideo", zh: "视频画质增强", en: "Video Enhance", category: "video" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
-  { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
-  { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
-  { key: "tencentSpeech", zh: "语音合成", en: "Speech Synthesis", category: "audio" },
-  { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
+  { key: "audioStudio", zh: "音频工作台", en: "Audio Studio", category: "audio" },
 ];
 
 const BETA_NODE_KEYS = new Set([
@@ -1931,6 +1936,7 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   minimaxSpeech: "audio",
   tencentSpeech: "audio",
   minimaxMusic: "audio",
+  audioStudio: "audio",
 };
 
 // Beta 节点列表（实验性功能）
@@ -2000,6 +2006,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   minimaxSpeech: { w: 280, h: 240 },
   tencentSpeech: { w: 300, h: 400 },
   minimaxMusic: { w: 300, h: 460 },
+  audioStudio: { w: 300, h: 380 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -2335,6 +2342,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
   tencentSpeech: ["audio", "video"],
+  audioStudio: ["audio", "video"],
 };
 
 const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
@@ -2389,6 +2397,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
   tencentSpeech: ["text", "video"],
+  audioStudio: ["text", "video", "audio", "image"],
 };
 
 const getPositiveIntegerFromData = (
@@ -11057,6 +11066,48 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "audioStudio"
+          ? {
+              status: "idle" as const,
+              mode: "seed-audio" as const,
+              text: "",
+              voice: "",
+              format: "mp3" as const,
+              history: [] as Array<{
+                id: string;
+                prompt: string;
+                audioUrl: string;
+                videoUrl?: string;
+                createdAt: number;
+              }>,
+              selectedHistoryId: undefined,
+              // minimax-speech defaults
+              voiceId: "male-qn-qingse",
+              model: "speech-2.6-hd",
+              outputFormat: "url" as const,
+              audioMode: "json" as const,
+              soundEffects: [] as Array<
+                "spacious_echo" | "auditorium_echo" | "lofi_telephone" | "robotic"
+              >,
+              // minimax-music defaults
+              musicModel: "music-2.5+" as const,
+              isInstrumental: false,
+              lyricsOptimizer: false,
+              // tencent-dub defaults
+              speakerGender: "male" as const,
+              srcLang: "zh",
+              dstLang: "en",
+              srcSubtitleUrl: "",
+              dstSubtitleUrl: "",
+              embedSubtitle: true,
+              font: "auto",
+              fontSize: 50,
+              marginV: 50,
+              outputPattern: "",
+              speakerUrlInput: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "kling30Video" ||
@@ -12051,7 +12102,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12099,7 +12150,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12109,7 +12160,30 @@ function FlowInner() {
       if (targetNode.type === "audioUpload") {
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "audioStudio") {
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image") {
+          // seed-audio 模式参考图
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          // tencent-dub 模式视频输入
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          // seed-audio 参考音频 / upload 音频输入
+          if (sourceHandle !== "audio") return false;
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12123,7 +12197,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12212,7 +12286,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (spec.audioHandleMax <= 0 || incomingCount >= spec.audioHandleMax) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12244,7 +12318,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12633,6 +12707,12 @@ function FlowInner() {
       if (targetNode?.type === "audioUpload") {
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
       }
+      if (targetNode?.type === "audioStudio") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+        if (params.targetHandle === "audio") return true; // seed-audio 参考音频可多条（后端截断 3 条）
+        if (params.targetHandle === "image") return incoming.length < 1; // seed-audio 参考图单张
+      }
       if (targetNode?.type === "wan2R2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
@@ -12959,6 +13039,7 @@ function FlowInner() {
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
+          "audioStudio",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -13270,6 +13351,15 @@ function FlowInner() {
         if (tgt?.type === "audioUpload" && params.targetHandle === "audio") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "audio")
+          );
+        }
+        // audioStudio：video（配音）/ image（seed 参考图）句柄仅保留 1 条；audio 参考可多条
+        if (
+          tgt?.type === "audioStudio" &&
+          (params.targetHandle === "video" || params.targetHandle === "image")
+        ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
           );
         }
         if (
@@ -13705,6 +13795,7 @@ function FlowInner() {
         textNote: ["text-right-out", "text"],
         sora2Character: ["character"],
         tencentSpeech: ["audio", "video"],
+        audioStudio: ["audio", "video"],
       };
       const preferred = preferredByType[nodeType || ""] || ["img", "image", "video", "audio", "text"];
       const direct = preferred.indexOf(handle);
@@ -20801,194 +20892,29 @@ function FlowInner() {
         return;
       }
 
-      // MiniMax Speech 节点处理逻辑
-      if (node.type === "minimaxSpeech") {
-        console.log("[minimaxSpeech] 开始处理");
-        const { text: promptText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
-        const finalText = promptText.trim();
+      // 统一音频节点（audioStudio）处理逻辑：按 data.mode 分发到后端统一路由
+      if (node.type === "audioStudio") {
+        const audioData = (node.data || {}) as Record<string, any>;
+        const audioMode = getAudioStudioModeConfig(audioData?.mode).key;
 
-        console.log("[minimaxSpeech] finalText:", finalText);
-
-        if (!hasTextEdge) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "缺少 Prompt 输入",
-                    },
-                  }
-                : n
-            )
-          );
+        // upload 模式不通过 Run（由节点内上传按钮处理）
+        if (audioMode === "upload") {
           return;
         }
 
-        if (!finalText) {
-          console.log("[minimaxSpeech] 文本为空");
+        const setAudioNodeData = (patch: Record<string, unknown>) =>
           setNodes((ns) =>
             ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "Prompt 为空",
-                    },
-                  }
-                : n
+              n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n
             )
           );
-          return;
-        }
+        const failAudioNode = (msg: string) =>
+          setAudioNodeData({ status: "failed", error: msg });
 
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    text: finalText,
-                  },
-                }
-              : n
-          )
-        );
-
-        try {
-          const modelRaw =
-            typeof (node.data as any)?.model === "string"
-              ? (node.data as any).model.trim()
-              : "";
-          const model = modelRaw.length ? modelRaw : "speech-2.6-hd";
-          const voiceId = (node.data as any)?.voiceId;
-          const outputFormat =
-            (node.data as any)?.outputFormat === "hex" ? "hex" : "url";
-          const emotion = (node.data as any)?.emotion;
-          const audioModeRaw = (node.data as any)?.audioMode;
-          const audioMode = audioModeRaw === "hex" ? "hex" : "json";
-          const soundEffects = Array.isArray((node.data as any)?.soundEffects)
-            ? ((node.data as any).soundEffects as string[]).filter((item) =>
-                ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(item)
-              )
-            : undefined;
-
-          console.log("[minimaxSpeech] 调用 API:", {
-            text: finalText,
-            voiceId,
-            model,
-            outputFormat,
-            emotion,
-            audioMode,
-            soundEffects,
-          });
-
-          const response = await fetchWithAuth("/api/ai/minimax-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: finalText,
-              voiceId,
-              model,
-              outputFormat,
-              emotion,
-              audioMode,
-              soundEffects,
-            }),
-          });
-
-          console.log("[minimaxSpeech] API 响应状态:", response.status);
-
-          if (!response.ok) {
-            let message = "语音合成失败";
-            try {
-              const errorData = await response.json();
-              message = errorData?.message || errorData?.error || message;
-            } catch {}
-            throw new Error(message);
-          }
-
-          const result = await response.json();
-          console.log("[minimaxSpeech] API 结果:", result);
-
-          const audioUrl =
-            (typeof result?.audioUrl === "string" && result.audioUrl) ||
-            (typeof result?.audio_url === "string" && result.audio_url) ||
-            (typeof result?.data?.audio === "string" && result.data.audio);
-
-          if (!audioUrl) {
-            throw new Error("语音合成返回缺少音频");
-          }
-
-          const historyItemId = `minimax-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const historyItem = {
-            id: historyItemId,
-            prompt: finalText,
-            audioUrl,
-            createdAt: Date.now(),
-            voiceId: typeof voiceId === "string" ? voiceId : undefined,
-            emotion: typeof emotion === "string" ? emotion : undefined,
-          };
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      audioUrl,
-                      selectedHistoryId: historyItemId,
-                      history: [
-                        historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    typeof item?.audioUrl === "string" &&
-                                    item.audioUrl.trim().length > 0
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
-                      ],
-                      error: undefined,
-                    },
-                  }
-                : n
-            )
-          );
-        } catch (error) {
-          console.error("[minimaxSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "语音合成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
-      // 腾讯语音合成节点处理逻辑
-      if (node.type === "tencentSpeech") {
-        const { text: upstreamText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
-        const localTextRaw =
-          typeof (node.data as any)?.text === "string"
-            ? (node.data as any).text
-            : "";
-        const localText = localTextRaw.trim();
+        const { text: upstreamText, hasEdge: hasTextEdge } =
+          getTextPromptForNode(nodeId);
+        const localText =
+          typeof audioData?.text === "string" ? audioData.text.trim() : "";
         const finalText = (upstreamText || localText).trim();
 
         const sanitizeMediaUrl = (url?: string | null) => {
@@ -21001,118 +20927,228 @@ function FlowInner() {
           return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
         };
 
-        const resolveVideoUrl = (edge: Edge): string | undefined => {
-          const srcNode = rf.getNode(edge.source);
-          if (!srcNode) return undefined;
-          const data = (srcNode.data as any) || {};
-          const direct =
-            data.videoUrl ||
-            data.video_url ||
-            data.output?.video_url ||
-            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
-            data.raw?.output?.video_url ||
-            data.raw?.video_url;
-          const fromHistory = Array.isArray(data.history)
-            ? data.history[0]?.videoUrl
-            : undefined;
-          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
-        };
-
-        const videoEdge = currentEdges.find(
-          (e) => e.target === nodeId && e.targetHandle === "video"
-        );
-        const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
-        if (!inputVideoUrl) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "请连接视频输入",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    inputVideoUrl,
-                    text: finalText,
-                  },
-                }
-              : n
-          )
-        );
-
         try {
-          const speakerUrlInput = (node.data as any)?.speakerUrlInput;
-          const voiceId = (node.data as any)?.voiceId;
-          const speakerGender = (node.data as any)?.speakerGender;
-          const srcLang = (node.data as any)?.srcLang;
-          const dstLang = (node.data as any)?.dstLang;
-          const srcSubtitleUrl = (node.data as any)?.srcSubtitleUrl;
-          const dstSubtitleUrl = (node.data as any)?.dstSubtitleUrl;
-          const embedSubtitle = (node.data as any)?.embedSubtitle;
-          const font = (node.data as any)?.font;
-          const fontSize = (node.data as any)?.fontSize;
-          const marginV = (node.data as any)?.marginV;
-          const outputPattern = (node.data as any)?.outputPattern;
+          let payload: audioService.AudioGeneratePayload;
+          let promptForHistory = finalText;
 
-          const response = await fetchWithAuth("/api/ai/tencent-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+          if (audioMode === "seed-audio") {
+            if (!finalText) {
+              failAudioNode("缺少合成文本");
+              return;
+            }
+            // 收集参考音频（@音频N）与参考图片（二选一）
+            const referenceAudioUrls: string[] = [];
+            let referenceImageUrl: string | undefined;
+            for (const edge of currentEdges.filter((e) => e.target === nodeId)) {
+              const src = rf.getNode(edge.source);
+              if (!src) continue;
+              const sdata = (src.data || {}) as Record<string, any>;
+              if (edge.targetHandle === "audio") {
+                const candidate =
+                  typeof sdata.audioUrl === "string" ? sdata.audioUrl.trim() : "";
+                if (candidate) referenceAudioUrls.push(candidate);
+              } else if (edge.targetHandle === "image") {
+                const candidate =
+                  (typeof sdata.imageUrl === "string" && sdata.imageUrl.trim()) ||
+                  (Array.isArray(sdata.imageUrls)
+                    ? sdata.imageUrls.find(
+                        (u: unknown) => typeof u === "string" && u.trim()
+                      )
+                    : undefined);
+                if (typeof candidate === "string" && candidate.trim()) {
+                  referenceImageUrl = candidate.trim();
+                }
+              }
+            }
+            payload = {
+              mode: "seed-audio",
+              projectId: projectId || undefined,
+              text: finalText,
+              voice:
+                typeof audioData?.voice === "string" && audioData.voice.trim()
+                  ? audioData.voice.trim()
+                  : undefined,
+              format: audioData?.format || undefined,
+              sampleRate:
+                typeof audioData?.sampleRate === "number"
+                  ? audioData.sampleRate
+                  : undefined,
+              speechRate:
+                typeof audioData?.speechRate === "number"
+                  ? audioData.speechRate
+                  : undefined,
+              pitchRate:
+                typeof audioData?.pitchRate === "number"
+                  ? audioData.pitchRate
+                  : undefined,
+              loudnessRate:
+                typeof audioData?.loudnessRate === "number"
+                  ? audioData.loudnessRate
+                  : undefined,
+            };
+            // 参考图与参考音频互斥：有图优先用图
+            if (referenceImageUrl) {
+              payload.referenceImageUrl = referenceImageUrl;
+            } else if (referenceAudioUrls.length > 0) {
+              payload.referenceAudioUrls = referenceAudioUrls.slice(0, 3);
+            }
+          } else if (audioMode === "minimax-speech") {
+            if (!hasTextEdge && !finalText) {
+              failAudioNode("缺少 Prompt 输入");
+              return;
+            }
+            if (!finalText) {
+              failAudioNode("Prompt 为空");
+              return;
+            }
+            const modelRaw =
+              typeof audioData?.model === "string" ? audioData.model.trim() : "";
+            const soundEffects = Array.isArray(audioData?.soundEffects)
+              ? (audioData.soundEffects as string[]).filter((item) =>
+                  ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(
+                    item
+                  )
+                )
+              : undefined;
+            payload = {
+              mode: "minimax-speech",
+              projectId: projectId || undefined,
+              text: finalText,
+              voiceId: audioData?.voiceId,
+              model: modelRaw || "speech-2.6-hd",
+              outputFormat: audioData?.outputFormat === "hex" ? "hex" : "url",
+              audioMode: audioData?.audioMode === "hex" ? "hex" : "json",
+              emotion:
+                typeof audioData?.emotion === "string" && audioData.emotion
+                  ? audioData.emotion
+                  : undefined,
+              soundEffects: soundEffects && soundEffects.length ? soundEffects : undefined,
+            };
+          } else if (audioMode === "minimax-music") {
+            const isInstrumental = audioData?.isInstrumental === true;
+            const lyricsOptimizer = audioData?.lyricsOptimizer === true;
+            const localPrompt =
+              typeof audioData?.prompt === "string" ? audioData.prompt.trim() : "";
+            const finalPrompt = (upstreamText || localPrompt).trim();
+            const lyrics =
+              typeof audioData?.lyrics === "string" ? audioData.lyrics.trim() : "";
+            if (isInstrumental && !finalPrompt) {
+              failAudioNode("纯音乐模式需要填写 Prompt");
+              return;
+            }
+            if (!isInstrumental && !lyrics && !lyricsOptimizer) {
+              failAudioNode("请填写歌词，或开启 AI 自动填词");
+              return;
+            }
+            const modelRaw =
+              typeof audioData?.musicModel === "string"
+                ? audioData.musicModel.trim()
+                : "";
+            promptForHistory = finalPrompt;
+            payload = {
+              mode: "minimax-music",
+              projectId: projectId || undefined,
+              prompt: finalPrompt || undefined,
+              lyrics: !isInstrumental && lyrics ? lyrics : undefined,
+              isInstrumental,
+              lyricsOptimizer,
+              musicModel: modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+",
+            };
+          } else if (audioMode === "tencent-dub") {
+            const videoEdge = currentEdges.find(
+              (e) => e.target === nodeId && e.targetHandle === "video"
+            );
+            let inputVideoUrl: string | undefined;
+            if (videoEdge) {
+              const srcNode = rf.getNode(videoEdge.source);
+              const d = (srcNode?.data as any) || {};
+              const direct =
+                d.videoUrl ||
+                d.video_url ||
+                d.output?.video_url ||
+                (Array.isArray(d.output) ? d.output[0]?.video_url : undefined) ||
+                d.raw?.output?.video_url ||
+                d.raw?.video_url;
+              const fromHistory = Array.isArray(d.history)
+                ? d.history[0]?.videoUrl
+                : undefined;
+              inputVideoUrl =
+                sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+            }
+            if (!inputVideoUrl) {
+              failAudioNode("请连接视频输入");
+              return;
+            }
+            payload = {
+              mode: "tencent-dub",
+              projectId: projectId || undefined,
               inputVideoUrl,
               text: finalText || undefined,
-              speakerUrl: speakerUrlInput?.trim() || undefined,
-              voiceId: voiceId?.trim() || undefined,
-              speakerGender: speakerGender?.trim() || undefined,
-              srcLang: srcLang?.trim() || undefined,
-              dstLang: dstLang?.trim() || undefined,
-              srcSubtitleUrl: srcSubtitleUrl?.trim() || undefined,
-              dstSubtitleUrl: dstSubtitleUrl?.trim() || undefined,
-              embedSubtitle,
-              font: font?.trim() || undefined,
-              fontSize: typeof fontSize === "number" ? fontSize : undefined,
-              marginV: typeof marginV === "number" ? marginV : undefined,
-              outputPattern: outputPattern?.trim() || undefined,
-            }),
-          });
-
-          if (!response.ok) {
-            let message = "语音合成失败";
-            try {
-              const errorData = await response.json();
-              message = errorData?.message || errorData?.error || message;
-            } catch {}
-            throw new Error(message);
+              speakerUrl:
+                typeof audioData?.speakerUrlInput === "string"
+                  ? audioData.speakerUrlInput.trim() || undefined
+                  : undefined,
+              voiceId:
+                typeof audioData?.voiceId === "string"
+                  ? audioData.voiceId.trim() || undefined
+                  : undefined,
+              speakerGender:
+                typeof audioData?.speakerGender === "string"
+                  ? audioData.speakerGender.trim() || undefined
+                  : undefined,
+              srcLang:
+                typeof audioData?.srcLang === "string"
+                  ? audioData.srcLang.trim() || undefined
+                  : undefined,
+              dstLang:
+                typeof audioData?.dstLang === "string"
+                  ? audioData.dstLang.trim() || undefined
+                  : undefined,
+              srcSubtitleUrl:
+                typeof audioData?.srcSubtitleUrl === "string"
+                  ? audioData.srcSubtitleUrl.trim() || undefined
+                  : undefined,
+              dstSubtitleUrl:
+                typeof audioData?.dstSubtitleUrl === "string"
+                  ? audioData.dstSubtitleUrl.trim() || undefined
+                  : undefined,
+              embedSubtitle: audioData?.embedSubtitle,
+              font:
+                typeof audioData?.font === "string"
+                  ? audioData.font.trim() || undefined
+                  : undefined,
+              fontSize:
+                typeof audioData?.fontSize === "number"
+                  ? audioData.fontSize
+                  : undefined,
+              marginV:
+                typeof audioData?.marginV === "number"
+                  ? audioData.marginV
+                  : undefined,
+              outputPattern:
+                typeof audioData?.outputPattern === "string"
+                  ? audioData.outputPattern.trim() || undefined
+                  : undefined,
+            };
+          } else {
+            return;
           }
 
-          const result = await response.json();
-          const audioUrl = result?.audioUrl;
-          const videoUrl = result?.videoUrl;
+          setAudioNodeData({ status: "running", error: undefined, text: finalText });
 
+          const result = await audioService.generateAudio(payload);
+          const audioUrl = result.audioUrl;
+          const videoUrl = result.videoUrl;
           if (!audioUrl && !videoUrl) {
-            throw new Error("语音合成返回缺少结果");
+            throw new Error("音频生成返回缺少结果");
           }
 
-          const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const historyItemId = `audiostudio-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
           const historyItem = {
             id: historyItemId,
-            prompt: finalText,
+            prompt: promptForHistory,
             audioUrl: audioUrl || "",
             videoUrl: typeof videoUrl === "string" ? videoUrl : undefined,
             createdAt: Date.now(),
@@ -21120,14 +21156,14 @@ function FlowInner() {
           if (typeof videoUrl === "string" && videoUrl.trim()) {
             recordFlowVideoHistory(
               nodeId,
-              "tencentSpeech",
+              "audioStudio",
               {
                 id: historyItemId,
                 videoUrl: videoUrl.trim(),
-                prompt: finalText,
+                prompt: promptForHistory,
                 createdAt: new Date(historyItem.createdAt).toISOString(),
               },
-              { provider: "tencent-speech" }
+              { provider: "tencent-dub" }
             );
           }
 
@@ -21140,21 +21176,22 @@ function FlowInner() {
                       ...n.data,
                       status: "succeeded",
                       audioUrl: audioUrl || n.data?.audioUrl,
-                      videoUrl: typeof videoUrl === "string" ? videoUrl : n.data?.videoUrl,
+                      videoUrl:
+                        typeof videoUrl === "string" ? videoUrl : n.data?.videoUrl,
                       selectedHistoryId: historyItemId,
                       history: [
                         historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    (typeof item?.audioUrl === "string" && item.audioUrl.trim().length > 0) ||
-                                    (typeof item?.videoUrl === "string" && item.videoUrl.trim().length > 0)
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
+                        ...(Array.isArray((n.data as any)?.history)
+                          ? ((n.data as any).history as Array<Record<string, unknown>>)
+                              .filter(
+                                (item) =>
+                                  (typeof item?.audioUrl === "string" &&
+                                    item.audioUrl.trim().length > 0) ||
+                                  (typeof item?.videoUrl === "string" &&
+                                    item.videoUrl.trim().length > 0)
+                              )
+                              .slice(0, 29)
+                          : []),
                       ],
                       error: undefined,
                     },
@@ -21163,202 +21200,8 @@ function FlowInner() {
             )
           );
         } catch (error) {
-          console.error("[tencentSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "语音合成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
-      // MiniMax Music 节点处理逻辑
-      if (node.type === "minimaxMusic") {
-        console.log("[minimaxMusic] 开始处理");
-        const { text: upstreamPrompt } = getTextPromptForNode(nodeId);
-        const localPromptRaw =
-          typeof (node.data as any)?.prompt === "string"
-            ? (node.data as any).prompt
-            : "";
-        const localPrompt = localPromptRaw.trim();
-        const finalPrompt = (upstreamPrompt || localPrompt).trim();
-        const lyricsRaw =
-          typeof (node.data as any)?.lyrics === "string"
-            ? (node.data as any).lyrics
-            : "";
-        const lyrics = lyricsRaw.trim();
-        const isInstrumental = (node.data as any)?.isInstrumental === true;
-        const lyricsOptimizer = (node.data as any)?.lyricsOptimizer === true;
-        const modelRaw =
-          typeof (node.data as any)?.model === "string"
-            ? (node.data as any).model.trim()
-            : "";
-        const model = modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+";
-
-        console.log("[minimaxMusic] 输入:", {
-          promptLength: finalPrompt.length,
-          lyricsLength: lyrics.length,
-          isInstrumental,
-          lyricsOptimizer,
-          model,
-        });
-
-        if (isInstrumental && !finalPrompt) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "纯音乐模式需要填写 Prompt",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        if (!isInstrumental && !lyrics && !lyricsOptimizer) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "请填写歌词，或开启 AI 自动填词",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    prompt: finalPrompt,
-                    lyrics: lyricsRaw,
-                    isInstrumental,
-                    lyricsOptimizer,
-                    model,
-                  },
-                }
-              : n
-          )
-        );
-
-        try {
-          const requestBody: Record<string, unknown> = {
-            model,
-            prompt: finalPrompt || undefined,
-            isInstrumental,
-            lyricsOptimizer,
-          };
-          if (!isInstrumental && lyrics) {
-            requestBody.lyrics = lyrics;
-          }
-
-          const response = await fetchWithAuth("/api/ai/minimax-music", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!response.ok) {
-            let message = "音乐生成失败";
-            try {
-              const errorData = await response.json();
-              const messageFromError =
-                typeof errorData?.error === "string" && errorData.error.trim()
-                  ? errorData.error.trim()
-                  : undefined;
-              const messageFromMessage = Array.isArray(errorData?.message)
-                ? errorData.message.join("; ")
-                : typeof errorData?.message === "string"
-                ? errorData.message.trim()
-                : undefined;
-              message = messageFromMessage || messageFromError || message;
-            } catch {}
-            throw new Error(message);
-          }
-
-          const result = await response.json();
-          console.log("[minimaxMusic] API 结果:", result);
-          const synthesisStatus = Number(result?.status ?? result?.data?.status);
-          const audioUrl =
-            (typeof result?.audioUrl === "string" && result.audioUrl) ||
-            (typeof result?.audio_url === "string" && result.audio_url) ||
-            (typeof result?.data?.audio === "string" && result.data.audio);
-
-          if (!audioUrl && synthesisStatus === 1) {
-            throw new Error("音乐仍在合成中，请稍后重试（通常需要 1-3 分钟）");
-          }
-          if (!audioUrl) {
-            throw new Error("音乐生成返回缺少音频地址");
-          }
-
-          const historyItemId = `minimax-music-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
-          const historyItem = {
-            id: historyItemId,
-            prompt: finalPrompt,
-            lyrics: isInstrumental ? undefined : lyrics,
-            isInstrumental,
-            lyricsOptimizer,
-            audioUrl,
-            createdAt: Date.now(),
-          };
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      audioUrl,
-                      selectedHistoryId: historyItemId,
-                      history: [
-                        historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    typeof item?.audioUrl === "string" &&
-                                    item.audioUrl.trim().length > 0
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
-                      ],
-                      error: undefined,
-                    },
-                  }
-                : n
-            )
-          );
-        } catch (error) {
-          console.error("[minimaxMusic] 错误:", error);
-          const msg = error instanceof Error ? error.message : "音乐生成失败";
+          console.error("[audioStudio] 错误:", error);
+          const msg = error instanceof Error ? error.message : "音频生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -24968,6 +24811,7 @@ function FlowInner() {
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||
           n.type === "minimaxMusic" ||
+          n.type === "audioStudio" ||
           n.type === "image" ||
           n.type === "imagePro"
         ) {
