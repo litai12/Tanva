@@ -56,7 +56,6 @@ type SeedAudioConfig struct {
 type SeedAudioRequest struct {
 	Model       string          `json:"model"`
 	TextPrompt  string          `json:"text_prompt"`
-	Speaker     string          `json:"speaker,omitempty"`
 	AudioURL    string          `json:"audio_url,omitempty"`
 	AudioData   string          `json:"audio_data,omitempty"`
 	ImageURL    string          `json:"image_url,omitempty"`
@@ -106,12 +105,12 @@ func buildSeedAudioRequest(input, voice, format string, speedRatio float64, meta
 	req := SeedAudioRequest{
 		Model:      seedAudioModelName,
 		TextPrompt: input,
-		Speaker:    voice,
 		AudioConfig: SeedAudioConfig{
 			Format:     format,
 			SpeechRate: clampInt(int(math.Round(speedRatio)), -50, 100),
 		},
 	}
+	speaker := strings.TrimSpace(voice)
 	if len(metadata) > 0 {
 		var m seedAudioMeta
 		if err := common.Unmarshal(metadata, &m); err == nil {
@@ -121,10 +120,18 @@ func buildSeedAudioRequest(input, voice, format string, speedRatio float64, meta
 			req.AudioURL, req.AudioData = m.AudioURL, m.AudioData
 			req.ImageURL, req.ImageData = m.ImageURL, m.ImageData
 			req.References, req.Watermark = m.References, m.Watermark
-			// speaker 与 audio_data/audio_url/image_* 三选一：有参考资源时清空 speaker。
-			if m.AudioURL != "" || m.AudioData != "" || m.ImageURL != "" || m.ImageData != "" {
-				req.Speaker = ""
+			// 音色（预设 speaker）与参考资源（audio/image/references）互斥：
+			// 有参考资源时清空 speaker。
+			if m.AudioURL != "" || m.AudioData != "" || m.ImageURL != "" || m.ImageData != "" || len(m.References) > 0 {
+				speaker = ""
 			}
+		}
+	}
+	// 音色必须以 references:[{"speaker":...}] 形式下发；上游
+	// /api/v3/tts/create 不接受顶层 speaker 字段（实测会被忽略）。
+	if speaker != "" {
+		if data, err := common.Marshal([]map[string]string{{"speaker": speaker}}); err == nil {
+			req.References = json.RawMessage(data)
 		}
 	}
 	return req

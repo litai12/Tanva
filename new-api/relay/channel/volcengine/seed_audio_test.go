@@ -17,6 +17,25 @@ func TestIsSeedAudioModel(t *testing.T) {
 	}
 }
 
+// referenceSpeakers 解出 references:[{"speaker":...}] 的音色 ID 列表。
+func referenceSpeakers(t *testing.T, raw json.RawMessage) []string {
+	t.Helper()
+	if len(raw) == 0 {
+		return nil
+	}
+	var items []map[string]string
+	if err := json.Unmarshal(raw, &items); err != nil {
+		t.Fatalf("references not a [{...}] array: %q (%v)", string(raw), err)
+	}
+	speakers := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item["speaker"]; ok {
+			speakers = append(speakers, s)
+		}
+	}
+	return speakers
+}
+
 func TestBuildSeedAudioBody_PlainText(t *testing.T) {
 	body := buildSeedAudioRequest("你好世界", "zh_female_x", "mp3", 20, nil)
 	if body.Model != seedAudioModelName {
@@ -25,8 +44,9 @@ func TestBuildSeedAudioBody_PlainText(t *testing.T) {
 	if body.TextPrompt != "你好世界" {
 		t.Fatalf("bad text_prompt: %q", body.TextPrompt)
 	}
-	if body.Speaker != "zh_female_x" {
-		t.Fatalf("bad speaker: %q", body.Speaker)
+	// 音色以 references:[{"speaker":...}] 下发，而非顶层 speaker 字段。
+	if got := referenceSpeakers(t, body.References); len(got) != 1 || got[0] != "zh_female_x" {
+		t.Fatalf("expected references=[{speaker:zh_female_x}], got %q", string(body.References))
 	}
 	if body.AudioConfig.Format != "mp3" || body.AudioConfig.SpeechRate != 20 {
 		t.Fatalf("bad audio_config: %+v", body.AudioConfig)
@@ -46,8 +66,9 @@ func TestBuildSeedAudioBody_DefaultFormatAndClamp(t *testing.T) {
 func TestBuildSeedAudioBody_ReferenceClearsSpeaker(t *testing.T) {
 	meta := json.RawMessage(`{"audio_url":"https://x/a.mp3","pitch_rate":99,"loudness_rate":-99}`)
 	body := buildSeedAudioRequest("hi", "zh_female_x", "wav", 0, meta)
-	if body.Speaker != "" {
-		t.Fatalf("expected speaker cleared when reference present, got %q", body.Speaker)
+	// 有音频参考时，预设音色互斥，references 不应注入 speaker。
+	if got := referenceSpeakers(t, body.References); len(got) != 0 {
+		t.Fatalf("expected no speaker reference when audio present, got %v", got)
 	}
 	if body.AudioURL != "https://x/a.mp3" {
 		t.Fatalf("expected audio_url passthrough, got %q", body.AudioURL)

@@ -255,6 +255,12 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		if isSeedreamModel(info.UpstreamModelName) || isSeedreamModel(info.OriginModelName) {
 			request.Size = resolveSeedreamSize(request.Size, request.Extra)
 			normSeedreamImageField(&request)
+			// seedream 默认会给图片打水印（watermark 默认 true），业务侧固定去水印。
+			// 文档：https://www.volcengine.com/docs/82379/1541523
+			disableWatermark := false
+			request.Watermark = &disableWatermark
+			// 清掉客户端可能从 Extra 透传的同名键，避免与上面的显式 false 冲突。
+			delete(request.Extra, "watermark")
 		}
 		return request, nil
 	// 根据官方文档,并没有发现豆包生图支持表单请求:https://www.volcengine.com/docs/82379/1824121
