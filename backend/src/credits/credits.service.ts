@@ -4278,6 +4278,206 @@ export class CreditsService {
     });
   }
 
+  /**
+   * 单轨网关计费：扣除一个【已知】金额（new-api 已定价并回报）。
+   *
+   * 与 preDeductCredits 不同点：不做 credits.config 价格查询/动态计价——金额由
+   * 调用方（new-api 响应头 X-NewApi-Consumed-Credits）给定。复用 preDeductCredits
+   * 的扣费原语（lot 扣减计划 + 账户余额更新 + SPEND 流水），并直接落 SUCCESS 的
+   * 用量记录（先扣后记，扣的就是上游实际消耗，无需后续 finalize）。
+   *
+   * teamId 非空（团队项目）时：只建 SUCCESS 用量记录、不动个人积分；团队积分由
+   * 控制器侧 TeamCreditLedger 处理。
+   */
+  async deductExact(
+    userId: string,
+    teamId: string | null | undefined,
+    amount: number,
+    meta: {
+      serviceType: ServiceType;
+      serviceName?: string;
+      provider?: string;
+      model?: string;
+      requestParams?: Record<string, any>;
+      ipAddress?: string;
+      userAgent?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    newBalance: number;
+    apiUsageId: string;
+    transactionId: string;
+    creditsCharged: number;
+  }> {
+    const normalizedAmount =
+      Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
+    const serviceType = meta.serviceType;
+    const provider = meta.provider || 'volcengine';
+    const serviceName = meta.serviceName || serviceType;
+    const model = meta.model;
+    const requestParams = meta.requestParams
+      ? (Object.fromEntries(
+          Object.entries(meta.requestParams).filter(([, value]) => value !== undefined),
+        ) as Record<string, any>)
+      : undefined;
+
+    return await this.prisma.$transaction(async (tx) => {
+      const account = await tx.creditAccount.findUnique({ where: { userId } });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const buildUsageData = (creditsUsed: number, status: ApiResponseStatus) => ({
+        userId,
+        serviceType,
+        serviceName,
+        provider,
+        model,
+        creditsUsed,
+        requestParams: requestParams as any,
+        responseStatus: status,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
+
+      // 团队项目：不动个人积分，仅落用量记录（团队积分由 TeamCreditLedger 处理）。
+      if (teamId) {
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          apiUsageId: apiUsage.id,
+          transactionId: `team:${apiUsage.id}`,
+          creditsCharged: normalizedAmount,
+        };
+      }
+
+      // 金额为 0：只记录，不扣费、不建流水。
+      if (normalizedAmount === 0) {
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: buildUsageData(0, ApiResponseStatus.SUCCESS),
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          apiUsageId: apiUsage.id,
+          transactionId: `zero:${apiUsage.id}`,
+          creditsCharged: 0,
+        };
+      }
+
+      // 个人模式：复用 lot 扣减原语。
+      const activeLots = await tx.creditLot.findMany({
+        where: { accountId: account.id, status: 'active' },
+        select: {
+          id: true,
+          sourceType: true,
+          validityType: true,
+          scopeType: true,
+          scopeValue: true,
+          totalAmount: true,
+          remainingAmount: true,
+          grantedAt: true,
+          activeAt: true,
+          expiresAt: true,
+          priority: true,
+          status: true,
+        },
+      });
+
+      const consumePolicy = await this.resolveCreditConsumePolicy(tx, {
+        serviceType,
+        provider,
+        model: model ?? null,
+      });
+      const deductionPlan = buildHybridCreditDeductionPlan({
+        accountBalance: account.balance,
+        amount: normalizedAmount,
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        now: new Date(),
+        scope: { serviceType, provider, model: model ?? null },
+        policy: consumePolicy,
+      });
+
+      if (!deductionPlan.sufficient) {
+        throw new BadRequestException(
+          `积分不足，当前余额: ${account.balance}，需要: ${normalizedAmount}`,
+        );
+      }
+
+      const updatedLots = applyLotDeductionsToSnapshots({
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        deductions: deductionPlan.deductions,
+      });
+      for (const updatedLot of updatedLots) {
+        const originalLot = activeLots.find((lot) => lot.id === updatedLot.id);
+        if (!originalLot) continue;
+        if (
+          originalLot.remainingAmount === updatedLot.remainingAmount &&
+          originalLot.status === updatedLot.status
+        ) {
+          continue;
+        }
+        await tx.creditLot.update({
+          where: { id: updatedLot.id },
+          data: {
+            remainingAmount: updatedLot.remainingAmount,
+            status: updatedLot.status,
+          },
+        });
+      }
+
+      const newBalance = account.balance - deductionPlan.totalDeducted;
+      const billingRemark = this.buildBillingRemark({
+        serviceType,
+        model,
+        provider,
+        requestParams: requestParams as any,
+      });
+
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: newBalance,
+          totalSpent: account.totalSpent + normalizedAmount,
+        },
+      });
+
+      const apiUsage = await tx.apiUsageRecord.create({
+        data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+      });
+
+      const transaction = await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.SPEND,
+          amount: -deductionPlan.totalDeducted,
+          balanceBefore: account.balance,
+          balanceAfter: newBalance,
+          description: `Use ${serviceName}`,
+          apiUsageId: apiUsage.id,
+          consumePolicyCode: consumePolicy.code,
+          consumePolicyVersion: consumePolicy.version,
+          metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions, {
+            billingRemark,
+          }),
+        },
+      });
+
+      return {
+        success: true,
+        newBalance,
+        apiUsageId: apiUsage.id,
+        transactionId: transaction.id,
+        creditsCharged: normalizedAmount,
+      };
+    }, {
+      timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
+    });
+  }
+
   async previewCredits(params: PreviewCreditsParams) {
     const account = await this.getOrCreateAccount(params.userId);
     let cachedQuote = await this.getCachedPreviewQuote(params);

@@ -510,6 +510,56 @@ const FloatingHeader: React.FC = () => {
     []
   );
 
+  const authUser = useAuthStore((s) => s.user);
+
+  const handleStartEditName = useCallback(() => {
+    setNameInput(authUser?.name ?? "");
+    setNameError(null);
+    setIsEditingName(true);
+  }, [authUser?.name]);
+
+  const handleCancelEditName = useCallback(() => {
+    setIsEditingName(false);
+    setNameError(null);
+  }, []);
+
+  const handleSaveName = useCallback(async () => {
+    if (nameSaving) return;
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      setNameError(t("workspace.settings.workspaceTab.name.empty"));
+      return;
+    }
+    if (trimmed.length > 50) {
+      setNameError(t("workspace.settings.workspaceTab.name.tooLong"));
+      return;
+    }
+    if (trimmed === (authUser?.name ?? "")) {
+      setIsEditingName(false);
+      return;
+    }
+    setNameSaving(true);
+    setNameError(null);
+    try {
+      const updated = await authApi.updateProfile({ name: trimmed });
+      const current = useAuthStore.getState();
+      useAuthStore
+        .getState()
+        .setAuthenticatedUser(
+          { ...(current.user || {}), ...updated },
+          (current.connection as any) || "server"
+        );
+      setIsEditingName(false);
+    } catch (e: any) {
+      console.error("Failed to update username:", e);
+      setNameError(
+        e?.message || t("workspace.settings.workspaceTab.name.error")
+      );
+    } finally {
+      setNameSaving(false);
+    }
+  }, [nameInput, nameSaving, authUser?.name, t]);
+
   const handleSaveGoogleApiKey = useCallback(async () => {
     if (googleApiKeySaving) return;
     setGoogleApiKeySaving(true);
@@ -783,7 +833,6 @@ const FloatingHeader: React.FC = () => {
   const fetchGlobalHistoryCount = useGlobalImageHistoryStore(
     (state) => state.fetchCount
   );
-  const authUser = useAuthStore((s) => s.user);
 
   const refreshBananaRouteSuccessRates = useCallback(async () => {
     try {
@@ -1435,14 +1484,73 @@ const FloatingHeader: React.FC = () => {
                 {displayName.charAt(0).toUpperCase()}
               </div>
               <div className='flex-1 min-w-0'>
-                <div className='flex items-center gap-2 mb-0.5'>
-                  <span className='text-base font-medium text-slate-900'>
-                    {t("workspace.settings.workspaceTab.greeting", {
-                      name: displayName,
-                    })}
-                  </span>
-                </div>
-                <div className='text-sm text-slate-400'>{secondaryId}</div>
+                {isEditingName ? (
+                  <div className='flex flex-col gap-1.5'>
+                    <div className='flex items-center gap-2'>
+                      <input
+                        type='text'
+                        autoFocus
+                        value={nameInput}
+                        maxLength={50}
+                        disabled={nameSaving}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleSaveName();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            handleCancelEditName();
+                          }
+                        }}
+                        placeholder={t(
+                          "workspace.settings.workspaceTab.name.placeholder"
+                        )}
+                        className='flex-1 min-w-0 h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40'
+                      />
+                      <button
+                        type='button'
+                        onClick={() => void handleSaveName()}
+                        disabled={nameSaving || !nameInput.trim()}
+                        title={t("workspace.settings.workspaceTab.name.save")}
+                        className='shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors'
+                      >
+                        <Check className='w-4 h-4' />
+                      </button>
+                      <button
+                        type='button'
+                        onClick={handleCancelEditName}
+                        disabled={nameSaving}
+                        title={t("workspace.settings.workspaceTab.name.cancel")}
+                        className='shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors'
+                      >
+                        <X className='w-4 h-4' />
+                      </button>
+                    </div>
+                    {nameError && (
+                      <span className='text-xs text-rose-500'>{nameError}</span>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className='flex items-center gap-2 mb-0.5'>
+                      <span className='text-base font-medium text-slate-900 truncate'>
+                        {t("workspace.settings.workspaceTab.greeting", {
+                          name: displayName,
+                        })}
+                      </span>
+                      <button
+                        type='button'
+                        onClick={handleStartEditName}
+                        title={t("workspace.settings.workspaceTab.name.edit")}
+                        className='shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors'
+                      >
+                        <Pencil className='w-3.5 h-3.5' />
+                      </button>
+                    </div>
+                    <div className='text-sm text-slate-400'>{secondaryId}</div>
+                  </>
+                )}
               </div>
               <div className='shrink-0 text-sm leading-none text-right select-none'>
                 <AutosaveStatus />

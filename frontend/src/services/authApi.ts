@@ -732,7 +732,7 @@ export const authApi = {
     if (isMock) {
       await delay(200);
       const session = loadSession();
-      const user = { ...(session?.user || {}), ...dto } as UserInfo;
+      const user = { ...(session || {}), ...dto } as UserInfo;
       return user;
     }
 

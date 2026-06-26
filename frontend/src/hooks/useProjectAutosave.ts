@@ -155,19 +155,45 @@ export function useProjectAutosave(projectId: string | null) {
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterToSave);
 
+      // 版本冲突 → 服务端已做并集合并并回传 merged/content。adopt：以合并后的快照为
+      // 本地缓存/快照基线，并派发事件让画布层把远端新增补进运行时（详见 ProjectAutosaveManager）。
+      // 否则下一次保存会用本地内容(缺远端新增)再次覆盖，把刚并进来的远端项又丢掉。
+      const persistedContent =
+        result.merged && result.content ? result.content : contentForCloudSave;
+      if (result.merged && result.content) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('tanva:adopt-merged-content', {
+              detail: {
+                projectId: currentProjectId,
+                content: result.content,
+                version: result.version,
+                updatedAt: result.updatedAt ?? new Date().toISOString(),
+              },
+            })
+          );
+        } catch {
+          // noop
+        }
+        saveMonitor.push(currentProjectId, 'save_merged_adopted', {
+          version: result.version,
+          attempt,
+        });
+      }
+
       try {
         saveMonitor.push(currentProjectId, 'save_success', {
           version: result.version,
           updatedAt: result.updatedAt,
           paperJsonLen:
-            contentToSave.meta?.paperJsonLen ||
-            contentToSave.paperJson?.length ||
+            persistedContent.meta?.paperJsonLen ||
+            persistedContent.paperJson?.length ||
             0,
-          layerCount: contentToSave.layers?.length || 0,
+          layerCount: persistedContent.layers?.length || 0,
           attempt,
         });
 
-        const paperJson = contentToSave.paperJson;
+        const paperJson = persistedContent.paperJson;
         if (paperJson && paperJson.length > 0) {
           if (paperJson.length <= MAX_LOCAL_SNAPSHOT_LENGTH) {
             const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
@@ -191,7 +217,7 @@ export function useProjectAutosave(projectId: string | null) {
       setProjectCache({
         projectId: currentProjectId,
         userId,
-        content: contentForCloudSave,
+        content: persistedContent,
         version: result.version,
         updatedAt: result.updatedAt ?? new Date().toISOString(),
         cachedAt: new Date().toISOString(),
@@ -200,15 +226,12 @@ export function useProjectAutosave(projectId: string | null) {
       lastPersistedAtRef.current = Date.now();
       console.log(`autosave success (${attempt}/${MAX_RETRY_ATTEMPTS})`);
     } catch (err) {
-      // 版本冲突(他人协作保存导致 baseVersion 落后)：把本地版本对齐到服务端最新，
-      // 交由重试再次保存。协作下两端经实时 patch 已收敛，对齐后重试即可成功且不丢改动。
+      // 版本冲突已改由服务端「取并集」处理(不再返回 409)，正常不会再走到这里的 conflict 分支。
+      // 仅作兜底：若遇到老服务端仍抛 conflict，按普通错误重试，但**不再**盲目对齐版本号后用
+      // 本地内容重存——那会覆盖丢掉对方改动(历史 bug)。
       const conflict = (err as { conflict?: boolean })?.conflict === true;
       if (conflict) {
-        const latest = (err as { latestVersion?: number }).latestVersion;
-        if (typeof latest === 'number') {
-          try { useProjectContentStore.setState({ version: latest }); } catch {}
-        }
-        console.warn(`autosave version conflict; realigned to v${latest ?? '?'}, will retry`);
+        console.warn(`autosave version conflict (legacy server); will retry without overwriting`);
       } else {
         console.warn(`autosave failed (${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
       }

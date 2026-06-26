@@ -16,6 +16,7 @@ import { consumeBeforeUnloadPromptSkip } from '@/utils/beforeUnloadGuard';
 import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/project';
 import { projectLoadDebug, waitForProjectLoadPaint } from '@/utils/projectLoadDebug';
 import { useAuthStore } from '@/stores/authStore';
+import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 
 const CANVAS_VIEW_SYNC_DELAY_MS = 160;
 
@@ -49,6 +50,64 @@ const clearProjectRuntime = (projectId: string, phase = 'Paper clear previous pr
 
 const setRuntimePaperRestored = (restored: boolean) => {
   try { window.tanvaPaperRestored = restored; } catch {}
+};
+
+/**
+ * 版本冲突并集合并后的 adopt：把合并后的快照重载进**运行时**（画布 + 各 store）。
+ * 既让当前用户立刻看到并集结果，也保证后续保存基于完整并集，不会用本地内容把刚并进来的
+ * 远端新增又覆盖丢掉。仅在非活跃实时协作（长连接未连）时调用——活跃协作下运行时已由
+ * node_patch/canvas_patch 收敛，重载只会无谓打断会话。
+ */
+const reconcileMergedRuntime = (
+  projectId: string,
+  content: ProjectContentSnapshot,
+  version: number,
+  updatedAt: string | null,
+) => {
+  try {
+    // 1) 同步内容 store 基线（不重置 projectViewReady，避免触发整页加载态闪烁）
+    useProjectContentStore.getState().hydrate(content, version, updatedAt, {
+      preserveProjectViewReady: true,
+    });
+    // 2) AI 会话
+    try {
+      const chatStore = useAIChatStore.getState();
+      const sessions = content?.aiChatSessions ?? [];
+      if (sessions.length > 0) {
+        chatStore.hydratePersistedSessions(sessions, content?.aiChatActiveSessionId ?? null, {
+          markProjectDirty: false,
+        });
+      }
+    } catch {}
+    // 3) 画布：清空后重新 importJSON 合并后的 paperJson
+    if (content?.paperJson) {
+      const paperJson = content.paperJson;
+      const doImport = () => {
+        clearProjectRuntime(projectId, 'Paper clear before merged adopt');
+        const ok = paperSaveService.deserializePaperProject(paperJson, { skipProjectClear: true });
+        if (ok) setRuntimePaperRestored(true);
+        return ok;
+      };
+      if (!doImport()) {
+        // paper 尚未就绪，等一次 paper-ready 再试，并设超时兜底
+        const handler = () => {
+          if (doImport()) window.removeEventListener('paper-ready', handler as EventListener);
+        };
+        window.addEventListener('paper-ready', handler as EventListener);
+        setTimeout(() => {
+          window.removeEventListener('paper-ready', handler as EventListener);
+          doImport();
+        }, 500);
+      }
+    }
+    // 4) 图层
+    try {
+      useLayerStore.getState().hydrateFromContent(content.layers || [], content.activeLayerId ?? null);
+    } catch {}
+    saveMonitor.push(projectId, 'merged_runtime_reconciled', { version });
+  } catch (err) {
+    console.warn('reconcile merged runtime failed:', err);
+  }
 };
 
 const sameCanvasSnapshot = (
@@ -634,6 +693,41 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
+
+  // 版本冲突并集合并后的 adopt：保存命中冲突时 useProjectAutosave 派发本事件，携带合并后的快照。
+  // 仅在非活跃实时协作（长连接未连）时把并集重载进运行时；活跃协作下运行时已由实时 patch 收敛。
+  useEffect(() => {
+    if (!projectId) return undefined;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        projectId?: string;
+        content?: ProjectContentSnapshot;
+        version?: number;
+        updatedAt?: string | null;
+      } | undefined;
+      if (!detail?.content || detail.projectId !== projectId) return;
+      // 活跃实时协作（长连接）下，运行时已由 node_patch/canvas_patch 收敛，重载只会打断会话。
+      if (collabCanvasBridge.connected) return;
+      const store = useProjectContentStore.getState();
+      if (store.dirty || store.saving) {
+        // 保存往返期间用户又有改动：重载会冲掉其在编内容。改为把基线版本退回到合并版本之前，
+        // 迫使下一次自动保存再次命中冲突、由服务端重新并集（远端新增永不丢），待空闲时再展示。
+        const target = (detail.version ?? store.version) - 1;
+        if (target >= 0 && target < store.version) {
+          useProjectContentStore.setState({ version: target });
+        }
+        return;
+      }
+      reconcileMergedRuntime(
+        projectId,
+        detail.content,
+        detail.version ?? store.version,
+        detail.updatedAt ?? null,
+      );
+    };
+    window.addEventListener('tanva:adopt-merged-content', handler as EventListener);
+    return () => window.removeEventListener('tanva:adopt-merged-content', handler as EventListener);
+  }, [projectId]);
 
   useProjectAutosave(projectId);
 

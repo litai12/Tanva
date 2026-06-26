@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CanvasCollabHandle } from './useCanvasCollab';
 import type {
   CollabEnvelope,
@@ -6,6 +6,7 @@ import type {
   CursorPayload,
   PresenceUser,
 } from '../collab/types';
+import { assignUniqueColors, colorFor } from '../collab/presenceColors';
 
 const CURSOR_STALE_MS = 5_000;
 
@@ -16,17 +17,6 @@ export interface PeerCursor extends CursorPayload {
 export interface PresenceState {
   online: PresenceUser[];
   cursors: Record<string, PeerCursor>;
-}
-
-const PALETTE = [
-  '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
-  '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e',
-];
-
-function colorFor(userId: string): string {
-  let h = 0;
-  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(h) % PALETTE.length];
 }
 
 /**
@@ -109,5 +99,32 @@ export function usePresence(collab: CanvasCollabHandle | null | undefined): Pres
     };
   }, [collab]);
 
-  return { online, cursors };
+  // 在线成员与光标的颜色统一去重：以"在线 + 有光标"的全体 userId 为输入做唯一分配，
+  // 保证同一 session 内任意两人颜色不重复，且同一 userId 在头像条与光标层用色一致。
+  // （服务端不下发 color，事件处理里写入的 colorFor 仅作兜底，这里以去重结果为准。）
+  const colorMap = useMemo(() => {
+    const ids = new Set<string>();
+    for (const u of online) ids.add(u.userId);
+    for (const k of Object.keys(cursors)) ids.add(k);
+    return assignUniqueColors([...ids]);
+  }, [online, cursors]);
+
+  const onlineColored = useMemo(
+    () =>
+      online.map((u) => ({
+        ...u,
+        color: colorMap[u.userId] ?? u.color ?? colorFor(u.userId),
+      })),
+    [online, colorMap],
+  );
+
+  const cursorsColored = useMemo(() => {
+    const out: Record<string, PeerCursor> = {};
+    for (const [k, v] of Object.entries(cursors)) {
+      out[k] = { ...v, color: colorMap[k] ?? v.color ?? colorFor(k) };
+    }
+    return out;
+  }, [cursors, colorMap]);
+
+  return { online: onlineColored, cursors: cursorsColored };
 }

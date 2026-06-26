@@ -27,6 +27,8 @@ var ModelList = []string{
 	"doubao-seed-2.0-mini",
 	"deepseek-v4-flash-260425",
 	"deepseek-v4-pro-260425",
+	// doubao 语音（音频生成，同步 HTTP，openspeech /api/v3/tts/create，X-Api-Key 鉴权）
+	"doubao-seed-audio-1-0",
 }
 
 var ChannelName = "ark-doubao"

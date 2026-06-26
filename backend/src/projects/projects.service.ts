@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
-import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
+import { sanitizeDesignJson, dropGhostFlowNodes } from '../utils/designJsonSanitizer';
+import { mergeProjectSnapshots } from './merge-project-snapshots';
 
 @Injectable()
 export class ProjectsService {
@@ -217,7 +218,7 @@ export class ProjectsService {
 
     if (!project.mainKey) {
       return {
-        content: sanitizeDesignJson((project as any).contentJson || null),
+        content: dropGhostFlowNodes(sanitizeDesignJson((project as any).contentJson || null)),
         version: project.contentVersion,
         updatedAt: project.updatedAt,
       };
@@ -225,7 +226,9 @@ export class ProjectsService {
 
     try {
       const content = await this.oss.getJSON(project.mainKey);
-      const resolved = sanitizeDesignJson(content ?? ((project as any).contentJson || null));
+      const resolved = dropGhostFlowNodes(
+        sanitizeDesignJson(content ?? ((project as any).contentJson || null)),
+      );
       return {
         content: resolved,
         version: project.contentVersion ?? 1,
@@ -235,7 +238,7 @@ export class ProjectsService {
       // eslint-disable-next-line no-console
       console.warn('OSS getJSON failed, returning null content:', err);
       return {
-        content: sanitizeDesignJson((project as any).contentJson || null),
+        content: dropGhostFlowNodes(sanitizeDesignJson((project as any).contentJson || null)),
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
@@ -285,11 +288,11 @@ export class ProjectsService {
       const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
       const mainKey = project.mainKey || `${prefix}project.json`;
       const sanitizeStartedAt = Date.now();
-      const sanitizedContent = sanitizeDesignJson(content);
+      let sanitizedContent = dropGhostFlowNodes(sanitizeDesignJson(content));
       const contentFingerprint = this.hashProjectContent(sanitizedContent);
       timings.sanitizeAndHashMs = Date.now() - sanitizeStartedAt;
-      const contentHash = contentFingerprint.hash;
-      const contentBytes = contentFingerprint.bytes;
+      let contentHash = contentFingerprint.hash;
+      let contentBytes = contentFingerprint.bytes;
       const cachedFingerprint = this.projectContentFingerprint.get(id);
 
       // Skip duplicate saves that would write exactly the same payload again.
@@ -314,17 +317,30 @@ export class ProjectsService {
       }
 
       // 乐观并发：客户端携带其加载时的 baseVersion(version)。若已落后于服务端当前版本，
-      // 说明期间有他人(协作)保存过，拒绝本次全量覆盖并回传最新版本，避免互相覆盖。
-      // 仅在 version 显式提供且内容不同(已过上面的去重)时校验；个人模式版本始终同步, 不会触发。
+      // 说明期间有他人(协作)/他端保存过。此前是拒绝(version_conflict)，现改为「取并集」：
+      // 读取远端当前快照，与本次提交(incoming = 当前用户)合并，同 id 冲突以 incoming 为准，
+      // remote-only 追加，谁的新增都不丢。合并后照常落盘，并在返回里带 merged/content 供前端 adopt。
       const currentContentVersion = project.contentVersion ?? 0;
+      let mergedFromConflict = false;
       if (typeof version === 'number' && version > 0 && version < currentContentVersion) {
-        throw new ConflictException({
-          error: 'version_conflict',
-          conflict: true,
-          latestVersion: currentContentVersion,
-          updatedAt: project.updatedAt,
-          message: '内容版本落后，已基于最新版本，请重试保存',
-        });
+        let remoteContent: any = null;
+        try {
+          remoteContent = supportsThumbnailColumn
+            ? await timeStep('conflictReadRemoteMs', () => this.oss.getJSON(mainKey))
+            : ((project as any).contentJson ?? null);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn('[merge] 读取远端快照失败，回退为仅用当前用户内容:', err);
+        }
+        if (remoteContent) {
+          sanitizedContent = dropGhostFlowNodes(
+            sanitizeDesignJson(mergeProjectSnapshots(remoteContent, sanitizedContent)),
+          );
+          const mergedFingerprint = this.hashProjectContent(sanitizedContent);
+          contentHash = mergedFingerprint.hash;
+          contentBytes = mergedFingerprint.bytes;
+          mergedFromConflict = true;
+        }
       }
 
       try {
@@ -407,6 +423,9 @@ export class ProjectsService {
         updatedAt: updated2.updatedAt,
         mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
         thumbnailUrl: this.extractThumbnail(updated2) || undefined,
+        // 命中版本冲突并做了并集合并时，回传合并结果供前端 adopt（把远端新增补进本地运行时，
+        // 避免下一次保存又用本地内容覆盖丢掉远端项）。非冲突路径不带这两个字段。
+        ...(mergedFromConflict ? { merged: true, content: sanitizedContent } : {}),
       };
     });
   }

@@ -183,6 +183,9 @@ export const projectApi = {
     version: number;
     updatedAt: string | null;
     thumbnailUrl?: string;
+    /** 服务端命中版本冲突并做了并集合并时为 true，此时 content 为合并后的快照。 */
+    merged?: boolean;
+    content?: ProjectContentSnapshot;
   }> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}/content`, {
       method: "PUT",
@@ -209,11 +212,15 @@ export const projectApi = {
       version: number;
       updatedAt: string | null;
       thumbnailUrl?: string;
+      merged?: boolean;
+      content?: ProjectContentSnapshot;
     }>(res);
     return {
       version: data.version,
       updatedAt: data.updatedAt,
       thumbnailUrl: data.thumbnailUrl,
+      merged: data.merged,
+      content: data.content,
     };
   },
 
