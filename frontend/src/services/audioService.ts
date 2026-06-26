@@ -9,6 +9,8 @@ import type { AudioStudioMode } from '../components/flow/nodes/audioStudioModes'
 export type AudioGeneratePayload = {
   mode: AudioStudioMode;
   projectId?: string;
+  /** 选定的注册表音频模型 key（仅用于追踪/路由参考，计费仍由 mode/model 决定）。 */
+  managedModelKey?: string;
 
   // seed-audio / minimax-speech 公共
   text?: string;
