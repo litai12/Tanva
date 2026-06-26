@@ -17,6 +17,7 @@ import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
+import { SeedAudioVoiceService } from './services/seed-audio-voice.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ImageTaskService } from './services/image-task.service';
 import { ImageTaskQueueService } from './services/image-task-queue.service';
@@ -73,6 +74,7 @@ import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
     ExpandImageService,
     Sora2VideoService,
     VeoVideoService,
+    SeedAudioVoiceService,
     VideoProviderService,
     VideoWatermarkService,
     Seedream5Service,
@@ -94,6 +96,6 @@ import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController, InternalTencentVodController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, GenerationTaskService],
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, SeedAudioVoiceService, GenerationTaskService],
 })
 export class AiModule {}
