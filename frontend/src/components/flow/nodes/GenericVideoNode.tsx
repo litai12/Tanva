@@ -241,6 +241,8 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
+// Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
+const SEEDANCE20_BASE_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
 const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 const SEED20_MINI_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
@@ -325,6 +327,7 @@ const getSeedance20ResolutionList = (model: SeedanceModel): string[] => {
   // Seedance 2.0 Fast shares the doubao-seedance-2-0-fast upstream (480P/720P,
   // no 1080P) — same as Lite/Mini.
   if (model === "seedance-2.0-fast") return [...SEED20_LITE_DOC_RESOLUTIONS];
+  if (model === "seedance-2.0") return [...SEEDANCE20_BASE_DOC_RESOLUTIONS];
   return [...SEEDANCE20_DOC_RESOLUTIONS];
 };
 

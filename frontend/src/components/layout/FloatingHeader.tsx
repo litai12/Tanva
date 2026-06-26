@@ -54,6 +54,8 @@ import {
   Share2,
   Image as ImageIcon,
   Building2,
+  Pencil,
+  X,
 } from "lucide-react";
 import {
   Tooltip,
@@ -399,6 +401,12 @@ const FloatingHeader: React.FC = () => {
   const googleApiKeyFeedbackTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+
+  // 用户名编辑
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
