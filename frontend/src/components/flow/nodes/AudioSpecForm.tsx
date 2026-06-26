@@ -1,6 +1,7 @@
 import React from 'react';
 import { flowNodeControlField } from './flowNodeDarkTheme';
 import { TENCENT_SYSTEM_VOICES } from './tencentSystemVoices';
+import { DOUBAO_SEED_AUDIO_VOICES } from './doubaoSeedAudioVoices';
 import type { AudioSpec, AudioSpecField, AudioSpecLocale } from './audioSpec';
 
 type LocaleTextFn = (zh: string, en: string) => string;
@@ -350,6 +351,55 @@ export default function AudioSpecForm({
               {filteredVoiceOptions.slice(0, 200).map((voice) => (
                 <option key={voice.voiceId} value={voice.voiceId}>
                   {`${voice.index}. ${voice.nameZh} (${voice.langZh}/${voice.genderZh}/${voice.ageZh})`}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      }
+
+      case 'doubaoVoicePicker': {
+        const current = typeof value === 'string' ? value : '';
+        const kw = voiceKeyword.trim().toLowerCase();
+        const matches = (kw
+          ? DOUBAO_SEED_AUDIO_VOICES.filter((v) =>
+              `${v.name} ${v.id} ${v.scene} ${v.lang}`.toLowerCase().includes(kw),
+            )
+          : DOUBAO_SEED_AUDIO_VOICES
+        ).slice(0, 200);
+        // 当前选中的音色若不在前 200 条里，也保证它在下拉中可见
+        const currentVoice = DOUBAO_SEED_AUDIO_VOICES.find((v) => v.id === current);
+        const showCurrent = current && !matches.some((v) => v.id === current);
+        return (
+          <div key={field.key} style={{ display: 'grid', gap: 4 }}>
+            <label style={labelStyle}>{label}</label>
+            <input
+              className="nodrag"
+              type="text"
+              value={voiceKeyword}
+              placeholder={lt('搜索豆包音色（名称/场景/ID）', 'Search Doubao voices (name/scene/id)')}
+              onChange={(e) => setVoiceKeyword(e.target.value)}
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              style={baseInputStyle}
+            />
+            <select
+              className="nodrag"
+              value={current}
+              onChange={(e) => update(field.key, e.target.value)}
+              onPointerDownCapture={stopNodeDrag}
+              onMouseDownCapture={stopNodeDrag}
+              style={baseInputStyle}
+            >
+              <option value="">{lt('不指定音色（用文本/参考生成）', 'No voice (use text/reference)')}</option>
+              {showCurrent && currentVoice && (
+                <option value={currentVoice.id}>
+                  {`${currentVoice.name}（${currentVoice.scene}）`}
+                </option>
+              )}
+              {matches.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {`${v.name}（${v.scene}${v.lang ? '/' + v.lang : ''}）`}
                 </option>
               ))}
             </select>

@@ -17,6 +17,7 @@ export type AudioSpecFieldType =
   | 'checkbox'
   | 'voicePicker'
   | 'tencentVoicePicker'
+  | 'doubaoVoicePicker'
   | 'multiSelect';
 
 export interface AudioSpecLocale {

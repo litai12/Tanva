@@ -571,7 +571,7 @@ const buildSeedAudioSpec = () => ({
   fields: [
     {
       key: 'voice',
-      type: 'voicePicker',
+      type: 'doubaoVoicePicker',
       label: { zh: '音色 (speaker)', en: 'Voice (speaker)' },
       placeholder: { zh: '留空走参考音频/图', en: 'Blank = use reference audio/image' },
     },
