@@ -52,7 +52,6 @@ export default function ApiModelStatsTab() {
     startDate: "",
     endDate: "",
     modelNode: "",
-    channel: "",
   });
 
   const statsParams = useMemo(() => {
@@ -60,7 +59,6 @@ export default function ApiModelStatsTab() {
       startDate?: string;
       endDate?: string;
       modelNode?: string;
-      channel?: string;
     } = {};
 
     if (filters.range === "today") {
@@ -83,7 +81,6 @@ export default function ApiModelStatsTab() {
     }
 
     if (filters.modelNode) params.modelNode = filters.modelNode;
-    if (filters.channel) params.channel = filters.channel;
     return params;
   }, [filters]);
 
@@ -109,7 +106,6 @@ export default function ApiModelStatsTab() {
   const stats = statsResponse?.items || [];
   const summary = statsResponse?.summary;
   const modelNodes = statsResponse?.modelNodes || [];
-  const channels = statsResponse?.channels || [];
 
   return (
     <div className='space-y-4'>
@@ -202,23 +198,6 @@ export default function ApiModelStatsTab() {
             </select>
           </div>
 
-          <div>
-            <label className='mb-1 block text-xs text-gray-500'>渠道</label>
-            <select
-              className={inputClass}
-              value={filters.channel}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, channel: event.target.value }))
-              }
-            >
-              <option value=''>全部渠道</option>
-              {channels.map((channel) => (
-                <option key={channel} value={channel}>
-                  {channel}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {summary && (
@@ -302,6 +281,7 @@ export default function ApiModelStatsTab() {
                         <Button
                           variant='outline'
                           size='sm'
+                          className='min-w-20'
                           onClick={() =>
                             setExpandedNode(expandedNode === stat.modelNode ? null : stat.modelNode)
                           }

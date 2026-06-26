@@ -20,6 +20,7 @@ import {
   getDashboardStats,
   getUsers,
   createAdminUser,
+  getUserDetail,
   getApiUsageStats,
   getApiUsageRecords,
   getApiUsageFilterOptions,
@@ -85,6 +86,7 @@ import {
   type PaidUsersSortBy,
   type CreditChangeRecord,
   type AdminUserCreditTransaction,
+  type AdminUserRechargeOrders,
   type CreditAnomalyRecord,
   type NodeConfig,
   listVolcReviewGroups,
@@ -145,6 +147,19 @@ const CREDITS_PER_YUAN = 100;
 const SEEDANCE20_DISCOUNT_RATE = 1;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+
+const EMPTY_RECHARGE_ORDERS: AdminUserRechargeOrders = {
+  membership: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
+  wechatRecharge: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
+  recentOrders: [],
+};
+
+const formatYuanAmount = (amount: number) =>
+  new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    minimumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
 
 const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
 
@@ -4862,6 +4877,8 @@ function UsersTab({
   const [creditDetailTransactions, setCreditDetailTransactions] = useState<
     AdminUserCreditTransaction[]
   >([]);
+  const [creditDetailRechargeOrders, setCreditDetailRechargeOrders] =
+    useState<AdminUserRechargeOrders>(EMPTY_RECHARGE_ORDERS);
   const [membershipDrawer, setMembershipDrawer] = useState<{
     userId: string;
     userName: string;
@@ -5177,8 +5194,9 @@ function UsersTab({
     });
     setCreditDetailLoading(true);
     setCreditDetailTransactions([]);
+    setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     try {
-      const [rechargeResult, manualAddResult, inviteResult, transactionResult] =
+      const [rechargeResult, manualAddResult, inviteResult, transactionResult, userDetail] =
         await Promise.all([
           getCreditChangeRecords({
             userId: user.id,
@@ -5202,6 +5220,7 @@ function UsersTab({
             page: 1,
             pageSize: 100,
           }),
+          getUserDetail(user.id),
         ]);
 
       setCreditDetailRecords({
@@ -5210,6 +5229,7 @@ function UsersTab({
         inviteReward: inviteResult.records,
       });
       setCreditDetailTransactions(transactionResult.transactions || []);
+      setCreditDetailRechargeOrders(userDetail.rechargeOrders || EMPTY_RECHARGE_ORDERS);
     } catch (error) {
       console.error("加载积分详情失败:", error);
       setCreditDetailRecords({
@@ -5218,6 +5238,7 @@ function UsersTab({
         inviteReward: [],
       });
       setCreditDetailTransactions([]);
+      setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     } finally {
       setCreditDetailLoading(false);
     }
@@ -6102,6 +6123,54 @@ function UsersTab({
                       <span className='text-xs text-gray-500'>
                         {creditDetailRecords.recharge.length} 条
                       </span>
+                    </div>
+                    <div className='mb-3 space-y-2 rounded-md bg-gray-50 p-3 text-xs'>
+                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                        <div className='rounded border border-gray-200 bg-white p-2'>
+                          <div className='text-gray-500'>开会员</div>
+                          <div className='mt-1 font-semibold text-gray-800'>
+                            {creditDetailRechargeOrders.membership.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.membership.totalAmount)}
+                          </div>
+                          <div className='mt-1 text-green-600'>
+                            +{creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分
+                          </div>
+                          <div className='mt-1 text-gray-400'>
+                            最近: {creditDetailRechargeOrders.membership.latestPaidAt ? new Date(creditDetailRechargeOrders.membership.latestPaidAt).toLocaleString() : "-"}
+                          </div>
+                        </div>
+                        <div className='rounded border border-gray-200 bg-white p-2'>
+                          <div className='text-gray-500'>微信购买积分</div>
+                          <div className='mt-1 font-semibold text-gray-800'>
+                            {creditDetailRechargeOrders.wechatRecharge.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.wechatRecharge.totalAmount)}
+                          </div>
+                          <div className='mt-1 text-green-600'>
+                            +{creditDetailRechargeOrders.wechatRecharge.totalCredits.toLocaleString()} 积分
+                          </div>
+                          <div className='mt-1 text-gray-400'>
+                            最近: {creditDetailRechargeOrders.wechatRecharge.latestPaidAt ? new Date(creditDetailRechargeOrders.wechatRecharge.latestPaidAt).toLocaleString() : "-"}
+                          </div>
+                        </div>
+                      </div>
+                      {creditDetailRechargeOrders.recentOrders.length > 0 && (
+                        <div className='space-y-1 border-t border-gray-200 pt-2'>
+                          {creditDetailRechargeOrders.recentOrders.slice(0, 5).map((order) => (
+                            <div key={order.id} className='flex items-center justify-between gap-2'>
+                              <div className='min-w-0'>
+                                <div className='truncate text-gray-700'>
+                                  {order.orderType === "membership" ? order.planName || "会员订单" : "微信购买积分"}
+                                </div>
+                                <div className='truncate text-gray-400'>{order.orderNo}</div>
+                              </div>
+                              <div className='shrink-0 text-right'>
+                                <div className='font-medium text-gray-700'>
+                                  {formatYuanAmount(order.amount)}
+                                </div>
+                                <div className='text-green-600'>+{order.credits.toLocaleString()}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
                       {creditDetailRecords.recharge.length === 0 ? (
