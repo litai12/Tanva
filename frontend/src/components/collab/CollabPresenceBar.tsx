@@ -1,21 +1,11 @@
 import React from 'react';
 import type { PresenceUser } from '@/collab/types';
+import { colorFor } from '@/collab/presenceColors';
 
 interface Props {
   online: PresenceUser[];
   /** 当前用户 id，用于把"自己"标出来并排到最前。 */
   currentUserId?: string | null;
-}
-
-const PALETTE = [
-  '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981',
-  '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e',
-];
-
-function colorFor(userId: string): string {
-  let h = 0;
-  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(h) % PALETTE.length];
 }
 
 function initials(name: string): string {

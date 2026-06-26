@@ -171,12 +171,32 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
       // 必须累积合并，否则后一次会覆盖前一次导致编辑丢失。upsert 按 id 去重保留最新。
       const dedupById = (arr?: unknown[]): unknown[] | undefined => {
         if (!arr || arr.length === 0) return undefined;
-        const byId = new Map<string, unknown>();
+        const byId = new Map<string, Record<string, unknown>>();
         const noId: unknown[] = [];
         for (const it of arr) {
-          const id = (it as { id?: unknown })?.id;
-          if (typeof id === 'string') byId.set(id, it);
-          else noId.push(it);
+          const cur = it as Record<string, unknown>;
+          const id = cur?.id;
+          if (typeof id === 'string') {
+            const prev = byId.get(id);
+            if (!prev) {
+              byId.set(id, cur);
+              continue;
+            }
+            // 合并而非整体替换：同一去抖窗口内，先到的完整新增补丁{id,type,data,...}
+            // 不能被后到的局部补丁{id,position}覆盖丢掉 type/data，否则对端会据此合成
+            // 无 type 的"未知节点"。{...prev,...cur} 已能保留 cur 未携带的 type；
+            // data/style 再做深合并，避免互相覆盖。
+            const merged: Record<string, unknown> = { ...prev, ...cur };
+            if (prev.data || cur.data) {
+              merged.data = { ...(prev.data as object || {}), ...(cur.data as object || {}) };
+            }
+            if (prev.style || cur.style) {
+              merged.style = { ...(prev.style as object || {}), ...(cur.style as object || {}) };
+            }
+            byId.set(id, merged);
+          } else {
+            noId.push(it);
+          }
         }
         return [...noId, ...byId.values()];
       };

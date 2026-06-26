@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech' | 'minimaxMusic' | 'audioStudio';
 
 export type TextPromptData = {
   text?: string;
@@ -338,7 +338,91 @@ export type TencentSpeechData = {
   selectedHistoryId?: string;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | TencentSpeechData;
+export type AudioStudioMode =
+  | 'seed-audio'
+  | 'minimax-speech'
+  | 'minimax-music'
+  | 'tencent-dub'
+  | 'upload';
+
+export type AudioStudioHistoryItem = {
+  id: string;
+  prompt: string;
+  audioUrl: string;
+  videoUrl?: string;
+  createdAt: number;
+};
+
+/**
+ * 统一音频节点数据。由 `mode` 判别，并集了 4 个旧节点
+ * （audioUpload / minimaxSpeech / tencentSpeech / minimaxMusic）的字段。
+ */
+export type AudioStudioData = {
+  mode?: AudioStudioMode;
+  status?: 'idle' | 'running' | 'succeeded' | 'failed' | 'uploading' | 'ready' | 'error';
+  progressStartedAt?: number | string | null;
+  error?: string;
+  audioUrl?: string;
+  videoUrl?: string;
+  history?: AudioStudioHistoryItem[];
+  selectedHistoryId?: string;
+  boxW?: number;
+  boxH?: number;
+
+  // ---- seed-audio ----
+  text?: string;
+  voice?: string;
+  format?: 'wav' | 'mp3' | 'pcm' | 'ogg_opus';
+  sampleRate?: number;
+  speechRate?: number;
+  pitchRate?: number;
+  loudnessRate?: number;
+
+  // ---- minimax-speech ----
+  voiceId?: string;
+  model?: string;
+  outputFormat?: 'hex' | 'url';
+  audioMode?: 'json' | 'hex';
+  emotion?:
+    | 'happy'
+    | 'sad'
+    | 'angry'
+    | 'fearful'
+    | 'disgusted'
+    | 'surprised'
+    | 'calm'
+    | 'fluent'
+    | 'whisper';
+  soundEffects?: Array<'spacious_echo' | 'auditorium_echo' | 'lofi_telephone' | 'robotic'>;
+
+  // ---- minimax-music ----
+  prompt?: string;
+  lyrics?: string;
+  isInstrumental?: boolean;
+  lyricsOptimizer?: boolean;
+  musicModel?: 'music-2.5+' | 'music-2.5';
+
+  // ---- tencent-dub ----
+  inputVideoUrl?: string;
+  speakerUrlInput?: string;
+  speakerGender?: 'male' | 'female';
+  srcLang?: string;
+  dstLang?: string;
+  srcSubtitleUrl?: string;
+  dstSubtitleUrl?: string;
+  embedSubtitle?: boolean;
+  font?: string;
+  fontSize?: number;
+  marginV?: number;
+  outputPattern?: string;
+
+  // ---- upload ----
+  audioName?: string;
+  mimeType?: string;
+  duration?: number;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData | ImageSplitData | ImageCompressData | AudioUploadData | MinimaxSpeechData | TencentSpeechData | AudioStudioData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

@@ -6,6 +6,10 @@ export interface UpdateGoogleApiKeyDto {
   googleKeyMode?: 'official' | 'custom';
 }
 
+export interface UpdateProfileDto {
+  name?: string;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -58,6 +62,18 @@ export class UsersService {
         googleCustomApiKey: true,
         googleKeyMode: true,
       },
+    });
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: { name?: string } = {};
+    if (dto.name !== undefined) {
+      data.name = dto.name.trim();
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, phone: true, name: true, avatarUrl: true, role: true, status: true, createdAt: true },
     });
   }
 

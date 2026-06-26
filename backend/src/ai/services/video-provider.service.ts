@@ -2359,6 +2359,7 @@ export class VideoProviderService {
     if (upper === "480P") return "480p";
     if (upper === "720P") return "720p";
     if (upper === "1080P") return "1080p";
+    if (upper === "4K") return "4k";
     return normalized;
   }
 

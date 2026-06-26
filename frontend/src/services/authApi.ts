@@ -727,6 +727,26 @@ export const authApi = {
     return json<{ success: boolean; hasCustomKey: boolean; mode: string }>(res);
   },
 
+  // 更新当前用户资料（用户名）
+  async updateProfile(dto: { name?: string }): Promise<UserInfo> {
+    if (isMock) {
+      await delay(200);
+      const session = loadSession();
+      const user = { ...(session || {}), ...dto } as UserInfo;
+      return user;
+    }
+
+    const res = await fetchWithAuth(`${base}/api/users/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...getAccessAuthHeader() },
+      body: JSON.stringify(dto),
+      credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
+    });
+    return json<UserInfo>(res);
+  },
+
   // 忘记密码重置
   async resetPassword(payload: {
     phone: string;

@@ -332,6 +332,7 @@ export const resolveSeedance20DiscountCredits = (
           "480P": 1.0,
           "720P": 1.2,
           "1080P": 3.0,
+          "4K": 6.0,
         };
   const unitPriceYuan =
     unitPriceYuanByResolution[resolution as keyof typeof unitPriceYuanByResolution];

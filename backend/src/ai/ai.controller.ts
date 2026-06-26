@@ -58,6 +58,9 @@ import { ImageReuseCacheService, type ImageReuseSignature } from './services/ima
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
+import { AudioGenerateDto } from './audio/audio-generate.dto';
+import { AudioRoutingService } from './audio/audio-routing.service';
+import { AudioGenerateResult } from './audio/audio-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
@@ -114,6 +117,13 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
   'gemini-text',
   'gemini-prompt-optimize',
 ] as const;
+
+// seed-audio 单轨网关计费的【最坏情况】保底门槛（120s 上限的封顶价）。
+// 仅用于调用前的余额护栏，绝不是实际扣费金额——实际扣费以 new-api 回报的
+// X-NewApi-Consumed-Credits 为准（见 withCreditsFromGateway / deductExact）。
+// 取最坏情况 = 封顶 120s × 单价 2 积分/秒（1.2 元/分钟，1 元=100 积分）= 240。
+// 必须 >= new-api 实际可能扣的最大值，否则余额介于护栏与真实最大值之间会漏扣一次。
+const SEED_AUDIO_MAX_CREDITS = 240;
 
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
@@ -463,6 +473,7 @@ export class AiController {
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
     private readonly minimaxMusicService: MinimaxMusicService,
+    private readonly audioRouting: AudioRoutingService,
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
@@ -1960,6 +1971,124 @@ export class AiController {
 
       throw error;
     }
+  }
+
+  /**
+   * 单轨网关计费包装器（seed-audio 专用）。
+   *
+   * 与 withCredits 的固定预扣不同：价格只存在于 new-api，后端按 new-api 实际回报的
+   * 积分【后扣】。
+   *  (a) 调用前只做余额护栏（>= 最坏情况 SEED_AUDIO_MAX_CREDITS，不是实际扣费）。
+   *  (b) 执行 op()，它返回 { result, consumedCredits }（来自 new-api 响应头）。
+   *  (c) 成功后用 deductExact 精确扣 consumedCredits。
+   *  (d) 抛错则一分不扣（无预扣即无需退款）。
+   * API Key 认证路径与 withCredits 一致——跳过扣费。
+   */
+  private async withCreditsFromGateway<T>(
+    req: any,
+    serviceType: ServiceType,
+    op: () => Promise<{ result: T; consumedCredits?: number }>,
+    requestParams?: Record<string, any>,
+  ): Promise<T> {
+    const userId = this.getUserId(req);
+
+    // API Key 认证不扣积分（与 withCredits 相同规则）。
+    if (!userId) {
+      this.logger.debug('API Key authentication - skipping gateway credits deduction');
+      const { result } = await op();
+      return result;
+    }
+
+    await this.creditsService.getOrCreateAccount(userId);
+
+    const teamId = this.getTeamId(req);
+    const isTeamProject = !!(
+      teamId &&
+      this.teamCreditLedger &&
+      (await this.isNonPersonalTeam(teamId))
+    );
+
+    // (a) 最坏情况护栏（不是实际扣费）。
+    if (isTeamProject && teamId) {
+      const account = await this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      });
+      const available = account ? account.balance - account.frozenBalance : 0;
+      if (available < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `团队积分不足（音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}，当前可用 ${available}）`,
+        );
+      }
+    } else {
+      const balance = await this.creditsService.getBalance(userId);
+      if (balance < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `积分不足，当前余额: ${balance}，音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}`,
+        );
+      }
+    }
+
+    // (b) 执行上游操作（抛错则向上传播，不扣费）。
+    const { result, consumedCredits } = await op();
+
+    const amount =
+      Number.isFinite(consumedCredits) && (consumedCredits as number) > 0
+        ? Math.round(consumedCredits as number)
+        : 0;
+
+    if (amount <= 0) {
+      this.logger.warn(
+        `[${serviceType}] gateway reported no consumed credits; charging nothing (userId=${userId})`,
+      );
+      return result;
+    }
+
+    const sanitizedRequestParams = requestParams
+      ? Object.fromEntries(
+          Object.entries(requestParams).filter(([, value]) => value !== undefined),
+        )
+      : undefined;
+
+    // (c) 精确后扣 new-api 回报的积分。
+    const deducted = await this.creditsService.deductExact(userId, teamId ?? null, amount, {
+      serviceType,
+      provider: 'volcengine',
+      requestParams: sanitizedRequestParams,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
+
+    // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
+    if (isTeamProject && teamId) {
+      const reserved = await this.teamCreditLedger!.reserve({
+        teamId,
+        amount,
+        taskId: deducted.apiUsageId,
+        taskKind: serviceType,
+        actorUserId: userId,
+      });
+      if (reserved.reserved) {
+        await this.teamCreditLedger!
+          .deduct({
+            teamId,
+            amount,
+            taskId: deducted.apiUsageId,
+            taskKind: serviceType,
+            actorUserId: userId,
+          })
+          .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      } else {
+        this.logger.warn(
+          `[${serviceType}] 团队积分预留失败（已产出但未能记账）: ${reserved.reason}`,
+        );
+      }
+    }
+
+    this.logger.debug(
+      `[${serviceType}] gateway billed exactly ${amount} credits (userId=${userId}, team=${isTeamProject})`,
+    );
+    return result;
   }
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
@@ -7566,23 +7695,135 @@ export class AiController {
     };
   }
 
-  @Post('tencent-speech')
-  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+  // 各非网关 mode → 后端固定计费 serviceType。
+  private static readonly AUDIO_MODE_SERVICE_TYPE: Record<string, ServiceType> = {
+    'minimax-speech': 'minimax-speech',
+    'minimax-music': 'minimax-music',
+    'tencent-dub': 'tencent-speech',
+  };
+
+  /**
+   * 统一音频生成入口：按 dto.mode 路由 provider 并计费。
+   *  - seed-audio → withCreditsFromGateway（单轨，后扣 new-api 实际积分）。
+   *  - minimax-* / tencent-dub → 既有 withCredits(固定计费)。
+   *  - upload → 由前端处理，这里拒绝。
+   */
+  private async runAudioGenerate(
+    dto: AudioGenerateDto,
+    req: any,
+  ): Promise<AudioGenerateResult> {
+    if (dto.mode === 'upload') {
+      throw new BadRequestException('upload 模式由前端直接上传，无需调用音频生成接口');
+    }
+
+    const ctx = {
+      userId: this.getUserId(req),
+      teamId: this.getTeamId(req),
+      projectId: dto.projectId,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    };
+    const provider = this.audioRouting.resolve(dto.mode);
+
+    if (dto.mode === 'seed-audio') {
+      return this.withCreditsFromGateway<AudioGenerateResult>(
+        req,
+        'seed-audio',
+        async () => {
+          const result = await provider.generate(dto, ctx);
+          return { result, consumedCredits: result.consumedCredits };
+        },
+        {
+          mode: dto.mode,
+          projectId: dto.projectId,
+          textLength: (dto.text || '').trim().length || undefined,
+          voice: dto.voice,
+          format: dto.format,
+        },
+      );
+    }
+
+    const serviceType = AiController.AUDIO_MODE_SERVICE_TYPE[dto.mode];
+    if (!serviceType) {
+      throw new BadRequestException(`不支持的音频模式: ${dto.mode}`);
+    }
+
+    const requestParams: Record<string, any> =
+      dto.mode === 'tencent-dub'
+        ? {
+            inputVideoUrl: dto.inputVideoUrl,
+            textLength: (dto.text || '').trim().length || undefined,
+            speakerUrl: dto.speakerUrl,
+            srcSubtitleUrl: dto.srcSubtitleUrl,
+            dstLangs: dto.dstLangs,
+          }
+        : dto.mode === 'minimax-speech'
+          ? { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
+          : { promptLength: (dto.prompt || '').trim().length || undefined };
+
     return this.withCredits(
       req,
-      'tencent-speech',
-      undefined,
-      async () => this.tencentSpeechService.synthesizeSpeech(dto),
+      serviceType,
+      dto.model,
+      async () => provider.generate(dto, ctx),
       undefined,
       undefined,
       false,
+      requestParams,
+    );
+  }
+
+  @Post('audio/generate')
+  async generateAudio(
+    @Body() dto: AudioGenerateDto,
+    @Req() req: any,
+  ): Promise<AudioGenerateResult> {
+    return this.runAudioGenerate(dto, req);
+  }
+
+  @Post('audio/generate/async')
+  async generateAudioAsync(@Body() dto: AudioGenerateDto) {
+    if (dto.mode !== 'tencent-dub') {
+      throw new BadRequestException('仅 tencent-dub 模式支持异步任务');
+    }
+    return this.audioRouting.tencent().createAsyncTask(dto);
+  }
+
+  @Get('audio/task/:taskId')
+  async queryAudioTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId 参数不能为空');
+    }
+    return this.audioRouting.tencent().queryTask(normalizedTaskId);
+  }
+
+  // ---- 旧路由：薄 shim，构造 AudioGenerateDto 走统一入口；保留原响应关键字段 ----
+
+  @Post('tencent-speech')
+  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+    return this.runAudioGenerate(
       {
+        mode: 'tencent-dub',
         inputVideoUrl: dto.inputVideoUrl,
-        textLength: (dto.text || '').trim().length || undefined,
+        text: dto.text,
         speakerUrl: dto.speakerUrl,
-        srcSubtitleUrl: dto.srcSubtitleUrl,
+        voiceId: dto.voiceId,
+        speakerGender: dto.speakerGender,
+        srcLang: dto.srcLang,
         dstLangs: dto.dstLangs,
-      },
+        dstLang: dto.dstLang,
+        srcSubtitleUrl: dto.srcSubtitleUrl,
+        dstSubtitleUrls: dto.dstSubtitleUrls,
+        dstSubtitleUrl: dto.dstSubtitleUrl,
+        embedSubtitle: dto.embedSubtitle,
+        font: dto.font,
+        fontSize: dto.fontSize,
+        marginV: dto.marginV,
+        outputPattern: dto.outputPattern,
+        notifyUrl: dto.notifyUrl,
+      } as AudioGenerateDto,
+      req,
     );
   }
 
@@ -7602,15 +7843,18 @@ export class AiController {
 
   @Post('minimax-speech')
   async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-speech',
+        text: dto.text,
+        voiceId: dto.voiceId,
+        model: dto.model,
+        outputFormat: dto.outputFormat,
+        audioMode: dto.audioMode,
+        emotion: dto.emotion,
+        soundEffects: dto.soundEffects,
+      } as AudioGenerateDto,
       req,
-      'minimax-speech',
-      dto.model,
-      async () => this.minimaxSpeechService.synthesizeSpeech(dto),
-      undefined,
-      undefined,
-      false,
-      { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
     );
   }
 
@@ -7630,11 +7874,16 @@ export class AiController {
 
   @Post('minimax-music')
   async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-music',
+        prompt: dto.prompt,
+        lyrics: dto.lyrics,
+        isInstrumental: dto.isInstrumental,
+        lyricsOptimizer: dto.lyricsOptimizer,
+        musicModel: dto.model,
+      } as AudioGenerateDto,
       req,
-      'minimax-music',
-      dto.model,
-      async () => this.minimaxMusicService.generateMusic(dto),
     );
   }
 
