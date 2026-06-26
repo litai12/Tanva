@@ -42,8 +42,6 @@ export default function DoubaoVoicePicker({
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollingRef = React.useRef(false);
   const scrollTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 当前鼠标悬停的音色：滚动结束后用它补一次自动试听（滚动时鼠标停在某行不会再触发 mouseEnter）
-  const hoveredVoiceRef = React.useRef<SeedAudioVoice | null>(null);
 
   const controlField = flowNodeControlField(isDark);
   const accent = isDark ? '#3b82f6' : '#2563eb';
@@ -127,9 +125,9 @@ export default function DoubaoVoicePicker({
     audio.play().then(() => setPlayingId(voice.id)).catch(() => setPlayingId(''));
   };
 
-  // 悬停自动试听（防抖；滚动时不触发，滚动结束后由 handleListScroll 补播）
+  // 悬停自动试听（防抖）。滚动优先：滚动中/刚结束(scrollingRef)一律不触发，
+  // 只有用户主动把鼠标移到某行(mouseEnter 且非滚动态)才播。
   const handleRowEnter = (voice: SeedAudioVoice) => {
-    hoveredVoiceRef.current = voice;
     if (!voice.trialUrl || scrollingRef.current) return;
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = setTimeout(() => {
@@ -139,7 +137,6 @@ export default function DoubaoVoicePicker({
   };
 
   const handleRowLeave = () => {
-    hoveredVoiceRef.current = null;
     stopPlayback();
   };
 
@@ -154,19 +151,14 @@ export default function DoubaoVoicePicker({
     }
   };
 
+  // 滚动优先级最高：一滚动就立即停掉正在播放的试听 + 取消待播，且滚动停下后也不自动补播。
   const handleListScroll = () => {
     scrollingRef.current = true;
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
+    stopPlayback(); // 滚动即停（也会清掉待播定时器）
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
-      scrollingRef.current = false;
-      // 滚动停下后，鼠标若仍停在某行上（不会再触发 mouseEnter），补一次自动试听
-      const hovered = hoveredVoiceRef.current;
-      if (hovered?.trialUrl) playVoice(hovered);
-    }, 200);
+      scrollingRef.current = false; // 滚动结束仅解除抑制，不主动播；需用户再移动鼠标才播
+    }, 250);
   };
 
   const selectVoice = (id: string) => {
@@ -286,6 +278,7 @@ export default function DoubaoVoicePicker({
           {/* 滚动列表 */}
           <div
             onScroll={handleListScroll}
+            onWheel={handleListScroll}
             style={{ maxHeight: 280, overflowY: 'auto', display: 'grid', gap: 4 }}
           >
             {filtered.length === 0 && (
