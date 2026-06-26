@@ -115,6 +115,11 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
   'gemini-prompt-optimize',
 ] as const;
 
+// seed-audio 单轨网关计费的【最坏情况】保底门槛（120s 上限的封顶价）。
+// 仅用于调用前的余额护栏，绝不是实际扣费金额——实际扣费以 new-api 回报的
+// X-NewApi-Consumed-Credits 为准（见 withCreditsFromGateway / deductExact）。
+const SEED_AUDIO_MAX_CREDITS = 120;
+
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
 type BananaRouteSuccessRateStats = {
@@ -1960,6 +1965,124 @@ export class AiController {
 
       throw error;
     }
+  }
+
+  /**
+   * 单轨网关计费包装器（seed-audio 专用）。
+   *
+   * 与 withCredits 的固定预扣不同：价格只存在于 new-api，后端按 new-api 实际回报的
+   * 积分【后扣】。
+   *  (a) 调用前只做余额护栏（>= 最坏情况 SEED_AUDIO_MAX_CREDITS，不是实际扣费）。
+   *  (b) 执行 op()，它返回 { result, consumedCredits }（来自 new-api 响应头）。
+   *  (c) 成功后用 deductExact 精确扣 consumedCredits。
+   *  (d) 抛错则一分不扣（无预扣即无需退款）。
+   * API Key 认证路径与 withCredits 一致——跳过扣费。
+   */
+  private async withCreditsFromGateway<T>(
+    req: any,
+    serviceType: ServiceType,
+    op: () => Promise<{ result: T; consumedCredits?: number }>,
+    requestParams?: Record<string, any>,
+  ): Promise<T> {
+    const userId = this.getUserId(req);
+
+    // API Key 认证不扣积分（与 withCredits 相同规则）。
+    if (!userId) {
+      this.logger.debug('API Key authentication - skipping gateway credits deduction');
+      const { result } = await op();
+      return result;
+    }
+
+    await this.creditsService.getOrCreateAccount(userId);
+
+    const teamId = this.getTeamId(req);
+    const isTeamProject = !!(
+      teamId &&
+      this.teamCreditLedger &&
+      (await this.isNonPersonalTeam(teamId))
+    );
+
+    // (a) 最坏情况护栏（不是实际扣费）。
+    if (isTeamProject && teamId) {
+      const account = await this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      });
+      const available = account ? account.balance - account.frozenBalance : 0;
+      if (available < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `团队积分不足（音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}，当前可用 ${available}）`,
+        );
+      }
+    } else {
+      const balance = await this.creditsService.getBalance(userId);
+      if (balance < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `积分不足，当前余额: ${balance}，音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}`,
+        );
+      }
+    }
+
+    // (b) 执行上游操作（抛错则向上传播，不扣费）。
+    const { result, consumedCredits } = await op();
+
+    const amount =
+      Number.isFinite(consumedCredits) && (consumedCredits as number) > 0
+        ? Math.round(consumedCredits as number)
+        : 0;
+
+    if (amount <= 0) {
+      this.logger.warn(
+        `[${serviceType}] gateway reported no consumed credits; charging nothing (userId=${userId})`,
+      );
+      return result;
+    }
+
+    const sanitizedRequestParams = requestParams
+      ? Object.fromEntries(
+          Object.entries(requestParams).filter(([, value]) => value !== undefined),
+        )
+      : undefined;
+
+    // (c) 精确后扣 new-api 回报的积分。
+    const deducted = await this.creditsService.deductExact(userId, teamId ?? null, amount, {
+      serviceType,
+      provider: 'volcengine',
+      requestParams: sanitizedRequestParams,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
+
+    // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
+    if (isTeamProject && teamId) {
+      const reserved = await this.teamCreditLedger!.reserve({
+        teamId,
+        amount,
+        taskId: deducted.apiUsageId,
+        taskKind: serviceType,
+        actorUserId: userId,
+      });
+      if (reserved.reserved) {
+        await this.teamCreditLedger!
+          .deduct({
+            teamId,
+            amount,
+            taskId: deducted.apiUsageId,
+            taskKind: serviceType,
+            actorUserId: userId,
+          })
+          .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      } else {
+        this.logger.warn(
+          `[${serviceType}] 团队积分预留失败（已产出但未能记账）: ${reserved.reason}`,
+        );
+      }
+    }
+
+    this.logger.debug(
+      `[${serviceType}] gateway billed exactly ${amount} credits (userId=${userId}, team=${isTeamProject})`,
+    );
+    return result;
   }
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
