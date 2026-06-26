@@ -43,6 +43,32 @@ export interface UserWithCredits {
   apiCallCount: number;
 }
 
+export interface AdminUserRechargeOrderSummary {
+  count: number;
+  totalAmount: number;
+  totalCredits: number;
+  latestPaidAt: Date | null;
+}
+
+export interface AdminUserRechargeOrderItem {
+  id: string;
+  orderNo: string;
+  orderType: string;
+  amount: number;
+  credits: number;
+  paymentMethod: string;
+  paidAt: Date | null;
+  createdAt: Date;
+  membershipPlanId: string | null;
+  planName: string | null;
+}
+
+export interface AdminUserRechargeOrders {
+  membership: AdminUserRechargeOrderSummary;
+  wechatRecharge: AdminUserRechargeOrderSummary;
+  recentOrders: AdminUserRechargeOrderItem[];
+}
+
 export interface ApiUsageStats {
   serviceType: string;
   serviceName: string;
@@ -977,23 +1003,26 @@ export class AdminService {
    * 获取单个用户详情
    */
   async getUserDetail(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        creditAccount: {
-          include: {
-            transactions: {
-              orderBy: { createdAt: 'desc' },
-              take: 50,
+    const [user, rechargeOrders] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          creditAccount: {
+            include: {
+              transactions: {
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+              },
             },
           },
+          apiUsageRecords: {
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+          },
         },
-        apiUsageRecords: {
-          orderBy: { createdAt: 'desc' },
-          take: 50,
-        },
-      },
-    });
+      }),
+      this.getUserRechargeOrderSummary(userId),
+    ]);
 
     if (!user) {
       return null;
@@ -1013,6 +1042,81 @@ export class AdminService {
       lastLoginAt: user.lastLoginAt,
       creditAccount: user.creditAccount,
       recentApiUsage: user.apiUsageRecords,
+      rechargeOrders,
+    };
+  }
+
+  private async getUserRechargeOrderSummary(userId: string): Promise<AdminUserRechargeOrders> {
+    const orders = await this.prisma.paymentOrder.findMany({
+      where: {
+        userId,
+        status: 'paid',
+        OR: [
+          { orderType: 'membership' },
+          { orderType: 'recharge', paymentMethod: 'wechat' },
+        ],
+      },
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+
+    const planIds = [
+      ...new Set(
+        orders
+          .map((order) => order.membershipPlanId)
+          .filter((planId): planId is string => Boolean(planId)),
+      ),
+    ];
+    const plans =
+      planIds.length > 0
+        ? await this.prisma.membershipPlan.findMany({
+            where: { id: { in: planIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const planNameById = new Map(plans.map((plan) => [plan.id, plan.name]));
+
+    const createEmptySummary = (): AdminUserRechargeOrderSummary => ({
+      count: 0,
+      totalAmount: 0,
+      totalCredits: 0,
+      latestPaidAt: null,
+    });
+    const membership = createEmptySummary();
+    const wechatRecharge = createEmptySummary();
+
+    for (const order of orders) {
+      const target =
+        order.orderType === 'membership'
+          ? membership
+          : order.orderType === 'recharge' && order.paymentMethod === 'wechat'
+            ? wechatRecharge
+            : null;
+      if (!target) continue;
+      target.count += 1;
+      target.totalAmount += Number(order.amount);
+      target.totalCredits += order.credits;
+      const paidAt = order.paidAt ?? order.createdAt;
+      if (!target.latestPaidAt || paidAt > target.latestPaidAt) {
+        target.latestPaidAt = paidAt;
+      }
+    }
+
+    return {
+      membership,
+      wechatRecharge,
+      recentOrders: orders.slice(0, 20).map((order) => ({
+        id: order.id,
+        orderNo: order.orderNo,
+        orderType: order.orderType,
+        amount: Number(order.amount),
+        credits: order.credits,
+        paymentMethod: order.paymentMethod,
+        paidAt: order.paidAt,
+        createdAt: order.createdAt,
+        membershipPlanId: order.membershipPlanId,
+        planName: order.membershipPlanId ? planNameById.get(order.membershipPlanId) ?? null : null,
+      })),
     };
   }
 

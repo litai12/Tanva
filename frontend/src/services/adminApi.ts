@@ -214,6 +214,49 @@ export interface UserCreditsInfo {
   totalSpent: number;
 }
 
+export interface AdminUserRechargeOrderSummary {
+  count: number;
+  totalAmount: number;
+  totalCredits: number;
+  latestPaidAt: string | null;
+}
+
+export interface AdminUserRechargeOrderItem {
+  id: string;
+  orderNo: string;
+  orderType: "membership" | "recharge" | string;
+  amount: number;
+  credits: number;
+  paymentMethod: string;
+  paidAt: string | null;
+  createdAt: string;
+  membershipPlanId: string | null;
+  planName: string | null;
+}
+
+export interface AdminUserRechargeOrders {
+  membership: AdminUserRechargeOrderSummary;
+  wechatRecharge: AdminUserRechargeOrderSummary;
+  recentOrders: AdminUserRechargeOrderItem[];
+}
+
+export interface AdminUserDetail {
+  id: string;
+  email: string | null;
+  phone: string;
+  name: string | null;
+  role: string;
+  status: string;
+  wechatOfficialOpenId?: string | null;
+  wechatUnionId?: string | null;
+  wechatBound: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  creditAccount: unknown;
+  recentApiUsage: unknown[];
+  rechargeOrders: AdminUserRechargeOrders;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: Pagination;
@@ -255,7 +298,7 @@ export async function createAdminUser(payload: CreateAdminUserPayload): Promise<
   return response.json();
 }
 
-export async function getUserDetail(userId: string) {
+export async function getUserDetail(userId: string): Promise<AdminUserDetail> {
   const response = await request(`/api/admin/users/${userId}`);
   return response.json();
 }
