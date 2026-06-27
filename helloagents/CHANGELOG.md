@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Admin/Users: user credit detail recharge cards now count paid membership/WeChat orders instead of only credit transactions; membership order credits are displayed from the plan snapshot/quota, while the transaction list keeps showing only actual WeChat recharge ledger rows.
 - Flow/GPT-Image-2: normal route now exposes `1K/2K/4K` in the resolution selector and preserves selected `2K/4K` in runtime requests instead of clamping them to `1K`.
 - Admin/Users: user credit details now include paid membership orders and paid WeChat recharge orders in the recharge section, with per-user counts, amounts, credited totals, latest payment time, and recent related orders.
 - Admin/API Stats: removed the channel filter from the model usage stats toolbar and widened the expand/collapse action button.

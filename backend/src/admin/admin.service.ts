@@ -1071,10 +1071,15 @@ export class AdminService {
       planIds.length > 0
         ? await this.prisma.membershipPlan.findMany({
             where: { id: { in: planIds } },
-            select: { id: true, name: true },
+            select: {
+              id: true,
+              name: true,
+              monthlyQuotaCredits: true,
+              signupBonusCredits: true,
+            },
           })
         : [];
-    const planNameById = new Map(plans.map((plan) => [plan.id, plan.name]));
+    const planById = new Map(plans.map((plan) => [plan.id, plan]));
 
     const createEmptySummary = (): AdminUserRechargeOrderSummary => ({
       count: 0,
@@ -1093,9 +1098,16 @@ export class AdminService {
             ? wechatRecharge
             : null;
       if (!target) continue;
+      const displayCredits =
+        order.orderType === 'membership'
+          ? this.resolveMembershipOrderDisplayCredits(
+              order,
+              order.membershipPlanId ? planById.get(order.membershipPlanId) ?? null : null,
+            )
+          : order.credits;
       target.count += 1;
       target.totalAmount += Number(order.amount);
-      target.totalCredits += order.credits;
+      target.totalCredits += displayCredits;
       const paidAt = order.paidAt ?? order.createdAt;
       if (!target.latestPaidAt || paidAt > target.latestPaidAt) {
         target.latestPaidAt = paidAt;
@@ -1110,14 +1122,32 @@ export class AdminService {
         orderNo: order.orderNo,
         orderType: order.orderType,
         amount: Number(order.amount),
-        credits: order.credits,
+        credits:
+          order.orderType === 'membership'
+            ? this.resolveMembershipOrderDisplayCredits(
+                order,
+                order.membershipPlanId ? planById.get(order.membershipPlanId) ?? null : null,
+              )
+            : order.credits,
         paymentMethod: order.paymentMethod,
         paidAt: order.paidAt,
         createdAt: order.createdAt,
         membershipPlanId: order.membershipPlanId,
-        planName: order.membershipPlanId ? planNameById.get(order.membershipPlanId) ?? null : null,
+        planName: order.membershipPlanId ? planById.get(order.membershipPlanId)?.name ?? null : null,
       })),
     };
+  }
+
+  private resolveMembershipOrderDisplayCredits(
+    order: { credits: number; planSnapshot?: unknown },
+    plan: { monthlyQuotaCredits: number; signupBonusCredits: number } | null,
+  ): number {
+    const snapshot = this.asJsonObject(order.planSnapshot);
+    const snapshotCredits =
+      this.toNumber(snapshot?.monthlyQuotaCredits) + this.toNumber(snapshot?.signupBonusCredits);
+    if (snapshotCredits > 0) return snapshotCredits;
+    if (plan) return plan.monthlyQuotaCredits + plan.signupBonusCredits;
+    return order.credits;
   }
 
   /**
