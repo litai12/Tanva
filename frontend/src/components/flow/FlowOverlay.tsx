@@ -21670,16 +21670,7 @@ function FlowInner() {
             const raw = nodeData?.resolution ?? defaultData?.resolution;
             if (typeof raw !== "string") return "1K";
             const normalized = raw.trim().toUpperCase();
-            const value = normalized || "1K";
-            // gpt-image-2 的 2K/4K 仅尊享(stable)渠道支持；普通/极速渠道(含离屏未回落的旧节点)一律夹到 1K。
-            if (
-              node.type === "gptImage2" &&
-              latestBananaImageRoute !== "stable" &&
-              (value === "2K" || value === "4K")
-            ) {
-              return "1K";
-            }
-            return value;
+            return normalized || "1K";
           })();
           const gptImage2OfficialFallback =
             typeof nodeData?.officialFallback === "boolean"

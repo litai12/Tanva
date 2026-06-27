@@ -243,12 +243,11 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   }, [metadata?.aspectRatios]);
   const resolutionOptions = React.useMemo(() => {
     if (resolvedNodeType === "gptImage2") {
-      // 2K/4K 仅尊享(stable)渠道支持；普通(normal)/极速(ultra)渠道只给 1K。
-      return bananaImageRoute === "stable" ? ["1K", "2K", "4K"] : ["1K"];
+      return ["1K", "2K", "4K"];
     }
     const fromMeta = toStringList(metadata?.resolutions);
     return fromMeta.length > 0 ? fromMeta : DEFAULT_RESOLUTIONS;
-  }, [metadata?.resolutions, resolvedNodeType, bananaImageRoute]);
+  }, [metadata?.resolutions, resolvedNodeType]);
 
   const showResolutionSelector =
     resolvedNodeType === "gptImage2"
@@ -462,7 +461,6 @@ function Nano2NodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     if (!isGptImage2Node) return;
     // 当前分辨率不在可选项内时回落到首个可选项。这样在切到普通/极速渠道后，
-    // 已保存的 2K/4K 会自动回落到 1K（仅尊享支持 2K/4K）。
     const allowed = resolutionOptions.map((value) => value.trim().toUpperCase());
     if (allowed.includes(normalizedResolutionValue)) return;
     const fallbackResolution = resolutionOptions[0] || "1K";

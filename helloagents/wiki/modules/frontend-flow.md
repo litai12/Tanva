@@ -92,6 +92,7 @@
 - Image Split downstream parsing now uses the shared `imageSplitHandles` helper in Generate/Agent/ImageCompress/ImageGrid/ViewAngle paths, preserving `imageN/imgN` compatibility for crop-based inputs.
 - `VideoToGifNode` shows the run credit badge, and `VideoNode` isolates native video controls with `nodrag/nopan/nowheel` plus event capture guards.
 - Workspace header has a quick Nano Banana/Gemini/GPT-Image-2 route switch that updates the existing `bananaImageRoute` setting and displays today's normal/stable route success rates.
+- GPT-Image-2 resolution selection supports `1K/2K/4K` on both normal and stable routes; normal route no longer hides or downgrades `2K/4K` to `1K` at run time.
 - Canvas drawing tools include an `arrow` mode exposed in the toolbar; the drawing hook creates a filled Paper path tagged with `data.tool = "arrow"`, and the layer panel maps it to an Arrow layer type/icon.
 - `GeneratePro4Node` now uses node-local Fast/Pro/Ultra selection (`modelProvider`) and previews run credits with the connected reference-image count capped by shared `flowModelProvider` limits.
 - `TextChatNode` no longer renders the bottom web-search checkbox/status row; `AnalyzeNode` keeps `Image Chat` / `Run` / `Skill` in English while localizing helper and placeholder copy in zh mode.
