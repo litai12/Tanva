@@ -83,9 +83,21 @@ export function useNodeComments(): UseNodeCommentsResult {
       });
   }, []);
 
+  // 前沿节流(leading-edge)：收到第一条 comment_changed 立即拉取(团队成员即时可见),
+  // 突发多条只在窗口尾部补一次，避免抖动。比纯尾部 debounce 少一个完整窗口的延迟。
+  const lastFetchAt = useRef(0);
   const debouncedRefetch = useCallback(() => {
-    if (refetchTimer.current) clearTimeout(refetchTimer.current);
-    refetchTimer.current = setTimeout(refetch, REFETCH_DEBOUNCE_MS);
+    const elapsed = Date.now() - lastFetchAt.current;
+    if (elapsed >= REFETCH_DEBOUNCE_MS) {
+      lastFetchAt.current = Date.now();
+      refetch();
+    } else if (!refetchTimer.current) {
+      refetchTimer.current = setTimeout(() => {
+        refetchTimer.current = null;
+        lastFetchAt.current = Date.now();
+        refetch();
+      }, REFETCH_DEBOUNCE_MS - elapsed);
+    }
   }, [refetch]);
 
   // 初次进入 / 切换项目或团队：全量拉取。
