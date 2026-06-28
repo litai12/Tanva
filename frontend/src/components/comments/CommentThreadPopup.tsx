@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, MoreHorizontal, Reply, RotateCcw, X } from 'lucide-react';
+import { Check, MoreHorizontal, Reply, RotateCcw, Trash2, X } from 'lucide-react';
 import type { CanvasComment, CanvasCommentThread } from '@/services/canvasCommentsApi';
 import type { MentionCandidate, ReplyInput } from '@/contexts/CanvasCommentsContext';
 import CommentComposer, { type ComposerHandle } from './CommentComposer';
@@ -12,6 +12,7 @@ interface Props {
   onReply: (threadId: string, input: ReplyInput) => Promise<unknown>;
   onEdit: (commentId: string, input: ReplyInput) => Promise<unknown>;
   onRemove: (commentId: string) => Promise<unknown>;
+  onDeleteThread: (threadId: string) => Promise<unknown>;
   onResolve: (threadId: string, resolved: boolean) => Promise<unknown>;
   onClose: () => void;
 }
@@ -242,11 +243,26 @@ const CommentThreadPopup: React.FC<Props> = ({
   onReply,
   onEdit,
   onRemove,
+  onDeleteThread,
   onResolve,
   onClose,
 }) => {
   const composerRef = useRef<ComposerHandle | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const canDeleteThread =
+    currentUserId != null && thread.createdById === currentUserId;
+
+  // 删除某条评论：若删除后整条会话无存活评论，则直接删除整个线程（连带 pin）。
+  const handleRemove = async (commentId: string) => {
+    const liveCount = thread.comments.filter((c) => !c.deleted).length;
+    if (liveCount <= 1) {
+      await onDeleteThread(thread.id);
+      onClose();
+    } else {
+      await onRemove(commentId);
+    }
+  };
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -293,30 +309,71 @@ const CommentThreadPopup: React.FC<Props> = ({
             <Check size={12} /> 已解决
           </span>
         )}
-        <button
-          onClick={() => void onResolve(thread.id, !thread.resolved)}
-          title={thread.resolved ? '重新打开' : '标记为已解决'}
-          style={{
-            marginLeft: 'auto',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            color: thread.resolved ? '#f59e0b' : '#16a34a',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 3,
-            fontSize: 12,
-          }}
-        >
-          {thread.resolved ? <RotateCcw size={13} /> : <Check size={14} />}
-          {thread.resolved ? '重开' : '解决'}
-        </button>
-        <button
-          onClick={onClose}
-          style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}
-        >
-          <X size={16} />
-        </button>
+        {confirmDelete ? (
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>删除整条评论？</span>
+            <button
+              onClick={async () => {
+                await onDeleteThread(thread.id);
+                onClose();
+              }}
+              style={{
+                border: 'none',
+                background: '#dc2626',
+                color: 'white',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              删除
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}
+            >
+              取消
+            </button>
+          </span>
+        ) : (
+          <>
+            <button
+              onClick={() => void onResolve(thread.id, !thread.resolved)}
+              title={thread.resolved ? '重新打开' : '标记为已解决'}
+              style={{
+                marginLeft: 'auto',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: thread.resolved ? '#f59e0b' : '#16a34a',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                fontSize: 12,
+              }}
+            >
+              {thread.resolved ? <RotateCcw size={13} /> : <Check size={14} />}
+              {thread.resolved ? '重开' : '解决'}
+            </button>
+            {canDeleteThread && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                title="删除整条评论"
+                style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title="关闭"
+              style={{ marginLeft: 4, border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}
+            >
+              <X size={16} />
+            </button>
+          </>
+        )}
       </div>
 
       <div
@@ -333,7 +390,7 @@ const CommentThreadPopup: React.FC<Props> = ({
             currentUserId={currentUserId}
             members={members}
             onEdit={onEdit}
-            onRemove={onRemove}
+            onRemove={handleRemove}
           />
         ))}
       </div>

@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { useAIChatStore } from './aiChatStore';
 
+// 开启评论模式时确保对话框以「底部紧凑栏」形式可见（右侧展开面板由 AIChatDialog 监听 active 收起）。
+const ensureChatAtBottom = () => {
+  try {
+    useAIChatStore.getState().showDialog();
+  } catch {}
+};
+
 export interface DraftPin {
   /** flow 坐标 */
   x: number;
@@ -36,11 +43,9 @@ export const useCommentStore = create<CommentUIState>((set) => ({
   draftPin: null,
   focusThreadId: null,
 
+  // 评论模式与对话框右侧展开面板互斥（后触发覆盖先触发），但对话框底部紧凑栏始终保留。
   enter: () => {
-    // 互斥：打开评论模式即关闭 AI 对话框。
-    try {
-      useAIChatStore.getState().hideDialog();
-    } catch {}
+    ensureChatAtBottom();
     set({ active: true });
   },
   exit: () => set({ active: false, draftPin: null, openThreadId: null }),
@@ -49,9 +54,7 @@ export const useCommentStore = create<CommentUIState>((set) => ({
     if (active) {
       set({ active: false, draftPin: null, openThreadId: null });
     } else {
-      try {
-        useAIChatStore.getState().hideDialog();
-      } catch {}
+      ensureChatAtBottom();
       set({ active: true });
     }
   },

@@ -27,6 +27,7 @@ const CanvasCommentLayer: React.FC = () => {
     reply,
     editComment,
     removeComment,
+    deleteThread,
     setResolved,
     moveThread,
   } = useCanvasComments();
@@ -172,18 +173,19 @@ const CanvasCommentLayer: React.FC = () => {
 
   const openThreadData = openThreadId ? positioned.find((t) => t.id === openThreadId) ?? null : null;
 
-  // popup/草稿面板的夹取定位。
+  // popup/草稿面板定位：放在 pin 下方（pin 在 anchor 上方，下方区域不挡 pin），
+  // 水平靠近 pin 并夹进容器；下方放不下则翻到 pin 上方。
+  const PIN_H = 36;
+  const PANEL_H_EST = 300;
   const clampPanel = (anchorX: number, anchorY: number) => {
-    const left = Math.max(
-      PANEL_GAP,
-      Math.min(
-        anchorX + PANEL_GAP + PANEL_W > (layerSize.w || 0)
-          ? anchorX - PANEL_GAP - PANEL_W
-          : anchorX + PANEL_GAP,
-        (layerSize.w || PANEL_W + 2 * PANEL_GAP) - PANEL_W - PANEL_GAP,
-      ),
-    );
-    const top = Math.max(PANEL_GAP, Math.min(anchorY - 40, (layerSize.h || 0) - 160));
+    const w = layerSize.w || PANEL_W + 2 * PANEL_GAP;
+    const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
+    let left = anchorX - 24; // popup 左缘略偏 pin 左侧
+    left = Math.max(PANEL_GAP, Math.min(left, w - PANEL_W - PANEL_GAP));
+    const belowTop = anchorY + PANEL_GAP;
+    const fitsBelow = belowTop + PANEL_H_EST <= h - PANEL_GAP;
+    let top = fitsBelow ? belowTop : anchorY - PIN_H - PANEL_GAP - PANEL_H_EST;
+    top = Math.max(PANEL_GAP, Math.min(top, h - 120));
     return { left, top };
   };
 
@@ -305,6 +307,7 @@ const CanvasCommentLayer: React.FC = () => {
                 onReply={reply}
                 onEdit={editComment}
                 onRemove={removeComment}
+                onDeleteThread={deleteThread}
                 onResolve={setResolved}
                 onClose={closeThread}
               />

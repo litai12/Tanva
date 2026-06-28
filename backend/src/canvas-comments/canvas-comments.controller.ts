@@ -113,6 +113,22 @@ export class CanvasCommentsController {
     return this.comments.editComment(projectId, commentId, req.user.sub, teamId || undefined, req.user.role, dto);
   }
 
+  @Delete(':projectId/comments/:threadId/thread')
+  async removeThread(
+    @Req() req: any,
+    @Param('projectId') projectId: string,
+    @Param('threadId') threadId: string,
+    @Query('teamId') teamId: string,
+  ) {
+    return this.comments.deleteThread(
+      projectId,
+      threadId,
+      req.user.sub,
+      teamId || undefined,
+      req.user.role,
+    );
+  }
+
   @Delete(':projectId/comments/:commentId')
   async remove(
     @Req() req: any,

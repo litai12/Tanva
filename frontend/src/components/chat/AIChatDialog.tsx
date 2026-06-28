@@ -33,6 +33,7 @@ import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useUIStore } from "@/stores";
+import { useCommentStore } from "@/stores/commentStore";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
 import { clipboardJsonService } from "@/services/clipboardJsonService";
 import {
@@ -301,6 +302,21 @@ const AIChatDialog: React.FC = () => {
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const showHistoryRef = useRef(showHistory);
+
+  // 右侧双抽屉互斥（后触发覆盖先触发）：
+  //  - 评论模式开启 → 收起对话框右侧展开面板（回到底部紧凑栏，不隐藏）。
+  //  - 对话框右侧展开 → 关闭评论模式。
+  const commentActive = useCommentStore((s) => s.active);
+  useEffect(() => {
+    if (commentActive) setShowHistory(false);
+  }, [commentActive]);
+  useEffect(() => {
+    if (showHistory) {
+      try {
+        useCommentStore.getState().forceClose();
+      } catch {}
+    }
+  }, [showHistory]);
   const [isHistoryLocked, setIsHistoryLocked] = useState(false);
   // isMaximized 现在从 store 获取
   const isMaximizedRef = useRef(isMaximized);
@@ -2849,6 +2865,16 @@ const AIChatDialog: React.FC = () => {
     };
   }, [hasActiveAuraForEffect]);
 
+  // 注意：所有 Hook 必须在任何 early return 之前调用，否则切换可见性时会触发
+  // 「Rendered fewer hooks than expected」崩溃。此 useMemo 必须留在 return null 之上。
+  const renderableSourceImagesForBlending = React.useMemo(
+    () =>
+      sourceImagesForBlending.map(
+        (value) => toRenderableImageSrc(value) || value
+      ),
+    [sourceImagesForBlending]
+  );
+
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;
 
@@ -2869,13 +2895,6 @@ const AIChatDialog: React.FC = () => {
   const renderableSourceImageForEditing = sourceImageForEditing
     ? toRenderableImageSrc(sourceImageForEditing) || sourceImageForEditing
     : null;
-  const renderableSourceImagesForBlending = React.useMemo(
-    () =>
-      sourceImagesForBlending.map(
-        (value) => toRenderableImageSrc(value) || value
-      ),
-    [sourceImagesForBlending]
-  );
   // 最大化时不显示顶部横条指示器
   const showHistoryHoverIndicator = !isMaximized;
   const historyHoverIndicatorExpanded =

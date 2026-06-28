@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ArrowDownUp, Check, ImageIcon, MessageCircle, Search, X } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
-import { useAIChatStore } from '@/stores/aiChatStore';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 import { Avatar, relTime } from './CommentThreadPopup';
 
@@ -19,19 +18,12 @@ function threadSummary(t: CanvasCommentThread) {
 const CommentDrawer: React.FC = () => {
   const active = useCommentStore((s) => s.active);
   const exit = useCommentStore((s) => s.exit);
-  const forceClose = useCommentStore((s) => s.forceClose);
   const requestFocus = useCommentStore((s) => s.requestFocus);
   const openThreadId = useCommentStore((s) => s.openThreadId);
 
   const { threads } = useCanvasComments();
   const [queryText, setQueryText] = useState('');
   const [sortDesc, setSortDesc] = useState(true);
-
-  // 反向互斥：AI 对话框被打开时让位（后开覆盖先开）。
-  const chatVisible = useAIChatStore((s) => s.isVisible);
-  useEffect(() => {
-    if (chatVisible && active) forceClose();
-  }, [chatVisible, active, forceClose]);
 
   const list = useMemo(() => {
     const q = queryText.trim().toLowerCase();

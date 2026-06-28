@@ -48,6 +48,7 @@ export interface CanvasCommentsValue {
   reply: (threadId: string, input: ReplyInput) => Promise<CanvasComment | null>;
   editComment: (commentId: string, input: ReplyInput) => Promise<void>;
   removeComment: (commentId: string) => Promise<void>;
+  deleteThread: (threadId: string) => Promise<void>;
   setResolved: (threadId: string, resolved: boolean) => Promise<void>;
   moveThread: (threadId: string, x: number, y: number) => Promise<void>;
   refetch: () => void;
@@ -268,6 +269,22 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     [collab],
   );
 
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      const pid = reqRef.current.projectId;
+      const tid = reqRef.current.teamIdForReq;
+      if (!pid) return;
+      // 乐观移除，避免删除后 pin 残留。
+      if (sameCtx(pid, tid)) setThreads((prev) => prev.filter((t) => t.id !== threadId));
+      try {
+        await canvasCommentsApi.removeThread(pid, threadId, tid, collab?.connId ?? null);
+      } catch {
+        debouncedRefetch();
+      }
+    },
+    [collab, debouncedRefetch],
+  );
+
   const setResolved = useCallback(
     async (threadId: string, resolved: boolean) => {
       const pid = reqRef.current.projectId;
@@ -317,6 +334,7 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
       reply,
       editComment,
       removeComment,
+      deleteThread,
       setResolved,
       moveThread,
       refetch,
@@ -330,6 +348,7 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
       reply,
       editComment,
       removeComment,
+      deleteThread,
       setResolved,
       moveThread,
       refetch,

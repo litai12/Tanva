@@ -250,6 +250,28 @@ export class CanvasCommentsService {
     return this.mapThread(thread);
   }
 
+  /** 删除整条评论线程（连带其 pin 与所有回复，硬删）。仅线程创建者或超管。 */
+  async deleteThread(
+    projectId: string,
+    threadId: string,
+    userId: string,
+    teamId: string | undefined,
+    role: string | undefined,
+  ): Promise<{ deleted: true }> {
+    await this.assertProjectAccess(projectId, userId, teamId, role);
+    const thread = await this.getThreadInProject(projectId, threadId);
+    if (thread.createdById !== userId && !this.isSuperAdmin(role)) {
+      throw new ForbiddenException('只能删除自己发起的评论');
+    }
+    await this.prisma.canvasCommentThread.delete({ where: { id: threadId } });
+    this.broadcast(projectId, {
+      action: 'deleted',
+      nodeId: thread.nodeId,
+      threadId,
+    });
+    return { deleted: true };
+  }
+
   /** 移动 pin 到新画布坐标（任意有访问权成员可拖动）。 */
   async moveThread(
     projectId: string,

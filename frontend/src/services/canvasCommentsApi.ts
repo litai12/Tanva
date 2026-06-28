@@ -130,6 +130,19 @@ export const canvasCommentsApi = {
       body: JSON.stringify({ x, y, connId }),
     }).then((r) => json<CanvasCommentThread>(r)),
 
+  removeThread: (
+    projectId: string,
+    threadId: string,
+    teamId?: string | null,
+    connId?: string | null,
+  ) =>
+    fetchWithAuth(
+      `${base}/api/canvas/${projectId}/comments/${threadId}/thread${q(teamId)}${
+        connId ? `${teamId ? '&' : '?'}connId=${encodeURIComponent(connId)}` : ''
+      }`,
+      { method: 'DELETE' },
+    ).then((r) => json<{ deleted: true }>(r)),
+
   remove: (projectId: string, commentId: string, teamId?: string | null, connId?: string | null) =>
     fetchWithAuth(
       `${base}/api/canvas/${projectId}/comments/${commentId}${q(teamId)}${
