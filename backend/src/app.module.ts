@@ -24,6 +24,7 @@ import { BioAuthModule } from './bio-auth/bio-auth.module';
 import { TeamCoreModule } from './team-core/team-core.module';
 import { TeamCreditsModule } from './team-credits/team-credits.module';
 import { TeamCollabModule } from './team-collab/team-collab.module';
+import { CanvasCommentsModule } from './canvas-comments/canvas-comments.module';
 import { AgentModule } from './agent/agent.module';
 import { DirectorCaptureModule } from './director-capture/director-capture.module';
 
@@ -58,6 +59,7 @@ import { DirectorCaptureModule } from './director-capture/director-capture.modul
     TeamCoreModule,
     TeamCreditsModule,
     TeamCollabModule,
+    CanvasCommentsModule,
     AgentModule,
     DirectorCaptureModule,
   ],

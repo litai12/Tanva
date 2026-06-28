@@ -10,6 +10,7 @@ export type CollabEventType =
   | 'access_revoked'
   | 'connected'
   | 'snapshot_required'
+  | 'comment_changed'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -105,6 +106,21 @@ export interface TeamCreditsChangedPayload {
   reason: TeamCreditsChangeReason;
   actorUserId?: string | null;
   taskId?: string | null;
+}
+
+export type CommentChangeAction =
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'resolved'
+  | 'reopened';
+
+/** 评论变更失效通知：只说明「某节点评论变了」，收到后 debounce refetch，不做增量合并。 */
+export interface CommentChangedPayload {
+  action: CommentChangeAction;
+  nodeId: string;
+  threadId: string;
+  commentId?: string;
 }
 
 export type CollabListener = (envelope: CollabEnvelope) => void;

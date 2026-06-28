@@ -8,6 +8,7 @@ export type CollabEventType =
   | 'presence_join'
   | 'presence_leave'
   | 'access_revoked'
+  | 'comment_changed'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -85,6 +86,25 @@ export interface ToastPayload {
 
 export interface AccessRevokedPayload {
   reason?: string;
+}
+
+export type CommentChangeAction =
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'resolved'
+  | 'reopened';
+
+/**
+ * 评论变更失效通知（invalidate 风格）：评论本身已落 PostgreSQL，此事件只通知其他在线
+ * 成员「该节点的评论变了，去重新拉取」，不携带完整线程树，避免乱序/软删占位/作者信息不全。
+ * 发起者本端不依赖此事件刷新——mutation 成功后直接更新本地 store（个人模式无 WS 时也能即时显示）。
+ */
+export interface CommentChangedPayload {
+  action: CommentChangeAction;
+  nodeId: string;
+  threadId: string;
+  commentId?: string;
 }
 
 export type TeamCreditsChangeReason =
