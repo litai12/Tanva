@@ -26,6 +26,7 @@ export interface CommentView {
   author: CommentAuthorView;
   body: string;
   mentions: string[];
+  imageUrls: string[];
   deleted: boolean;
   createdAt: string;
   updatedAt: string;
@@ -33,7 +34,9 @@ export interface CommentView {
 
 export interface ThreadView {
   id: string;
-  nodeId: string;
+  nodeId: string | null;
+  x: number | null;
+  y: number | null;
   resolved: boolean;
   resolvedAt: string | null;
   resolvedBy: CommentAuthorView | null;
@@ -80,18 +83,29 @@ export class CanvasCommentsService {
     userId: string,
     teamId: string | undefined,
     role: string | undefined,
-    dto: { nodeId: string; body: string; mentions?: string[]; connId?: string },
+    dto: {
+      nodeId?: string;
+      x?: number;
+      y?: number;
+      body: string;
+      mentions?: string[];
+      imageUrls?: string[];
+      connId?: string;
+    },
   ): Promise<ThreadView> {
     await this.assertProjectAccess(projectId, userId, teamId, role);
-    const body = this.normBody(dto.body);
+    const imageUrls = this.normImages(dto.imageUrls);
+    const body = this.normBody(dto.body, imageUrls.length > 0);
     const mentions = await this.sanitizeMentions(projectId, teamId, dto.mentions);
     const thread = await this.prisma.canvasCommentThread.create({
       data: {
         projectId,
-        nodeId: dto.nodeId,
+        nodeId: dto.nodeId ?? null,
+        x: typeof dto.x === 'number' ? dto.x : null,
+        y: typeof dto.y === 'number' ? dto.y : null,
         createdById: userId,
         comments: {
-          create: { authorId: userId, body, mentions },
+          create: { authorId: userId, body, mentions, imageUrls },
         },
       },
       include: {
@@ -118,14 +132,15 @@ export class CanvasCommentsService {
     userId: string,
     teamId: string | undefined,
     role: string | undefined,
-    dto: { body: string; mentions?: string[]; connId?: string },
+    dto: { body: string; mentions?: string[]; imageUrls?: string[]; connId?: string },
   ): Promise<CommentView> {
     await this.assertProjectAccess(projectId, userId, teamId, role);
     const thread = await this.getThreadInProject(projectId, threadId);
-    const body = this.normBody(dto.body);
+    const imageUrls = this.normImages(dto.imageUrls);
+    const body = this.normBody(dto.body, imageUrls.length > 0);
     const mentions = await this.sanitizeMentions(projectId, teamId, dto.mentions);
     const comment = await this.prisma.canvasComment.create({
-      data: { threadId, authorId: userId, body, mentions },
+      data: { threadId, authorId: userId, body, mentions, imageUrls },
       include: { author: { select: AUTHOR_SELECT } },
     });
     // Figma 行为：对已解决线程回复会自动重开（避免并发下回复落进已解决线程而无人察觉）。
@@ -150,7 +165,7 @@ export class CanvasCommentsService {
     userId: string,
     teamId: string | undefined,
     role: string | undefined,
-    dto: { body: string; mentions?: string[]; connId?: string },
+    dto: { body: string; mentions?: string[]; imageUrls?: string[]; connId?: string },
   ): Promise<CommentView> {
     await this.assertProjectAccess(projectId, userId, teamId, role);
     const existing = await this.getCommentInProject(projectId, commentId);
@@ -158,11 +173,12 @@ export class CanvasCommentsService {
       throw new ForbiddenException('只能编辑自己的评论');
     }
     if (existing.deletedAt) throw new ForbiddenException('评论已删除');
-    const body = this.normBody(dto.body);
+    const imageUrls = this.normImages(dto.imageUrls);
+    const body = this.normBody(dto.body, imageUrls.length > 0);
     const mentions = await this.sanitizeMentions(projectId, teamId, dto.mentions);
     const comment = await this.prisma.canvasComment.update({
       where: { id: commentId },
-      data: { body, mentions },
+      data: { body, mentions, imageUrls },
       include: { author: { select: AUTHOR_SELECT } },
     });
     this.broadcast(projectId, {
@@ -234,6 +250,37 @@ export class CanvasCommentsService {
     return this.mapThread(thread);
   }
 
+  /** 移动 pin 到新画布坐标（任意有访问权成员可拖动）。 */
+  async moveThread(
+    projectId: string,
+    threadId: string,
+    userId: string,
+    teamId: string | undefined,
+    role: string | undefined,
+    x: number,
+    y: number,
+  ): Promise<ThreadView> {
+    await this.assertProjectAccess(projectId, userId, teamId, role);
+    await this.getThreadInProject(projectId, threadId);
+    const thread = await this.prisma.canvasCommentThread.update({
+      where: { id: threadId },
+      data: { x, y },
+      include: {
+        resolvedBy: { select: AUTHOR_SELECT },
+        comments: {
+          orderBy: { createdAt: 'asc' },
+          include: { author: { select: AUTHOR_SELECT } },
+        },
+      },
+    });
+    this.broadcast(projectId, {
+      action: 'moved',
+      nodeId: thread.nodeId,
+      threadId,
+    });
+    return this.mapThread(thread);
+  }
+
   // ---- 内部 ----
 
   private broadcast(projectId: string, payload: CommentChangedPayload): void {
@@ -248,10 +295,20 @@ export class CanvasCommentsService {
     this.bus.publish(projectId, env).catch(() => undefined);
   }
 
-  private normBody(body: string): string {
+  private normBody(body: string, allowEmpty = false): string {
     const t = (body ?? '').trim();
-    if (!t) throw new BadRequestException('评论内容不能为空');
+    // 允许「仅图片」评论：有图片时正文可为空。
+    if (!t && !allowEmpty) throw new BadRequestException('评论内容不能为空');
     return t;
+  }
+
+  /** 收敛图片 URL：去空白、去重、仅保留 http(s)，上限 9 张。 */
+  private normImages(imageUrls: string[] | undefined): string[] {
+    if (!imageUrls || imageUrls.length === 0) return [];
+    const cleaned = imageUrls
+      .map((u) => (typeof u === 'string' ? u.trim() : ''))
+      .filter((u) => /^https?:\/\//i.test(u));
+    return [...new Set(cleaned)].slice(0, 9);
   }
 
   private async getThreadInProject(projectId: string, threadId: string) {
@@ -302,7 +359,9 @@ export class CanvasCommentsService {
   private mapThread(t: any): ThreadView {
     return {
       id: t.id,
-      nodeId: t.nodeId,
+      nodeId: t.nodeId ?? null,
+      x: typeof t.x === 'number' ? t.x : null,
+      y: typeof t.y === 'number' ? t.y : null,
       resolved: t.resolved,
       resolvedAt: t.resolvedAt ? t.resolvedAt.toISOString() : null,
       resolvedBy: t.resolvedBy
@@ -330,6 +389,7 @@ export class CanvasCommentsService {
       },
       body: deleted ? '' : c.body,
       mentions: deleted ? [] : c.mentions ?? [],
+      imageUrls: deleted ? [] : c.imageUrls ?? [],
       deleted,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),

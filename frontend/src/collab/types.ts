@@ -113,12 +113,13 @@ export type CommentChangeAction =
   | 'updated'
   | 'deleted'
   | 'resolved'
-  | 'reopened';
+  | 'reopened'
+  | 'moved';
 
-/** 评论变更失效通知：只说明「某节点评论变了」，收到后 debounce refetch，不做增量合并。 */
+/** 评论变更失效通知：只说明「评论变了」，收到后 debounce refetch，不做增量合并。 */
 export interface CommentChangedPayload {
   action: CommentChangeAction;
-  nodeId: string;
+  nodeId?: string | null;
   threadId: string;
   commentId?: string;
 }

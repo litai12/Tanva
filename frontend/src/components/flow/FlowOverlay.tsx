@@ -217,7 +217,7 @@ import { normalizeWheelDelta, computeSmoothZoom } from "@/lib/zoomUtils";
 import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import { convert2Dto3D, convertSeed3D } from "@/services/convert2Dto3DService";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
-import NodeCommentLayer from "@/components/comments/NodeCommentLayer";
+import CanvasCommentLayer from "@/components/comments/CanvasCommentLayer";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import {
   FlowRenderModeProvider,
@@ -26702,7 +26702,7 @@ function FlowInner() {
       </ReactFlow>
 
       {/* 节点评论浮层：气泡角标随节点(Flow 坐标)移动，团队模式下经 WS 实时刷新 */}
-      <NodeCommentLayer />
+      <CanvasCommentLayer />
 
       <DirectorCaptureRunner nodes={nodes} />
 

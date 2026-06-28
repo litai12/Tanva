@@ -136,13 +136,15 @@ model Project {
   @@index([createdAt])             // 全局项目统计
 }
 
-/// 节点评论线程（Figma 式）：锚定到画布某个节点(nodeId)。一个线程含若干评论(comments)。
-/// resolve 是线程级语义(只对线程有意义，回复不单独 resolve)。节点删除不级联清评论——
-/// 前端只对当前 flow 中仍存在的 nodeId 显示角标，孤儿评论隐藏而非删库(保留 undo/历史恢复)。
+/// 画布评论线程（Figma 式）：锚定到画布坐标(x/y, flow 坐标系)，pin 随平移缩放移动。
+/// nodeId 保留为可选(历史节点锚定数据/未来扩展)，当前主路径走 x/y 自由落点。
+/// resolve 是线程级语义(只对线程有意义，回复不单独 resolve)。
 model CanvasCommentThread {
   id           String    @id @default(uuid())
   projectId    String
-  nodeId       String
+  nodeId       String?
+  x            Float?
+  y            Float?
   resolved     Boolean   @default(false)
   resolvedAt   DateTime?
   resolvedById String?
@@ -166,6 +168,8 @@ model CanvasComment {
   authorId  String
   body      String
   mentions  String[]  @default([])
+  /// 评论附带的图片 URL（已上传 OSS/TOS）。Figma 式图片附件，本期支持。
+  imageUrls String[]  @default([])
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

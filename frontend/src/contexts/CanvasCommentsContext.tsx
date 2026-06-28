@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useTeamStore } from '@/stores/teamStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -15,29 +23,44 @@ const REFETCH_DEBOUNCE_MS = 300;
 
 export interface MentionCandidate extends CommentAuthor {}
 
-export interface UseNodeCommentsResult {
-  /** 当前项目全部线程（含已 resolve）。 */
+export interface CreateThreadInput {
+  x: number;
+  y: number;
+  body: string;
+  mentions?: string[];
+  imageUrls?: string[];
+}
+
+export interface ReplyInput {
+  body: string;
+  mentions?: string[];
+  imageUrls?: string[];
+}
+
+export interface CanvasCommentsValue {
+  /** 当前项目全部线程（含已 resolve），按 createdAt 升序。 */
   threads: CanvasCommentThread[];
-  /** nodeId -> 该节点的线程列表。 */
-  threadsByNode: Map<string, CanvasCommentThread[]>;
   loading: boolean;
   currentUserId: string | null;
   /** 可被 @ 的成员候选（团队成员；个人模式为空）。 */
   members: MentionCandidate[];
-  createThread: (nodeId: string, body: string, mentions?: string[]) => Promise<CanvasCommentThread | null>;
-  reply: (threadId: string, body: string, mentions?: string[]) => Promise<CanvasComment | null>;
-  editComment: (commentId: string, body: string, mentions?: string[]) => Promise<void>;
+  createThread: (input: CreateThreadInput) => Promise<CanvasCommentThread | null>;
+  reply: (threadId: string, input: ReplyInput) => Promise<CanvasComment | null>;
+  editComment: (commentId: string, input: ReplyInput) => Promise<void>;
   removeComment: (commentId: string) => Promise<void>;
   setResolved: (threadId: string, resolved: boolean) => Promise<void>;
+  moveThread: (threadId: string, x: number, y: number) => Promise<void>;
   refetch: () => void;
 }
 
+const Ctx = createContext<CanvasCommentsValue | null>(null);
+
 /**
- * 节点评论数据层。DB 为事实源；团队模式下收到 comment_changed 失效通知后 debounce 重新拉取，
- * WS 重连(connected)后也补拉一次。本端 mutation 成功后直接更新本地状态——个人模式无 WS 时
- * 也能即时显示（不依赖回声）。
+ * 画布评论数据层（单实例，pin 浮层与右侧抽屉共享）。DB 为事实源；团队模式下收到
+ * comment_changed 失效通知后 debounce 重新拉取，WS 重连(connected)后补拉。本端 mutation
+ * 成功后直接更新本地状态——个人模式无 WS 时也能即时显示（不依赖回声）。
  */
-export function useNodeComments(): UseNodeCommentsResult {
+export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const projectId = useProjectStore((s) => s.currentProjectId);
   const activeTeamId = useTeamStore((s) => s.activeTeamId);
   const isTeamMode = useTeamStore((s) => {
@@ -53,10 +76,9 @@ export function useNodeComments(): UseNodeCommentsResult {
 
   const teamIdForReq = isTeamMode ? activeTeamId : null;
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 用 ref 保存最新依赖，避免 refetch 标识随每次渲染变化导致订阅频繁重建。
   const reqRef = useRef({ projectId, teamIdForReq });
   reqRef.current = { projectId, teamIdForReq };
-  // 单调请求序号 + 上下文校验：切换项目/团队时丢弃在途旧响应，防止旧项目评论覆盖新项目。
+  // 单调请求序号 + 上下文校验：切项目/团队后丢弃在途旧响应，防旧评论覆盖新项目。
   const reqSeq = useRef(0);
   const isStale = (token: number, pid: string | null, tid: string | null) =>
     token !== reqSeq.current ||
@@ -83,8 +105,7 @@ export function useNodeComments(): UseNodeCommentsResult {
       });
   }, []);
 
-  // 前沿节流(leading-edge)：收到第一条 comment_changed 立即拉取(团队成员即时可见),
-  // 突发多条只在窗口尾部补一次，避免抖动。比纯尾部 debounce 少一个完整窗口的延迟。
+  // 前沿节流：收到第一条 comment_changed 立即拉取，突发多条只在窗口尾部补一次。
   const lastFetchAt = useRef(0);
   const debouncedRefetch = useCallback(() => {
     const elapsed = Date.now() - lastFetchAt.current;
@@ -100,7 +121,6 @@ export function useNodeComments(): UseNodeCommentsResult {
     }
   }, [refetch]);
 
-  // 初次进入 / 切换项目或团队：全量拉取。
   useEffect(() => {
     if (!projectId) {
       setThreads([]);
@@ -109,7 +129,6 @@ export function useNodeComments(): UseNodeCommentsResult {
     refetch();
   }, [projectId, teamIdForReq, refetch]);
 
-  // 加载团队成员作为 @ 候选。
   useEffect(() => {
     if (!isTeamMode || !activeTeamId) {
       setMembers([]);
@@ -132,7 +151,6 @@ export function useNodeComments(): UseNodeCommentsResult {
     };
   }, [isTeamMode, activeTeamId]);
 
-  // 订阅实时失效通知 + 重连补拉。
   useEffect(() => {
     if (!collab || !projectId) return;
     const offChanged = collab.subscribe('comment_changed', () => debouncedRefetch());
@@ -150,53 +168,51 @@ export function useNodeComments(): UseNodeCommentsResult {
     [],
   );
 
-  const threadsByNode = useMemo(() => {
-    const map = new Map<string, CanvasCommentThread[]>();
-    for (const t of threads) {
-      const arr = map.get(t.nodeId);
-      if (arr) arr.push(t);
-      else map.set(t.nodeId, [t]);
-    }
-    return map;
-  }, [threads]);
-
-  // ---- mutations：成功后直接更新本地 ----
+  const sameCtx = (pid: string | null, tid: string | null) =>
+    reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid;
 
   const createThread = useCallback(
-    async (nodeId: string, body: string, mentions?: string[]) => {
+    async (input: CreateThreadInput) => {
       const pid = reqRef.current.projectId;
       const tid = reqRef.current.teamIdForReq;
-      if (!pid || !body.trim()) return null;
+      const body = (input.body ?? '').trim();
+      const hasImages = (input.imageUrls?.length ?? 0) > 0;
+      if (!pid || (!body && !hasImages)) return null;
       const thread = await canvasCommentsApi.createThread(
         pid,
-        { nodeId, body: body.trim(), mentions, connId: collab?.connId ?? null },
+        {
+          x: input.x,
+          y: input.y,
+          body,
+          mentions: input.mentions,
+          imageUrls: input.imageUrls,
+          connId: collab?.connId ?? null,
+        },
         tid,
       );
-      if (reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid) {
-        setThreads((prev) => [...prev, thread]);
-      }
+      if (sameCtx(pid, tid)) setThreads((prev) => [...prev, thread]);
       return thread;
     },
     [collab],
   );
 
   const reply = useCallback(
-    async (threadId: string, body: string, mentions?: string[]) => {
+    async (threadId: string, input: ReplyInput) => {
       const pid = reqRef.current.projectId;
       const tid = reqRef.current.teamIdForReq;
-      if (!pid || !body.trim()) return null;
+      const body = (input.body ?? '').trim();
+      const hasImages = (input.imageUrls?.length ?? 0) > 0;
+      if (!pid || (!body && !hasImages)) return null;
       const comment = await canvasCommentsApi.reply(
         pid,
         threadId,
-        { body: body.trim(), mentions, connId: collab?.connId ?? null },
+        { body, mentions: input.mentions, imageUrls: input.imageUrls, connId: collab?.connId ?? null },
         tid,
       );
-      if (reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid) {
+      if (sameCtx(pid, tid)) {
         setThreads((prev) =>
           prev.map((t) =>
-            t.id === threadId
-              ? { ...t, resolved: false, comments: [...t.comments, comment] }
-              : t,
+            t.id === threadId ? { ...t, resolved: false, comments: [...t.comments, comment] } : t,
           ),
         );
       }
@@ -206,17 +222,19 @@ export function useNodeComments(): UseNodeCommentsResult {
   );
 
   const editComment = useCallback(
-    async (commentId: string, body: string, mentions?: string[]) => {
+    async (commentId: string, input: ReplyInput) => {
       const pid = reqRef.current.projectId;
       const tid = reqRef.current.teamIdForReq;
-      if (!pid || !body.trim()) return;
+      const body = (input.body ?? '').trim();
+      const hasImages = (input.imageUrls?.length ?? 0) > 0;
+      if (!pid || (!body && !hasImages)) return;
       const updated = await canvasCommentsApi.edit(
         pid,
         commentId,
-        { body: body.trim(), mentions, connId: collab?.connId ?? null },
+        { body, mentions: input.mentions, imageUrls: input.imageUrls, connId: collab?.connId ?? null },
         tid,
       );
-      if (reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid) {
+      if (sameCtx(pid, tid)) {
         setThreads((prev) =>
           prev.map((t) => ({
             ...t,
@@ -234,12 +252,14 @@ export function useNodeComments(): UseNodeCommentsResult {
       const tid = reqRef.current.teamIdForReq;
       if (!pid) return;
       await canvasCommentsApi.remove(pid, commentId, tid, collab?.connId ?? null);
-      if (reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid) {
+      if (sameCtx(pid, tid)) {
         setThreads((prev) =>
           prev.map((t) => ({
             ...t,
             comments: t.comments.map((c) =>
-              c.id === commentId ? { ...c, deleted: true, body: '', mentions: [] } : c,
+              c.id === commentId
+                ? { ...c, deleted: true, body: '', mentions: [], imageUrls: [] }
+                : c,
             ),
           })),
         );
@@ -253,25 +273,74 @@ export function useNodeComments(): UseNodeCommentsResult {
       const pid = reqRef.current.projectId;
       const tid = reqRef.current.teamIdForReq;
       if (!pid) return;
-      const updated = await canvasCommentsApi.resolve(pid, threadId, resolved, tid, collab?.connId ?? null);
-      if (reqRef.current.projectId === pid && reqRef.current.teamIdForReq === tid) {
-        setThreads((prev) => prev.map((t) => (t.id === threadId ? updated : t)));
-      }
+      const updated = await canvasCommentsApi.resolve(
+        pid,
+        threadId,
+        resolved,
+        tid,
+        collab?.connId ?? null,
+      );
+      if (sameCtx(pid, tid)) setThreads((prev) => prev.map((t) => (t.id === threadId ? updated : t)));
     },
     [collab],
   );
 
-  return {
-    threads,
-    threadsByNode,
-    loading,
-    currentUserId,
-    members,
-    createThread,
-    reply,
-    editComment,
-    removeComment,
-    setResolved,
-    refetch,
-  };
+  const moveThread = useCallback(
+    async (threadId: string, x: number, y: number) => {
+      const pid = reqRef.current.projectId;
+      const tid = reqRef.current.teamIdForReq;
+      if (!pid) return;
+      // 乐观更新坐标，避免拖放后回弹。
+      if (sameCtx(pid, tid)) {
+        setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, x, y } : t)));
+      }
+      try {
+        const updated = await canvasCommentsApi.move(pid, threadId, x, y, tid, collab?.connId ?? null);
+        if (sameCtx(pid, tid)) {
+          setThreads((prev) => prev.map((t) => (t.id === threadId ? updated : t)));
+        }
+      } catch {
+        // 失败则补拉收敛。
+        debouncedRefetch();
+      }
+    },
+    [collab, debouncedRefetch],
+  );
+
+  const value = useMemo<CanvasCommentsValue>(
+    () => ({
+      threads,
+      loading,
+      currentUserId,
+      members,
+      createThread,
+      reply,
+      editComment,
+      removeComment,
+      setResolved,
+      moveThread,
+      refetch,
+    }),
+    [
+      threads,
+      loading,
+      currentUserId,
+      members,
+      createThread,
+      reply,
+      editComment,
+      removeComment,
+      setResolved,
+      moveThread,
+      refetch,
+    ],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+};
+
+export function useCanvasComments(): CanvasCommentsValue {
+  const v = useContext(Ctx);
+  if (!v) throw new Error('useCanvasComments must be used within CanvasCommentsProvider');
+  return v;
 }

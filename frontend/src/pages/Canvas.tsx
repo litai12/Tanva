@@ -24,6 +24,8 @@ import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
 import { CollabProvider } from '@/collab/CollabContext';
+import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
+import CommentDrawer from '@/components/comments/CommentDrawer';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -78,6 +80,7 @@ const Canvas: React.FC = () => {
 
     return (
         <CollabProvider>
+        <CanvasCommentsProvider>
         <div className="relative w-full h-full overflow-hidden">
             <GlobalEventCapture />
             <GlobalZoomCapture />
@@ -144,6 +147,9 @@ const Canvas: React.FC = () => {
             {/* AI chat dialog - hidden by component in focus mode */}
             <AIChatDialog />
 
+            {/* 评论抽屉（Figma 式画布评论）——与对话框互斥，后开覆盖先开 */}
+            <CommentDrawer />
+
             {/* Paper.js sandbox code panel */}
             <CodeSandboxPanel />
 
@@ -153,6 +159,7 @@ const Canvas: React.FC = () => {
             {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}
         </div>
+        </CanvasCommentsProvider>
         </CollabProvider>
     );
 };

@@ -30,6 +30,7 @@ export interface CanvasComment {
   author: CommentAuthor;
   body: string;
   mentions: string[];
+  imageUrls: string[];
   deleted: boolean;
   createdAt: string;
   updatedAt: string;
@@ -37,7 +38,10 @@ export interface CanvasComment {
 
 export interface CanvasCommentThread {
   id: string;
-  nodeId: string;
+  nodeId: string | null;
+  /** 画布坐标（flow 坐标系）。自由落点评论用此锚定。 */
+  x: number | null;
+  y: number | null;
   resolved: boolean;
   resolvedAt: string | null;
   resolvedBy: CommentAuthor | null;
@@ -58,7 +62,15 @@ export const canvasCommentsApi = {
 
   createThread: (
     projectId: string,
-    payload: { nodeId: string; body: string; mentions?: string[]; connId?: string | null },
+    payload: {
+      x?: number;
+      y?: number;
+      nodeId?: string;
+      body: string;
+      mentions?: string[];
+      imageUrls?: string[];
+      connId?: string | null;
+    },
     teamId?: string | null,
   ) =>
     fetchWithAuth(`${base}/api/canvas/${projectId}/comments${q(teamId)}`, {
@@ -70,7 +82,7 @@ export const canvasCommentsApi = {
   reply: (
     projectId: string,
     threadId: string,
-    payload: { body: string; mentions?: string[]; connId?: string | null },
+    payload: { body: string; mentions?: string[]; imageUrls?: string[]; connId?: string | null },
     teamId?: string | null,
   ) =>
     fetchWithAuth(`${base}/api/canvas/${projectId}/comments/${threadId}/replies${q(teamId)}`, {
@@ -82,7 +94,7 @@ export const canvasCommentsApi = {
   edit: (
     projectId: string,
     commentId: string,
-    payload: { body: string; mentions?: string[]; connId?: string | null },
+    payload: { body: string; mentions?: string[]; imageUrls?: string[]; connId?: string | null },
     teamId?: string | null,
   ) =>
     fetchWithAuth(`${base}/api/canvas/${projectId}/comments/${commentId}${q(teamId)}`, {
@@ -102,6 +114,20 @@ export const canvasCommentsApi = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved, connId }),
+    }).then((r) => json<CanvasCommentThread>(r)),
+
+  move: (
+    projectId: string,
+    threadId: string,
+    x: number,
+    y: number,
+    teamId?: string | null,
+    connId?: string | null,
+  ) =>
+    fetchWithAuth(`${base}/api/canvas/${projectId}/comments/${threadId}/position${q(teamId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x, y, connId }),
     }).then((r) => json<CanvasCommentThread>(r)),
 
   remove: (projectId: string, commentId: string, teamId?: string | null, connId?: string | null) =>

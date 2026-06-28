@@ -17,6 +17,7 @@ import {
   CreateReplyDto,
   CreateThreadDto,
   EditCommentDto,
+  MoveThreadDto,
   ResolveThreadDto,
 } from './dto/canvas-comment.dto';
 
@@ -79,6 +80,25 @@ export class CanvasCommentsController {
       teamId || undefined,
       req.user.role,
       dto.resolved,
+    );
+  }
+
+  @Patch(':projectId/comments/:threadId/position')
+  async move(
+    @Req() req: any,
+    @Param('projectId') projectId: string,
+    @Param('threadId') threadId: string,
+    @Query('teamId') teamId: string,
+    @Body() dto: MoveThreadDto,
+  ) {
+    return this.comments.moveThread(
+      projectId,
+      threadId,
+      req.user.sub,
+      teamId || undefined,
+      req.user.role,
+      dto.x,
+      dto.y,
     );
   }
 

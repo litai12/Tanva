@@ -93,7 +93,8 @@ export type CommentChangeAction =
   | 'updated'
   | 'deleted'
   | 'resolved'
-  | 'reopened';
+  | 'reopened'
+  | 'moved';
 
 /**
  * 评论变更失效通知（invalidate 风格）：评论本身已落 PostgreSQL，此事件只通知其他在线
@@ -102,7 +103,7 @@ export type CommentChangeAction =
  */
 export interface CommentChangedPayload {
   action: CommentChangeAction;
-  nodeId: string;
+  nodeId?: string | null;
   threadId: string;
   commentId?: string;
 }

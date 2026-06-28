@@ -2,11 +2,12 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useCommentStore } from '@/stores/commentStore';
 import type { LineStyle } from '@/stores/toolStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
@@ -448,6 +449,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     chatTheme,
   } = useAIChatStore();
   const isBlackTheme = chatTheme === "black";
+
+  // 评论模式（Figma 式画布评论）：与 AI 对话框互斥（后开覆盖先开）。
+  const commentActive = useCommentStore((s) => s.active);
+  const toggleComment = useCommentStore((s) => s.toggle);
 
   // 原始尺寸模式状态
   const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
@@ -1251,6 +1256,29 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">{lt('公共模板', 'Public Templates')}</TooltipContent>
+      </Tooltip>
+
+      {/* 评论模式（Figma 式）：开启后点击画布任意位置可添加评论气泡，右侧展示评论抽屉 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={commentActive ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(commentActive)
+            )}
+            onClick={() => {
+              toggleComment();
+              logger.tool('工具栏：切换评论模式');
+            }}
+          >
+            <MessageSquare className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {commentActive ? lt('退出评论模式', 'Exit comment mode') : lt('评论模式（点击画布添加评论）', 'Comment mode (click canvas to add)')}
+        </TooltipContent>
       </Tooltip>
 
       {/* 自动对齐开关已移至设置面板的视图外观中 */}
