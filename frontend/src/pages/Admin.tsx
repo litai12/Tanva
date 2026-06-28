@@ -5148,6 +5148,9 @@ function UsersTab({
   >([]);
   const [creditDetailRechargeOrders, setCreditDetailRechargeOrders] =
     useState<AdminUserRechargeOrders>(EMPTY_RECHARGE_ORDERS);
+  const creditDetailRechargeOrderCount =
+    creditDetailRechargeOrders.membership.count +
+    creditDetailRechargeOrders.wechatRecharge.count;
   const [membershipDrawer, setMembershipDrawer] = useState<{
     userId: string;
     userName: string;
@@ -6390,7 +6393,7 @@ function UsersTab({
                     <div className='flex items-center justify-between mb-3'>
                       <h4 className='font-medium text-gray-800'>充值积分</h4>
                       <span className='text-xs text-gray-500'>
-                        {creditDetailRecords.recharge.length} 条
+                        {creditDetailRechargeOrderCount} 笔订单
                       </span>
                     </div>
                     <div className='mb-3 space-y-2 rounded-md bg-gray-50 p-3 text-xs'>
@@ -6401,7 +6404,7 @@ function UsersTab({
                             {creditDetailRechargeOrders.membership.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.membership.totalAmount)}
                           </div>
                           <div className='mt-1 text-green-600'>
-                            +{creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分
+                            会员到账 +{creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分
                           </div>
                           <div className='mt-1 text-gray-400'>
                             最近: {creditDetailRechargeOrders.membership.latestPaidAt ? new Date(creditDetailRechargeOrders.membership.latestPaidAt).toLocaleString() : "-"}
@@ -6413,7 +6416,7 @@ function UsersTab({
                             {creditDetailRechargeOrders.wechatRecharge.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.wechatRecharge.totalAmount)}
                           </div>
                           <div className='mt-1 text-green-600'>
-                            +{creditDetailRechargeOrders.wechatRecharge.totalCredits.toLocaleString()} 积分
+                            充值到账 +{creditDetailRechargeOrders.wechatRecharge.totalCredits.toLocaleString()} 积分
                           </div>
                           <div className='mt-1 text-gray-400'>
                             最近: {creditDetailRechargeOrders.wechatRecharge.latestPaidAt ? new Date(creditDetailRechargeOrders.wechatRecharge.latestPaidAt).toLocaleString() : "-"}
@@ -6434,7 +6437,9 @@ function UsersTab({
                                 <div className='font-medium text-gray-700'>
                                   {formatYuanAmount(order.amount)}
                                 </div>
-                                <div className='text-green-600'>+{order.credits.toLocaleString()}</div>
+                                <div className='text-green-600'>
+                                  {order.orderType === "membership" ? "会员" : "积分"} +{order.credits.toLocaleString()}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -6444,7 +6449,7 @@ function UsersTab({
                     <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
                       {creditDetailRecords.recharge.length === 0 ? (
                         <div className='text-xs text-gray-400 py-6 text-center'>
-                          暂无记录
+                          暂无微信积分充值流水
                         </div>
                       ) : (
                         creditDetailRecords.recharge.map((record) => (
