@@ -3,12 +3,16 @@ import { useReactFlow, useViewport } from 'reactflow';
 import { Check } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
+import { useAuthStore } from '@/stores/authStore';
 import CommentThreadPopup, { Avatar } from './CommentThreadPopup';
 import CommentComposer from './CommentComposer';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 
-const PANEL_W = 300;
+const PANEL_W = 360;
+const DRAFT_PANEL_W = 360;
 const PANEL_GAP = 12;
+const DRAFT_AVATAR_BOX = 42;
+const DRAFT_ROW_GAP = 12;
 const DRAG_THRESHOLD = 4;
 
 /**
@@ -30,6 +34,7 @@ const CanvasCommentLayer: React.FC = () => {
     deleteThread,
     setResolved,
     moveThread,
+    previewMoveThread,
   } = useCanvasComments();
 
   const active = useCommentStore((s) => s.active);
@@ -40,6 +45,7 @@ const CanvasCommentLayer: React.FC = () => {
   const closeThread = useCommentStore((s) => s.closeThread);
   const setDraftPin = useCommentStore((s) => s.setDraftPin);
   const consumeFocus = useCommentStore((s) => s.consumeFocus);
+  const currentUser = useAuthStore((s) => s.user);
 
   const layerRef = useRef<HTMLDivElement | null>(null);
   const [layerSize, setLayerSize] = useState({ w: 0, h: 0 });
@@ -55,7 +61,7 @@ const CanvasCommentLayer: React.FC = () => {
 
   // 仅渲染有坐标的线程（自由落点）。
   const positioned = useMemo(
-    () => threads.filter((t) => typeof t.x === 'number' && typeof t.y === 'number'),
+    () => threads.filter((t) => !t.resolved && typeof t.x === 'number' && typeof t.y === 'number'),
     [threads],
   );
 
@@ -152,7 +158,11 @@ const CanvasCommentLayer: React.FC = () => {
     const layerBox = layerRef.current?.getBoundingClientRect();
     const ox = layerBox?.left ?? 0;
     const oy = layerBox?.top ?? 0;
-    setDragOverlay({ id: ds.threadId, x: e.clientX - ds.grabDX - ox, y: e.clientY - ds.grabDY - oy });
+    const screenX = e.clientX - ds.grabDX;
+    const screenY = e.clientY - ds.grabDY;
+    setDragOverlay({ id: ds.threadId, x: screenX - ox, y: screenY - oy });
+    const flow = rf.screenToFlowPosition({ x: screenX, y: screenY });
+    previewMoveThread(ds.threadId, flow.x, flow.y);
   };
 
   const onPinPointerUp = (e: React.PointerEvent, t: CanvasCommentThread) => {
@@ -177,11 +187,11 @@ const CanvasCommentLayer: React.FC = () => {
   // 水平靠近 pin 并夹进容器；下方放不下则翻到 pin 上方。
   const PIN_H = 36;
   const PANEL_H_EST = 300;
-  const clampPanel = (anchorX: number, anchorY: number) => {
-    const w = layerSize.w || PANEL_W + 2 * PANEL_GAP;
+  const clampPanel = (anchorX: number, anchorY: number, panelW = PANEL_W) => {
+    const w = layerSize.w || panelW + 2 * PANEL_GAP;
     const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
     let left = anchorX - 24; // popup 左缘略偏 pin 左侧
-    left = Math.max(PANEL_GAP, Math.min(left, w - PANEL_W - PANEL_GAP));
+    left = Math.max(PANEL_GAP, Math.min(left, w - panelW - PANEL_GAP));
     const belowTop = anchorY + PANEL_GAP;
     const fitsBelow = belowTop + PANEL_H_EST <= h - PANEL_GAP;
     let top = fitsBelow ? belowTop : anchorY - PIN_H - PANEL_GAP - PANEL_H_EST;
@@ -189,7 +199,36 @@ const CanvasCommentLayer: React.FC = () => {
     return { left, top };
   };
 
+  const clampPanelBesidePin = (anchorX: number, anchorY: number, panelW = PANEL_W) => {
+    const w = layerSize.w || panelW + 2 * PANEL_GAP;
+    const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
+    const rightLeft = anchorX + 48;
+    const leftLeft = anchorX - panelW - 48;
+    const left = rightLeft + panelW <= w - PANEL_GAP ? rightLeft : Math.max(PANEL_GAP, leftLeft);
+    const top = Math.max(PANEL_GAP, Math.min(anchorY - 40, h - PANEL_H_EST - PANEL_GAP));
+    return { left, top };
+  };
+
+  const clampDraftBesidePin = (anchorX: number, anchorY: number, composerW = DRAFT_PANEL_W) => {
+    const rowW = DRAFT_AVATAR_BOX + DRAFT_ROW_GAP + composerW;
+    const w = layerSize.w || rowW + 2 * PANEL_GAP;
+    const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
+    const preferredLeft = anchorX - DRAFT_AVATAR_BOX / 2;
+    const left = Math.max(PANEL_GAP, Math.min(preferredLeft, w - rowW - PANEL_GAP));
+    const top = Math.max(PANEL_GAP, Math.min(anchorY - DRAFT_AVATAR_BOX / 2, h - 120));
+    return { left, top, rowW };
+  };
+
   const draftScreen = draftPin ? toScreen(draftPin.x, draftPin.y) : null;
+  const currentMember =
+    members.find((m) => m.id === currentUserId) ??
+    (currentUser?.id
+      ? {
+          id: currentUser.id,
+          name: currentUser.name ?? currentUser.id.slice(0, 8),
+          avatarUrl: currentUser.avatarUrl ?? null,
+        }
+      : null);
 
   return (
     <div
@@ -207,10 +246,10 @@ const CanvasCommentLayer: React.FC = () => {
       {positioned.map((t) => {
         const anchor = toScreen(t.x as number, t.y as number);
         const isDragging = dragOverlay?.id === t.id;
-        const pos = isDragging ? { x: dragOverlay.x, y: dragOverlay.y } : anchor;
         const author = t.comments[0]?.author ?? null;
         const replies = t.comments.filter((c) => !c.deleted).length;
         const isOpen = openThreadId === t.id;
+        const pos = isDragging ? { x: dragOverlay.x, y: dragOverlay.y } : anchor;
         return (
           <button
             key={t.id}
@@ -224,11 +263,11 @@ const CanvasCommentLayer: React.FC = () => {
               position: 'absolute',
               left: pos.x,
               top: pos.y,
-              // pin 左下角为尖端，锚点在尖端。
-              transform: 'translate(0, -100%)',
+              // Pin center is the comment anchor, so the marker stays exactly at the click point.
+              transform: 'translate(-50%, -50%)',
               pointerEvents: 'auto',
               padding: 2,
-              borderRadius: '50% 50% 50% 2px',
+              borderRadius: isOpen ? '50% 50% 50% 20%' : '50%',
               border: isOpen ? '2px solid #2563eb' : '2px solid white',
               background: t.resolved ? '#94a3b8' : '#2563eb',
               boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
@@ -238,7 +277,12 @@ const CanvasCommentLayer: React.FC = () => {
             }}
           >
             <div style={{ position: 'relative' }}>
-              <Avatar name={author?.name ?? null} url={author?.avatarUrl ?? null} size={26} />
+              <Avatar
+                name={author?.name ?? null}
+                url={author?.avatarUrl ?? null}
+                userId={author?.id ?? null}
+                size={28}
+              />
               {t.resolved && (
                 <span
                   style={{
@@ -292,7 +336,7 @@ const CanvasCommentLayer: React.FC = () => {
         typeof openThreadData.y === 'number' &&
         (() => {
           const anchor = toScreen(openThreadData.x, openThreadData.y);
-          const { left, top } = clampPanel(anchor.x, anchor.y);
+          const { left, top } = clampPanelBesidePin(anchor.x, anchor.y);
           return (
             <div
               data-comment-ui
@@ -318,24 +362,8 @@ const CanvasCommentLayer: React.FC = () => {
       {/* 新草稿 pin + composer */}
       {draftPin && draftScreen && (
         <>
-          <div
-            style={{
-              position: 'absolute',
-              left: draftScreen.x,
-              top: draftScreen.y,
-              transform: 'translate(0, -100%)',
-              pointerEvents: 'none',
-              padding: 2,
-              borderRadius: '50% 50% 50% 2px',
-              border: '2px dashed white',
-              background: '#2563eb',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-            }}
-          >
-            <div style={{ width: 26, height: 26 }} />
-          </div>
           {(() => {
-            const { left, top } = clampPanel(draftScreen.x, draftScreen.y);
+            const { left, top, rowW } = clampDraftBesidePin(draftScreen.x, draftScreen.y, DRAFT_PANEL_W);
             return (
               <div
                 data-comment-ui
@@ -343,21 +371,38 @@ const CanvasCommentLayer: React.FC = () => {
                   position: 'absolute',
                   left,
                   top,
-                  width: PANEL_W,
-                  background: 'white',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
-                  padding: 10,
+                  width: rowW,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: DRAFT_ROW_GAP,
                   pointerEvents: 'auto',
                 }}
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
               >
+                <div
+                  style={{
+                    padding: 2,
+                    borderRadius: '50% 50% 50% 20%',
+                    border: '2px solid white',
+                    background: '#2563eb',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+                    flex: '0 0 auto',
+                  }}
+                >
+                  <Avatar
+                    name={currentMember?.name ?? null}
+                    url={currentMember?.avatarUrl ?? null}
+                    userId={currentMember?.id ?? null}
+                    size={34}
+                  />
+                </div>
                 <CommentComposer
                   members={members}
-                  placeholder="写评论…（输入 @ 提及成员）"
+                  placeholder={'\u5199\u8bc4\u8bba...\uff08\u8f93\u5165 @ \u63d0\u53ca\u6210\u5458\uff09'}
                   autoFocus
+                  variant="floatingDraft"
+                  hideCancel
                   onSubmit={async (body, mentions, imageUrls) => {
                     const created = await createThread({
                       x: draftPin.x,

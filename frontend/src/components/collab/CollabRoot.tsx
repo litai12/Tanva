@@ -8,6 +8,7 @@ import { useCollab } from '@/collab/CollabContext';
 import { usePresence } from '@/hooks/usePresence';
 import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
 import { useCollabToast } from '@/hooks/useCollabToast';
+import { useTeamPresenceProfiles } from '@/hooks/useTeamPresenceProfiles';
 import CollabCursorLayer from './CollabCursorLayer';
 import CollabPresenceBar from './CollabPresenceBar';
 import CollabToastHost, { type CollabToastApi } from './CollabToastHost';
@@ -26,6 +27,7 @@ const CollabRoot: React.FC = () => {
   const projectId = useProjectStore((s) => s.currentProjectId);
   const user = useAuthStore((s) => s.user);
   const currentUserId = user?.id ?? null;
+  const activeTeam = useTeamStore((s) => s.getActiveTeam());
 
   const toastApiRef = useRef<CollabToastApi | null>(null);
   const setToastApi = useCallback((api: CollabToastApi) => {
@@ -56,12 +58,10 @@ const CollabRoot: React.FC = () => {
   }, []);
 
   // Always call the hook with a placeholder when no project; React rules.
-  const activeTeam = useTeamStore((s) => s.getActiveTeam());
-  const isTeamMode = Boolean(activeTeam && !activeTeam.isPersonal);
-
   // 协作句柄由顶层 CollabProvider 提供（与 FlowOverlay 共享同一连接）。
   const collab = useCollab();
   const presence = usePresence(collab ?? undefined);
+  const teamPresenceProfiles = useTeamPresenceProfiles();
 
   const showToast = useCallback((text: string, kind: ToastKind) => {
     toastApiRef.current?.show(text, kind);
@@ -96,7 +96,7 @@ const CollabRoot: React.FC = () => {
   // 用 rAF 合并高频事件（把 getBoundingClientRect 限制为每帧一次），
   // 实际发送频率再由 useCanvasCollab 的 CURSOR_THROTTLE_MS 兜底限流。
   useEffect(() => {
-    if (!projectId || !isTeamMode) return;
+    if (!projectId) return;
     let rafId: number | null = null;
     let pending: { x: number; y: number } | null = null;
     const flush = () => {
@@ -124,7 +124,7 @@ const CollabRoot: React.FC = () => {
       window.removeEventListener('pointermove', handler);
       if (rafId != null) window.cancelAnimationFrame(rafId);
     };
-  }, [projectId, isTeamMode, collab]);
+  }, [projectId, collab]);
 
   if (!projectId) {
     return <CollabToastHost apiRef={setToastApi} />;
@@ -133,8 +133,13 @@ const CollabRoot: React.FC = () => {
   return (
     <>
       <CollabCursorLayer cursors={presence.cursors} />
-      {isTeamMode && (
-        <CollabPresenceBar online={presence.online} currentUserId={currentUserId} />
+      {!activeTeam?.isPersonal && (
+        <CollabPresenceBar
+          online={presence.online}
+          currentUserId={currentUserId}
+          fallbackUser={user ?? null}
+          profilesByUserId={teamPresenceProfiles}
+        />
       )}
       <CollabToastHost apiRef={setToastApi} />
     </>

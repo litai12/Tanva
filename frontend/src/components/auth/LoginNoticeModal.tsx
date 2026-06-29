@@ -19,6 +19,7 @@ import tanvasAiNoticeImage from "@/assets/TanvasAI.png";
 
 const DISMISSED_KEY_PREFIX = "tanva:login-notice:dismissed";
 const DEFAULT_CONTEST_NOTICE_UPDATED_AT = "contest-default-2026-06-06";
+const ENABLE_DEFAULT_CONTEST_NOTICE = false;
 const CONTEST_DETAIL_URL =
   "https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g";
 const API_BASE =
@@ -56,6 +57,9 @@ const DEFAULT_CONTEST_NOTICE: LoginNotice = {
 const resolveNotice = (nextNotice: LoginNotice): LoginNotice => {
   const content = nextNotice.content.trim();
   if (nextNotice.enabled && content) return nextNotice;
+  if (!ENABLE_DEFAULT_CONTEST_NOTICE) {
+    return { ...nextNotice, enabled: false };
+  }
   return {
     ...DEFAULT_CONTEST_NOTICE,
     secondaryButtonQrUrl:
@@ -219,12 +223,16 @@ export default function LoginNoticeModal() {
     getLoginNotice()
       .then((nextNotice) => {
         if (cancelled) return;
-        showResolvedNotice(resolveNotice(nextNotice));
+        const resolvedNotice = resolveNotice(nextNotice);
+        if (!resolvedNotice.enabled) return;
+        showResolvedNotice(resolvedNotice);
       })
       .catch((error) => {
         if (!cancelled) {
           console.warn("Failed to load login notice:", error);
-          showResolvedNotice(DEFAULT_CONTEST_NOTICE);
+          if (ENABLE_DEFAULT_CONTEST_NOTICE) {
+            showResolvedNotice(DEFAULT_CONTEST_NOTICE);
+          }
         }
       });
 

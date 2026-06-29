@@ -22,8 +22,9 @@ const listeners = new Set<Listener>();
 
 function buildUrl(): string | null {
   const token = getAccessToken() ?? '';
-  if (!token || !teamId) return null;
-  const params = new URLSearchParams({ token, teamId });
+  if (!token || (!teamId && !projectId)) return null;
+  const params = new URLSearchParams({ token });
+  if (teamId) params.set('teamId', teamId);
   if (projectId) params.set('projectId', projectId);
   if (resumeSeq > 0) params.set('after', String(resumeSeq));
   return `${wsBase}/ws/collab?${params.toString()}`;
@@ -109,6 +110,9 @@ export const realtimeClient = {
       changed = true;
     }
     if (changed) connect();
+  },
+  refresh(): void {
+    connect();
   },
   /** 记录已处理的最后 seq，供断线重连补帧（仅向前推进）。 */
   noteSeq(seq: number): void {

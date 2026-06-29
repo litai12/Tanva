@@ -113,7 +113,10 @@ type AuthenticatedUserProfile = {
   name: string | null;
   phone: string;
   role: string;
+  status?: string | null;
 };
+
+const USER_BANNED_MESSAGE = "\u6b64\u8d26\u53f7\u5df2\u88ab\u5c01\u63a7";
 
 @Injectable()
 export class AuthService {
@@ -162,6 +165,22 @@ export class AuthService {
       expiresIn: refreshTtl,
     });
     return { accessToken, refreshToken };
+  }
+
+  private assertUserCanLogin(user: { status?: string | null }) {
+    if (user.status === "banned") {
+      throw new UnauthorizedException(USER_BANNED_MESSAGE);
+    }
+  }
+
+  private async getLoginUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, status: true },
+    });
+    if (!user) throw new UnauthorizedException("用户不存在");
+    this.assertUserCanLogin(user);
+    return user;
   }
 
   private cookieOptions(request?: any) {
@@ -834,6 +853,10 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, userByPhone.id, profile);
       }
 
+      if (!normalizedInviteCode) {
+        throw new BadRequestException("invite_code_required");
+      }
+
       const name =
         this.resolveWechatDisplayName({
           nickname: profile.nickname,
@@ -851,13 +874,11 @@ export class AuthService {
         select: { id: true, email: true, name: true, phone: true, role: true },
       });
 
-      if (normalizedInviteCode) {
-        await this.referralService.useInviteCodeInTransaction(
-          tx,
-          createdUser.id,
-          normalizedInviteCode
-        );
-      }
+      await this.referralService.useInviteCodeInTransaction(
+        tx,
+        createdUser.id,
+        normalizedInviteCode
+      );
 
       return createdUser;
     });
@@ -1257,6 +1278,11 @@ export class AuthService {
     const normalizedPhone = dto.phone.trim();
     const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+    const normalizedInviteCode = dto.inviteCode?.trim() || null;
+
+    if (!normalizedInviteCode) {
+      throw new BadRequestException("invite_code_required");
+    }
 
     const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
     if (!verify.ok) {
@@ -1309,9 +1335,7 @@ export class AuthService {
         },
       });
 
-      if (dto.inviteCode?.trim()) {
-        await this.referralService.useInviteCodeInTransaction(tx, newUser.id, dto.inviteCode);
-      }
+      await this.referralService.useInviteCodeInTransaction(tx, newUser.id, normalizedInviteCode);
 
       await this.teamCoreService.createPersonalTeam(newUser.id, tx);
 
@@ -1334,6 +1358,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException("账号或密码错误");
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException("账号或密码错误");
+    this.assertUserCanLogin(user);
     return user;
   }
 
@@ -1341,20 +1366,25 @@ export class AuthService {
     user: { id: string; email: string; role: string },
     meta?: { ip?: string; ua?: string }
   ) {
-    const tokens = await this.signTokens(user);
+    const loginUser = await this.getLoginUser(user.id);
+    const tokens = await this.signTokens({
+      id: loginUser.id,
+      email: loginUser.email || "",
+      role: loginUser.role,
+    });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
     const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
     await this.prisma.refreshToken.create({
       data: {
-        userId: user.id,
+        userId: loginUser.id,
         tokenHash: refreshHash,
         ip: meta?.ip,
         userAgent: meta?.ua,
         expiresAt,
       },
     });
-    await this.touchUserLastLoginAt(user.id);
+    await this.touchUserLastLoginAt(loginUser.id);
     return tokens;
   }
 
@@ -1396,6 +1426,7 @@ export class AuthService {
   }
 
   async refresh(userPayload: any, presentedToken: string) {
+    const loginUser = await this.getLoginUser(userPayload.sub);
     const rt = await this.prisma.refreshToken.findFirst({
       where: { userId: userPayload.sub, isRevoked: false },
       orderBy: { createdAt: "desc" },
@@ -1410,9 +1441,9 @@ export class AuthService {
       data: { isRevoked: true },
     });
     const tokens = await this.signTokens({
-      id: userPayload.sub,
-      email: userPayload.email,
-      role: userPayload.role,
+      id: loginUser.id,
+      email: loginUser.email || "",
+      role: loginUser.role,
     });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
     const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Check, MoreHorizontal, Reply, RotateCcw, Trash2, X } from 'lucide-react';
 import type { CanvasComment, CanvasCommentThread } from '@/services/canvasCommentsApi';
 import type { MentionCandidate, ReplyInput } from '@/contexts/CanvasCommentsContext';
+import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
+import { useAuthStore } from '@/stores/authStore';
 import CommentComposer, { type ComposerHandle } from './CommentComposer';
 
 interface Props {
@@ -48,41 +50,46 @@ export function renderBody(body: string): React.ReactNode {
   );
 }
 
-export const Avatar: React.FC<{ name: string | null; url: string | null; size?: number }> = ({
+export const Avatar: React.FC<{ name: string | null; url: string | null; userId?: string | null; size?: number }> = ({
   name,
   url,
+  userId,
   size = 24,
-}) => (
-  <div
-    style={{
-      width: size,
-      height: size,
-      borderRadius: '50%',
-      background: url ? `center/cover no-repeat url(${url})` : '#94a3b8',
-      color: 'white',
-      fontSize: size * 0.45,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      flex: '0 0 auto',
-    }}
-  >
-    {!url && initials(name)}
-  </div>
-);
+}) => {
+  const fallback = getDefaultAvatarColor(userId || name);
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: url ? `center/cover no-repeat url(${url})` : fallback.bg,
+        color: fallback.text,
+        fontSize: size * 0.45,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: '0 0 auto',
+      }}
+    >
+      {!url && getDefaultAvatarInitial(name, userId)}
+    </div>
+  );
+};
 
 export const CommentImages: React.FC<{ urls: string[] }> = ({ urls }) =>
   urls.length === 0 ? null : (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
       {urls.map((u) => (
         <a key={u} href={u} target="_blank" rel="noreferrer">
           <div
             style={{
-              width: 96,
-              height: 96,
-              borderRadius: 8,
+              width: 138,
+              height: 136,
+              borderRadius: 6,
               background: `center/cover no-repeat url(${u})`,
-              border: '1px solid #e2e8f0',
+              border: 'none',
             }}
           />
         </a>
@@ -127,8 +134,8 @@ const CommentRow: React.FC<{
   }, [menuOpen]);
 
   return (
-    <div style={{ display: 'flex', gap: 8, padding: '6px 0' }}>
-      <Avatar name={comment.author.name} url={comment.author.avatarUrl} />
+    <div style={{ display: 'flex', gap: 8, padding: '7px 0' }}>
+      <Avatar name={comment.author.name} url={comment.author.avatarUrl} userId={comment.author.id} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>
@@ -248,6 +255,7 @@ const CommentThreadPopup: React.FC<Props> = ({
   onClose,
 }) => {
   const composerRef = useRef<ComposerHandle | null>(null);
+  const currentUser = useAuthStore((s) => s.user);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const canDeleteThread =
@@ -278,18 +286,27 @@ const CommentThreadPopup: React.FC<Props> = ({
   const messages = [...thread.comments].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
+  const currentMember =
+    members.find((m) => m.id === currentUserId) ??
+    (currentUser?.id
+      ? {
+          id: currentUser.id,
+          name: currentUser.name ?? currentUser.id.slice(0, 8),
+          avatarUrl: currentUser.avatarUrl ?? null,
+        }
+      : null);
 
   return (
     <div
       style={{
-        width: 300,
-        maxHeight: 460,
+        width: 360,
+        maxHeight: 430,
         display: 'flex',
         flexDirection: 'column',
         background: 'white',
-        border: '1px solid #e2e8f0',
+        border: 'none',
         borderRadius: 12,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.14)',
         overflow: 'hidden',
         pointerEvents: 'auto',
       }}
@@ -299,11 +316,10 @@ const CommentThreadPopup: React.FC<Props> = ({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '8px 12px',
-          borderBottom: '1px solid #f1f5f9',
+          padding: '14px 16px 8px',
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 700 }}>评论</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>评论</span>
         {thread.resolved && (
           <span style={{ fontSize: 11, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 2 }}>
             <Check size={12} /> 已解决
@@ -377,7 +393,7 @@ const CommentThreadPopup: React.FC<Props> = ({
       </div>
 
       <div
-        style={{ flex: 1, overflowY: 'auto', padding: '4px 12px' }}
+        style={{ flex: 1, overflowY: 'auto', padding: '4px 16px 8px' }}
         onScroll={() => openMenuId && setOpenMenuId(null)}
       >
         {messages.map((c) => (
@@ -395,11 +411,17 @@ const CommentThreadPopup: React.FC<Props> = ({
         ))}
       </div>
 
-      <div style={{ borderTop: '1px solid #f1f5f9', padding: '8px 12px' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 16px 16px' }}>
+        <Avatar
+          name={currentMember?.name ?? null}
+          url={currentMember?.avatarUrl ?? null}
+          userId={currentMember?.id ?? null}
+        />
         <CommentComposer
           ref={composerRef}
           members={members}
-          placeholder="回复…（输入 @ 提及成员）"
+          placeholder="回复"
+          variant="threadReply"
           onSubmit={(body, mentions, imageUrls) => onReply(thread.id, { body, mentions, imageUrls })}
         />
       </div>

@@ -167,6 +167,7 @@ export interface DrawingToolState {
 // 绘图工具事件处理器类型
 export interface DrawingToolEventHandlers {
   onPathCreate?: (path: ExtendedPath) => void;
+  onPathUpdate?: (path: ExtendedPath) => void;
   onPathComplete?: (path: ExtendedPath) => void;
   onDrawStart?: (drawMode: string) => void;
   onDrawEnd?: (drawMode: string) => void;

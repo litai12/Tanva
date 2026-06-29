@@ -7,6 +7,7 @@ import type {
   CollabEnvelope,
   CollabEventType,
   CollabListener,
+  CommentMarkerMovePayload,
   ConnectedPayload,
   NodePatchPayload,
 } from '../collab/types';
@@ -14,6 +15,7 @@ import type {
 const PATCH_DEBOUNCE_MS = 200;
 const PATCH_MAXWAIT_MS = 150; // 持续拖动时最长 150ms 强制推送一次, 保证 <300ms 实时跟随
 const CURSOR_THROTTLE_MS = 80;
+const COMMENT_MARKER_THROTTLE_MS = 80;
 const RECONNECT_MS = 3000;
 const SEQ_DEDUP_WINDOW = 200;
 
@@ -36,6 +38,7 @@ export interface CanvasCollabHandle {
   sendPatch: (patch: NodePatchPayload) => void;
   /** x/y 为画布世界坐标（Paper project 坐标），由调用方换算后传入。 */
   sendCursor: (x: number, y: number) => void;
+  sendCommentMarkerMove: (threadId: string, x: number, y: number) => void;
   claimLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number; holder?: { userId: string } }>;
   renewLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number }>;
   releaseLock: (nodeId: string) => Promise<boolean>;
@@ -60,6 +63,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const pendingPatch = useRef<NodePatchPayload | null>(null);
   const patchLastFlush = useRef<number>(0);
   const cursorLastSent = useRef<number>(0);
+  const commentMarkerLastSent = useRef<number>(0);
   const lastSeqRef = useRef<number>(0);
   const seenSeqs = useRef<number[]>([]);
   const listenersRef = useRef<Map<CollabEventType | '*', Set<CollabListener>>>(new Map());
@@ -147,7 +151,12 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   useEffect(() => {
     connect();
+    const handleProfileUpdated = () => {
+      realtimeClient.refresh();
+    };
+    window.addEventListener('tanva:profile-updated', handleProfileUpdated);
     return () => {
+      window.removeEventListener('tanva:profile-updated', handleProfileUpdated);
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
@@ -254,6 +263,18 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
     [],
   );
 
+  const sendCommentMarkerMove = useCallback(
+    (threadId: string, x: number, y: number) => {
+      if (!connIdRef.current || !threadId) return;
+      const now = Date.now();
+      if (now - commentMarkerLastSent.current < COMMENT_MARKER_THROTTLE_MS) return;
+      commentMarkerLastSent.current = now;
+      const payload: CommentMarkerMovePayload = { threadId, x, y };
+      realtimeClient.send({ type: 'comment_marker_move', payload });
+    },
+    [],
+  );
+
   const claimLock = useCallback(
     async (nodeId: string) => {
       if (!connIdRef.current) return { acquired: false, expiresAt: 0 };
@@ -339,6 +360,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
     subscribe,
     sendPatch,
     sendCursor,
+    sendCommentMarkerMove,
     claimLock,
     renewLock,
     releaseLock,

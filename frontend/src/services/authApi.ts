@@ -276,6 +276,9 @@ export const authApi = {
           throw new Error(result.message || "邀请码无效，请检查后重试");
         }
       }
+      if (!payload.inviteCode?.trim()) {
+        throw new Error("invite_code_required");
+      }
       const user: UserInfo = {
         id: `wechat_bind_${Date.now()}`,
         email: "",
@@ -445,6 +448,13 @@ export const authApi = {
       }
       if (trimmedName === payload.phone) {
         throw new Error("用户名不能与手机号相同");
+      }
+      if (!payload.inviteCode?.trim()) {
+        throw new Error("invite_code_required");
+      }
+      const inviteResult = await validateInviteCode(payload.inviteCode.trim());
+      if (!inviteResult.valid) {
+        throw new Error(inviteResult.message || "invalid_invite_code");
       }
       const existsPhoneMatchedByName = users.find((u) => u.phone === trimmedName);
       if (existsPhoneMatchedByName) {

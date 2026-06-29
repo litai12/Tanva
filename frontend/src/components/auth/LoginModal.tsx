@@ -146,23 +146,25 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       setWechatError(t('auth.login.wechatBindIncomplete'));
       return;
     }
-    if (inviteCode.trim()) {
-      if (inviteCodeValid === null) {
-        const result = await validateInviteCode(inviteCode.trim());
-        setInviteCodeValid(result.valid);
-        if (result.valid && result.inviterName) {
-          setInviterName(result.inviterName);
-        } else {
-          setInviterName(null);
-        }
-        if (!result.valid) {
-          setWechatError(result.message || t('auth.register.invalidInvite'));
-          return;
-        }
-      } else if (inviteCodeValid === false) {
-        setWechatError(t('auth.register.invalidInvite'));
+    if (!inviteCode.trim()) {
+      setWechatError(t('auth.register.inviteRequired'));
+      return;
+    }
+    if (inviteCodeValid === null) {
+      const result = await validateInviteCode(inviteCode.trim());
+      setInviteCodeValid(result.valid);
+      if (result.valid && result.inviterName) {
+        setInviterName(result.inviterName);
+      } else {
+        setInviterName(null);
+      }
+      if (!result.valid) {
+        setWechatError(result.message || t('auth.register.invalidInvite'));
         return;
       }
+    } else if (inviteCodeValid === false) {
+      setWechatError(t('auth.register.invalidInvite'));
+      return;
     }
     setWechatBinding(true);
     setWechatError(null);
@@ -421,6 +423,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                         setInviterName(null);
                       }}
                       onBlur={() => void handleInviteCodeBlur()}
+                      required
                     />
                     {inviteCodeValid !== null ? (
                       <div className="flex items-center gap-2 text-xs">

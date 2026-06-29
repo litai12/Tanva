@@ -39,6 +39,7 @@ const CommentDrawer: React.FC = () => {
         );
       });
     filtered.sort((a, b) => {
+      if (a.resolved !== b.resolved) return a.resolved ? 1 : -1;
       const at = new Date(a.createdAt).getTime();
       const bt = new Date(b.createdAt).getTime();
       return sortDesc ? bt - at : at - bt;
@@ -66,13 +67,14 @@ const CommentDrawer: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      <div style={{ minHeight: 42, flex: '0 0 auto' }} />
       {/* 头部 */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '12px 14px 8px',
+          padding: '8px 14px 8px',
         }}
       >
         <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>评论</span>
@@ -135,7 +137,7 @@ const CommentDrawer: React.FC = () => {
         }}
       >
         <MessageCircle size={14} />
-        点击页面任意位置，可添加评论。
+        点击画板任意位置，可添加评论。
       </div>
 
       {/* 列表 */}
@@ -165,7 +167,7 @@ const CommentDrawer: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar name={first.author.name} url={first.author.avatarUrl} />
+                <Avatar name={first.author.name} url={first.author.avatarUrl} userId={first.author.id} />
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
                   {first.author.name ?? first.author.id.slice(0, 8)}
                 </span>
