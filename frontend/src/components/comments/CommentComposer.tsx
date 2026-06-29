@@ -29,8 +29,12 @@ interface Props {
   onCancel?: () => void;
 }
 
-const Avatar: React.FC<{ name: string | null; url: string | null }> = ({ name, url }) => {
-  const fallback = getDefaultAvatarColor(name);
+const Avatar: React.FC<{ name: string | null; url: string | null; userId?: string | null }> = ({
+  name,
+  url,
+  userId,
+}) => {
+  const fallback = getDefaultAvatarColor(userId || name);
   return (
     <div
       style={{
@@ -47,7 +51,7 @@ const Avatar: React.FC<{ name: string | null; url: string | null }> = ({ name, u
         flex: '0 0 auto',
       }}
     >
-      {!url && getDefaultAvatarInitial(name)}
+      {!url && getDefaultAvatarInitial(name, userId)}
     </div>
   );
 };
@@ -457,7 +461,7 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
                   textAlign: 'left',
                 }}
               >
-                <Avatar name={c.name} url={c.avatarUrl} />
+                <Avatar name={c.name} url={c.avatarUrl} userId={c.id} />
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {c.name ?? c.id.slice(0, 8)}
                 </span>

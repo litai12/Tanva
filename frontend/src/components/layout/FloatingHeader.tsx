@@ -88,6 +88,7 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import { getDefaultAvatarColor } from "@/utils/defaultAvatar";
 import { ossUploadService } from "@/services/ossUploadService";
 import {
   getBananaRouteSuccessRates,
@@ -216,25 +217,6 @@ const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
 const hasAdminPanelRole = (role?: string | null): boolean => {
   const normalized = (role || "").trim().toLowerCase();
   return normalized === "admin" || normalized === "normal_admin";
-};
-
-const AVATAR_COLORS = [
-  { bg: "#fee2e2", text: "#b91c1c" },
-  { bg: "#ffedd5", text: "#c2410c" },
-  { bg: "#fef3c7", text: "#b45309" },
-  { bg: "#dcfce7", text: "#15803d" },
-  { bg: "#dbeafe", text: "#1d4ed8" },
-  { bg: "#e0e7ff", text: "#4338ca" },
-  { bg: "#f3e8ff", text: "#7e22ce" },
-  { bg: "#fce7f3", text: "#be185d" },
-];
-
-const getAvatarColor = (seed: string) => {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 };
 
 const FloatingHeader: React.FC = () => {
@@ -1350,7 +1332,7 @@ const FloatingHeader: React.FC = () => {
     user?.email ||
     user?.id?.slice(-4) ||
     t("common.user");
-  const avatarColor = getAvatarColor(user?.id || displayName);
+  const avatarColor = getDefaultAvatarColor(user?.id || displayName);
   const renderAvatar = useCallback(
     (sizeClass: string, textClass: string) => (
       <div

@@ -3,6 +3,7 @@ import { useReactFlow, useViewport } from 'reactflow';
 import { Check } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
+import { useAuthStore } from '@/stores/authStore';
 import CommentThreadPopup, { Avatar } from './CommentThreadPopup';
 import CommentComposer from './CommentComposer';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
@@ -31,6 +32,7 @@ const CanvasCommentLayer: React.FC = () => {
     deleteThread,
     setResolved,
     moveThread,
+    previewMoveThread,
   } = useCanvasComments();
 
   const active = useCommentStore((s) => s.active);
@@ -41,6 +43,7 @@ const CanvasCommentLayer: React.FC = () => {
   const closeThread = useCommentStore((s) => s.closeThread);
   const setDraftPin = useCommentStore((s) => s.setDraftPin);
   const consumeFocus = useCommentStore((s) => s.consumeFocus);
+  const currentUser = useAuthStore((s) => s.user);
 
   const layerRef = useRef<HTMLDivElement | null>(null);
   const [layerSize, setLayerSize] = useState({ w: 0, h: 0 });
@@ -153,7 +156,11 @@ const CanvasCommentLayer: React.FC = () => {
     const layerBox = layerRef.current?.getBoundingClientRect();
     const ox = layerBox?.left ?? 0;
     const oy = layerBox?.top ?? 0;
-    setDragOverlay({ id: ds.threadId, x: e.clientX - ds.grabDX - ox, y: e.clientY - ds.grabDY - oy });
+    const screenX = e.clientX - ds.grabDX;
+    const screenY = e.clientY - ds.grabDY;
+    setDragOverlay({ id: ds.threadId, x: screenX - ox, y: screenY - oy });
+    const flow = rf.screenToFlowPosition({ x: screenX, y: screenY });
+    previewMoveThread(ds.threadId, flow.x, flow.y);
   };
 
   const onPinPointerUp = (e: React.PointerEvent, t: CanvasCommentThread) => {
@@ -190,8 +197,26 @@ const CanvasCommentLayer: React.FC = () => {
     return { left, top };
   };
 
+  const clampPanelBesidePin = (anchorX: number, anchorY: number, panelW = PANEL_W) => {
+    const w = layerSize.w || panelW + 2 * PANEL_GAP;
+    const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
+    const rightLeft = anchorX + 48;
+    const leftLeft = anchorX - panelW - 48;
+    const left = rightLeft + panelW <= w - PANEL_GAP ? rightLeft : Math.max(PANEL_GAP, leftLeft);
+    const top = Math.max(PANEL_GAP, Math.min(anchorY - 40, h - PANEL_H_EST - PANEL_GAP));
+    return { left, top };
+  };
+
   const draftScreen = draftPin ? toScreen(draftPin.x, draftPin.y) : null;
-  const currentMember = members.find((m) => m.id === currentUserId) ?? null;
+  const currentMember =
+    members.find((m) => m.id === currentUserId) ??
+    (currentUser?.id
+      ? {
+          id: currentUser.id,
+          name: currentUser.name ?? currentUser.id.slice(0, 8),
+          avatarUrl: currentUser.avatarUrl ?? null,
+        }
+      : null);
 
   return (
     <div
@@ -209,10 +234,10 @@ const CanvasCommentLayer: React.FC = () => {
       {positioned.map((t) => {
         const anchor = toScreen(t.x as number, t.y as number);
         const isDragging = dragOverlay?.id === t.id;
-        const pos = isDragging ? { x: dragOverlay.x, y: dragOverlay.y } : anchor;
         const author = t.comments[0]?.author ?? null;
         const replies = t.comments.filter((c) => !c.deleted).length;
         const isOpen = openThreadId === t.id;
+        const pos = isDragging ? { x: dragOverlay.x, y: dragOverlay.y } : anchor;
         return (
           <button
             key={t.id}
@@ -240,7 +265,12 @@ const CanvasCommentLayer: React.FC = () => {
             }}
           >
             <div style={{ position: 'relative' }}>
-              <Avatar name={author?.name ?? null} url={author?.avatarUrl ?? null} size={28} />
+              <Avatar
+                name={author?.name ?? null}
+                url={author?.avatarUrl ?? null}
+                userId={author?.id ?? null}
+                size={28}
+              />
               {t.resolved && (
                 <span
                   style={{
@@ -294,7 +324,7 @@ const CanvasCommentLayer: React.FC = () => {
         typeof openThreadData.y === 'number' &&
         (() => {
           const anchor = toScreen(openThreadData.x, openThreadData.y);
-          const { left, top } = clampPanel(anchor.x, anchor.y);
+          const { left, top } = clampPanelBesidePin(anchor.x, anchor.y);
           return (
             <div
               data-comment-ui
@@ -348,7 +378,12 @@ const CanvasCommentLayer: React.FC = () => {
                     flex: '0 0 auto',
                   }}
                 >
-                  <Avatar name={currentMember?.name ?? null} url={currentMember?.avatarUrl ?? null} size={34} />
+                  <Avatar
+                    name={currentMember?.name ?? null}
+                    url={currentMember?.avatarUrl ?? null}
+                    userId={currentMember?.id ?? null}
+                    size={34}
+                  />
                 </div>
                 <CommentComposer
                   members={members}

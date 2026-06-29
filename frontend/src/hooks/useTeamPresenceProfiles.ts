@@ -49,7 +49,7 @@ export function useTeamPresenceProfiles(): Record<string, Pick<PresenceUser, 'na
       ...profiles,
       [currentUser.id]: {
         name: currentUser.name ?? currentUser.id.slice(0, 8),
-        avatarUrl: currentUser.avatarUrl ?? profiles[currentUser.id]?.avatarUrl ?? null,
+        avatarUrl: currentUser.avatarUrl ?? null,
       },
     };
   }, [profiles, currentUser?.id, currentUser?.name, currentUser?.avatarUrl]);

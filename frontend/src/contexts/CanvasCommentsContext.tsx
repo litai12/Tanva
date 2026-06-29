@@ -11,6 +11,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useTeamStore } from '@/stores/teamStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useCollab } from '@/collab/CollabContext';
+import type { CommentMarkerMovePayload } from '@/collab/types';
 import { teamApi } from '@/services/teamApi';
 import {
   canvasCommentsApi,
@@ -51,6 +52,7 @@ export interface CanvasCommentsValue {
   deleteThread: (threadId: string) => Promise<void>;
   setResolved: (threadId: string, resolved: boolean) => Promise<void>;
   moveThread: (threadId: string, x: number, y: number) => Promise<void>;
+  previewMoveThread: (threadId: string, x: number, y: number) => void;
   refetch: () => void;
 }
 
@@ -169,9 +171,20 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     if (!collab || !projectId) return;
     const offChanged = collab.subscribe('comment_changed', () => debouncedRefetch());
     const offConnected = collab.subscribe('connected', () => debouncedRefetch());
+    const offMarkerMove = collab.subscribe('comment_marker_move', (env) => {
+      const payload = env.payload as CommentMarkerMovePayload;
+      if (!payload || typeof payload.threadId !== 'string') return;
+      if (typeof payload.x !== 'number' || typeof payload.y !== 'number') return;
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === payload.threadId ? { ...thread, x: payload.x, y: payload.y } : thread,
+        ),
+      );
+    });
     return () => {
       offChanged();
       offConnected();
+      offMarkerMove();
     };
   }, [collab, projectId, debouncedRefetch]);
 
@@ -337,6 +350,14 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     [collab, debouncedRefetch],
   );
 
+  const previewMoveThread = useCallback(
+    (threadId: string, x: number, y: number) => {
+      if (!threadId) return;
+      collab?.sendCommentMarkerMove(threadId, x, y);
+    },
+    [collab],
+  );
+
   const membersWithCurrent = useMemo<MentionCandidate[]>(() => {
     if (!currentUser?.id) return members;
     const current: MentionCandidate = {
@@ -384,6 +405,7 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
       deleteThread,
       setResolved,
       moveThread,
+      previewMoveThread,
       refetch,
     }),
     [
@@ -398,6 +420,7 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
       deleteThread,
       setResolved,
       moveThread,
+      previewMoveThread,
       refetch,
     ],
   );

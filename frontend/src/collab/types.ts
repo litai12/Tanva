@@ -11,6 +11,7 @@ export type CollabEventType =
   | 'connected'
   | 'snapshot_required'
   | 'comment_changed'
+  | 'comment_marker_move'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -125,6 +126,12 @@ export interface CommentChangedPayload {
   nodeId?: string | null;
   threadId: string;
   commentId?: string;
+}
+
+export interface CommentMarkerMovePayload {
+  threadId: string;
+  x: number;
+  y: number;
 }
 
 export type CollabListener = (envelope: CollabEnvelope) => void;

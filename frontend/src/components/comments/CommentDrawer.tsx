@@ -2,11 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { ArrowDownUp, Check, ImageIcon, MessageCircle, Search, X } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
-import { useAuthStore } from '@/stores/authStore';
-import { useCollab } from '@/collab/CollabContext';
-import { usePresence } from '@/hooks/usePresence';
-import { useTeamPresenceProfiles } from '@/hooks/useTeamPresenceProfiles';
-import CollabPresenceBar from '@/components/collab/CollabPresenceBar';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 import { Avatar, relTime } from './CommentThreadPopup';
 
@@ -25,11 +20,6 @@ const CommentDrawer: React.FC = () => {
   const exit = useCommentStore((s) => s.exit);
   const requestFocus = useCommentStore((s) => s.requestFocus);
   const openThreadId = useCommentStore((s) => s.openThreadId);
-  const currentUser = useAuthStore((s) => s.user);
-  const currentUserId = currentUser?.id ?? null;
-  const collab = useCollab();
-  const presence = usePresence(collab ?? undefined);
-  const teamPresenceProfiles = useTeamPresenceProfiles();
 
   const { threads } = useCanvasComments();
   const [queryText, setQueryText] = useState('');
@@ -77,29 +67,14 @@ const CommentDrawer: React.FC = () => {
         overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 14,
-          zIndex: 2,
-        }}
-      >
-        <CollabPresenceBar
-          online={presence.online}
-          currentUserId={currentUserId}
-          variant="inline"
-          fallbackUser={currentUser ?? null}
-          profilesByUserId={teamPresenceProfiles}
-        />
-      </div>
+      <div style={{ minHeight: 42, flex: '0 0 auto' }} />
       {/* 头部 */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '54px 14px 8px',
+          padding: '8px 14px 8px',
         }}
       >
         <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>评论</span>
@@ -192,7 +167,7 @@ const CommentDrawer: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar name={first.author.name} url={first.author.avatarUrl} />
+                <Avatar name={first.author.name} url={first.author.avatarUrl} userId={first.author.id} />
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
                   {first.author.name ?? first.author.id.slice(0, 8)}
                 </span>

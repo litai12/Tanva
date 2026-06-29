@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Canvas Comments: the comment drawer now reserves space for the canvas-level team avatar instead of rendering a duplicate presence bar inside the drawer.
+- Team Collaboration/Profile: the fixed canvas presence avatar keeps the compact 40px avatar styling while continuing to use live profile/member data.
+- Canvas Comments/Profile: comment pins, comment lists, popups, reply inputs, and mention suggestions now use the same user-id-based avatar fallback as profile and presence avatars.
 - Canvas Comments: the new draft comment composer now uses the requested compact empty state and expanded input toolbar while leaving existing reply/edit composer behavior unchanged.
 - Canvas Comments: comment thread popups now match the compact card/reply interaction more closely, with a shorter reply field and image upload controls appearing only after typing.
 - Canvas Comments/Profile: comment thread creation now connects the required Prisma project relation instead of writing only the scalar project id. The profile settings panel now edits avatar uploads, persists only remote avatar URLs, avoids Enter-triggered username saves, and renders deterministic pastel default avatars.

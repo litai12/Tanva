@@ -71,7 +71,7 @@ const CollabPresenceBar: React.FC<Props> = ({
       ? {
           ...u,
           name: profile.name || u.name,
-          avatarUrl: profile.avatarUrl ?? u.avatarUrl ?? null,
+          avatarUrl: profile.avatarUrl ?? null,
         }
       : u;
   });
@@ -92,7 +92,7 @@ const CollabPresenceBar: React.FC<Props> = ({
       <div
         className={
           variant === 'fixed'
-            ? 'flex items-center rounded-full bg-white/90 px-2.5 py-1.5 shadow-md backdrop-blur'
+            ? 'flex items-center'
             : 'flex items-center'
         }
         style={{ pointerEvents: 'auto' }}
@@ -107,7 +107,7 @@ const CollabPresenceBar: React.FC<Props> = ({
               <div
                 key={u.userId}
                 title={isSelf ? `${u.name}（你）` : u.name}
-                className={`${variant === 'inline' ? 'h-10 w-10 shadow-lg' : 'h-8 w-8'} flex items-center justify-center overflow-hidden rounded-full border-2 border-white text-xs font-semibold`}
+                className={`${variant === 'inline' || variant === 'fixed' ? 'h-10 w-10 shadow-lg' : 'h-8 w-8'} flex items-center justify-center overflow-hidden rounded-full border-2 border-white text-xs font-semibold`}
                 style={{ background: u.avatarUrl ? color : pastel.bg, color: pastel.text }}
               >
                 {u.avatarUrl ? (
@@ -120,7 +120,7 @@ const CollabPresenceBar: React.FC<Props> = ({
           })}
           {extra > 0 && (
             <div
-              className={`${variant === 'inline' ? 'h-10 w-10 shadow-lg' : 'h-8 w-8'} flex items-center justify-center rounded-full border-2 border-white bg-gray-500 text-xs font-semibold text-white`}
+              className={`${variant === 'inline' || variant === 'fixed' ? 'h-10 w-10 shadow-lg' : 'h-8 w-8'} flex items-center justify-center rounded-full border-2 border-white bg-gray-500 text-xs font-semibold text-white`}
               title={`另有 ${extra} 人在线`}
             >
               +{extra}

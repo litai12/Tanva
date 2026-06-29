@@ -4,6 +4,7 @@ import { Check, MoreHorizontal, Reply, RotateCcw, Trash2, X } from 'lucide-react
 import type { CanvasComment, CanvasCommentThread } from '@/services/canvasCommentsApi';
 import type { MentionCandidate, ReplyInput } from '@/contexts/CanvasCommentsContext';
 import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
+import { useAuthStore } from '@/stores/authStore';
 import CommentComposer, { type ComposerHandle } from './CommentComposer';
 
 interface Props {
@@ -49,12 +50,13 @@ export function renderBody(body: string): React.ReactNode {
   );
 }
 
-export const Avatar: React.FC<{ name: string | null; url: string | null; size?: number }> = ({
+export const Avatar: React.FC<{ name: string | null; url: string | null; userId?: string | null; size?: number }> = ({
   name,
   url,
+  userId,
   size = 24,
 }) => {
-  const fallback = getDefaultAvatarColor(name);
+  const fallback = getDefaultAvatarColor(userId || name);
   return (
     <div
       style={{
@@ -71,7 +73,7 @@ export const Avatar: React.FC<{ name: string | null; url: string | null; size?: 
         flex: '0 0 auto',
       }}
     >
-      {!url && getDefaultAvatarInitial(name)}
+      {!url && getDefaultAvatarInitial(name, userId)}
     </div>
   );
 };
@@ -133,7 +135,7 @@ const CommentRow: React.FC<{
 
   return (
     <div style={{ display: 'flex', gap: 8, padding: '7px 0' }}>
-      <Avatar name={comment.author.name} url={comment.author.avatarUrl} />
+      <Avatar name={comment.author.name} url={comment.author.avatarUrl} userId={comment.author.id} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>
@@ -253,6 +255,7 @@ const CommentThreadPopup: React.FC<Props> = ({
   onClose,
 }) => {
   const composerRef = useRef<ComposerHandle | null>(null);
+  const currentUser = useAuthStore((s) => s.user);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const canDeleteThread =
@@ -283,7 +286,15 @@ const CommentThreadPopup: React.FC<Props> = ({
   const messages = [...thread.comments].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
-  const currentMember = members.find((m) => m.id === currentUserId) ?? null;
+  const currentMember =
+    members.find((m) => m.id === currentUserId) ??
+    (currentUser?.id
+      ? {
+          id: currentUser.id,
+          name: currentUser.name ?? currentUser.id.slice(0, 8),
+          avatarUrl: currentUser.avatarUrl ?? null,
+        }
+      : null);
 
   return (
     <div
@@ -401,7 +412,11 @@ const CommentThreadPopup: React.FC<Props> = ({
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 16px 16px' }}>
-        <Avatar name={currentMember?.name ?? null} url={currentMember?.avatarUrl ?? null} />
+        <Avatar
+          name={currentMember?.name ?? null}
+          url={currentMember?.avatarUrl ?? null}
+          userId={currentMember?.id ?? null}
+        />
         <CommentComposer
           ref={composerRef}
           members={members}

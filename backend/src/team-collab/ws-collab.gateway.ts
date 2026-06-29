@@ -12,7 +12,7 @@ import {
   channelForUser,
 } from './collab-event-bus.service';
 import { CollabEventLog } from './collab-event-log.service';
-import { CollabEnvelope, CursorPayload, PresenceUserPayload } from './types';
+import { CollabEnvelope, CommentMarkerMovePayload, CursorPayload, PresenceUserPayload } from './types';
 
 const WS_PATH = '/ws/collab';
 const HEARTBEAT_MS = 25_000;
@@ -34,6 +34,7 @@ const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'snapshot_required',
   'access_revoked',
   'comment_changed',
+  'comment_marker_move',
 ]);
 
 interface WsConn {
@@ -323,6 +324,23 @@ export class WsCollabGateway implements OnModuleDestroy {
         senderUserId: conn.userId,
         senderConnId: conn.connId,
       } as CollabEnvelope<CursorPayload>);
+      return;
+    }
+    if (msg?.type === 'comment_marker_move' && conn.projectId) {
+      const p = msg.payload ?? {};
+      if (typeof p.threadId !== 'string' || !p.threadId) return;
+      if (typeof p.x !== 'number' || typeof p.y !== 'number') return;
+      void this.bus.publishTo(channelForProject(conn.projectId), {
+        type: 'comment_marker_move',
+        payload: {
+          threadId: p.threadId,
+          x: p.x,
+          y: p.y,
+        },
+        ts: Date.now(),
+        senderUserId: conn.userId,
+        senderConnId: conn.connId,
+      } as CollabEnvelope<CommentMarkerMovePayload>);
     }
   }
 
