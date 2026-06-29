@@ -53,6 +53,8 @@ export interface NodePatchPayload {
 export interface CanvasImagePatchPayload {
   upsertImages?: Array<Record<string, unknown>>;
   removeImageIds?: string[];
+  upsertPaths?: Array<Record<string, unknown>>;
+  removePathIds?: string[];
 }
 
 export type NodeLockAction = 'claim' | 'release' | 'expired' | 'renewed';

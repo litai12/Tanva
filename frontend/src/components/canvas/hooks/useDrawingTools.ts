@@ -359,8 +359,9 @@ export const useDrawingTools = ({
       if (paper.project && (paper.project as any).emit) {
         (paper.project as any).emit('change');
       }
+      eventHandlers.onPathUpdate?.(pathRef.current);
     }
-  }, [strokeWidth, createFreeDrawPath, drawingState.initialClickPoint, drawingState.dragThreshold]);
+  }, [strokeWidth, createFreeDrawPath, drawingState.initialClickPoint, drawingState.dragThreshold, eventHandlers.onPathUpdate]);
 
   // ========== 矩形绘制功能 ==========
 

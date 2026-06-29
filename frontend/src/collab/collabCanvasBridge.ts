@@ -28,12 +28,15 @@ let subscribed = false;
 let applyingRemote = false;
 const seenSeqs: number[] = [];
 
-function dedupById(arr?: Array<Record<string, unknown>>): Array<Record<string, unknown>> | undefined {
+function dedupById(
+  arr?: Array<Record<string, unknown>>,
+  idKey: string = 'imageId',
+): Array<Record<string, unknown>> | undefined {
   if (!arr || arr.length === 0) return undefined;
   const byId = new Map<string, Record<string, unknown>>();
   const noId: Array<Record<string, unknown>> = [];
   for (const it of arr) {
-    const id = it?.imageId;
+    const id = it?.[idKey];
     if (typeof id === 'string') byId.set(id, it);
     else noId.push(it);
   }
@@ -77,13 +80,15 @@ export const collabCanvasBridge = {
     ensureSubscribed();
   },
   /** 发送图片协作 patch（去抖+合并，按 imageId 去重保留最新）。 */
-  sendImagePatch(patch: CanvasImagePatchPayload): void {
+  sendCanvasPatch(patch: CanvasImagePatchPayload): void {
     const connId = realtimeClient.getConnId();
     if (!connId || applyingRemote) return;
     const prev = pending ?? {};
     pending = {
-      upsertImages: dedupById([...(prev.upsertImages ?? []), ...(patch.upsertImages ?? [])]),
+      upsertImages: dedupById([...(prev.upsertImages ?? []), ...(patch.upsertImages ?? [])], 'imageId'),
       removeImageIds: [...new Set([...(prev.removeImageIds ?? []), ...(patch.removeImageIds ?? [])])],
+      upsertPaths: dedupById([...(prev.upsertPaths ?? []), ...(patch.upsertPaths ?? [])], 'pathId'),
+      removePathIds: [...new Set([...(prev.removePathIds ?? []), ...(patch.removePathIds ?? [])])],
     };
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
@@ -99,5 +104,8 @@ export const collabCanvasBridge = {
         body: JSON.stringify({ patch: toSend, connId }),
       }).catch(() => undefined);
     }, DEBOUNCE_MS);
+  },
+  sendImagePatch(patch: CanvasImagePatchPayload): void {
+    this.sendCanvasPatch(patch);
   },
 };

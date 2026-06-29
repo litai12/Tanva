@@ -1944,9 +1944,20 @@ export class AdminService {
    * 更新用户状态
    */
   async updateUserStatus(userId: string, status: string) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { status },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: { status },
+      });
+
+      if (status === 'banned') {
+        await tx.refreshToken.updateMany({
+          where: { userId, isRevoked: false },
+          data: { isRevoked: true },
+        });
+      }
+
+      return user;
     });
   }
 

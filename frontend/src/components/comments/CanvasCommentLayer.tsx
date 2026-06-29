@@ -11,6 +11,8 @@ import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 const PANEL_W = 360;
 const DRAFT_PANEL_W = 360;
 const PANEL_GAP = 12;
+const DRAFT_AVATAR_BOX = 42;
+const DRAFT_ROW_GAP = 12;
 const DRAG_THRESHOLD = 4;
 
 /**
@@ -207,6 +209,16 @@ const CanvasCommentLayer: React.FC = () => {
     return { left, top };
   };
 
+  const clampDraftBesidePin = (anchorX: number, anchorY: number, composerW = DRAFT_PANEL_W) => {
+    const rowW = DRAFT_AVATAR_BOX + DRAFT_ROW_GAP + composerW;
+    const w = layerSize.w || rowW + 2 * PANEL_GAP;
+    const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
+    const preferredLeft = anchorX - DRAFT_AVATAR_BOX / 2;
+    const left = Math.max(PANEL_GAP, Math.min(preferredLeft, w - rowW - PANEL_GAP));
+    const top = Math.max(PANEL_GAP, Math.min(anchorY - DRAFT_AVATAR_BOX / 2, h - 120));
+    return { left, top, rowW };
+  };
+
   const draftScreen = draftPin ? toScreen(draftPin.x, draftPin.y) : null;
   const currentMember =
     members.find((m) => m.id === currentUserId) ??
@@ -251,8 +263,8 @@ const CanvasCommentLayer: React.FC = () => {
               position: 'absolute',
               left: pos.x,
               top: pos.y,
-              // pin 左下角为尖端，锚点在尖端。
-              transform: 'translate(0, -100%)',
+              // Pin center is the comment anchor, so the marker stays exactly at the click point.
+              transform: 'translate(-50%, -50%)',
               pointerEvents: 'auto',
               padding: 2,
               borderRadius: isOpen ? '50% 50% 50% 20%' : '50%',
@@ -351,7 +363,7 @@ const CanvasCommentLayer: React.FC = () => {
       {draftPin && draftScreen && (
         <>
           {(() => {
-            const { left, top } = clampPanel(draftScreen.x, draftScreen.y, DRAFT_PANEL_W);
+            const { left, top, rowW } = clampDraftBesidePin(draftScreen.x, draftScreen.y, DRAFT_PANEL_W);
             return (
               <div
                 data-comment-ui
@@ -359,10 +371,10 @@ const CanvasCommentLayer: React.FC = () => {
                   position: 'absolute',
                   left,
                   top,
-                  width: DRAFT_PANEL_W,
+                  width: rowW,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 12,
+                  gap: DRAFT_ROW_GAP,
                   pointerEvents: 'auto',
                 }}
                 onClick={(e) => e.stopPropagation()}
