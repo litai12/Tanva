@@ -37,6 +37,18 @@ export class SmsService {
     return Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   }
 
+  // 开发调试万能验证码：默认关闭(fail-closed)。
+  // 仅当 (1) 非生产环境 且 (2) 显式配置了 SMS_DEV_BYPASS_CODE 时才生效；
+  // 不再有写死的默认值，避免生产忘记设 NODE_ENV=production 导致绕过注册限制。
+  private isDevBypassCode(inputCode: string): boolean {
+    if ((this.config.get<string>('NODE_ENV') || process.env.NODE_ENV) === 'production') {
+      return false;
+    }
+    const bypass = this.config.get<string>('SMS_DEV_BYPASS_CODE') || process.env.SMS_DEV_BYPASS_CODE;
+    if (!bypass) return false;
+    return inputCode === bypass;
+  }
+
   private async setCode(phone: string, code: string, ttlSec = 300) {
     if (this.redisClient) {
       await this.redisClient.setex(`sms_code:${phone}`, ttlSec, code);
@@ -150,9 +162,8 @@ export class SmsService {
   }
 
   async verifyCode(phone: string, inputCode: string) {
-    // 临时默认验证码：336699（开发调试用）
-    const DEFAULT_CODE = '336699';
-    if (inputCode === DEFAULT_CODE) {
+    // 万能验证码：仅开发环境生效，生产禁用
+    if (this.isDevBypassCode(inputCode)) {
       return { ok: true };
     }
 
@@ -165,9 +176,8 @@ export class SmsService {
 
   // 仅验证验证码（不删除，用于忘记密码流程中提前验证）
   async checkCode(phone: string, inputCode: string): Promise<{ ok: boolean; msg?: string }> {
-    // 临时默认验证码：336699（开发调试用）
-    const DEFAULT_CODE = '336699';
-    if (inputCode === DEFAULT_CODE) {
+    // 万能验证码：仅开发环境生效，生产禁用
+    if (this.isDevBypassCode(inputCode)) {
       return { ok: true };
     }
 
