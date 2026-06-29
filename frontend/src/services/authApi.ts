@@ -756,7 +756,11 @@ export const authApi = {
       auth: "omit",
       allowRefresh: false,
     });
-    return json<UserInfo>(res);
+    const user = await json<UserInfo>(res);
+    saveSession(user);
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
+    return user;
   },
 
   // 忘记密码重置
