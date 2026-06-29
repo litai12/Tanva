@@ -37,13 +37,16 @@ export class SmsService {
     return Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   }
 
-  // 开发调试万能验证码：仅非生产环境生效，生产(NODE_ENV=production)一律禁用
+  // 开发调试万能验证码：默认关闭(fail-closed)。
+  // 仅当 (1) 非生产环境 且 (2) 显式配置了 SMS_DEV_BYPASS_CODE 时才生效；
+  // 不再有写死的默认值，避免生产忘记设 NODE_ENV=production 导致绕过注册限制。
   private isDevBypassCode(inputCode: string): boolean {
     if ((this.config.get<string>('NODE_ENV') || process.env.NODE_ENV) === 'production') {
       return false;
     }
-    const DEFAULT_CODE = '336699';
-    return inputCode === DEFAULT_CODE;
+    const bypass = this.config.get<string>('SMS_DEV_BYPASS_CODE') || process.env.SMS_DEV_BYPASS_CODE;
+    if (!bypass) return false;
+    return inputCode === bypass;
   }
 
   private async setCode(phone: string, code: string, ttlSec = 300) {
