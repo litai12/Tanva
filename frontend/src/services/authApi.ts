@@ -11,6 +11,7 @@ export type UserInfo = {
   id: string;
   email: string;
   name?: string;
+  avatarUrl?: string | null;
   role?: string;
   phone?: string;
 };
@@ -728,11 +729,12 @@ export const authApi = {
   },
 
   // 更新当前用户资料（用户名）
-  async updateProfile(dto: { name?: string }): Promise<UserInfo> {
+  async updateProfile(dto: { name?: string; avatarUrl?: string | null }): Promise<UserInfo> {
     if (isMock) {
       await delay(200);
       const session = loadSession();
       const user = { ...(session || {}), ...dto } as UserInfo;
+      saveSession(user);
       return user;
     }
 

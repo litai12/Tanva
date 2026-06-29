@@ -99,7 +99,7 @@ export class CanvasCommentsService {
     const mentions = await this.sanitizeMentions(projectId, teamId, dto.mentions);
     const thread = await this.prisma.canvasCommentThread.create({
       data: {
-        projectId,
+        project: { connect: { id: projectId } },
         nodeId: dto.nodeId ?? null,
         x: typeof dto.x === 'number' ? dto.x : null,
         y: typeof dto.y === 'number' ? dto.y : null,

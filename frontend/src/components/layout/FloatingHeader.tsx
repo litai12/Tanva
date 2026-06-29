@@ -54,6 +54,7 @@ import {
   Share2,
   Image as ImageIcon,
   Building2,
+  Camera,
   Pencil,
   X,
 } from "lucide-react";
@@ -87,6 +88,7 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import { ossUploadService } from "@/services/ossUploadService";
 import {
   getBananaRouteSuccessRates,
   type BananaRouteSuccessRatesResponse,
@@ -214,6 +216,25 @@ const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
 const hasAdminPanelRole = (role?: string | null): boolean => {
   const normalized = (role || "").trim().toLowerCase();
   return normalized === "admin" || normalized === "normal_admin";
+};
+
+const AVATAR_COLORS = [
+  { bg: "#fee2e2", text: "#b91c1c" },
+  { bg: "#ffedd5", text: "#c2410c" },
+  { bg: "#fef3c7", text: "#b45309" },
+  { bg: "#dcfce7", text: "#15803d" },
+  { bg: "#dbeafe", text: "#1d4ed8" },
+  { bg: "#e0e7ff", text: "#4338ca" },
+  { bg: "#f3e8ff", text: "#7e22ce" },
+  { bg: "#fce7f3", text: "#be185d" },
+];
+
+const getAvatarColor = (seed: string) => {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 };
 
 const FloatingHeader: React.FC = () => {
@@ -407,6 +428,8 @@ const FloatingHeader: React.FC = () => {
   const [nameInput, setNameInput] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
@@ -559,6 +582,45 @@ const FloatingHeader: React.FC = () => {
       setNameSaving(false);
     }
   }, [nameInput, nameSaving, authUser?.name, t]);
+
+  const handleAvatarFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || avatarSaving) return;
+      if (!file.type.startsWith("image/")) {
+        setNameError("请选择图片文件");
+        return;
+      }
+      setAvatarSaving(true);
+      setNameError(null);
+      try {
+        const result = await ossUploadService.uploadToOSS(file, {
+          dir: "uploads/avatars/",
+          contentType: file.type,
+          fileName: file.name,
+        });
+        const avatarUrl = result.url?.trim();
+        if (!result.success || !avatarUrl) {
+          throw new Error(result.error || "头像上传失败");
+        }
+        const updated = await authApi.updateProfile({ avatarUrl });
+        const current = useAuthStore.getState();
+        useAuthStore
+          .getState()
+          .setAuthenticatedUser(
+            { ...(current.user || {}), ...updated },
+            (current.connection as any) || "server"
+          );
+      } catch (e: any) {
+        console.error("Failed to update avatar:", e);
+        setNameError(e?.message || "头像上传失败");
+      } finally {
+        setAvatarSaving(false);
+      }
+    },
+    [avatarSaving]
+  );
 
   const handleSaveGoogleApiKey = useCallback(async () => {
     if (googleApiKeySaving) return;
@@ -1286,6 +1348,30 @@ const FloatingHeader: React.FC = () => {
     user?.email ||
     user?.id?.slice(-4) ||
     t("common.user");
+  const avatarColor = getAvatarColor(user?.id || displayName);
+  const renderAvatar = useCallback(
+    (sizeClass: string, textClass: string) => (
+      <div
+        className={cn(
+          "overflow-hidden rounded-full flex items-center justify-center font-medium shrink-0",
+          sizeClass,
+          textClass
+        )}
+        style={{ backgroundColor: avatarColor.bg, color: avatarColor.text }}
+      >
+        {user?.avatarUrl ? (
+          <img
+            src={user.avatarUrl}
+            alt={displayName}
+            className='h-full w-full object-cover'
+          />
+        ) : (
+          displayName.charAt(0).toUpperCase()
+        )}
+      </div>
+    ),
+    [avatarColor.bg, avatarColor.text, displayName, user?.avatarUrl]
+  );
   const secondaryId =
     user?.email ||
     (user?.phone
@@ -1480,8 +1566,24 @@ const FloatingHeader: React.FC = () => {
           <div className='pb-6 space-y-5 '>
             {/* User Greeting Section */}
             <div className='flex items-center gap-4 mb-10 mt-8'>
-              <div className='w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-base font-medium text-slate-600 shrink-0'>
-                {displayName.charAt(0).toUpperCase()}
+              <div className='relative shrink-0'>
+                {renderAvatar("w-12 h-12", "text-base")}
+                <button
+                  type='button'
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={avatarSaving}
+                  title='修改头像'
+                  className='absolute -bottom-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-slate-900 text-white shadow-sm transition-colors hover:bg-slate-700 disabled:opacity-50'
+                >
+                  <Camera className='h-3.5 w-3.5' />
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={handleAvatarFileChange}
+                />
               </div>
               <div className='flex-1 min-w-0'>
                 {isEditingName ? (
@@ -1497,7 +1599,6 @@ const FloatingHeader: React.FC = () => {
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
-                            void handleSaveName();
                           } else if (e.key === "Escape") {
                             e.preventDefault();
                             handleCancelEditName();
@@ -3207,9 +3308,7 @@ const FloatingHeader: React.FC = () => {
                     {/* 底部用户信息 */}
                     <div className='px-6 pt-4 mt-auto'>
                       <div className='flex items-center gap-2'>
-                        <div className='w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-white'>
-                          {displayName.charAt(0).toUpperCase()}
-                        </div>
+                        {renderAvatar("w-8 h-8", "text-xs")}
                         <span className='text-sm text-slate-600'>
                           {displayName}
                         </span>
