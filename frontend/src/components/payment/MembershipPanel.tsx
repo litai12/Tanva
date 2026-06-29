@@ -10,7 +10,6 @@ import {
   getMembershipOrders,
   getPaymentMembershipPlans,
   getPaymentStatus,
-  getSeedance2Access,
   type MembershipCurrentResponse,
   type MembershipOrderRecord,
   type PaymentMembershipPlan,
@@ -181,7 +180,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [hasWhitelistTopUpAccess, setHasWhitelistTopUpAccess] = useState(false);
   const [sevenDayRewardMultiplier, setSevenDayRewardMultiplier] = useState(DEFAULT_7_DAY_REWARD_MULTIPLIER);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -198,10 +196,9 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   );
 
   const loadData = useCallback(async () => {
-    const [plansResult, currentResult, seedance2AccessResult, dailyRewardStatusResult] = await Promise.allSettled([
+    const [plansResult, currentResult, dailyRewardStatusResult] = await Promise.allSettled([
       getPaymentMembershipPlans(),
       getMembershipCurrent(),
-      getSeedance2Access(),
       getDailyRewardStatus(),
     ]);
 
@@ -219,13 +216,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       // current 失败时仍允许展示套餐和支付区，避免整块不可用
       console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
       setCurrent(null);
-    }
-
-    if (seedance2AccessResult.status === "fulfilled") {
-      setHasWhitelistTopUpAccess(Boolean(seedance2AccessResult.value.byWhitelist));
-    } else {
-      console.warn("加载白名单状态失败，默认按非白名单处理:", seedance2AccessResult.reason);
-      setHasWhitelistTopUpAccess(false);
     }
 
     if (dailyRewardStatusResult.status === "fulfilled") {
@@ -385,18 +375,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const currentPlanName = isFreeUser
     ? TIER_SERIF_LABEL.free
     : current?.plan?.name || "会员";
-  const currentMonthlyQuota =
-    typeof current?.plan?.monthlyQuotaCredits === "number"
-      ? current.plan.monthlyQuotaCredits
-      : isFreeUser
-        ? 500
-        : 0;
-  const currentDailyGiftCredits =
-    typeof current?.plan?.dailyGiftCredits === "number"
-      ? current.plan.dailyGiftCredits
-      : isFreeUser
-        ? 50
-        : 0;
+  const currentFreeCredits =
+    typeof current?.balances?.freeCredits === "number" ? current.balances.freeCredits : 0;
+  const currentRechargeCredits =
+    typeof current?.balances?.rechargeCredits === "number" ? current.balances.rechargeCredits : 0;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
@@ -618,11 +600,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {[
-                { label: "当前月卡额度", value: `${currentMonthlyQuota} 积分` },
-                { label: "每日赠送", value: `${currentDailyGiftCredits} 积分` },
-                { label: "积分充值", value: hasWhitelistTopUpAccess ? "白名单已开放" : "所有用户开放" },
+                { label: "免费积分", value: `${currentFreeCredits} 积分` },
+                { label: "充值积分", value: `${currentRechargeCredits} 积分` },
               ].map((item) => (
                 <div
                   key={item.label}

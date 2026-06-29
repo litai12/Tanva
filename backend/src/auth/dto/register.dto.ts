@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Length, Matches } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ required: false })
@@ -29,8 +29,8 @@ export class RegisterDto {
   @Matches(/^\d{6}$/, { message: '验证码必须是6位数字' })
   code!: string;
 
-  @ApiProperty({ required: true, description: '邀请码（必填）' })
+  @ApiProperty({ required: false, description: '邀请码（可选）' })
+  @IsOptional()
   @IsString({ message: '邀请码必须是字符串' })
-  @IsNotEmpty({ message: '邀请码不能为空' })
-  inviteCode!: string;
+  inviteCode?: string;
 }

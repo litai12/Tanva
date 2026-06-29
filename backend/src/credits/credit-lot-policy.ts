@@ -275,6 +275,12 @@ function compareLots(
   policy: CreditConsumePolicy,
   scope?: CreditConsumeScope,
 ): number {
+  const leftPriority = left.priority ?? 0;
+  const rightPriority = right.priority ?? 0;
+  if (leftPriority < 0 || rightPriority < 0) {
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+  }
+
   for (const sortKey of policy.sorts) {
     const result = compareLotsBySortKey(left, right, sortKey, policy, scope);
     if (result !== 0) return result;

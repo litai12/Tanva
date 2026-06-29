@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Auth/Register: invite codes are now optional for phone registration and WeChat phone binding account creation; provided codes are still validated and redeemed.
+- Membership/Credits: membership current/me responses now expose free, recharge, subscription, gift, fixed, and total credit balances. The VIP subscription header shows free and recharge credits, removes the old top-up status card, free starter credits are issued once to new users, decay by the daily policy amount only while the user has no paid membership/top-up order, and negative-priority free lots are consumed before paid credits.
 - Admin/Auth: banning a user from user management now revokes active refresh tokens and blocks password, SMS, WeChat, Watcha, refresh, and protected-route auth with the message `此账号已被封控`; switching the status back to active allows login again.
 - Canvas Comments: the comment drawer now reserves space for the canvas-level team avatar instead of rendering a duplicate presence bar inside the drawer.
 - Team Collaboration/Profile: the fixed canvas presence avatar keeps the compact 40px avatar styling while continuing to use live profile/member data.
