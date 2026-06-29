@@ -5110,6 +5110,7 @@ function UsersTab({
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageJumpInput, setPageJumpInput] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [unbindingWechatUserId, setUnbindingWechatUserId] = useState<string | null>(null);
   const [creatingUser, setCreatingUser] = useState(false);
@@ -5522,6 +5523,16 @@ function UsersTab({
     if (normalized.includes("apimart")) return "M";
     if (normalized === "legacy" || normalized.includes("147")) return "A";
     return channel;
+  };
+
+  const handleJumpToPage = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pagination) return;
+    const target = Number.parseInt(pageJumpInput, 10);
+    if (!Number.isFinite(target)) return;
+    const nextPage = Math.min(pagination.totalPages, Math.max(1, target));
+    setPage(nextPage);
+    setPageJumpInput("");
   };
 
   const loadMembershipState = async (userId: string, preferredPlanCode?: string) => {
@@ -6112,6 +6123,27 @@ function UsersTab({
             >
               下一页
             </Button>
+            <form onSubmit={handleJumpToPage} className='ml-2 flex items-center gap-2'>
+              <span className='text-sm text-gray-500'>跳至</span>
+              <Input
+                type='number'
+                min={1}
+                max={pagination.totalPages}
+                value={pageJumpInput}
+                onChange={(event) => setPageJumpInput(event.target.value)}
+                placeholder='页码'
+                className='h-8 w-20 text-center text-sm'
+              />
+              <span className='text-sm text-gray-500'>页</span>
+              <Button
+                type='submit'
+                variant='outline'
+                size='sm'
+                disabled={!pageJumpInput.trim()}
+              >
+                跳转
+              </Button>
+            </form>
           </div>
         </div>
       )}
