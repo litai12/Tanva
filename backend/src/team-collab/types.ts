@@ -24,6 +24,7 @@ export interface CollabEnvelope<T = unknown> {
 export interface CursorPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
   x: number;
   y: number;
@@ -33,6 +34,7 @@ export interface CursorPayload {
 export interface PresenceUserPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
 }
 
@@ -80,6 +82,7 @@ export type ToastKind = 'upload' | 'generate' | 'delete' | 'share' | 'info';
 export interface ToastPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   kind: ToastKind;
   text: string;
 }

@@ -572,6 +572,7 @@ const FloatingHeader: React.FC = () => {
           { ...(current.user || {}), ...updated },
           (current.connection as any) || "server"
         );
+      window.dispatchEvent(new CustomEvent("tanva:profile-updated", { detail: updated }));
       setIsEditingName(false);
     } catch (e: any) {
       console.error("Failed to update username:", e);
@@ -612,6 +613,7 @@ const FloatingHeader: React.FC = () => {
             { ...(current.user || {}), ...updated },
             (current.connection as any) || "server"
           );
+        window.dispatchEvent(new CustomEvent("tanva:profile-updated", { detail: updated }));
       } catch (e: any) {
         console.error("Failed to update avatar:", e);
         setNameError(e?.message || "头像上传失败");

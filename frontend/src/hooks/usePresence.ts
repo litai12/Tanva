@@ -43,7 +43,13 @@ export function usePresence(collab: CanvasCollabHandle | null | undefined): Pres
     const offJoin = collab.subscribe('presence_join', (env: CollabEnvelope) => {
       const p = env.payload as PresenceUser;
       setOnline((prev) => {
-        if (prev.some((x) => x.userId === p.userId)) return prev;
+        if (prev.some((x) => x.userId === p.userId)) {
+          return prev.map((x) =>
+            x.userId === p.userId
+              ? { ...x, ...p, color: x.color ?? p.color ?? colorFor(p.userId) }
+              : x,
+          );
+        }
         return [...prev, { ...p, color: p.color ?? colorFor(p.userId) }];
       });
     });

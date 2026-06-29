@@ -6,7 +6,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Canvas Comments: the new draft comment composer now uses the requested compact empty state and expanded input toolbar while leaving existing reply/edit composer behavior unchanged.
+- Canvas Comments: comment thread popups now match the compact card/reply interaction more closely, with a shorter reply field and image upload controls appearing only after typing.
 - Canvas Comments/Profile: comment thread creation now connects the required Prisma project relation instead of writing only the scalar project id. The profile settings panel now edits avatar uploads, persists only remote avatar URLs, avoids Enter-triggered username saves, and renders deterministic pastel default avatars.
+- Team Collaboration/Profile: presence, cursor, and toast events now use the latest database-backed user name and avatar URL, online collaborator avatars render the profile image with pastel fallbacks, and profile edits refresh the active collaboration connection so teammates see updated identity immediately.
 - Admin/Users: user credit detail recharge cards now count paid membership/WeChat orders instead of only credit transactions; membership order credits are displayed from the plan snapshot/quota, while the transaction list keeps showing only actual WeChat recharge ledger rows.
 - Flow/GPT-Image-2: normal route now exposes `1K/2K/4K` in the resolution selector and preserves selected `2K/4K` in runtime requests instead of clamping them to `1K`.
 - Admin/Users: user credit details now include paid membership orders and paid WeChat recharge orders in the recharge section, with per-user counts, amounts, credited totals, latest payment time, and recent related orders.

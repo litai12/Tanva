@@ -126,8 +126,11 @@ export default function RegisterPage() {
       return;
     }
     // 如果填写了邀请码，必须验证有效性
-    if (inviteCode.trim()) {
-      if (inviteCodeValid === null) {
+    if (!inviteCode.trim()) {
+      alert(t("auth.register.inviteRequired"));
+      return;
+    }
+    if (inviteCodeValid === null) {
         // 还没验证过，先验证
         const result = await validateInviteCode(inviteCode.trim());
         setInviteCodeValid(result.valid);
@@ -135,10 +138,9 @@ export default function RegisterPage() {
           alert(t("auth.register.invalidInvite"));
           return;
         }
-      } else if (inviteCodeValid === false) {
-        alert(t("auth.register.invalidInvite"));
-        return;
-      }
+    } else if (inviteCodeValid === false) {
+      alert(t("auth.register.invalidInvite"));
+      return;
     }
     try {
       await register(
@@ -267,6 +269,7 @@ export default function RegisterPage() {
                 setInviteCodeValid(null);
               }}
               onBlur={handleInviteCodeBlur}
+              required
               className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 pr-10'
             />
             {inviteCodeValid !== null && (

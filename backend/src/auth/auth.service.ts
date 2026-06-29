@@ -834,6 +834,10 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, userByPhone.id, profile);
       }
 
+      if (!normalizedInviteCode) {
+        throw new BadRequestException("invite_code_required");
+      }
+
       const name =
         this.resolveWechatDisplayName({
           nickname: profile.nickname,
@@ -851,13 +855,11 @@ export class AuthService {
         select: { id: true, email: true, name: true, phone: true, role: true },
       });
 
-      if (normalizedInviteCode) {
-        await this.referralService.useInviteCodeInTransaction(
-          tx,
-          createdUser.id,
-          normalizedInviteCode
-        );
-      }
+      await this.referralService.useInviteCodeInTransaction(
+        tx,
+        createdUser.id,
+        normalizedInviteCode
+      );
 
       return createdUser;
     });
@@ -1257,6 +1259,11 @@ export class AuthService {
     const normalizedPhone = dto.phone.trim();
     const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
+    const normalizedInviteCode = dto.inviteCode?.trim() || null;
+
+    if (!normalizedInviteCode) {
+      throw new BadRequestException("invite_code_required");
+    }
 
     const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
     if (!verify.ok) {
@@ -1309,9 +1316,7 @@ export class AuthService {
         },
       });
 
-      if (dto.inviteCode?.trim()) {
-        await this.referralService.useInviteCodeInTransaction(tx, newUser.id, dto.inviteCode);
-      }
+      await this.referralService.useInviteCodeInTransaction(tx, newUser.id, normalizedInviteCode);
 
       await this.teamCoreService.createPersonalTeam(newUser.id, tx);
 

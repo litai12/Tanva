@@ -41,6 +41,7 @@ interface WsConn {
   connId: string;
   userId: string;
   userName: string;
+  avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
   unsubs: Array<() => void>;
@@ -50,6 +51,7 @@ interface WsConn {
 interface UpgradeCtx {
   userId: string;
   userName: string;
+  avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
   /** 断线重连时客户端携带的最后已处理 seq，用于补帧。 */
@@ -143,7 +145,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     // presence 显示名以 DB 当前用户名为准（JWT 里的 name 可能是登录时的旧值，且
     // 普通访问令牌并不携带 name → 旧逻辑会回落成 userId 前 8 位的占位 id）。
     // 团队内所有人据此看到彼此真实用户名，改名后重连即生效。
-    const userName = await this.resolveDisplayName(userId, tokenName);
+    const profile = await this.resolveUserProfile(userId, tokenName);
 
     // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
     // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
@@ -170,7 +172,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     }
 
     this.wss.handleUpgrade(req, socket, head, (ws) => {
-      void this.register(ws, { userId, userName, teamId, projectId, afterSeq });
+      void this.register(ws, { userId, userName: profile.name, avatarUrl: profile.avatarUrl, teamId, projectId, afterSeq });
     });
   }
 
@@ -178,12 +180,12 @@ export class WsCollabGateway implements OnModuleDestroy {
    * 解析 presence 显示名：DB 当前用户名优先，其次 token 内名字，最后回落 userId 前 8 位。
    * 每次连接查一次（非逐消息），开销可忽略；保证团队成员看到的是真实、最新的用户名。
    */
-  private async resolveDisplayName(userId: string, tokenName: string): Promise<string> {
+  private async resolveUserProfile(userId: string, tokenName: string): Promise<{ name: string; avatarUrl: string | null }> {
     const user = await this.prisma.user
-      .findUnique({ where: { id: userId }, select: { name: true } })
+      .findUnique({ where: { id: userId }, select: { name: true, avatarUrl: true } })
       .catch(() => null);
     const dbName = typeof user?.name === 'string' ? user.name.trim() : '';
-    return dbName || tokenName || userId.slice(0, 8);
+    return { name: dbName || tokenName || userId.slice(0, 8), avatarUrl: user?.avatarUrl ?? null };
   }
 
   /** 以数据库当前角色为准判断超级管理员，避免信任可能过期的 JWT role。 */
@@ -219,6 +221,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       connId: randomUUID(),
       userId: ctx.userId,
       userName: ctx.userName,
+      avatarUrl: ctx.avatarUrl,
       teamId: ctx.teamId,
       projectId: ctx.projectId,
       unsubs: [],
@@ -252,7 +255,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       set.add(conn);
       await this.bus.publishTo(channelForProject(conn.projectId), {
         type: 'presence_join',
-        payload: { userId: conn.userId, name: conn.userName },
+        payload: { userId: conn.userId, name: conn.userName, avatarUrl: conn.avatarUrl },
         ts: Date.now(),
         senderUserId: conn.userId,
         senderConnId: conn.connId,
@@ -311,6 +314,7 @@ export class WsCollabGateway implements OnModuleDestroy {
         payload: {
           userId: conn.userId,
           name: conn.userName,
+          avatarUrl: conn.avatarUrl,
           x: p.x,
           y: p.y,
           viewport: p.viewport,
@@ -328,7 +332,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     if (!set) return [];
     const seen = new Map<string, PresenceUserPayload>();
     for (const c of set) {
-      if (!seen.has(c.userId)) seen.set(c.userId, { userId: c.userId, name: c.userName });
+      if (!seen.has(c.userId)) seen.set(c.userId, { userId: c.userId, name: c.userName, avatarUrl: c.avatarUrl });
     }
     return [...seen.values()];
   }
@@ -359,7 +363,7 @@ export class WsCollabGateway implements OnModuleDestroy {
         if (!stillThere) {
           void this.bus.publishTo(channelForProject(conn.projectId), {
             type: 'presence_leave',
-            payload: { userId: conn.userId, name: conn.userName },
+            payload: { userId: conn.userId, name: conn.userName, avatarUrl: conn.avatarUrl },
             ts: Date.now(),
             senderUserId: conn.userId,
             senderConnId: conn.connId,

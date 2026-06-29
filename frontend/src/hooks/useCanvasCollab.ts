@@ -147,7 +147,12 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   useEffect(() => {
     connect();
+    const handleProfileUpdated = () => {
+      realtimeClient.refresh();
+    };
+    window.addEventListener('tanva:profile-updated', handleProfileUpdated);
     return () => {
+      window.removeEventListener('tanva:profile-updated', handleProfileUpdated);
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;

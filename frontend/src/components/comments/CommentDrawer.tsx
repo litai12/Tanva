@@ -2,6 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { ArrowDownUp, Check, ImageIcon, MessageCircle, Search, X } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
+import { useAuthStore } from '@/stores/authStore';
+import { useCollab } from '@/collab/CollabContext';
+import { usePresence } from '@/hooks/usePresence';
+import { useTeamPresenceProfiles } from '@/hooks/useTeamPresenceProfiles';
+import CollabPresenceBar from '@/components/collab/CollabPresenceBar';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 import { Avatar, relTime } from './CommentThreadPopup';
 
@@ -20,6 +25,11 @@ const CommentDrawer: React.FC = () => {
   const exit = useCommentStore((s) => s.exit);
   const requestFocus = useCommentStore((s) => s.requestFocus);
   const openThreadId = useCommentStore((s) => s.openThreadId);
+  const currentUser = useAuthStore((s) => s.user);
+  const currentUserId = currentUser?.id ?? null;
+  const collab = useCollab();
+  const presence = usePresence(collab ?? undefined);
+  const teamPresenceProfiles = useTeamPresenceProfiles();
 
   const { threads } = useCanvasComments();
   const [queryText, setQueryText] = useState('');
@@ -39,6 +49,7 @@ const CommentDrawer: React.FC = () => {
         );
       });
     filtered.sort((a, b) => {
+      if (a.resolved !== b.resolved) return a.resolved ? 1 : -1;
       const at = new Date(a.createdAt).getTime();
       const bt = new Date(b.createdAt).getTime();
       return sortDesc ? bt - at : at - bt;
@@ -66,13 +77,29 @@ const CommentDrawer: React.FC = () => {
         overflow: 'hidden',
       }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          right: 14,
+          zIndex: 2,
+        }}
+      >
+        <CollabPresenceBar
+          online={presence.online}
+          currentUserId={currentUserId}
+          variant="inline"
+          fallbackUser={currentUser ?? null}
+          profilesByUserId={teamPresenceProfiles}
+        />
+      </div>
       {/* 头部 */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '12px 14px 8px',
+          padding: '54px 14px 8px',
         }}
       >
         <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>评论</span>
@@ -135,7 +162,7 @@ const CommentDrawer: React.FC = () => {
         }}
       >
         <MessageCircle size={14} />
-        点击页面任意位置，可添加评论。
+        点击画板任意位置，可添加评论。
       </div>
 
       {/* 列表 */}

@@ -26,6 +26,7 @@ export interface CollabEnvelope<T = unknown> {
 export interface CursorPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
   // 画布世界坐标（Paper project 坐标），与各端的平移/缩放/窗口无关。
   // 接收端用本地视口把它投影回自己的屏幕坐标，从而做到跨视窗对齐。
@@ -36,6 +37,7 @@ export interface CursorPayload {
 export interface PresenceUser {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
 }
 
@@ -79,6 +81,7 @@ export type ToastKind = 'upload' | 'generate' | 'delete' | 'share' | 'info';
 export interface ToastPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   kind: ToastKind;
   text: string;
 }

@@ -75,6 +75,7 @@ const FREE_USER_QUOTA_BUSINESS_TYPES = [
 ];
 const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
 const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
+const ENABLE_FREE_USER_STARTER_QUOTA = false;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
@@ -3286,6 +3287,11 @@ export class CreditsService {
     };
     now?: Date;
   }): Promise<boolean> {
+    if (!ENABLE_FREE_USER_STARTER_QUOTA) {
+      // Product policy: new users no longer receive the 500-credit starter quota.
+      return false;
+    }
+
     try {
       return await this.grantFreeUserStarterQuotaIfNeeded(params);
     } catch (error) {
