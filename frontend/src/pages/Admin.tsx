@@ -161,6 +161,23 @@ const formatYuanAmount = (amount: number) =>
     minimumFractionDigits: 2,
   }).format(Number.isFinite(amount) ? amount : 0);
 
+// 团队积分流水：哪些类型是「扣减」（应显示负号）。与 TeamManagementModal 的口径一致。
+// 注意后端存储约定不统一：deduct/reserve 存正数，admin_deduct 存负数，故符号一律按类型判定，金额取绝对值。
+const TEAM_LEDGER_NEGATIVE_TYPES = new Set(['reserve', 'deduct', 'admin_deduct']);
+
+const teamLedgerEntryLabel = (type: string) => {
+  switch (type) {
+    case 'topup': return '充值';
+    case 'admin_add': return '管理员充值';
+    case 'admin_deduct': return '管理员扣款';
+    case 'reserve': return '冻结';
+    case 'deduct': return '扣款';
+    case 'release': return '解冻';
+    case 'refund': return '退款';
+    default: return type;
+  }
+};
+
 const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
 
 const canAccessAdminPanel = (role?: string | null) => {
@@ -5805,16 +5822,19 @@ function UsersTab({
                         </tr>
                       </thead>
                       <tbody>
-                        {teamCreditHistory.map((r) => (
+                        {teamCreditHistory.map((r) => {
+                          const isNegative = TEAM_LEDGER_NEGATIVE_TYPES.has(r.entryType);
+                          return (
                           <tr key={r.id} className='border-t'>
-                            <td className='px-3 py-2 text-gray-600'>{r.entryType}</td>
-                            <td className={`px-3 py-2 font-medium ${r.amount >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                              {r.amount >= 0 ? '+' : ''}{r.amount}
+                            <td className='px-3 py-2 text-gray-600'>{teamLedgerEntryLabel(r.entryType)}</td>
+                            <td className={`px-3 py-2 font-medium ${isNegative ? 'text-red-500' : 'text-green-600'}`}>
+                              {isNegative ? '-' : '+'}{Math.abs(r.amount).toLocaleString()}
                             </td>
                             <td className='px-3 py-2 text-gray-400 max-w-[160px] truncate'>{r.note || '-'}</td>
                             <td className='px-3 py-2 text-gray-400'>{new Date(r.createdAt).toLocaleDateString('zh-CN')}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
