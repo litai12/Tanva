@@ -3,6 +3,7 @@ import paper from 'paper';
 import { clientToProject, getDpr } from '@/utils/paperCoords';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useTeamStore } from '@/stores/teamStore';
 import { useCollab } from '@/collab/CollabContext';
 import { usePresence } from '@/hooks/usePresence';
 import { useTaskBroadcast } from '@/hooks/useTaskBroadcast';
@@ -26,6 +27,7 @@ const CollabRoot: React.FC = () => {
   const projectId = useProjectStore((s) => s.currentProjectId);
   const user = useAuthStore((s) => s.user);
   const currentUserId = user?.id ?? null;
+  const activeTeam = useTeamStore((s) => s.getActiveTeam());
 
   const toastApiRef = useRef<CollabToastApi | null>(null);
   const setToastApi = useCallback((api: CollabToastApi) => {
@@ -131,12 +133,14 @@ const CollabRoot: React.FC = () => {
   return (
     <>
       <CollabCursorLayer cursors={presence.cursors} />
-      <CollabPresenceBar
-        online={presence.online}
-        currentUserId={currentUserId}
-        fallbackUser={user ?? null}
-        profilesByUserId={teamPresenceProfiles}
-      />
+      {!activeTeam?.isPersonal && (
+        <CollabPresenceBar
+          online={presence.online}
+          currentUserId={currentUserId}
+          fallbackUser={user ?? null}
+          profilesByUserId={teamPresenceProfiles}
+        />
+      )}
       <CollabToastHost apiRef={setToastApi} />
     </>
   );
