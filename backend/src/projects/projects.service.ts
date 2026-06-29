@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
+import { CollabEventBus, channelForTeam } from '../team-collab/collab-event-bus.service';
+import type { CollabEnvelope, TeamProjectsChangeAction, TeamProjectsChangedPayload } from '../team-collab/types';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,7 +29,48 @@ export class ProjectsService {
     private prisma: PrismaService,
     private oss: OssService,
     @Optional() private readonly canvasSse?: CanvasSseManager,
+    @Optional() private readonly bus?: CollabEventBus,
   ) {}
+
+  /**
+   * 向某团队频道广播「团队项目列表已变更」失效事件，让该团队其他在线成员重新拉取列表。
+   * best-effort：未注入 bus 或发布失败均静默，绝不影响项目增删改本身的成功。
+   */
+  private broadcastTeamProjectsChanged(
+    teamId: string,
+    action: TeamProjectsChangeAction,
+    projectId: string,
+    actorUserId?: string | null,
+  ): void {
+    if (!this.bus) return;
+    const env: CollabEnvelope<TeamProjectsChangedPayload> = {
+      type: 'team_projects_changed',
+      payload: { teamId, action, projectId, actorUserId: actorUserId ?? null },
+      ts: Date.now(),
+      senderUserId: actorUserId ?? undefined,
+    };
+    this.bus.publishTo(channelForTeam(teamId), env).catch(() => undefined);
+  }
+
+  /** 对一个项目当前共享到的所有团队广播列表变更（用于重命名/删除等无显式 teamId 的场景）。 */
+  private async broadcastForProjectTeams(
+    projectId: string,
+    action: TeamProjectsChangeAction,
+    actorUserId?: string | null,
+  ): Promise<void> {
+    if (!this.bus) return;
+    try {
+      const shares = await this.prisma.teamProjectShare.findMany({
+        where: { projectId },
+        select: { teamId: true },
+      });
+      for (const s of shares) {
+        this.broadcastTeamProjectsChanged(s.teamId, action, projectId, actorUserId);
+      }
+    } catch {
+      // best-effort，忽略
+    }
+  }
 
   private readonly projectMetadataSelect = {
     id: true,
@@ -106,6 +149,8 @@ export class ProjectsService {
           await this.prisma.teamProjectShare.create({
             data: { projectId: project.id, teamId, access: 'edit', sharedByUserId: userId },
           });
+          // 新建团队项目：通知该团队其他在线成员刷新项目列表（实时同步，免手动刷新）。
+          this.broadcastTeamProjectsChanged(teamId, 'created', project.id, userId);
         }
       }
     }
@@ -153,8 +198,11 @@ export class ProjectsService {
     if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
+    const nextName = payload.name !== undefined ? (payload.name || '未命名项目') : undefined;
+    // 仅在「名称真的变了」时广播，避免缩略图自动保存(thumbnailUrl)频繁触发列表刷新。
+    const nameChanged = nextName !== undefined && nextName !== p.name;
     if (payload.name !== undefined) {
-      data.name = payload.name || '未命名项目';
+      data.name = nextName as string;
     }
     if (payload.thumbnailUrl !== undefined) {
       if (supportsThumbnailColumn) {
@@ -173,6 +221,7 @@ export class ProjectsService {
 
     try {
       const updated = await this.prisma.project.update({ where: { id }, data });
+      if (nameChanged) void this.broadcastForProjectTeams(id, 'renamed', userId);
       return { ...updated, mainUrl: this.oss.publicUrl(updated.mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
     } catch (error: any) {
       if (this.shouldDowngradeThumbnailColumn(error)) {
@@ -187,6 +236,7 @@ export class ProjectsService {
             ) as Prisma.InputJsonValue,
           },
         });
+        if (nameChanged) void this.broadcastForProjectTeams(id, 'renamed', userId);
         return { ...downgraded, mainUrl: this.oss.publicUrl(downgraded.mainKey), thumbnailUrl: this.extractThumbnail(downgraded) || undefined };
       }
       throw error;
@@ -206,7 +256,15 @@ export class ProjectsService {
       });
       if (!manageable) throw new NotFoundException('项目不存在');
     }
+    // 删除会级联清掉 teamProjectShare，故先取出受影响团队，删除后再广播。
+    const affectedTeams = await this.prisma.teamProjectShare.findMany({
+      where: { projectId: id },
+      select: { teamId: true },
+    });
     await this.prisma.project.delete({ where: { id } });
+    for (const s of affectedTeams) {
+      this.broadcastTeamProjectsChanged(s.teamId, 'deleted', id, userId);
+    }
     return { ok: true };
   }
 
@@ -840,11 +898,13 @@ export class ProjectsService {
       throw new ForbiddenException('需要团队 owner 或 admin 权限');
     }
 
-    return this.prisma.teamProjectShare.upsert({
+    const share = await this.prisma.teamProjectShare.upsert({
       where: { projectId_teamId: { projectId, teamId } },
       create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
       update: { access: 'edit', updatedAt: new Date() },
     });
+    this.broadcastTeamProjectsChanged(teamId, 'shared', projectId, userId);
+    return share;
   }
 
   async unshareFromTeam(projectId: string, teamId: string, userId: string) {
@@ -862,6 +922,7 @@ export class ProjectsService {
     await this.prisma.teamProjectShare.delete({
       where: { projectId_teamId: { projectId, teamId } },
     });
+    this.broadcastTeamProjectsChanged(teamId, 'unshared', projectId, userId);
     this.canvasSse?.kickTeamConnections(projectId, teamId);
   }
 
@@ -912,6 +973,7 @@ export class ProjectsService {
       create: { projectId: newProject.id, teamId, access: 'edit', sharedByUserId: userId },
       update: {},
     });
+    this.broadcastTeamProjectsChanged(teamId, 'created', newProject.id, userId);
 
     return { ...newProject, teamId };
   }

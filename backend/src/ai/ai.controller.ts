@@ -82,6 +82,7 @@ import { verify } from 'jsonwebtoken';
 import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
+import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
 import { PDFParse } from 'pdf-parse';
 
 type GenerateImageUrlResult = {
@@ -481,6 +482,7 @@ export class AiController {
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
+    @Optional() private readonly creditCharge?: CreditChargeService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -1772,7 +1774,7 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
-    let teamReserve: { isTeamMode: true; teamId: string; amount: number } | null = null;
+    let chargeHandle: ChargeHandle | null = null;
     const sanitizedRequestParams = requestParams
       ? Object.fromEntries(
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
@@ -1780,14 +1782,11 @@ export class AiController {
       : undefined;
     const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
-    // 团队模式检测（在预扣积分前）：团队项目不扣个人积分
-    const teamId = this.getTeamId(req);
-    const isTeamProject = !!(teamId && this.teamCreditLedger && await this.isNonPersonalTeam(teamId));
-
     try {
-      // 预扣积分（团队模式只建用量记录，不动个人积分）
-      const deductResult = await this.creditsService.preDeductCredits({
+      // 统一计费：团队/个人判定 + 预扣（团队跳过个人积分）+ 团队预留 + teamId 标记，全在一处。
+      chargeHandle = await this.creditCharge!.begin({
         userId,
+        teamId: this.getTeamId(req),
         serviceType,
         model,
         inputImageCount,
@@ -1796,27 +1795,11 @@ export class AiController {
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
         idempotencyKey,
-        skipPersonalDeduction: isTeamProject,
       });
 
-      apiUsageId = deductResult.apiUsageId;
-      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${isTeamProject}`);
+      apiUsageId = chargeHandle.apiUsageId;
+      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
-
-      // 团队积分预留（在个人积分处理后执行）
-      if (isTeamProject && teamId) {
-        const reserved = await this.teamCreditLedger!.reserve({
-          teamId,
-          amount: deductResult.creditsToDeduct,
-          taskId: apiUsageId,
-          taskKind: serviceType,
-          actorUserId: userId,
-        });
-        if (!reserved.reserved) {
-          throw new BadRequestException(reserved.reason ?? '团队积分不足');
-        }
-        teamReserve = { isTeamMode: true, teamId, amount: deductResult.creditsToDeduct };
-      }
 
       // 执行实际操作
       const result = await operation();
@@ -1873,28 +1856,14 @@ export class AiController {
           creditOptions.skipFinalizeSuccessIf(result),
       );
       if (deferFinalize) {
+        // 延迟结算：begin 已给团队记录打了 teamId 标记，后续由前端轮询触发
+        // video-task-success / video-task-refund 反查团队上下文结算。
         return { ...(result as object), apiUsageId } as T;
       }
 
-      // 更新状态为成功
+      // 成功结算：标记成功 + 团队模式确认扣除（个人模式余额已在 begin 扣除）。
       const processingTime = Date.now() - startTime;
-      await this.creditsService.updateApiUsageStatus(
-        apiUsageId,
-        ApiResponseStatus.SUCCESS,
-        undefined,
-        processingTime,
-      );
-
-      // 团队积分确认扣除
-      if (teamReserve) {
-        await this.teamCreditLedger!.deduct({
-          teamId: teamReserve.teamId,
-          amount: teamReserve.amount,
-          taskId: apiUsageId!,
-          taskKind: serviceType,
-          actorUserId: userId,
-        }).catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
-      }
+      await this.creditCharge!.commit(chargeHandle!, { processingTime });
 
       return result;
     } catch (error) {
@@ -1908,43 +1877,32 @@ export class AiController {
         `error=${this.summarizeError(error)}`
       );
 
-      if (apiUsageId) {
-        if (isTeamProject) {
-          // 团队模式：只标记失败，无个人积分需退还
-          await this.creditsService.updateApiUsageStatus(
-            apiUsageId,
-            ApiResponseStatus.FAILED,
-            errorMessage,
-            processingTime,
-          ).catch((e) => this.logger.warn(`团队模式标记失败状态出错: ${e?.message}`));
-        } else {
-          const refunded = await this.markFailedAndRefundWithRetry({
-            userId,
-            apiUsageId,
-            serviceType,
-            errorMessage,
-            processingTime,
-          });
-          if (refunded) {
-            this.logger.warn(
-              `[${serviceType}] Credits successfully refunded for failed operation: ` +
-                `userId=${userId}, apiUsageId=${apiUsageId}`,
-            );
-          } else {
-            this.logger.error(
-              `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
-                `userId=${userId}, apiUsageId=${apiUsageId}`,
-            );
-          }
-        }
-        // 释放团队积分预留
-        if (teamReserve) {
-          await this.teamCreditLedger!.release({
-            teamId: teamReserve.teamId,
-            amount: teamReserve.amount,
-            taskId: apiUsageId,
-          }).catch((e) => this.logger.warn(`团队积分释放失败: ${e?.message}`));
-        }
+      if (apiUsageId && chargeHandle) {
+        // 失败结算：团队模式标记失败+释放预留；个人模式沿用带重试的退款逻辑。
+        await this.creditCharge!.rollback(chargeHandle, {
+          errorMessage,
+          processingTime,
+          personalRefund: async () => {
+            const refunded = await this.markFailedAndRefundWithRetry({
+              userId,
+              apiUsageId: apiUsageId!,
+              serviceType,
+              errorMessage,
+              processingTime,
+            });
+            if (refunded) {
+              this.logger.warn(
+                `[${serviceType}] Credits successfully refunded for failed operation: ` +
+                  `userId=${userId}, apiUsageId=${apiUsageId}`,
+              );
+            } else {
+              this.logger.error(
+                `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+                  `userId=${userId}, apiUsageId=${apiUsageId}`,
+              );
+            }
+          },
+        });
       } else {
         this.logger.error(
           `[${serviceType}] CRITICAL: No apiUsageId available for refund. ` +
@@ -2044,11 +2002,15 @@ export class AiController {
       return result;
     }
 
-    const sanitizedRequestParams = requestParams
-      ? Object.fromEntries(
-          Object.entries(requestParams).filter(([, value]) => value !== undefined),
-        )
-      : undefined;
+    const sanitizedRequestParams = {
+      ...(requestParams
+        ? Object.fromEntries(
+            Object.entries(requestParams).filter(([, value]) => value !== undefined),
+          )
+        : {}),
+      // 团队出资：打 teamId 标记（个人「积分使用记录」据此过滤）。
+      ...(isTeamProject && teamId ? { teamId } : {}),
+    };
 
     // (c) 精确后扣 new-api 回报的积分。
     const deducted = await this.creditsService.deductExact(userId, teamId ?? null, amount, {
@@ -3565,6 +3527,7 @@ export class AiController {
         providerName,
         { traceId, parentRequestId },
         dto.nodeId,
+        this.getTeamId(req),
       );
       return { taskId: task.id, status: task.status } as any;
     }
@@ -5656,9 +5619,11 @@ export class AiController {
       effectiveDto.seedanceModel ||
       effectiveDto.provider;
 
-    // 预扣积分
-    const deductResult = await this.creditsService.preDeductCredits({
+    // 统一计费：团队/个人判定 + 预扣（团队跳过个人积分）+ 团队预留 + teamId 标记。
+    // 异步任务由前端轮询触发 video-task-success / video-task-refund 据 teamId 反查结算。
+    const chargeHandle = await this.creditCharge!.begin({
       userId,
+      teamId: this.getTeamId(req),
       serviceType,
       model: billingModel,
       inputImageCount: effectiveDto.referenceImages?.length || undefined,
@@ -5669,8 +5634,9 @@ export class AiController {
       idempotencyKey,
     });
 
-    const apiUsageId = deductResult.apiUsageId;
-    this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
+    const apiUsageId = chargeHandle.apiUsageId;
+    this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
+
     this.emitVideoProviderGenerationTaskLog({
       stage: 'queued',
       userId,
@@ -5742,14 +5708,10 @@ export class AiController {
         });
       }
 
-      // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款
+      // 兼容“立即出片”供应商：直接标记成功（团队模式同步确认扣除）；
+      // 异步任务维持 pending，交由轮询结果决定是否结算/退款。
       if (result.videoUrl) {
-        await this.creditsService.updateApiUsageStatus(
-          apiUsageId,
-          ApiResponseStatus.SUCCESS,
-          undefined,
-          0,
-        );
+        await this.creditCharge!.commit(chargeHandle, { processingTime: 0 });
       }
 
       // 返回 apiUsageId，前端在任务失败时可请求退款
@@ -5771,20 +5733,26 @@ export class AiController {
         error: errorMessage,
       });
 
-      const refunded = await this.markFailedAndRefundWithRetry({
-        userId,
-        apiUsageId,
-        serviceType,
+      await this.creditCharge!.rollback(chargeHandle, {
         errorMessage,
         processingTime,
+        personalRefund: async () => {
+          const refunded = await this.markFailedAndRefundWithRetry({
+            userId,
+            apiUsageId,
+            serviceType,
+            errorMessage,
+            processingTime,
+          });
+          if (refunded) {
+            this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
+          } else {
+            this.logger.error(
+              `Failed to mark/refund video task after retries. apiUsageId=${apiUsageId}`,
+            );
+          }
+        },
       });
-      if (refunded) {
-        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
-      } else {
-        this.logger.error(
-          `Failed to mark/refund video task after retries. apiUsageId=${apiUsageId}`,
-        );
-      }
       throw error;
     }
   }
@@ -5815,6 +5783,17 @@ export class AiController {
         '视频生成任务失败',
         0,
       );
+
+      // 团队任务：无个人积分需退还（且 refundCredits 会错误地把积分加进个人账户），只释放团队预留。
+      const teamHandle = await this.creditCharge!.resolveHandle(apiUsageId);
+      if (teamHandle) {
+        await this.creditCharge!.rollback(teamHandle, {
+          errorMessage: '视频生成任务失败',
+          processingTime: 0,
+        });
+        this.logger.log(`✅ 视频任务释放团队预留: apiUsageId=${apiUsageId}`);
+        return { success: true, newBalance: 0 };
+      }
 
       // 退还积分
       const result = await this.creditsService.refundCredits(userId, apiUsageId);
@@ -5919,6 +5898,13 @@ export class AiController {
       ? Math.max(0, Math.floor(Number(body?.outputTokens)))
       : undefined;
 
+    // 团队任务：按预留固定额扣团队积分，跳过个人 seed2 token 结算（其会动个人账户）。
+    const teamHandle = await this.creditCharge!.resolveHandle(apiUsageId);
+    if (teamHandle) {
+      await this.creditCharge!.commit(teamHandle, { processingTime });
+      return { success: true };
+    }
+
     const resolvedTokenUsage = await this.resolveSeed2TokenUsageForSuccess({
       userId,
       apiUsageId,
@@ -6012,11 +5998,14 @@ export class AiController {
     };
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    let chargeHandle: ChargeHandle | null = null;
 
     if (userId) {
       await this.creditsService.getOrCreateAccount(userId);
-      const deductResult = await this.creditsService.preDeductCredits({
+      // 统一计费：团队/个人判定 + 预扣 + 团队预留 + teamId 标记。
+      chargeHandle = await this.creditCharge!.begin({
         userId,
+        teamId: this.getTeamId(req),
         serviceType,
         model: billingModel,
         requestParams: creditRequestParams,
@@ -6024,7 +6013,7 @@ export class AiController {
         userAgent: req.headers?.['user-agent'],
         idempotencyKey: this.extractIdempotencyKey(req, creditRequestParams),
       });
-      apiUsageId = deductResult.apiUsageId;
+      apiUsageId = chargeHandle.apiUsageId;
     }
 
     try {
@@ -6088,19 +6077,27 @@ export class AiController {
         },
       };
     } catch (error: any) {
-      if (apiUsageId && userId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          processingTime: Math.max(0, Date.now() - startTime),
+      if (apiUsageId && userId && chargeHandle) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const processingTime = Math.max(0, Date.now() - startTime);
+        await this.creditCharge!.rollback(chargeHandle, {
+          errorMessage,
+          processingTime,
+          personalRefund: async () => {
+            const refunded = await this.markFailedAndRefundWithRetry({
+              userId,
+              apiUsageId: apiUsageId!,
+              serviceType,
+              errorMessage,
+              processingTime,
+            });
+            if (!refunded) {
+              this.logger.error(
+                `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
+              );
+            }
+          },
         });
-        if (!refunded) {
-          this.logger.error(
-            `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
-          );
-        }
       }
       if (error instanceof HttpException) {
         throw error;
@@ -7591,6 +7588,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {
@@ -7628,6 +7626,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {
@@ -7665,6 +7664,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {

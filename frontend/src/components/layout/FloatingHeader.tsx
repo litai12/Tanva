@@ -69,6 +69,7 @@ import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
 import { useProjectStore } from "@/stores/projectStore";
 import { projectApi } from "@/services/projectApi";
+import { TEAM_PROJECTS_CHANGED_EVENT } from "@/hooks/useTeamRealtime";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
 import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
@@ -1055,6 +1056,15 @@ const FloatingHeader: React.FC = () => {
   useEffect(() => {
     if (dropdownContextId === 'personal') return;
     refreshDropdownProjects();
+  }, [dropdownContextId, refreshDropdownProjects]);
+
+  // 实时同步：他人新建/删除/重命名团队项目时，刷新左上角项目下拉的本地列表
+  // （个人身份的 recentProjects 由 store.refreshList 重算，无需在此处理）。
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    const onTeamProjectsChanged = () => refreshDropdownProjects();
+    window.addEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+    return () => window.removeEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
   }, [dropdownContextId, refreshDropdownProjects]);
 
   // 加载用户的 Google API Key 设置

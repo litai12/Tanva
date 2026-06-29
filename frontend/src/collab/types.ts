@@ -11,6 +11,7 @@ export type CollabEventType =
   | 'connected'
   | 'snapshot_required'
   | 'comment_changed'
+  | 'team_projects_changed'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -87,6 +88,21 @@ export interface ConnectedPayload {
   connId: string;
   presence: PresenceUser[];
   degraded?: boolean;
+}
+
+export type TeamProjectsChangeAction =
+  | 'created'
+  | 'deleted'
+  | 'renamed'
+  | 'shared'
+  | 'unshared';
+
+/** 团队项目列表变更失效通知：收到后 debounce 重新拉取列表，不做增量合并。 */
+export interface TeamProjectsChangedPayload {
+  teamId: string;
+  action: TeamProjectsChangeAction;
+  projectId: string;
+  actorUserId?: string | null;
 }
 
 export type TeamCreditsChangeReason =

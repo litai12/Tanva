@@ -524,6 +524,8 @@ interface LedgerEntry {
   taskId?: string;
   taskKind?: string;
   actorUserId?: string;
+  actorName?: string | null;
+  actorPhoneTail?: string | null;
   note?: string;
   createdAt: string;
 }
@@ -598,6 +600,13 @@ function LedgerTab({ teamId }: { teamId: string }) {
                 )}
               </div>
               <p className="text-[10px] text-slate-400 mt-0.5">
+                {(entry.actorName || entry.actorPhoneTail) && (
+                  <span className="text-slate-500">
+                    {entry.actorName || '成员'}
+                    {entry.actorPhoneTail ? `（尾号${entry.actorPhoneTail}）` : ''}
+                    {' · '}
+                  </span>
+                )}
                 {new Date(entry.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>

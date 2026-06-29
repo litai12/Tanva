@@ -3,7 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 
-const RESERVE_TTL_MS = 10 * 60 * 1000; // 10 分钟预留超时
+// 预留超时：须 ≥ 异步任务最大时长（视频/图像异步任务最长 ~15min，见 IMAGE_TASK_MAX_DURATION_MS），
+// 否则慢任务的 reserve 会被 releaseExpiredReserves 提前释放，成功结算 deduct 时 frozenBalance 变负、可用余额虚高。
+const RESERVE_TTL_MS = 20 * 60 * 1000; // 20 分钟预留超时
 
 @Injectable()
 export class TeamCreditLedgerService {
@@ -133,10 +135,15 @@ export class TeamCreditLedgerService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const acc = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
-        await tx.teamCreditLedger.upsert({
+        // 幂等：deduct 流水已存在说明本任务已结算，跳过账户变更，避免重复扣减
+        // （团队结算由前端轮询触发的 video-task-success 调用，可能重复打到）。
+        const existing = await tx.teamCreditLedger.findUnique({
           where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'deduct', taskId } },
-          create: { teamAccId: acc.id, entryType: 'deduct', amount, taskId, taskKind, actorUserId },
-          update: {},
+          select: { id: true },
+        });
+        if (existing) return;
+        await tx.teamCreditLedger.create({
+          data: { teamAccId: acc.id, entryType: 'deduct', amount, taskId, taskKind, actorUserId },
         });
         await tx.teamCreditAccount.update({
           where: { id: acc.id },
@@ -166,12 +173,17 @@ export class TeamCreditLedgerService {
   /** 释放预留（任务失败/取消时调用） */
   async release(params: { teamId: string; amount: number; taskId: string }): Promise<void> {
     const { teamId, amount, taskId } = params;
-    await this.prisma.$transaction(async (tx) => {
+    const released = await this.prisma.$transaction(async (tx) => {
       const acc = await tx.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
-      await tx.teamCreditLedger.upsert({
+      // 幂等：release 流水已存在说明本任务预留已释放，跳过账户/配额回退，避免重复释放
+      // （video-task-refund + 过期 reserve cron 可能对同一 taskId 并发触发）。
+      const existing = await tx.teamCreditLedger.findUnique({
         where: { teamAccId_entryType_taskId: { teamAccId: acc.id, entryType: 'release', taskId } },
-        create: { teamAccId: acc.id, entryType: 'release', amount, taskId },
-        update: {},
+        select: { id: true },
+      });
+      if (existing) return false;
+      await tx.teamCreditLedger.create({
+        data: { teamAccId: acc.id, entryType: 'release', amount, taskId },
       });
       await tx.teamCreditAccount.update({
         where: { id: acc.id },
@@ -189,7 +201,10 @@ export class TeamCreditLedgerService {
           AND l."actorUserId" = tm."userId"
           AND tm."teamId" = ${teamId}
       `;
+      return true;
     });
+    // 幂等跳过时不广播，避免误报可用余额回升
+    if (!released) return;
     void this.publisher?.publish({
       teamId,
       reason: 'release',

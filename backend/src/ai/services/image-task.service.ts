@@ -18,6 +18,7 @@ import {
   TaskStatusPayload,
 } from '../../team-collab/types';
 import { ImageReuseCacheService, type ImageReuseSignature } from './image-reuse-cache.service';
+import { CreditChargeService, type ChargeHandle } from '../../team-credits/credit-charge.service';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -81,6 +82,7 @@ export class ImageTaskService {
     private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
+    @Optional() private readonly creditCharge?: CreditChargeService,
   ) {}
 
   private async publishTaskStatus(
@@ -598,6 +600,7 @@ export class ImageTaskService {
     aiProvider?: string,
     traceContext?: PersistedTraceContext,
     nodeId?: string,
+    teamId?: string,
   ) {
     const persistedTraceContext = captureTraceContext(traceContext);
     const requestPayload = {
@@ -606,6 +609,8 @@ export class ImageTaskService {
       parentRequestId: persistedTraceContext.parentRequestId || null,
       parentSpanId: persistedTraceContext.parentSpanId || null,
       traceFlags: persistedTraceContext.traceFlags ?? 1,
+      // 团队上下文随 payload 落 DB requestData，worker 侧据此走团队积分（请求头此时已不可用）。
+      teamId: teamId ?? null,
     };
 
     // 生成 taskId，完整 payload 进队列，DB 写入推迟到 worker 侧执行（削峰）
@@ -814,24 +819,33 @@ export class ImageTaskService {
         const startedAt = Date.now();
         let effectiveApiUsageId: string | undefined = apiUsageId;
 
+        // 团队上下文（worker 侧请求头已不可用，从 payload 读）。
+        const taskTeamId =
+          typeof taskRequestData?.teamId === 'string' && taskRequestData.teamId.trim().length > 0
+            ? taskRequestData.teamId.trim()
+            : undefined;
+        // 统一计费句柄：begin 后续用于 commit/rollback；团队模式只扣团队、不动个人积分。
+        let chargeHandle: ChargeHandle | null = null;
+
         try {
           // 如果需要自己处理积分，则先预扣积分
           if (needsCreditsProcessing) {
             try {
-              const deductResult = await this.creditsService.preDeductCredits({
+              chargeHandle = await this.creditCharge!.begin({
                 userId: task.userId,
+                teamId: taskTeamId,
                 serviceType: serviceType as any,
                 model,
                 inputImageCount,
                 outputImageCount,
                 requestParams: asyncCreditRequestParams,
               });
-              effectiveApiUsageId = deductResult.apiUsageId;
+              effectiveApiUsageId = chargeHandle.apiUsageId;
               this.logger.debug(
-                `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
+                `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, teamMode=${chargeHandle.teamFunded}`
               );
             } catch (deductError) {
-              // 预扣积分失败，标记任务失败
+              // 预扣/团队预留失败，标记任务失败
               const errorMsg =
                 deductError instanceof Error ? deductError.message : String(deductError);
               this.logger.error(`异步任务预扣积分失败: taskId=${taskId}, error=${errorMsg}`);
@@ -1079,8 +1093,13 @@ export class ImageTaskService {
             },
           );
 
-          // 任务成功，更新积分状态为成功
-          if (effectiveApiUsageId) {
+          // 任务成功：统一结算（标记成功 + 团队模式确认扣除）。
+          if (chargeHandle) {
+            await this.creditCharge!.commit(chargeHandle, {
+              processingTime: Date.now() - startedAt,
+            });
+          } else if (effectiveApiUsageId) {
+            // 控制器侧已预扣的旧链路：worker 只标记成功。
             try {
               await this.creditsService.updateApiUsageStatus(
                 effectiveApiUsageId,
@@ -1137,8 +1156,25 @@ export class ImageTaskService {
             },
           );
 
-          // 任务失败，标记积分状态为失败并触发退款
-          if (effectiveApiUsageId) {
+          // 任务失败：统一结算（团队释放预留 / 个人退款）。
+          if (chargeHandle) {
+            try {
+              await this.creditCharge!.rollback(chargeHandle, {
+                errorMessage,
+                processingTime: Date.now() - startedAt,
+              });
+              this.logger.log(
+                `异步任务失败已结算: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, team=${chargeHandle.teamFunded}`
+              );
+            } catch (creditsError) {
+              const creditsErrorMsg =
+                creditsError instanceof Error ? creditsError.message : String(creditsError);
+              this.logger.error(
+                `异步任务积分退款失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${creditsErrorMsg}`
+              );
+            }
+          } else if (effectiveApiUsageId) {
+            // 控制器侧已预扣的旧链路：worker 标记失败并退款。
             try {
               await this.creditsService.updateApiUsageStatus(
                 effectiveApiUsageId,
@@ -1146,11 +1182,7 @@ export class ImageTaskService {
                 errorMessage,
                 Date.now() - startedAt
               );
-              // 执行退款
               await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
-              this.logger.log(
-                `异步任务失败已退款: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
-              );
             } catch (creditsError) {
               const creditsErrorMsg =
                 creditsError instanceof Error ? creditsError.message : String(creditsError);

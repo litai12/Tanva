@@ -13,6 +13,7 @@ type ProjectState = {
   modalOpen: boolean;
   error: string | null;
   load: () => Promise<void>;
+  refreshList: () => Promise<void>;
   openModal: () => void;
   closeModal: () => void;
   create: (name?: string, opts?: { teamId?: string | null }) => Promise<Project>;
@@ -178,6 +179,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
     } catch (e: unknown) {
       set({ loading: false, error: getErrorMessage(e, '加载项目失败') });
+    }
+  },
+
+  // 轻量刷新：仅按当前身份重拉项目列表并合并，保留当前选中项/弹窗状态，
+  // 不触发 load() 里的自动建项目/自动选中等副作用。用于实时同步他人新建/删除的团队项目。
+  refreshList: async () => {
+    const { activeTeamId, teams } = useTeamStore.getState();
+    const activeTeam = teams.find((t) => t.id === activeTeamId);
+    const isOrgTeam = activeTeam && !activeTeam.isPersonal;
+    try {
+      const projects = isOrgTeam
+        ? await projectApi.listByTeam(activeTeam.id)
+        : await projectApi.list();
+      set((s) => {
+        const recentProjectIds = filterExistingRecentProjectIds(
+          s.recentProjectIds,
+          projects
+        );
+        writeRecentProjectIds(recentProjectIds);
+        // 当前选中项仍在列表中则用最新元数据刷新，否则保持原引用（不打断正在编辑的用户）。
+        const current =
+          projects.find((p) => p.id === s.currentProjectId) ?? s.currentProject;
+        return { projects, recentProjectIds, currentProject: current };
+      });
+    } catch {
+      // best-effort，刷新失败保持原列表
     }
   },
 

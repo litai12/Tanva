@@ -23,6 +23,7 @@ import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
+import CurrentProjectDeletedModal from '@/components/collab/CurrentProjectDeletedModal';
 import { CollabProvider } from '@/collab/CollabContext';
 import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
 import CommentDrawer from '@/components/comments/CommentDrawer';
@@ -155,6 +156,9 @@ const Canvas: React.FC = () => {
 
             {/* Real-time team collaboration overlay (presence, cursors, toasts) */}
             <CollabRoot />
+
+            {/* 当前项目被他人删除时的阻断式交互（另存为新项目 / 返回列表） */}
+            <CurrentProjectDeletedModal />
 
             {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}

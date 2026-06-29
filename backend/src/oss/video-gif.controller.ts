@@ -20,6 +20,9 @@ import { OssService } from './oss.service';
 import { CreditsService } from '../credits/credits.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { ServiceType } from '../credits/credits.config';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
+import { Optional } from '@nestjs/common';
 
 type ConvertVideoToGifDto = {
   videoUrl: string;
@@ -43,7 +46,13 @@ export class VideoGifController {
   constructor(
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    private readonly prisma: PrismaService,
+    @Optional() private readonly creditCharge?: CreditChargeService,
   ) {}
+
+  private getTeamId(req: any): string | undefined {
+    return req?.headers?.['x-team-id'] as string | undefined;
+  }
 
   @Post('convert')
   @ApiOperation({ summary: 'Convert video to GIF using ffmpeg' })
@@ -70,6 +79,7 @@ export class VideoGifController {
     const startTime = Date.now();
     let apiUsageId: string | null = null;
     let tempDir: string | null = null;
+    let chargeHandle: ChargeHandle | null = null;
 
     if (!userId) {
       throw new BadRequestException('需要用户认证');
@@ -78,8 +88,10 @@ export class VideoGifController {
     try {
       await this.creditsService.getOrCreateAccount(userId);
 
-      const deductResult = await this.creditsService.preDeductCredits({
+      // 统一计费：团队/个人判定 + 预扣（团队跳过个人积分）+ 团队预留 + teamId 标记。
+      chargeHandle = await this.creditCharge!.begin({
         userId,
+        teamId: this.getTeamId(req),
         serviceType,
         model: 'ffmpeg-gif',
         outputImageCount: 1,
@@ -93,7 +105,7 @@ export class VideoGifController {
         userAgent: req?.headers?.['user-agent'],
         idempotencyKey,
       });
-      apiUsageId = deductResult.apiUsageId;
+      apiUsageId = chargeHandle.apiUsageId;
 
       tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
 
@@ -130,21 +142,9 @@ export class VideoGifController {
         headers: { 'Content-Type': 'image/gif' },
       });
 
-      if (apiUsageId) {
-        try {
-          await this.creditsService.updateApiUsageStatus(
-            apiUsageId,
-            ApiResponseStatus.SUCCESS,
-            undefined,
-            Date.now() - startTime,
-          );
-        } catch (statusError) {
-          this.logger.warn(
-            `Failed to mark video-to-gif api usage success: ${
-              statusError instanceof Error ? statusError.message : String(statusError)
-            }`,
-          );
-        }
+      if (chargeHandle) {
+        // 成功结算：标记成功 + 团队模式确认扣除。
+        await this.creditCharge!.commit(chargeHandle, { processingTime: Date.now() - startTime });
       }
 
       return {
@@ -158,8 +158,16 @@ export class VideoGifController {
         width,
       };
     } catch (err: any) {
-      if (apiUsageId) {
-        await this.failAndRefund(userId, apiUsageId, err?.message || 'Video to GIF conversion failed', Date.now() - startTime);
+      if (apiUsageId && chargeHandle) {
+        const errorMessage = err?.message || 'Video to GIF conversion failed';
+        const processingTime = Date.now() - startTime;
+        // 团队模式释放预留；个人模式走带状态兜底的退款。
+        await this.creditCharge!.rollback(chargeHandle, {
+          errorMessage,
+          processingTime,
+          personalRefund: () =>
+            this.failAndRefundPersonal(userId, apiUsageId!, errorMessage, processingTime),
+        });
       }
 
       const message = err?.message || 'Video to GIF conversion failed';
@@ -193,7 +201,8 @@ export class VideoGifController {
     return undefined;
   }
 
-  private async failAndRefund(
+  /** 个人模式退款（带 FAILED 状态兜底）；团队模式由 CreditChargeService.rollback 释放预留。 */
+  private async failAndRefundPersonal(
     userId: string,
     apiUsageId: string,
     errorMessage: string,

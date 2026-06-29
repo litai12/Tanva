@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTeamStore } from '../../stores/teamStore';
 import { useAuthStore } from '../../stores/authStore';
 import { teamApi } from '../../services/teamApi';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectApi, type Project } from '../../services/projectApi';
+import { TEAM_PROJECTS_CHANGED_EVENT } from '../../hooks/useTeamRealtime';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -155,14 +156,29 @@ function TeamProjectPickerModal({
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const reload = useCallback(
+    (withSpinner: boolean) => {
+      if (withSpinner) setLoading(true);
+      const fetchFn = isPersonal ? projectApi.list() : projectApi.listByTeam(teamId);
+      fetchFn
+        .then(setProjects)
+        .catch(() => { if (withSpinner) setProjects([]); })
+        .finally(() => { if (withSpinner) setLoading(false); });
+    },
+    [teamId, isPersonal],
+  );
+
   useEffect(() => {
-    setLoading(true);
-    const fetchFn = isPersonal ? projectApi.list() : projectApi.listByTeam(teamId);
-    fetchFn
-      .then(setProjects)
-      .catch(() => setProjects([]))
-      .finally(() => setLoading(false));
-  }, [teamId, isPersonal]);
+    reload(true);
+  }, [reload]);
+
+  // 实时同步：他人新建/删除团队项目时静默重拉（个人 tab 不订阅团队事件，团队 tab 才刷新）。
+  useEffect(() => {
+    if (isPersonal) return;
+    const onTeamProjectsChanged = () => reload(false);
+    window.addEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+    return () => window.removeEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+  }, [isPersonal, reload]);
 
   return createPortal(
     <div

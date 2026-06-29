@@ -9,6 +9,7 @@ export type CollabEventType =
   | 'presence_leave'
   | 'access_revoked'
   | 'comment_changed'
+  | 'team_projects_changed'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -106,6 +107,25 @@ export interface CommentChangedPayload {
   nodeId?: string | null;
   threadId: string;
   commentId?: string;
+}
+
+export type TeamProjectsChangeAction =
+  | 'created'
+  | 'deleted'
+  | 'renamed'
+  | 'shared'
+  | 'unshared';
+
+/**
+ * 团队项目列表变更失效通知（invalidate 风格，对齐 comment_changed）：项目本身已落库，
+ * 此事件只通知该团队的其他在线成员「团队项目列表变了，去重新拉取」，不携带完整列表，
+ * 避免乱序/权限差异。发起者本端 mutation 成功后已直接更新本地 store，不依赖此事件。
+ */
+export interface TeamProjectsChangedPayload {
+  teamId: string;
+  action: TeamProjectsChangeAction;
+  projectId: string;
+  actorUserId?: string | null;
 }
 
 export type TeamCreditsChangeReason =

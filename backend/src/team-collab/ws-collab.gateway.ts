@@ -34,6 +34,7 @@ const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'snapshot_required',
   'access_revoked',
   'comment_changed',
+  'team_projects_changed',
 ]);
 
 interface WsConn {

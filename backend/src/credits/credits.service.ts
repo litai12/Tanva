@@ -6019,6 +6019,8 @@ export class CreditsService {
       if (startDate) where.createdAt.gte = startDate;
       if (endDate) where.createdAt.lte = endDate;
     }
+    // 团队出资的用量记录（requestParams.teamId 已标记）归团队账单，不在个人「积分使用记录」展示。
+    where.NOT = { requestParams: { path: ['teamId'], not: Prisma.DbNull } };
 
     const [records, total] = await Promise.all([
       this.prisma.apiUsageRecord.findMany({

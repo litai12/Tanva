@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import SmartImage from '@/components/ui/SmartImage';
 import { Check, Pencil, Share2, Trash2, Users } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
+import { TEAM_PROJECTS_CHANGED_EVENT } from '@/hooks/useTeamRealtime';
 import { useTranslation } from 'react-i18next';
 import { projectApi, type Project } from '@/services/projectApi';
 import type { ProjectContentSnapshot } from '@/types/project';
@@ -316,6 +317,14 @@ export default function ProjectManagerModal() {
     if (isPersonal) await loadPersonalProjects();
     else await loadTeamProjects(contextId);
   }, [isPersonal, contextId, loadPersonalProjects, loadTeamProjects]);
+
+  // 实时同步：其他成员新建/删除/重命名团队项目时，若本面板打开则自动重拉当前 tab。
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onTeamProjectsChanged = () => { void reloadCurrentContext(); };
+    window.addEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+    return () => window.removeEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+  }, [modalOpen, reloadCurrentContext]);
 
   const [creating, setCreating] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
