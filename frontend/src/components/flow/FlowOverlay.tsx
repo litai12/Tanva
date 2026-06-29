@@ -1024,6 +1024,8 @@ const createThumbnailDataUrl = async (
 
 const FLOW_CLIPBOARD_MIME = "application/x-tanva-flow";
 const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
+const FLOW_INTERACTIVE_TARGET_SELECTOR =
+  ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
 const rawNodeTypes = {
@@ -10122,6 +10124,20 @@ function FlowInner() {
   }, [allowNativeScroll]);
 
   React.useEffect(() => {
+    const markFlowInteractiveEvent = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(FLOW_INTERACTIVE_TARGET_SELECTOR)) {
+        (event as any).__tanvaCanvasEventHandled = true;
+      }
+    };
+
+    window.addEventListener("mousedown", markFlowInteractiveEvent, true);
+    return () => {
+      window.removeEventListener("mousedown", markFlowInteractiveEvent, true);
+    };
+  }, []);
+
+  React.useEffect(() => {
     const clearFlowSelectionDragging = () => {
       document.body.classList.remove("tanva-flow-selection-dragging");
     };
@@ -10145,7 +10161,7 @@ function FlowInner() {
       const target = event.target as HTMLElement | null;
       if (
         target?.closest(
-          ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
+          FLOW_INTERACTIVE_TARGET_SELECTOR
         )
       ) {
         return;

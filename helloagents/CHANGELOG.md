@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Canvas/Flow: dragging Flow nodes while a drawing tool is active now bypasses the Paper canvas drawing event bus, so nodes can move directly without the drawing tool treating the action as a click and switching back to marquee/select mode.
 - Membership/Pricing: yearly membership cards now calculate and label estimated earned credits by year, using the matching monthly plan's immediate credits multiplied by 12 plus 365 daily check-ins and 52 seven-day streak bonuses; monthly cards continue to use the monthly 30-day/4-streak calculation.
 - Auth/Register: invite codes are now optional for phone registration and WeChat phone binding account creation; provided codes are still validated and redeemed.
 - Membership/Credits: membership current/me responses now expose free, recharge, subscription, gift, fixed, and total credit balances. The VIP subscription header shows free and recharge credits, removes the old top-up status card, free starter credits are issued once to new users, decay by the daily policy amount only while the user has no paid membership/top-up order, and negative-priority free lots are consumed before paid credits.
