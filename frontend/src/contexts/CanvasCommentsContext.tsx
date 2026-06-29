@@ -68,7 +68,8 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     const team = s.teams.find((t) => t.id === s.activeTeamId);
     return Boolean(team && !team.isPersonal);
   });
-  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+  const currentUser = useAuthStore((s) => s.user);
+  const currentUserId = currentUser?.id ?? null;
   const collab = useCollab();
 
   const [threads, setThreads] = useState<CanvasCommentThread[]>([]);
@@ -130,13 +131,13 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     refetch();
   }, [projectId, teamIdForReq, refetch]);
 
-  useEffect(() => {
+  const loadMembers = useCallback(() => {
     if (!isTeamMode || !activeTeamId) {
       setMembers([]);
-      return;
+      return undefined;
     }
     let cancelled = false;
-    teamApi
+    const run = () => teamApi
       .getMembers(activeTeamId)
       .then((rows) => {
         if (cancelled) return;
@@ -147,10 +148,22 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
         setMembers(mapped);
       })
       .catch(() => undefined);
+    void run();
     return () => {
       cancelled = true;
     };
   }, [isTeamMode, activeTeamId]);
+
+  useEffect(() => loadMembers(), [loadMembers]);
+
+  useEffect(() => {
+    const onProfileUpdated = () => {
+      loadMembers();
+      refetch();
+    };
+    window.addEventListener('tanva:profile-updated', onProfileUpdated);
+    return () => window.removeEventListener('tanva:profile-updated', onProfileUpdated);
+  }, [loadMembers, refetch]);
 
   useEffect(() => {
     if (!collab || !projectId) return;
@@ -324,12 +337,46 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
     [collab, debouncedRefetch],
   );
 
+  const membersWithCurrent = useMemo<MentionCandidate[]>(() => {
+    if (!currentUser?.id) return members;
+    const current: MentionCandidate = {
+      id: currentUser.id,
+      name: currentUser.name ?? currentUser.id.slice(0, 8),
+      avatarUrl: currentUser.avatarUrl ?? null,
+    };
+    const exists = members.some((m) => m.id === current.id);
+    return exists
+      ? members.map((m) => (m.id === current.id ? { ...m, ...current } : m))
+      : [current, ...members];
+  }, [members, currentUser?.id, currentUser?.name, currentUser?.avatarUrl]);
+
+  const hydratedThreads = useMemo<CanvasCommentThread[]>(() => {
+    if (membersWithCurrent.length === 0) return threads;
+    const profiles = new Map(membersWithCurrent.map((m) => [m.id, m]));
+    return threads.map((thread) => ({
+      ...thread,
+      comments: thread.comments.map((comment) => {
+        const profile = profiles.get(comment.author.id);
+        if (!profile) return comment;
+        const nextAuthor = {
+          ...comment.author,
+          name: profile.name ?? comment.author.name,
+          avatarUrl: profile.avatarUrl ?? null,
+        };
+        if (nextAuthor.name === comment.author.name && nextAuthor.avatarUrl === comment.author.avatarUrl) {
+          return comment;
+        }
+        return { ...comment, author: nextAuthor };
+      }),
+    }));
+  }, [threads, membersWithCurrent]);
+
   const value = useMemo<CanvasCommentsValue>(
     () => ({
-      threads,
+      threads: hydratedThreads,
       loading,
       currentUserId,
-      members,
+      members: membersWithCurrent,
       createThread,
       reply,
       editComment,
@@ -340,10 +387,10 @@ export const CanvasCommentsProvider: React.FC<{ children: React.ReactNode }> = (
       refetch,
     }),
     [
-      threads,
+      hydratedThreads,
       loading,
       currentUserId,
-      members,
+      membersWithCurrent,
       createThread,
       reply,
       editComment,

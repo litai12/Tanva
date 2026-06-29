@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, MoreHorizontal, Reply, RotateCcw, Trash2, X } from 'lucide-react';
 import type { CanvasComment, CanvasCommentThread } from '@/services/canvasCommentsApi';
 import type { MentionCandidate, ReplyInput } from '@/contexts/CanvasCommentsContext';
+import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
 import CommentComposer, { type ComposerHandle } from './CommentComposer';
 
 interface Props {
@@ -52,24 +53,28 @@ export const Avatar: React.FC<{ name: string | null; url: string | null; size?: 
   name,
   url,
   size = 24,
-}) => (
-  <div
-    style={{
-      width: size,
-      height: size,
-      borderRadius: '50%',
-      background: url ? `center/cover no-repeat url(${url})` : '#94a3b8',
-      color: 'white',
-      fontSize: size * 0.45,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      flex: '0 0 auto',
-    }}
-  >
-    {!url && initials(name)}
-  </div>
-);
+}) => {
+  const fallback = getDefaultAvatarColor(name);
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: url ? `center/cover no-repeat url(${url})` : fallback.bg,
+        color: fallback.text,
+        fontSize: size * 0.45,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: '0 0 auto',
+      }}
+    >
+      {!url && getDefaultAvatarInitial(name)}
+    </div>
+  );
+};
 
 export const CommentImages: React.FC<{ urls: string[] }> = ({ urls }) =>
   urls.length === 0 ? null : (

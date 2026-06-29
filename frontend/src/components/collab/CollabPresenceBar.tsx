@@ -1,6 +1,7 @@
 import React from 'react';
 import type { PresenceUser } from '@/collab/types';
 import { colorFor } from '@/collab/presenceColors';
+import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
 
 interface Props {
   online: PresenceUser[];
@@ -100,7 +101,7 @@ const CollabPresenceBar: React.FC<Props> = ({
         <div className="flex -space-x-2">
           {shown.map((u) => {
             const color = u.color ?? colorFor(u.userId);
-            const pastel = pastelFor(u.userId || u.name);
+            const pastel = getDefaultAvatarColor(u.userId || u.name);
             const isSelf = u.userId === currentUserId;
             return (
               <div
@@ -112,7 +113,7 @@ const CollabPresenceBar: React.FC<Props> = ({
                 {u.avatarUrl ? (
                   <img src={u.avatarUrl} alt={u.name} className="h-full w-full object-cover" />
                 ) : (
-                  initials(u.name)
+                  getDefaultAvatarInitial(u.name, u.userId)
                 )}
               </div>
             );

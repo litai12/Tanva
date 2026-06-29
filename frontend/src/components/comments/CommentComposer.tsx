@@ -8,6 +8,7 @@ import React, {
 import { ImagePlus, Loader2, Send, X } from 'lucide-react';
 import { ossUploadService } from '@/services/ossUploadService';
 import { useProjectStore } from '@/stores/projectStore';
+import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
 import type { MentionCandidate } from '@/contexts/CanvasCommentsContext';
 
 export interface ComposerHandle {
@@ -28,24 +29,28 @@ interface Props {
   onCancel?: () => void;
 }
 
-const Avatar: React.FC<{ name: string | null; url: string | null }> = ({ name, url }) => (
-  <div
-    style={{
-      width: 24,
-      height: 24,
-      borderRadius: '50%',
-      background: url ? `center/cover no-repeat url(${url})` : '#94a3b8',
-      color: 'white',
-      fontSize: 11,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      flex: '0 0 auto',
-    }}
-  >
-    {!url && (name?.trim()?.slice(0, 1).toUpperCase() || '?')}
-  </div>
-);
+const Avatar: React.FC<{ name: string | null; url: string | null }> = ({ name, url }) => {
+  const fallback = getDefaultAvatarColor(name);
+  return (
+    <div
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: '50%',
+        background: url ? `center/cover no-repeat url(${url})` : fallback.bg,
+        color: fallback.text,
+        fontSize: 11,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: '0 0 auto',
+      }}
+    >
+      {!url && getDefaultAvatarInitial(name)}
+    </div>
+  );
+};
 
 const MAX_IMAGES = 9;
 
