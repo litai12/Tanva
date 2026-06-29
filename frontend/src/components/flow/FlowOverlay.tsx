@@ -1025,7 +1025,7 @@ const createThumbnailDataUrl = async (
 const FLOW_CLIPBOARD_MIME = "application/x-tanva-flow";
 const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
 const FLOW_INTERACTIVE_TARGET_SELECTOR =
-  ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]";
+  ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
 const rawNodeTypes = {

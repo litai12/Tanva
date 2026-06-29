@@ -203,6 +203,15 @@ interface SpacePanDragState {
 type ImageDragMove = { id: string; position: { x: number; y: number } };
 
 const IMAGE_DRAG_PREVIEW_EVENT = 'tanva:image-drag-preview';
+const DRAWING_MODES: ReadonlySet<DrawMode> = new Set([
+  'line',
+  'arrow',
+  'free',
+  'rect',
+  'circle',
+  'image',
+  '3d-model',
+]);
 
 const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
   if (!item) return true;
@@ -2932,6 +2941,18 @@ export const useInteractionController = ({
         // Middle-click: always pan canvas, prevent default (avoid paste/autoscroll).
         startViewportPanDrag(event, 'middle', 1);
         return;
+      }
+      if (event.button === 0) {
+        const target = event.target instanceof Element ? event.target : null;
+        const isFlowNode = Boolean(target?.closest?.('.react-flow__node'));
+        const currentMode = drawModeRef.current;
+        if (isFlowNode && DRAWING_MODES.has(currentMode)) {
+          drawingToolsRef.current?.resetEraserToolState?.();
+          drawingToolsRef.current.isDrawingRef.current = false;
+          document.body.classList.remove('tanva-canvas-dragging', 'tanva-selection-dragging');
+          setDrawModeRef.current('select');
+          return;
+        }
       }
       if (event.button === 0 && isSpacePressedRef.current && isSelectionLikeMode()) {
         // Space + left-click: pan canvas, prevent input from repositioning text cursor.
