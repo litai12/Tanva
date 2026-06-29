@@ -7,4 +7,9 @@ export class UpdateProfileDto {
   @IsString()
   @Length(1, 50)
   name?: string;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Avatar URL' })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string | null;
 }
