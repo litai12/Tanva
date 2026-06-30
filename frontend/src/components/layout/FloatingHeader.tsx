@@ -72,6 +72,7 @@ import { projectApi } from "@/services/projectApi";
 import { TEAM_PROJECTS_CHANGED_EVENT } from "@/hooks/useTeamRealtime";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
+import { useCommentStore } from "@/stores/commentStore";
 import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -254,6 +255,7 @@ const FloatingHeader: React.FC = () => {
     snapAlignmentEnabled,
     toggleSnapAlignment,
   } = useUIStore();
+  const commentActive = useCommentStore((state) => state.active);
 
   const {
     gridStyle,
@@ -2599,7 +2601,7 @@ const FloatingHeader: React.FC = () => {
         className={cn(
           "tanva-header-shell fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
           showLayerPanel ? "left-[306px]" : "left-0",
-          showLibraryPanel ? "right-80" : "right-0",
+          commentActive ? "right-[338px]" : showLibraryPanel ? "right-80" : "right-0",
           focusMode && "hidden"
         )}
       >

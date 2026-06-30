@@ -1,18 +1,24 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowDownUp, Check, ImageIcon, MessageCircle, Search, X } from 'lucide-react';
+import {
+  ArrowDownUp,
+  Check,
+  ImageIcon,
+  MessageCircle,
+  Search,
+  X,
+} from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';
 import type { CanvasCommentThread } from '@/services/canvasCommentsApi';
 import { Avatar, relTime } from './CommentThreadPopup';
+import CommentComposer from './CommentComposer';
 
-/** 线程的「首条」展示信息（标题/作者/预览）。 */
 function threadSummary(t: CanvasCommentThread) {
   const live = t.comments.filter((c) => !c.deleted);
   const first = live[0] ?? t.comments[0] ?? null;
-  const last = live[live.length - 1] ?? first;
   const replies = live.length;
   const imageCount = live.reduce((acc, c) => acc + (c.imageUrls?.length ?? 0), 0);
-  return { first, last, replies, imageCount };
+  return { first, replies, imageCount };
 }
 
 const CommentDrawer: React.FC = () => {
@@ -21,14 +27,14 @@ const CommentDrawer: React.FC = () => {
   const requestFocus = useCommentStore((s) => s.requestFocus);
   const openThreadId = useCommentStore((s) => s.openThreadId);
 
-  const { threads } = useCanvasComments();
+  const { threads, members, createThread, reply } = useCanvasComments();
   const [queryText, setQueryText] = useState('');
   const [sortDesc, setSortDesc] = useState(true);
 
   const list = useMemo(() => {
     const q = queryText.trim().toLowerCase();
     const filtered = threads
-      .filter((t) => t.comments.some((c) => !c.deleted)) // 全部删完的不显示
+      .filter((t) => t.comments.some((c) => !c.deleted))
       .filter((t) => {
         if (!q) return true;
         return t.comments.some(
@@ -47,189 +53,293 @@ const CommentDrawer: React.FC = () => {
     return filtered;
   }, [threads, queryText, sortDesc]);
 
+  const selectedThread = openThreadId ? threads.find((thread) => thread.id === openThreadId) ?? null : null;
+
   if (!active) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        right: 16,
-        top: 64,
-        bottom: 16,
-        width: 340,
-        zIndex: 60,
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'white',
-        border: '1px solid #e5e7eb',
-        borderRadius: 14,
-        boxShadow: '0 12px 40px rgba(0,0,0,0.16)',
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{ minHeight: 42, flex: '0 0 auto' }} />
-      {/* 头部 */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 14px 8px',
-        }}
-      >
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>评论</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button
-            onClick={() => setSortDesc((v) => !v)}
-            title={sortDesc ? '最新在前' : '最早在前'}
-            style={iconBtn}
-          >
-            <ArrowDownUp size={16} />
-          </button>
-          <button onClick={exit} title="关闭评论" style={iconBtn}>
-            <X size={18} />
-          </button>
-        </div>
-      </div>
+    <aside style={drawerStyle}>
+      <header style={headerStyle}>
+        <span style={titleStyle}>评论</span>
+        <button type="button" onClick={exit} title="关闭评论" style={headerCloseBtnStyle}>
+          <X size={18} strokeWidth={2.1} />
+        </button>
+      </header>
 
-      {/* 搜索 */}
-      <div style={{ padding: '0 14px 8px' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: '#f1f5f9',
-            borderRadius: 10,
-            padding: '6px 10px',
-          }}
-        >
+      <div style={searchRowStyle}>
+        <div style={searchBoxStyle}>
           <Search size={15} color="#94a3b8" />
           <input
             value={queryText}
             onChange={(e) => setQueryText(e.target.value)}
             placeholder="搜索"
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              fontSize: 13,
-            }}
+            style={searchInputStyle}
           />
           {queryText && (
-            <button onClick={() => setQueryText('')} style={{ ...iconBtn, width: 18, height: 18 }}>
-              <X size={13} />
+            <button
+              type="button"
+              onClick={() => setQueryText('')}
+              style={{ ...iconBtn, width: 18, height: 18 }}
+              title="清空搜索"
+            >
+              <X size={18} />
             </button>
           )}
         </div>
+        <button
+          type="button"
+          onClick={() => setSortDesc((v) => !v)}
+          title={sortDesc ? '最新在前' : '最早在前'}
+          style={iconBtn}
+        >
+          <ArrowDownUp size={16} />
+        </button>
       </div>
 
-      {/* 提示 */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '4px 14px 8px',
-          color: '#94a3b8',
-          fontSize: 12,
-        }}
-      >
-        <MessageCircle size={14} />
-        点击画板任意位置，可添加评论。
+      <div style={hintStyle}>
+        <MessageCircle size={15} />
+        <span>点击页面任意位置，可添加评论。</span>
       </div>
 
-      {/* 列表 */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 6px 8px' }}>
+      <div style={listStyle}>
         {list.length === 0 && (
-          <div style={{ padding: '24px 16px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>
-            {queryText ? '没有匹配的评论' : '还没有评论'}
-          </div>
+          <div style={emptyStyle}>{queryText ? '没有匹配的评论' : '还没有评论'}</div>
         )}
-        {list.map((t) => {
-          const { first, replies, imageCount } = threadSummary(t);
+        {list.map((thread) => {
+          const { first, replies, imageCount } = threadSummary(thread);
           if (!first) return null;
-          const selected = openThreadId === t.id;
+          const selected = openThreadId === thread.id;
           return (
             <button
-              key={t.id}
-              onClick={() => requestFocus(t.id)}
+              key={thread.id}
+              type="button"
+              onClick={() => requestFocus(thread.id)}
               style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                border: 'none',
-                background: selected ? '#eff6ff' : 'transparent',
-                borderRadius: 10,
-                padding: '10px 10px',
-                cursor: 'pointer',
+                ...itemStyle,
+                background: selected ? '#f4f6f8' : 'transparent',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar name={first.author.name} url={first.author.avatarUrl} userId={first.author.id} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
-                  {first.author.name ?? first.author.id.slice(0, 8)}
-                </span>
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>{relTime(first.createdAt)}</span>
-                {t.resolved && (
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      color: '#16a34a',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      fontSize: 11,
-                    }}
-                  >
+              <div style={metaRowStyle}>
+                <Avatar
+                  name={first.author.name}
+                  url={first.author.avatarUrl}
+                  userId={first.author.id}
+                />
+                <span style={nameStyle}>{first.author.name ?? first.author.id.slice(0, 8)}</span>
+                <span style={timeStyle}>{relTime(first.createdAt)}</span>
+                {thread.resolved && (
+                  <span style={resolvedStyle}>
                     <Check size={12} /> 已解决
                   </span>
                 )}
               </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: '#334155',
-                  marginTop: 4,
-                  paddingLeft: 32,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                }}
-              >
-                {first.body || (imageCount > 0 ? '' : '（无内容）')}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  marginTop: 4,
-                  paddingLeft: 32,
-                  fontSize: 11,
-                  color: '#94a3b8',
-                }}
-              >
-                {imageCount > 0 && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <ImageIcon size={12} /> {imageCount} 张图片
-                  </span>
-                )}
-                {replies > 1 && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <MessageCircle size={12} /> {replies}
-                  </span>
-                )}
-              </div>
+              <div style={bodyStyle}>{first.body || (imageCount > 0 ? '' : '（无内容）')}</div>
+              {(imageCount > 0 || replies > 1) && (
+                <div style={statsStyle}>
+                  {imageCount > 0 && (
+                    <span style={statItemStyle}>
+                      <ImageIcon size={12} /> {imageCount} 张图片
+                    </span>
+                  )}
+                  {replies > 1 && (
+                    <span style={statItemStyle}>
+                      <MessageCircle size={12} /> {replies}
+                    </span>
+                  )}
+                </div>
+              )}
             </button>
           );
         })}
       </div>
-    </div>
+      <div style={composerWrapStyle}>
+        {selectedThread && (
+          <div style={replyTargetStyle}>
+            <span style={replyTargetTextStyle}>回复当前评论</span>
+          </div>
+        )}
+        <CommentComposer
+          members={members}
+          placeholder={selectedThread ? '回复' : '写评论...'}
+          variant="drawer"
+          onSubmit={async (body, mentions, imageUrls) => {
+            if (selectedThread) {
+              await reply(selectedThread.id, { body, mentions, imageUrls });
+              return;
+            }
+            const created = await createThread({ body, mentions, imageUrls });
+            if (created) requestFocus(created.id);
+          }}
+        />
+      </div>
+    </aside>
   );
+};
+
+const drawerStyle: React.CSSProperties = {
+  position: 'fixed',
+  right: 0,
+  top: 0,
+  bottom: 0,
+  width: 340,
+  zIndex: 60,
+  display: 'flex',
+  flexDirection: 'column',
+  background: '#ffffff',
+  borderLeft: '1px solid #e5e7eb',
+  boxShadow: 'none',
+  overflow: 'hidden',
+};
+
+const headerStyle: React.CSSProperties = {
+  minHeight: 60,
+  display: 'flex',
+  alignItems: 'center',
+  padding: '0 26px',
+  borderBottom: '1px solid #e5e7eb',
+  position: 'relative',
+};
+
+const titleStyle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 700,
+  lineHeight: '20px',
+  color: '#0f172a',
+};
+
+const searchRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '14px 26px 10px',
+};
+
+const searchBoxStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  background: '#f1f5f9',
+  borderRadius: 16,
+  padding: '8px 12px',
+};
+
+const searchInputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  fontSize: 13,
+  color: '#334155',
+};
+
+const hintStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '2px 26px 14px',
+  color: '#64748b',
+  fontSize: 12,
+};
+
+const listStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: 'auto',
+  padding: '0 26px 12px',
+};
+
+const emptyStyle: React.CSSProperties = {
+  padding: '24px 16px',
+  color: '#94a3b8',
+  fontSize: 13,
+  textAlign: 'center',
+};
+
+const itemStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  border: 'none',
+  borderRadius: 8,
+  padding: '12px 10px',
+  marginBottom: 8,
+  cursor: 'pointer',
+};
+
+const metaRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
+const nameStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#0f172a',
+};
+
+const timeStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#94a3b8',
+};
+
+const resolvedStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  color: '#16a34a',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  fontSize: 11,
+};
+
+const bodyStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: '#1f2937',
+  marginTop: 6,
+  paddingLeft: 32,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+};
+
+const statsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  marginTop: 8,
+  paddingLeft: 32,
+  fontSize: 12,
+  color: '#94a3b8',
+};
+
+const statItemStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 3,
+};
+
+const composerWrapStyle: React.CSSProperties = {
+  flex: '0 0 auto',
+  padding: '12px 26px 18px',
+  borderTop: '1px solid #e5e7eb',
+  background: '#ffffff',
+};
+
+const replyTargetStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  minHeight: 18,
+  marginBottom: 8,
+};
+
+const replyTargetTextStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: '18px',
+  color: '#64748b',
 };
 
 const iconBtn: React.CSSProperties = {
@@ -243,6 +353,21 @@ const iconBtn: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+};
+
+const headerCloseBtnStyle: React.CSSProperties = {
+  ...iconBtn,
+  width: 32,
+  height: 32,
+  padding: 0,
+  lineHeight: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  position: 'absolute',
+  right: 16,
+  top: '50%',
+  transform: 'translateY(-50%)',
 };
 
 export default CommentDrawer;

@@ -23,7 +23,7 @@ interface Props {
   initialValue?: string;
   initialImages?: string[];
   submitLabel?: React.ReactNode;
-  variant?: 'default' | 'floatingDraft' | 'threadReply';
+  variant?: 'default' | 'floatingDraft' | 'threadReply' | 'drawer';
   hideCancel?: boolean;
   onSubmit: (body: string, mentions: string[], imageUrls: string[]) => Promise<unknown>;
   onCancel?: () => void;
@@ -168,6 +168,7 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
     const canSend = hasContent && !uploading;
     const isFloatingDraft = variant === 'floatingDraft';
     const isThreadReply = variant === 'threadReply';
+    const isDrawer = variant === 'drawer';
     const isExpanded = (isFloatingDraft || isThreadReply) && hasContent;
     const displayPlaceholder = isFloatingDraft && !isExpanded ? '\u8bc4\u8bba\u5185\u5bb9' : placeholder;
 
@@ -226,7 +227,7 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
         {input}
 
         {!isFloatingDraft && !isThreadReply ? (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: isDrawer ? 'center' : 'flex-end', gap: 6 }}>
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading || images.length >= MAX_IMAGES}
@@ -236,8 +237,8 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
                 background: 'white',
                 color: '#64748b',
                 borderRadius: 8,
-                width: 30,
-                height: 30,
+                width: isDrawer ? 34 : 30,
+                height: isDrawer ? 34 : 30,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -260,16 +261,19 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
                 }
                 if (e.key === 'Escape' && onCancel) onCancel();
               }}
-              rows={2}
+              rows={isDrawer ? 1 : 2}
               style={{
                 flex: 1,
                 resize: 'none',
                 border: '1px solid #e2e8f0',
                 borderRadius: 8,
-                padding: '6px 8px',
+                padding: isDrawer ? '8px 10px' : '6px 8px',
+                height: isDrawer ? 38 : undefined,
                 fontSize: 13,
+                lineHeight: '20px',
                 outline: 'none',
                 fontFamily: 'inherit',
+                overflow: 'hidden',
               }}
             />
             <button
@@ -281,8 +285,8 @@ const CommentComposer = forwardRef<ComposerHandle, Props>(
                 background: canSend ? '#2563eb' : '#cbd5e1',
                 color: 'white',
                 borderRadius: 8,
-                width: 30,
-                height: 30,
+                width: isDrawer ? 34 : 30,
+                height: isDrawer ? 34 : 30,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
