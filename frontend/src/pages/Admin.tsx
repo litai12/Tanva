@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import ApiModelStatsTab from "@/components/admin/ApiModelStatsTab";
+import SystemMonitorPanel from "@/components/admin/SystemMonitorPanel";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
 import { fetchWithAuth } from "@/services/authFetch";
 import { formatCreditBillingRemark } from "@/utils/creditBillingRemark";
@@ -15261,6 +15262,9 @@ export default function Admin() {
                   <DashboardTrendChart data={stats.userTrend} />
                 </div>
                 {dashboardError && <div className='text-sm text-red-500'>{dashboardError}</div>}
+                <div className='pt-2'>
+                  <SystemMonitorPanel />
+                </div>
               </div>
             ) : (
               <div className='text-center py-8 text-gray-500'>加载失败</div>

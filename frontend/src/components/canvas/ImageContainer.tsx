@@ -48,7 +48,11 @@ import { globalImageHistoryApi, type GlobalImageHistoryItem } from "@/services/g
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
-import { editImageViaAPI } from "@/services/aiBackendAPI";
+import {
+  editImageViaAPI,
+  createEditImageTaskViaAPI,
+  pollImageTaskResult,
+} from "@/services/aiBackendAPI";
 import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
 import {
   isPersistableImageRef,
@@ -3469,10 +3473,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             sourceHeight,
           });
 
-          const editResult = await aiImageService.editImage({
+          // 改走【异步图像任务】（与其它 flow 图像节点一致）：创建任务请求很短，
+          // 真正的耗时发生在后端 worker 内部，避开客户端↔后端之间网关 ~180s 长连接
+          // 截断造成的「扣费却拿不到图、且无法退款」孤儿扣费。worker 用统一计费句柄
+          // begin/commit/rollback，失败 / 无图 / 超时一律服务端 rollback+refundCredits，
+          // 即「不给图就退积分」。
+          const isRemoteSource = /^https?:\/\//i.test(baseImage);
+          const createResult = await createEditImageTaskViaAPI({
             prompt:
               "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容。必须保持原始宽高比，禁止裁切、补边、拉伸、透视变化或改动构图。",
-            sourceImage: baseImage,
+            // 优先传远程 URL（避免大 base64 进入 BullMQ/DB；Banana/new-api 线路也更稳）
+            ...(isRemoteSource
+              ? { sourceImageUrl: baseImage }
+              : { sourceImage: baseImage }),
             model: HD_UPSCALE_MODEL,
             aiProvider: HD_UPSCALE_PROVIDER,
             outputFormat: "png",
@@ -3480,6 +3493,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             imageSize: "4K",
             imageOnly: true,
           });
+          if (!createResult.success || !createResult.data?.taskId) {
+            throw new Error(
+              createResult.error?.message || "高清放大任务创建失败"
+            );
+          }
+          const editResult = await pollImageTaskResult(
+            createResult.data.taskId
+          );
 
           // 后端 edit-image 现在统一返回托管 OSS imageUrl（不再回传 base64 imageData），
           // 放置到画布优先透传 URL（handleQuickImageUploaded 支持远程 URL 并跳过重复上传）。

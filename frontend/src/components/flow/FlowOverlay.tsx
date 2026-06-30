@@ -13519,6 +13519,41 @@ function FlowInner() {
         window.dispatchEvent(new CustomEvent("flow:edgesChange"));
       }, 0);
 
+      // 快乐马「多图参考」(happyhorse-1.0-r2v) 默认只渲染 1 个 image-1 句柄
+      // (referenceCount 默认=1)，导致用户连第二张图时被「同句柄替换」规则顶掉第一张。
+      // 该模型支持最多 9 张 reference_image，这里在用户连到当前最后一个可见 image 句柄时
+      // 自动扩出下一个空句柄(referenceCount→N+1，上限 9)，从而可连续接入多张参考图。
+      // 复用既有 flow:updateNodeData 通道(自带 collab 广播)；用 max 合并避免覆盖更大值。
+      try {
+        const hhTarget = rf.getNode(params.target!);
+        if (
+          hhTarget?.type === "happyhorseR2V" &&
+          (((hhTarget.data as any)?.model as string) ||
+            "happyhorse-1.0-r2v") === "happyhorse-1.0-r2v" &&
+          typeof params.targetHandle === "string" &&
+          params.targetHandle.startsWith("image-")
+        ) {
+          const idx = Number(params.targetHandle.slice("image-".length));
+          const rawCount = Number((hhTarget.data as any)?.referenceCount);
+          const curCount = Number.isFinite(rawCount)
+            ? Math.min(9, Math.max(1, Math.round(rawCount)))
+            : 1;
+          if (Number.isFinite(idx) && idx >= curCount && curCount < 9) {
+            const nextCount = Math.min(9, Math.max(curCount, idx + 1));
+            if (nextCount !== curCount) {
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: {
+                    id: hhTarget.id,
+                    patch: { referenceCount: nextCount },
+                  },
+                })
+              );
+            }
+          }
+        }
+      } catch {}
+
       // 若连接到 Image(img)，立即把源图像写入目标
       try {
         const target = rf.getNode(params.target!);
