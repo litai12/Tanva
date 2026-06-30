@@ -1622,7 +1622,7 @@ const LibraryPanel: React.FC = () => {
       {activeTab === "manual" && selectedAsset && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1101] overflow-x-hidden overflow-y-auto'
           style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           {/* 预览图 */}
@@ -1745,7 +1745,7 @@ const LibraryPanel: React.FC = () => {
         selectedHistoryItem && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1101] overflow-x-hidden overflow-y-auto'
           style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
@@ -1862,12 +1862,12 @@ const LibraryPanel: React.FC = () => {
       {/* 主面板 */}
       <div
         data-library-drop-zone='true'
-        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
+        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1100] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
           showLibraryPanel ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {isLibraryDragHovering && (
-          <div className='pointer-events-none absolute inset-0 z-[1010] flex items-start justify-center px-3 pt-3'>
+          <div className='pointer-events-none absolute inset-0 z-[1110] flex items-start justify-center px-3 pt-3'>
             <div className='w-full h-24 rounded-xl border-2 border-dashed border-blue-400/80 bg-blue-50/85 text-blue-700 flex items-center justify-center font-medium shadow-[0_10px_30px_rgba(59,130,246,0.15)] backdrop-blur-sm'>
               {lt("松开添加到库", "Release to add to library")}
             </div>

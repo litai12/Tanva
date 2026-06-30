@@ -2599,6 +2599,7 @@ const FloatingHeader: React.FC = () => {
         className={cn(
           "tanva-header-shell fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
           showLayerPanel ? "left-[306px]" : "left-0",
+          showLibraryPanel ? "right-80" : "right-0",
           focusMode && "hidden"
         )}
       >
