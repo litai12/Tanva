@@ -11,6 +11,7 @@ import { monitorEventLoopDelay, type IntervalHistogram } from 'perf_hooks';
 import { readFileSync } from 'fs';
 import * as os from 'os';
 import * as v8 from 'v8';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /**
  * 系统监控采集器（驻留后台采样 + 快照缓存）
@@ -26,6 +27,12 @@ import * as v8 from 'v8';
 
 const SAMPLE_INTERVAL_MS = 5_000;
 const HISTORY_MAX_POINTS = 120; // 120 × 5s ≈ 10 分钟
+// DB 任务统计较重（GROUP BY error 文本），按 30s 节流（每 6 个采样 tick 跑一次）。
+const TASK_STATS_EVERY_N_TICKS = 6;
+// 错误 / 24h 计数的滚动窗口
+const TASK_ERROR_WINDOW_HOURS = 24;
+const TASK_TOP_ERRORS = 10;
+const TASK_ERROR_MESSAGE_MAXLEN = 300;
 
 // 与 worker / queue 侧保持一致的配置读取（仅展示，不改行为）
 const IMAGE_TASK_MAX_CONCURRENT = Number(
@@ -48,6 +55,29 @@ export interface SystemMonitorTrendPoint {
   externalBytes: number; // external + arrayBuffers
   active: number; // 队列 active 数
   eventLoopP99Ms: number;
+}
+
+export interface TaskStatusBreakdown {
+  queued: number;
+  processing: number;
+  failed24h: number;
+  succeeded24h: number;
+}
+
+export interface TaskErrorItem {
+  message: string;
+  count: number;
+  source: 'image' | 'video';
+}
+
+export interface TaskStats {
+  updatedAt: number;
+  windowHours: number;
+  /** queued + processing across image + video（当前实时积压） */
+  backlogTotal: number;
+  image: TaskStatusBreakdown;
+  video: TaskStatusBreakdown;
+  topErrors: TaskErrorItem[];
 }
 
 export interface SystemMonitorSnapshot {
@@ -115,6 +145,7 @@ export interface SystemMonitorSnapshot {
     cgroupMemoryLimit?: number;
     cgroupMemoryCurrent?: number;
   };
+  tasks: TaskStats | null;
   history: SystemMonitorTrendPoint[];
 }
 
@@ -133,7 +164,13 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
   private snapshot: SystemMonitorSnapshot | null = null;
   private history: SystemMonitorTrendPoint[] = [];
 
-  constructor(private readonly config: ConfigService) {}
+  private tickCount = 0;
+  private taskStats: TaskStats | null = null;
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async onModuleInit() {
     const url =
@@ -242,6 +279,7 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
         totalmem: os.totalmem(),
         freemem: os.freemem(),
       },
+      tasks: this.taskStats,
       history: [],
     };
   }
@@ -250,6 +288,11 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
 
   private async sample(): Promise<void> {
     try {
+      // DB 任务统计：30s 节流，首个 tick 立即跑一次
+      if (this.tickCount % TASK_STATS_EVERY_N_TICKS === 0) {
+        await this.sampleTaskStats();
+      }
+      this.tickCount++;
       const now = Date.now();
 
       // CPU%：相对上次采样窗口的 user+system 占用比例
@@ -356,6 +399,7 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
           cgroupMemoryLimit: cgroup.limit,
           cgroupMemoryCurrent: cgroup.current,
         },
+        tasks: this.taskStats,
         history: [],
       };
 
@@ -376,6 +420,106 @@ export class SystemMonitorService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(`系统监控采样失败: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * DB 任务统计（积压 + 24h 失败/成功 + 错误 Top10）。
+   * 较重，按 TASK_STATS_EVERY_N_TICKS 节流；失败时保留上一次结果，不抹掉面板。
+   */
+  private async sampleTaskStats(): Promise<void> {
+    try {
+      const since = new Date(
+        Date.now() - TASK_ERROR_WINDOW_HOURS * 3600 * 1000,
+      );
+
+      const [
+        imgQueued,
+        imgProcessing,
+        imgFailed24h,
+        imgSucceeded24h,
+        vidQueued,
+        vidProcessing,
+        vidFailed24h,
+        vidSucceeded24h,
+        imgErrorGroups,
+        vidErrorGroups,
+      ] = await Promise.all([
+        this.prisma.imageTask.count({ where: { status: 'queued' } }),
+        this.prisma.imageTask.count({ where: { status: 'processing' } }),
+        // ImageTask 索引为 [status, createdAt]，用 createdAt 命中索引（任务 ~15min 内完结，窗口语义等价）
+        this.prisma.imageTask.count({
+          where: { status: 'failed', createdAt: { gte: since } },
+        }),
+        this.prisma.imageTask.count({
+          where: { status: 'succeeded', createdAt: { gte: since } },
+        }),
+        this.prisma.videoTask.count({ where: { status: 'queued' } }),
+        this.prisma.videoTask.count({ where: { status: 'processing' } }),
+        this.prisma.videoTask.count({
+          where: { status: 'failed', updatedAt: { gte: since } },
+        }),
+        this.prisma.videoTask.count({
+          where: { status: 'succeeded', completedAt: { gte: since } },
+        }),
+        this.prisma.imageTask.groupBy({
+          by: ['error'],
+          where: { status: 'failed', error: { not: null }, createdAt: { gte: since } },
+          _count: { error: true },
+          orderBy: { _count: { error: 'desc' } },
+          take: TASK_TOP_ERRORS,
+        }),
+        this.prisma.videoTask.groupBy({
+          by: ['error'],
+          where: { status: 'failed', error: { not: null }, updatedAt: { gte: since } },
+          _count: { error: true },
+          orderBy: { _count: { error: 'desc' } },
+          take: TASK_TOP_ERRORS,
+        }),
+      ]);
+
+      const topErrors: TaskErrorItem[] = [
+        ...imgErrorGroups.map((g) => ({
+          message: this.truncateError(g.error),
+          count: g._count.error,
+          source: 'image' as const,
+        })),
+        ...vidErrorGroups.map((g) => ({
+          message: this.truncateError(g.error),
+          count: g._count.error,
+          source: 'video' as const,
+        })),
+      ]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, TASK_TOP_ERRORS);
+
+      this.taskStats = {
+        updatedAt: Date.now(),
+        windowHours: TASK_ERROR_WINDOW_HOURS,
+        backlogTotal: imgQueued + imgProcessing + vidQueued + vidProcessing,
+        image: {
+          queued: imgQueued,
+          processing: imgProcessing,
+          failed24h: imgFailed24h,
+          succeeded24h: imgSucceeded24h,
+        },
+        video: {
+          queued: vidQueued,
+          processing: vidProcessing,
+          failed24h: vidFailed24h,
+          succeeded24h: vidSucceeded24h,
+        },
+        topErrors,
+      };
+    } catch (err) {
+      this.logger.debug(`任务统计采样失败: ${(err as Error).message}`);
+    }
+  }
+
+  private truncateError(raw: string | null): string {
+    const s = (raw ?? '').replace(/\s+/g, ' ').trim() || '(空错误)';
+    return s.length > TASK_ERROR_MESSAGE_MAXLEN
+      ? `${s.slice(0, TASK_ERROR_MESSAGE_MAXLEN)}…`
+      : s;
   }
 
   private async sampleRedis(): Promise<SystemMonitorSnapshot['redis']> {

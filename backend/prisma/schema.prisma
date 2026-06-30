@@ -915,3 +915,36 @@ model TeamSubscription {
   @@index([nextCreditRenewalAt, status])
   @@index([teamId, status])
 }
+
+// ── 素材库 / Material Library（个人 + 团队资产，从 TapCanvas-pro 移植）────────────
+// 说明：版本表已折叠为 MaterialAsset.data(Json) + currentVersion 计数器（无版本历史 UI）。
+// currentVersion 仅作展示/计数，不可回滚；API 据此合成 latestVersion 返给前端。
+// 作用域：personal = teamId 为 null 且 ownerId=用户；team = teamId 非空（ownerId 仅记录创建者，团队鉴权按 teamId）。
+model MaterialAsset {
+  id             String   @id @default(uuid())
+  ownerId        String   // 创建者；个人作用域同时用于鉴权
+  teamId         String?  // null = 个人资产
+  folderId       String?  // 自定义文件夹；null = 固定 kind 文件夹
+  kind           String   // character | scene | prop | style | text
+  name           String
+  favorite       Boolean  @default(false)
+  currentVersion Int      @default(1)
+  data           Json     @default("{}") // { imageUrl, url?, thumbnailUrl?, ossKey?, width?, height?, contentType? }
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([ownerId, teamId, kind, updatedAt(sort: Desc)])
+  @@index([teamId, kind, updatedAt(sort: Desc)])
+  @@index([folderId])
+}
+
+model MaterialFolder {
+  id        String   @id @default(uuid())
+  ownerId   String?  // 个人文件夹（teamId 为 null 时使用）
+  teamId    String?  // 团队文件夹
+  name      String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([teamId])
+}

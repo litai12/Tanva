@@ -32,6 +32,110 @@ function formatDuration(sec: number): string {
   return `${d}天${h % 24}小时`;
 }
 
+/** 把快照整理成「可读摘要 + 原始 JSON」的诊断报告，便于粘贴排查。 */
+function buildDiagnosticReport(snap: SystemMonitorSnapshot): string {
+  const { process: p, queue: q, redis: r, os: o, tasks } = snap;
+  const m = p.memory;
+  const pct = (a: number, b: number) =>
+    b > 0 ? `${((a / b) * 100).toFixed(1)}%` : "—";
+  const L: string[] = [];
+  L.push(`# Tanva 系统监控诊断快照`);
+  L.push(
+    `采集时间: ${new Date(snap.timestamp).toLocaleString("zh-CN", { hour12: false })}` +
+      `  | PID ${p.pid} | Node ${p.nodeVersion} | 运行 ${formatDuration(p.uptimeSec)}` +
+      (snap.warmingUp ? " | (预热中)" : ""),
+  );
+  L.push(``);
+  L.push(`## 进程内存（V8 堆 OOM 重点）`);
+  L.push(
+    `heapUsed/堆上限: ${formatBytes(m.heapUsed)} / ${formatBytes(m.heapSizeLimit)} (${pct(m.heapUsed, m.heapSizeLimit)})`,
+  );
+  L.push(`heapTotal: ${formatBytes(m.heapTotal)}`);
+  L.push(
+    `RSS/重启阈值: ${formatBytes(m.rss)} / ${formatBytes(m.rssRestartLimit)} (${pct(m.rss, m.rssRestartLimit)})`,
+  );
+  L.push(`external: ${formatBytes(m.external)} | arrayBuffers: ${formatBytes(m.arrayBuffers)}`);
+  L.push(`RSS−heapTotal(native/堆外): ${formatBytes(Math.max(0, m.rss - m.heapTotal))}`);
+  L.push(``);
+  L.push(`## CPU / 事件循环 / 系统`);
+  L.push(`进程CPU: ${p.cpuPercent}% (相对单核, 共 ${o.cpuCount} 核)`);
+  L.push(
+    `事件循环延迟: P50 ${p.eventLoop.p50Ms}ms | P99 ${p.eventLoop.p99Ms}ms | max ${p.eventLoop.maxMs}ms`,
+  );
+  L.push(`系统负载(1/5/15m): ${o.loadavg.map((n) => n.toFixed(2)).join(" / ")}`);
+  L.push(
+    `系统内存: 可用 ${formatBytes(o.freemem)} / 共 ${formatBytes(o.totalmem)}` +
+      (o.cgroupMemoryLimit ? ` | cgroup 限制 ${formatBytes(o.cgroupMemoryLimit)}` : ""),
+  );
+  L.push(``);
+  L.push(`## 任务队列 (${q.name})`);
+  L.push(
+    `active ${q.counts.active}/${q.config.maxConcurrent} | waiting ${q.counts.waiting} | ` +
+      `delayed ${q.counts.delayed} | failed ${q.counts.failed} | paused ${q.counts.paused} | completed ${q.counts.completed}`,
+  );
+  L.push(``);
+  L.push(`## Redis`);
+  if (r.connected) {
+    L.push(`已连接 ${r.version} | 运行 ${formatDuration(r.uptimeSec)}`);
+    L.push(
+      `内存: 已用 ${formatBytes(r.usedMemory)} | 峰值 ${formatBytes(r.usedMemoryPeak)} | RSS ${formatBytes(r.usedMemoryRss)} | 碎片率 ${r.memFragmentationRatio}`,
+    );
+    L.push(
+      `ops/sec ${r.instantaneousOpsPerSec} | 客户端 ${r.connectedClients}(阻塞 ${r.blockedClients}) | keys ${r.dbsize} | 淘汰/过期 ${r.evictedKeys}/${r.expiredKeys}`,
+    );
+  } else {
+    L.push(`未连接 ⚠️`);
+  }
+  L.push(``);
+  L.push(`## 任务积压 & 错误 Top10`);
+  if (tasks) {
+    L.push(
+      `当前积压(排队+处理中): ${tasks.backlogTotal} | ` +
+        `图片 排队${tasks.image.queued}/处理${tasks.image.processing} 近${tasks.windowHours}h成功${tasks.image.succeeded24h}/失败${tasks.image.failed24h} | ` +
+        `视频 排队${tasks.video.queued}/处理${tasks.video.processing} 近${tasks.windowHours}h成功${tasks.video.succeeded24h}/失败${tasks.video.failed24h}`,
+    );
+    if (tasks.topErrors.length === 0) {
+      L.push(`近 ${tasks.windowHours}h 无失败任务`);
+    } else {
+      tasks.topErrors.forEach((e, i) => {
+        L.push(`${i + 1}. [${e.source === "image" ? "图片" : "视频"}] ×${e.count}  ${e.message}`);
+      });
+    }
+  } else {
+    L.push(`(采集中)`);
+  }
+  L.push(``);
+  L.push(`## 原始快照 JSON`);
+  L.push("```json");
+  L.push(JSON.stringify(snap, null, 2));
+  L.push("```");
+  return L.join("\n");
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to legacy path */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 type Level = "ok" | "warning" | "critical";
 
 const LEVEL_BAR: Record<Level, string> = {
@@ -181,7 +285,9 @@ export default function SystemMonitorPanel() {
   const [snap, setSnap] = useState<SystemMonitorSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -200,8 +306,17 @@ export default function SystemMonitorPanel() {
     timerRef.current = setInterval(() => void load(), REFRESH_MS);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, [load]);
+
+  const handleCopy = useCallback(async () => {
+    if (!snap) return;
+    const ok = await copyToClipboard(buildDiagnosticReport(snap));
+    setCopyState(ok ? "ok" : "fail");
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyState("idle"), 2000);
+  }, [snap]);
 
   if (loading && !snap) {
     return (
@@ -218,7 +333,7 @@ export default function SystemMonitorPanel() {
     );
   }
 
-  const { process: proc, queue, redis, os, history } = snap;
+  const { process: proc, queue, redis, os, history, tasks } = snap;
   const mem = proc.memory;
   const heapRatio = mem.heapSizeLimit > 0 ? mem.heapUsed / mem.heapSizeLimit : 0;
   const activeRatio =
@@ -246,13 +361,33 @@ export default function SystemMonitorPanel() {
 
   return (
     <div className='space-y-3'>
-      <div className='flex items-center justify-between'>
+      <div className='flex items-center justify-between gap-3'>
         <div className='text-base font-semibold text-gray-800'>系统监控</div>
-        <div className='text-xs text-gray-400'>
-          每 15 秒刷新 · PID {proc.pid} · Node {proc.nodeVersion} · 运行{" "}
-          {formatDuration(proc.uptimeSec)}
-          {snap.warmingUp ? " · 采集预热中…" : ""}
-          {error ? <span className='text-red-500'> · {error}</span> : ""}
+        <div className='flex items-center gap-3'>
+          <div className='text-xs text-gray-400 text-right'>
+            每 15 秒刷新 · PID {proc.pid} · Node {proc.nodeVersion} · 运行{" "}
+            {formatDuration(proc.uptimeSec)}
+            {snap.warmingUp ? " · 采集预热中…" : ""}
+            {error ? <span className='text-red-500'> · {error}</span> : ""}
+          </div>
+          <button
+            type='button'
+            onClick={() => void handleCopy()}
+            title='复制当前快照（含队列/Redis/内存/任务积压/错误Top10 + 原始JSON），可直接粘贴给开发排查'
+            className={`whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-medium transition ${
+              copyState === "ok"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : copyState === "fail"
+                  ? "border-red-300 bg-red-50 text-red-700"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {copyState === "ok"
+              ? "✓ 已复制"
+              : copyState === "fail"
+                ? "复制失败"
+                : "📋 复制诊断快照"}
+          </button>
         </div>
       </div>
 
@@ -379,6 +514,97 @@ export default function SystemMonitorPanel() {
           value={formatNumber(queue.counts.completed)}
         />
       </div>
+
+      {/* 任务积压 & 错误 Top10 */}
+      <SectionTitle>
+        任务积压 &amp; 错误 Top {tasks ? tasks.topErrors.length || 10 : 10}
+        {tasks ? (
+          <span className='ml-2 font-normal text-gray-400'>
+            近 {tasks.windowHours}h · {new Date(tasks.updatedAt).toLocaleTimeString("zh-CN", { hour12: false })} 采集
+          </span>
+        ) : null}
+      </SectionTitle>
+      {tasks ? (
+        <>
+          <div className='grid grid-cols-2 md:grid-cols-5 gap-3'>
+            <MiniStat
+              title='当前积压（排队+处理中）'
+              value={formatNumber(tasks.backlogTotal)}
+              subtitle='图片 + 视频'
+              level={
+                tasks.backlogTotal >= 500
+                  ? "critical"
+                  : tasks.backlogTotal >= 100
+                    ? "warning"
+                    : "ok"
+              }
+            />
+            <MiniStat
+              title='图片：排队 / 处理中'
+              value={`${formatNumber(tasks.image.queued)} / ${formatNumber(tasks.image.processing)}`}
+            />
+            <MiniStat
+              title='视频：排队 / 处理中'
+              value={`${formatNumber(tasks.video.queued)} / ${formatNumber(tasks.video.processing)}`}
+            />
+            <MiniStat
+              title={`图片 ${tasks.windowHours}h：成功 / 失败`}
+              value={`${formatNumber(tasks.image.succeeded24h)} / ${formatNumber(tasks.image.failed24h)}`}
+              level={tasks.image.failed24h > 0 ? "warning" : "ok"}
+            />
+            <MiniStat
+              title={`视频 ${tasks.windowHours}h：成功 / 失败`}
+              value={`${formatNumber(tasks.video.succeeded24h)} / ${formatNumber(tasks.video.failed24h)}`}
+              level={tasks.video.failed24h > 0 ? "warning" : "ok"}
+            />
+          </div>
+          <div className='bg-white rounded-lg border shadow-sm overflow-hidden'>
+            <div className='px-4 py-2 text-xs font-medium text-gray-600 border-b bg-gray-50'>
+              失败错误 Top {tasks.topErrors.length}（近 {tasks.windowHours} 小时）
+            </div>
+            {tasks.topErrors.length === 0 ? (
+              <div className='px-4 py-4 text-sm text-gray-400'>近期无失败任务 🎉</div>
+            ) : (
+              <table className='w-full text-sm'>
+                <thead>
+                  <tr className='text-left text-xs text-gray-400 border-b'>
+                    <th className='px-4 py-2 w-12'>#</th>
+                    <th className='px-4 py-2 w-16'>来源</th>
+                    <th className='px-4 py-2 w-20 text-right'>次数</th>
+                    <th className='px-4 py-2'>错误信息</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tasks.topErrors.map((e, i) => (
+                    <tr key={i} className='border-b last:border-0 align-top'>
+                      <td className='px-4 py-2 text-gray-400'>{i + 1}</td>
+                      <td className='px-4 py-2'>
+                        <span
+                          className={`inline-block rounded px-1.5 py-0.5 text-[11px] ${
+                            e.source === "image"
+                              ? "bg-sky-100 text-sky-700"
+                              : "bg-violet-100 text-violet-700"
+                          }`}
+                        >
+                          {e.source === "image" ? "图片" : "视频"}
+                        </span>
+                      </td>
+                      <td className='px-4 py-2 text-right font-semibold text-red-600'>
+                        {formatNumber(e.count)}
+                      </td>
+                      <td className='px-4 py-2 text-gray-700 break-all'>{e.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className='bg-white rounded-lg border p-4 shadow-sm text-sm text-gray-400'>
+          任务统计采集中…（每 30 秒刷新）
+        </div>
+      )}
 
       {/* Redis */}
       <SectionTitle>

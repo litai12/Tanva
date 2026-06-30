@@ -27,6 +27,7 @@ import { TeamCollabModule } from './team-collab/team-collab.module';
 import { CanvasCommentsModule } from './canvas-comments/canvas-comments.module';
 import { AgentModule } from './agent/agent.module';
 import { DirectorCaptureModule } from './director-capture/director-capture.module';
+import { MaterialLibraryModule } from './material-library/material-library.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { DirectorCaptureModule } from './director-capture/director-capture.modul
     CanvasCommentsModule,
     AgentModule,
     DirectorCaptureModule,
+    MaterialLibraryModule,
   ],
 })
 export class AppModule {}

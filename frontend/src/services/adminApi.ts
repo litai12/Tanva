@@ -340,7 +340,30 @@ export interface SystemMonitorSnapshot {
     cgroupMemoryLimit?: number;
     cgroupMemoryCurrent?: number;
   };
+  tasks: SystemMonitorTaskStats | null;
   history: SystemMonitorTrendPoint[];
+}
+
+export interface SystemMonitorTaskBreakdown {
+  queued: number;
+  processing: number;
+  failed24h: number;
+  succeeded24h: number;
+}
+
+export interface SystemMonitorTaskError {
+  message: string;
+  count: number;
+  source: "image" | "video";
+}
+
+export interface SystemMonitorTaskStats {
+  updatedAt: number;
+  windowHours: number;
+  backlogTotal: number;
+  image: SystemMonitorTaskBreakdown;
+  video: SystemMonitorTaskBreakdown;
+  topErrors: SystemMonitorTaskError[];
 }
 
 export async function getSystemMonitor(): Promise<SystemMonitorSnapshot> {

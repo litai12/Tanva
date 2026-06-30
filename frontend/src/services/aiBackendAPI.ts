@@ -16,7 +16,7 @@ import type {
   AIServiceResponse,
   SupportedAIProvider,
 } from "@/types/ai";
-import { fetchWithAuth } from "./authFetch";
+import { fetchWithAuth, IMAGE_REQUEST_TIMEOUT_MS } from "./authFetch";
 import { logger } from "@/utils/logger";
 
 // 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
@@ -583,6 +583,7 @@ async function performGenerateImageRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -1155,6 +1156,7 @@ async function performEditImageRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -1354,6 +1356,7 @@ async function performBlendImagesRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
