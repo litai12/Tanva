@@ -25,8 +25,8 @@ const REFETCH_DEBOUNCE_MS = 300;
 export interface MentionCandidate extends CommentAuthor {}
 
 export interface CreateThreadInput {
-  x: number;
-  y: number;
+  x?: number;
+  y?: number;
   body: string;
   mentions?: string[];
   imageUrls?: string[];

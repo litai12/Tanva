@@ -87,3 +87,11 @@ export class CreateMaterialFolderDto {
   @MaxLength(200)
   name!: string;
 }
+
+export class UpdateMaterialFolderDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name!: string;
+}

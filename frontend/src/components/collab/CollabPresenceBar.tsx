@@ -1,6 +1,8 @@
 import React from 'react';
 import type { PresenceUser } from '@/collab/types';
 import { colorFor } from '@/collab/presenceColors';
+import { useUIStore } from '@/stores/uiStore';
+import { useCommentStore } from '@/stores/commentStore';
 import { getDefaultAvatarColor, getDefaultAvatarInitial } from '@/utils/defaultAvatar';
 
 interface Props {
@@ -51,6 +53,8 @@ const CollabPresenceBar: React.FC<Props> = ({
   fallbackUser,
   profilesByUserId,
 }) => {
+  const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
+  const commentActive = useCommentStore((state) => state.active);
   const users =
     online && online.length > 0
       ? online
@@ -82,12 +86,18 @@ const CollabPresenceBar: React.FC<Props> = ({
   });
   const shown = sorted.slice(0, 6);
   const extra = sorted.length - shown.length;
+  const fixedRightOffset = Math.max(
+    24,
+    showLibraryPanel ? 344 : 24,
+    commentActive ? 352 : 24
+  );
+  const fixedTopOffset = 72;
 
   return (
     <div
       className={`${variant === 'fixed' ? 'fixed z-[8000]' : 'relative z-[1]'} flex items-center`}
       // 放在顶部浮动栏【下方】右侧, 避免与团队/积分 pill 重叠。
-      style={variant === 'fixed' ? { top: 72, right: 24, pointerEvents: 'none' } : { pointerEvents: 'none' }}
+      style={variant === 'fixed' ? { top: fixedTopOffset, right: fixedRightOffset, pointerEvents: 'none' } : { pointerEvents: 'none' }}
     >
       <div
         className={

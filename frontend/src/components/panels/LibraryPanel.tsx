@@ -12,12 +12,15 @@ import {
   Film,
   Play,
   Box,
+  Folder as FolderIcon,
   Plus,
   Search,
   Loader2,
 } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 import { useProjectStore } from "@/stores/projectStore";
+import { useTeamStore } from "@/stores/teamStore";
+import { uploadToOSS } from "@/services/ossUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
   model3DUploadService,
@@ -48,6 +51,20 @@ import {
   getGlobalHistoryVideoThumbnail,
   isGlobalHistoryVideoItem,
 } from "@/components/global-history/historyMedia";
+import {
+  createTeamMaterialAsset,
+  createMaterialFolder,
+  deleteMaterialFolder,
+  deleteTeamMaterialAsset,
+  getAssetImageUrl,
+  listMaterialFolders,
+  listTeamMaterialAssets,
+  updateMaterialFolder,
+  updateTeamMaterialAsset,
+  type MaterialAssetDto,
+  type MaterialFolderDto,
+  type MaterialKindDto,
+} from "@/services/materialLibraryApi";
 import type { StoredImageAsset } from "@/types/canvas";
 import { useLocaleText } from "@/utils/localeText";
 
@@ -144,6 +161,9 @@ const LibraryPanel: React.FC = () => {
   const locale = isZh ? "zh-CN" : "en-US";
   const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
+  const teams = useTeamStore((state) => state.teams);
+  const activeTeamId = useTeamStore((state) => state.activeTeamId);
+  const activeTeam = useTeamStore((state) => state.getActiveTeam());
   const [activeTab, setActiveTab] = React.useState<LibraryTab>("manual");
   const [isUploading, setUploading] = React.useState(false);
   const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
@@ -185,6 +205,16 @@ const LibraryPanel: React.FC = () => {
     React.useState(1);
   const [projectHistoryTotalCount, setProjectHistoryTotalCount] =
     React.useState(0);
+  const [selectedTeamLibraryTeamId, setSelectedTeamLibraryTeamId] =
+    React.useState<string>("");
+  const [teamAssets, setTeamAssets] = React.useState<MaterialAssetDto[]>([]);
+  const [teamFolders, setTeamFolders] = React.useState<MaterialFolderDto[]>([]);
+  const [teamLibraryIsLoading, setTeamLibraryIsLoading] = React.useState(false);
+  const [teamLibrarySearchQuery, setTeamLibrarySearchQuery] = React.useState("");
+  const [isTeamAssetUploading, setTeamAssetUploading] = React.useState(false);
+  const [openTeamFolderIds, setOpenTeamFolderIds] = React.useState<string[]>([]);
+  const [teamUploadFolderId, setTeamUploadFolderId] = React.useState<string | null>(null);
+  const [teamFolderMenuId, setTeamFolderMenuId] = React.useState<string | null>(null);
 
   const historyQueryOptions = React.useMemo(
     () => ({
@@ -197,6 +227,29 @@ const LibraryPanel: React.FC = () => {
   const historyPageSlots = React.useMemo(
     () => buildHistoryPageSlots(historyPage, historyTotalPages),
     [historyPage, historyTotalPages]
+  );
+  const joinedTeams = React.useMemo(
+    () => teams.filter((team) => !team.isPersonal),
+    [teams]
+  );
+  const isInTeamWorkspace = Boolean(activeTeam && !activeTeam.isPersonal);
+  const effectiveTeamLibraryTeamId = isInTeamWorkspace
+    ? activeTeamId || ""
+    : selectedTeamLibraryTeamId;
+  const getVisibleTeamAssets = React.useCallback(
+    (folderId: string | null) => {
+      const query = teamLibrarySearchQuery.trim().toLowerCase();
+      return teamAssets.filter((asset) => {
+        if ((asset.folderId ?? null) !== folderId) return false;
+        if (!query) return true;
+        return asset.name.toLowerCase().includes(query);
+      });
+    },
+    [teamAssets, teamLibrarySearchQuery]
+  );
+  const uncategorizedTeamAssets = React.useMemo(
+    () => getVisibleTeamAssets(null),
+    [getVisibleTeamAssets]
   );
   const projectHistoryQueryOptions = React.useMemo(
     () => ({
@@ -651,6 +704,255 @@ const LibraryPanel: React.FC = () => {
     }
   };
 
+  const handleTeamAssetSendToCanvas = React.useCallback(
+    (asset: MaterialAssetDto) => {
+      const imageUrl = getAssetImageUrl(asset);
+      if (!imageUrl) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: lt("该团队素材缺少可用图片链接", "This team asset has no usable image URL"),
+              type: "warning",
+            },
+          })
+        );
+        return;
+      }
+      const data = (asset.latestVersion?.data ?? {}) as Record<string, unknown>;
+      const fileName = asset.name || "team-asset.png";
+      const placementId = `team-material-${asset.id}-${Date.now()}-${Math.floor(
+        Math.random() * 1e6
+      )}`;
+      const payload: StoredImageAsset = {
+        id: placementId,
+        url: imageUrl,
+        src: imageUrl,
+        remoteUrl: imageUrl,
+        fileName,
+        width: typeof data.width === "number" ? data.width : undefined,
+        height: typeof data.height === "number" ? data.height : undefined,
+        contentType:
+          typeof data.contentType === "string" ? data.contentType : undefined,
+      };
+      window.dispatchEvent(
+        new CustomEvent("triggerQuickImageUpload", {
+          detail: {
+            imageData: payload,
+            fileName,
+            operationType: "manual",
+          },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: lt("团队素材已发送到画布", "Team asset sent to canvas"), type: "success" },
+        })
+      );
+    },
+    [lt]
+  );
+
+  const handleTeamAssetDownload = React.useCallback((asset: MaterialAssetDto) => {
+    const imageUrl = getAssetImageUrl(asset);
+    if (!imageUrl) return;
+    try {
+      const link = document.createElement("a");
+      link.href = imageUrl;
+      link.download = asset.name || "team-asset";
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      window.open(imageUrl, "_blank", "noopener,noreferrer");
+    }
+  }, []);
+
+  const handleTeamAssetDelete = React.useCallback(
+    async (asset: MaterialAssetDto) => {
+      if (!confirm(lt(`确定要删除「${asset.name}」吗？`, `Delete "${asset.name}"?`))) {
+        return;
+      }
+      try {
+        await deleteTeamMaterialAsset(asset.id);
+        setTeamAssets((prev) => prev.filter((item) => item.id !== asset.id));
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: lt("团队素材已删除", "Team asset deleted"), type: "success" },
+          })
+        );
+      } catch (error) {
+        console.warn("[LibraryPanel] 删除团队素材失败:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: lt("删除失败，请稍后重试", "Delete failed. Please try again."), type: "error" },
+          })
+        );
+      }
+    },
+    [lt]
+  );
+
+  const handleTeamAssetUpload = React.useCallback(
+    async (file: File, kind: MaterialKindDto = "text") => {
+      if (!effectiveTeamLibraryTeamId) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: lt("请先选择团队", "Select a team first"), type: "warning" },
+          })
+        );
+        return;
+      }
+      setTeamAssetUploading(true);
+      try {
+        const uploaded = await uploadToOSS(file, {
+          dir: "material-library/",
+          projectId: currentProjectId,
+          fileName: file.name,
+          contentType: file.type,
+        });
+        if (!uploaded.success || !uploaded.url) {
+          throw new Error(uploaded.error || "upload failed");
+        }
+        const initialData: Record<string, unknown> = {
+          imageUrl: uploaded.url,
+          url: uploaded.url,
+          contentType: file.type,
+          fileSize: file.size,
+        };
+        if (uploaded.key) initialData.ossKey = uploaded.key;
+        const created = await createTeamMaterialAsset({
+          teamId: effectiveTeamLibraryTeamId,
+          kind,
+          name: file.name.replace(/\.[^.]+$/, "") || file.name,
+          initialData,
+          folderId: teamUploadFolderId ?? undefined,
+        });
+        const [assets, folders] = await Promise.all([
+          listTeamMaterialAssets({ teamId: effectiveTeamLibraryTeamId }),
+          listMaterialFolders({ teamId: effectiveTeamLibraryTeamId }),
+        ]);
+        setTeamAssets(Array.isArray(assets) ? assets : [created]);
+        setTeamFolders(Array.isArray(folders) ? folders : teamFolders);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: lt("团队素材上传成功", "Team asset uploaded"), type: "success" },
+          })
+        );
+      } catch (error) {
+        console.warn("[LibraryPanel] 上传团队素材失败:", error);
+        const message = error instanceof Error ? error.message : "";
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: message
+                ? lt(`上传失败：${message}`, `Upload failed: ${message}`)
+                : lt("上传失败，请稍后重试", "Upload failed. Please try again."),
+              type: "error",
+            },
+          })
+        );
+      } finally {
+        setTeamAssetUploading(false);
+        resetFileInput();
+      }
+    },
+    [currentProjectId, effectiveTeamLibraryTeamId, lt, teamFolders, teamUploadFolderId]
+  );
+
+  const handleCreateTeamFolder = React.useCallback(async () => {
+    if (!effectiveTeamLibraryTeamId) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: lt("请先选择团队", "Select a team first"), type: "warning" },
+        })
+      );
+      return;
+    }
+    const name = window.prompt(lt("新建文件夹名称", "New folder name"));
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    try {
+      const folder = await createMaterialFolder({
+        teamId: effectiveTeamLibraryTeamId,
+        name: trimmed,
+      });
+      const folders = await listMaterialFolders({ teamId: effectiveTeamLibraryTeamId });
+      setTeamFolders(Array.isArray(folders) ? folders : [folder]);
+      setOpenTeamFolderIds((prev) => [...prev, folder.id]);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: lt("文件夹已创建", "Folder created"), type: "success" },
+        })
+      );
+    } catch (error) {
+      console.warn("[LibraryPanel] 创建团队文件夹失败:", error);
+      const message = error instanceof Error ? error.message : "";
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: message
+              ? lt(`创建失败：${message}`, `Create failed: ${message}`)
+              : lt("创建失败，请稍后重试", "Create failed. Please try again."),
+            type: "error",
+          },
+        })
+      );
+    }
+  }, [effectiveTeamLibraryTeamId, lt]);
+
+  const handleRenameTeamFolder = React.useCallback(
+    async (folder: MaterialFolderDto) => {
+      const name = window.prompt(lt("重命名文件夹", "Rename folder"), folder.name);
+      const trimmed = name?.trim();
+      if (!trimmed || trimmed === folder.name) return;
+      try {
+        const updated = await updateMaterialFolder(folder.id, { name: trimmed });
+        setTeamFolders((prev) =>
+          prev.map((item) => (item.id === folder.id ? updated : item))
+        );
+      } catch (error) {
+        console.warn("[LibraryPanel] 重命名团队文件夹失败:", error);
+      }
+    },
+    [lt]
+  );
+
+  const handleDeleteTeamFolder = React.useCallback(
+    async (folder: MaterialFolderDto) => {
+      if (!confirm(lt(`确定要删除「${folder.name}」吗？`, `Delete "${folder.name}"?`))) {
+        return;
+      }
+      try {
+        await deleteMaterialFolder(folder.id);
+        setTeamFolders((prev) => prev.filter((item) => item.id !== folder.id));
+        setTeamAssets((prev) =>
+          prev.map((asset) =>
+            asset.folderId === folder.id ? { ...asset, folderId: null } : asset
+          )
+        );
+      } catch (error) {
+        console.warn("[LibraryPanel] 删除团队文件夹失败:", error);
+      }
+    },
+    [lt]
+  );
+
+  const handleMoveTeamAsset = React.useCallback(
+    async (asset: MaterialAssetDto, folderId: string | null) => {
+      try {
+        const updated = await updateTeamMaterialAsset(asset.id, { folderId });
+        setTeamAssets((prev) =>
+          prev.map((item) => (item.id === asset.id ? updated : item))
+        );
+      } catch (error) {
+        console.warn("[LibraryPanel] 移动团队素材失败:", error);
+      }
+    },
+    []
+  );
+
   const handleRemoveHistoryItem = async (item: GlobalImageHistoryItem) => {
     if (
       !confirm(
@@ -1100,7 +1402,60 @@ const LibraryPanel: React.FC = () => {
   }, [projectHistoryQueryOptions.search, projectHistoryQueryOptions.sourceType]);
 
   React.useEffect(() => {
+    if (isInTeamWorkspace) return;
+    const firstTeamId = joinedTeams[0]?.id ?? "";
+    if (
+      !selectedTeamLibraryTeamId ||
+      !joinedTeams.some((team) => team.id === selectedTeamLibraryTeamId)
+    ) {
+      setSelectedTeamLibraryTeamId(firstTeamId);
+    }
+  }, [isInTeamWorkspace, joinedTeams, selectedTeamLibraryTeamId]);
+
+  React.useEffect(() => {
     if (!showLibraryPanel || activeTab !== "global-history") return;
+    if (!effectiveTeamLibraryTeamId) {
+      setTeamAssets([]);
+      setTeamFolders([]);
+      setTeamLibraryIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setTeamLibraryIsLoading(true);
+      void Promise.all([
+        listTeamMaterialAssets({ teamId: effectiveTeamLibraryTeamId }),
+        listMaterialFolders({ teamId: effectiveTeamLibraryTeamId }),
+      ])
+        .then(([assets, folders]) => {
+          if (cancelled) return;
+          setTeamAssets(Array.isArray(assets) ? assets : []);
+          setTeamFolders(Array.isArray(folders) ? folders : []);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.warn("[LibraryPanel] 拉取团队库失败:", error);
+            setTeamAssets([]);
+            setTeamFolders([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setTeamLibraryIsLoading(false);
+          }
+        });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showLibraryPanel, activeTab, effectiveTeamLibraryTeamId]);
+
+  React.useEffect(() => {
+    if (!showLibraryPanel || activeTab !== "global-history") return;
+    const shouldFetchLegacyGlobalHistory = false;
+    if (!shouldFetchLegacyGlobalHistory) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       setHistoryIsLoading(true);
@@ -1267,7 +1622,7 @@ const LibraryPanel: React.FC = () => {
       {activeTab === "manual" && selectedAsset && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1101] overflow-x-hidden overflow-y-auto'
           style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           {/* 预览图 */}
@@ -1390,7 +1745,7 @@ const LibraryPanel: React.FC = () => {
         selectedHistoryItem && (
         <div
           ref={detailPanelRef}
-          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1001] overflow-x-hidden overflow-y-auto'
+          className='fixed right-[336px] w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-[1101] overflow-x-hidden overflow-y-auto'
           style={LIBRARY_DETAIL_PANEL_STYLE}
         >
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
@@ -1507,12 +1862,12 @@ const LibraryPanel: React.FC = () => {
       {/* 主面板 */}
       <div
         data-library-drop-zone='true'
-        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
+        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1100] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
           showLibraryPanel ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {isLibraryDragHovering && (
-          <div className='pointer-events-none absolute inset-0 z-[1010] flex items-start justify-center px-3 pt-3'>
+          <div className='pointer-events-none absolute inset-0 z-[1110] flex items-start justify-center px-3 pt-3'>
             <div className='w-full h-24 rounded-xl border-2 border-dashed border-blue-400/80 bg-blue-50/85 text-blue-700 flex items-center justify-center font-medium shadow-[0_10px_30px_rgba(59,130,246,0.15)] backdrop-blur-sm'>
               {lt("松开添加到库", "Release to add to library")}
             </div>
@@ -1542,13 +1897,24 @@ const LibraryPanel: React.FC = () => {
             <button
               type='button'
               className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
+                activeTab === "manual"
+                  ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
+                  : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
+              }`}
+              onClick={() => setActiveTab("manual")}
+            >
+              {lt("个人库", "Personal")}
+            </button>
+            <button
+              type='button'
+              className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === "global-history"
                   ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
                   : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
               }`}
               onClick={() => setActiveTab("global-history")}
             >
-              {lt("全局历史", "Global History")}
+              {lt("团队库", "Team")}
             </button>
             <button
               type='button'
@@ -1559,18 +1925,7 @@ const LibraryPanel: React.FC = () => {
               }`}
               onClick={() => setActiveTab("project-history")}
             >
-              {lt("项目库", "Project Library")}
-            </button>
-            <button
-              type='button'
-              className={`tanva-library-tab h-8 rounded-lg text-xs font-medium transition-colors ${
-                activeTab === "manual"
-                  ? "tanva-library-tab-active bg-white text-gray-800 shadow-sm"
-                  : "tanva-library-tab-inactive text-gray-500 hover:text-gray-700"
-              }`}
-              onClick={() => setActiveTab("manual")}
-            >
-              {lt("个人素材", "Personal Assets")}
+              {lt("项目库", "Project")}
             </button>
           </div>
         </div>
@@ -1579,8 +1934,20 @@ const LibraryPanel: React.FC = () => {
         <input
           ref={fileInputRef}
           type='file'
-          accept='image/png,image/jpeg,image/jpg,image/gif,image/webp,.glb,.gltf'
-          onChange={handleUploadFiles}
+          accept={
+            activeTab === "global-history"
+              ? "image/png,image/jpeg,image/jpg,image/gif,image/webp"
+              : "image/png,image/jpeg,image/jpg,image/gif,image/webp,.glb,.gltf"
+          }
+          onChange={(event) => {
+            if (activeTab === "global-history") {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              void handleTeamAssetUpload(file);
+              return;
+            }
+            void handleUploadFiles(event);
+          }}
           style={{ display: "none" }}
         />
 
@@ -1645,6 +2012,183 @@ const LibraryPanel: React.FC = () => {
                   )}
                 </div>
               </div>
+            </div>
+          ) : activeTab === "global-history" ? (
+            <div className='p-3 space-y-3'>
+              {!isInTeamWorkspace && joinedTeams.length > 0 ? (
+                <select
+                  value={effectiveTeamLibraryTeamId}
+                  onChange={(event) => setSelectedTeamLibraryTeamId(event.target.value)}
+                  className='tanva-library-filter-select h-8 w-full rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                >
+                  {joinedTeams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              <div className='flex gap-2'>
+                <div className='relative flex-1'>
+                  <Search className='pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400' />
+                  <input
+                    type='text'
+                    value={teamLibrarySearchQuery}
+                    onChange={(event) => setTeamLibrarySearchQuery(event.target.value)}
+                    placeholder={lt("搜索团队素材", "Search team assets")}
+                    className='tanva-library-search-input w-full h-8 rounded-lg border border-gray-200 bg-white pl-7 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                    disabled={!effectiveTeamLibraryTeamId}
+                  />
+                </div>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='h-8 w-8 p-0'
+                  onClick={() => void handleCreateTeamFolder()}
+                  disabled={!effectiveTeamLibraryTeamId || isTeamAssetUploading}
+                  title={lt("新建文件夹", "New folder")}
+                  aria-label={lt("新建文件夹", "New folder")}
+                >
+                  {isTeamAssetUploading ? (
+                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                  ) : (
+                    <Plus className='h-3.5 w-3.5' />
+                  )}
+                </Button>
+              </div>
+              {effectiveTeamLibraryTeamId ? (
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='h-8 w-full text-xs'
+                  onClick={() => {
+                    setTeamUploadFolderId(null);
+                    triggerUpload();
+                  }}
+                  disabled={isTeamAssetUploading}
+                >
+                  {lt("上传到未归类", "Upload to uncategorized")}
+                </Button>
+              ) : null}
+
+              {!effectiveTeamLibraryTeamId ? (
+                <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
+                  {lt("暂无团队", "No teams available")}
+                </div>
+              ) : teamLibraryIsLoading ? (
+                <div className='flex items-center justify-center gap-1 text-xs text-gray-500 py-8'>
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                  {lt("加载中...", "Loading...")}
+                </div>
+              ) : teamFolders.length === 0 && uncategorizedTeamAssets.length === 0 ? (
+                <div className='rounded-lg border border-dashed border-gray-200 bg-white/70 py-10 text-center text-xs text-gray-500'>
+                  {lt("暂无团队素材", "No team assets")}
+                </div>
+              ) : (
+                <div className='space-y-1'>
+                  {teamFolders.map((folder) => {
+                    const isOpen = openTeamFolderIds.includes(folder.id);
+                    const folderAssets = getVisibleTeamAssets(folder.id);
+                    return (
+                      <div key={folder.id}>
+                        <div className='group relative flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-gray-700 hover:bg-gray-100'>
+                          <button
+                            type='button'
+                            className='flex h-5 w-5 items-center justify-center text-gray-400'
+                            onClick={() =>
+                              setOpenTeamFolderIds((prev) =>
+                                prev.includes(folder.id)
+                                  ? prev.filter((id) => id !== folder.id)
+                                  : [...prev, folder.id]
+                              )
+                            }
+                          >
+                            <ChevronRight
+                              className='h-4 w-4 transition-transform'
+                              style={{ transform: isOpen ? "rotate(90deg)" : undefined }}
+                            />
+                          </button>
+                          <FolderIcon className='h-5 w-5 shrink-0 text-gray-400' />
+                          <span className='min-w-0 flex-1 truncate font-medium'>
+                            {folder.name}
+                          </span>
+                          <span className='text-xs text-gray-400'>{folderAssets.length}</span>
+                          <button
+                            type='button'
+                            className='h-6 w-6 rounded text-gray-400 opacity-0 hover:bg-gray-200 group-hover:opacity-100'
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setTeamFolderMenuId((prev) =>
+                                prev === folder.id ? null : folder.id
+                              );
+                            }}
+                          >
+                            ...
+                          </button>
+                          {teamFolderMenuId === folder.id ? (
+                            <div className='absolute right-2 top-8 z-[1200] w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg'>
+                              <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setTeamFolderMenuId(null); void handleCreateTeamFolder(); }}>
+                                {lt("新建文件夹", "New folder")}
+                              </button>
+                              <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setTeamFolderMenuId(null); void handleRenameTeamFolder(folder); }}>
+                                {lt("重命名", "Rename")}
+                              </button>
+                              <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setTeamFolderMenuId(null); setTeamUploadFolderId(folder.id); triggerUpload(); }}>
+                                {lt("上传到此处", "Upload here")}
+                              </button>
+                              <button className='block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50' onClick={() => { setTeamFolderMenuId(null); void handleDeleteTeamFolder(folder); }}>
+                                {lt("删除", "Delete")}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                        {isOpen ? (
+                          <div className='ml-8 space-y-1 border-l border-gray-100 pl-2'>
+                            {folderAssets.length === 0 ? (
+                              <div className='py-2 text-xs text-gray-400'>{lt("文件夹为空", "Folder is empty")}</div>
+                            ) : (
+                              folderAssets.map((asset) => (
+                                <TeamAssetRow
+                                  key={asset.id}
+                                  asset={asset}
+                                  folders={teamFolders}
+                                  onSend={handleTeamAssetSendToCanvas}
+                                  onPreview={(url) => openImagePreview(url, asset.name)}
+                                  onDownload={handleTeamAssetDownload}
+                                  onDelete={handleTeamAssetDelete}
+                                  onMove={handleMoveTeamAsset}
+                                />
+                              ))
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {uncategorizedTeamAssets.length > 0 ? (
+                    <div className='pt-2'>
+                      <div className='px-2 pb-1 text-xs text-gray-400'>{lt("未归类", "Uncategorized")}</div>
+                      <div className='space-y-1'>
+                        {uncategorizedTeamAssets.map((asset) => (
+                          <TeamAssetRow
+                            key={asset.id}
+                            asset={asset}
+                            folders={teamFolders}
+                            onSend={handleTeamAssetSendToCanvas}
+                            onPreview={(url) => openImagePreview(url, asset.name)}
+                            onDownload={handleTeamAssetDownload}
+                            onDelete={handleTeamAssetDelete}
+                            onMove={handleMoveTeamAsset}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           ) : (
             <div className='p-3 space-y-3'>
@@ -1860,6 +2404,11 @@ const LibraryPanel: React.FC = () => {
           <div className='text-xs text-gray-500 text-center'>
             {activeTab === "manual"
               ? lt(`共 ${allAssets.length} 个资源`, `${allAssets.length} assets`)
+              : activeTab === "global-history"
+              ? lt(
+                  `共 ${teamAssets.length} 个团队素材 · ${teamFolders.length} 个文件夹`,
+                  `${teamAssets.length} team assets · ${teamFolders.length} folders`
+                )
               : lt(
                   `第 ${activeHistoryPage}/${activeHistoryTotalPages} 页 · 共 ${activeHistoryTotalCount} 条`,
                   `Page ${activeHistoryPage}/${activeHistoryTotalPages} · ${activeHistoryTotalCount} items`
@@ -1947,6 +2496,119 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
       {isLoading && (
         <div className={`mt-1 ${large ? "text-xs" : "text-[8px]"}`}>{lt("加载中", "Loading")}</div>
       )}
+    </div>
+  );
+};
+
+interface TeamAssetRowProps {
+  asset: MaterialAssetDto;
+  folders: MaterialFolderDto[];
+  onSend: (asset: MaterialAssetDto) => void;
+  onPreview: (url: string) => void;
+  onDownload: (asset: MaterialAssetDto) => void;
+  onDelete: (asset: MaterialAssetDto) => void;
+  onMove: (asset: MaterialAssetDto, folderId: string | null) => void;
+}
+
+const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
+  asset,
+  folders,
+  onSend,
+  onPreview,
+  onDownload,
+  onDelete,
+  onMove,
+}) => {
+  const { lt } = useLocaleText();
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const imageUrl = getAssetImageUrl(asset);
+  return (
+    <div
+      data-library-thumbnail
+      draggable={Boolean(imageUrl)}
+      className='group relative flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 active:cursor-grabbing'
+      onClick={() => onSend(asset)}
+      onDoubleClick={() => imageUrl && onPreview(imageUrl)}
+      onDragStart={(event) => {
+        if (!imageUrl) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer.setData("text/uri-list", imageUrl);
+        event.dataTransfer.setData("text/plain", imageUrl);
+        event.dataTransfer.setData(
+          "application/x-tanva-asset",
+          JSON.stringify({
+            type: "2d",
+            id: asset.id,
+            url: imageUrl,
+            name: asset.name,
+            fileName: asset.name,
+          })
+        );
+        event.dataTransfer.effectAllowed = "copy";
+      }}
+      title={asset.name}
+    >
+      {imageUrl ? (
+        <SmartImage
+          src={imageUrl}
+          alt={asset.name}
+          className='h-8 w-8 shrink-0 rounded object-cover'
+          draggable={false}
+          loading='lazy'
+        />
+      ) : (
+        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded bg-gray-100 text-gray-400'>
+          <ImageIcon className='h-4 w-4' />
+        </div>
+      )}
+      <span className='min-w-0 flex-1 truncate text-xs font-medium'>
+        {asset.name}
+      </span>
+      <button
+        type='button'
+        className='h-6 w-6 rounded text-gray-400 opacity-0 hover:bg-gray-200 group-hover:opacity-100'
+        onClick={(event) => {
+          event.stopPropagation();
+          setMenuOpen((prev) => !prev);
+        }}
+      >
+        ...
+      </button>
+      {menuOpen ? (
+        <div
+          className='absolute right-2 top-8 z-[1200] w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg'
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setMenuOpen(false); onSend(asset); }}>
+            {lt("发送到画布", "Send to canvas")}
+          </button>
+          <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setMenuOpen(false); onDownload(asset); }}>
+            {lt("下载", "Download")}
+          </button>
+          <div className='my-1 border-t border-gray-100' />
+          <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setMenuOpen(false); onMove(asset, null); }}>
+            {lt("移动到未归类", "Move to uncategorized")}
+          </button>
+          {folders.map((folder) => (
+            <button
+              key={folder.id}
+              className='block w-full px-3 py-2 text-left hover:bg-gray-100'
+              onClick={() => {
+                setMenuOpen(false);
+                onMove(asset, folder.id);
+              }}
+            >
+              {lt("移动到", "Move to")} {folder.name}
+            </button>
+          ))}
+          <div className='my-1 border-t border-gray-100' />
+          <button className='block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50' onClick={() => { setMenuOpen(false); void onDelete(asset); }}>
+            {lt("删除", "Delete")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 };
