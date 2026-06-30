@@ -26,6 +26,7 @@ import {
   UpdateNodeConfigDto,
   type ManagedPricingPreviewInput,
 } from './services/node-config.service';
+import { SystemMonitorService } from './services/system-monitor.service';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type { UpdateMembershipCreditPolicyInput } from '../business-policy/business-policy.types';
 import { VolcAssetService } from '../volc-asset/volc-asset.service';
@@ -111,6 +112,7 @@ export class AdminController {
     private readonly businessPolicyService: BusinessPolicyService,
     private readonly membershipService: MembershipService,
     private readonly volcAssetService: VolcAssetService,
+    private readonly systemMonitorService: SystemMonitorService,
   ) {}
 
   /**
@@ -133,6 +135,13 @@ export class AdminController {
   async getDashboardStats(@Request() req: AuthenticatedRequest) {
     this.checkAdmin(req, 'dashboard:view');
     return this.adminService.getDashboardStats();
+  }
+
+  @Get('system-monitor')
+  @ApiOperation({ summary: '获取系统监控快照（内存/CPU/队列/Redis）' })
+  getSystemMonitor(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req, 'dashboard:view');
+    return this.systemMonitorService.getSnapshot();
   }
 
   @Get('users')

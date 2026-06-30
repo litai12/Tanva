@@ -9,6 +9,7 @@ import { BusinessPolicyModule } from '../business-policy/business-policy.module'
 import { MembershipModule } from '../membership/membership.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
+import { SystemMonitorService } from './services/system-monitor.service';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 import { TeamCollabModule } from '../team-collab/team-collab.module';
 import { TeamCoreModule } from '../team-core/team-core.module';
@@ -25,7 +26,7 @@ import { TeamCoreModule } from '../team-core/team-core.module';
     TeamCoreModule,
   ],
   controllers: [AdminController, SettingsPublicController],
-  providers: [AdminService, TemplateService, NodeConfigService],
+  providers: [AdminService, TemplateService, NodeConfigService, SystemMonitorService],
   exports: [AdminService, TemplateService, NodeConfigService],
 })
 export class AdminModule implements OnModuleInit {

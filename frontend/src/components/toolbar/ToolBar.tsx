@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare, Boxes } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -389,6 +389,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     setShowTemplatePanel,
     showLibraryPanel,
     toggleLibraryPanel,
+    showMaterialLibraryPanel,
+    toggleMaterialLibraryPanel,
   } = useUIStore();
 
   // 用于防止事件循环的标志
@@ -1256,6 +1258,27 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">{lt('个人库', 'Personal Library')}</TooltipContent>
+      </Tooltip>
+
+      {/* 素材库按钮（个人/团队资产，右侧面板） */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={isToolButtonActive(showMaterialLibraryPanel) ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(isToolButtonActive(showMaterialLibraryPanel))
+            )}
+            onClick={() => {
+              closeComment();
+              toggleMaterialLibraryPanel();
+            }}
+          >
+            <Boxes className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{lt('素材库', 'Asset Library')}</TooltipContent>
       </Tooltip>
 
       {/* 模板库按钮 */}

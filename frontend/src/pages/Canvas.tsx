@@ -9,6 +9,7 @@ import FocusModeButton from '@/components/canvas/FocusModeButton';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import LibraryPanel from '@/components/panels/LibraryPanel';
+import MaterialLibraryPanel from '@/components/panels/MaterialLibraryPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
@@ -144,6 +145,9 @@ const Canvas: React.FC = () => {
 
             {/* Personal library panel - expands from right side */}
             <LibraryPanel />
+
+            {/* Asset / material library panel - right side, personal + team assets */}
+            <MaterialLibraryPanel />
 
             {/* AI chat dialog - hidden by component in focus mode */}
             <AIChatDialog />

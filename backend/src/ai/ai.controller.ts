@@ -423,7 +423,45 @@ export class AiController {
     return 'disabled';
   }
 
-  private async assertHappyhorseEntitlement(userId: string | null): Promise<void> {
+  /**
+   * 团队出资模式的快乐马权益判定：只要团队【已充值】即放行（与扣费同样落到团队账户）。
+   * 「已充值」= 团队有 paid 的团队订单（team_credits/team_seat）或团队账户 totalEarned>0。
+   * 不依赖个人付费记录——否则团队充了值、成员个人没买过任何东西时会被误拦 403。
+   */
+  private async resolveTeamHappyhorseAccess(teamId: string): Promise<'enabled' | 'disabled'> {
+    if (!(await this.isNonPersonalTeam(teamId))) {
+      return 'disabled';
+    }
+
+    const paidOrder = await this.prisma.paymentOrder.findFirst({
+      where: {
+        teamId,
+        status: 'paid',
+        paidAt: { not: null },
+        orderType: { in: ['team_credits', 'team_seat'] },
+      },
+      select: { id: true },
+    });
+    if (paidOrder) {
+      return 'enabled';
+    }
+
+    const acc = await this.prisma.teamCreditAccount.findUnique({
+      where: { teamId },
+      select: { totalEarned: true },
+    });
+    return acc && acc.totalEarned > 0 ? 'enabled' : 'disabled';
+  }
+
+  private async assertHappyhorseEntitlement(
+    userId: string | null,
+    teamId?: string | null,
+  ): Promise<void> {
+    // 团队模式：团队已充值即放行（团队出资，权益看团队）。
+    if (teamId && (await this.resolveTeamHappyhorseAccess(teamId)) === 'enabled') {
+      return;
+    }
+
     if (!userId) {
       throw new ForbiddenException('快乐马仅支持已充值或已开通对应套餐权益的付费用户使用');
     }
@@ -7138,7 +7176,7 @@ export class AiController {
   async generateHappyhorseVideoViaDashscope(@Body() body: any, @Req() req: any) {
     const model = this.resolveHappyhorseModelOrThrow(body);
     const taskLabel = model.replace(/^happyhorse-1\.0-/, 'happyhorse-');
-    await this.assertHappyhorseEntitlement(this.getUserId(req));
+    await this.assertHappyhorseEntitlement(this.getUserId(req), this.getTeamId(req));
     return this.withCredits(
       req,
       'happyhorse-r2v-video',

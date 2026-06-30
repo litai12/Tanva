@@ -269,6 +269,108 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return response.json();
 }
 
+// ── 系统监控 ──────────────────────────────────────────────────────────────
+export interface SystemMonitorTrendPoint {
+  t: number;
+  rss: number;
+  heapUsed: number;
+  externalBytes: number;
+  active: number;
+  eventLoopP99Ms: number;
+}
+
+export interface SystemMonitorSnapshot {
+  timestamp: number;
+  warmingUp: boolean;
+  process: {
+    pid: number;
+    nodeVersion: string;
+    uptimeSec: number;
+    cpuPercent: number;
+    memory: {
+      rss: number;
+      heapUsed: number;
+      heapTotal: number;
+      heapSizeLimit: number;
+      totalAvailableSize: number;
+      external: number;
+      arrayBuffers: number;
+      rssRestartLimit: number;
+    };
+    eventLoop: { p50Ms: number; p99Ms: number; maxMs: number };
+  };
+  queue: {
+    name: string;
+    counts: {
+      waiting: number;
+      active: number;
+      delayed: number;
+      failed: number;
+      completed: number;
+      paused: number;
+    };
+    config: {
+      maxConcurrent: number;
+      highWatermark: number;
+      lowWatermark: number;
+    };
+  };
+  redis: {
+    connected: boolean;
+    usedMemory: number;
+    usedMemoryRss: number;
+    usedMemoryPeak: number;
+    memFragmentationRatio: number;
+    connectedClients: number;
+    blockedClients: number;
+    instantaneousOpsPerSec: number;
+    keyspaceHits: number;
+    keyspaceMisses: number;
+    evictedKeys: number;
+    expiredKeys: number;
+    dbsize: number;
+    uptimeSec: number;
+    version: string;
+  };
+  os: {
+    loadavg: number[];
+    cpuCount: number;
+    totalmem: number;
+    freemem: number;
+    cgroupMemoryLimit?: number;
+    cgroupMemoryCurrent?: number;
+  };
+  tasks: SystemMonitorTaskStats | null;
+  history: SystemMonitorTrendPoint[];
+}
+
+export interface SystemMonitorTaskBreakdown {
+  queued: number;
+  processing: number;
+  failed24h: number;
+  succeeded24h: number;
+}
+
+export interface SystemMonitorTaskError {
+  message: string;
+  count: number;
+  source: "image" | "video";
+}
+
+export interface SystemMonitorTaskStats {
+  updatedAt: number;
+  windowHours: number;
+  backlogTotal: number;
+  image: SystemMonitorTaskBreakdown;
+  video: SystemMonitorTaskBreakdown;
+  topErrors: SystemMonitorTaskError[];
+}
+
+export async function getSystemMonitor(): Promise<SystemMonitorSnapshot> {
+  const response = await request("/api/admin/system-monitor");
+  return response.json();
+}
+
 // 获取用户列表
 export async function getUsers(params: {
   page?: number;

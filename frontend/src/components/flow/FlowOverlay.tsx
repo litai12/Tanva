@@ -13535,6 +13535,41 @@ function FlowInner() {
         window.dispatchEvent(new CustomEvent("flow:edgesChange"));
       }, 0);
 
+      // 快乐马「多图参考」(happyhorse-1.0-r2v) 默认只渲染 1 个 image-1 句柄
+      // (referenceCount 默认=1)，导致用户连第二张图时被「同句柄替换」规则顶掉第一张。
+      // 该模型支持最多 9 张 reference_image，这里在用户连到当前最后一个可见 image 句柄时
+      // 自动扩出下一个空句柄(referenceCount→N+1，上限 9)，从而可连续接入多张参考图。
+      // 复用既有 flow:updateNodeData 通道(自带 collab 广播)；用 max 合并避免覆盖更大值。
+      try {
+        const hhTarget = rf.getNode(params.target!);
+        if (
+          hhTarget?.type === "happyhorseR2V" &&
+          (((hhTarget.data as any)?.model as string) ||
+            "happyhorse-1.0-r2v") === "happyhorse-1.0-r2v" &&
+          typeof params.targetHandle === "string" &&
+          params.targetHandle.startsWith("image-")
+        ) {
+          const idx = Number(params.targetHandle.slice("image-".length));
+          const rawCount = Number((hhTarget.data as any)?.referenceCount);
+          const curCount = Number.isFinite(rawCount)
+            ? Math.min(9, Math.max(1, Math.round(rawCount)))
+            : 1;
+          if (Number.isFinite(idx) && idx >= curCount && curCount < 9) {
+            const nextCount = Math.min(9, Math.max(curCount, idx + 1));
+            if (nextCount !== curCount) {
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: {
+                    id: hhTarget.id,
+                    patch: { referenceCount: nextCount },
+                  },
+                })
+              );
+            }
+          }
+        }
+      } catch {}
+
       // 若连接到 Image(img)，立即把源图像写入目标
       try {
         const target = rf.getNode(params.target!);
@@ -15357,6 +15392,130 @@ function FlowInner() {
         handler as EventListener
       );
   }, [rf, setNodes]);
+
+  // 素材库「画布」标签：定位/聚焦某个节点（居中视口 + 选中）
+  // 注意：真实视口由 useCanvasStore 驱动（ReactFlow 视口是从 canvasStore 单向同步），
+  // 因此必须反推 panX/panY 写回 canvasStore，rf.setCenter 会被立即覆盖。
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id as string | undefined;
+      if (!id) return;
+      const node = rf.getNode(id);
+      if (!node) return;
+      const width =
+        (node.width as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.w ??
+        240;
+      const height =
+        (node.height as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.h ??
+        160;
+      const cx = (node.position?.x ?? 0) + width / 2;
+      const cy = (node.position?.y ?? 0) + height / 2;
+      try {
+        const cs = useCanvasStore.getState();
+        const zoom =
+          typeof cs.zoom === "number" && cs.zoom > 0 ? cs.zoom : 1;
+        const dpr = window.devicePixelRatio || 1;
+        // 素材库面板占右侧 ~320px，居中到可见区域中点
+        const panelW = 320;
+        const centerX = Math.max(0, (window.innerWidth - panelW) / 2);
+        const centerY = window.innerHeight / 2;
+        // screen = panX*zoom/dpr + cx*zoom  =>  panX = (centerX - cx*zoom)*dpr/zoom
+        const panX = ((centerX - cx * zoom) * dpr) / zoom;
+        const panY = ((centerY - cy * zoom) * dpr) / zoom;
+        useCanvasStore.getState().setViewport({ panX, panY, zoom });
+      } catch {
+        /* ignore */
+      }
+      setNodes((ns) =>
+        ns.map((n) => ({ ...n, selected: n.id === id })) as any
+      );
+    };
+    window.addEventListener("flow:focus-node", handler as EventListener);
+    return () =>
+      window.removeEventListener("flow:focus-node", handler as EventListener);
+  }, [rf, setNodes]);
+
+  // 素材库「画布」标签：把当前节点的轻量快照广播给面板（随节点变化刷新）
+  React.useEffect(() => {
+    const summary = nodes
+      .filter(
+        (n) =>
+          !(n as { parentId?: string }).parentId &&
+          !(n as { parentNode?: string }).parentNode
+      )
+      .map((n) => {
+        const data = (n.data && typeof n.data === "object"
+          ? (n.data as Record<string, unknown>)
+          : {}) as Record<string, unknown>;
+        return {
+          id: n.id,
+          type: typeof n.type === "string" ? n.type : "",
+          selected: !!n.selected,
+          label: data.label,
+          name: data.name,
+          kind: data.kind,
+          imageUrl: data.imageUrl,
+          videoUrl: data.videoUrl,
+          audioUrl: data.audioUrl,
+        };
+      });
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [nodes]);
+
+  // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
+  React.useEffect(() => {
+    const handler = () => {
+      const summary = rf
+        .getNodes()
+        .filter(
+          (n) =>
+            !(n as { parentId?: string }).parentId &&
+            !(n as { parentNode?: string }).parentNode
+        )
+        .map((n) => {
+          const data = (n.data && typeof n.data === "object"
+            ? (n.data as Record<string, unknown>)
+            : {}) as Record<string, unknown>;
+          return {
+            id: n.id,
+            type: typeof n.type === "string" ? n.type : "",
+            selected: !!n.selected,
+            label: data.label,
+            name: data.name,
+            kind: data.kind,
+            imageUrl: data.imageUrl,
+            videoUrl: data.videoUrl,
+            audioUrl: data.audioUrl,
+          };
+        });
+      try {
+        window.dispatchEvent(
+          new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener(
+      "flow:request-nodes-snapshot",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "flow:request-nodes-snapshot",
+        handler as EventListener
+      );
+  }, [rf]);
 
   // @ 引用自动接线：建 image 节点 / 建 generate 节点 / 连线
   React.useEffect(() => {

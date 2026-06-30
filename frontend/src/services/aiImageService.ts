@@ -539,6 +539,9 @@ class AIImageService {
         },
         body: JSON.stringify(requestWithRoute),
         signal: controller.signal,
+        // 图像生成/编辑长耗时：用本服务自身的 15min 中止控制器，禁用 fetchWithAuth 的
+        // 3min 默认超时（否则两者「任一触发即中止」会把请求压到 3min）。
+        timeoutMs: 0,
       });
 
       clearTimeout(timeoutId);

@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useUpdateNodeInternals } from "reactflow";
 import { Video, Share2, Download, Plus, Minus, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
@@ -138,6 +138,14 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     () => computeCaps(model, referenceCount),
     [model, referenceCount]
   );
+
+  // 动态显隐 image-N / video 句柄（如多图参考自动扩出新空句柄、切换 model）后，必须通知
+  // React Flow 重算句柄坐标，否则连到新句柄的连线会画到旧/零坐标（新句柄看似出现却连不上）。
+  // 与 GenericVideoNode 同处理：可见句柄 signature 变化即触发 updateNodeInternals。
+  const updateNodeInternals = useUpdateNodeInternals();
+  React.useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals, caps.imageHandles, caps.hasVideoHandle]);
 
   const previewRequestParams = React.useMemo(
     () => ({

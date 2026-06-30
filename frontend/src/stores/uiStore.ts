@@ -12,6 +12,7 @@ const isMode = (value: unknown): value is 'chat' | 'node' =>
 interface UIState {
   // 面板显示状态
   showLibraryPanel: boolean;
+  showMaterialLibraryPanel: boolean; // 素材库面板（右侧，个人/团队资产）
   showLayerPanel: boolean;
   showGrid: boolean;
   showAxis: boolean;
@@ -32,6 +33,7 @@ interface UIState {
 
   // 操作方法
   toggleLibraryPanel: () => void;
+  toggleMaterialLibraryPanel: () => void;
   toggleLayerPanel: () => void;
   toggleGrid: () => void;
   toggleAxis: () => void;
@@ -50,6 +52,7 @@ interface UIState {
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
+  setShowMaterialLibraryPanel: (show: boolean) => void;
   setShowLayerPanel: (show: boolean) => void;
   setShowGrid: (show: boolean) => void;
   setShowAxis: (show: boolean) => void;
@@ -111,6 +114,7 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       // 初始状态
       showLibraryPanel: persistedUIPreferences?.showLibraryPanel ?? false,
+      showMaterialLibraryPanel: false, // 素材库面板不持久化，刷新后默认关闭
       showLayerPanel: persistedUIPreferences?.showLayerPanel ?? false,
       showGrid: persistedUIPreferences?.showGrid ?? true,
       showAxis: persistedUIPreferences?.showAxis ?? false,
@@ -128,7 +132,18 @@ export const useUIStore = create<UIState>()(
       smartPlacementOffsetVertical: SMART_PLACEMENT_OFFSET_VERTICAL,
 
       // 切换方法
-      toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
+      toggleLibraryPanel: () =>
+        set((state) => ({
+          showLibraryPanel: !state.showLibraryPanel,
+          // 右侧面板互斥：打开「库」时关闭「素材库」
+          showMaterialLibraryPanel: state.showLibraryPanel ? state.showMaterialLibraryPanel : false,
+        })),
+      toggleMaterialLibraryPanel: () =>
+        set((state) => ({
+          showMaterialLibraryPanel: !state.showMaterialLibraryPanel,
+          // 右侧面板互斥：打开「素材库」时关闭「库」
+          showLibraryPanel: state.showMaterialLibraryPanel ? state.showLibraryPanel : false,
+        })),
       toggleLayerPanel: () => set((state) => ({ showLayerPanel: !state.showLayerPanel })),
       toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
       toggleAxis: () => set((state) => ({ showAxis: !state.showAxis })),
@@ -146,7 +161,16 @@ export const useUIStore = create<UIState>()(
       toggleSnapAlignment: () => set((state) => ({ snapAlignmentEnabled: !state.snapAlignmentEnabled })),
 
       // 设置方法
-      setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
+      setShowLibraryPanel: (show) =>
+        set((state) => ({
+          showLibraryPanel: show,
+          showMaterialLibraryPanel: show ? false : state.showMaterialLibraryPanel,
+        })),
+      setShowMaterialLibraryPanel: (show) =>
+        set((state) => ({
+          showMaterialLibraryPanel: show,
+          showLibraryPanel: show ? false : state.showLibraryPanel,
+        })),
       setShowLayerPanel: (show) => set({ showLayerPanel: show }),
       setShowGrid: (show) => set({ showGrid: show }),
       setShowAxis: (show) => set({ showAxis: show }),
