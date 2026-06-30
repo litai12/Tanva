@@ -1456,7 +1456,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         return filtered.length > 0 ? filtered : seedance20ResolutionList;
       }
       if (provider === "doubao" && isSeedanceModel) {
-        const allowed = new Set(SEEDANCE15_DOC_RESOLUTIONS);
+        const allowed = new Set<string>(SEEDANCE15_DOC_RESOLUTIONS);
         const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
         return filtered.length > 0 ? filtered : [...SEEDANCE15_DOC_RESOLUTIONS];
       }
