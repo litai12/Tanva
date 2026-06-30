@@ -64,6 +64,7 @@ import { AsrModule } from './asr/asr.module';
     CanvasCommentsModule,
     AgentModule,
     DirectorCaptureModule,
+    AsrModule,
   ],
 })
 export class AppModule {}
