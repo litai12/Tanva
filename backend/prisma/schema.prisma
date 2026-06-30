@@ -356,6 +356,31 @@ model ApiUsageRecord {
   @@index([responseStatus, serviceType, createdAt])
 }
 
+/// 按天预聚合的 API 用量统计（rollup）。
+/// 粒度 = 本地自然日 × 用户 × 服务类型 × 服务名 × 渠道 × 响应状态。
+/// 由定时任务从 ApiUsageRecord 滚动生成，用于 admin 统计的历史部分；
+/// 「昨天+今天」仍从明细表实时读，避免与未滚动完成的当天数据重复/缺口。
+model ApiUsageDailyStat {
+  id             String   @id @default(uuid())
+  day            DateTime @db.Date
+  userId         String
+  serviceType    String
+  serviceName    String
+  provider       String
+  responseStatus String
+  totalCalls     Int      @default(0)
+  totalCredits   Int      @default(0)
+  inputTokens    BigInt   @default(0)
+  outputTokens   BigInt   @default(0)
+  sumProcessTime BigInt   @default(0)
+  procTimeCount  Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([day, userId, serviceType, serviceName, provider, responseStatus], map: "ApiUsageDailyStat_grain_key")
+  @@index([day, serviceType])
+  @@index([day, userId])
+}
+
 model CreditPricing {
   id               String   @id @default(uuid())
   serviceType      String   @unique

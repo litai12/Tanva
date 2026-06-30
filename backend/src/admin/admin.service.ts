@@ -6,6 +6,7 @@ import { ApiResponseStatus, TransactionType } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { CreditsService } from '../credits/credits.service';
 import { TeamCoreService } from '../team-core/team-core.service';
+import { ApiUsageRollupService } from './services/api-usage-rollup.service';
 import { TEAM_PERMANENT_SEATS } from '../payment/dto/payment.dto';
 
 export interface AdminDashboardStats {
@@ -236,6 +237,7 @@ export class AdminService {
     private prisma: PrismaService,
     private readonly creditsService: CreditsService,
     private readonly teamCoreService: TeamCoreService,
+    private readonly apiUsageRollupService: ApiUsageRollupService,
     @Optional() private readonly teamCreditsPublisher?: TeamCreditsPublisher,
   ) {}
 
@@ -1433,121 +1435,12 @@ export class AdminService {
     startDate?: Date;
     endDate?: Date;
   } = {}): Promise<ApiUsageStats[]> {
-    const { startDate, endDate } = options;
-
-    const where: any = {};
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = startDate;
-      if (endDate) where.createdAt.lte = endDate;
-    }
-
-    const stats = await this.prisma.apiUsageRecord.groupBy({
-      by: ['serviceType', 'serviceName', 'provider', 'responseStatus'],
-      where,
-      _count: true,
-      _sum: {
-        creditsUsed: true,
-      },
+    // 历史走 rollup 预聚合表、昨今走明细实时；去重用户数与 top5 全在 SQL 端完成，
+    // 不再随用户数把「每用户一行」materialize 进 Node 堆。
+    return this.apiUsageRollupService.getServiceStats({
+      startDate: options.startDate,
+      endDate: options.endDate,
     });
-
-    // 聚合数据
-    const aggregated = new Map<string, ApiUsageStats>();
-
-    stats.forEach((item) => {
-      const key = item.serviceType;
-      if (!aggregated.has(key)) {
-        aggregated.set(key, {
-          serviceType: item.serviceType,
-          serviceName: item.serviceName,
-          provider: item.provider,
-          totalCalls: 0,
-          successfulCalls: 0,
-          failedCalls: 0,
-          totalCreditsUsed: 0,
-          userCount: 0,
-          topUsers: [],
-        });
-      }
-
-      const stat = aggregated.get(key)!;
-      stat.totalCalls += item._count;
-      stat.totalCreditsUsed += item._sum.creditsUsed || 0;
-
-      if (item.responseStatus === ApiResponseStatus.SUCCESS) {
-        stat.successfulCalls += item._count;
-      } else if (item.responseStatus === ApiResponseStatus.FAILED) {
-        stat.failedCalls += item._count;
-      }
-    });
-
-    // 一次性获取所有服务类型的用户统计信息
-    const result = Array.from(aggregated.values());
-    const serviceTypes = result.map(s => s.serviceType);
-    
-    if (serviceTypes.length > 0) {
-      // 获取所有服务类型的用户统计
-      const allUserStats = await this.prisma.apiUsageRecord.groupBy({
-        by: ['userId', 'serviceType'],
-        where: {
-          ...where,
-          serviceType: { in: serviceTypes },
-        },
-        _count: true,
-      });
-
-      // 获取所有相关用户信息
-      const allUserIds = [...new Set(allUserStats.map(s => s.userId))];
-      const allUsers = await this.prisma.user.findMany({
-        where: { id: { in: allUserIds } },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-        },
-      });
-
-      const userMap = new Map(allUsers.map(u => [u.id, u]));
-      
-      // 按服务类型分组用户统计
-      const userStatsByService = new Map<string, Array<{ userId: string; callCount: number }>>();
-      
-      allUserStats.forEach(stat => {
-        if (!userStatsByService.has(stat.serviceType)) {
-          userStatsByService.set(stat.serviceType, []);
-        }
-        userStatsByService.get(stat.serviceType)!.push({
-          userId: stat.userId,
-          callCount: stat._count,
-        });
-      });
-
-      // 为每个服务类型填充用户信息
-      result.forEach(stat => {
-        const userStats = userStatsByService.get(stat.serviceType) || [];
-        const uniqueUserIds = [...new Set(userStats.map(s => s.userId))];
-        
-        // 按调用次数排序，取前5个
-        const topUserStats = userStats
-          .sort((a, b) => b.callCount - a.callCount)
-          .slice(0, 5);
-
-        stat.userCount = uniqueUserIds.length;
-        stat.topUsers = topUserStats.map(uc => {
-          const user = userMap.get(uc.userId);
-          return {
-            userId: uc.userId,
-            userName: user?.name || null,
-            userPhone: user?.phone || '',
-            userEmail: user?.email || null,
-            callCount: uc.callCount,
-          };
-        });
-      });
-    }
-
-    return result;
   }
 
   async getApiUsageModelStats(options: {
@@ -1861,7 +1754,32 @@ export class AdminService {
       if (endDate) where.createdAt.lte = endDate;
     }
 
-    const [records, total, summaryAggregate, statusGroups, userGroups] = await Promise.all([
+    // 去重用户数用 SQL 端 COUNT(DISTINCT)：扫描量与原 groupBy 相同，但只返回 1 行，
+    // 不再随匹配用户数把「每用户一行」materialize 进 Node 堆（原 userGroups.length 的隐患）。
+    const distinctUserConds: Prisma.Sql[] = [];
+    if (userId) distinctUserConds.push(Prisma.sql`a."userId" = ${userId}`);
+    else if (userSearch?.trim()) {
+      const kw = `%${userSearch.trim()}%`;
+      distinctUserConds.push(Prisma.sql`(
+        a."userId" ILIKE ${kw}
+        OR EXISTS (
+          SELECT 1 FROM "User" u
+          WHERE u.id = a."userId"
+            AND (u.phone ILIKE ${kw} OR u.email ILIKE ${kw} OR u.name ILIKE ${kw})
+        )
+      )`);
+    }
+    if (serviceType) distinctUserConds.push(Prisma.sql`a."serviceType" = ${serviceType}`);
+    if (provider) distinctUserConds.push(Prisma.sql`a."provider" = ${provider}`);
+    if (model) distinctUserConds.push(Prisma.sql`a."model" ILIKE ${`%${model}%`}`);
+    if (status) distinctUserConds.push(Prisma.sql`a."responseStatus" = ${status}`);
+    if (startDate) distinctUserConds.push(Prisma.sql`a."createdAt" >= ${startDate}`);
+    if (endDate) distinctUserConds.push(Prisma.sql`a."createdAt" <= ${endDate}`);
+    const distinctUserWhere = distinctUserConds.length
+      ? Prisma.sql`WHERE ${Prisma.join(distinctUserConds, ' AND ')}`
+      : Prisma.empty;
+
+    const [records, total, summaryAggregate, statusGroups, distinctUserRows] = await Promise.all([
       this.prisma.apiUsageRecord.findMany({
         where,
         include: {
@@ -1898,13 +1816,14 @@ export class AdminService {
           creditsUsed: true,
         },
       }),
-      this.prisma.apiUsageRecord.groupBy({
-        by: ['userId'],
-        where,
-        _count: true,
-      }),
+      this.prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT a."userId")::bigint AS count
+        FROM "ApiUsageRecord" a
+        ${distinctUserWhere}
+      `),
     ]);
 
+    const uniqueUsers = Number(distinctUserRows[0]?.count ?? 0);
     const successfulGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.SUCCESS);
     const pendingGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.PENDING);
     const failedGroup = statusGroups.find((item) => item.responseStatus === ApiResponseStatus.FAILED);
@@ -1926,7 +1845,7 @@ export class AdminService {
         rawCreditsRecorded: summaryAggregate._sum.creditsUsed || 0,
         inputTokens: summaryAggregate._sum.inputTokens || 0,
         outputTokens: summaryAggregate._sum.outputTokens || 0,
-        uniqueUsers: userGroups.length,
+        uniqueUsers,
         averageProcessingTime: summaryAggregate._avg.processingTime
           ? Math.round(summaryAggregate._avg.processingTime)
           : null,
