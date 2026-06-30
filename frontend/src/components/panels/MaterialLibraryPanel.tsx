@@ -49,6 +49,7 @@ import {
   useClickOutside,
 } from "./materialLibraryShared";
 import MaterialLibraryModal from "./MaterialLibraryModal";
+import CanvasNodeTab from "./CanvasNodeTab";
 
 // ── apply asset to canvas (image node) ─────────────────────────────────────────
 
@@ -60,8 +61,13 @@ export function applyAssetToCanvas(asset: MaterialAssetDto): boolean {
   }
   const data = (asset.latestVersion?.data ?? {}) as Record<string, unknown>;
   const fileName = `${asset.name}`;
+  // 每次应用生成全新画布实例 id，避免重复应用同一素材时被去重/覆盖。
+  const placementId = `material-${asset.id}-${Date.now()}-${Math.floor(
+    Math.random() * 1e6
+  )}`;
   const payload = {
-    id: asset.id,
+    id: placementId,
+    sourceAssetId: asset.id,
     url: imageUrl,
     src: imageUrl,
     remoteUrl: imageUrl,
@@ -410,6 +416,7 @@ export default function MaterialLibraryPanel() {
     activeTeam && !activeTeam.isPersonal ? activeTeam.id : null;
   const showTeamTab = !!teamId;
 
+  const [topTab, setTopTab] = React.useState<"canvas" | "assets">("assets");
   const [tab, setTab] = React.useState<"personal" | "team">("personal");
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -539,20 +546,23 @@ export default function MaterialLibraryPanel() {
 
   const handleCopy = React.useCallback(
     async (asset: MaterialAssetDto) => {
-      const imageUrl = getAssetImageUrl(asset);
+      // 克隆完整 data（含 url/thumbnailUrl/ossKey/尺寸等），不仅是 imageUrl。
+      const initialData = {
+        ...((asset.latestVersion?.data ?? {}) as Record<string, unknown>),
+      };
       try {
         if (asset.teamId) {
           await createTeamMaterialAsset({
             teamId: asset.teamId,
             kind: asset.kind,
             name: `${asset.name} 副本`,
-            initialData: { imageUrl },
+            initialData,
           });
         } else {
           await createMaterialAsset({
             kind: asset.kind,
             name: `${asset.name} 副本`,
-            initialData: { imageUrl },
+            initialData,
           });
         }
         reload();
@@ -700,45 +710,51 @@ export default function MaterialLibraryPanel() {
       <div className="tanva-material-library-panel fixed right-0 top-0 z-[1000] flex h-full w-80 flex-col overflow-hidden border-l border-gray-200 bg-white shadow-xl">
         {/* Header */}
         <div className="flex shrink-0 items-center gap-1 px-3 py-2.5">
-          <span className="flex-1 text-sm font-semibold text-gray-900">素材库</span>
-          <button
-            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
-            title="弹窗查看 / 管理素材库"
-            onClick={() => setModalOpen(true)}
-          >
-            <Maximize2 size={15} />
-          </button>
-          <div className="relative" ref={addMenuRef}>
-            <button
-              className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
-              aria-label="新建"
-              onClick={() => setAddMenuOpen((v) => !v)}
-            >
-              <Plus size={15} />
-            </button>
-            {addMenuOpen && (
-              <div className="absolute right-0 top-full z-[1200] mt-1 w-32 overflow-hidden rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+          <span className="flex-1 text-sm font-semibold text-gray-900">
+            {topTab === "canvas" ? "画布元素" : "素材库"}
+          </span>
+          {topTab === "assets" && (
+            <>
+              <button
+                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
+                title="弹窗查看 / 管理素材库"
+                onClick={() => setModalOpen(true)}
+              >
+                <Maximize2 size={15} />
+              </button>
+              <div className="relative" ref={addMenuRef}>
                 <button
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
-                  onClick={() => {
-                    setAddMenuOpen(false);
-                    setFolderSelectOpen(true);
-                  }}
+                  className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
+                  aria-label="新建"
+                  onClick={() => setAddMenuOpen((v) => !v)}
                 >
-                  <Upload size={13} /> 上传
+                  <Plus size={15} />
                 </button>
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
-                  onClick={() => {
-                    setAddMenuOpen(false);
-                    setNewFolderOpen(true);
-                  }}
-                >
-                  <FolderPlus size={13} /> 新建文件夹
-                </button>
+                {addMenuOpen && (
+                  <div className="absolute right-0 top-full z-[1200] mt-1 w-32 overflow-hidden rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+                    <button
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        setAddMenuOpen(false);
+                        setFolderSelectOpen(true);
+                      }}
+                    >
+                      <Upload size={13} /> 上传
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        setAddMenuOpen(false);
+                        setNewFolderOpen(true);
+                      }}
+                    >
+                      <FolderPlus size={13} /> 新建文件夹
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
           <button
             className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
             aria-label="关闭"
@@ -748,6 +764,32 @@ export default function MaterialLibraryPanel() {
           </button>
         </div>
 
+        {/* Top tabs: 画布 (node locator) / 资产 (material library) */}
+        <div className="shrink-0 px-3 pb-2">
+          <div className="flex rounded-lg bg-gray-100 p-0.5">
+            {(["canvas", "assets"] as const).map((t) => (
+              <button
+                key={t}
+                className={cn(
+                  "flex-1 rounded-md py-1 text-xs font-medium transition-colors",
+                  topTab === t
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+                onClick={() => setTopTab(t)}
+              >
+                {t === "canvas" ? "画布" : "资产"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {topTab === "canvas" ? (
+          <div className="min-h-0 flex-1">
+            <CanvasNodeTab />
+          </div>
+        ) : (
+          <>
         {/* Personal / Team tabs */}
         {showTeamTab && (
           <div className="shrink-0 px-3 pb-2">
@@ -863,6 +905,8 @@ export default function MaterialLibraryPanel() {
             <div className="px-3.5 py-1.5 text-xs text-gray-400">加载中...</div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* Dialogs */}

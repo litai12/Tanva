@@ -63,21 +63,37 @@ export class MaterialLibraryService {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new BadRequestException('素材数据格式不正确');
     }
-    const urlKeys = ['imageUrl', 'url', 'thumbnailUrl'];
-    for (const key of urlKeys) {
-      const value = data[key];
-      if (typeof value !== 'string') continue;
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      if (
-        trimmed.startsWith('data:') ||
-        trimmed.startsWith('blob:')
-      ) {
-        throw new BadRequestException(
-          `素材数据 ${key} 不能是临时引用（data:/blob:），请先上传换取远端地址`,
-        );
+    // 递归校验所有字符串值：拒绝 data: / blob: / 裸 base64（疑似内嵌图片），
+    // 只允许远端 URL / OSS key 等可持久化引用。
+    const BARE_BASE64_RE = /^[A-Za-z0-9+/]{512,}={0,2}$/;
+    const visit = (value: unknown, path: string, depth: number): void => {
+      if (depth > 8) return;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return;
+        if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+          throw new BadRequestException(
+            `素材数据 ${path} 不能是临时引用（data:/blob:），请先上传换取远端地址`,
+          );
+        }
+        if (BARE_BASE64_RE.test(trimmed.replace(/\s+/g, ''))) {
+          throw new BadRequestException(
+            `素材数据 ${path} 不能内嵌 base64 图片，请先上传换取远端地址`,
+          );
+        }
+        return;
       }
-    }
+      if (Array.isArray(value)) {
+        value.forEach((item, i) => visit(item, `${path}[${i}]`, depth + 1));
+        return;
+      }
+      if (value && typeof value === 'object') {
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          visit(v, path ? `${path}.${k}` : k, depth + 1);
+        }
+      }
+    };
+    visit(data, '', 0);
     return data;
   }
 

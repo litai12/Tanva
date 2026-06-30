@@ -108,9 +108,11 @@ export async function updateMaterialAsset(
 }
 
 export async function deleteMaterialAsset(assetId: string): Promise<void> {
-  await fetchWithAuth(
-    `${base}/api/material-library/assets/${encodeURIComponent(assetId)}`,
-    { method: "DELETE" }
+  await json(
+    await fetchWithAuth(
+      `${base}/api/material-library/assets/${encodeURIComponent(assetId)}`,
+      { method: "DELETE" }
+    )
   );
 }
 
@@ -161,9 +163,11 @@ export async function updateTeamMaterialAsset(
 }
 
 export async function deleteTeamMaterialAsset(assetId: string): Promise<void> {
-  await fetchWithAuth(
-    `${base}/api/material-library/team-assets/${encodeURIComponent(assetId)}`,
-    { method: "DELETE" }
+  await json(
+    await fetchWithAuth(
+      `${base}/api/material-library/team-assets/${encodeURIComponent(assetId)}`,
+      { method: "DELETE" }
+    )
   );
 }
 
@@ -191,8 +195,10 @@ export async function createMaterialFolder(input: {
 }
 
 export async function deleteMaterialFolder(folderId: string): Promise<void> {
-  await fetchWithAuth(
-    `${base}/api/material-library/folders/${encodeURIComponent(folderId)}`,
-    { method: "DELETE" }
+  await json(
+    await fetchWithAuth(
+      `${base}/api/material-library/folders/${encodeURIComponent(folderId)}`,
+      { method: "DELETE" }
+    )
   );
 }

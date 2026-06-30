@@ -15393,6 +15393,130 @@ function FlowInner() {
       );
   }, [rf, setNodes]);
 
+  // 素材库「画布」标签：定位/聚焦某个节点（居中视口 + 选中）
+  // 注意：真实视口由 useCanvasStore 驱动（ReactFlow 视口是从 canvasStore 单向同步），
+  // 因此必须反推 panX/panY 写回 canvasStore，rf.setCenter 会被立即覆盖。
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id as string | undefined;
+      if (!id) return;
+      const node = rf.getNode(id);
+      if (!node) return;
+      const width =
+        (node.width as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.w ??
+        240;
+      const height =
+        (node.height as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.h ??
+        160;
+      const cx = (node.position?.x ?? 0) + width / 2;
+      const cy = (node.position?.y ?? 0) + height / 2;
+      try {
+        const cs = useCanvasStore.getState();
+        const zoom =
+          typeof cs.zoom === "number" && cs.zoom > 0 ? cs.zoom : 1;
+        const dpr = window.devicePixelRatio || 1;
+        // 素材库面板占右侧 ~320px，居中到可见区域中点
+        const panelW = 320;
+        const centerX = Math.max(0, (window.innerWidth - panelW) / 2);
+        const centerY = window.innerHeight / 2;
+        // screen = panX*zoom/dpr + cx*zoom  =>  panX = (centerX - cx*zoom)*dpr/zoom
+        const panX = ((centerX - cx * zoom) * dpr) / zoom;
+        const panY = ((centerY - cy * zoom) * dpr) / zoom;
+        useCanvasStore.getState().setViewport({ panX, panY, zoom });
+      } catch {
+        /* ignore */
+      }
+      setNodes((ns) =>
+        ns.map((n) => ({ ...n, selected: n.id === id })) as any
+      );
+    };
+    window.addEventListener("flow:focus-node", handler as EventListener);
+    return () =>
+      window.removeEventListener("flow:focus-node", handler as EventListener);
+  }, [rf, setNodes]);
+
+  // 素材库「画布」标签：把当前节点的轻量快照广播给面板（随节点变化刷新）
+  React.useEffect(() => {
+    const summary = nodes
+      .filter(
+        (n) =>
+          !(n as { parentId?: string }).parentId &&
+          !(n as { parentNode?: string }).parentNode
+      )
+      .map((n) => {
+        const data = (n.data && typeof n.data === "object"
+          ? (n.data as Record<string, unknown>)
+          : {}) as Record<string, unknown>;
+        return {
+          id: n.id,
+          type: typeof n.type === "string" ? n.type : "",
+          selected: !!n.selected,
+          label: data.label,
+          name: data.name,
+          kind: data.kind,
+          imageUrl: data.imageUrl,
+          videoUrl: data.videoUrl,
+          audioUrl: data.audioUrl,
+        };
+      });
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [nodes]);
+
+  // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
+  React.useEffect(() => {
+    const handler = () => {
+      const summary = rf
+        .getNodes()
+        .filter(
+          (n) =>
+            !(n as { parentId?: string }).parentId &&
+            !(n as { parentNode?: string }).parentNode
+        )
+        .map((n) => {
+          const data = (n.data && typeof n.data === "object"
+            ? (n.data as Record<string, unknown>)
+            : {}) as Record<string, unknown>;
+          return {
+            id: n.id,
+            type: typeof n.type === "string" ? n.type : "",
+            selected: !!n.selected,
+            label: data.label,
+            name: data.name,
+            kind: data.kind,
+            imageUrl: data.imageUrl,
+            videoUrl: data.videoUrl,
+            audioUrl: data.audioUrl,
+          };
+        });
+      try {
+        window.dispatchEvent(
+          new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener(
+      "flow:request-nodes-snapshot",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "flow:request-nodes-snapshot",
+        handler as EventListener
+      );
+  }, [rf]);
+
   // @ 引用自动接线：建 image 节点 / 建 generate 节点 / 连线
   React.useEffect(() => {
     const handler = (event: Event) => {
