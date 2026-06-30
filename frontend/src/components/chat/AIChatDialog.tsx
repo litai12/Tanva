@@ -59,6 +59,8 @@ import {
   Pencil,
   Lock,
   Unlock,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -78,6 +80,9 @@ import {
   isTencentBananaAnalyzeSupported,
   isTencentStableBananaRoute,
 } from "@/utils/bananaRouteCapabilities";
+import {
+  RealtimeAsrClient,
+} from "@/services/realtimeAsrClient";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -332,6 +337,11 @@ const AIChatDialog: React.FC = () => {
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
+  const [isAsrListening, setIsAsrListening] = useState(false);
+  const [asrError, setAsrError] = useState<string | null>(null);
+  const asrClientRef = useRef<RealtimeAsrClient | null>(null);
+  const asrBaseInputRef = useRef("");
+  const asrFinalTextRef = useRef("");
   // 拖拽移动状态
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffsetX, setDragOffsetX] = useState<number | null>(null);
@@ -2277,6 +2287,89 @@ const AIChatDialog: React.FC = () => {
 
   const hasPdfForAnalysis = Boolean(sourcePdfForAnalysis);
 
+  const stopAsrListening = useCallback(() => {
+    asrClientRef.current?.stop();
+    asrClientRef.current = null;
+    setIsAsrListening(false);
+  }, []);
+
+  const appendAsrTextToInput = useCallback(
+    (finalText: string, interimText = "") => {
+      const base = asrBaseInputRef.current.trimEnd();
+      const voiceText = [finalText, interimText]
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join("");
+      const next = [base, voiceText].filter(Boolean).join(base && voiceText ? "\n" : "");
+      setCurrentInput(next);
+    },
+    [setCurrentInput]
+  );
+
+  const startAsrListening = useCallback(async () => {
+    if (generationStatus.isGenerating || autoOptimizing || isAsrListening) return;
+    setAsrError(null);
+    asrBaseInputRef.current = currentInput;
+    asrFinalTextRef.current = "";
+
+    const client = new RealtimeAsrClient({
+      language: "mixed",
+      onReady: () => {
+        setIsAsrListening(true);
+      },
+      onTranscript: (text, isFinal) => {
+        if (!text.trim()) return;
+        if (isFinal) {
+          asrFinalTextRef.current = `${asrFinalTextRef.current}${text}`;
+          appendAsrTextToInput(asrFinalTextRef.current);
+        } else {
+          appendAsrTextToInput(asrFinalTextRef.current, text);
+        }
+      },
+      onError: (message) => {
+        setAsrError(message);
+        showToast(message, "error");
+        stopAsrListening();
+      },
+      onClose: () => {
+        setIsAsrListening(false);
+      },
+    });
+
+    asrClientRef.current = client;
+    try {
+      await client.start();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAsrError(message);
+      showToast(message, "error");
+      stopAsrListening();
+    }
+  }, [
+    appendAsrTextToInput,
+    autoOptimizing,
+    currentInput,
+    generationStatus.isGenerating,
+    isAsrListening,
+    showToast,
+    stopAsrListening,
+  ]);
+
+  const toggleAsrListening = useCallback(() => {
+    if (isAsrListening) {
+      stopAsrListening();
+      return;
+    }
+    void startAsrListening();
+  }, [isAsrListening, startAsrListening, stopAsrListening]);
+
+  useEffect(() => {
+    return () => {
+      asrClientRef.current?.stop();
+      asrClientRef.current = null;
+    };
+  }, []);
+
   const getModeSupport = useCallback(
     (mode: ManualAIMode) => {
       if (!isModeSupportedByProvider(mode)) {
@@ -4021,7 +4114,7 @@ const AIChatDialog: React.FC = () => {
                     data-chat-secondary-action='true'
                     disabled={generationStatus.isGenerating}
                     className={cn(
-                      "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                      "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                       "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                       !generationStatus.isGenerating
                         ? "hover:bg-liquid-glass-hover text-gray-700"
@@ -4060,6 +4153,36 @@ const AIChatDialog: React.FC = () => {
               </DropdownMenu>
 
               {/* 发送按钮 */}
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                data-chat-secondary-action='true'
+                disabled={generationStatus.isGenerating || autoOptimizing}
+                className={cn(
+                  "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  isAsrListening
+                    ? "bg-red-500 text-white border-red-400 hover:bg-red-500"
+                    : !generationStatus.isGenerating && !autoOptimizing
+                    ? "hover:bg-liquid-glass-hover text-gray-700"
+                    : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                onClick={toggleAsrListening}
+                title={
+                  isAsrListening
+                    ? lt("停止语音输入", "Stop voice input")
+                    : lt("开始语音输入", "Start voice input")
+                }
+                aria-pressed={isAsrListening}
+              >
+                {isAsrListening ? (
+                  <MicOff className='h-3.5 w-3.5' />
+                ) : (
+                  <Mic className='h-3.5 w-3.5' />
+                )}
+              </Button>
+
               <Button
                 onClick={handleSend}
                 disabled={!canSend}
