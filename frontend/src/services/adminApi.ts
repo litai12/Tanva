@@ -1282,6 +1282,14 @@ export interface MembershipCurrentResponse {
     pauseGiftDecay: boolean;
     hasActiveSubscription: boolean;
   };
+  balances: {
+    freeCredits: number;
+    rechargeCredits: number;
+    subscriptionCredits: number;
+    giftCredits: number;
+    fixedCredits: number;
+    totalCredits: number;
+  };
 }
 
 export interface MembershipMeResponse {
@@ -1293,6 +1301,8 @@ export interface MembershipMeResponse {
     pauseGiftDecay: boolean;
   };
   balances: {
+    freeCredits: number;
+    rechargeCredits: number;
     subscriptionCredits: number;
     giftCredits: number;
     fixedCredits: number;

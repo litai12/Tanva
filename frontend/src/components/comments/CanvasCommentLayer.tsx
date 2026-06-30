@@ -202,10 +202,10 @@ const CanvasCommentLayer: React.FC = () => {
   const clampPanelBesidePin = (anchorX: number, anchorY: number, panelW = PANEL_W) => {
     const w = layerSize.w || panelW + 2 * PANEL_GAP;
     const h = layerSize.h || PANEL_H_EST + 2 * PANEL_GAP;
-    const rightLeft = anchorX + 48;
-    const leftLeft = anchorX - panelW - 48;
+    const rightLeft = anchorX + 35;
+    const leftLeft = anchorX - panelW - 35;
     const left = rightLeft + panelW <= w - PANEL_GAP ? rightLeft : Math.max(PANEL_GAP, leftLeft);
-    const top = Math.max(PANEL_GAP, Math.min(anchorY - 40, h - PANEL_H_EST - PANEL_GAP));
+    const top = Math.max(PANEL_GAP, Math.min(anchorY - 25, h - PANEL_H_EST - PANEL_GAP));
     return { left, top };
   };
 

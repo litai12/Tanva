@@ -12,6 +12,18 @@ import type {
   MembershipPlanSnapshot,
 } from './membership.types';
 
+const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
+const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
+
+type MembershipCreditBalances = {
+  freeCredits: number;
+  rechargeCredits: number;
+  subscriptionCredits: number;
+  giftCredits: number;
+  fixedCredits: number;
+  totalCredits: number;
+};
+
 @Injectable()
 export class MembershipService {
   private static readonly FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
@@ -209,7 +221,7 @@ export class MembershipService {
   }
 
   async getCurrentMembership(userId: string) {
-    const [subscription, nextChange] = await Promise.all([
+    const [subscription, nextChange, balances] = await Promise.all([
       this.withMissingMembershipTablesFallback(
         () =>
           this.prisma.userMembershipSubscription.findFirst({
@@ -222,6 +234,7 @@ export class MembershipService {
         () => null,
       ),
       this.getNextChange(userId),
+      this.getCreditBalances(userId),
     ]);
 
     if (!subscription) {
@@ -230,6 +243,7 @@ export class MembershipService {
         plan: null,
         nextChange,
         entitlement: await this.getMembershipEntitlement(userId),
+        balances,
       };
     }
 
@@ -267,6 +281,7 @@ export class MembershipService {
         : null,
       nextChange,
       entitlement: await this.getMembershipEntitlement(userId),
+      balances,
     };
   }
 
@@ -313,37 +328,11 @@ export class MembershipService {
   }
 
   async getMembershipMe(userId: string) {
-    const [current, entitlement, account, activeLots] = await Promise.all([
+    const [current, entitlement] = await Promise.all([
       this.getCurrentMembership(userId),
       this.getMembershipEntitlement(userId),
-      this.prisma.creditAccount.findUnique({ where: { userId } }),
-      this.prisma.creditLot.findMany({
-        where: {
-          account: { userId },
-          status: 'active',
-          remainingAmount: { gt: 0 },
-        },
-        select: {
-          sourceType: true,
-          validityType: true,
-          remainingAmount: true,
-        },
-      }),
     ]);
-
-    const balances = activeLots.reduce(
-      (acc, lot) => {
-        if (lot.validityType === 'membership_bound' || lot.sourceType === 'subscription') {
-          acc.subscriptionCredits += lot.remainingAmount;
-        } else if (lot.sourceType === 'gift') {
-          acc.giftCredits += lot.remainingAmount;
-        } else {
-          acc.fixedCredits += lot.remainingAmount;
-        }
-        return acc;
-      },
-      { subscriptionCredits: 0, giftCredits: 0, fixedCredits: 0 },
-    );
+    const balances = current.balances;
     const freeTierBenefits = await this.getFreeTierBenefitsSetting();
     const hasActivePlan = Boolean(current.plan);
 
@@ -356,10 +345,12 @@ export class MembershipService {
         pauseGiftDecay: entitlement.pauseGiftDecay,
       },
       balances: {
+        freeCredits: balances.freeCredits,
+        rechargeCredits: balances.rechargeCredits,
         subscriptionCredits: balances.subscriptionCredits,
         giftCredits: balances.giftCredits,
         fixedCredits: balances.fixedCredits,
-        totalCredits: account?.balance ?? 0,
+        totalCredits: balances.totalCredits,
       },
       quotas: {
         inviteLimit: hasActivePlan
@@ -374,6 +365,91 @@ export class MembershipService {
       nextChange: current.nextChange,
       current,
     };
+  }
+
+  private async getCreditBalances(userId: string): Promise<MembershipCreditBalances> {
+    const [account, activeLots] = await Promise.all([
+      this.prisma.creditAccount.findUnique({
+        where: { userId },
+        select: { balance: true },
+      }),
+      this.prisma.creditLot.findMany({
+        where: {
+          account: { userId },
+          status: 'active',
+          remainingAmount: { gt: 0 },
+        },
+        select: {
+          sourceType: true,
+          validityType: true,
+          remainingAmount: true,
+          metadata: true,
+        },
+      }),
+    ]);
+
+    const balances = activeLots.reduce(
+      (acc, lot) => {
+        if (this.isFreeCreditLot(lot)) {
+          acc.freeCredits += lot.remainingAmount;
+          return acc;
+        }
+
+        if (lot.validityType === 'membership_bound' || lot.sourceType === 'subscription') {
+          acc.subscriptionCredits += lot.remainingAmount;
+          return acc;
+        }
+
+        if (lot.sourceType === 'recharge') {
+          acc.rechargeCredits += lot.remainingAmount;
+          acc.fixedCredits += lot.remainingAmount;
+          return acc;
+        }
+
+        if (lot.sourceType === 'gift') {
+          acc.giftCredits += lot.remainingAmount;
+          return acc;
+        }
+
+        acc.fixedCredits += lot.remainingAmount;
+        return acc;
+      },
+      {
+        freeCredits: 0,
+        rechargeCredits: 0,
+        subscriptionCredits: 0,
+        giftCredits: 0,
+        fixedCredits: 0,
+        totalCredits: account?.balance ?? 0,
+      },
+    );
+
+    balances.totalCredits = account?.balance ?? 0;
+    return balances;
+  }
+
+  private isFreeCreditLot(lot: {
+    sourceType: string;
+    validityType: string;
+    metadata?: Prisma.JsonValue | null;
+  }): boolean {
+    if (lot.sourceType !== 'subscription' || lot.validityType !== 'fixed_window') {
+      return false;
+    }
+    const metadata = this.asJsonObject(lot.metadata);
+    const grantedBy = typeof metadata?.grantedBy === 'string' ? metadata.grantedBy : '';
+    const grantType = typeof metadata?.grantType === 'string' ? metadata.grantType : '';
+    return (
+      grantedBy === FREE_USER_LEGACY_QUOTA_GRANTED_BY ||
+      grantedBy === FREE_USER_STARTER_QUOTA_GRANTED_BY ||
+      grantType === 'free_user_starter_quota'
+    );
+  }
+
+  private asJsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   }
 
   private readInviteLimitFromPlanMetadata(metadata: Prisma.JsonValue | null | undefined): number | null {
@@ -1004,15 +1080,42 @@ export class MembershipService {
   async decayDailyGiftCredits(now = new Date()) {
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     const dailyDecayAmount = policy.dailyGiftDecayCredits;
+    if (dailyDecayAmount <= 0) {
+      return {
+        affectedUsers: 0,
+        decayedCredits: 0,
+        updatedLots: 0,
+      };
+    }
     return this.prisma.$transaction(async (tx) => {
       const accounts = await tx.creditAccount.findMany({
         where: {
           lots: {
             some: {
-              sourceType: 'gift',
-              validityType: 'permanent',
+              sourceType: 'subscription',
+              validityType: 'fixed_window',
               status: 'active',
               remainingAmount: { gt: 0 },
+              OR: [
+                {
+                  metadata: {
+                    path: ['grantedBy'],
+                    equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
+                  },
+                },
+                {
+                  metadata: {
+                    path: ['grantedBy'],
+                    equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
+                  },
+                },
+                {
+                  metadata: {
+                    path: ['grantType'],
+                    equals: 'free_user_starter_quota',
+                  },
+                },
+              ],
             },
           },
         },
@@ -1031,6 +1134,7 @@ export class MembershipService {
             where: {
               userId: { in: accounts.map((account) => account.userId) },
               status: 'paid',
+              orderType: { in: ['membership', 'recharge'] },
             },
             select: { userId: true },
             distinct: ['userId'],
@@ -1057,10 +1161,30 @@ export class MembershipService {
         const lots = await tx.creditLot.findMany({
           where: {
             accountId: account.id,
-            sourceType: 'gift',
-            validityType: 'permanent',
+            sourceType: 'subscription',
+            validityType: 'fixed_window',
             status: 'active',
             remainingAmount: { gt: 0 },
+            OR: [
+              {
+                metadata: {
+                  path: ['grantedBy'],
+                  equals: FREE_USER_LEGACY_QUOTA_GRANTED_BY,
+                },
+              },
+              {
+                metadata: {
+                  path: ['grantedBy'],
+                  equals: FREE_USER_STARTER_QUOTA_GRANTED_BY,
+                },
+              },
+              {
+                metadata: {
+                  path: ['grantType'],
+                  equals: 'free_user_starter_quota',
+                },
+              },
+            ],
           },
           orderBy: [{ grantedAt: 'asc' }, { createdAt: 'asc' }],
         });
@@ -1107,8 +1231,8 @@ export class MembershipService {
             amount: -totalDecayed,
             balanceBefore,
             balanceAfter: accountBalance,
-            description: '赠送积分每日衰减',
-            businessType: 'gift_decay',
+            description: '\u514d\u8d39\u79ef\u5206\u6bcf\u65e5\u8870\u51cf',
+            businessType: 'free_credit_decay',
             metadata: {
               decayedAt: now.toISOString(),
               dailyDecayAmount,

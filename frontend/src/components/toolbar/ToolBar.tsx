@@ -803,22 +803,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>{lt('节点选择工具', 'Node Select')}</TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={isToolButtonActive(drawMode === 'marquee') ? 'default' : 'outline'}
-                      size="sm"
-                      className={cn(
-                        "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'marquee'))
-                      )}
-                      onClick={() => setDrawMode('marquee')}
-                    >
-                      <MarqueeSelectIcon className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>{lt('纯框选（不含节点）', 'Marquee (no nodes)')}</TooltipContent>
-                </Tooltip>
               </div>
             </div>
           </div>

@@ -276,9 +276,6 @@ export const authApi = {
           throw new Error(result.message || "邀请码无效，请检查后重试");
         }
       }
-      if (!payload.inviteCode?.trim()) {
-        throw new Error("invite_code_required");
-      }
       const user: UserInfo = {
         id: `wechat_bind_${Date.now()}`,
         email: "",
@@ -449,12 +446,11 @@ export const authApi = {
       if (trimmedName === payload.phone) {
         throw new Error("用户名不能与手机号相同");
       }
-      if (!payload.inviteCode?.trim()) {
-        throw new Error("invite_code_required");
-      }
-      const inviteResult = await validateInviteCode(payload.inviteCode.trim());
-      if (!inviteResult.valid) {
-        throw new Error(inviteResult.message || "invalid_invite_code");
+      if (payload.inviteCode?.trim()) {
+        const inviteResult = await validateInviteCode(payload.inviteCode.trim());
+        if (!inviteResult.valid) {
+          throw new Error(inviteResult.message || "invalid_invite_code");
+        }
       }
       const existsPhoneMatchedByName = users.find((u) => u.phone === trimmedName);
       if (existsPhoneMatchedByName) {
@@ -756,7 +752,11 @@ export const authApi = {
       auth: "omit",
       allowRefresh: false,
     });
-    return json<UserInfo>(res);
+    const user = await json<UserInfo>(res);
+    saveSession(user);
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
+    return user;
   },
 
   // 忘记密码重置

@@ -8,11 +8,16 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt.guard';
 import { RefreshAuthGuard } from './guards/refresh.guard';
 import { SmsService } from './sms.service';
+import { UsersService } from '../users/users.service';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService, private readonly sms: SmsService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly sms: SmsService,
+    private readonly usersService: UsersService,
+  ) {}
 
   @Post('register')
   async register(@Body() dto: RegisterDto, @Req() req: any) {
@@ -236,7 +241,9 @@ export class AuthController {
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
   async me(@Req() req: any) {
-    return { user: req.user };
+    const userId = (req.user?.sub || req.user?.id) as string;
+    const user = await this.usersService.findById(userId);
+    return { user: this.usersService.sanitize(user) };
   }
 
   @Post('refresh')

@@ -6,12 +6,17 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Canvas/Flow: dragging Flow nodes while a drawing tool is active now bypasses the Paper canvas drawing event bus, so nodes can move directly without the drawing tool treating the action as a click and switching back to marquee/select mode.
+- Membership/Pricing: yearly membership cards now calculate and label estimated earned credits by year, using the matching monthly plan's immediate credits multiplied by 12 plus 365 daily check-ins and 52 seven-day streak bonuses; monthly cards continue to use the monthly 30-day/4-streak calculation.
+- Auth/Register: invite codes are now optional for phone registration and WeChat phone binding account creation; provided codes are still validated and redeemed.
+- Membership/Credits: membership current/me responses now expose free, recharge, subscription, gift, fixed, and total credit balances. The VIP subscription header shows free and recharge credits, removes the old top-up status card, free starter credits are issued once to new users, decay by the daily policy amount only while the user has no paid membership/top-up order, and negative-priority free lots are consumed before paid credits.
 - Admin/Auth: banning a user from user management now revokes active refresh tokens and blocks password, SMS, WeChat, Watcha, refresh, and protected-route auth with the message `此账号已被封控`; switching the status back to active allows login again.
 - Canvas Comments: the comment drawer now reserves space for the canvas-level team avatar instead of rendering a duplicate presence bar inside the drawer.
 - Team Collaboration/Profile: the fixed canvas presence avatar keeps the compact 40px avatar styling while continuing to use live profile/member data.
 - Canvas Comments/Profile: comment pins, comment lists, popups, reply inputs, and mention suggestions now use the same user-id-based avatar fallback as profile and presence avatars.
 - Canvas Comments: new comment drafts now open beside the clicked canvas point, and saved markers stay centered on the original click position.
 - Team Collaboration: the floating canvas presence avatar bar is hidden in personal workspaces and remains visible for team workspaces.
+- Auth/Profile: `/api/auth/me` now reads the latest user row, including `avatarUrl`, and profile updates refresh the local user session so edited avatars persist across page reloads.
 - Canvas Comments: the new draft comment composer now uses the requested compact empty state and expanded input toolbar while leaving existing reply/edit composer behavior unchanged.
 - Canvas Comments: comment thread popups now match the compact card/reply interaction more closely, with a shorter reply field and image upload controls appearing only after typing.
 - Canvas Comments/Profile: comment thread creation now connects the required Prisma project relation instead of writing only the scalar project id. The profile settings panel now edits avatar uploads, persists only remote avatar URLs, avoids Enter-triggered username saves, and renders deterministic pastel default avatars.

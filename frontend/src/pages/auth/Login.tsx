@@ -198,11 +198,7 @@ export default function LoginPage() {
       setWechatError(t("auth.login.wechatBindIncomplete"));
       return;
     }
-    if (!inviteCode.trim()) {
-      setWechatError(t("auth.register.inviteRequired"));
-      return;
-    }
-    if (inviteCodeValid === null) {
+    if (inviteCode.trim() && inviteCodeValid === null) {
       const result = await validateInviteCode(inviteCode.trim());
       setInviteCodeValid(result.valid);
       if (result.valid && result.inviterName) {
@@ -214,7 +210,7 @@ export default function LoginPage() {
         setWechatError(result.message || t("auth.register.invalidInvite"));
         return;
       }
-    } else if (inviteCodeValid === false) {
+    } else if (inviteCode.trim() && inviteCodeValid === false) {
       setWechatError(t("auth.register.invalidInvite"));
       return;
     }
@@ -405,7 +401,6 @@ export default function LoginPage() {
                           setInviterName(null);
                         }}
                         onBlur={() => void handleInviteCodeBlur()}
-                        required
                         className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
                       />
                       {inviteCodeValid !== null ? (

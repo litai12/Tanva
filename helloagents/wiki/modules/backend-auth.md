@@ -12,7 +12,7 @@
 - `backend/src/auth/sms.service.ts`：短信验证码发送与校验
 
 ## API（前缀 `/api/auth`）
-- `POST register`：注册
+- `POST register`：注册；`inviteCode` 可选，传入时会校验并兑换邀请码
 - `POST login`：手机号+密码登录（写入 cookie）
 - `GET watcha/authorize`：发起观猹 OAuth2 授权跳转（支持 `returnTo`）
 - `GET watcha/callback`：处理观猹回调，自动登录并回跳前端
