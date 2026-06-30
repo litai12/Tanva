@@ -18,6 +18,7 @@ import {
   CreateMaterialFolderDto,
   CreateTeamMaterialAssetDto,
   UpdateMaterialAssetDto,
+  UpdateMaterialFolderDto,
 } from './dto/material-library.dto';
 
 @ApiTags('material-library')
@@ -95,6 +96,15 @@ export class MaterialLibraryController {
   @Post('folders')
   createFolder(@Req() req: any, @Body() dto: CreateMaterialFolderDto) {
     return this.material.createFolder(req.user.sub, dto);
+  }
+
+  @Patch('folders/:id')
+  updateFolder(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateMaterialFolderDto,
+  ) {
+    return this.material.updateFolder(req.user.sub, id, dto);
   }
 
   @Delete('folders/:id')

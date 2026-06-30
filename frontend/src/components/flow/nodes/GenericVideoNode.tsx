@@ -241,6 +241,7 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
+const SEEDANCE15_DOC_RESOLUTIONS = ["720P", "1080P"] as const;
 // Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
 const SEEDANCE20_BASE_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
 const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
@@ -1444,8 +1445,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const legacySeedanceResolutionOptions = React.useMemo(() => {
     if (provider !== "doubao" || isVodManagedNode) return [];
-    // Seedance 1.5-pro (via new-api ark) supports 480P/720P/1080P, same as 2.0.
-    return isSeedance20Model ? seedance20ResolutionList : ["480P", "720P", "1080P"];
+    return isSeedance20Model ? seedance20ResolutionList : [...SEEDANCE15_DOC_RESOLUTIONS];
   }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
@@ -1455,12 +1455,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
         return filtered.length > 0 ? filtered : seedance20ResolutionList;
       }
+      if (provider === "doubao" && isSeedanceModel) {
+        const allowed = new Set(SEEDANCE15_DOC_RESOLUTIONS);
+        const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
+        return filtered.length > 0 ? filtered : [...SEEDANCE15_DOC_RESOLUTIONS];
+      }
       return vodResolutionOptions.length > 0
         ? vodResolutionOptions
         : legacySeedanceResolutionOptions;
     },
     [
       isSeedance20Model,
+      isSeedanceModel,
       legacySeedanceResolutionOptions,
       provider,
       seedance20ResolutionList,
@@ -1478,6 +1484,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   // 回退成默认的 "Vidu Q2"——一个 Q3 节点被错显成 Q2，菜单也无高亮项。
   const viduModelSelectionValue: "q2" | "q3" = viduModelFamily;
   const shouldShowResolutionSelector = resolutionOptions.length > 0;
+  React.useEffect(() => {
+    if (provider !== "doubao" || !isSeedanceModel || isSeedance20Model) return;
+    const currentResolution =
+      typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
+    if (!currentResolution || resolutionOptions.includes(currentResolution)) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { resolution: resolutionOptions[0] || "720P" } },
+      })
+    );
+  }, [
+    data.resolution,
+    id,
+    isSeedance20Model,
+    isSeedanceModel,
+    provider,
+    resolutionOptions,
+  ]);
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
   const shouldShowLegacySeedanceOptions =

@@ -2846,8 +2846,8 @@ const FloatingHeader: React.FC = () => {
                 height: fpsOverlayAdminButtonLayout.size,
               }}
               onClick={() => navigate("/admin")}
-              title='Admin 后台'
-              aria-label='打开 Admin 后台'
+              title='Admin'
+              aria-label='打开 Admin'
             >
               <Activity className='w-3.5 h-3.5' />
             </Button>
@@ -2860,20 +2860,6 @@ const FloatingHeader: React.FC = () => {
         {/* 右侧栏：功能按钮 */}
         <div className='pointer-events-auto'>
           <div className='tanva-header-card tanva-header-card-right flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300'>
-            {isAdmin && (
-              <Button
-                variant='ghost'
-                size='sm'
-                className='h-7 rounded-full border border-slate-300 bg-white/80 px-2.5 text-xs font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900'
-                onClick={() => navigate("/admin")}
-                title='后台管理'
-                aria-label='打开后台管理'
-              >
-                <Activity className='mr-1.5 h-3.5 w-3.5' />
-                后台
-              </Button>
-            )}
-
             {/* 素材库按钮 */}
             {showLibraryButton && (
               <Button

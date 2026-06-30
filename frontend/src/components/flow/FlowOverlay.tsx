@@ -3543,6 +3543,7 @@ const NODE_STATUS_PRIORITY: Record<NodeConfig["status"], number> = {
 const UNIFIED_VIDEO_NODE_TITLES: Partial<
   Record<FlowNodeType, { nameZh: string; nameEn: string }>
 > = {
+  midjourneyV7: { nameZh: "Midjourney", nameEn: "Midjourney" },
   klingVideo: { nameZh: "Kling", nameEn: "Kling" },
   viduVideo: { nameZh: "Vidu", nameEn: "Vidu" },
   doubaoVideo: { nameZh: "Seedance", nameEn: "Seedance" },

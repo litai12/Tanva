@@ -53,6 +53,7 @@
 - new-api stores the internal route key as `omni-flash-ext`, but APIMart upstream is case-sensitive and must receive `model=Omni-Flash-Ext`; production PostgreSQL data repair lives in `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sql`, with a non-runner SQLite companion at `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sqlite` for local `one-api.db`.
 - Flow Midjourney 节点显示名为 `Midjourney`，节点内 `modelVersion` 在 `v7/v8` 间切换；运行时分别发送 `--v 7`/`--v 8.1` 与 `midjourney-v7`/`midjourney-v8`，Niji 仍使用独立 `niji7` 节点与 `midjourney-niji-7`。new-api 托管 Youchuan 生产数据需包含 `new-api/patches/2026-06-17/002-add-midjourney-v8-youchuan.sql`。
 - Seedance 2.0 `reference_images`/全能参考模式必须把图片作为 `reference_image` 参考媒体处理，不得与 `first_frame`/`last_frame` 角色混用；若 new-api 兼容层返回首尾帧与参考媒体混用错误，后端会退回 Ark 官方 `content`/role 直连任务。
+- Seedance 1.5 Pro Flow 节点分辨率只允许 `720P`/`1080P`；前端需过滤旧 VOD/节点配置里误带的 `4K` 等不支持选项，并把历史节点上的非法分辨率回落到支持选项。
 - Flow 视频节点成功后可写入 Global History，但只记录已有远程视频 URL/缩略图引用，不把视频或缩略图内联进设计 JSON。
 - Library 历史视频记录支持封面/播放/下载展示；发送或拖拽到画板时必须走 `canvas:insert-video` 视频资产链路，不走图片上传链路。历史图片仍可按远程 URL/可持久化资产引用发送到画板。
 - Canvas/Flow 视口同步以性能为优先：触控板/手势缩放通过 RAF 批量提交 `setViewport`；Flow 覆盖层内的滚轮缩放/平移同样要合并到 RAF；项目内容中的 canvas `zoom/pan` 同步需要防抖和同值跳过，避免缩放/平移产生高频 React 内容状态更新。超过 80 节点时 MiniMap 仅在移动/缩放/节点拖拽等交互过程中临时隐藏，交互空闲后恢复；移动/缩放/节点拖拽进入软降级但保留节点内容、按钮、连线和 resize，仅隐藏连接句柄圆点；节点拖拽期间派生数据应跳过 position-only 重算。`GridRenderer` 的初始化兜底不能依赖随 `zoom` 重建的回调，避免绕过缩放重绘防抖。

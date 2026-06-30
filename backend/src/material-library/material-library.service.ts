@@ -13,6 +13,7 @@ import {
   MATERIAL_KINDS,
   MaterialKind,
   UpdateMaterialAssetDto,
+  UpdateMaterialFolderDto,
 } from './dto/material-library.dto';
 import type { MaterialAsset, MaterialFolder } from '@prisma/client';
 
@@ -335,6 +336,27 @@ export class MaterialLibraryService {
       data: { ownerId: userId, teamId: null, name: dto.name },
     });
     return this.toFolderDto(row);
+  }
+
+  async updateFolder(
+    userId: string,
+    folderId: string,
+    dto: UpdateMaterialFolderDto,
+  ): Promise<MaterialFolderDto> {
+    const folder = await this.prisma.materialFolder.findUnique({
+      where: { id: folderId },
+    });
+    if (!folder) throw new NotFoundException('文件夹不存在');
+    if (folder.teamId) {
+      await this.teamCore.assertMember(folder.teamId, userId);
+    } else if (folder.ownerId !== userId) {
+      throw new ForbiddenException('无权修改该文件夹');
+    }
+    const updated = await this.prisma.materialFolder.update({
+      where: { id: folderId },
+      data: { name: dto.name },
+    });
+    return this.toFolderDto(updated);
   }
 
   async deleteFolder(userId: string, folderId: string): Promise<void> {

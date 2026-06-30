@@ -194,6 +194,18 @@ export async function createMaterialFolder(input: {
   );
 }
 
+export async function updateMaterialFolder(
+  folderId: string,
+  patch: { name: string }
+): Promise<MaterialFolderDto> {
+  return json(
+    await fetchWithAuth(
+      `${base}/api/material-library/folders/${encodeURIComponent(folderId)}`,
+      { method: "PATCH", headers, body: JSON.stringify(patch) }
+    )
+  );
+}
+
 export async function deleteMaterialFolder(folderId: string): Promise<void> {
   await json(
     await fetchWithAuth(
