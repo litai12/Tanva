@@ -571,8 +571,25 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		if strings.HasPrefix(request.Model, "gpt-image-2") && strings.Contains(request.Size, ":") {
 			request.Size = normalizeGptImage2Size(request.Size)
 		}
+		// doubao-seedream 系列图片生成模型默认会给图片打水印（watermark 默认 true）。
+		// 该模型同时挂在 OpenAI 兼容渠道（ark/watcha, type 1）与 VolcEngine 渠道（type 45）上。
+		// VolcEngine adaptor 已固定去水印，这里给 OpenAI 兼容渠道补齐同样的行为，
+		// 保证无论走哪条渠道调用 new-api，都固定 patch watermark=false。
+		if isSeedreamImageModel(request.Model) || isSeedreamImageModel(info.UpstreamModelName) {
+			disableWatermark := false
+			request.Watermark = &disableWatermark
+			// 清掉客户端可能从 Extra 透传的同名键，避免与上面的显式 false 冲突。
+			delete(request.Extra, "watermark")
+		}
 		return request, nil
 	}
+}
+
+// isSeedreamImageModel reports whether the model name belongs to the
+// doubao-seedream image-generation family (e.g. "doubao-seedream-5-0-260128",
+// "seedream-5.0"). Kept in sync with the VolcEngine adaptor's equivalent check.
+func isSeedreamImageModel(modelName string) bool {
+	return strings.Contains(strings.ToLower(modelName), "seedream")
 }
 
 // normalizeGptImage2Size converts an aspect-ratio shorthand to the nearest
