@@ -6,7 +6,7 @@ import '@/i18n';
 import ProtectedRoute from '@/routes/ProtectedRoute';
 import './index.css';
 import App from './App.tsx';
-import Home from '@/pages/Home';
+import HomeGate from '@/pages/landing/HomeGate';
 import LoginPage from '@/pages/auth/Login';
 import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
@@ -35,7 +35,7 @@ function RootRoutes() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<HomeGate />} />
         <Route path="/auth/login" element={<LoginPage />} />
         <Route path="/auth/register" element={<RegisterPage />} />
         <Route path="/legal/terms" element={<TermsOfService />} />

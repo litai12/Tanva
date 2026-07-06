@@ -408,6 +408,8 @@ export interface TenantInfo {
   name: string;
   status: string;
   isPlatform: boolean;
+  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页
+  homepage: "default" | "newway";
   createdAt: string;
   userCount: number;
   // 是否已配置各档 new-api key（不含明文）
@@ -487,7 +489,7 @@ export async function createTenant(body: {
 }
 export async function updateTenant(
   id: string,
-  body: { name?: string; status?: "active" | "suspended" },
+  body: { name?: string; status?: "active" | "suspended"; homepage?: "default" | "newway" },
 ): Promise<TenantInfo> {
   const response = await request(`/api/admin/tenants/${id}`, {
     method: "PATCH",

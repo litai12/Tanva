@@ -987,6 +987,8 @@ model Tenant {
   name       String
   status     String         @default("active")
   isPlatform Boolean        @default(false)
+  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页
+  homepage   String         @default("default")
   // 子租户独立 new-api 三组 key（空则回落平台 env key）。MVP 明文存储。
   newApiKey     String?
   newApiKeyVip  String?

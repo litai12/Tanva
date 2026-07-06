@@ -48,6 +48,7 @@ export class TenantAdminService {
       name: t.name,
       status: t.status,
       isPlatform: t.isPlatform,
+      homepage: t.homepage ?? 'default',
       createdAt: t.createdAt,
       userCount: countMap.get(t.id) ?? 0,
       // 仅返回是否已配置（布尔），不泄露明文 key
@@ -164,7 +165,11 @@ export class TenantAdminService {
     }
     await (this.prisma as any).tenant.update({
       where: { id },
-      data: { ...(dto.name ? { name: dto.name } : {}), ...(dto.status ? { status: dto.status } : {}) },
+      data: {
+        ...(dto.name ? { name: dto.name } : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+        ...(dto.homepage ? { homepage: dto.homepage } : {}),
+      },
     });
     return this.getTenant(id);
   }

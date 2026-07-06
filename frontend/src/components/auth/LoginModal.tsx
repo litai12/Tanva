@@ -208,11 +208,15 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
     const poll = async () => {
       if (!wechatSession?.id || wechatConsumingRef.current || !isOpen || tab !== 'wechat') return;
 
+      let failed = false;
+      let stopped = false;
+
       try {
         const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
         if (cancelled) return;
 
         setWechatSession(next);
+        setWechatError(null);
 
         if (next.status === 'authorized') {
           wechatConsumingRef.current = true;
@@ -227,21 +231,25 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         }
 
         if (next.status === 'expired') {
+          // 二维码已过期，停止轮询，等待用户手动刷新
+          stopped = true;
           return;
         }
       } catch (err: any) {
         if (cancelled) return;
+        failed = true;
         wechatConsumingRef.current = false;
         setWechatConsuming(false);
-        setWechatError(err?.message || t('auth.login.wechatLoadFailed'));
+        setWechatError(t('auth.login.wechatPollFailed'));
       } finally {
-        if (!cancelled && isOpen && tab === 'wechat' && wechatSession?.id && !wechatConsumingRef.current) {
+        if (!cancelled && !stopped && !failed && isOpen && tab === 'wechat' && wechatSession?.id && !wechatConsumingRef.current) {
           timer = window.setTimeout(poll, 2000);
         }
+        // 接口失败不自动重试，停止轮询，由用户点击二维码手动重试
       }
     };
 
-    if (isOpen && tab === 'wechat' && wechatSession?.id) {
+    if (isOpen && tab === 'wechat' && wechatSession?.id && wechatSession.status !== 'expired') {
       timer = window.setTimeout(poll, 1500);
     }
 

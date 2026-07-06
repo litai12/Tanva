@@ -11,7 +11,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { tokenRefreshManager } from "./tokenRefreshManager";
 import { getRefreshAuthHeader } from "./authTokenStorage";
-import { triggerAuthExpired } from "./authEvents";
 import { fetchWithAuth } from "./authFetch";
 import { ossUploadService, dataURLToBlobAsync } from "./ossUploadService";
 import type {
@@ -561,9 +560,8 @@ class AIImageService {
           );
         }
 
-        // 刷新失败：说明登录态已失效，触发自动退出/弹窗
-        triggerAuthExpired();
-
+        // 刷新失败可能只是网络/网关瞬时故障，不在此强制登出；
+        // refresh token 真失效时由 fetchWithAuth 内部统一触发登出。
         const fallback = await this.callPublicAPI<T>(
           url,
           requestWithRoute,

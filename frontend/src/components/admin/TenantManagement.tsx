@@ -114,6 +114,16 @@ export default function TenantManagement() {
     }
   };
 
+  const handleHomepageChange = async (t: TenantInfo, homepage: "default" | "newway") => {
+    if (homepage === t.homepage) return;
+    try {
+      await updateTenant(t.id, { homepage });
+      await load();
+    } catch (e: any) {
+      setErr(e?.message || "更新首页模板失败");
+    }
+  };
+
   const handleAddDomain = async (tenantId: string) => {
     const host = (domainInput[tenantId] || "").trim();
     if (!host) return;
@@ -389,6 +399,26 @@ export default function TenantManagement() {
                     添加
                   </button>
                 </div>
+              </div>
+
+              {/* 首页模板：域名首页展示哪个页面（宣发官网 / 平台默认） */}
+              <div className="mt-3 flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500">首页</span>
+                <select
+                  className="rounded-md border px-2 py-1 text-xs"
+                  value={t.homepage ?? "default"}
+                  onChange={(e) =>
+                    void handleHomepageChange(t, e.target.value as "default" | "newway")
+                  }
+                >
+                  <option value="default">平台默认首页</option>
+                  <option value="newway">NewWay 官网（宣发页）</option>
+                </select>
+                {t.homepage === "newway" && (
+                  <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-xs text-cyan-700">
+                    官网已启用
+                  </span>
+                )}
               </div>
 
               {/* new-api 三组 key 配置 */}
