@@ -6,10 +6,19 @@ import {
   type ApiUsageModelStatsResponse,
 } from "@/services/adminApi";
 
-type RangeKey = "total" | "today" | "yesterday" | "day" | "week" | "custom";
+type RangeKey = "today" | "yesterday" | "day" | "week" | "custom";
+
+const MAX_LOOKBACK_DAYS = 15;
 
 const inputClass =
   "h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+function getMinSelectableDate() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - (MAX_LOOKBACK_DAYS - 1));
+  return date;
+}
 
 function getDayRange(dateText: string) {
   const date = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
@@ -46,13 +55,16 @@ export default function ApiModelStatsTab() {
   const [loading, setLoading] = useState(false);
   const [expandedNode, setExpandedNode] = useState<string | null>(null);
   const [filters, setFilters] = useState({
-    range: "total" as RangeKey,
+    range: "today" as RangeKey,
     day: new Date().toISOString().slice(0, 10),
     week: new Date().toISOString().slice(0, 10),
     startDate: "",
     endDate: "",
     modelNode: "",
   });
+
+  const todayText = new Date().toISOString().slice(0, 10);
+  const minDateText = getMinSelectableDate().toISOString().slice(0, 10);
 
   const statsParams = useMemo(() => {
     const params: {
@@ -78,6 +90,11 @@ export default function ApiModelStatsTab() {
         end.setDate(end.getDate() + 1);
         params.endDate = end.toISOString();
       }
+    }
+
+    const minStart = getMinSelectableDate();
+    if (!params.startDate || new Date(params.startDate) < minStart) {
+      params.startDate = minStart.toISOString();
     }
 
     if (filters.modelNode) params.modelNode = filters.modelNode;
@@ -120,7 +137,6 @@ export default function ApiModelStatsTab() {
                 setFilters((current) => ({ ...current, range: event.target.value as RangeKey }))
               }
             >
-              <option value='total'>总用量</option>
               <option value='today'>今日</option>
               <option value='yesterday'>昨日</option>
               <option value='day'>指定日期</option>
@@ -135,6 +151,8 @@ export default function ApiModelStatsTab() {
               <input
                 className={inputClass}
                 type='date'
+                min={minDateText}
+                max={todayText}
                 value={filters.day}
                 onChange={(event) => setFilters((current) => ({ ...current, day: event.target.value }))}
               />
@@ -147,6 +165,8 @@ export default function ApiModelStatsTab() {
               <input
                 className={inputClass}
                 type='date'
+                min={minDateText}
+                max={todayText}
                 value={filters.week}
                 onChange={(event) => setFilters((current) => ({ ...current, week: event.target.value }))}
               />
@@ -160,6 +180,8 @@ export default function ApiModelStatsTab() {
                 <input
                   className={inputClass}
                   type='date'
+                  min={minDateText}
+                  max={todayText}
                   value={filters.startDate}
                   onChange={(event) =>
                     setFilters((current) => ({ ...current, startDate: event.target.value }))
@@ -171,6 +193,8 @@ export default function ApiModelStatsTab() {
                 <input
                   className={inputClass}
                   type='date'
+                  min={minDateText}
+                  max={todayText}
                   value={filters.endDate}
                   onChange={(event) =>
                     setFilters((current) => ({ ...current, endDate: event.target.value }))

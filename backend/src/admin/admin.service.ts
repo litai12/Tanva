@@ -1494,12 +1494,17 @@ export class AdminService {
     const requestedModelNode = this.asNonEmptyString(options.modelNode)?.toLowerCase();
     const requestedChannel = this.asNonEmptyString(options.channel)?.toUpperCase();
 
-    const where: Prisma.ApiUsageRecordWhereInput = {};
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = startDate;
-      if (endDate) where.createdAt.lte = endDate;
-    }
+    // 查询窗口最多回溯15天，避免全表扫描
+    const maxLookbackDays = 15;
+    const minStartDate = new Date();
+    minStartDate.setHours(0, 0, 0, 0);
+    minStartDate.setDate(minStartDate.getDate() - (maxLookbackDays - 1));
+    const effectiveStartDate =
+      startDate && startDate > minStartDate ? startDate : minStartDate;
+
+    const where: Prisma.ApiUsageRecordWhereInput = {
+      createdAt: { gte: effectiveStartDate, ...(endDate ? { lte: endDate } : {}) },
+    };
 
     const records = await this.prisma.apiUsageRecord.findMany({
       where,
