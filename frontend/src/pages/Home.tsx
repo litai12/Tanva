@@ -23,7 +23,7 @@ const WeChatFloatingButton = () => {
   useEffect(() => {
     const fetchQrCodes = async () => {
       try {
-        const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000';
+        const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000').replace(/\/+$/, '');
         const response = await fetch(`${API_BASE}/api/settings/wechat-qrcodes`);
         if (response.ok) {
           const data = await response.json();

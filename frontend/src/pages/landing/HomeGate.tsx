@@ -29,7 +29,8 @@ export default function HomeGate() {
 
   useEffect(() => {
     let cancelled = false;
-    const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000';
+    // VITE_API_BASE_URL=/（多租户同源部署）时必须去尾斜杠，否则拼出 //api/... 被当成协议相对 URL（主机名变成 "api"）
+    const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000').replace(/\/+$/, '');
     fetch(`${API_BASE}/api/settings/site-info`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('site-info unavailable'))))
       .then((data) => {

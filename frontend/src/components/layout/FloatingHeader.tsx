@@ -452,8 +452,9 @@ const FloatingHeader: React.FC = () => {
   useEffect(() => {
     const fetchQrCodes = async () => {
       try {
-        const apiBase =
-          (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://localhost:4000";
+        const apiBase = (
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) || "http://localhost:4000"
+        ).replace(/\/+$/, "");
         const response = await fetch(`${apiBase}/api/settings/wechat-qrcodes`);
         if (response.ok) {
           const data = await response.json();
