@@ -41,8 +41,13 @@ describe('buildTenantArgs', () => {
   });
 
   it('白名单 model 不注入', () => {
-    const out = buildTenantArgs('MembershipPlan', 'findMany', { where: {} }, ctx);
+    const out = buildTenantArgs('CreditPackage', 'findMany', { where: {} }, ctx);
     expect(out.where.tenantId).toBeUndefined();
+  });
+
+  it('MembershipPlan 已移出白名单，正常注入', () => {
+    const out = buildTenantArgs('MembershipPlan', 'findMany', { where: {} }, ctx);
+    expect(out.where.tenantId).toBe('t_acme');
   });
 
   it('平台态不注入', () => {

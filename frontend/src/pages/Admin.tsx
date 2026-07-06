@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/services/authApi";
@@ -10503,6 +10503,10 @@ function SettingsTab() {
 }
 
 function VipManagementTab() {
+  // 套餐已按租户隔离：主站超管按 header 租户下拉代管指定子站套餐（"all" 视为主站）
+  const { isPlatformAdmin, tenantFilter } = useAdminTenant();
+  const planTenantId =
+    isPlatformAdmin && tenantFilter && tenantFilter !== "all" ? tenantFilter : undefined;
   const TEMPLATE_LIBRARY_ACCESS_OPTIONS = ["基础可用", "全部开放"] as const;
   const SEEDANCE2_ACCESS_OPTIONS = [
     { value: "disabled", label: "不支持" },
@@ -10717,14 +10721,18 @@ function VipManagementTab() {
     isActive: true,
   });
 
+  // 递增序号丢弃过期响应：切换租户时避免慢请求回来覆盖新租户的套餐列表
+  const vipLoadSeqRef = useRef(0);
   const loadVipData = async () => {
+    const seq = ++vipLoadSeqRef.current;
     setLoading(true);
     try {
       const [plansResult, policyResult, freeTierSetting] = await Promise.all([
-        getAdminMembershipPlans(),
+        getAdminMembershipPlans(planTenantId),
         getMembershipCreditPolicy(),
         getSetting(FREE_TIER_BENEFITS_SETTING_KEY).catch(() => null),
       ]);
+      if (seq !== vipLoadSeqRef.current) return;
       setPlans(plansResult);
       setPolicyView(policyResult);
       setPolicyForm(policyResult.effective);
@@ -10776,16 +10784,21 @@ function VipManagementTab() {
         supportLevel: parsedFreeTier.supportLevel,
       });
     } catch (error) {
+      if (seq !== vipLoadSeqRef.current) return;
       console.error("加载 VIP 管理数据失败:", error);
       alert("加载 VIP 管理数据失败");
     } finally {
-      setLoading(false);
+      if (seq === vipLoadSeqRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    // 切换租户时关闭编辑弹窗，避免把上一个租户的套餐表单保存到新租户
+    setPlanModalOpen(false);
+    setEditingPlanId(null);
     loadVipData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planTenantId]);
 
   const resetPlanForm = () => {
     setEditingPlanId(null);
@@ -10888,10 +10901,10 @@ function VipManagementTab() {
     try {
       const payload = parsePlanPayload();
       if (editingPlanId) {
-        await updateAdminMembershipPlan(editingPlanId, payload);
+        await updateAdminMembershipPlan(editingPlanId, payload, planTenantId);
         alert("会员套餐已更新");
       } else {
-        await createAdminMembershipPlan(payload);
+        await createAdminMembershipPlan(payload, planTenantId);
         alert("会员套餐已创建");
       }
       closePlanModal();
@@ -10905,7 +10918,7 @@ function VipManagementTab() {
 
   const handleTogglePlanActive = async (plan: AdminMembershipPlan) => {
     try {
-      await updateAdminMembershipPlan(plan.id, { isActive: !plan.isActive });
+      await updateAdminMembershipPlan(plan.id, { isActive: !plan.isActive }, planTenantId);
       loadVipData();
     } catch (error: any) {
       alert(error.message || "更新套餐状态失败");

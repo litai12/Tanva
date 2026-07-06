@@ -9,5 +9,5 @@ export const CLS_PLATFORM_MODE_KEY = 'platformMode';
  */
 export const TENANT_GLOBAL_MODELS: ReadonlySet<string> = new Set([
   'Tenant', 'TenantDomain', 'SystemSetting', 'NodeConfig', 'PublicTemplate',
-  'CreditPricing', 'CreditPackage', 'MembershipPlan', 'CreditConsumePolicy', 'postgres_log',
+  'CreditPricing', 'CreditPackage', 'CreditConsumePolicy', 'postgres_log',
 ]);

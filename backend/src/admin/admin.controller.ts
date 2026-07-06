@@ -532,15 +532,37 @@ export class AdminController {
     return this.businessPolicyService.updateMembershipCreditPolicy(dto, req.user.id);
   }
 
+  /**
+   * 会员套餐已按租户隔离。默认操作当前站点（Host 对应租户）的套餐；
+   * 仅主站超管可传 tenantId 代管指定子站的套餐，子站管理员传了也忽略。
+   */
+  private async runPlanTenantScope<T>(
+    req: AuthenticatedRequest,
+    tenantId: string | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const target = tenantId?.trim();
+    // 'all' 是 header 租户筛选的「全部」语义，对套餐无意义 → 按本站处理
+    if (!this.isPlatformAdmin(req) || !target || target === 'all') return fn();
+    // MembershipPlan.tenantId 无外键，必须先验证租户存在，否则写入会产生孤儿套餐行
+    await this.tenantAdminService.assertTenantExists(target);
+    return this.tenantContext.runAsTenant(target, fn);
+  }
+
   @Get('membership-plans')
-  @ApiOperation({ summary: '获取会员套餐管理列表' })
-  async getAdminMembershipPlans(@Request() req: AuthenticatedRequest) {
+  @ApiOperation({ summary: '获取会员套餐管理列表（本站；主站超管可传 tenantId 查指定子站）' })
+  async getAdminMembershipPlans(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: { tenantId?: string },
+  ) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.listAllPlansForAdmin();
+    return this.runPlanTenantScope(req, query.tenantId, () =>
+      this.membershipService.listAllPlansForAdmin(),
+    );
   }
 
   @Post('membership-plans')
-  @ApiOperation({ summary: '创建会员套餐' })
+  @ApiOperation({ summary: '创建会员套餐（本站；主站超管可传 tenantId 建到指定子站）' })
   async createMembershipPlan(
     @Request() req: AuthenticatedRequest,
     @Body()
@@ -555,14 +577,18 @@ export class AdminController {
       isActive?: boolean;
       sortOrder?: number;
       metadata?: Record<string, any>;
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.createMembershipPlan(dto);
+    const { tenantId, ...plan } = dto;
+    return this.runPlanTenantScope(req, tenantId, () =>
+      this.membershipService.createMembershipPlan(plan),
+    );
   }
 
   @Patch('membership-plans/:id')
-  @ApiOperation({ summary: '更新会员套餐' })
+  @ApiOperation({ summary: '更新会员套餐（本站；主站超管可传 tenantId 改指定子站）' })
   async updateMembershipPlan(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -578,10 +604,14 @@ export class AdminController {
       isActive?: boolean;
       sortOrder?: number;
       metadata?: Record<string, any>;
+      tenantId?: string;
     },
   ) {
     this.checkAdmin(req, 'settings:manage');
-    return this.membershipService.updateMembershipPlan(id, dto);
+    const { tenantId, ...plan } = dto;
+    return this.runPlanTenantScope(req, tenantId, () =>
+      this.membershipService.updateMembershipPlan(id, plan),
+    );
   }
 
   @Get('users/:userId/membership')

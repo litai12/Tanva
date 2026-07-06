@@ -1254,30 +1254,34 @@ export interface AdminMembershipPlan {
   updatedAt: string;
 }
 
-export async function getAdminMembershipPlans(): Promise<AdminMembershipPlan[]> {
-  const response = await request("/api/admin/membership-plans");
+// 套餐已按租户隔离：tenantId 仅主站超管传（代管指定子站的套餐），子站管理员不传（后端按 Host 租户）
+export async function getAdminMembershipPlans(tenantId?: string): Promise<AdminMembershipPlan[]> {
+  const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+  const response = await request(`/api/admin/membership-plans${qs}`);
   return response.json();
 }
 
 export async function createAdminMembershipPlan(
-  data: Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price"> & { price: number }
+  data: Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price"> & { price: number },
+  tenantId?: string
 ): Promise<AdminMembershipPlan> {
   const response = await request("/api/admin/membership-plans", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify(data),
+    body: JSON.stringify(tenantId ? { ...data, tenantId } : data),
   });
   return response.json();
 }
 
 export async function updateAdminMembershipPlan(
   id: string,
-  data: Partial<Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price">> & { price?: number }
+  data: Partial<Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price">> & { price?: number },
+  tenantId?: string
 ): Promise<AdminMembershipPlan> {
   const response = await request(`/api/admin/membership-plans/${id}`, {
     method: "PATCH",
     headers: JSON_HEADERS,
-    body: JSON.stringify(data),
+    body: JSON.stringify(tenantId ? { ...data, tenantId } : data),
   });
   return response.json();
 }

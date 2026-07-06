@@ -151,10 +151,43 @@ export class TenantAdminService {
       data: { slug, name: dto.name, status: 'active', isPlatform: false },
     });
 
+    await this.clonePlatformMembershipPlans(tenant.id);
+
     if (dto.host) {
       await this.addDomain(tenant.id, { host: dto.host, isPrimary: true });
     }
     return this.getTenant(tenant.id);
+  }
+
+  /**
+   * 建站时把主站会员套餐克隆一份给新租户（此后独立演化，子站管理员可自行编辑）。
+   * MembershipPlan 是租户表：读主站/写新租户都必须在对应租户上下文里执行，
+   * 否则租户扩展会把 tenantId 注入成当前 CLS 租户。
+   */
+  private async clonePlatformMembershipPlans(tenantId: string) {
+    const platformPlans = await this.tenantContext.runAsTenant(PLATFORM_TENANT_ID, () =>
+      (this.prisma as any).membershipPlan.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+    );
+    if (!platformPlans.length) return;
+    await this.tenantContext.runAsTenant(tenantId, () =>
+      (this.prisma as any).membershipPlan.createMany({
+        data: platformPlans.map((p: any) => ({
+          code: p.code,
+          name: p.name,
+          billingCycle: p.billingCycle,
+          price: p.price,
+          monthlyQuotaCredits: p.monthlyQuotaCredits,
+          signupBonusCredits: p.signupBonusCredits,
+          dailyGiftCredits: p.dailyGiftCredits,
+          isActive: p.isActive,
+          sortOrder: p.sortOrder,
+          metadata: p.metadata ?? undefined,
+        })),
+        skipDuplicates: true,
+      }),
+    );
   }
 
   async updateTenant(id: string, dto: UpdateTenantDto) {
@@ -291,5 +324,12 @@ export class TenantAdminService {
   private async getTenant(id: string) {
     const list = await this.listTenants();
     return list.find((t: { id: string }) => t.id === id);
+  }
+
+  /** 校验租户存在（供代管子站资源的入口使用），不存在抛 404 */
+  async assertTenantExists(id: string) {
+    const tenant = await (this.prisma as any).tenant.findUnique({ where: { id } });
+    if (!tenant) throw new NotFoundException('租户不存在');
+    return tenant;
   }
 }
