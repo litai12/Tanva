@@ -42,6 +42,26 @@ export default function LoginPage() {
     }
   }, [user, navigate]);
 
+  // 已有登录态（cookie/本地缓存）时静默探测并直接跳转项目页。
+  // 不用 authStore.init()：它失败时会写入 error，会把「加载失败」渲染进登录表单。
+  const probedRef = useRef(false);
+  useEffect(() => {
+    if (probedRef.current || useAuthStore.getState().user) return;
+    probedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { user: me, source } = await authApi.meDetailed();
+        if (!cancelled && me) setAuthenticatedUser(me, source || "server");
+      } catch {
+        // 未登录/探测失败：停留在登录页即可
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setAuthenticatedUser]);
+
   useEffect(() => {
     if (!watchaError) return;
     window.dispatchEvent(
