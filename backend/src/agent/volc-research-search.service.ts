@@ -57,7 +57,26 @@ interface ResearchQueryProfile {
 @Injectable()
 export class VolcResearchSearchService {
   private readonly logger = new Logger(VolcResearchSearchService.name);
+  // Cache key embeds the free-text query (unbounded cardinality). Expired
+  // entries were only skipped on read, never reclaimed — unbounded growth.
+  // Sweep expired + enforce a hard cap before every insert.
   private readonly cache = new Map<string, { expiresAt: number; value: any }>();
+  private readonly CACHE_MAX_ENTRIES = 1000;
+
+  private pruneCache(): void {
+    const now = Date.now();
+    for (const [k, v] of this.cache) {
+      if (v.expiresAt <= now) this.cache.delete(k);
+    }
+    if (this.cache.size > this.CACHE_MAX_ENTRIES) {
+      // Drop soonest-to-expire first as a cheap eviction.
+      const byExpiry = [...this.cache.entries()].sort(
+        (a, b) => a[1].expiresAt - b[1].expiresAt,
+      );
+      const excess = this.cache.size - this.CACHE_MAX_ENTRIES;
+      for (let i = 0; i < excess; i += 1) this.cache.delete(byExpiry[i][0]);
+    }
+  }
 
   constructor(
     private readonly config: ConfigService,
@@ -919,6 +938,7 @@ export class VolcResearchSearchService {
     const parsed = this.parseJson(text);
     const ttlSeconds = this.readInt('VOLC_SEARCH_CACHE_TTL_SECONDS', 86400, 0, 604800);
     if (ttlSeconds > 0) {
+      this.pruneCache();
       this.cache.set(cacheKey, {
         expiresAt: Date.now() + ttlSeconds * 1000,
         value: parsed,

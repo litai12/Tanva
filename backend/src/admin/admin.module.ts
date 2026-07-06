@@ -10,8 +10,11 @@ import { MembershipModule } from '../membership/membership.module';
 import { TemplateService } from './services/template.service';
 import { NodeConfigService } from './services/node-config.service';
 import { TenantAdminService } from './tenant-admin.service';
+import { SystemMonitorService } from './services/system-monitor.service';
+import { ApiUsageRollupService } from './services/api-usage-rollup.service';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 import { TeamCollabModule } from '../team-collab/team-collab.module';
+import { TeamCoreModule } from '../team-core/team-core.module';
 
 @Module({
   imports: [
@@ -22,10 +25,11 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     MembershipModule,
     VolcAssetModule,
     TeamCollabModule,
+    TeamCoreModule,
   ],
   controllers: [AdminController, SettingsPublicController],
-  providers: [AdminService, TemplateService, NodeConfigService, TenantAdminService],
-  exports: [AdminService, TemplateService, NodeConfigService],
+  providers: [AdminService, TemplateService, NodeConfigService, TenantAdminService, SystemMonitorService, ApiUsageRollupService],
+  exports: [AdminService, TemplateService, NodeConfigService, ApiUsageRollupService],
 })
 export class AdminModule implements OnModuleInit {
   private readonly logger = new Logger(AdminModule.name);

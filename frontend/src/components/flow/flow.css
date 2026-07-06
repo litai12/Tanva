@@ -353,6 +353,14 @@ input[type="text"],
   outline: none !important;
 }
 
+/* 协作：被他人锁定的节点。与选中框一样画在内层卡片(> div)上并内贴(outline-offset:-2px)，
+   从而紧贴节点真实尺寸(含自适应高度节点)；用虚线+持有者颜色(CSS 变量)与选中态区分。 */
+.tanva-flow-overlay .react-flow__node.collab-locked-by-other > div {
+  outline: 2px dashed var(--collab-lock-color, #f97316) !important;
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
 /* 通用小提示样式（用于句柄悬停提示） */
 .flow-tooltip {
   position: absolute;
@@ -812,8 +820,8 @@ video::-webkit-media-controls-fullscreen-button {
 .run-btn-with-credit:focus-visible:not(:disabled) .run-credit-badge {
   display: inline-flex !important;
   opacity: 1;
-  background: rgba(20, 20, 20, 0.98) !important;
-  border-color: rgba(120, 120, 120, 0.6) !important;
+  background: var(--run-credit-hover-bg, rgba(20, 20, 20, 0.98)) !important;
+  border-color: var(--run-credit-hover-border, rgba(120, 120, 120, 0.6)) !important;
 }
 
 .run-btn-with-credit:disabled .run-credit-badge {

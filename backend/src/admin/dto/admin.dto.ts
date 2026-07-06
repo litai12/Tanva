@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsNumber, IsDateString, Min, Max, IsIn, Length, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UsersQueryDto {
@@ -35,6 +35,28 @@ export class UsersQueryDto {
   tenantId?: string;
 }
 
+export class CreateAdminUserDto {
+  @ApiProperty({ description: '手机号' })
+  @IsString()
+  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确，请输入有效的11位手机号' })
+  phone!: string;
+
+  @ApiProperty({ description: '登录密码' })
+  @IsString()
+  @Length(8, 100, { message: '密码长度必须在8到100位之间' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
+  password!: string;
+
+  @ApiProperty({ description: '昵称' })
+  @IsString()
+  name!: string;
+
+  @ApiPropertyOptional({ description: '邮箱' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}
+
 export class ApiUsageStatsQueryDto {
   @ApiPropertyOptional({ description: '开始日期' })
   @IsOptional()
@@ -50,6 +72,18 @@ export class ApiUsageStatsQueryDto {
   @IsOptional()
   @IsString()
   tenantId?: string;
+}
+
+export class ApiUsageModelStatsQueryDto extends ApiUsageStatsQueryDto {
+  @ApiPropertyOptional({ description: '模型节点' })
+  @IsOptional()
+  @IsString()
+  modelNode?: string;
+
+  @ApiPropertyOptional({ description: '渠道' })
+  @IsOptional()
+  @IsString()
+  channel?: string;
 }
 
 export class ApiUsageRecordsQueryDto {
@@ -85,6 +119,11 @@ export class ApiUsageRecordsQueryDto {
   @IsOptional()
   @IsString()
   provider?: string;
+
+  @ApiPropertyOptional({ description: 'Model' })
+  @IsOptional()
+  @IsString()
+  model?: string;
 
   @ApiPropertyOptional({ description: '响应状态' })
   @IsOptional()

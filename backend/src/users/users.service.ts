@@ -1,9 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface UpdateGoogleApiKeyDto {
   googleCustomApiKey?: string | null;
   googleKeyMode?: 'official' | 'custom';
+}
+
+export interface UpdateProfileDto {
+  name?: string;
+  avatarUrl?: string | null;
 }
 
 @Injectable()
@@ -60,6 +65,30 @@ export class UsersService {
         googleCustomApiKey: true,
         googleKeyMode: true,
       },
+    });
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: { name?: string; avatarUrl?: string | null } = {};
+    if (dto.name !== undefined) {
+      data.name = dto.name.trim();
+    }
+    if (dto.avatarUrl !== undefined) {
+      const trimmed = typeof dto.avatarUrl === 'string' ? dto.avatarUrl.trim() : '';
+      if (
+        trimmed &&
+        !/^https?:\/\//i.test(trimmed) &&
+        !/^\/[^/]/.test(trimmed) &&
+        !/^(uploads|projects|templates)\//i.test(trimmed)
+      ) {
+        throw new BadRequestException('Invalid avatar URL');
+      }
+      data.avatarUrl = trimmed || null;
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, phone: true, name: true, avatarUrl: true, role: true, status: true, createdAt: true },
     });
   }
 

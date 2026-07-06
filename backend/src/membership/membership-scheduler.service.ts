@@ -21,26 +21,9 @@ export class MembershipSchedulerService {
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleFreeStarterQuotaIssue() {
-    if (this.freeStarterQuotaJobRunning) {
-      this.logger.warn('跳过免费用户一次性额度补发：上一次任务尚未完成');
-      return;
-    }
-
-    this.freeStarterQuotaJobRunning = true;
-    try {
-      await this.tenantIteration.forEachTenant(async () => {
-        const result = await this.creditsService.issueFreeUserStarterQuotaCredits();
-        if (result.affectedUsers > 0 || result.grantedCredits > 0) {
-          this.logger.log(
-            `免费用户一次性额度补发完成: users=${result.affectedUsers}, grantedCredits=${result.grantedCredits}, createdLots=${result.createdLots}`,
-          );
-        }
-      });
-    } catch (error) {
-      this.logger.error('免费用户一次性额度补发失败:', error);
-    } finally {
-      this.freeStarterQuotaJobRunning = false;
-    }
+    // Product policy: 仅新注册用户赠送 500 积分（注册时经 getOrCreateAccount 发放）。
+    // 不再对存量免费用户进行每日定时补发。
+    return;
   }
 
   @Cron(CronExpression.EVERY_HOUR)

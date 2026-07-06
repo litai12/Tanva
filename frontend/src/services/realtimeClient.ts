@@ -17,13 +17,16 @@ let projectId: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1_000;
 let connId: string | null = null;
+let resumeSeq = 0; // 当前 project 已处理的最后 seq；重连时带上以补帧
 const listeners = new Set<Listener>();
 
 function buildUrl(): string | null {
   const token = getAccessToken() ?? '';
-  if (!token || !teamId) return null;
-  const params = new URLSearchParams({ token, teamId });
+  if (!token || (!teamId && !projectId)) return null;
+  const params = new URLSearchParams({ token });
+  if (teamId) params.set('teamId', teamId);
   if (projectId) params.set('projectId', projectId);
+  if (resumeSeq > 0) params.set('after', String(resumeSeq));
   return `${wsBase}/ws/collab?${params.toString()}`;
 }
 
@@ -103,9 +106,17 @@ export const realtimeClient = {
     }
     if (next.projectId !== undefined && next.projectId !== projectId) {
       projectId = next.projectId;
+      resumeSeq = 0; // 切换项目：清空补帧游标，避免回放上一个项目的事件
       changed = true;
     }
     if (changed) connect();
+  },
+  refresh(): void {
+    connect();
+  },
+  /** 记录已处理的最后 seq，供断线重连补帧（仅向前推进）。 */
+  noteSeq(seq: number): void {
+    if (typeof seq === 'number' && seq > resumeSeq) resumeSeq = seq;
   },
   subscribe(listener: Listener): () => void {
     listeners.add(listener);

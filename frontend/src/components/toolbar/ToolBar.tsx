@@ -2,11 +2,12 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen, MessageSquare } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useCommentStore } from '@/stores/commentStore';
 import type { LineStyle } from '@/stores/toolStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
@@ -367,12 +368,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     lineStyle,
     isEraser,
     hasFill,
-    setDrawMode,
+    setDrawMode: setToolDrawMode,
     setCurrentColor,
     setFillColor,
     setStrokeWidth,
     setLineStyle,
-    toggleEraser,
+    toggleEraser: toggleToolEraser,
     toggleFill,
   } = useToolStore();
 
@@ -448,6 +449,31 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     chatTheme,
   } = useAIChatStore();
   const isBlackTheme = chatTheme === "black";
+
+  // 评论模式（Figma 式画布评论）：与 AI 对话框互斥（后开覆盖先开）。
+  const commentActive = useCommentStore((s) => s.active);
+  const toggleComment = useCommentStore((s) => s.toggle);
+  const closeComment = useCommentStore((s) => s.forceClose);
+
+  const setDrawMode = React.useCallback(
+    (mode: Parameters<typeof setToolDrawMode>[0]) => {
+      closeComment();
+      setToolDrawMode(mode);
+    },
+    [closeComment, setToolDrawMode],
+  );
+
+  const toggleEraser = React.useCallback(() => {
+    closeComment();
+    toggleToolEraser();
+  }, [closeComment, toggleToolEraser]);
+
+  React.useEffect(() => {
+    if (!commentActive) return;
+    setSelectionMenuOpen(false);
+    setDrawingMenuOpen(false);
+    setAddToolsMenuOpen(false);
+  }, [commentActive]);
 
   // 原始尺寸模式状态
   const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
@@ -542,6 +568,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     }
     return "bg-gray-800 text-white";
   };
+  const isToolButtonActive = (isActive: boolean) => !commentActive && isActive;
 
   // 获取绘图子面板按钮样式（绘图工具展开菜单中的按钮）
   const getSubPanelButtonStyle = (isActive: boolean) => {
@@ -652,9 +679,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(isAIDialogVisible)
+            getActiveButtonStyle(isToolButtonActive(isAIDialogVisible))
           )}
-          onClick={toggleDialog}
+          onClick={() => {
+            closeComment();
+            toggleDialog();
+          }}
           title={isAIDialogVisible ? lt("关闭 AI 对话", "Close AI chat") : lt("打开 AI 对话", "Open AI chat")}
         >
           <Sparkles className="w-4 h-4" />
@@ -672,9 +702,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               size="sm"
               className={cn(
                 "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(showFlowPanel)
-              )}
-              onClick={toggleFlowPanel}
+              getActiveButtonStyle(isToolButtonActive(showFlowPanel))
+            )}
+              onClick={() => {
+                closeComment();
+                toggleFlowPanel();
+              }}
             >
               <GitBranch className="w-4 h-4" />
             </Button>
@@ -693,11 +726,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' ? "default" : "outline"}
+              variant={isToolButtonActive(drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer') ? "default" : "outline"}
               size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer')
+              getActiveButtonStyle(isToolButtonActive(drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer'))
             )}
             onClick={() => {
                 if (drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer') {
@@ -739,11 +772,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'select' ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'select') ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'select')
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'select'))
                       )}
                       onClick={() => setDrawMode('select')}
                     >
@@ -755,11 +788,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'pointer' ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'pointer') ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'pointer')
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'pointer'))
                       )}
                       onClick={() => setDrawMode('pointer')}
                     >
@@ -767,22 +800,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>{lt('节点选择工具', 'Node Select')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={drawMode === 'marquee' ? 'default' : 'outline'}
-                      size="sm"
-                      className={cn(
-                        "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'marquee')
-                      )}
-                      onClick={() => setDrawMode('marquee')}
-                    >
-                      <MarqueeSelectIcon className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>{lt('纯框选（不含节点）', 'Marquee (no nodes)')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -796,11 +813,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode === 'image' || drawMode === '3d-model' ? "default" : "outline"}
+              variant={isToolButtonActive(drawMode === 'image' || drawMode === '3d-model') ? "default" : "outline"}
               size="sm"
               className={cn(
                 "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode === 'image' || drawMode === '3d-model')
+                getActiveButtonStyle(isToolButtonActive(drawMode === 'image' || drawMode === '3d-model'))
               )}
               onClick={() => {
                 if (drawMode !== 'image' && drawMode !== '3d-model') {
@@ -835,11 +852,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'image' ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'image') ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'image')
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'image'))
                       )}
                       onClick={() => setDrawMode('image')}
                     >
@@ -853,11 +870,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === '3d-model' ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === '3d-model') ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === '3d-model')
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === '3d-model'))
                       )}
                       onClick={() => setDrawMode('3d-model')}
                     >
@@ -909,11 +926,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+              variant={isToolButtonActive(drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser) ? "default" : "outline"}
               size="sm"
               className={cn(
                 "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
+                getActiveButtonStyle(isToolButtonActive(drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser))
               )}
               onClick={() => {
                 const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
@@ -955,11 +972,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'free' && !isEraser) ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'free' && !isEraser)
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'free' && !isEraser))
                       )}
                       onClick={() => setDrawMode('free')}
                     >
@@ -971,11 +988,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'line' && !isEraser) ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'line' && !isEraser)
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'line' && !isEraser))
                       )}
                       onClick={() => setDrawMode('line')}
                     >
@@ -987,11 +1004,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'arrow' && !isEraser ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'arrow' && !isEraser) ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'arrow' && !isEraser)
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'arrow' && !isEraser))
                       )}
                       onClick={() => setDrawMode('arrow')}
                     >
@@ -1003,11 +1020,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'rect' && !isEraser) ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'rect' && !isEraser)
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'rect' && !isEraser))
                       )}
                       onClick={() => setDrawMode('rect')}
                     >
@@ -1019,11 +1036,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
+                      variant={isToolButtonActive(drawMode === 'circle' && !isEraser) ? 'default' : 'outline'}
                       size="sm"
                       className={cn(
                         "p-0 h-8 w-8 rounded-full",
-                        getSubPanelButtonStyle(drawMode === 'circle' && !isEraser)
+                        getSubPanelButtonStyle(isToolButtonActive(drawMode === 'circle' && !isEraser))
                       )}
                       onClick={() => setDrawMode('circle')}
                     >
@@ -1106,11 +1123,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <TooltipTrigger asChild>
           <Button
             onClick={toggleEraser}
-            variant={isEraser ? "default" : "outline"}
+            variant={isToolButtonActive(isEraser) ? "default" : "outline"}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(isEraser)
+              getActiveButtonStyle(isToolButtonActive(isEraser))
             )}
           >
             <Eraser className="w-4 h-4" />
@@ -1128,11 +1145,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <Tooltip open={isSubMenuOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <Button
-                  variant={drawMode === 'text' ? 'default' : 'outline'}
+                  variant={isToolButtonActive(drawMode === 'text') ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
                     "p-0 h-8 w-8 rounded-full",
-                    getActiveButtonStyle(drawMode === 'text')
+                    getActiveButtonStyle(isToolButtonActive(drawMode === 'text'))
                   )}
                   onClick={() => {
                     setDrawMode('text');
@@ -1203,13 +1220,16 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
-            variant={isLayerPanelOpen ? 'default' : 'outline'}
+            variant={isToolButtonActive(isLayerPanelOpen) ? 'default' : 'outline'}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(isLayerPanelOpen)
+              getActiveButtonStyle(isToolButtonActive(isLayerPanelOpen))
             )}
-            onClick={toggleLayerPanel}
+            onClick={() => {
+              closeComment();
+              toggleLayerPanel();
+            }}
           >
             <Layers className="w-4 h-4" />
           </Button>
@@ -1221,36 +1241,65 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
-            variant={showLibraryPanel ? 'default' : 'outline'}
+            variant={isToolButtonActive(showLibraryPanel) ? 'default' : 'outline'}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(showLibraryPanel)
+              getActiveButtonStyle(isToolButtonActive(showLibraryPanel))
             )}
-            onClick={toggleLibraryPanel}
+            onClick={() => {
+              closeComment();
+              toggleLibraryPanel();
+            }}
           >
             <FolderOpen className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">{lt('个人库', 'Personal Library')}</TooltipContent>
+        <TooltipContent side="right">{lt('素材库', 'Asset Library')}</TooltipContent>
       </Tooltip>
 
       {/* 模板库按钮 */}
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
-            variant={showTemplatePanel ? 'default' : 'outline'}
+            variant={isToolButtonActive(showTemplatePanel) ? 'default' : 'outline'}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(showTemplatePanel)
+              getActiveButtonStyle(isToolButtonActive(showTemplatePanel))
             )}
-            onClick={handleToggleTemplatePanel}
+            onClick={() => {
+              closeComment();
+              handleToggleTemplatePanel();
+            }}
           >
             <LayoutTemplate className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">{lt('公共模板', 'Public Templates')}</TooltipContent>
+      </Tooltip>
+
+      {/* 评论模式（Figma 式）：开启后点击画布任意位置可添加评论气泡，右侧展示评论抽屉 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={commentActive ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(commentActive)
+            )}
+            onClick={() => {
+              toggleComment();
+              logger.tool('工具栏：切换评论模式');
+            }}
+          >
+            <MessageSquare className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {commentActive ? lt('退出评论模式', 'Exit comment mode') : lt('评论模式（点击画布添加评论）', 'Comment mode (click canvas to add)')}
+        </TooltipContent>
       </Tooltip>
 
       {/* 自动对齐开关已移至设置面板的视图外观中 */}

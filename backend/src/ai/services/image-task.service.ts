@@ -17,6 +17,8 @@ import {
   TaskBroadcastStatus,
   TaskStatusPayload,
 } from '../../team-collab/types';
+import { ImageReuseCacheService, type ImageReuseSignature } from './image-reuse-cache.service';
+import { CreditChargeService, type ChargeHandle } from '../../team-credits/credit-charge.service';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -61,6 +63,7 @@ function normalizeBananaRoute(
 @Injectable()
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
+  private static readonly TASK_TIMEOUT_ERROR_MESSAGE = '生成超时（15分钟），积分将自动返还。';
 
   // 单个图像任务最大执行时长，超过即判定卡死并标记失败（默认 15 分钟，可用环境变量覆盖）
   private static readonly TASK_MAX_DURATION_MS = Number(
@@ -74,10 +77,12 @@ export class ImageTaskService {
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
+    private readonly imageReuseCache: ImageReuseCacheService,
     @Inject(forwardRef(() => ImageTaskQueueService))
     private readonly imageTaskQueue: ImageTaskQueueService,
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
+    @Optional() private readonly creditCharge?: CreditChargeService,
   ) {}
 
   private async publishTaskStatus(
@@ -93,6 +98,14 @@ export class ImageTaskService {
   ): Promise<void> {
     if (!projectId || !this.collabBus || !this.collabLog) return;
     try {
+      // 进度同步：与本人轮询一致的粗粒度进度(queued=10/processing=50/succeeded=100/failed=0)，
+      // 让其他在线成员节点进度随状态推进。
+      const coarseProgress =
+        payload.status === 'succeeded' ? 100
+        : payload.status === 'processing' ? 50
+        : payload.status === 'queued' ? 10
+        : payload.status === 'failed' ? 0
+        : undefined;
       const seq = await this.collabLog.nextSeq(projectId);
       const envelope: CollabEnvelope<TaskStatusPayload> = {
         type: 'task_status',
@@ -102,6 +115,7 @@ export class ImageTaskService {
           taskType: payload.taskType,
           category: 'image',
           status: payload.status,
+          ...(typeof coarseProgress === 'number' ? { progress: coarseProgress } : {}),
           resultPreview: payload.resultPreview ?? null,
           error: payload.error ?? null,
         },
@@ -422,6 +436,100 @@ export class ImageTaskService {
     };
   }
 
+  private buildAsyncImageReuseSignature(params: {
+    taskType: ImageTaskType;
+    prompt: string;
+    requestData: Record<string, any> | null;
+    providerName: string | null;
+    model?: string;
+    serviceType: string;
+    outputImageCount: number;
+  }): ImageReuseSignature | null {
+    if (params.taskType !== 'generate') return null;
+    const requestData = params.requestData || {};
+    return this.imageReuseCache.buildTextToImageSignature({
+      prompt: params.prompt,
+      providerName: params.providerName || 'gemini',
+      model: params.model,
+      serviceType: params.serviceType,
+      aspectRatio: requestData.aspectRatio,
+      imageSize: requestData.imageSize,
+      outputFormat: requestData.outputFormat,
+      thinkingLevel: requestData.thinkingLevel,
+      imageOnly: requestData.imageOnly,
+      providerOptions: requestData.providerOptions,
+      enableWebSearch: requestData.enableWebSearch,
+      googleSearch: requestData.googleSearch,
+      googleImageSearch: requestData.googleImageSearch,
+      imageUrls: requestData.imageUrls,
+      batchMode: requestData.batchMode,
+      batchCount: requestData.batchCount,
+      outputImageCount: params.outputImageCount,
+      officialFallback: requestData.officialFallback,
+      quality: requestData.quality,
+      background: requestData.background,
+      moderation: requestData.moderation,
+      outputCompression: requestData.outputCompression,
+      maskUrl: requestData.maskUrl,
+    });
+  }
+
+  private async updateImageReuseApiUsageParams(
+    apiUsageId: string | undefined | null,
+    patch: Record<string, any>,
+  ): Promise<void> {
+    if (!apiUsageId) return;
+    try {
+      await this.creditsService.updateApiUsageRequestParams(apiUsageId, patch);
+    } catch (error) {
+      this.logger.warn(
+        `[image-reuse-cache] failed to update async api usage params: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async recordGeneratedImageReuseAsset(params: {
+    userId: string;
+    signature: ImageReuseSignature | null;
+    imageUrl: string | null;
+    result: any;
+    providerName: string | null;
+    model?: string;
+    serviceType: string;
+    apiUsageId?: string | null;
+  }): Promise<void> {
+    if (!params.signature || !params.imageUrl) return;
+    const metadata =
+      params.result?.metadata && typeof params.result.metadata === 'object' && !Array.isArray(params.result.metadata)
+        ? (params.result.metadata as Record<string, any>)
+        : {};
+    const recorded = await this.imageReuseCache.recordGeneratedAsset({
+      userId: params.userId,
+      signature: params.signature,
+      imageUrl: params.imageUrl,
+      imageKey: typeof metadata.imageKey === 'string' ? metadata.imageKey : undefined,
+      provider: params.providerName || 'gemini',
+      model: params.model,
+      serviceType: params.serviceType,
+      textResponse: typeof params.result?.textResponse === 'string' ? params.result.textResponse : '',
+      metadata,
+      apiUsageId: params.apiUsageId,
+    });
+
+    if (!recorded) return;
+
+    await this.updateImageReuseApiUsageParams(params.apiUsageId, {
+      imageReuseCacheEligible: true,
+      imageReuseCacheHit: false,
+      imageReuseCacheStored: true,
+      imageReuseAssetId: recorded.id,
+      imageReuseCacheSignature: params.signature.signature,
+      imageReuseCacheVersion: params.signature.version,
+    });
+  }
+
   private async runGenerateTask(
     task: { prompt: string; aiProvider?: string | null },
     taskRequestData: Record<string, any>,
@@ -492,6 +600,7 @@ export class ImageTaskService {
     aiProvider?: string,
     traceContext?: PersistedTraceContext,
     nodeId?: string,
+    teamId?: string,
   ) {
     const persistedTraceContext = captureTraceContext(traceContext);
     const requestPayload = {
@@ -500,6 +609,8 @@ export class ImageTaskService {
       parentRequestId: persistedTraceContext.parentRequestId || null,
       parentSpanId: persistedTraceContext.parentSpanId || null,
       traceFlags: persistedTraceContext.traceFlags ?? 1,
+      // 团队上下文随 payload 落 DB requestData，worker 侧据此走团队积分（请求头此时已不可用）。
+      teamId: teamId ?? null,
     };
 
     // 生成 taskId，完整 payload 进队列，DB 写入推迟到 worker 侧执行（削峰）
@@ -565,9 +676,7 @@ export class ImageTaskService {
       if (task.status === 'processing' || task.status === 'queued') {
         const ageMs = Date.now() - new Date(task.createdAt).getTime();
         if (ageMs > ImageTaskService.TASK_MAX_DURATION_MS) {
-          const reason = `任务超过 ${Math.round(
-            ImageTaskService.TASK_MAX_DURATION_MS / 60000,
-          )} 分钟未完成，已判定为孤儿任务`;
+          const reason = ImageTaskService.TASK_TIMEOUT_ERROR_MESSAGE;
           // 原子翻转，避免并发轮询重复处理。
           await this.prisma.imageTask.updateMany({
             where: { id: taskId, status: { in: ['queued', 'processing'] } },
@@ -666,6 +775,30 @@ export class ImageTaskService {
       task.aiProvider,
       taskRequestData?.aiProvider,
     );
+    const imageReuseSignature = this.buildAsyncImageReuseSignature({
+      taskType,
+      prompt: task.prompt,
+      requestData: taskRequestData,
+      providerName: resolvedTaskProviderName,
+      model,
+      serviceType,
+      outputImageCount,
+    });
+    const asyncCreditRequestParams = {
+      ...this.buildAsyncTaskCreditRequestParams(
+        taskId,
+        taskType,
+        taskRequestData,
+        resolvedTaskProviderName,
+      ),
+      ...(imageReuseSignature
+        ? {
+            imageReuseCacheEligible: true,
+            imageReuseCacheSignature: imageReuseSignature.signature,
+            imageReuseCacheVersion: imageReuseSignature.version,
+          }
+        : {}),
+    };
     const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
 
     // 如果有 apiUsageId，则说明已在控制器层预扣积分；否则需要自己处理
@@ -686,29 +819,33 @@ export class ImageTaskService {
         const startedAt = Date.now();
         let effectiveApiUsageId: string | undefined = apiUsageId;
 
+        // 团队上下文（worker 侧请求头已不可用，从 payload 读）。
+        const taskTeamId =
+          typeof taskRequestData?.teamId === 'string' && taskRequestData.teamId.trim().length > 0
+            ? taskRequestData.teamId.trim()
+            : undefined;
+        // 统一计费句柄：begin 后续用于 commit/rollback；团队模式只扣团队、不动个人积分。
+        let chargeHandle: ChargeHandle | null = null;
+
         try {
           // 如果需要自己处理积分，则先预扣积分
           if (needsCreditsProcessing) {
             try {
-              const deductResult = await this.creditsService.preDeductCredits({
+              chargeHandle = await this.creditCharge!.begin({
                 userId: task.userId,
+                teamId: taskTeamId,
                 serviceType: serviceType as any,
                 model,
                 inputImageCount,
                 outputImageCount,
-                requestParams: this.buildAsyncTaskCreditRequestParams(
-                  taskId,
-                  taskType,
-                  taskRequestData,
-                  resolvedTaskProviderName,
-                ),
+                requestParams: asyncCreditRequestParams,
               });
-              effectiveApiUsageId = deductResult.apiUsageId;
+              effectiveApiUsageId = chargeHandle.apiUsageId;
               this.logger.debug(
-                `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
+                `异步任务预扣积分: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, teamMode=${chargeHandle.teamFunded}`
               );
             } catch (deductError) {
-              // 预扣积分失败，标记任务失败
+              // 预扣/团队预留失败，标记任务失败
               const errorMsg =
                 deductError instanceof Error ? deductError.message : String(deductError);
               this.logger.error(`异步任务预扣积分失败: taskId=${taskId}, error=${errorMsg}`);
@@ -722,6 +859,14 @@ export class ImageTaskService {
               });
               return;
             }
+          }
+
+          if (imageReuseSignature && effectiveApiUsageId) {
+            await this.updateImageReuseApiUsageParams(effectiveApiUsageId, {
+              imageReuseCacheEligible: true,
+              imageReuseCacheSignature: imageReuseSignature.signature,
+              imageReuseCacheVersion: imageReuseSignature.version,
+            });
           }
 
           await this.prisma.imageTask.update({
@@ -760,8 +905,55 @@ export class ImageTaskService {
 
           const generate = async (): Promise<any> => {
             switch (taskType) {
-              case 'generate':
+              case 'generate': {
+                if (imageReuseSignature) {
+                  const claimed = await this.imageReuseCache.claimNextUnusedAsset({
+                    userId: task.userId,
+                    signature: imageReuseSignature.signature,
+                    apiUsageId: effectiveApiUsageId,
+                  });
+                  if (claimed) {
+                    const presentationDelayMs =
+                      await this.imageReuseCache.waitForHitPresentationDelay(claimed.presentationDelayMs);
+                    await this.updateImageReuseApiUsageParams(effectiveApiUsageId, {
+                      imageReuseCacheEligible: true,
+                      imageReuseCacheHit: true,
+                      imageReuseAssetId: claimed.id,
+                      imageReuseCacheScope: claimed.scope,
+                      imageReuseAssetOwnerIsRequester: claimed.assetOwnerIsRequester,
+                      imageReuseAssetOwnerUserId: claimed.assetOwnerUserId,
+                      imageReuseCacheSignature: imageReuseSignature.signature,
+                      imageReuseCacheVersion: imageReuseSignature.version,
+                      imageReuseCachePoolSize: claimed.poolSize,
+                      imageReuseCacheAvailablePoolSize: claimed.availablePoolSize,
+                      imageReuseCacheMinPoolSize: claimed.minPoolSize,
+                      imageReuseCachePresentationDelayMs: presentationDelayMs,
+                    });
+                    return {
+                      imageUrl: claimed.imageUrl,
+                      textResponse: claimed.textResponse || '',
+                      metadata: {
+                        ...(claimed.metadata || {}),
+                        imageUrl: claimed.imageUrl,
+                        ...(claimed.imageKey ? { imageKey: claimed.imageKey } : {}),
+                        imageReuseCache: {
+                          hit: true,
+                          scope: claimed.scope,
+                          assetId: claimed.id,
+                          signature: imageReuseSignature.signature,
+                          version: imageReuseSignature.version,
+                          assetOwnerIsRequester: claimed.assetOwnerIsRequester,
+                          availablePoolSize: claimed.availablePoolSize,
+                          poolSize: claimed.poolSize,
+                          minPoolSize: claimed.minPoolSize,
+                          presentationDelayMs,
+                        },
+                      },
+                    };
+                  }
+                }
                 return await this.runGenerateTask(task, taskRequestData || {}, model);
+              }
               case 'edit': {
                 const editProvider = this.providerFactory.getProvider(model, 'new-api');
                 const editResult = await editProvider.editImage(taskRequestData as any);
@@ -816,17 +1008,41 @@ export class ImageTaskService {
             throw new BadGatewayException('Image task succeeded but no image payload returned');
           }
 
+          const resultMetadata =
+            result?.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+              ? ({ ...(result.metadata as Record<string, any>) } as Record<string, any>)
+              : {};
+          const imageReuseCacheMeta =
+            resultMetadata.imageReuseCache &&
+            typeof resultMetadata.imageReuseCache === 'object' &&
+            !Array.isArray(resultMetadata.imageReuseCache)
+              ? (resultMetadata.imageReuseCache as Record<string, any>)
+              : null;
+          const isImageReuseCacheHit = imageReuseCacheMeta?.hit === true;
+
           let persistedImageUrl: string | null = null;
           let persistedThumbnailUrl: string | null = null;
           if (taskImagePayload) {
-            if (/^https?:\/\//i.test(taskImagePayload)) {
+            if (isImageReuseCacheHit && /^https?:\/\//i.test(taskImagePayload)) {
+              persistedImageUrl = taskImagePayload;
+              persistedThumbnailUrl = taskImagePayload;
+              resultMetadata.imageUrl = taskImagePayload;
+            } else if (/^https?:\/\//i.test(taskImagePayload)) {
               const uploaded = await this.uploadRemoteImageToOss(taskImagePayload, task.userId);
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
+              resultMetadata.imageUrl = uploaded.url;
+              resultMetadata.imageKey = uploaded.key;
+              resultMetadata.mimeType = uploaded.mimeType;
+              resultMetadata.bytes = uploaded.size;
             } else {
               const uploaded = await this.uploadImagePayloadToOss(taskImagePayload, task.userId);
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
+              resultMetadata.imageUrl = uploaded.url;
+              resultMetadata.imageKey = uploaded.key;
+              resultMetadata.mimeType = uploaded.mimeType;
+              resultMetadata.bytes = uploaded.size;
             }
           }
 
@@ -848,6 +1064,22 @@ export class ImageTaskService {
             return;
           }
 
+          if (!isImageReuseCacheHit) {
+            await this.recordGeneratedImageReuseAsset({
+              userId: task.userId,
+              signature: imageReuseSignature,
+              imageUrl: persistedImageUrl,
+              result: {
+                ...result,
+                metadata: resultMetadata,
+              },
+              providerName: resolvedTaskProviderName,
+              model,
+              serviceType,
+              apiUsageId: effectiveApiUsageId,
+            });
+          }
+
           void this.publishTaskStatus(
             taskRequestData?.projectId as string | undefined,
             {
@@ -861,8 +1093,13 @@ export class ImageTaskService {
             },
           );
 
-          // 任务成功，更新积分状态为成功
-          if (effectiveApiUsageId) {
+          // 任务成功：统一结算（标记成功 + 团队模式确认扣除）。
+          if (chargeHandle) {
+            await this.creditCharge!.commit(chargeHandle, {
+              processingTime: Date.now() - startedAt,
+            });
+          } else if (effectiveApiUsageId) {
+            // 控制器侧已预扣的旧链路：worker 只标记成功。
             try {
               await this.creditsService.updateApiUsageStatus(
                 effectiveApiUsageId,
@@ -919,8 +1156,25 @@ export class ImageTaskService {
             },
           );
 
-          // 任务失败，标记积分状态为失败并触发退款
-          if (effectiveApiUsageId) {
+          // 任务失败：统一结算（团队释放预留 / 个人退款）。
+          if (chargeHandle) {
+            try {
+              await this.creditCharge!.rollback(chargeHandle, {
+                errorMessage,
+                processingTime: Date.now() - startedAt,
+              });
+              this.logger.log(
+                `异步任务失败已结算: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, team=${chargeHandle.teamFunded}`
+              );
+            } catch (creditsError) {
+              const creditsErrorMsg =
+                creditsError instanceof Error ? creditsError.message : String(creditsError);
+              this.logger.error(
+                `异步任务积分退款失败: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, error=${creditsErrorMsg}`
+              );
+            }
+          } else if (effectiveApiUsageId) {
+            // 控制器侧已预扣的旧链路：worker 标记失败并退款。
             try {
               await this.creditsService.updateApiUsageStatus(
                 effectiveApiUsageId,
@@ -928,11 +1182,7 @@ export class ImageTaskService {
                 errorMessage,
                 Date.now() - startedAt
               );
-              // 执行退款
               await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
-              this.logger.log(
-                `异步任务失败已退款: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
-              );
             } catch (creditsError) {
               const creditsErrorMsg =
                 creditsError instanceof Error ? creditsError.message : String(creditsError);

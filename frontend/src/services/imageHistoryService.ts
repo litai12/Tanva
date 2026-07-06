@@ -239,6 +239,7 @@ interface RecordImageHistoryOptions {
   remoteUrl?: string;
   fileName?: string;
   title?: string;
+  prompt?: string;
   nodeId: string;
   nodeType: ImageHistoryItem['nodeType'];
   projectId?: string | null;
@@ -258,6 +259,7 @@ interface RecordVideoHistoryOptions {
   videoUrl?: string | null;
   thumbnail?: string | null;
   title?: string;
+  prompt?: string;
   nodeId: string;
   nodeType: string;
   projectId?: string | null;
@@ -272,6 +274,25 @@ const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
     return value;
   }
   return `data:image/${mimeType};base64,${value}`;
+};
+
+const trimString = (value?: string | null): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const buildGlobalHistoryMetadata = (
+  metadata: Record<string, any> | undefined,
+  prompt: string | undefined,
+  title: string | undefined
+): Record<string, any> | undefined => {
+  if (!metadata && !prompt && !title) return metadata;
+  return {
+    ...(metadata || {}),
+    ...(prompt ? { requestPrompt: prompt } : {}),
+    ...(title ? { title } : {}),
+  };
 };
 
 /**
@@ -297,13 +318,19 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   const enqueueGlobalHistoryWrite = (imageUrl?: string) => {
     if (skipGlobalHistory) return;
     if (!imageUrl || !isPersistableImageRef(imageUrl)) return;
+    const historyPrompt = trimString(options.prompt) || trimString(options.title);
+    const historyTitle = trimString(options.title);
     enqueuePendingGlobalHistoryWrite({
       imageUrl,
-      prompt: options.title,
+      prompt: historyPrompt,
       sourceType: nodeType,
       sourceProjectId: projectId ?? undefined,
       sourceProjectName: projectName,
-      metadata: options.metadata,
+      metadata: buildGlobalHistoryMetadata(
+        options.metadata,
+        historyPrompt,
+        historyTitle
+      ),
     });
   };
 
@@ -440,12 +467,16 @@ export async function recordVideoHistoryEntry(options: RecordVideoHistoryOptions
 
   enqueuePendingGlobalHistoryWrite({
     imageUrl: videoUrl,
-    prompt: options.title,
+    prompt: trimString(options.prompt) || trimString(options.title),
     sourceType: options.nodeType,
     sourceProjectId: options.projectId ?? undefined,
     sourceProjectName: options.projectName,
     metadata: {
       ...(options.metadata || {}),
+      ...(trimString(options.prompt) || trimString(options.title)
+        ? { requestPrompt: trimString(options.prompt) || trimString(options.title) }
+        : {}),
+      ...(trimString(options.title) ? { title: trimString(options.title) } : {}),
       mediaType: 'video',
       videoUrl,
       videoThumbnailUrl: thumbnail,

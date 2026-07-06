@@ -24,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CollabEventBus } from './collab-event-bus.service';
 import { CollabEventLog } from './collab-event-log.service';
 import { NodeLockService } from './node-lock.service';
+import { WsCollabGateway } from './ws-collab.gateway';
 import {
   CollabEnvelope,
   CursorPayload,
@@ -46,7 +47,20 @@ export class TeamCollabController {
     private readonly bus: CollabEventBus,
     private readonly log: CollabEventLog,
     private readonly locks: NodeLockService,
+    private readonly ws: WsCollabGateway,
   ) {}
+
+  private async resolveUserProfile(userId: string, tokenName?: string): Promise<{ name: string; avatarUrl: string | null }> {
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { name: true, avatarUrl: true } })
+      .catch(() => null);
+    const dbName = typeof user?.name === 'string' ? user.name.trim() : '';
+    const fallbackName = typeof tokenName === 'string' ? tokenName.trim() : '';
+    return {
+      name: dbName || fallbackName || userId.slice(0, 8),
+      avatarUrl: user?.avatarUrl ?? null,
+    };
+  }
 
   @Get(':projectId/stream')
   async stream(
@@ -57,7 +71,7 @@ export class TeamCollabController {
     @Query('after') after?: string,
   ) {
     const userId: string = req.user.sub;
-    const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
+    const profile = await this.resolveUserProfile(userId, req.user.name ?? req.user.username);
     await this.assertProjectAccess(projectId, userId, teamId, req.user.role);
 
     res.raw.setHeader('Content-Type', 'text/event-stream');
@@ -69,7 +83,7 @@ export class TeamCollabController {
     const lastEventId = (req.headers?.['last-event-id'] as string | undefined) ?? after ?? '0';
     const afterSeq = Number.parseInt(lastEventId, 10) || 0;
 
-    const subResult = await this.sse.subscribe(projectId, userId, userName, teamId ?? '', res);
+    const subResult = await this.sse.subscribe(projectId, userId, profile.name, profile.avatarUrl, teamId ?? '', res);
     if ('error' in subResult) {
       res.raw.write(
         `event: error\ndata: ${JSON.stringify({ error: subResult.error })}\n\n`,
@@ -138,6 +152,30 @@ export class TeamCollabController {
     return { ok: true, seq };
   }
 
+  @Post(':projectId/canvas-patch')
+  @HttpCode(202)
+  async canvasPatch(
+    @Req() req: any,
+    @Param('projectId') projectId: string,
+    @Query('teamId') _teamId: string,
+    @Body() dto: CanvasPatchDto,
+  ) {
+    const userId: string = req.user.sub;
+    this.assertConnAndRate(dto.connId, userId);
+    const seq = await this.log.nextSeq(projectId);
+    const envelope: CollabEnvelope = {
+      type: 'canvas_patch',
+      payload: dto.patch,
+      ts: Date.now(),
+      senderConnId: dto.connId,
+      senderUserId: userId,
+      seq,
+    };
+    await this.log.append(projectId, envelope);
+    await this.bus.publish(projectId, envelope);
+    return { ok: true, seq };
+  }
+
   @Post(':projectId/cursor')
   @HttpCode(202)
   async cursor(
@@ -147,13 +185,14 @@ export class TeamCollabController {
     @Body() dto: CanvasCursorDto,
   ) {
     const userId: string = req.user.sub;
-    const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
+    const profile = await this.resolveUserProfile(userId, req.user.name ?? req.user.username);
     this.assertConnAndRate(dto.connId, userId);
     const envelope: CollabEnvelope<CursorPayload> = {
       type: 'cursor',
       payload: {
         userId,
-        name: userName,
+        name: profile.name,
+        avatarUrl: profile.avatarUrl,
         x: dto.x,
         y: dto.y,
         viewport: dto.viewport as CursorPayload['viewport'],
@@ -258,13 +297,14 @@ export class TeamCollabController {
     @Body() dto: CanvasToastDto,
   ) {
     const userId: string = req.user.sub;
-    const userName: string = req.user.name ?? req.user.username ?? userId.slice(0, 8);
+    const profile = await this.resolveUserProfile(userId, req.user.name ?? req.user.username);
     if (dto.connId) this.assertConnAndRate(dto.connId, userId);
     const env: CollabEnvelope<ToastPayload> = {
       type: 'toast',
       payload: {
         userId,
-        name: userName,
+        name: profile.name,
+        avatarUrl: profile.avatarUrl,
         kind: (dto.kind as ToastPayload['kind']) ?? 'info',
         text: dto.text,
       },
@@ -277,10 +317,12 @@ export class TeamCollabController {
   }
 
   private assertConnAndRate(connId: string, userId: string): void {
-    if (!this.sse.hasConn(connId)) {
+    // 当前客户端走 WS 网关；同时兼容遗留 SSE 连接。
+    let owner = this.ws.getConnUserId(connId);
+    if (owner === undefined) owner = this.sse.getConnUserId(connId);
+    if (owner === undefined) {
       throw new ForbiddenException('connection_not_found');
     }
-    const owner = this.sse.getConnUserId(connId);
     if (owner !== userId) {
       throw new ForbiddenException('conn_user_mismatch');
     }

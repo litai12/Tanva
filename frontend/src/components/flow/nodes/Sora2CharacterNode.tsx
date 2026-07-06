@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
-import { AlertTriangle, UserRound } from "lucide-react";
+import { AlertTriangle, UserRound, Square } from "lucide-react";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
@@ -18,6 +18,7 @@ type Props = {
     status?: "idle" | "running" | "succeeded" | "failed";
     error?: string;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     creditsPerCall?: number;
     model?: "sora-2" | "sora-2-pro";
     timestamps?: string;
@@ -109,24 +110,45 @@ function Sora2CharacterNodeInner({ id, data, selected }: Props) {
             <RunCreditBadge credits={runCredits} inline />
           </span>
         </div>
-        <button
-          onClick={onRun}
-          onMouseDown={handleButtonMouseDown}
-          disabled={status === "running"}
-          style={{
-            height: 30,
-            padding: "0 10px",
-            borderRadius: 8,
-            border: "none",
-            background: status === "running" ? "#e5e7eb" : "#111827",
-            color: "#fff",
-            cursor: status === "running" ? "not-allowed" : "pointer",
-            fontSize: 12,
-            opacity: status === "running" ? 0.6 : 1,
-          }}
-        >
-          {status === "running" ? lt("运行中", "Running") : lt("Run", "Run")}
-        </button>
+        {status === "running" ? (
+          <button
+            onClick={() => data.onStop?.(id)}
+            onMouseDown={handleButtonMouseDown}
+            title="停止并重置，可重新生成"
+            style={{
+              height: 30,
+              padding: "0 10px",
+              borderRadius: 8,
+              border: "none",
+              background: "#111827",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Square size={12} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            onClick={onRun}
+            onMouseDown={handleButtonMouseDown}
+            style={{
+              height: 30,
+              padding: "0 10px",
+              borderRadius: 8,
+              border: "none",
+              background: "#111827",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            {lt("Run", "Run")}
+          </button>
+        )}
       </div>
 
       <div style={{ marginBottom: 8 }}>

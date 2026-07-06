@@ -15,6 +15,7 @@ import React, {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fetchWithAuth } from "@/services/authFetch";
+import { ossUploadService } from "@/services/ossUploadService";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -30,7 +31,9 @@ import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
 import SmartImage from "@/components/ui/SmartImage";
 import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useUIStore } from "@/stores";
+import { useCommentStore } from "@/stores/commentStore";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
 import { clipboardJsonService } from "@/services/clipboardJsonService";
 import {
@@ -56,6 +59,8 @@ import {
   Pencil,
   Lock,
   Unlock,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -75,11 +80,22 @@ import {
   isTencentBananaAnalyzeSupported,
   isTencentStableBananaRoute,
 } from "@/utils/bananaRouteCapabilities";
+import {
+  RealtimeAsrClient,
+} from "@/services/realtimeAsrClient";
 
 type ManualModeOption = {
   value: ManualAIMode;
   label: string;
   description: string;
+};
+
+type ProviderToggleOption = {
+  value: SupportedAIProvider;
+  familyLabel: string;
+  label: string;
+  description: string;
+  syncFlowNodes?: boolean;
 };
 
 const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
@@ -291,6 +307,21 @@ const AIChatDialog: React.FC = () => {
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const showHistoryRef = useRef(showHistory);
+
+  // 右侧双抽屉互斥（后触发覆盖先触发）：
+  //  - 评论模式开启 → 收起对话框右侧展开面板（回到底部紧凑栏，不隐藏）。
+  //  - 对话框右侧展开 → 关闭评论模式。
+  const commentActive = useCommentStore((s) => s.active);
+  useEffect(() => {
+    if (commentActive) setShowHistory(false);
+  }, [commentActive]);
+  useEffect(() => {
+    if (showHistory) {
+      try {
+        useCommentStore.getState().forceClose();
+      } catch {}
+    }
+  }, [showHistory]);
   const [isHistoryLocked, setIsHistoryLocked] = useState(false);
   // isMaximized 现在从 store 获取
   const isMaximizedRef = useRef(isMaximized);
@@ -306,6 +337,11 @@ const AIChatDialog: React.FC = () => {
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
+  const [isAsrListening, setIsAsrListening] = useState(false);
+  const [asrError, setAsrError] = useState<string | null>(null);
+  const asrClientRef = useRef<RealtimeAsrClient | null>(null);
+  const asrBaseInputRef = useRef("");
+  const asrFinalTextRef = useRef("");
   // 拖拽移动状态
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffsetX, setDragOffsetX] = useState<number | null>(null);
@@ -416,30 +452,70 @@ const AIChatDialog: React.FC = () => {
     availableManualModeOptions.find(
       (option) => option.value === manualAIMode
     ) ?? availableManualModeOptions[0];
+  const supportsDeepSeekProviderSelection =
+    manualAIMode === "text" || manualAIMode === "analyze";
 
-  const providerToggleOptions: {
-    value: SupportedAIProvider;
+  const providerToggleGroups: Array<{
     label: string;
-    description: string;
-  }[] = useMemo(
+    options: ProviderToggleOption[];
+  }> = useMemo(
     () => [
       {
-        value: "banana-2.5",
-        label: "Fast",
-        description: t("chat.provider.fastDesc"),
+        label: "Gemini / Nano Banana",
+        options: [
+          {
+            value: "banana-2.5",
+            familyLabel: "Gemini",
+            label: "Fast",
+            description: t("chat.provider.fastDesc"),
+          },
+          {
+            value: "banana",
+            familyLabel: "Gemini",
+            label: "Pro",
+            description: t("chat.provider.proDesc"),
+          },
+          {
+            value: "banana-3.1",
+            familyLabel: "Gemini",
+            label: "Ultra",
+            description: t("chat.provider.ultraDesc"),
+          },
+        ],
       },
       {
-        value: "banana",
-        label: "Pro",
-        description: t("chat.provider.proDesc"),
-      },
-      {
-        value: "banana-3.1",
-        label: "Ultra",
-        description: t("chat.provider.ultraDesc"),
+        label: "DeepSeek",
+        options: [
+          {
+            value: "deepseek-v4-flash",
+            familyLabel: "DeepSeek",
+            label: "V4 Flash",
+            description: lt("文本 + 图片分析", "Text + image analysis"),
+            syncFlowNodes: false,
+          },
+          {
+            value: "deepseek-v4-pro",
+            familyLabel: "DeepSeek",
+            label: "V4 Pro",
+            description: lt("文本 + 图片分析", "Text + image analysis"),
+            syncFlowNodes: false,
+          },
+        ],
       },
     ],
-    [t]
+    [lt, t]
+  );
+  const providerToggleOptions = useMemo(
+    () =>
+      providerToggleGroups
+        .flatMap((group) => group.options)
+        .filter(
+          (option) =>
+            supportsDeepSeekProviderSelection ||
+            (option.value !== "deepseek-v4-flash" &&
+              option.value !== "deepseek-v4-pro")
+        ),
+    [providerToggleGroups, supportsDeepSeekProviderSelection]
   );
   const currentProviderOption =
     providerToggleOptions.find((option) => option.value === aiProvider) ?? null;
@@ -448,6 +524,8 @@ const AIChatDialog: React.FC = () => {
   );
   const isFastMode = aiProvider === "banana-2.5";
   const isUltraMode = aiProvider === "banana-3.1";
+  const isDeepSeekProvider =
+    aiProvider === "deepseek-v4-flash" || aiProvider === "deepseek-v4-pro";
   const isVideoMode =
     manualAIMode === "video" ||
     (manualAIMode === "auto" && autoSelectedTool === "generateVideo");
@@ -455,7 +533,19 @@ const AIChatDialog: React.FC = () => {
     manualAIMode === "vector" ||
     (manualAIMode === "auto" && autoSelectedTool === "generatePaperJS");
   const shouldHideImageParamControls = isVideoMode || isVectorMode;
+  const showAspectRatioControls =
+    !isDeepSeekProvider && !shouldHideImageParamControls;
+  const isModeSupportedByProvider = useCallback(
+    (mode: ManualAIMode) => {
+      if (isDeepSeekProvider) {
+        return mode === "text" || mode === "analyze";
+      }
+      return true;
+    },
+    [isDeepSeekProvider]
+  );
   const showImageSizeControls =
+    !isDeepSeekProvider &&
     !shouldHideImageParamControls &&
     (aiProvider === "gemini-pro" ||
       aiProvider === "banana" ||
@@ -522,8 +612,9 @@ const AIChatDialog: React.FC = () => {
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
     t("chat.labels.selectMode");
-  const providerButtonLabel =
-    currentProviderOption?.label ?? t("chat.labels.domesticModel");
+  const providerButtonLabel = currentProviderOption
+    ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
+    : t("chat.labels.domesticModel");
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -551,6 +642,18 @@ const AIChatDialog: React.FC = () => {
       setAIProvider("gemini-pro", { syncFlowNodes: false, source: "internal" });
     }
   }, [aiProvider, setAIProvider]);
+
+  useEffect(() => {
+    if (!isDeepSeekProvider || supportsDeepSeekProviderSelection) return;
+    setAIProvider("banana-2.5", {
+      syncFlowNodes: false,
+      source: "internal",
+    });
+  }, [
+    isDeepSeekProvider,
+    setAIProvider,
+    supportsDeepSeekProviderSelection,
+  ]);
 
   useEffect(() => {
     if (
@@ -2184,8 +2287,94 @@ const AIChatDialog: React.FC = () => {
 
   const hasPdfForAnalysis = Boolean(sourcePdfForAnalysis);
 
+  const stopAsrListening = useCallback(() => {
+    asrClientRef.current?.stop();
+    asrClientRef.current = null;
+    setIsAsrListening(false);
+  }, []);
+
+  const appendAsrTextToInput = useCallback(
+    (finalText: string, interimText = "") => {
+      const base = asrBaseInputRef.current.trimEnd();
+      const voiceText = [finalText, interimText]
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join("");
+      const next = [base, voiceText].filter(Boolean).join(base && voiceText ? "\n" : "");
+      setCurrentInput(next);
+    },
+    [setCurrentInput]
+  );
+
+  const startAsrListening = useCallback(async () => {
+    if (generationStatus.isGenerating || autoOptimizing || isAsrListening) return;
+    setAsrError(null);
+    asrBaseInputRef.current = currentInput;
+    asrFinalTextRef.current = "";
+
+    const client = new RealtimeAsrClient({
+      language: "mixed",
+      onReady: () => {
+        setIsAsrListening(true);
+      },
+      onTranscript: (text, isFinal) => {
+        if (!text.trim()) return;
+        if (isFinal) {
+          asrFinalTextRef.current = `${asrFinalTextRef.current}${text}`;
+          appendAsrTextToInput(asrFinalTextRef.current);
+        } else {
+          appendAsrTextToInput(asrFinalTextRef.current, text);
+        }
+      },
+      onError: (message) => {
+        setAsrError(message);
+        showToast(message, "error");
+        stopAsrListening();
+      },
+      onClose: () => {
+        setIsAsrListening(false);
+      },
+    });
+
+    asrClientRef.current = client;
+    try {
+      await client.start();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAsrError(message);
+      showToast(message, "error");
+      stopAsrListening();
+    }
+  }, [
+    appendAsrTextToInput,
+    autoOptimizing,
+    currentInput,
+    generationStatus.isGenerating,
+    isAsrListening,
+    showToast,
+    stopAsrListening,
+  ]);
+
+  const toggleAsrListening = useCallback(() => {
+    if (isAsrListening) {
+      stopAsrListening();
+      return;
+    }
+    void startAsrListening();
+  }, [isAsrListening, startAsrListening, stopAsrListening]);
+
+  useEffect(() => {
+    return () => {
+      asrClientRef.current?.stop();
+      asrClientRef.current = null;
+    };
+  }, []);
+
   const getModeSupport = useCallback(
     (mode: ManualAIMode) => {
+      if (!isModeSupportedByProvider(mode)) {
+        return { supported: false };
+      }
       const count = selectedImageCount;
       switch (mode) {
         case "auto":
@@ -2207,6 +2396,9 @@ const AIChatDialog: React.FC = () => {
           }
           return { supported: true };
         case "analyze":
+          if (isDeepSeekProvider && hasPdfForAnalysis) {
+            return { supported: false };
+          }
           if (isTencentStableBanana && !isTencentBananaAnalyzeSupported()) {
             return { supported: false };
           }
@@ -2222,6 +2414,8 @@ const AIChatDialog: React.FC = () => {
     },
     [
       hasPdfForAnalysis,
+      isDeepSeekProvider,
+      isModeSupportedByProvider,
       isTencentStableBanana,
       selectedImageCount,
       tencentBananaMaxRefCount,
@@ -2245,6 +2439,12 @@ const AIChatDialog: React.FC = () => {
 
   const manualModeWarning = useMemo(() => {
     if (manualAIMode === "auto") return null;
+    if (!isModeSupportedByProvider(manualAIMode)) {
+      return lt(
+        "DeepSeek V4 仅支持 Text 与 Analysis 图片分析",
+        "DeepSeek V4 only supports Text and Analysis for uploaded images"
+      );
+    }
     if (isManualModeSupported) return null;
     // 根据模式提供更清晰的提示
     if (manualAIMode === "edit") {
@@ -2273,8 +2473,10 @@ const AIChatDialog: React.FC = () => {
     return `当前模式不支持${selectedImageCount}张图`;
   }, [
     hasPdfForAnalysis,
+    isModeSupportedByProvider,
     isTencentStableBanana,
     isManualModeSupported,
+    lt,
     manualAIMode,
     selectedImageCount,
     tencentBananaMaxRefCount,
@@ -2756,6 +2958,16 @@ const AIChatDialog: React.FC = () => {
     };
   }, [hasActiveAuraForEffect]);
 
+  // 注意：所有 Hook 必须在任何 early return 之前调用，否则切换可见性时会触发
+  // 「Rendered fewer hooks than expected」崩溃。此 useMemo 必须留在 return null 之上。
+  const renderableSourceImagesForBlending = React.useMemo(
+    () =>
+      sourceImagesForBlending.map(
+        (value) => toRenderableImageSrc(value) || value
+      ),
+    [sourceImagesForBlending]
+  );
+
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;
 
@@ -2776,13 +2988,6 @@ const AIChatDialog: React.FC = () => {
   const renderableSourceImageForEditing = sourceImageForEditing
     ? toRenderableImageSrc(sourceImageForEditing) || sourceImageForEditing
     : null;
-  const renderableSourceImagesForBlending = React.useMemo(
-    () =>
-      sourceImagesForBlending.map(
-        (value) => toRenderableImageSrc(value) || value
-      ),
-    [sourceImagesForBlending]
-  );
   // 最大化时不显示顶部横条指示器
   const showHistoryHoverIndicator = !isMaximized;
   const historyHoverIndicatorExpanded =
@@ -3196,7 +3401,7 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                <DropdownMenu>
+                <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>
                     <Button
                       size='sm'
@@ -3204,7 +3409,7 @@ const AIChatDialog: React.FC = () => {
                       disabled={false}
                       data-dropdown-trigger='true'
                       className={cn(
-                        "order-2 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                         manualAIMode !== "auto"
                           ? "bg-gray-100 text-gray-800 border-gray-200"
@@ -3228,10 +3433,16 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuLabel>
                     {availableManualModeOptions.map((option) => {
                       const isActive = manualAIMode === option.value;
+                      const providerSupported = isModeSupportedByProvider(option.value);
+                      const isDisabled = !providerSupported;
                       return (
                         <DropdownMenuItem
                           key={option.value}
                           onClick={(event) => {
+                            if (isDisabled) {
+                              event.preventDefault();
+                              return;
+                            }
                             setManualAIMode(option.value);
                             const root = (
                               event.currentTarget as HTMLElement
@@ -3247,18 +3458,26 @@ const AIChatDialog: React.FC = () => {
                             "flex items-start gap-2 px-3 py-2 text-xs",
                             isActive
                               ? "bg-gray-100 text-gray-800"
+                              : isDisabled
+                              ? "cursor-not-allowed text-slate-300 hover:bg-transparent"
                               : "text-slate-600"
                           )}
+                          disabled={isDisabled}
                         >
                           <div className='flex-1 space-y-0.5'>
                             <div className='font-medium leading-none'>
                               {option.label}
                             </div>
                             <div className='text-[11px] text-slate-400 leading-snug'>
-                              {t(
-                                `chat.manualMode.${option.value}Desc`,
-                                option.description
-                              )}
+                              {!providerSupported
+                                ? lt(
+                                    "当前模型不支持该模式",
+                                    "Not supported by the current model"
+                                  )
+                                : t(
+                                    `chat.manualMode.${option.value}Desc`,
+                                    option.description
+                                  )}
                             </div>
                           </div>
                           {isActive && (
@@ -3271,7 +3490,7 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
 
                 {!shouldHideImageParamControls && (
-                  <DropdownMenu>
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
                         size='sm'
@@ -3279,7 +3498,7 @@ const AIChatDialog: React.FC = () => {
                         disabled={false}
                         data-dropdown-trigger='true'
                         className={cn(
-                          "order-1 h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                           "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                           !generationStatus.isGenerating
                             ? "hover:bg-gray-100 text-gray-700"
@@ -3311,7 +3530,10 @@ const AIChatDialog: React.FC = () => {
                                   "🤖 切换 AI 提供商:",
                                   option.value
                                 );
-                                setAIProvider(option.value, { source: "dialog" });
+                                setAIProvider(option.value, {
+                                  source: "dialog",
+                                  syncFlowNodes: option.syncFlowNodes !== false,
+                                });
                               }
                               const root = (
                                 event.currentTarget as HTMLElement
@@ -3332,7 +3554,7 @@ const AIChatDialog: React.FC = () => {
                           >
                             <div className='flex-1 space-y-0.5'>
                               <div className='font-medium leading-none'>
-                                {option.label}
+                                {option.familyLabel} · {option.label}
                               </div>
                               <div className='text-[11px] text-slate-400 leading-snug dark:!text-slate-400'>
                                 {option.description}
@@ -3349,12 +3571,12 @@ const AIChatDialog: React.FC = () => {
                 )}
 
                 {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
-                  <DropdownMenu>
+                  <DropdownMenu className='order-3 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <button
                         type='button'
                         className={cn(
-                          "order-3 h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
+                          "h-7 px-2 text-[11px] font-normal text-slate-700 transition-colors duration-150",
                           "hover:text-slate-900 active:translate-y-[0.5px]"
                         )}
                         title={lt("选择生成倍数", "Select multiplier")}
@@ -3404,7 +3626,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {!shouldHideImageParamControls && (
+              {showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3569,7 +3791,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {isAspectOpen &&
+              {showAspectRatioControls &&
+                isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
                   <div
@@ -3891,7 +4114,7 @@ const AIChatDialog: React.FC = () => {
                     data-chat-secondary-action='true'
                     disabled={generationStatus.isGenerating}
                     className={cn(
-                      "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                      "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                       "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                       !generationStatus.isGenerating
                         ? "hover:bg-liquid-glass-hover text-gray-700"
@@ -3930,6 +4153,36 @@ const AIChatDialog: React.FC = () => {
               </DropdownMenu>
 
               {/* 发送按钮 */}
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                data-chat-secondary-action='true'
+                disabled={generationStatus.isGenerating || autoOptimizing}
+                className={cn(
+                  "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  isAsrListening
+                    ? "bg-red-500 text-white border-red-400 hover:bg-red-500"
+                    : !generationStatus.isGenerating && !autoOptimizing
+                    ? "hover:bg-liquid-glass-hover text-gray-700"
+                    : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                onClick={toggleAsrListening}
+                title={
+                  isAsrListening
+                    ? lt("停止语音输入", "Stop voice input")
+                    : lt("开始语音输入", "Start voice input")
+                }
+                aria-pressed={isAsrListening}
+              >
+                {isAsrListening ? (
+                  <MicOff className='h-3.5 w-3.5' />
+                ) : (
+                  <Mic className='h-3.5 w-3.5' />
+                )}
+              </Button>
+
               <Button
                 onClick={handleSend}
                 disabled={!canSend}
@@ -3977,7 +4230,7 @@ const AIChatDialog: React.FC = () => {
               type='file'
               accept='application/pdf'
               style={{ display: "none" }}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (file) {
                   console.log("📄 PDF文件:", file.name, "大小:", file.size);
@@ -3998,27 +4251,33 @@ const AIChatDialog: React.FC = () => {
                     return;
                   }
 
-                  // 读取文件为 base64
-                  const reader = new FileReader();
-                  reader.onload = (event) => {
-                    const base64Data = event.target?.result as string;
-                    if (base64Data) {
-                      console.log(
-                        "📄 PDF 已读取，数据长度:",
-                        base64Data.length
-                      );
-                      setSourcePdfForAnalysis(base64Data, file.name);
-                      // 设置默认提示词
-                      if (!currentInput.trim()) {
-                        setCurrentInput("请分析这个 PDF 文件的内容");
-                      }
+                  try {
+                    const projectId =
+                      useProjectContentStore.getState().projectId ?? null;
+                    const uploadResult = await ossUploadService.uploadToOSS(file, {
+                      dir: projectId
+                        ? `projects/${projectId}/ai-chat/pdfs/`
+                        : "uploads/ai-chat/pdfs/",
+                      fileName: file.name || `analysis-${Date.now()}.pdf`,
+                      contentType: file.type || "application/pdf",
+                      maxSize: MAX_SIZE,
+                    });
+
+                    const remoteUrl = uploadResult.url?.trim();
+                    if (!uploadResult.success || !remoteUrl) {
+                      throw new Error(uploadResult.error || "PDF upload failed");
                     }
-                  };
-                  reader.onerror = () => {
-                    console.error("❌ 读取 PDF 文件失败");
-                    alert("读取 PDF 文件失败，请重试");
-                  };
-                  reader.readAsDataURL(file);
+
+                    console.log("PDF uploaded for analysis:", remoteUrl);
+                    setSourcePdfForAnalysis(remoteUrl, file.name);
+                    if (!currentInput.trim()) {
+                      setCurrentInput("请分析这个 PDF 文件的内容");
+                    }
+                  } catch (error) {
+                    console.error("PDF upload failed", error);
+                    alert("PDF 上传失败，请重试");
+                    setSourcePdfForAnalysis(null);
+                  }
                 }
                 if (pdfInputRef.current) {
                   pdfInputRef.current.value = "";

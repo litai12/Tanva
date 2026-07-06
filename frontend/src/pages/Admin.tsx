@@ -5,6 +5,8 @@ import { authApi } from "@/services/authApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import ApiModelStatsTab from "@/components/admin/ApiModelStatsTab";
+import SystemMonitorPanel from "@/components/admin/SystemMonitorPanel";
 import LoginNoticeRichTextEditor from "@/components/admin/LoginNoticeRichTextEditor";
 import TenantManagement from "@/components/admin/TenantManagement";
 import { fetchWithAuth } from "@/services/authFetch";
@@ -21,8 +23,11 @@ import {
   getUsers,
   getTenants,
   type TenantInfo,
+  createAdminUser,
+  getUserDetail,
   getApiUsageStats,
   getApiUsageRecords,
+  getApiUsageFilterOptions,
   addCredits,
   deductCredits,
   deleteUserAccount,
@@ -71,6 +76,8 @@ import {
   type UserWithCredits,
   type ApiUsageStats,
   type ApiUsageRecord,
+  type ApiUsageFilterOptions,
+  type ApiUsageRecordsSummary,
   type Pagination,
   type SystemSetting,
   type ManagedPricingPreviewResponse,
@@ -83,6 +90,7 @@ import {
   type PaidUsersSortBy,
   type CreditChangeRecord,
   type AdminUserCreditTransaction,
+  type AdminUserRechargeOrders,
   type CreditAnomalyRecord,
   type NodeConfig,
   listVolcReviewGroups,
@@ -104,6 +112,8 @@ import type { PublicTemplate } from "@/services/publicTemplateService";
 
 const FULL_ADMIN_ROLE = "admin";
 const NORMAL_ADMIN_ROLE = "normal_admin";
+const REGISTER_PHONE_PATTERN = /^1[3-9]\d{9}$/;
+const REGISTER_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 type AdminTabKey =
   | "dashboard"
@@ -131,9 +141,10 @@ type SettingsSubTabKey =
 const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
   "dashboard",
   "users",
+  "credit-records",
+  "credit-anomalies",
   "api-stats",
   "api-records",
-  "watermark",
   "templates",
 ]);
 
@@ -141,6 +152,36 @@ const CREDITS_PER_YUAN = 100;
 const SEEDANCE20_DISCOUNT_RATE = 1;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+
+const EMPTY_RECHARGE_ORDERS: AdminUserRechargeOrders = {
+  membership: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
+  wechatRecharge: { count: 0, totalAmount: 0, totalCredits: 0, latestPaidAt: null },
+  recentOrders: [],
+};
+
+const formatYuanAmount = (amount: number) =>
+  new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    minimumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+
+// 团队积分流水：哪些类型是「扣减」（应显示负号）。与 TeamManagementModal 的口径一致。
+// 注意后端存储约定不统一：deduct/reserve 存正数，admin_deduct 存负数，故符号一律按类型判定，金额取绝对值。
+const TEAM_LEDGER_NEGATIVE_TYPES = new Set(['reserve', 'deduct', 'admin_deduct']);
+
+const teamLedgerEntryLabel = (type: string) => {
+  switch (type) {
+    case 'topup': return '充值';
+    case 'admin_add': return '管理员充值';
+    case 'admin_deduct': return '管理员扣款';
+    case 'reserve': return '冻结';
+    case 'deduct': return '扣款';
+    case 'release': return '解冻';
+    case 'refund': return '退款';
+    default: return type;
+  }
+};
 
 const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
 
@@ -150,6 +191,21 @@ const canAccessAdminPanel = (role?: string | null) => {
 };
 
 const isFullAdmin = (role?: string | null) => normalizeRole(role) === FULL_ADMIN_ROLE;
+
+const roleLabel: Record<string, string> = {
+  user: "用户",
+  normal_admin: "普通管理",
+  admin: "管理员",
+};
+
+const statusLabel: Record<string, string> = {
+  active: "正常",
+  inactive: "禁用",
+  banned: "封禁",
+};
+
+const formatRoleLabel = (role?: string | null) => roleLabel[role || ""] || role || "-";
+const formatStatusLabel = (status?: string | null) => statusLabel[status || ""] || status || "-";
 
 const canAccessAdminTab = (role: string | null | undefined, tab: AdminTabKey) => {
   if (isFullAdmin(role)) return true;
@@ -255,7 +311,7 @@ function DashboardTrendChart({
 const MODEL_PROVIDER_MAPPING_SETTING_KEY = "model_provider_mapping_v2";
 const LOGIN_NOTICE_SETTING_KEY = "login_notice";
 type ModelVendorRouteType = "legacy" | "tencent_vod";
-type ManagedModelTaskType = "text" | "image" | "video";
+type ManagedModelTaskType = "text" | "image" | "video" | "audio";
 
 interface ManagedVendorPlatformConfig {
   platformKey: string;
@@ -373,7 +429,7 @@ interface ManagedModelNodeConfig {
   enabled?: boolean;
   nodeKey?: string;
   flowNodeType?: string;
-  category?: "input" | "image" | "video";
+  category?: "input" | "image" | "video" | "audio";
   creditsPerCall?: number;
   sortOrder?: number;
   description?: string;
@@ -2116,11 +2172,12 @@ const MANAGED_MODEL_TASK_TYPE_OPTIONS: Array<{
   { value: "text", label: "文本" },
   { value: "image", label: "图片" },
   { value: "video", label: "视频" },
+  { value: "audio", label: "音频" },
 ];
 
 const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
   ManagedModelTaskType,
-  Array<{ value: string; label: string; category: "input" | "image" | "video" }>
+  Array<{ value: string; label: string; category: "input" | "image" | "video" | "audio" }>
 > = {
   text: [
     { value: "textPrompt", label: "提示词节点", category: "input" },
@@ -2131,7 +2188,7 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "generate", label: "图片生成节点", category: "image" },
     { value: "generatePro", label: "自定义图片节点", category: "image" },
     { value: "seedream5", label: "Seedream 5 节点", category: "image" },
-    { value: "midjourney", label: "Midjourney V7 / Niji 节点", category: "image" },
+    { value: "midjourney", label: "Midjourney / Niji 节点", category: "image" },
     { value: "analysis", label: "Image Chat", category: "image" },
   ],
   video: [
@@ -2148,6 +2205,9 @@ const MANAGED_NODE_TEMPLATE_OPTIONS: Record<
     { value: "happyhorseR2V", label: "快乐马节点", category: "video" },
     { value: "wan27Video", label: "Wan 2.7 视频节点", category: "video" },
   ],
+  audio: [
+    { value: "audioStudio", label: "音频工作台", category: "audio" },
+  ],
 };
 
 const normalizeManagedModelTaskType = (value?: string): ManagedModelTaskType => {
@@ -2156,6 +2216,7 @@ const normalizeManagedModelTaskType = (value?: string): ManagedModelTaskType => 
     .toLowerCase();
   if (normalized === "text" || normalized === "input") return "text";
   if (normalized === "image") return "image";
+  if (normalized === "audio") return "audio";
   return "video";
 };
 
@@ -2180,6 +2241,16 @@ const inferManagedNodeTemplate = (model: Partial<ManagedModelConfig>): string =>
   if (modelKey === "wan-2.6-r2v") return "wan2R2V";
   if (modelKey === "happyhorse-1.0-r2v") return "happyhorseR2V";
   if (modelKey === "wan-2.7") return "wan27Video";
+  if (
+    modelKey === "doubao-seed-audio-1-0" ||
+    modelKey === "minimax-speech-2.6-hd" ||
+    modelKey === "minimax-speech-2.5" ||
+    modelKey === "minimax-music-2.5+" ||
+    modelKey === "minimax-music-2.5" ||
+    modelKey === "tencent-dub"
+  ) {
+    return "audioStudio";
+  }
 
   const taskType = normalizeManagedModelTaskType(model.taskType);
   return MANAGED_NODE_TEMPLATE_OPTIONS[taskType][0]?.value || "kling30Video";
@@ -2204,6 +2275,12 @@ const shouldReuseTemplateNodeKey = (modelKey?: string): boolean => {
     "wan-2.6-r2v",
     "happyhorse-1.0-r2v",
     "wan-2.7",
+    "doubao-seed-audio-1-0",
+    "minimax-speech-2.6-hd",
+    "minimax-speech-2.5",
+    "minimax-music-2.5+",
+    "minimax-music-2.5",
+    "tencent-dub",
   ].includes(normalized);
 };
 
@@ -2469,6 +2546,252 @@ const DEFAULT_MODEL_VENDOR_PLATFORMS: ManagedVendorPlatformConfig[] = [
     provider: "doubao",
     description: "Seedance 视频生成渠道占位",
   },
+];
+
+// ---------- 音频模型（audioStudio）spec 默认目录（管理端编辑用，运行以后端注册表为准）----------
+type AudioCatalogLocale = { zh: string; en: string };
+type AudioCatalogOption = { value: string | number | boolean; label: AudioCatalogLocale };
+
+const ADMIN_MINIMAX_SPEECH_VOICE_OPTIONS: AudioCatalogOption[] = [
+  { value: "male-qn-qingse", label: { zh: "male-qn-qingse（实际音色）", en: "male-qn-qingse (raw)" } },
+  { value: "female-chengshu", label: { zh: "female-chengshu（实际音色）", en: "female-chengshu (raw)" } },
+  { value: "echo", label: { zh: "echo（男声青年-清色）", en: "echo (male youth clear)" } },
+  { value: "alloy", label: { zh: "alloy（女声成熟）", en: "alloy (female mature)" } },
+  { value: "fable", label: { zh: "fable（男声青年-精英）", en: "fable (male youth elite)" } },
+  { value: "onyx", label: { zh: "onyx（男主持）", en: "onyx (presenter male)" } },
+  { value: "nova", label: { zh: "nova（女主持）", en: "nova (presenter female)" } },
+  { value: "shimmer", label: { zh: "shimmer（有声书女声）", en: "shimmer (audiobook female)" } },
+];
+const ADMIN_MINIMAX_SPEECH_EMOTION_OPTIONS: AudioCatalogOption[] = [
+  { value: "", label: { zh: "情感：默认", en: "Emotion: default" } },
+  { value: "happy", label: { zh: "happy（开心）", en: "happy" } },
+  { value: "sad", label: { zh: "sad（悲伤）", en: "sad" } },
+  { value: "angry", label: { zh: "angry（愤怒）", en: "angry" } },
+  { value: "fearful", label: { zh: "fearful（恐惧）", en: "fearful" } },
+  { value: "disgusted", label: { zh: "disgusted（厌恶）", en: "disgusted" } },
+  { value: "surprised", label: { zh: "surprised（惊讶）", en: "surprised" } },
+  { value: "calm", label: { zh: "calm（平静）", en: "calm" } },
+  { value: "fluent", label: { zh: "fluent（流畅）", en: "fluent" } },
+  { value: "whisper", label: { zh: "whisper（耳语）", en: "whisper" } },
+];
+const ADMIN_MINIMAX_SOUND_EFFECT_OPTIONS: AudioCatalogOption[] = [
+  { value: "spacious_echo", label: { zh: "空旷回音", en: "Spacious echo" } },
+  { value: "auditorium_echo", label: { zh: "大礼堂回音", en: "Auditorium echo" } },
+  { value: "lofi_telephone", label: { zh: "复古电话音", en: "Lo-fi telephone" } },
+  { value: "robotic", label: { zh: "机器人电音", en: "Robotic" } },
+];
+const ADMIN_AUDIO_LANGUAGE_OPTIONS: AudioCatalogOption[] = [
+  "zh", "yue", "en", "ja", "ko", "es", "fr", "de", "ru", "pt", "it", "id", "vi",
+].map((v) => ({ value: v, label: { zh: v, en: v } }));
+
+const buildAdminSeedAudioSpec = (): Record<string, any> => ({
+  mode: "seed-audio",
+  fields: [
+    { key: "voice", type: "voicePicker", label: { zh: "音色 (speaker)", en: "Voice (speaker)" }, placeholder: { zh: "留空走参考音频/图", en: "Blank = use reference" } },
+    {
+      key: "format", type: "select", label: { zh: "输出格式", en: "Format" }, default: "mp3",
+      options: ["wav", "mp3", "pcm", "ogg_opus"].map((v) => ({ value: v, label: { zh: v, en: v } })),
+    },
+    {
+      key: "sampleRate", type: "select", label: { zh: "采样率", en: "Sample rate" }, default: 24000,
+      options: [8000, 16000, 24000, 32000, 44100, 48000].map((v) => ({ value: v, label: { zh: String(v), en: String(v) } })),
+    },
+    { key: "speechRate", type: "slider", label: { zh: "语速", en: "Speech rate" }, min: -50, max: 100, step: 1, default: 0 },
+    { key: "pitchRate", type: "slider", label: { zh: "音调", en: "Pitch" }, min: -12, max: 12, step: 1, default: 0 },
+    { key: "loudnessRate", type: "slider", label: { zh: "响度", en: "Loudness" }, min: -50, max: 100, step: 1, default: 0 },
+  ],
+  inputs: [
+    { handle: "text", dtoField: "text", required: true },
+    { handle: "audio", dtoField: "referenceAudioUrls", multiple: true },
+    { handle: "image", dtoField: "referenceImageUrl" },
+  ],
+  outputs: ["audio"],
+});
+const buildAdminMinimaxSpeechSpec = (modelValue: string): Record<string, any> => ({
+  mode: "minimax-speech",
+  modelField: "model",
+  modelValue,
+  fields: [
+    { key: "voiceId", type: "select", label: { zh: "音色", en: "Voice" }, default: "male-qn-qingse", options: ADMIN_MINIMAX_SPEECH_VOICE_OPTIONS },
+    { key: "emotion", type: "select", label: { zh: "情感", en: "Emotion" }, default: "", options: ADMIN_MINIMAX_SPEECH_EMOTION_OPTIONS },
+    { key: "soundEffects", type: "multiSelect", label: { zh: "音效", en: "Sound effects" }, options: ADMIN_MINIMAX_SOUND_EFFECT_OPTIONS, group: { zh: "高级设置", en: "Advanced" } },
+    {
+      key: "outputFormat", type: "select", label: { zh: "返回方式", en: "Output" }, default: "url",
+      options: [
+        { value: "url", label: { zh: "返回 URL", en: "Output URL" } },
+        { value: "hex", label: { zh: "返回 HEX", en: "Output HEX" } },
+      ],
+      group: { zh: "高级设置", en: "Advanced" },
+    },
+    {
+      key: "audioMode", type: "select", label: { zh: "返回模式", en: "Mode" }, default: "json",
+      options: [
+        { value: "json", label: { zh: "JSON 模式", en: "JSON mode" } },
+        { value: "hex", label: { zh: "裸流模式", en: "Raw stream" } },
+      ],
+      group: { zh: "高级设置", en: "Advanced" },
+    },
+  ],
+  inputs: [{ handle: "text", dtoField: "text", required: true }],
+  outputs: ["audio"],
+});
+const buildAdminMinimaxMusicSpec = (modelValue: string): Record<string, any> => ({
+  mode: "minimax-music",
+  modelField: "musicModel",
+  modelValue,
+  fields: [
+    { key: "prompt", type: "textarea", label: { zh: "曲风提示词", en: "Style prompt" }, placeholder: { zh: "流行音乐, 难过, 适合在下雨的晚上", en: "Pop music, sad, rainy night" } },
+    { key: "isInstrumental", type: "checkbox", label: { zh: "纯音乐模式", en: "Instrumental" }, default: false },
+    { key: "lyricsOptimizer", type: "checkbox", label: { zh: "AI 自动填词", en: "AI lyrics optimizer" }, default: false },
+    { key: "lyrics", type: "textarea", label: { zh: "歌词", en: "Lyrics" }, placeholder: { zh: "支持 [Verse], [Chorus], [Bridge] 等结构标签", en: "Supports [Verse], [Chorus], [Bridge]" }, visibleWhen: { field: "isInstrumental", equals: false } },
+  ],
+  inputs: [{ handle: "text", dtoField: "prompt" }],
+  outputs: ["audio"],
+});
+const buildAdminTencentDubSpec = (): Record<string, any> => ({
+  mode: "tencent-dub",
+  fields: [
+    { key: "speakerUrl", type: "text", label: { zh: "Speaker 文件 URL", en: "Speaker URL" } },
+    { key: "srcLang", type: "select", label: { zh: "源语言", en: "Source language" }, default: "zh", options: ADMIN_AUDIO_LANGUAGE_OPTIONS, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "dstLang", type: "select", label: { zh: "目标语言", en: "Target language" }, default: "en", options: ADMIN_AUDIO_LANGUAGE_OPTIONS, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "voiceId", type: "tencentVoicePicker", label: { zh: "系统音色", en: "System voice" }, group: { zh: "高级设置", en: "Advanced" } },
+    {
+      key: "speakerGender", type: "select", label: { zh: "说话人性别", en: "Speaker gender" }, default: "male",
+      options: [
+        { value: "male", label: { zh: "男声", en: "Male" } },
+        { value: "female", label: { zh: "女声", en: "Female" } },
+      ],
+      group: { zh: "高级设置", en: "Advanced" },
+    },
+    { key: "srcSubtitleUrl", type: "text", label: { zh: "源字幕 URL", en: "Source subtitle URL" }, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "dstSubtitleUrl", type: "text", label: { zh: "目标字幕 URL", en: "Target subtitle URL" }, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "font", type: "text", label: { zh: "字幕字体", en: "Subtitle font" }, default: "auto", group: { zh: "高级设置", en: "Advanced" } },
+    { key: "fontSize", type: "number", label: { zh: "字幕字号", en: "Font size" }, default: 50, min: 1, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "marginV", type: "number", label: { zh: "字幕底边距", en: "Bottom margin" }, default: 50, min: 0, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "outputPattern", type: "text", label: { zh: "输出文件前缀", en: "Output prefix" }, group: { zh: "高级设置", en: "Advanced" } },
+    { key: "embedSubtitle", type: "checkbox", label: { zh: "压制字幕", en: "Burn subtitles" }, default: true, group: { zh: "高级设置", en: "Advanced" } },
+  ],
+  inputs: [
+    { handle: "video", dtoField: "inputVideoUrl", required: true },
+    { handle: "text", dtoField: "text" },
+  ],
+  outputs: ["audio", "video"],
+});
+
+const buildAudioCatalogModel = (params: {
+  modelKey: string;
+  modelName: string;
+  vendorKey: string;
+  vendorLabel: string;
+  provider: string;
+  upstreamModelName: string;
+  credits: number;
+  priceYuan: number;
+  pricing: Record<string, any>;
+  audioSpec: Record<string, any>;
+  description: string;
+}): ManagedModelConfig => ({
+  modelKey: params.modelKey,
+  modelName: params.modelName,
+  taskType: "audio",
+  enabled: true,
+  defaultVendor: params.vendorKey,
+  metadata: {
+    nodeConfig: buildManagedNodeConfig(
+      {
+        modelKey: params.modelKey,
+        taskType: "audio",
+        vendors: [{ vendorKey: params.vendorKey, creditsPerCall: params.credits }],
+        defaultVendor: params.vendorKey,
+      },
+      {
+        flowNodeType: "audioStudio",
+        nodeKey: "audioStudio",
+        category: "audio",
+        creditsPerCall: params.credits,
+        description: params.description,
+      }
+    ),
+    audioSpec: params.audioSpec,
+  },
+  vendors: [
+    {
+      vendorKey: params.vendorKey,
+      platformKey: "new_api",
+      label: params.vendorLabel,
+      enabled: true,
+      route: "legacy",
+      provider: params.provider,
+      modelName: params.upstreamModelName,
+      creditsPerCall: params.credits,
+      pricing: params.pricing as any,
+    },
+  ],
+});
+
+const SEED_AUDIO_PRICING_BOOK = {
+  version: "v1",
+  defaults: { credits: 2, priceYuan: 0.02 },
+  matchingRules: [
+    {
+      ruleKey: "by_duration",
+      enabled: true,
+      priority: 1,
+      evaluatorKey: "perSecond",
+      conditions: { all: [{ field: "durationSec", op: "gt", value: 0 }] },
+    },
+  ],
+  evaluators: { perSecond: { type: "linear", unitField: "durationSec", unitPriceYuan: 0.02 } },
+};
+
+const DEFAULT_AUDIO_MODEL_CATALOG: ManagedModelConfig[] = [
+  buildAudioCatalogModel({
+    modelKey: "doubao-seed-audio-1-0", modelName: "豆包 Seed Audio 1.0",
+    vendorKey: "volc_seed_audio", vendorLabel: "火山 Seed Audio", provider: "volcengine",
+    upstreamModelName: "doubao-seed-audio-1-0", credits: 2, priceYuan: 0.02,
+    pricing: SEED_AUDIO_PRICING_BOOK, audioSpec: buildAdminSeedAudioSpec(),
+    description: "豆包 Seed Audio 语音合成（按时长结算，约2积分/秒）",
+  }),
+  buildAudioCatalogModel({
+    modelKey: "minimax-speech-2.6-hd", modelName: "MiniMax 语音 2.6 HD",
+    vendorKey: "minimax_speech", vendorLabel: "MiniMax Speech", provider: "minimax",
+    upstreamModelName: "speech-2.6-hd", credits: 10, priceYuan: 0.1,
+    pricing: { version: "v1", defaults: { credits: 10, priceYuan: 0.1 } },
+    audioSpec: buildAdminMinimaxSpeechSpec("speech-2.6-hd"),
+    description: "MiniMax 语音合成 2.6 HD",
+  }),
+  buildAudioCatalogModel({
+    modelKey: "minimax-speech-2.5", modelName: "MiniMax 语音 2.5",
+    vendorKey: "minimax_speech", vendorLabel: "MiniMax Speech", provider: "minimax",
+    upstreamModelName: "speech-2.5", credits: 10, priceYuan: 0.1,
+    pricing: { version: "v1", defaults: { credits: 10, priceYuan: 0.1 } },
+    audioSpec: buildAdminMinimaxSpeechSpec("speech-2.5"),
+    description: "MiniMax 语音合成 2.5",
+  }),
+  buildAudioCatalogModel({
+    modelKey: "minimax-music-2.5+", modelName: "MiniMax 音乐 2.5+",
+    vendorKey: "minimax_music", vendorLabel: "MiniMax Music", provider: "minimax",
+    upstreamModelName: "music-2.5+", credits: 30, priceYuan: 0.3,
+    pricing: { version: "v1", defaults: { credits: 30, priceYuan: 0.3 } },
+    audioSpec: buildAdminMinimaxMusicSpec("music-2.5+"),
+    description: "MiniMax 音乐生成 2.5+",
+  }),
+  buildAudioCatalogModel({
+    modelKey: "minimax-music-2.5", modelName: "MiniMax 音乐 2.5",
+    vendorKey: "minimax_music", vendorLabel: "MiniMax Music", provider: "minimax",
+    upstreamModelName: "music-2.5", credits: 30, priceYuan: 0.3,
+    pricing: { version: "v1", defaults: { credits: 30, priceYuan: 0.3 } },
+    audioSpec: buildAdminMinimaxMusicSpec("music-2.5"),
+    description: "MiniMax 音乐生成 2.5",
+  }),
+  buildAudioCatalogModel({
+    modelKey: "tencent-dub", modelName: "腾讯视频配音",
+    vendorKey: "tencent_dub", vendorLabel: "腾讯 配音", provider: "tencent",
+    upstreamModelName: "tencent-dub", credits: 10, priceYuan: 0.1,
+    pricing: { version: "v1", defaults: { credits: 10, priceYuan: 0.1 } },
+    audioSpec: buildAdminTencentDubSpec(),
+    description: "腾讯云视频配音（翻译 + 字幕压制）",
+  }),
 ];
 
 const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
@@ -3498,6 +3821,8 @@ const DEFAULT_MODEL_CATALOG: ManagedModelConfig[] = [
       },
     ],
   },
+  // ---------- 音频模型（audioStudio）----------
+  ...DEFAULT_AUDIO_MODEL_CATALOG,
 ];
 
 const DEFAULT_MODEL_PROVIDER_MAPPING_TEMPLATE = JSON.stringify(
@@ -4297,7 +4622,7 @@ const MANAGED_MODEL_SUPPORTED_MODELS_MAP: Record<string, string[]> = {
   "gemini-2.5-image-analyze": ["gemini-2.5-flash-image-preview"],
   "gemini-3.1-image-analyze": ["gemini-3.1-flash-image-preview"],
   "seedream5": ["doubao-seedream-5-0-260128"],
-  "midjourney": ["midjourney-v7", "midjourney-niji-7"],
+  "midjourney": ["midjourney-v7", "midjourney-v8", "midjourney-niji-7"],
   "wan-2.6": ["wan2.6-t2v", "wan2.6-i2v"],
   "wan-2.6-r2v": ["wan2.6-r2v"],
   "happyhorse-1.0-r2v": ["happyhorse-1.0-r2v"],
@@ -4811,8 +5136,17 @@ function UsersTab({
   const { tenantFilter } = useAdminTenant();
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageJumpInput, setPageJumpInput] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [unbindingWechatUserId, setUnbindingWechatUserId] = useState<string | null>(null);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState({
+    phone: "",
+    password: "",
+    confirmPassword: "",
+    name: "",
+    email: "",
+  });
 
   // 积分操作弹窗
   const [creditModal, setCreditModal] = useState<{
@@ -4839,6 +5173,11 @@ function UsersTab({
   const [creditDetailTransactions, setCreditDetailTransactions] = useState<
     AdminUserCreditTransaction[]
   >([]);
+  const [creditDetailRechargeOrders, setCreditDetailRechargeOrders] =
+    useState<AdminUserRechargeOrders>(EMPTY_RECHARGE_ORDERS);
+  const creditDetailRechargeOrderCount =
+    creditDetailRechargeOrders.membership.count +
+    creditDetailRechargeOrders.wechatRecharge.count;
   const [membershipDrawer, setMembershipDrawer] = useState<{
     userId: string;
     userName: string;
@@ -4854,8 +5193,7 @@ function UsersTab({
   const [membershipEffectiveMode, setMembershipEffectiveMode] = useState<
     "immediate" | "next_cycle"
   >("immediate");
-  const tableColumnCount =
-    (canManageSensitiveUserFields ? 9 : 7) + (isPlatformAdmin ? 1 : 0);
+  const tableColumnCount = 9 + (isPlatformAdmin ? 1 : 0);
 
   // ── 团队视图 ──
   const [view, setView] = useState<'users' | 'teams'>('users');
@@ -4896,7 +5234,7 @@ function UsersTab({
 
   useEffect(() => {
     if (view === 'teams') void loadTeams(1);
-  }, [view]);
+  }, [loadTeams, view]);
 
   const submitTeamCredit = async () => {
     if (!teamCreditModal) return;
@@ -5025,6 +5363,68 @@ function UsersTab({
     }
   };
 
+  const handleCreateUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const phone = createUserForm.phone.trim();
+    const password = createUserForm.password;
+    const confirmPassword = createUserForm.confirmPassword;
+    const name = createUserForm.name.trim();
+    const email = createUserForm.email.trim().toLowerCase();
+
+    if (!REGISTER_PHONE_PATTERN.test(phone)) {
+      alert("请输入正确的 11 位手机号");
+      return;
+    }
+    if (!name) {
+      alert("请输入昵称");
+      return;
+    }
+    if (name === phone) {
+      alert("昵称不能与手机号相同");
+      return;
+    }
+    if (email && name.toLowerCase() === email) {
+      alert("昵称不能与邮箱相同");
+      return;
+    }
+    if (password.length < 8 || password.length > 100) {
+      alert("密码长度必须在 8 到 100 位之间");
+      return;
+    }
+    if (!REGISTER_PASSWORD_PATTERN.test(password)) {
+      alert("密码需包含大小写字母和数字");
+      return;
+    }
+    if (password !== confirmPassword) {
+      alert("两次输入的密码不一致");
+      return;
+    }
+
+    setCreatingUser(true);
+    try {
+      await createAdminUser({
+        phone,
+        password,
+        name,
+        email: email || undefined,
+      });
+      setCreateUserForm({
+        phone: "",
+        password: "",
+        confirmPassword: "",
+        name: "",
+        email: "",
+      });
+      setPage(1);
+      await loadUsers();
+      alert("用户创建成功");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "创建用户失败");
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
   const handleStatusChange = async (userId: string, status: string) => {
     try {
       await updateUserStatus(userId, status);
@@ -5104,8 +5504,9 @@ function UsersTab({
     });
     setCreditDetailLoading(true);
     setCreditDetailTransactions([]);
+    setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     try {
-      const [rechargeResult, manualAddResult, inviteResult, transactionResult] =
+      const [rechargeResult, manualAddResult, inviteResult, transactionResult, userDetail] =
         await Promise.all([
           getCreditChangeRecords({
             userId: user.id,
@@ -5129,6 +5530,7 @@ function UsersTab({
             page: 1,
             pageSize: 100,
           }),
+          getUserDetail(user.id),
         ]);
 
       setCreditDetailRecords({
@@ -5137,6 +5539,7 @@ function UsersTab({
         inviteReward: inviteResult.records,
       });
       setCreditDetailTransactions(transactionResult.transactions || []);
+      setCreditDetailRechargeOrders(userDetail.rechargeOrders || EMPTY_RECHARGE_ORDERS);
     } catch (error) {
       console.error("加载积分详情失败:", error);
       setCreditDetailRecords({
@@ -5145,6 +5548,7 @@ function UsersTab({
         inviteReward: [],
       });
       setCreditDetailTransactions([]);
+      setCreditDetailRechargeOrders(EMPTY_RECHARGE_ORDERS);
     } finally {
       setCreditDetailLoading(false);
     }
@@ -5156,6 +5560,16 @@ function UsersTab({
     if (normalized.includes("apimart")) return "M";
     if (normalized === "legacy" || normalized.includes("147")) return "A";
     return channel;
+  };
+
+  const handleJumpToPage = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pagination) return;
+    const target = Number.parseInt(pageJumpInput, 10);
+    if (!Number.isFinite(target)) return;
+    const nextPage = Math.min(pagination.totalPages, Math.max(1, target));
+    setPage(nextPage);
+    setPageJumpInput("");
   };
 
   const loadMembershipState = async (userId: string, preferredPlanCode?: string) => {
@@ -5282,14 +5696,14 @@ function UsersTab({
                       <th className='px-4 py-3 text-left'>成员</th>
                       <th className='px-4 py-3 text-left'>积分余额</th>
                       <th className='px-4 py-3 text-left'>总积分</th>
-                      {canManageSensitiveUserFields && <th className='px-4 py-3 text-left'>状态</th>}
+                      <th className='px-4 py-3 text-left'>状态</th>
                       <th className='px-4 py-3 text-left'>创建时间</th>
                       <th className='px-4 py-3 text-left'>操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {teams.length === 0 ? (
-                      <tr><td colSpan={canManageSensitiveUserFields ? 8 : 7} className='px-4 py-8 text-center text-gray-400'>暂无团队</td></tr>
+                      <tr><td colSpan={8} className='px-4 py-8 text-center text-gray-400'>暂无团队</td></tr>
                     ) : teams.map((team) => (
                       <tr key={team.id} className='border-t hover:bg-gray-50'>
                         <td className='px-4 py-3'>
@@ -5300,11 +5714,11 @@ function UsersTab({
                           <div className='text-xs text-gray-400'>{team.ownerName}</div>
                         </td>
                         <td className='px-4 py-3 text-gray-600 text-xs'>{team.ownerId}</td>
-                        <td className='px-4 py-3'>{team.memberCount} / {team.maxSeats}</td>
+                        <td className='px-4 py-3'>{team.memberCount} / {team.seatCapacity}</td>
                         <td className='px-4 py-3 font-medium text-blue-600'>{team.availableCredits.toLocaleString()}</td>
                         <td className='px-4 py-3 text-gray-500'>{team.totalCredits.toLocaleString()}</td>
-                        {canManageSensitiveUserFields && (
-                          <td className='px-4 py-3'>
+                        <td className='px-4 py-3'>
+                          {canManageSensitiveUserFields ? (
                             <select
                               value={team.status}
                               onChange={(e) => void handleTeamStatusChange(team.id, e.target.value)}
@@ -5314,25 +5728,29 @@ function UsersTab({
                               <option value='inactive'>禁用</option>
                               <option value='banned'>封禁</option>
                             </select>
-                          </td>
-                        )}
+                          ) : (
+                            <span className='text-xs text-gray-600'>{formatStatusLabel(team.status)}</span>
+                          )}
+                        </td>
                         <td className='px-4 py-3 text-xs text-gray-500'>{new Date(team.createdAt).toLocaleDateString('zh-CN')}</td>
                         <td className='px-4 py-3'>
                           <div className='flex flex-wrap gap-1'>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.maxSeats }); setTeamSeatValue(String(team.maxSeats)); setTeamSeatError(''); }}>
+                            <Button size='sm' variant='outline' onClick={() => { setTeamSeatModal({ teamId: team.id, teamName: team.name, currentSeats: team.seatCapacity }); setTeamSeatValue(String(team.seatCapacity)); setTeamSeatError(''); }}>
                               席位
                             </Button>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
-                              充值
-                            </Button>
-                            <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'deduct' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
-                              扣除
-                            </Button>
                             {canManageSensitiveUserFields && (
-                              <Button size='sm' variant='outline' onClick={() => void openTeamDetail(team)}>
-                                详情
-                              </Button>
+                              <>
+                                <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'add' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                                  充值
+                                </Button>
+                                <Button size='sm' variant='outline' onClick={() => { setTeamCreditModal({ teamId: team.id, teamName: team.name, mode: 'deduct' }); setTeamCreditAmount(''); setTeamCreditDesc(''); setTeamCreditError(''); }}>
+                                  扣除
+                                </Button>
+                              </>
                             )}
+                            <Button size='sm' variant='outline' onClick={() => void openTeamDetail(team)}>
+                              详情
+                            </Button>
                             {canManageSensitiveUserFields && (
                               <Button
                                 size='sm'
@@ -5424,16 +5842,19 @@ function UsersTab({
                         </tr>
                       </thead>
                       <tbody>
-                        {teamCreditHistory.map((r) => (
+                        {teamCreditHistory.map((r) => {
+                          const isNegative = TEAM_LEDGER_NEGATIVE_TYPES.has(r.entryType);
+                          return (
                           <tr key={r.id} className='border-t'>
-                            <td className='px-3 py-2 text-gray-600'>{r.entryType}</td>
-                            <td className={`px-3 py-2 font-medium ${r.amount >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                              {r.amount >= 0 ? '+' : ''}{r.amount}
+                            <td className='px-3 py-2 text-gray-600'>{teamLedgerEntryLabel(r.entryType)}</td>
+                            <td className={`px-3 py-2 font-medium ${isNegative ? 'text-red-500' : 'text-green-600'}`}>
+                              {isNegative ? '-' : '+'}{Math.abs(r.amount).toLocaleString()}
                             </td>
                             <td className='px-3 py-2 text-gray-400 max-w-[160px] truncate'>{r.note || '-'}</td>
                             <td className='px-3 py-2 text-gray-400'>{new Date(r.createdAt).toLocaleDateString('zh-CN')}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
@@ -5445,6 +5866,83 @@ function UsersTab({
       )}
 
       {/* 用户视图 */}
+      {view === 'users' && canManageSensitiveUserFields && (
+        <form
+          onSubmit={handleCreateUser}
+          className='mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm'
+        >
+          <div className='mb-4'>
+            <div className='text-sm font-semibold text-gray-900'>添加用户信息</div>
+            <div className='mt-1 text-xs font-medium text-gray-500'>
+              手机号按注册规则填写；密码 8-100 位，需包含大小写字母和数字。
+            </div>
+          </div>
+          <div className='grid grid-cols-1 gap-3 lg:grid-cols-5'>
+            <Input
+              placeholder='手机号'
+              value={createUserForm.phone}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({
+                  ...prev,
+                  phone: e.target.value.replace(/\D/g, "").slice(0, 11),
+                }))
+              }
+              inputMode='numeric'
+              maxLength={11}
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='登录密码'
+              type='password'
+              value={createUserForm.password}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, password: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='确认密码'
+              type='password'
+              value={createUserForm.confirmPassword}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='昵称'
+              value={createUserForm.name}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+              required
+            />
+            <Input
+              placeholder='邮箱（可选）'
+              type='email'
+              value={createUserForm.email}
+              onChange={(e) =>
+                setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))
+              }
+              className='h-11 rounded-md border-gray-200 bg-white text-sm font-semibold placeholder:text-gray-500'
+            />
+          </div>
+          <div className='mt-3 flex justify-end'>
+            <Button
+              type='submit'
+              disabled={creatingUser}
+              className='h-11 rounded-md bg-gray-900 px-5 text-sm font-semibold text-white hover:bg-gray-800'
+            >
+              {creatingUser ? "创建中..." : "添加用户"}
+            </Button>
+          </div>
+        </form>
+      )}
+
       {view === 'users' && <div className='mb-4 flex gap-2'>
         <Input
           placeholder='搜索手机号/邮箱/昵称'
@@ -5475,12 +5973,8 @@ function UsersTab({
                 <th className='px-4 py-3 text-left'>积分余额</th>
                 <th className='px-4 py-3 text-left'>总消费</th>
                 <th className='px-4 py-3 text-left'>API调用</th>
-                {canManageSensitiveUserFields && (
-                  <th className='px-4 py-3 text-left'>角色</th>
-                )}
-                {canManageSensitiveUserFields && (
-                  <th className='px-4 py-3 text-left'>状态</th>
-                )}
+                <th className='px-4 py-3 text-left'>角色</th>
+                <th className='px-4 py-3 text-left'>状态</th>
                 <th className='px-4 py-3 text-left'>注册时间</th>
                 <th className='px-4 py-3 text-left'>操作</th>
               </tr>
@@ -5535,8 +6029,8 @@ function UsersTab({
                     </td>
                     <td className='px-4 py-3'>{user.totalSpent}</td>
                     <td className='px-4 py-3'>{user.apiCallCount}</td>
-                    {canManageSensitiveUserFields && (
-                      <td className='px-4 py-3'>
+                    <td className='px-4 py-3'>
+                      {canManageSensitiveUserFields ? (
                         <select
                           value={user.role}
                           onChange={(e) =>
@@ -5548,10 +6042,12 @@ function UsersTab({
                           <option value='normal_admin'>普通管理</option>
                           <option value='admin'>管理员</option>
                         </select>
-                      </td>
-                    )}
-                    {canManageSensitiveUserFields && (
-                      <td className='px-4 py-3'>
+                      ) : (
+                        <span className='text-xs text-gray-600'>{formatRoleLabel(user.role)}</span>
+                      )}
+                    </td>
+                    <td className='px-4 py-3'>
+                      {canManageSensitiveUserFields ? (
                         <select
                           value={user.status}
                           onChange={(e) =>
@@ -5563,39 +6059,45 @@ function UsersTab({
                           <option value='inactive'>禁用</option>
                           <option value='banned'>封禁</option>
                         </select>
-                      </td>
-                    )}
+                      ) : (
+                        <span className='text-xs text-gray-600'>{formatStatusLabel(user.status)}</span>
+                      )}
+                    </td>
                     <td className='px-4 py-3 text-xs text-gray-500'>
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className='px-4 py-3'>
                       <div className='flex flex-wrap gap-1'>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() =>
-                            setCreditModal({
-                              userId: user.id,
-                              userName: user.name || user.phone,
-                              type: "add",
-                            })
-                          }
-                        >
-                          充值
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() =>
-                            setCreditModal({
-                              userId: user.id,
-                              userName: user.name || user.phone,
-                              type: "deduct",
-                            })
-                          }
-                        >
-                          扣除
-                        </Button>
+                        {canManageSensitiveUserFields && (
+                          <>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() =>
+                                setCreditModal({
+                                  userId: user.id,
+                                  userName: user.name || user.phone,
+                                  type: "add",
+                                })
+                              }
+                            >
+                              充值
+                            </Button>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={() =>
+                                setCreditModal({
+                                  userId: user.id,
+                                  userName: user.name || user.phone,
+                                  type: "deduct",
+                                })
+                              }
+                            >
+                              扣除
+                            </Button>
+                          </>
+                        )}
                         {canManageSensitiveUserFields && (
                           <Button
                             size='sm'
@@ -5605,16 +6107,14 @@ function UsersTab({
                             会员
                           </Button>
                         )}
-                        {canManageSensitiveUserFields && (
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => loadCreditDetails(user)}
-                          >
-                            详情
-                          </Button>
-                        )}
-                        {canManageSensitiveUserFields && user.wechatBound && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => loadCreditDetails(user)}
+                        >
+                          详情
+                        </Button>
+                        {user.wechatBound && (
                           <Button
                             size='sm'
                             variant='outline'
@@ -5673,6 +6173,27 @@ function UsersTab({
             >
               下一页
             </Button>
+            <form onSubmit={handleJumpToPage} className='ml-2 flex items-center gap-2'>
+              <span className='text-sm text-gray-500'>跳至</span>
+              <Input
+                type='number'
+                min={1}
+                max={pagination.totalPages}
+                value={pageJumpInput}
+                onChange={(event) => setPageJumpInput(event.target.value)}
+                placeholder='页码'
+                className='h-8 w-20 text-center text-sm'
+              />
+              <span className='text-sm text-gray-500'>页</span>
+              <Button
+                type='submit'
+                variant='outline'
+                size='sm'
+                disabled={!pageJumpInput.trim()}
+              >
+                跳转
+              </Button>
+            </form>
           </div>
         </div>
       )}
@@ -5954,13 +6475,63 @@ function UsersTab({
                     <div className='flex items-center justify-between mb-3'>
                       <h4 className='font-medium text-gray-800'>充值积分</h4>
                       <span className='text-xs text-gray-500'>
-                        {creditDetailRecords.recharge.length} 条
+                        {creditDetailRechargeOrderCount} 笔订单
                       </span>
+                    </div>
+                    <div className='mb-3 space-y-2 rounded-md bg-gray-50 p-3 text-xs'>
+                      <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                        <div className='rounded border border-gray-200 bg-white p-2'>
+                          <div className='text-gray-500'>开会员</div>
+                          <div className='mt-1 font-semibold text-gray-800'>
+                            {creditDetailRechargeOrders.membership.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.membership.totalAmount)}
+                          </div>
+                          <div className='mt-1 text-green-600'>
+                            会员到账 +{creditDetailRechargeOrders.membership.totalCredits.toLocaleString()} 积分
+                          </div>
+                          <div className='mt-1 text-gray-400'>
+                            最近: {creditDetailRechargeOrders.membership.latestPaidAt ? new Date(creditDetailRechargeOrders.membership.latestPaidAt).toLocaleString() : "-"}
+                          </div>
+                        </div>
+                        <div className='rounded border border-gray-200 bg-white p-2'>
+                          <div className='text-gray-500'>微信购买积分</div>
+                          <div className='mt-1 font-semibold text-gray-800'>
+                            {creditDetailRechargeOrders.wechatRecharge.count} 笔 / {formatYuanAmount(creditDetailRechargeOrders.wechatRecharge.totalAmount)}
+                          </div>
+                          <div className='mt-1 text-green-600'>
+                            充值到账 +{creditDetailRechargeOrders.wechatRecharge.totalCredits.toLocaleString()} 积分
+                          </div>
+                          <div className='mt-1 text-gray-400'>
+                            最近: {creditDetailRechargeOrders.wechatRecharge.latestPaidAt ? new Date(creditDetailRechargeOrders.wechatRecharge.latestPaidAt).toLocaleString() : "-"}
+                          </div>
+                        </div>
+                      </div>
+                      {creditDetailRechargeOrders.recentOrders.length > 0 && (
+                        <div className='space-y-1 border-t border-gray-200 pt-2'>
+                          {creditDetailRechargeOrders.recentOrders.slice(0, 5).map((order) => (
+                            <div key={order.id} className='flex items-center justify-between gap-2'>
+                              <div className='min-w-0'>
+                                <div className='truncate text-gray-700'>
+                                  {order.orderType === "membership" ? order.planName || "会员订单" : "微信购买积分"}
+                                </div>
+                                <div className='truncate text-gray-400'>{order.orderNo}</div>
+                              </div>
+                              <div className='shrink-0 text-right'>
+                                <div className='font-medium text-gray-700'>
+                                  {formatYuanAmount(order.amount)}
+                                </div>
+                                <div className='text-green-600'>
+                                  {order.orderType === "membership" ? "会员" : "积分"} +{order.credits.toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className='space-y-2 max-h-[52vh] overflow-auto pr-1'>
                       {creditDetailRecords.recharge.length === 0 ? (
                         <div className='text-xs text-gray-400 py-6 text-center'>
-                          暂无记录
+                          暂无微信积分充值流水
                         </div>
                       ) : (
                         creditDetailRecords.recharge.map((record) => (
@@ -6313,7 +6884,9 @@ function ApiRecordsTab() {
   const { isPlatformAdmin, tenantFilter } = useAdminTenant();
   const OPENOBSERVE_LOGS_URL = "https://test.tanvas.cn/openobserve/web/logs";
   const [records, setRecords] = useState<ApiUsageRecord[]>([]);
+  const [summary, setSummary] = useState<ApiUsageRecordsSummary | null>(null);
   const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [filterOptions, setFilterOptions] = useState<ApiUsageFilterOptions | null>(null);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedRequestRecord, setSelectedRequestRecord] =
@@ -6322,19 +6895,51 @@ function ApiRecordsTab() {
     userSearch: "",
     serviceType: "",
     provider: "",
+    model: "",
     status: "",
+    periodType: "day" as "day" | "month",
+    periodValue: new Date().toISOString().slice(0, 10),
   });
+
+  const getPeriodRange = () => {
+    const value = filters.periodValue;
+    if (!value) return {};
+
+    if (filters.periodType === "month") {
+      const [yearText, monthText] = value.split("-");
+      const year = Number(yearText);
+      const monthIndex = Number(monthText) - 1;
+      if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) return {};
+      const start = new Date(year, monthIndex, 1);
+      const end = new Date(year, monthIndex + 1, 1);
+      return {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      };
+    }
+
+    const start = new Date(`${value}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return {
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    };
+  };
 
   const loadRecords = async () => {
     setLoading(true);
     try {
+      const { periodType, periodValue, ...apiFilters } = filters;
       const result = await getApiUsageRecords({
         page,
         pageSize: 10,
-        ...filters,
+        ...apiFilters,
+        ...getPeriodRange(),
         tenantId: isPlatformAdmin ? tenantFilter : undefined,
       });
       setRecords(result.records);
+      setSummary(result.summary);
       setPagination(result.pagination);
     } catch (error) {
       console.error("加载记录失败:", error);
@@ -6346,6 +6951,22 @@ function ApiRecordsTab() {
   useEffect(() => {
     loadRecords();
   }, [page, filters, tenantFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFilterOptions = async () => {
+      try {
+        const result = await getApiUsageFilterOptions();
+        if (!cancelled) setFilterOptions(result);
+      } catch (error) {
+        console.error("加载 API 筛选项失败:", error);
+      }
+    };
+    void loadFilterOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateFilters = (patch: Partial<typeof filters>) => {
     setPage(1);
@@ -6573,11 +7194,50 @@ function ApiRecordsTab() {
           className='border rounded px-3 py-2 text-sm'
         >
           <option value=''>全部提供商</option>
-          <option value='gemini'>Gemini</option>
-          <option value='sora'>Sora</option>
-          <option value='midjourney'>Midjourney</option>
-          <option value='imgly'>IMGLY</option>
+          {(filterOptions?.providers || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+              {option.count ? ` (${option.count})` : ""}
+            </option>
+          ))}
         </select>
+        <select
+          value={filters.model}
+          onChange={(e) => updateFilters({ model: e.target.value })}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value=''>全部模型</option>
+          {(filterOptions?.models || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+              {option.count ? ` (${option.count})` : ""}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.periodType}
+          onChange={(e) =>
+            updateFilters({
+              periodType: e.target.value as "day" | "month",
+              periodValue:
+                e.target.value === "month"
+                  ? filters.periodValue.slice(0, 7)
+                  : filters.periodValue.length === 7
+                  ? `${filters.periodValue}-01`
+                  : filters.periodValue,
+            })
+          }
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value='day'>按日</option>
+          <option value='month'>按月</option>
+        </select>
+        <Input
+          type={filters.periodType === "month" ? "month" : "date"}
+          value={filters.periodValue}
+          onChange={(e) => updateFilters({ periodValue: e.target.value })}
+          className='max-w-[170px] text-sm'
+        />
         <Button
           variant='outline'
           onClick={() => {
@@ -6588,6 +7248,31 @@ function ApiRecordsTab() {
           刷新
         </Button>
       </div>
+
+      {summary && (
+        <div className='mb-4 grid gap-3 md:grid-cols-4'>
+          <StatCard
+            title='筛选后实际消费'
+            value={summary.totalCreditsUsed}
+            subtitle={`调用 ${summary.totalCalls} 次`}
+          />
+          <StatCard
+            title='成功消费'
+            value={summary.successfulCredits}
+            subtitle={`成功 ${summary.successfulCalls} 次`}
+          />
+          <StatCard
+            title='处理中预扣'
+            value={summary.pendingCredits}
+            subtitle={`处理中 ${summary.pendingCalls} 次`}
+          />
+          <StatCard
+            title='失败已退/不计'
+            value={summary.refundedCredits}
+            subtitle={`失败 ${summary.failedCalls} 次`}
+          />
+        </div>
+      )}
 
       <div className='bg-white rounded-lg border overflow-hidden'>
         <div className='max-h-[1100px] overflow-auto'>
@@ -11763,7 +12448,7 @@ function UnifiedModelManagementTab() {
   const selectedTaskType = selectedModel
     ? normalizeManagedModelTaskType(selectedModel.taskType)
     : "image";
-  const recommendedNodeCategory: "input" | "image" | "video" =
+  const recommendedNodeCategory: "input" | "image" | "video" | "audio" =
     selectedTaskType === "text" ? "input" : selectedTaskType;
   const selectedManagedMetadata = selectedModel ? buildManagedNodeMetadata(selectedModel) : undefined;
   const selectedVodConfig =
@@ -14680,6 +15365,9 @@ export default function Admin() {
                   <DashboardTrendChart data={stats.userTrend} />
                 </div>
                 {dashboardError && <div className='text-sm text-red-500'>{dashboardError}</div>}
+                <div className='pt-2'>
+                  <SystemMonitorPanel />
+                </div>
               </div>
             ) : (
               <div className='text-center py-8 text-gray-500'>加载失败</div>
@@ -14721,7 +15409,7 @@ export default function Admin() {
         {currentTab === "paid-users" && <PaidUsersTab />}
         {currentTab === "credit-records" && <CreditChangeRecordsTab />}
         {currentTab === "credit-anomalies" && <CreditAnomaliesTab />}
-        {currentTab === "api-stats" && <ApiStatsTab />}
+        {currentTab === "api-stats" && <ApiModelStatsTab />}
         {currentTab === "api-records" && <ApiRecordsTab />}
         {currentTab === "watermark" && <WatermarkWhitelistTab />}
         {currentTab === "node-configs" && <NodeConfigsTab />}

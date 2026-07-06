@@ -85,7 +85,9 @@ import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import Seedance20VideoNode from "./nodes/Seedance20VideoNode";
 import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
-import AudioNode from "./nodes/AudioNode";
+import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
+import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
+import { DirectorCaptureRunner } from "./nodes/directorConsole/DirectorCaptureRunner";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
@@ -105,9 +107,10 @@ import VolcEnhanceVideoNode from "./nodes/VolcEnhanceVideoNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import ImageCompressNode from "./nodes/ImageCompressNode";
-import MinimaxSpeechNode from "./nodes/MinimaxSpeechNode";
-import MinimaxMusicNode from "./nodes/MinimaxMusicNode";
-import TencentSpeechNode from "./nodes/TencentSpeechNode";
+import AudioStudioNode from "./nodes/AudioStudioNode";
+import * as audioService from "@/services/audioService";
+import { getAudioStudioModeConfig, type AudioStudioMode } from "./nodes/audioStudioModes";
+import { getAudioSpecFromManagedRoute, MODE_DEFAULT_MODEL } from "./nodes/audioSpec";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
 import Seed3DNode from "./nodes/Seed3DNode";
@@ -214,6 +217,7 @@ import { normalizeWheelDelta, computeSmoothZoom } from "@/lib/zoomUtils";
 import type { AIImageGenerateRequest, AIImageResult } from "@/types/ai";
 import { convert2Dto3D, convertSeed3D } from "@/services/convert2Dto3DService";
 import MiniMapImageOverlay from "./MiniMapImageOverlay";
+import CanvasCommentLayer from "@/components/comments/CanvasCommentLayer";
 import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import {
   FlowRenderModeProvider,
@@ -232,6 +236,7 @@ import {
 } from "./utils/promptMentionWiring";
 import { sanitizeFlowTextForMidjourneyV7 } from "./utils/mjV7PromptSanitize";
 import { useLocaleText } from "@/utils/localeText";
+import { formatVideoProviderError } from "@/utils/videoProviderError";
 import {
   projectLoadDebug,
   projectLoadNow,
@@ -256,6 +261,10 @@ import {
   type AlignmentLine,
   type ObjectBounds,
 } from "@/utils/snapAlignment";
+// collab: transport layer — import collaboration handle + payload types
+import { useCollab } from "@/collab/CollabContext";
+import type { NodePatchPayload, NodeLockPayload, TaskStatusPayload } from "@/collab/types";
+import { colorFor } from "@/collab/presenceColors";
 
 // 兼容历史多图输入句柄：将 targetHandle img1/img2/... 归一化到 img
 const normalizeFlowTargetHandle = (
@@ -1015,6 +1024,8 @@ const createThumbnailDataUrl = async (
 
 const FLOW_CLIPBOARD_MIME = "application/x-tanva-flow";
 const FLOW_CLIPBOARD_FALLBACK_TEXT = "Tanva flow selection";
+const FLOW_INTERACTIVE_TARGET_SELECTOR =
+  ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel";
 const FLOW_CLIPBOARD_TYPE = "tanva-flow";
 
 const rawNodeTypes = {
@@ -1061,7 +1072,8 @@ const rawNodeTypes = {
   gptImage2: Nano2Node,
   seedream5: Seedream5Node,
   video: VideoNode,
-  audioUpload: AudioNode,
+  videoCompose: VideoComposeNode,
+  directorConsole: DirectorConsoleNode,
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
   videoToGif: VideoToGifNode,
@@ -1069,10 +1081,13 @@ const rawNodeTypes = {
   imageGrid: ImageGridNode,
   imageSplit: ImageSplitNode,
   imageCompress: ImageCompressNode,
-  minimaxSpeech: MinimaxSpeechNode,
-  minimaxMusic: MinimaxMusicNode,
-  tencentSpeech: TencentSpeechNode,
+  audioStudio: AudioStudioNode,
 };
+
+// nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
+// "幽灵节点"——这些 type 不在注册表里，reactflow 会回退成内置默认节点(一个空白小方框，
+// 即用户看到的"未知节点")。协作局部补丁/历史脏数据是其来源。
+const NODE_TYPE_KEYS = new Set(Object.keys(rawNodeTypes));
 
 // 自定义边组件 - 选中时在终点显示删除按钮
 const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
@@ -1290,6 +1305,7 @@ const FLOW_GROUP_RUNNABLE_TYPES = new Set([
   "minimaxSpeech",
   "tencentSpeech",
   "minimaxMusic",
+  "audioStudio",
 ]);
 const FLOW_GROUP_LOCAL_RUN_TYPES = new Set([
   "textChat",
@@ -1344,7 +1360,10 @@ const VIDEO_SOURCE_NODE_TYPES = [
   "doubaoVideo",
   "seedance20Video",
   "seedVideo",
+  "genericVideo",
+  "seedanceVideo",
   "volcEnhanceVideo",
+  "videoCompose",
 ];
 
 const normalizeSeedanceModelValue = (
@@ -1418,6 +1437,18 @@ const resolveNano2LikeMaxReferenceImages = (
     ? Math.max(1, Math.min(16, Math.floor(raw)))
     : 14;
 };
+
+const resolveMidjourneyModelVersionFromData = (
+  nodeData?: Record<string, unknown>
+): "v7" | "v8" => (nodeData?.modelVersion === "v8" ? "v8" : "v7");
+
+const resolveMidjourneyMaxReferenceImages = (
+  nodeType?: string | null,
+  nodeData?: Record<string, unknown>
+): number =>
+  nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+    ? 20
+    : 10;
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -1566,6 +1597,7 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "happyhorseR2V", targetHandle: "image-1" },
   ],
   video: [
+    { nodeType: "videoCompose", targetHandle: "video" },
     { nodeType: "videoAnalyze", targetHandle: "video" },
     { nodeType: "videoFrameExtract", targetHandle: "video" },
     { nodeType: "videoToGif", targetHandle: "video" },
@@ -1618,13 +1650,16 @@ const QUICK_CONNECT_PRESETS: Record<
     { nodeType: "happyhorseR2V", sourceHandle: "video" },
     { nodeType: "wan27Video", sourceHandle: "video" },
     { nodeType: "klingO1Video", sourceHandle: "video-out" },
+    { nodeType: "videoCompose", sourceHandle: "video-out" },
     { nodeType: "videoFrameExtract", sourceHandle: "video" },
+    { nodeType: "audioStudio", sourceHandle: "video" },
   ],
   audio: [
     { nodeType: "audioUpload", sourceHandle: "audio" },
     { nodeType: "minimaxSpeech", sourceHandle: "audio" },
     { nodeType: "minimaxMusic", sourceHandle: "audio" },
     { nodeType: "tencentSpeech", sourceHandle: "audio" },
+    { nodeType: "audioStudio", sourceHandle: "audio" },
   ],
   character: [
     { nodeType: "video", sourceHandle: "video" },
@@ -1710,11 +1745,14 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   seedance20Video: 210, // Seedance 2.0 视频生成
   seedVideo: 600, // Seed 2.0 视频生成
   videoToGif: 30, // 视频转GIF
+  videoCompose: 0, // 视频合成 - 浏览器端合成，不消耗积分
+  directorConsole: 0, // 导演台 - 3D 搭景截图，不消耗积分
   volcEnhanceVideo: 0, // 视频画质增强
   minimaxSpeech: 10, // MiniMax 语音合成
   tencentSpeech: 10, // 腾讯语音合成
   minimaxMusic: 30, // MiniMax 音乐生成
   audioUpload: 0, // 语音上传节点 - 不消耗积分
+  audioStudio: 0, // 统一音频节点 - 按模式由后端计费
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
 
@@ -1767,16 +1805,15 @@ const NODE_PALETTE_ITEMS = [
     category: "video",
   },
   { key: "seedVideo", zh: "Seed 2.0", en: "Seed 2.0", category: "video" },
+  { key: "videoCompose", zh: "视频合成", en: "Video Compose", category: "video" },
+  { key: "directorConsole", zh: "导演台", en: "Director Console", category: "image" },
   // 其他节点
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
   { key: "videoToGif", zh: "视频转GIF节点", en: "Video to GIF", category: "other" },
   { key: "volcEnhanceVideo", zh: "视频画质增强", en: "Video Enhance", category: "video" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split", category: "other" },
-  { key: "audioUpload", zh: "语音节点", en: "Audio Node", category: "audio" },
-  { key: "minimaxSpeech", zh: "MiniMax语音合成", en: "MiniMax Speech", category: "audio" },
-  { key: "tencentSpeech", zh: "语音合成", en: "Speech Synthesis", category: "audio" },
-  { key: "minimaxMusic", zh: "MiniMax音乐生成", en: "MiniMax Music", category: "audio" },
+  { key: "audioStudio", zh: "音频工作台", en: "Audio Studio", category: "audio" },
 ];
 
 const BETA_NODE_KEYS = new Set([
@@ -1889,10 +1926,13 @@ const NODE_PANEL_GROUP_BY_TYPE: Record<string, NodePanelGroupKey> = {
   videoAnalyze: "video",
   videoFrameExtract: "video",
   videoToGif: "video",
+  videoCompose: "video",
+  directorConsole: "three",
   audioUpload: "audio",
   minimaxSpeech: "audio",
   tencentSpeech: "audio",
   minimaxMusic: "audio",
+  audioStudio: "audio",
 };
 
 // Beta 节点列表（实验性功能）
@@ -1949,6 +1989,8 @@ const FLOW_NODE_DEFAULT_SIZE = {
   gptImage2: { w: 260, h: 200 },
   seedream5: { w: 260, h: 240 },
   video: { w: 320, h: 280 },
+  videoCompose: { w: 320, h: 360 },
+  directorConsole: { w: 320, h: 220 },
   audioUpload: { w: 320, h: 128 },
   videoAnalyze: { w: 280, h: 360 },
   videoFrameExtract: { w: 300, h: 420 },
@@ -1960,6 +2002,7 @@ const FLOW_NODE_DEFAULT_SIZE = {
   minimaxSpeech: { w: 280, h: 240 },
   tencentSpeech: { w: 300, h: 400 },
   minimaxMusic: { w: 300, h: 460 },
+  audioStudio: { w: 300, h: 380 },
 } as const;
 
 type FlowNodeType = keyof typeof FLOW_NODE_DEFAULT_SIZE;
@@ -2289,10 +2332,13 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   seedVideo: ["video"],
   volcEnhanceVideo: ["video"],
   videoFrameExtract: ["images", "image", "images-range"],
+  videoCompose: ["video"],
+  directorConsole: ["out-image"],
   audioUpload: ["audio"],
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
   tencentSpeech: ["audio", "video"],
+  audioStudio: ["audio", "video"],
 };
 
 const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
@@ -2327,7 +2373,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   wan2R2V: ["video-1", "video-2", "video-3", "text"],
   happyhorseR2V: ["image-1", "image-2", "video", "text"],
   wan27Video: ["image", "image-2", "video", "audio", "text"],
-  omniFlashExtVideo: ["image", "text"],
+  omniFlashExtVideo: ["image", "video", "text"],
   klingVideo: ["image", "image-2", "audio", "text"],
   kling26Video: ["image", "image-2", "audio", "text"],
   kling30Video: ["image", "image-2", "audio", "text"],
@@ -2341,10 +2387,13 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoAnalyze: ["video"],
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
+  videoCompose: ["video", "audio"],
+  directorConsole: ["in-image"],
   audioUpload: ["audio"],
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
   tencentSpeech: ["text", "video"],
+  audioStudio: ["text", "video", "audio", "image"],
 };
 
 const getPositiveIntegerFromData = (
@@ -2458,11 +2507,20 @@ const FLOW_NODE_KEY_ALIASES: Record<string, FlowNodeType> = {
   klingo3: "klingO1Video",
   "kling-o3": "klingO1Video",
   "kling-o3-video": "klingO1Video",
-  audio: "audioUpload",
-  audionode: "audioUpload",
-  "audio-node": "audioUpload",
-  minimaxmusic: "minimaxMusic",
-  "minimax-music": "minimaxMusic",
+  // 旧的 4 个音频节点统一迁移到 audioStudio（数据映射见 tplNodesToRfNodes）
+  audio: "audioStudio",
+  audionode: "audioStudio",
+  "audio-node": "audioStudio",
+  audioupload: "audioStudio",
+  "audio-upload": "audioStudio",
+  audiostudio: "audioStudio",
+  "audio-studio": "audioStudio",
+  minimaxspeech: "audioStudio",
+  "minimax-speech": "audioStudio",
+  minimaxmusic: "audioStudio",
+  "minimax-music": "audioStudio",
+  tencentspeech: "audioStudio",
+  "tencent-speech": "audioStudio",
   gptimage2: "gptImage2",
   "gpt-image-2": "gptImage2",
   gpt2image: "gptImage2",
@@ -2526,6 +2584,64 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   if (fuzzyMatched) return fuzzyMatched[1];
 
   return null;
+};
+
+/**
+ * 旧音频节点数据 → 统一 audioStudio 数据迁移。
+ * 根据原始 type（rawType）设置 data.mode，并把旧字段对齐到 AudioStudioData。
+ * audioUrl / videoUrl / history 等已同名字段原样保留。
+ */
+const AUDIO_STUDIO_RAW_TYPE_TO_MODE: Record<string, string> = {
+  audioUpload: "upload",
+  minimaxSpeech: "minimax-speech",
+  tencentSpeech: "tencent-dub",
+  minimaxMusic: "minimax-music",
+};
+
+const migrateAudioStudioData = (
+  rawType: string,
+  data: Record<string, any>
+): void => {
+  // 已是新节点（带 mode）则不覆盖
+  const inferredMode = AUDIO_STUDIO_RAW_TYPE_TO_MODE[rawType];
+  if (!data.mode) {
+    data.mode =
+      inferredMode ||
+      (typeof data.mode === "string" ? data.mode : "seed-audio");
+  }
+
+  // minimaxMusic 旧字段 model → musicModel
+  if (
+    rawType === "minimaxMusic" &&
+    !data.musicModel &&
+    typeof data.model === "string"
+  ) {
+    data.musicModel = data.model === "music-2.5" ? "music-2.5" : "music-2.5+";
+  }
+
+  // 默认 managedModelKey：按 mode 映射到默认模型，保证旧画布在 spec 驱动下可用
+  if (
+    !data.managedModelKey ||
+    typeof data.managedModelKey !== "string" ||
+    !data.managedModelKey.trim()
+  ) {
+    const mode = typeof data.mode === "string" ? data.mode : "seed-audio";
+    const defaultModel = MODE_DEFAULT_MODEL[mode as AudioStudioMode];
+    if (defaultModel) {
+      data.managedModelKey = defaultModel;
+    }
+  }
+
+  // tencentSpeech：speakerUrl(旧结果字段) 不参与表单，speakerUrlInput 已同名保留
+  // audioUpload：audioUrl/audioName/mimeType/duration 已同名保留
+};
+
+// 该 type 是否能被 nodeTypes 渲染(归一化别名后再判定)。无法渲染者即"未知节点"。
+const isRenderableFlowNodeType = (type?: unknown): boolean => {
+  if (typeof type !== "string" || !type) return false;
+  if (NODE_TYPE_KEYS.has(type)) return true;
+  const normalized = normalizeFlowNodeType(type);
+  return Boolean(normalized && NODE_TYPE_KEYS.has(normalized));
 };
 
 const isHiddenFlowNodeType = (rawType?: string): boolean => {
@@ -3203,7 +3319,10 @@ const resolveStableRouteCredits = (params: {
       ? nodeData.modelProvider.trim()
       : aiProvider;
 
-  if (normalizedType === "textChat" || normalizedType === "promptOptimize") {
+  if (
+    normalizedType === "textChat" ||
+    normalizedType === "promptOptimize"
+  ) {
     const tier = resolveBananaPricingTierByProvider(providerForPricing);
     if (tier) {
       const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
@@ -3424,9 +3543,13 @@ const NODE_STATUS_PRIORITY: Record<NodeConfig["status"], number> = {
 const UNIFIED_VIDEO_NODE_TITLES: Partial<
   Record<FlowNodeType, { nameZh: string; nameEn: string }>
 > = {
+  midjourneyV7: { nameZh: "Midjourney", nameEn: "Midjourney" },
   klingVideo: { nameZh: "Kling", nameEn: "Kling" },
   viduVideo: { nameZh: "Vidu", nameEn: "Vidu" },
   doubaoVideo: { nameZh: "Seedance", nameEn: "Seedance" },
+  // 统一音频节点：即便后端仍返回旧的 minimaxSpeech/tencentSpeech/minimaxMusic 配置
+  // （会被 normalizeFlowNodeType 归一化为 audioStudio 去重成一张卡），也强制显示「音频工作台」。
+  audioStudio: { nameZh: "音频工作台", nameEn: "Audio Studio" },
 };
 
 const mergeUniqueStrings = (...lists: Array<string[] | undefined>): string[] | undefined => {
@@ -4380,7 +4503,7 @@ function useFlowViewport() {
 // ];
 
 function FlowInner() {
-  const { lt, isZh } = useLocaleText();
+  const { lt, isZh, language } = useLocaleText();
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [nodePaletteSearch, setNodePaletteSearch] = React.useState("");
@@ -4398,6 +4521,23 @@ function FlowInner() {
   }>(null);
   const nodeDraggingRef = React.useRef(false);
   const lastSelectedFlowNodeIdsRef = React.useRef<string[]>([]);
+
+  // collab: collaboration handle (null when not in a team project / not connected)
+  const collab = useCollab();
+  // collab: 始终指向最新句柄。useCanvasCollab 每次渲染返回新对象，长生命周期的事件监听器
+  // (如 flow:updateNodeData，其 deps 不含 collab)会闭包捕获到旧的(未连接)句柄，导致
+  // connected 永远为 false、永不发送。所有采集点统一读 collabRef.current 规避闭包陈旧。
+  const collabRef = React.useRef(collab);
+  collabRef.current = collab;
+  // collab: guard — true while we are applying a remote patch (prevents echo)
+  const applyingRemoteRef = React.useRef(false);
+  // collab: tracks which nodes are locked by other users { nodeId -> userId }
+  const lockedByOthersRef = React.useRef<Map<string, string>>(new Map());
+  // collab: 渲染用的他人锁状态(state 触发重渲染, ref 供同步阻断编辑判断)
+  const [collabLockedNodes, setCollabLockedNodes] = React.useState<Record<string, string>>({});
+  // collab: 本端为"选中对象"持有的锁集合(选中 claim / 取消选中 release / 定时 renew)
+  const collabMyLocksRef = React.useRef<Set<string>>(new Set());
+
   React.useEffect(() => {
     nodesRef.current = nodes as RFNode[];
     if (nodeDraggingRef.current) return;
@@ -5045,6 +5185,216 @@ function FlowInner() {
     });
   }, [nodes]);
 
+  // collab: node-add capture — diff node ids; send full node objects for newly appeared nodes
+  const collabSeenNodeIdsRef = React.useRef<Set<string>>(new Set());
+  const collabSeenInitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!collab?.connected || applyingRemoteRef.current) return;
+    const curr = new Set<string>();
+    for (const n of nodes) curr.add(String(n.id));
+    // collab: 首次连接后只播种已存在节点(两端都从同一持久化项目加载, 无需广播),
+    // 避免把全量现有节点当作"新增"洪泛广播。
+    if (!collabSeenInitRef.current) {
+      collabSeenInitRef.current = true;
+      collabSeenNodeIdsRef.current = curr;
+      return;
+    }
+    const newNodes: any[] = [];
+    for (const n of nodes) {
+      if (!collabSeenNodeIdsRef.current.has(String(n.id))) {
+        newNodes.push(n);
+      }
+    }
+    collabSeenNodeIdsRef.current = curr;
+    if (newNodes.length > 0) {
+      try {
+        collab.sendPatch({ upsertNodes: newNodes });
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, collab]);
+
+  // collab: apply remote node_patch events from other collaborators
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("node_patch", (env: any) => {
+      const payload = env.payload as NodePatchPayload | undefined;
+      if (!payload) return;
+      applyingRemoteRef.current = true;
+      try {
+        if (Array.isArray(payload.upsertNodes) && payload.upsertNodes.length > 0) {
+          setNodes((ns: any[]) => {
+            const result = [...ns];
+            for (const incoming of payload.upsertNodes as any[]) {
+              if (!incoming?.id) continue;
+              // collab: 远端补丁可能携带别名/历史 type(模板插入、粘贴等未规范化路径产生)。
+              // 必须与快照水合 tplNodesToRfNodes 一样先归一化,否则:
+              // ①新增节点的 type 不在 nodeTypes 注册表里 → RF 渲染为未知/默认节点;
+              // ②已存在节点(水合时已归一化)被 ...incoming 用原始 type 覆盖回去 → 同样渲染失败。
+              // 新成员侧尤为明显,因为老成员本地状态可能恰好是规范化后的值。
+              const incomingType =
+                typeof incoming.type === "string"
+                  ? (normalizeFlowNodeType(incoming.type) || incoming.type)
+                  : undefined;
+              const idx = result.findIndex((n) => n.id === incoming.id);
+              if (idx >= 0) {
+                const existing = result[idx];
+                result[idx] = {
+                  ...existing,
+                  ...incoming,
+                  ...(incomingType ? { type: incomingType } : {}),
+                  data: incoming.data
+                    ? { ...(existing.data || {}), ...incoming.data }
+                    : existing.data,
+                  // collab: 合并 style(缩放=style.width/height),避免整体替换丢掉其它样式。
+                  style: incoming.style
+                    ? { ...(existing.style || {}), ...incoming.style }
+                    : existing.style,
+                };
+              } else if (incomingType && NODE_TYPE_KEYS.has(incomingType)) {
+                // collab: 仅当补丁自带可渲染的 type 时才允许"新建"节点。
+                // 位置/数据等局部补丁(无 type)若指向本端尚不存在的节点，贸然 push 会
+                // 合成一个无法渲染、且会被持久化的"未知节点"(空白小方框)。直接丢弃，
+                // 等待携带完整 type 的新增补丁(或下次整图水合)补上该节点。
+                result.push({ ...incoming, type: incomingType });
+              }
+            }
+            return result;
+          });
+        }
+        if (Array.isArray(payload.removeNodeIds) && payload.removeNodeIds.length > 0) {
+          const ids = payload.removeNodeIds as string[];
+          setNodes((ns: any[]) => ns.filter((n: any) => !ids.includes(n.id)));
+        }
+        if (Array.isArray(payload.upsertEdges) && payload.upsertEdges.length > 0) {
+          setEdges((es: any[]) => {
+            const result = [...es];
+            for (const incoming of payload.upsertEdges as any[]) {
+              if (!incoming?.id) continue;
+              const idx = result.findIndex((e) => e.id === incoming.id);
+              if (idx >= 0) {
+                result[idx] = { ...result[idx], ...incoming };
+              } else {
+                result.push(incoming);
+              }
+            }
+            return result;
+          });
+        }
+        if (Array.isArray(payload.removeEdgeIds) && payload.removeEdgeIds.length > 0) {
+          const ids = payload.removeEdgeIds as string[];
+          setEdges((es: any[]) => es.filter((e: any) => !ids.includes(e.id)));
+        }
+      } finally {
+        // collab: reset guard after state setters are queued (micro-task boundary)
+        queueMicrotask(() => {
+          applyingRemoteRef.current = false;
+        });
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab, setNodes, setEdges]);
+
+  // collab: sync remote task progress/result into node data
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("task_status", (env: any) => {
+      const payload = env.payload as TaskStatusPayload | undefined;
+      if (!payload?.nodeId) return;
+      const { nodeId, status, progress, resultPreview } = payload;
+      const mappedStatus =
+        status === "succeeded"
+          ? "succeeded"
+          : status === "failed"
+          ? "failed"
+          : "running"; // queued | processing → running
+      applyingRemoteRef.current = true;
+      try {
+        setNodes((ns: any[]) =>
+          ns.map((n: any) => {
+            if (n.id !== nodeId) return n;
+            const updated: any = {
+              ...n,
+              data: {
+                ...(n.data || {}),
+                status: mappedStatus,
+                ...(typeof progress === "number" ? { progress } : {}),
+              },
+            };
+            if (status === "succeeded" && resultPreview?.url) {
+              // collab: apply result url — match field names used by applyTerminal
+              updated.data.imageUrl = resultPreview.url;
+              if (resultPreview.thumbnailUrl) {
+                updated.data.thumbnail = resultPreview.thumbnailUrl;
+              }
+            }
+            return updated;
+          })
+        );
+      } finally {
+        queueMicrotask(() => {
+          applyingRemoteRef.current = false;
+        });
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab, setNodes]);
+
+  // collab: track node locks held by other users
+  React.useEffect(() => {
+    if (!collab) return;
+    const unsub = collab.subscribe("node_lock", (env: any) => {
+      const payload = env.payload as NodeLockPayload | undefined;
+      if (!payload?.nodeId) return;
+      const { nodeId, action, userId } = payload;
+      if (action === "claim" || action === "renewed") {
+        lockedByOthersRef.current.set(nodeId, userId);
+        setCollabLockedNodes((m) => (m[nodeId] === userId ? m : { ...m, [nodeId]: userId }));
+      } else if (action === "release" || action === "expired") {
+        lockedByOthersRef.current.delete(nodeId);
+        setCollabLockedNodes((m) => {
+          if (!(nodeId in m)) return m;
+          const next = { ...m };
+          delete next[nodeId];
+          return next;
+        });
+      }
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab]);
+
+  // collab: 定时续约本端持有的对象锁(后端 TTL 10s), 防止长时间选中期间锁过期被他人抢占;
+  // 断连/卸载时释放本端全部锁。
+  React.useEffect(() => {
+    if (!collab?.connected) return;
+    const timer = setInterval(() => {
+      for (const id of collabMyLocksRef.current) {
+        collab.renewLock(id).catch(() => {});
+      }
+    }, 7000);
+    return () => {
+      clearInterval(timer);
+      for (const id of collabMyLocksRef.current) {
+        collab.releaseLock(id).catch(() => {});
+      }
+      collabMyLocksRef.current.clear();
+    };
+  }, [collab]);
+
+  // collab: snapshot-required — trigger full project reload if possible
+  React.useEffect(() => {
+    const handler = () => {
+      // TODO: trigger full project content reload when a clean hook is available from this file.
+      // Currently the reload is owned by the layer above (CollabProvider → window 'collab:snapshot-required').
+      // This handler is a no-op placeholder; the upper layer already dispatches the event.
+    };
+    window.addEventListener("collab:snapshot-required", handler);
+    return () => window.removeEventListener("collab:snapshot-required", handler);
+  }, []);
+
   const onNodesChangeWithHistory = React.useCallback(
     (changes: any) => {
       let processedChanges = changes;
@@ -5254,7 +5604,46 @@ function FlowInner() {
 
       processedChanges = applyFlowSnappingToChanges(processedChanges);
 
+      // collab: block edits to nodes locked by other users
+      if (!applyingRemoteRef.current && lockedByOthersRef.current.size > 0 && Array.isArray(processedChanges)) {
+        processedChanges = processedChanges.filter((c: any) => {
+          if (!c?.id) return true;
+          if ((c.type === "position" || c.type === "remove") && lockedByOthersRef.current.has(String(c.id))) {
+            return false;
+          }
+          return true;
+        });
+      }
+
       onNodesChange(processedChanges);
+
+      // collab: capture local node changes and broadcast to collaborators
+      try {
+        const c0 = collabRef.current;
+        if (!applyingRemoteRef.current && c0?.connected && Array.isArray(processedChanges)) {
+          const upsertNodes: any[] = [];
+          const removeNodeIds: string[] = [];
+          for (const c of processedChanges) {
+            if (!c?.id) continue;
+            // collab: drop changes for nodes locked by others
+            if (lockedByOthersRef.current.has(String(c.id))) continue;
+            // collab: 拖拽过程中(dragging===true)与结束(false)都广播位置, 实现实时跟随;
+            // sendPatch 的 maxWait 节流保证持续拖动时也能每 ~150ms 推送一次。
+            if (c.type === "position" && c.position) {
+              upsertNodes.push({ id: c.id, position: c.position });
+            } else if (c.type === "remove") {
+              removeNodeIds.push(String(c.id));
+            }
+          }
+          if (upsertNodes.length > 0 || removeNodeIds.length > 0) {
+            c0.sendPatch({
+              ...(upsertNodes.length > 0 ? { upsertNodes } : {}),
+              ...(removeNodeIds.length > 0 ? { removeNodeIds } : {}),
+            });
+          }
+        }
+      } catch {}
+
       try {
         const needCommit =
           Array.isArray(processedChanges) &&
@@ -5269,7 +5658,8 @@ function FlowInner() {
           historyService.commit("flow-nodes-change").catch(() => {});
       } catch {}
     },
-    [applyFlowSnappingToChanges, onNodesChange, setEdges, cancelPollingForRemovedNodes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyFlowSnappingToChanges, onNodesChange, setEdges, cancelPollingForRemovedNodes, collab]
   );
 
   const rf = useReactFlow();
@@ -5783,6 +6173,20 @@ function FlowInner() {
         }
       }
       onEdgesChange(changes);
+
+      // collab: capture local edge removes and broadcast to collaborators
+      try {
+        const c0 = collabRef.current;
+        if (!applyingRemoteRef.current && c0?.connected && Array.isArray(changes)) {
+          const removeEdgeIds = changes
+            .filter((c: any) => c?.type === "remove" && c?.id)
+            .map((c: any) => String(c.id));
+          if (removeEdgeIds.length > 0) {
+            c0.sendPatch({ removeEdgeIds });
+          }
+        }
+      } catch {}
+
       try {
         const needCommit =
           Array.isArray(changes) &&
@@ -5797,7 +6201,8 @@ function FlowInner() {
         }
       } catch {}
     },
-    [onEdgesChange, edges, setNodes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onEdgesChange, edges, setNodes, collab]
   );
 
   React.useEffect(() => {
@@ -6764,9 +7169,11 @@ function FlowInner() {
       ns: RFNode[],
       options?: { preserveImagePayload?: boolean; preserveRunningState?: boolean }
     ): ClipboardFlowNode[] => {
-      return ns.map((n: any) => {
+      // 序列化前丢弃无法渲染(无 type/未知 type)的"幽灵节点"，避免把它们持久化/复制出去。
+      return ns.filter((n: any) => isRenderableFlowNodeType(n?.type)).map((n: any) => {
         const rawData = { ...(n.data || {}) } as any;
         delete rawData.onRun;
+        delete rawData.onStop;
         delete rawData.onSend;
         const data = sanitizeNodeData(rawData, options);
         if (data) {
@@ -6825,6 +7232,16 @@ function FlowInner() {
   );
 
   const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
+    // 水合时丢弃历史脏数据里无法渲染(无 type/"default"/未知 type)的"幽灵节点"，
+    // 否则它们会以 reactflow 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
+    // 且每次刷新都复现。来源为旧版协作局部补丁误建后被持久化。
+    const before = ns.length;
+    ns = ns.filter((n: any) => isRenderableFlowNodeType(n?.type));
+    if (ns.length !== before) {
+      console.warn(
+        `[collab] 水合时丢弃了 ${before - ns.length} 个无法渲染的未知节点(脏数据)`
+      );
+    }
     const legacyChildrenByGroupId = new Map<string, string[]>();
     ns.forEach((node: any) => {
       const parentId =
@@ -6840,6 +7257,10 @@ function FlowInner() {
       const type = normalizeFlowNodeType(rawType) || rawType;
       const isGroup = type === FLOW_GROUP_NODE_TYPE;
       const data: Record<string, any> = { ...(n?.data || {}) };
+
+      if (type === "audioStudio") {
+        migrateAudioStudioData(rawType, data);
+      }
 
       if (type === "klingVideo") {
         const currentKlingModel = String(data.klingModel || "").trim();
@@ -7219,9 +7640,14 @@ function FlowInner() {
           new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
         );
       }
+      const pastedType = normalizeFlowNodeType(node.type) || node.type || "default";
+      if (pastedType === "audioStudio") {
+        migrateAudioStudioData(String(node.type || ""), data);
+      }
       return {
         id: newId,
-        type: node.type || "default",
+        // 粘贴节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
+        type: pastedType,
         position: {
           x: node.position.x + OFFSET,
           y: node.position.y + OFFSET,
@@ -8765,6 +9191,7 @@ function FlowInner() {
     // 不导出回调函数/运行时状态字段
     const {
       onRun,
+      onStop,
       onSend,
       status,
       error,
@@ -9698,6 +10125,20 @@ function FlowInner() {
   }, [allowNativeScroll]);
 
   React.useEffect(() => {
+    const markFlowInteractiveEvent = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(FLOW_INTERACTIVE_TARGET_SELECTOR)) {
+        (event as any).__tanvaCanvasEventHandled = true;
+      }
+    };
+
+    window.addEventListener("mousedown", markFlowInteractiveEvent, true);
+    return () => {
+      window.removeEventListener("mousedown", markFlowInteractiveEvent, true);
+    };
+  }, []);
+
+  React.useEffect(() => {
     const clearFlowSelectionDragging = () => {
       document.body.classList.remove("tanva-flow-selection-dragging");
     };
@@ -9721,7 +10162,7 @@ function FlowInner() {
       const target = event.target as HTMLElement | null;
       if (
         target?.closest(
-          ".react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-flow-toolbar, .tanva-add-panel, [data-prevent-add-panel]"
+          FLOW_INTERACTIVE_TARGET_SELECTOR
         )
       ) {
         return;
@@ -10506,6 +10947,7 @@ function FlowInner() {
               resolution: "720P",
               duration: 6,
               aspectRatio: "16:9",
+              videoMode: "frame",
               videoVersion: 0,
               boxW: size.w,
               boxH: size.h,
@@ -10522,6 +10964,7 @@ function FlowInner() {
           : type === "midjourneyV7" || type === "niji7"
           ? {
               status: "idle" as const,
+              modelVersion: type === "midjourneyV7" ? "v7" : undefined,
               aspectRatio: "1:1",
               speedMode: "fast" as const,
               raw: false,
@@ -10704,6 +11147,48 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "audioStudio"
+          ? {
+              status: "idle" as const,
+              mode: "seed-audio" as const,
+              text: "",
+              voice: "",
+              format: "mp3" as const,
+              history: [] as Array<{
+                id: string;
+                prompt: string;
+                audioUrl: string;
+                videoUrl?: string;
+                createdAt: number;
+              }>,
+              selectedHistoryId: undefined,
+              // minimax-speech defaults
+              voiceId: "male-qn-qingse",
+              model: "speech-2.6-hd",
+              outputFormat: "url" as const,
+              audioMode: "json" as const,
+              soundEffects: [] as Array<
+                "spacious_echo" | "auditorium_echo" | "lofi_telephone" | "robotic"
+              >,
+              // minimax-music defaults
+              musicModel: "music-2.5+" as const,
+              isInstrumental: false,
+              lyricsOptimizer: false,
+              // tencent-dub defaults
+              speakerGender: "male" as const,
+              srcLang: "zh",
+              dstLang: "en",
+              srcSubtitleUrl: "",
+              dstSubtitleUrl: "",
+              embedSubtitle: true,
+              font: "auto",
+              fontSize: 50,
+              marginV: 50,
+              outputPattern: "",
+              speakerUrlInput: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" ||
             type === "kling26Video" ||
             type === "kling30Video" ||
@@ -10733,7 +11218,7 @@ function FlowInner() {
                   : type === "doubaoVideo" || type === "seedVideo"
                   ? "doubao"
                   : type === "kling30Video"
-                  ? "kling-o3"
+                  ? "kling"
                   : "kling",
               klingModel:
                 type === "kling30Video" ? ("kling-v3-0" as const) : ("kling-v2-6" as const),
@@ -11566,6 +12051,12 @@ function FlowInner() {
           return true;
         return false;
       };
+      const isOmniImageSource = (
+        node: typeof sourceNode,
+        handle?: string | null
+      ) =>
+        isImageSource(node, handle) ||
+        Boolean((node.data as any)?.imageUrl || (node.data as any)?.url || (node.data as any)?.src);
 
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
@@ -11692,7 +12183,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -11701,7 +12192,11 @@ function FlowInner() {
 
       if (targetNode.type === "omniFlashExtVideo") {
         if (targetHandle === "text") return canSourceProvideText(sourceNode, sourceHandle);
-        if (targetHandle === "image") return isImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "image") return isOmniImageSource(sourceNode, sourceHandle);
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
         return false;
       }
 
@@ -11736,7 +12231,7 @@ function FlowInner() {
         }
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -11746,9 +12241,54 @@ function FlowInner() {
       if (targetNode.type === "audioUpload") {
         if (targetHandle === "audio") {
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "audioStudio") {
+        if (targetHandle === "text") {
+          return canSourceProvideText(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "image") {
+          // seed-audio 模式参考图
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        if (targetHandle === "video") {
+          // tencent-dub 模式视频输入
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          // seed-audio 参考音频 / upload 音频输入
+          if (sourceHandle !== "audio") return false;
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "videoCompose") {
+        if (targetHandle === "video") {
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "");
+        }
+        if (targetHandle === "audio") {
+          if (sourceHandle !== "audio") return false;
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+            sourceNode.type || ""
+          );
+        }
+        return false;
+      }
+
+      if (targetNode.type === "directorConsole") {
+        // 全景背景图输入：接受任意图片源
+        if (targetHandle === "in-image") {
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -11827,7 +12367,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (spec.audioHandleMax <= 0 || incomingCount >= spec.audioHandleMax) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -11859,7 +12399,7 @@ function FlowInner() {
         if (targetHandle === "audio") {
           if (!canKlingNodeUseAudioInput(targetNode)) return false;
           if (sourceHandle !== "audio") return false;
-          return ["audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
+          return ["audioStudio", "audioUpload", "minimaxSpeech", "tencentSpeech", "minimaxMusic"].includes(
             sourceNode.type || ""
           );
         }
@@ -12231,8 +12771,28 @@ function FlowInner() {
           return true;
         }
       }
+      if (targetNode?.type === "omniFlashExtVideo") {
+        if (params.targetHandle === "text") return true;
+        if (params.targetHandle === "video") return true;
+        if (params.targetHandle === "image") {
+          const hasVideoInput = edges.some(
+            (e) => e.target === params.target && e.targetHandle === "video"
+          );
+          const mode =
+            hasVideoInput || (targetNode.data as any)?.videoMode === "reference"
+              ? "reference"
+              : "frame";
+          return incoming.length < (mode === "reference" ? 3 : 1);
+        }
+      }
       if (targetNode?.type === "audioUpload") {
         if (params.targetHandle === "audio") return true; // 新线会替换旧线
+      }
+      if (targetNode?.type === "audioStudio") {
+        if (params.targetHandle === "text") return true; // 新线会替换旧线
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+        if (params.targetHandle === "audio") return true; // seed-audio 参考音频可多条（后端截断 3 条）
+        if (params.targetHandle === "image") return incoming.length < 1; // seed-audio 参考图单张
       }
       if (targetNode?.type === "wan2R2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -12242,6 +12802,10 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("image-")) return true; // 每个 image-N 句柄最多一个
         if (params.targetHandle === "video") return true; // video-edit 模式：唯一一个 video 输入
+      }
+      if (targetNode?.type === "videoCompose") {
+        if (params.targetHandle === "video") return true;
+        if (params.targetHandle === "audio") return true;
       }
       // Vidu 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数受模型上限控制
       if (targetNode?.type === "viduVideo") {
@@ -12256,21 +12820,6 @@ function FlowInner() {
           ).length;
           const projectedTotal = totalImageCount - sameHandleCount + 1;
           return projectedTotal <= maxImages;
-        }
-        if (params.targetHandle === "text") return true;
-      }
-
-      // Vidu Q3 视频节点：图1/图2双句柄，每个句柄最多 1 条，总数最多 2 条
-      if (targetNode?.type === "viduQ3") {
-        if (params.targetHandle === "image" || params.targetHandle === "image-2") {
-          const sameHandleCount = edges.filter(
-            (e) => e.target === params.target && e.targetHandle === params.targetHandle
-          ).length;
-          const totalImageCount = edges.filter(
-            (e) => e.target === params.target && (e.targetHandle === "image" || e.targetHandle === "image-2")
-          ).length;
-          const projectedTotal = totalImageCount - sameHandleCount + 1;
-          return projectedTotal <= VIDUQ3_MAX_REFERENCE_IMAGES;
         }
         if (params.targetHandle === "text") return true;
       }
@@ -12365,7 +12914,15 @@ function FlowInner() {
       // Nano2 节点连接容量控制 - 支持文本和图片输入
       if (targetNode?.type === "midjourneyV7" || targetNode?.type === "niji7") {
         if (params.targetHandle === "text") return true;
-        if (params.targetHandle === "img") return incoming.length < 10;
+        if (params.targetHandle === "img") {
+          return (
+            incoming.length <
+            resolveMidjourneyMaxReferenceImages(
+              targetNode.type,
+              (targetNode.data || {}) as Record<string, unknown>
+            )
+          );
+        }
         if (
           params.targetHandle === "omniImage" ||
           params.targetHandle === "omniimage"
@@ -12477,6 +13034,9 @@ function FlowInner() {
       }
       closeConnectQuickMenu({ resetSource: true });
 
+      // collab: 捕获 addEdge 实际创建的边(含 ReactFlow 自分配的 id), 用真实对象广播,
+      // 避免重建 id 与本地不一致导致跨端删边对不上。
+      let collabNewEdge: any = null;
       setEdges((eds) => {
         let next = eds;
         const tgt = rf.getNode(params.target!);
@@ -12560,6 +13120,7 @@ function FlowInner() {
           "minimaxSpeech",
           "tencentSpeech",
           "minimaxMusic",
+          "audioStudio",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -12873,6 +13434,15 @@ function FlowInner() {
             (e) => !(e.target === params.target && e.targetHandle === "audio")
           );
         }
+        // audioStudio：video（配音）/ image（seed 参考图）句柄仅保留 1 条；audio 参考可多条
+        if (
+          tgt?.type === "audioStudio" &&
+          (params.targetHandle === "video" || params.targetHandle === "image")
+        ) {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === params.targetHandle)
+          );
+        }
         if (
           (tgt?.type === "midjourneyV7" || tgt?.type === "niji7") &&
           (params.targetHandle === "omniImage" ||
@@ -12944,10 +13514,20 @@ function FlowInner() {
           }
         }
         const out = addEdge({ ...params, type: "default" }, next);
+        // collab: 找出本次真正新增的边(addEdge 已去重, 仅追加不存在的边)
+        const prevIds = new Set((next as any[]).map((e) => e.id));
+        collabNewEdge = (out as any[]).find((e) => !prevIds.has(e.id)) ?? null;
         return out;
       });
       try {
         historyService.commit("flow-connect").catch(() => {});
+      } catch {}
+
+      // collab: 广播真实创建的边(含 ReactFlow 自分配 id), 保证两端边身份一致
+      try {
+        if (!applyingRemoteRef.current && collabRef.current?.connected && collabNewEdge) {
+          collabRef.current.sendPatch({ upsertEdges: [collabNewEdge] });
+        }
       } catch {}
 
       // 通知节点边已变化（用于刷新外部提示词预览等）
@@ -12955,6 +13535,41 @@ function FlowInner() {
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent("flow:edgesChange"));
       }, 0);
+
+      // 快乐马「多图参考」(happyhorse-1.0-r2v) 默认只渲染 1 个 image-1 句柄
+      // (referenceCount 默认=1)，导致用户连第二张图时被「同句柄替换」规则顶掉第一张。
+      // 该模型支持最多 9 张 reference_image，这里在用户连到当前最后一个可见 image 句柄时
+      // 自动扩出下一个空句柄(referenceCount→N+1，上限 9)，从而可连续接入多张参考图。
+      // 复用既有 flow:updateNodeData 通道(自带 collab 广播)；用 max 合并避免覆盖更大值。
+      try {
+        const hhTarget = rf.getNode(params.target!);
+        if (
+          hhTarget?.type === "happyhorseR2V" &&
+          (((hhTarget.data as any)?.model as string) ||
+            "happyhorse-1.0-r2v") === "happyhorse-1.0-r2v" &&
+          typeof params.targetHandle === "string" &&
+          params.targetHandle.startsWith("image-")
+        ) {
+          const idx = Number(params.targetHandle.slice("image-".length));
+          const rawCount = Number((hhTarget.data as any)?.referenceCount);
+          const curCount = Number.isFinite(rawCount)
+            ? Math.min(9, Math.max(1, Math.round(rawCount)))
+            : 1;
+          if (Number.isFinite(idx) && idx >= curCount && curCount < 9) {
+            const nextCount = Math.min(9, Math.max(curCount, idx + 1));
+            if (nextCount !== curCount) {
+              window.dispatchEvent(
+                new CustomEvent("flow:updateNodeData", {
+                  detail: {
+                    id: hhTarget.id,
+                    patch: { referenceCount: nextCount },
+                  },
+                })
+              );
+            }
+          }
+        }
+      } catch {}
 
       // 若连接到 Image(img)，立即把源图像写入目标
       try {
@@ -13296,6 +13911,7 @@ function FlowInner() {
         textNote: ["text-right-out", "text"],
         sora2Character: ["character"],
         tencentSpeech: ["audio", "video"],
+        audioStudio: ["audio", "video"],
       };
       const preferred = preferredByType[nodeType || ""] || ["img", "image", "video", "audio", "text"];
       const direct = preferred.indexOf(handle);
@@ -13625,7 +14241,10 @@ function FlowInner() {
         (nodeType === "midjourneyV7" || nodeType === "niji7") &&
         targetHandle === "img"
       ) {
-        return 10;
+        return resolveMidjourneyMaxReferenceImages(
+          nodeType,
+          (targetNode?.data || {}) as Record<string, unknown>
+        );
       }
       if (
         (nodeType === "nano2" || nodeType === "gptImage2") &&
@@ -14077,6 +14696,23 @@ function FlowInner() {
         };
         const nextNodes = ns.slice();
         nextNodes[targetIndex] = nextNode;
+
+        // collab: broadcast the merged node data to collaborators (prompt/node data sync)
+        // 缩放也走这条路：节点尺寸存于 data.boxW/boxH，随 data 一并广播；
+        // 若缩放移动了原点(从上/左角拖拽,带 _positionOffset),则一并广播 position。
+        try {
+          const c = collabRef.current;
+          if (!applyingRemoteRef.current && c?.connected) {
+            c.sendPatch({
+              upsertNodes: [{
+                id: nextNode.id,
+                data: nextNode.data,
+                ...(positionOffset ? { position: nextNode.position } : {}),
+              }],
+            });
+          }
+        } catch {}
+
         return nextNodes;
       });
 
@@ -14757,6 +15393,130 @@ function FlowInner() {
         handler as EventListener
       );
   }, [rf, setNodes]);
+
+  // 素材库「画布」标签：定位/聚焦某个节点（居中视口 + 选中）
+  // 注意：真实视口由 useCanvasStore 驱动（ReactFlow 视口是从 canvasStore 单向同步），
+  // 因此必须反推 panX/panY 写回 canvasStore，rf.setCenter 会被立即覆盖。
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id as string | undefined;
+      if (!id) return;
+      const node = rf.getNode(id);
+      if (!node) return;
+      const width =
+        (node.width as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.w ??
+        240;
+      const height =
+        (node.height as number | undefined) ??
+        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
+          ?.h ??
+        160;
+      const cx = (node.position?.x ?? 0) + width / 2;
+      const cy = (node.position?.y ?? 0) + height / 2;
+      try {
+        const cs = useCanvasStore.getState();
+        const zoom =
+          typeof cs.zoom === "number" && cs.zoom > 0 ? cs.zoom : 1;
+        const dpr = window.devicePixelRatio || 1;
+        // 素材库面板占右侧 ~320px，居中到可见区域中点
+        const panelW = 320;
+        const centerX = Math.max(0, (window.innerWidth - panelW) / 2);
+        const centerY = window.innerHeight / 2;
+        // screen = panX*zoom/dpr + cx*zoom  =>  panX = (centerX - cx*zoom)*dpr/zoom
+        const panX = ((centerX - cx * zoom) * dpr) / zoom;
+        const panY = ((centerY - cy * zoom) * dpr) / zoom;
+        useCanvasStore.getState().setViewport({ panX, panY, zoom });
+      } catch {
+        /* ignore */
+      }
+      setNodes((ns) =>
+        ns.map((n) => ({ ...n, selected: n.id === id })) as any
+      );
+    };
+    window.addEventListener("flow:focus-node", handler as EventListener);
+    return () =>
+      window.removeEventListener("flow:focus-node", handler as EventListener);
+  }, [rf, setNodes]);
+
+  // 素材库「画布」标签：把当前节点的轻量快照广播给面板（随节点变化刷新）
+  React.useEffect(() => {
+    const summary = nodes
+      .filter(
+        (n) =>
+          !(n as { parentId?: string }).parentId &&
+          !(n as { parentNode?: string }).parentNode
+      )
+      .map((n) => {
+        const data = (n.data && typeof n.data === "object"
+          ? (n.data as Record<string, unknown>)
+          : {}) as Record<string, unknown>;
+        return {
+          id: n.id,
+          type: typeof n.type === "string" ? n.type : "",
+          selected: !!n.selected,
+          label: data.label,
+          name: data.name,
+          kind: data.kind,
+          imageUrl: data.imageUrl,
+          videoUrl: data.videoUrl,
+          audioUrl: data.audioUrl,
+        };
+      });
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [nodes]);
+
+  // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
+  React.useEffect(() => {
+    const handler = () => {
+      const summary = rf
+        .getNodes()
+        .filter(
+          (n) =>
+            !(n as { parentId?: string }).parentId &&
+            !(n as { parentNode?: string }).parentNode
+        )
+        .map((n) => {
+          const data = (n.data && typeof n.data === "object"
+            ? (n.data as Record<string, unknown>)
+            : {}) as Record<string, unknown>;
+          return {
+            id: n.id,
+            type: typeof n.type === "string" ? n.type : "",
+            selected: !!n.selected,
+            label: data.label,
+            name: data.name,
+            kind: data.kind,
+            imageUrl: data.imageUrl,
+            videoUrl: data.videoUrl,
+            audioUrl: data.audioUrl,
+          };
+        });
+      try {
+        window.dispatchEvent(
+          new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener(
+      "flow:request-nodes-snapshot",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "flow:request-nodes-snapshot",
+        handler as EventListener
+      );
+  }, [rf]);
 
   // @ 引用自动接线：建 image 节点 / 建 generate 节点 / 连线
   React.useEffect(() => {
@@ -15812,6 +16572,10 @@ function FlowInner() {
         console.log(`[resolveEdgesAsDataUrls] 解析完成，成功 ${out.length}/${edges.length}`);
         return out;
       };
+      // 发给上游前统一规范化 prompt：合并连续空白（含换行）为单个空格，去首尾空格
+      const normalizePromptForUpstream = (text: string): string =>
+        text.replace(/\s+/g, " ").trim();
+
       const getTextPromptForNode = (targetId: string) => {
         const textEdge = currentEdges.find(
           (e) => e.target === targetId && e.targetHandle === "text"
@@ -15823,7 +16587,10 @@ function FlowInner() {
           promptNode,
           textEdge.sourceHandle
         );
-        return { text: resolved?.trim() || "", hasEdge: true };
+        return {
+          text: normalizePromptForUpstream(resolved?.trim() || ""),
+          hasEdge: true,
+        };
       };
 
       const getTextPromptsForNode = (targetId: string) => {
@@ -15840,8 +16607,8 @@ function FlowInner() {
             promptNode,
             edge.sourceHandle
           );
-          const trimmed = resolved?.trim() || "";
-          if (trimmed) texts.push(trimmed);
+          const normalized = normalizePromptForUpstream(resolved?.trim() || "");
+          if (normalized) texts.push(normalized);
         }
 
         return { texts, hasEdge: true };
@@ -15983,8 +16750,60 @@ function FlowInner() {
         return trimmed.length > 0 ? trimmed : undefined;
       };
 
+      const isMidjourneyV8Node = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): boolean =>
+        nodeType !== "niji7" && resolveMidjourneyModelVersionFromData(nodeData) === "v8";
+
+      const parseMidjourneyNumber = (
+        value: unknown,
+        label: string,
+        min: number,
+        max: number,
+        errors: string[],
+        options: { integer?: boolean; allowed?: number[] } = {}
+      ): string | undefined => {
+        const raw = normalizeMidjourneyValue(value);
+        if (!raw) return undefined;
+        const numeric = Number(raw);
+        const isValidNumber =
+          Number.isFinite(numeric) &&
+          numeric >= min &&
+          numeric <= max &&
+          (!options.integer || Number.isInteger(numeric)) &&
+          (!options.allowed || options.allowed.includes(numeric));
+        if (!isValidNumber) {
+          const rangeText = options.allowed?.length
+            ? options.allowed.join(" / ")
+            : `${min}-${max}`;
+          errors.push(`${label} 仅支持 ${rangeText}`);
+          return undefined;
+        }
+        return options.integer ? String(Math.trunc(numeric)) : raw;
+      };
+
+      const resolveMidjourneyModelName = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "midjourney-niji-7";
+        return resolveMidjourneyModelVersionFromData(nodeData) === "v8"
+          ? "midjourney-v8"
+          : "midjourney-v7";
+      };
+
+      const resolveMidjourneyActionTitle = (
+        nodeType: string,
+        nodeData: Record<string, any>
+      ): string => {
+        if (nodeType === "niji7") return "Niji 7";
+        return "Midjourney";
+      };
+
       /**
-       * Midjourney V7 / Niji 7：走悠船 /v1/tob/diffusion，后端会剥离 iw/sv/sw/ow/exp/cref/sref/oref 等片段；
+       * Midjourney V7 / Niji 7：保持原有提示词参数逻辑。
+       * Midjourney V8：走悠船 v8.1 参数规则，使用 --v 8.1 并隐藏/拒绝不支持的参数。
        * 且禁止把 data: base64 写进提示词（会撑爆请求体导致 500）。参考图仅通过 imageUrls 上传。
        * 速度见 backend/docs/mj v7和Niji 7速度模式文档说明.md（需显式 --fast / --turbo / --draft）。
        */
@@ -15995,20 +16814,23 @@ function FlowInner() {
         hasImages: boolean
       ) => {
         const isNiji = nodeType === "niji7";
+        const isV8 = isMidjourneyV8Node(nodeType, nodeData);
         const errors: string[] = [];
         const flags: string[] = [];
         const basePrompt = (promptText || "").trim();
 
         if (basePrompt.includes("::")) {
-          errors.push("Midjourney V7 / Niji 7 暂不支持多提示词 ::");
+          errors.push("Midjourney V7/V8 / Niji 7 暂不支持多提示词 ::");
         }
 
-        flags.push(isNiji ? "--niji 7" : "--v 7");
+        flags.push(isNiji ? "--niji 7" : isV8 ? "--v 8.1" : "--v 7");
 
         if (nodeData.aspectRatio) flags.push(`--ar ${nodeData.aspectRatio}`);
 
         const resolvedSpeed =
-          nodeData.speedMode === "turbo"
+          isV8
+            ? "fast"
+            : nodeData.speedMode === "turbo"
             ? "turbo"
             : !isNiji &&
               (nodeData.speedMode === "draft" || nodeData.draft)
@@ -16025,16 +16847,70 @@ function FlowInner() {
         const stylize = normalizeMidjourneyValue(nodeData.stylize) ?? "100";
         if (stylize && stylize !== "100") flags.push(`--stylize ${stylize}`);
         const weird = normalizeMidjourneyValue(nodeData.weird);
-        if (weird) flags.push(`--weird ${weird}`);
+        if (weird && !isV8) flags.push(`--weird ${weird}`);
         const seed = normalizeMidjourneyValue(nodeData.seed);
         if (seed) flags.push(`--seed ${seed}`);
 
         if (!isNiji) {
-          const quality = normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          const quality = isV8 && nodeData.quality === "2"
+            ? "1"
+            : normalizeMidjourneyValue(nodeData.quality) ?? "1";
+          if (isV8 && quality !== "1" && quality !== "4") {
+            errors.push("V8 质量仅支持 1 或 4");
+          }
           if (quality && quality !== "1") flags.push(`--q ${quality}`);
           const noPrompt = normalizeMidjourneyValue(nodeData.noPrompt);
           if (noPrompt) flags.push(`--no ${noPrompt}`);
-          if (nodeData.tile) flags.push("--tile");
+          if (nodeData.tile && !isV8) flags.push("--tile");
+        }
+
+        if (isV8) {
+          if (nodeData.hd) flags.push("--hd");
+
+          const imageWeight = parseMidjourneyNumber(
+            nodeData.imageWeight,
+            "V8 图像权重",
+            0,
+            3,
+            errors
+          );
+          if (imageWeight && imageWeight !== "1") flags.push(`--iw ${imageWeight}`);
+
+          const styleRefs = parseMidjourneyList(nodeData.styleRefs).slice(0, 20);
+          const rawStyleRefCount = parseMidjourneyList(nodeData.styleRefs).length;
+          if (rawStyleRefCount > 20) {
+            errors.push("V8 风格参考最多支持 20 个 URL");
+          }
+          if (styleRefs.length > 0) {
+            flags.push(`--sref ${styleRefs.join(" ")}`);
+            const styleWeight = parseMidjourneyNumber(
+              nodeData.styleWeight,
+              "V8 风格权重",
+              0,
+              1000,
+              errors
+            );
+            if (styleWeight && styleWeight !== "100") flags.push(`--sw ${styleWeight}`);
+            flags.push("--sv 6");
+          }
+
+          const objectRefs = parseMidjourneyList(
+            nodeData.objectReference || nodeData.omniReference
+          );
+          if (objectRefs.length > 1) {
+            errors.push("V8 物体参考 --oref 仅支持 1 个 URL");
+          } else if (objectRefs.length === 1) {
+            flags.push(`--oref ${objectRefs[0]}`);
+          }
+
+          const exp = parseMidjourneyNumber(
+            nodeData.exp,
+            "V8 EXP",
+            0,
+            100,
+            errors
+          );
+          if (exp && exp !== "0") flags.push(`--exp ${exp}`);
         }
 
         const finalPrompt = [basePrompt, ...flags].filter(Boolean).join(" ").trim();
@@ -18455,6 +19331,7 @@ function FlowInner() {
       if (newVideoNodeTypes.includes(normalizedVideoNodeType)) {
         const projectId = useProjectContentStore.getState().projectId;
         const rawNodeData = ((node.data as any) || {}) as Record<string, any>;
+        const isOmniFlashExtNode = normalizedVideoNodeType === "omniFlashExtVideo";
         const isLegacyKling30Node = node.type === "kling30Video";
         const isLegacyKling26Node = node.type === "kling26Video";
         const inferredViduModel =
@@ -18476,8 +19353,12 @@ function FlowInner() {
             : "kling-v2-6");
         if (normalizedVideoNodeType === "klingO1Video") {
           provider = "kling-o3";
-        } else if (normalizedVideoNodeType === "klingVideo" || normalizedVideoNodeType === "kling26Video") {
-          provider = klingModel === "kling-v3-0" ? "kling-o3" : "kling-2.6";
+        } else if (
+          normalizedVideoNodeType === "klingVideo" ||
+          normalizedVideoNodeType === "kling26Video" ||
+          normalizedVideoNodeType === "kling30Video"
+        ) {
+          provider = klingModel === "kling-v3-0" ? "kling" : "kling-2.6";
         } else if (
           normalizedVideoNodeType === "doubaoVideo" ||
           normalizedVideoNodeType === "seedance20Video" ||
@@ -18486,6 +19367,8 @@ function FlowInner() {
           provider = "doubao";
         } else if (normalizedVideoNodeType === "viduVideo" || normalizedVideoNodeType === "viduQ3") {
           provider = getEffectiveViduProvider(viduNodeDataForProvider);
+        } else if (isOmniFlashExtNode) {
+          provider = rawNodeData.provider || "kling";
         } else {
           provider = rawNodeData.provider || "kling";
         }
@@ -18548,6 +19431,9 @@ function FlowInner() {
         const imageEdges = currentEdges
           .filter((e) => {
             if (e.target !== nodeId) return false;
+            if (isOmniFlashExtNode) {
+              return e.targetHandle === "image";
+            }
             // 有视频输入时，只收集 image / image-2，排除 elementImg
             if (hasVideoInput) {
               return e.targetHandle === "image" || e.targetHandle === "image-2";
@@ -18615,7 +19501,34 @@ function FlowInner() {
           );
         };
 
-        if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
+        if (isOmniFlashExtNode) {
+          const omniVideoCount = currentEdges.filter(
+            (e) => e.target === nodeId && e.targetHandle === "video"
+          ).length;
+          const omniVideoMode =
+            omniVideoCount > 0 || rawNodeData.videoMode === "reference" ? "reference" : "frame";
+
+          if (!promptText) {
+            failCurrentVideoNode("Omni Flash Ext 需要连接非空提示词");
+            return;
+          }
+          if (omniVideoCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 最多支持 1 条参考视频");
+            return;
+          }
+          if (imageCount > 3) {
+            failCurrentVideoNode("Omni Flash Ext 图片最多 3 张");
+            return;
+          }
+          if (omniVideoMode === "frame" && imageCount > 1) {
+            failCurrentVideoNode("Omni Flash Ext 单图模式只接 1 张图");
+            return;
+          }
+          if (omniVideoMode === "reference" && imageCount === 0) {
+            failCurrentVideoNode("Omni Flash Ext 参考模式至少接 1 张图");
+            return;
+          }
+        } else if (isSeedanceNode && seedanceMode && seedanceModeSpec) {
           const seedancePhysicalImageCount = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "image"
           ).length;
@@ -18815,8 +19728,12 @@ function FlowInner() {
         const viduModelForApi = viduSemantics.viduModel;
 
         const clipDuration =
-          typeof (node.data as any)?.clipDuration === "number" &&
-          Number.isFinite((node.data as any)?.clipDuration)
+          isOmniFlashExtNode &&
+          typeof rawNodeData.duration === "number" &&
+          Number.isFinite(rawNodeData.duration)
+            ? Math.round(rawNodeData.duration)
+            : typeof (node.data as any)?.clipDuration === "number" &&
+              Number.isFinite((node.data as any)?.clipDuration)
             ? Math.round((node.data as any).clipDuration)
             : undefined;
         const configuredDurationOptions = (() => {
@@ -19123,7 +20040,7 @@ function FlowInner() {
 
         let referenceVideoUrl: string | undefined = undefined;
         let referenceVideoUrls: string[] = [];
-        if (provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
+        if (isOmniFlashExtNode || provider === "kling-o3" || (isSeedanceNode && isSeedance20Request)) {
           const videoEdges = currentEdges.filter(
             (e) => e.target === nodeId && e.targetHandle === "video"
           );
@@ -19177,7 +20094,13 @@ function FlowInner() {
 
           if (referenceVideoUrl) {
             console.log(
-              `🎬 [${isSeedanceNode && isSeedance20Request ? "Seedance 2.0" : "Kling O1"}] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
+              `🎬 [${
+                isOmniFlashExtNode
+                  ? "Omni Flash Ext"
+                  : isSeedanceNode && isSeedance20Request
+                  ? "Seedance 2.0"
+                  : "Kling O1"
+              }] 检测到视频输入: ${referenceVideoUrl.slice(0, 80)}...`
             );
           }
         }
@@ -19553,7 +20476,9 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI =
-          isSeedanceNode
+          isOmniFlashExtNode
+            ? aspectSetting || "16:9"
+            : isSeedanceNode
             ? aspectSetting || undefined
             : provider === "vidu" || provider === "viduq3-pro"
             ? aspectSetting || "16:9"
@@ -19572,6 +20497,11 @@ function FlowInner() {
             if (effectiveConfiguredDurationOptions.includes(clipDuration)) {
               durationForAPI = clipDuration;
             }
+          } else if (
+            isOmniFlashExtNode &&
+            (clipDuration === 4 || clipDuration === 6 || clipDuration === 8 || clipDuration === 10)
+          ) {
+            durationForAPI = clipDuration;
           } else if (
             provider === "kling" &&
             (clipDuration === 5 || clipDuration === 10)
@@ -19617,7 +20547,9 @@ function FlowInner() {
           }
           if (durationForAPI === undefined) {
             const fallbackDurationOptions =
-              isSeedanceNode
+              isOmniFlashExtNode
+                ? [4, 6, 8, 10]
+                : isSeedanceNode
                 ? isSeedance20Request
                   ? SEEDANCE20_DURATIONS
                   : SEEDANCE15_DURATIONS
@@ -19729,9 +20661,30 @@ function FlowInner() {
                     return { url, volcAssetId, volcAssetStatus };
                   }))
               : undefined;
+          const omniVideoModeForAPI =
+            isOmniFlashExtNode && referenceVideoUrls.length > 0
+              ? "reference"
+              : rawNodeData.videoMode === "reference"
+              ? "reference"
+              : "frame";
 
           const requestPayload =
-            provider === "doubao"
+            isOmniFlashExtNode
+              ? {
+                  ...managedRoutePayload,
+                  managedModelKey: "omni-flash-ext",
+                  prompt: finalPrompt,
+                  referenceImages:
+                    referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+                  referenceVideos:
+                    referenceVideoUrls.length > 0 ? referenceVideoUrls.slice(0, 1) : undefined,
+                  duration: referenceVideoUrls.length > 0 ? undefined : durationForAPI,
+                  aspectRatio: aspectRatioForAPI,
+                  resolution: rawNodeData.resolution,
+                  provider: provider as VideoProvider,
+                  videoMode: omniVideoModeForAPI,
+                }
+              : provider === "doubao"
               ? {
                   ...managedRoutePayload,
                   prompt: finalPrompt || undefined,
@@ -19931,6 +20884,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务查询超时", {
+                  language,
+                  fallbackZh: "视频生成任务查询超时，请稍后重试。",
+                  fallbackEn: "Video generation query timed out. Please try again later.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -19939,7 +20897,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务查询超时",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20040,6 +20998,14 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError(
+                  (queryResult as any).error || "任务生成失败",
+                  {
+                    language,
+                    fallbackZh: "任务生成失败，请重试。",
+                    fallbackEn: "Video generation failed. Please try again.",
+                  }
+                );
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20048,7 +21014,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: (queryResult as any).error || "任务生成失败",
+                            error: failureMessage,
                           },
                       }
                     : n
@@ -20086,6 +21052,11 @@ function FlowInner() {
                     });
                   }
                 }
+                const failureMessage = formatVideoProviderError("任务状态查询失败，请重试", {
+                  language,
+                  fallbackZh: "任务状态查询失败，请重试。",
+                  fallbackEn: "Task status query failed. Please retry.",
+                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20094,7 +21065,7 @@ function FlowInner() {
                           data: {
                             ...n.data,
                             status: "failed",
-                            error: "任务状态查询失败，请重试",
+                            error: failureMessage,
                           },
                         }
                       : n
@@ -20113,16 +21084,21 @@ function FlowInner() {
           // 立即执行一次，后续按 setTimeout 串行轮询，避免并发 poll 导致重复写 history
           void pollTask();
         } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
             provider,
-            error: error instanceof Error ? error.message : String(error),
+            error: rawMessage,
           });
-          const msg = error instanceof Error ? error.message : "视频生成失败";
+          const msg = formatVideoProviderError(rawMessage, {
+            language,
+            fallbackZh: "视频生成失败，请检查提示词或素材后重试。",
+            fallbackEn: "Video generation failed. Please check the prompt or media and try again.",
+          });
 
           // If the backend reported a specific image review failure (e.g. "参考图审核未通过 image[0]"),
           // mark the corresponding source ImageNode with the review-failed icon.
-          const reviewFailMatch = msg.match(/参考图审核未通过 image\[(\d+)\]/);
+          const reviewFailMatch = rawMessage.match(/参考图审核未通过 image\[(\d+)\]/);
           if (reviewFailMatch) {
             const failedIdx = parseInt(reviewFailMatch[1], 10);
             const srcEdge = referenceImageSourceEdges[failedIdx];
@@ -20156,194 +21132,29 @@ function FlowInner() {
         return;
       }
 
-      // MiniMax Speech 节点处理逻辑
-      if (node.type === "minimaxSpeech") {
-        console.log("[minimaxSpeech] 开始处理");
-        const { text: promptText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
-        const finalText = promptText.trim();
+      // 统一音频节点（audioStudio）处理逻辑：按 data.mode 分发到后端统一路由
+      if (node.type === "audioStudio") {
+        const audioData = (node.data || {}) as Record<string, any>;
+        const audioMode = getAudioStudioModeConfig(audioData?.mode).key;
 
-        console.log("[minimaxSpeech] finalText:", finalText);
-
-        if (!hasTextEdge) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "缺少 Prompt 输入",
-                    },
-                  }
-                : n
-            )
-          );
+        // upload 模式不通过 Run（由节点内上传按钮处理）
+        if (audioMode === "upload") {
           return;
         }
 
-        if (!finalText) {
-          console.log("[minimaxSpeech] 文本为空");
+        const setAudioNodeData = (patch: Record<string, unknown>) =>
           setNodes((ns) =>
             ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "Prompt 为空",
-                    },
-                  }
-                : n
+              n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n
             )
           );
-          return;
-        }
+        const failAudioNode = (msg: string) =>
+          setAudioNodeData({ status: "failed", error: msg });
 
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    text: finalText,
-                  },
-                }
-              : n
-          )
-        );
-
-        try {
-          const modelRaw =
-            typeof (node.data as any)?.model === "string"
-              ? (node.data as any).model.trim()
-              : "";
-          const model = modelRaw.length ? modelRaw : "speech-2.6-hd";
-          const voiceId = (node.data as any)?.voiceId;
-          const outputFormat =
-            (node.data as any)?.outputFormat === "hex" ? "hex" : "url";
-          const emotion = (node.data as any)?.emotion;
-          const audioModeRaw = (node.data as any)?.audioMode;
-          const audioMode = audioModeRaw === "hex" ? "hex" : "json";
-          const soundEffects = Array.isArray((node.data as any)?.soundEffects)
-            ? ((node.data as any).soundEffects as string[]).filter((item) =>
-                ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"].includes(item)
-              )
-            : undefined;
-
-          console.log("[minimaxSpeech] 调用 API:", {
-            text: finalText,
-            voiceId,
-            model,
-            outputFormat,
-            emotion,
-            audioMode,
-            soundEffects,
-          });
-
-          const response = await fetchWithAuth("/api/ai/minimax-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: finalText,
-              voiceId,
-              model,
-              outputFormat,
-              emotion,
-              audioMode,
-              soundEffects,
-            }),
-          });
-
-          console.log("[minimaxSpeech] API 响应状态:", response.status);
-
-          if (!response.ok) {
-            let message = "语音合成失败";
-            try {
-              const errorData = await response.json();
-              message = errorData?.message || errorData?.error || message;
-            } catch {}
-            throw new Error(message);
-          }
-
-          const result = await response.json();
-          console.log("[minimaxSpeech] API 结果:", result);
-
-          const audioUrl =
-            (typeof result?.audioUrl === "string" && result.audioUrl) ||
-            (typeof result?.audio_url === "string" && result.audio_url) ||
-            (typeof result?.data?.audio === "string" && result.data.audio);
-
-          if (!audioUrl) {
-            throw new Error("语音合成返回缺少音频");
-          }
-
-          const historyItemId = `minimax-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const historyItem = {
-            id: historyItemId,
-            prompt: finalText,
-            audioUrl,
-            createdAt: Date.now(),
-            voiceId: typeof voiceId === "string" ? voiceId : undefined,
-            emotion: typeof emotion === "string" ? emotion : undefined,
-          };
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      audioUrl,
-                      selectedHistoryId: historyItemId,
-                      history: [
-                        historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    typeof item?.audioUrl === "string" &&
-                                    item.audioUrl.trim().length > 0
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
-                      ],
-                      error: undefined,
-                    },
-                  }
-                : n
-            )
-          );
-        } catch (error) {
-          console.error("[minimaxSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "语音合成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
-      // 腾讯语音合成节点处理逻辑
-      if (node.type === "tencentSpeech") {
-        const { text: upstreamText, hasEdge: hasTextEdge } = getTextPromptForNode(nodeId);
-        const localTextRaw =
-          typeof (node.data as any)?.text === "string"
-            ? (node.data as any).text
-            : "";
-        const localText = localTextRaw.trim();
+        const { text: upstreamText, hasEdge: hasTextEdge } =
+          getTextPromptForNode(nodeId);
+        const localText =
+          typeof audioData?.text === "string" ? audioData.text.trim() : "";
         const finalText = (upstreamText || localText).trim();
 
         const sanitizeMediaUrl = (url?: string | null) => {
@@ -20356,118 +21167,153 @@ function FlowInner() {
           return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
         };
 
-        const resolveVideoUrl = (edge: Edge): string | undefined => {
-          const srcNode = rf.getNode(edge.source);
-          if (!srcNode) return undefined;
-          const data = (srcNode.data as any) || {};
-          const direct =
-            data.videoUrl ||
-            data.video_url ||
-            data.output?.video_url ||
-            (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
-            data.raw?.output?.video_url ||
-            data.raw?.video_url;
-          const fromHistory = Array.isArray(data.history)
-            ? data.history[0]?.videoUrl
-            : undefined;
-          return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
-        };
-
-        const videoEdge = currentEdges.find(
-          (e) => e.target === nodeId && e.targetHandle === "video"
-        );
-        const inputVideoUrl = videoEdge ? resolveVideoUrl(videoEdge) : undefined;
-        if (!inputVideoUrl) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "请连接视频输入",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    inputVideoUrl,
-                    text: finalText,
-                  },
-                }
-              : n
-          )
-        );
-
         try {
-          const speakerUrlInput = (node.data as any)?.speakerUrlInput;
-          const voiceId = (node.data as any)?.voiceId;
-          const speakerGender = (node.data as any)?.speakerGender;
-          const srcLang = (node.data as any)?.srcLang;
-          const dstLang = (node.data as any)?.dstLang;
-          const srcSubtitleUrl = (node.data as any)?.srcSubtitleUrl;
-          const dstSubtitleUrl = (node.data as any)?.dstSubtitleUrl;
-          const embedSubtitle = (node.data as any)?.embedSubtitle;
-          const font = (node.data as any)?.font;
-          const fontSize = (node.data as any)?.fontSize;
-          const marginV = (node.data as any)?.marginV;
-          const outputPattern = (node.data as any)?.outputPattern;
-
-          const response = await fetchWithAuth("/api/ai/tencent-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              inputVideoUrl,
-              text: finalText || undefined,
-              speakerUrl: speakerUrlInput?.trim() || undefined,
-              voiceId: voiceId?.trim() || undefined,
-              speakerGender: speakerGender?.trim() || undefined,
-              srcLang: srcLang?.trim() || undefined,
-              dstLang: dstLang?.trim() || undefined,
-              srcSubtitleUrl: srcSubtitleUrl?.trim() || undefined,
-              dstSubtitleUrl: dstSubtitleUrl?.trim() || undefined,
-              embedSubtitle,
-              font: font?.trim() || undefined,
-              fontSize: typeof fontSize === "number" ? fontSize : undefined,
-              marginV: typeof marginV === "number" ? marginV : undefined,
-              outputPattern: outputPattern?.trim() || undefined,
-            }),
-          });
-
-          if (!response.ok) {
-            let message = "语音合成失败";
-            try {
-              const errorData = await response.json();
-              message = errorData?.message || errorData?.error || message;
-            } catch {}
-            throw new Error(message);
+          // ---- 模型 + spec 解析（后端 managedRoutes 驱动）----
+          const audioMetadata =
+            audioData?.nodeConfigMetadata && typeof audioData.nodeConfigMetadata === "object"
+              ? (audioData.nodeConfigMetadata as Record<string, any>)
+              : managedRuntimeByType.get("audioStudio")?.nodeConfigMetadata;
+          const managedModelKey =
+            (typeof audioData?.managedModelKey === "string" && audioData.managedModelKey.trim()
+              ? audioData.managedModelKey.trim()
+              : MODE_DEFAULT_MODEL[audioMode as AudioStudioMode]) || "";
+          const route = getManagedRouteOption(audioMetadata, managedModelKey);
+          const spec = getAudioSpecFromManagedRoute(route);
+          if (!spec) {
+            failAudioNode("未找到音频模型配置");
+            return;
           }
 
-          const result = await response.json();
-          const audioUrl = result?.audioUrl;
-          const videoUrl = result?.videoUrl;
+          const payload: audioService.AudioGeneratePayload = {
+            mode: spec.mode,
+            projectId: projectId || undefined,
+            managedModelKey,
+          };
+          const payloadRecord = payload as Record<string, unknown>;
+          if (spec.modelField && spec.modelValue) {
+            payloadRecord[spec.modelField] = spec.modelValue;
+          }
 
+          // 表单字段（key ≡ AudioGenerateDto 字段名）逐项拷贝
+          for (const field of spec.fields) {
+            const value = audioData?.[field.key];
+            if (value === undefined || value === null) continue;
+            if (typeof value === "string" && value.trim() === "") continue;
+            if (Array.isArray(value) && value.length === 0) continue;
+            payloadRecord[field.key] = value;
+          }
+
+          // 连线输入（text/prompt/参考音频/参考图/视频）
+          let promptForHistory = finalText;
+          for (const input of spec.inputs) {
+            if (input.dtoField === "text" || input.dtoField === "prompt") {
+              if (finalText) {
+                payloadRecord[input.dtoField] = finalText;
+                if (input.dtoField === "prompt") promptForHistory = finalText;
+              }
+            } else if (input.dtoField === "referenceAudioUrls") {
+              const urls: string[] = [];
+              for (const edge of currentEdges.filter(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              )) {
+                const src = rf.getNode(edge.source);
+                const sdata = (src?.data || {}) as Record<string, any>;
+                const candidate =
+                  typeof sdata.audioUrl === "string" ? sdata.audioUrl.trim() : "";
+                if (candidate) urls.push(candidate);
+              }
+              if (urls.length > 0) payload.referenceAudioUrls = urls.slice(0, 3);
+            } else if (input.dtoField === "referenceImageUrl") {
+              for (const edge of currentEdges.filter(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              )) {
+                const src = rf.getNode(edge.source);
+                const sdata = (src?.data || {}) as Record<string, any>;
+                const candidate =
+                  (typeof sdata.imageUrl === "string" && sdata.imageUrl.trim()) ||
+                  (Array.isArray(sdata.imageUrls)
+                    ? sdata.imageUrls.find(
+                        (u: unknown) => typeof u === "string" && u.trim()
+                      )
+                    : undefined);
+                if (typeof candidate === "string" && candidate.trim()) {
+                  payload.referenceImageUrl = candidate.trim();
+                  break;
+                }
+              }
+            } else if (input.dtoField === "inputVideoUrl") {
+              const videoEdge = currentEdges.find(
+                (e) => e.target === nodeId && e.targetHandle === input.handle
+              );
+              if (videoEdge) {
+                const srcNode = rf.getNode(videoEdge.source);
+                const d = (srcNode?.data as any) || {};
+                const direct =
+                  d.videoUrl ||
+                  d.video_url ||
+                  d.output?.video_url ||
+                  (Array.isArray(d.output) ? d.output[0]?.video_url : undefined) ||
+                  d.raw?.output?.video_url ||
+                  d.raw?.video_url;
+                const fromHistory = Array.isArray(d.history)
+                  ? d.history[0]?.videoUrl
+                  : undefined;
+                const url = sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+                if (url) payload.inputVideoUrl = url;
+              }
+            }
+          }
+
+          // seed-audio：参考图与参考音频互斥，有图优先
+          if (spec.mode === "seed-audio" && payload.referenceImageUrl) {
+            payload.referenceAudioUrls = undefined;
+          }
+          // minimax-music：prompt 兜底取 text，并校验
+          if (spec.mode === "minimax-music") {
+            if (!payload.prompt && finalText) payload.prompt = finalText;
+            promptForHistory = payload.prompt || promptForHistory;
+          }
+
+          // 必填校验
+          for (const input of spec.inputs) {
+            if (!input.required) continue;
+            if (input.dtoField === "text" && !payload.text) {
+              failAudioNode("缺少合成文本");
+              return;
+            }
+            if (input.dtoField === "inputVideoUrl" && !payload.inputVideoUrl) {
+              failAudioNode("请连接视频输入");
+              return;
+            }
+          }
+          if (spec.mode === "minimax-music") {
+            const isInstrumental = payload.isInstrumental === true;
+            if (isInstrumental && !payload.prompt) {
+              failAudioNode("纯音乐模式需要填写 Prompt");
+              return;
+            }
+            if (!isInstrumental && !payload.lyrics && payload.lyricsOptimizer !== true) {
+              failAudioNode("请填写歌词，或开启 AI 自动填词");
+              return;
+            }
+          }
+          void hasTextEdge;
+
+          setAudioNodeData({ status: "running", error: undefined, text: finalText });
+
+          const result = await audioService.generateAudio(payload);
+          const audioUrl = result.audioUrl;
+          const videoUrl = result.videoUrl;
           if (!audioUrl && !videoUrl) {
-            throw new Error("语音合成返回缺少结果");
+            throw new Error("音频生成返回缺少结果");
           }
 
-          const historyItemId = `tencent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const historyItemId = `audiostudio-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
           const historyItem = {
             id: historyItemId,
-            prompt: finalText,
+            prompt: promptForHistory,
             audioUrl: audioUrl || "",
             videoUrl: typeof videoUrl === "string" ? videoUrl : undefined,
             createdAt: Date.now(),
@@ -20475,14 +21321,14 @@ function FlowInner() {
           if (typeof videoUrl === "string" && videoUrl.trim()) {
             recordFlowVideoHistory(
               nodeId,
-              "tencentSpeech",
+              "audioStudio",
               {
                 id: historyItemId,
                 videoUrl: videoUrl.trim(),
-                prompt: finalText,
+                prompt: promptForHistory,
                 createdAt: new Date(historyItem.createdAt).toISOString(),
               },
-              { provider: "tencent-speech" }
+              { provider: "tencent-dub" }
             );
           }
 
@@ -20495,21 +21341,22 @@ function FlowInner() {
                       ...n.data,
                       status: "succeeded",
                       audioUrl: audioUrl || n.data?.audioUrl,
-                      videoUrl: typeof videoUrl === "string" ? videoUrl : n.data?.videoUrl,
+                      videoUrl:
+                        typeof videoUrl === "string" ? videoUrl : n.data?.videoUrl,
                       selectedHistoryId: historyItemId,
                       history: [
                         historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    (typeof item?.audioUrl === "string" && item.audioUrl.trim().length > 0) ||
-                                    (typeof item?.videoUrl === "string" && item.videoUrl.trim().length > 0)
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
+                        ...(Array.isArray((n.data as any)?.history)
+                          ? ((n.data as any).history as Array<Record<string, unknown>>)
+                              .filter(
+                                (item) =>
+                                  (typeof item?.audioUrl === "string" &&
+                                    item.audioUrl.trim().length > 0) ||
+                                  (typeof item?.videoUrl === "string" &&
+                                    item.videoUrl.trim().length > 0)
+                              )
+                              .slice(0, 29)
+                          : []),
                       ],
                       error: undefined,
                     },
@@ -20518,202 +21365,8 @@ function FlowInner() {
             )
           );
         } catch (error) {
-          console.error("[tencentSpeech] 错误:", error);
-          const msg = error instanceof Error ? error.message : "语音合成失败";
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
-                : n
-            )
-          );
-        }
-        return;
-      }
-
-      // MiniMax Music 节点处理逻辑
-      if (node.type === "minimaxMusic") {
-        console.log("[minimaxMusic] 开始处理");
-        const { text: upstreamPrompt } = getTextPromptForNode(nodeId);
-        const localPromptRaw =
-          typeof (node.data as any)?.prompt === "string"
-            ? (node.data as any).prompt
-            : "";
-        const localPrompt = localPromptRaw.trim();
-        const finalPrompt = (upstreamPrompt || localPrompt).trim();
-        const lyricsRaw =
-          typeof (node.data as any)?.lyrics === "string"
-            ? (node.data as any).lyrics
-            : "";
-        const lyrics = lyricsRaw.trim();
-        const isInstrumental = (node.data as any)?.isInstrumental === true;
-        const lyricsOptimizer = (node.data as any)?.lyricsOptimizer === true;
-        const modelRaw =
-          typeof (node.data as any)?.model === "string"
-            ? (node.data as any).model.trim()
-            : "";
-        const model = modelRaw === "music-2.5" ? "music-2.5" : "music-2.5+";
-
-        console.log("[minimaxMusic] 输入:", {
-          promptLength: finalPrompt.length,
-          lyricsLength: lyrics.length,
-          isInstrumental,
-          lyricsOptimizer,
-          model,
-        });
-
-        if (isInstrumental && !finalPrompt) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "纯音乐模式需要填写 Prompt",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        if (!isInstrumental && !lyrics && !lyricsOptimizer) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "请填写歌词，或开启 AI 自动填词",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "running",
-                    error: undefined,
-                    prompt: finalPrompt,
-                    lyrics: lyricsRaw,
-                    isInstrumental,
-                    lyricsOptimizer,
-                    model,
-                  },
-                }
-              : n
-          )
-        );
-
-        try {
-          const requestBody: Record<string, unknown> = {
-            model,
-            prompt: finalPrompt || undefined,
-            isInstrumental,
-            lyricsOptimizer,
-          };
-          if (!isInstrumental && lyrics) {
-            requestBody.lyrics = lyrics;
-          }
-
-          const response = await fetchWithAuth("/api/ai/minimax-music", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!response.ok) {
-            let message = "音乐生成失败";
-            try {
-              const errorData = await response.json();
-              const messageFromError =
-                typeof errorData?.error === "string" && errorData.error.trim()
-                  ? errorData.error.trim()
-                  : undefined;
-              const messageFromMessage = Array.isArray(errorData?.message)
-                ? errorData.message.join("; ")
-                : typeof errorData?.message === "string"
-                ? errorData.message.trim()
-                : undefined;
-              message = messageFromMessage || messageFromError || message;
-            } catch {}
-            throw new Error(message);
-          }
-
-          const result = await response.json();
-          console.log("[minimaxMusic] API 结果:", result);
-          const synthesisStatus = Number(result?.status ?? result?.data?.status);
-          const audioUrl =
-            (typeof result?.audioUrl === "string" && result.audioUrl) ||
-            (typeof result?.audio_url === "string" && result.audio_url) ||
-            (typeof result?.data?.audio === "string" && result.data.audio);
-
-          if (!audioUrl && synthesisStatus === 1) {
-            throw new Error("音乐仍在合成中，请稍后重试（通常需要 1-3 分钟）");
-          }
-          if (!audioUrl) {
-            throw new Error("音乐生成返回缺少音频地址");
-          }
-
-          const historyItemId = `minimax-music-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 8)}`;
-          const historyItem = {
-            id: historyItemId,
-            prompt: finalPrompt,
-            lyrics: isInstrumental ? undefined : lyrics,
-            isInstrumental,
-            lyricsOptimizer,
-            audioUrl,
-            createdAt: Date.now(),
-          };
-
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "succeeded",
-                      audioUrl,
-                      selectedHistoryId: historyItemId,
-                      history: [
-                        historyItem,
-                        ...(
-                          Array.isArray((n.data as any)?.history)
-                            ? ((n.data as any).history as Array<Record<string, unknown>>)
-                                .filter(
-                                  (item) =>
-                                    typeof item?.audioUrl === "string" &&
-                                    item.audioUrl.trim().length > 0
-                                )
-                                .slice(0, 29)
-                            : []
-                        ),
-                      ],
-                      error: undefined,
-                    },
-                  }
-                : n
-            )
-          );
-        } catch (error) {
-          console.error("[minimaxMusic] 错误:", error);
-          const msg = error instanceof Error ? error.message : "音乐生成失败";
+          console.error("[audioStudio] 错误:", error);
+          const msg = error instanceof Error ? error.message : "音频生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -20727,17 +21380,24 @@ function FlowInner() {
 
       // Nano2 节点处理逻辑
       if (node.type === "midjourneyV7" || node.type === "niji7") {
+        const nodeData = (node.data || {}) as Record<string, any>;
+        const maxMidjourneyReferenceImages = resolveMidjourneyMaxReferenceImages(
+          node.type,
+          nodeData
+        );
+        const isMidjourneyV8 = isMidjourneyV8Node(node.type, nodeData);
         const { text: promptText } = getTextPromptForNode(nodeId);
-        const presetRaw = (node.data as any)?.presetPrompt;
+        const presetRaw = nodeData.presetPrompt;
         const preset =
           typeof presetRaw === "string" ? presetRaw.trim() : "";
-        const mergedPromptText = sanitizeFlowTextForMidjourneyV7(
-          [preset, promptText].filter(Boolean).join(" ").trim()
-        );
+        const rawMergedPromptText = [preset, promptText].filter(Boolean).join(" ").trim();
+        const mergedPromptText = isMidjourneyV8
+          ? rawMergedPromptText
+          : sanitizeFlowTextForMidjourneyV7(rawMergedPromptText);
         const totalImgEdges = currentEdges.filter(
           (e) => e.target === nodeId && e.targetHandle === "img"
         );
-        const imgEdges = totalImgEdges.slice(0, 10);
+        const imgEdges = totalImgEdges.slice(0, maxMidjourneyReferenceImages);
         let imageDatas = await resolveEdgesAsDataUrls(imgEdges);
 
         const omniImageEdges = currentEdges.filter(
@@ -20745,7 +21405,7 @@ function FlowInner() {
             e.target === nodeId &&
             (e.targetHandle === "omniImage" || e.targetHandle === "omniimage")
         );
-        if (omniImageEdges.length > 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length > 1) {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -20755,27 +21415,36 @@ function FlowInner() {
           );
           return;
         }
-        if (omniImageEdges.length === 1) {
+        if (!isMidjourneyV8 && omniImageEdges.length === 1) {
           const crefDatas = await resolveEdgesAsDataUrls([omniImageEdges[0]]);
           if (crefDatas.length > 0) {
             const beforeCount = imageDatas.length;
-            imageDatas = [crefDatas[0], ...imageDatas].slice(0, 10);
-            if (beforeCount >= 10) {
+            imageDatas = [crefDatas[0], ...imageDatas].slice(0, maxMidjourneyReferenceImages);
+            if (beforeCount >= maxMidjourneyReferenceImages) {
               window.dispatchEvent(
                 new CustomEvent("toast", {
                   detail: {
-                    message: `参考图已满 10 张，万物参考已插入队首并去掉最后一张`,
+                    message: `参考图已满 ${maxMidjourneyReferenceImages} 张，万物参考已插入队首并去掉最后一张`,
                     type: "warning",
                   },
                 })
               );
             }
           }
+        } else if (isMidjourneyV8 && omniImageEdges.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "V8 不支持 CREF 连线；如需物体参考，请在 OREF URL 中填写 1 个远程图片地址",
+                type: "warning",
+              },
+            })
+          );
         }
 
         const { finalPrompt, errors } = buildMidjourneyPrompt(
           node.type,
-          (node.data || {}) as Record<string, any>,
+          nodeData,
           mergedPromptText,
           imageDatas.length > 0
         );
@@ -20798,11 +21467,11 @@ function FlowInner() {
           return;
         }
 
-        if (totalImgEdges.length > 10) {
+        if (totalImgEdges.length > maxMidjourneyReferenceImages) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: `Midjourney 仅支持最多 10 张参考图，当前已自动截取前 10 张`,
+                message: `Midjourney 仅支持最多 ${maxMidjourneyReferenceImages} 张参考图，当前已自动截取前 ${maxMidjourneyReferenceImages} 张`,
                 type: "warning",
               },
             })
@@ -20821,8 +21490,8 @@ function FlowInner() {
         );
 
         try {
-          const modelName = node.type === "niji7" ? "midjourney-niji-7" : "midjourney-v7";
-          const actionTitle = node.type === "niji7" ? "Niji 7" : "Midjourney V7";
+          const modelName = resolveMidjourneyModelName(node.type, nodeData);
+          const actionTitle = resolveMidjourneyActionTitle(node.type, nodeData);
           const mjResult = await generateImageViaAPI({
             prompt: finalPrompt,
             outputFormat: "png",
@@ -20869,7 +21538,7 @@ function FlowInner() {
             }
           } catch (persistErr) {
             console.warn(
-              "[Flow] Midjourney V7/Niji7: failed to persist preview to stable storage",
+              "[Flow] Midjourney V7/V8/Niji7: failed to persist preview to stable storage",
               persistErr
             );
             previewSource = rawPreviewSource;
@@ -20902,7 +21571,7 @@ function FlowInner() {
               );
             } catch (persistErr) {
               console.warn(
-                "[Flow] Midjourney V7/Niji7: failed to persist imageUrls item",
+                "[Flow] Midjourney V7/V8/Niji7: failed to persist imageUrls item",
                 persistErr
               );
               stableMidjourneyImageUrls.push(trimmed);
@@ -20975,6 +21644,7 @@ function FlowInner() {
                 base64: entry.hasRemote ? undefined : entry.source,
                 remoteUrl: entry.hasRemote ? entry.source : undefined,
                 title: itemTitle,
+                prompt: finalPrompt,
                 nodeId,
                 nodeType: node.type,
                 fileName: `flow_${node.type}_${entry.id}_${idx + 1}.png`,
@@ -21107,7 +21777,7 @@ function FlowInner() {
               ? error.message
               : node.type === "niji7"
               ? "Niji 7 生成失败"
-              : "Midjourney V7 生成失败";
+              : "Midjourney 生成失败";
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
@@ -21459,6 +22129,7 @@ function FlowInner() {
                 base64: historyRemote ? undefined : stableImageRef,
                 remoteUrl: historyRemote ? stableImageRef : undefined,
                 title: `${historyPrefix} ${new Date().toLocaleTimeString()}`,
+                prompt: promptText,
                 nodeId,
                 nodeType: "generate",
                 fileName,
@@ -21655,6 +22326,7 @@ function FlowInner() {
                 base64: historyRemote ? undefined : historySource,
                 remoteUrl: historyRemote ? historySource : undefined,
                 title: `Seedream ${new Date().toLocaleTimeString()}`,
+                prompt: promptText,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_seedream5_${historyId}.png`,
@@ -22182,6 +22854,7 @@ function FlowInner() {
                 title: `Generate4 #${
                   slotIndex + 1
                 } ${new Date().toLocaleTimeString()}`,
+                prompt,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_generate4_${historyId}.png`,
@@ -22477,6 +23150,7 @@ function FlowInner() {
                   title: `GeneratePro4 #${
                     slotIndex + 1
                   } ${new Date().toLocaleTimeString()}`,
+                  prompt,
                   nodeId,
                   nodeType: "generatePro4",
                   fileName: `flow_generatepro4_${historyId}.png`,
@@ -22774,6 +23448,7 @@ function FlowInner() {
                   ? "ViewAngle"
                   : "Generate"
               } ${new Date().toLocaleTimeString()}`,
+              prompt,
               nodeId,
               nodeType: historyNodeType,
               fileName: `flow_${node.type || "generate"}_${historyId}.png`,
@@ -22850,6 +23525,7 @@ function FlowInner() {
       getSeedanceModeSpec,
       imageModel,
       inferSeedanceMode,
+      language,
       pollHappyhorseTask,
       recordFlowVideoHistory,
       rf,
@@ -23063,7 +23739,7 @@ function FlowInner() {
               node.type === "niji7"
                 ? "Niji 7"
                 : node.type === "midjourneyV7"
-                ? "Midjourney V7"
+                ? "Midjourney"
                 : node.type === "generatePro4"
                 ? "GeneratePro4"
                 : "Generate4"
@@ -23713,6 +24389,41 @@ function FlowInner() {
     );
   }, [runningGroupIds]);
 
+  const stopNode = React.useCallback(
+    async (nodeId: string) => {
+      const node = rf.getNode(nodeId);
+      if (!node) return;
+      if ((node.data as any)?.status !== "running") return;
+
+      // 取消前端轮询
+      const { cancelTask: cancelTaskFn, cancelTasksByOwner: cancelByOwner } =
+        await import("@/utils/imageTaskPoller");
+      cancelByOwner([nodeId]);
+      const taskId = typeof (node.data as any)?.taskId === "string"
+        ? (node.data as any).taskId.trim()
+        : "";
+      if (taskId) cancelTaskFn(taskId);
+
+      // 重置节点为 idle，用户可重新生成
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: "idle",
+                  error: undefined,
+                  taskId: undefined,
+                },
+              }
+            : n
+        )
+      );
+    },
+    [rf, setNodes]
+  );
+
   const runGlobalNodes = React.useCallback(async () => {
     let started = false;
     setIsGlobalRunning((prev) => {
@@ -24138,6 +24849,7 @@ function FlowInner() {
     imageSize,
     imageModel,
     runNode,
+    stopNode,
     onSendHandler,
     promptGroupName,
     updateGroupName,
@@ -24264,6 +24976,7 @@ function FlowInner() {
           n.type === "minimaxSpeech" ||
           n.type === "tencentSpeech" ||
           n.type === "minimaxMusic" ||
+          n.type === "audioStudio" ||
           n.type === "image" ||
           n.type === "imagePro"
         ) {
@@ -24272,6 +24985,7 @@ function FlowInner() {
             data: {
               ...runtimeNodeData,
               onRun: runNode,
+              onStop: stopNode,
               onSend: onSendHandler,
               creditsPerCall,
             },
@@ -24299,6 +25013,7 @@ function FlowInner() {
             data: {
               ...runtimeNodeData,
               onRun: runNode,
+              onStop: stopNode,
               creditsPerCall,
               seedance2AccessEnabled,
               seedance2AccessResolved,
@@ -24328,6 +25043,7 @@ function FlowInner() {
       imageSize,
       imageModel,
       runNode,
+      stopNode,
       onSendHandler,
       promptGroupName,
       updateGroupName,
@@ -24347,22 +25063,44 @@ function FlowInner() {
 
   const nodesForRender = React.useMemo(
     () => {
-      if (collapsedChildNodeIds.size === 0) {
-        return nodesWithHandlers;
-      }
+      const base =
+        collapsedChildNodeIds.size === 0
+          ? nodesWithHandlers
+          : nodesWithHandlers.map((node) => {
+              if (!collapsedChildNodeIds.has(node.id)) return node;
+              return {
+                ...node,
+                hidden: true,
+                selected: false,
+                draggable: false,
+                selectable: false,
+              };
+            });
 
-      return nodesWithHandlers.map((node) => {
-        if (!collapsedChildNodeIds.has(node.id)) return node;
+      // collab: 给被他人锁定/选中的对象加可视边框(虚线描边, 颜色按持有者)。
+      // 仅作用于渲染数组 nodesForRender, 不写回 nodes, 因此不会被广播或持久化。
+      if (!collabLockedNodes || Object.keys(collabLockedNodes).length === 0) return base;
+      return base.map((node: any) => {
+        const holder = collabLockedNodes[node.id];
+        if (!holder) return node;
+        // 锁定者用色与其在线头像/光标一致(同一 colorFor 口径)。
+        const c = colorFor(holder);
+        // 锁定虚线改为像"选中框"那样画在节点内层卡片(`> div`)上(见 flow.css 的
+        // .collab-locked-by-other > div),用 outline-offset:-2px 内贴，天然跟随节点真实
+        // 尺寸(含自适应高度的 Generate 系列),不再依赖 data.boxW/boxH 强制包裹尺寸——
+        // 那套对无 boxW/boxH 的自适应节点会让虚线框比卡片大一圈。颜色经 CSS 变量下传。
         return {
           ...node,
-          hidden: true,
+          // 锁优先级最高：即便本端把它选中(聚焦)，也强制按"被他人锁定"渲染——
+          // 抑制蓝色选中边框(selected:false)，只保留虚线锁定描边，明确告知不可编辑。
+          // 仅作用于渲染数组，不写回 nodes；锁释放后恢复真实 selected 状态。
           selected: false,
-          draggable: false,
-          selectable: false,
+          style: { ...(node.style || {}), ['--collab-lock-color' as any]: c },
+          className: [node.className, 'collab-locked-by-other'].filter(Boolean).join(' '),
         };
       });
     },
-    [nodesWithHandlers, collapsedChildNodeIds]
+    [nodesWithHandlers, collapsedChildNodeIds, collabLockedNodes]
   );
 
   const edgesForRender = React.useMemo(
@@ -25508,6 +26246,7 @@ function FlowInner() {
         const newId = idMap.get(n.id) || generateId(n.type || "n");
         const data: any = { ...(n.data || {}) };
         delete data.onRun;
+        delete data.onStop;
         delete data.onSend;
         delete data.status;
         delete data.error;
@@ -25523,9 +26262,14 @@ function FlowInner() {
             new Set([...explicitChildren, ...legacyChildren].filter(Boolean))
           );
         }
+        const tplNodeType = (normalizeFlowNodeType(n.type) || n.type) as any;
+        if (tplNodeType === "audioStudio") {
+          migrateAudioStudioData(String(n.type || ""), data);
+        }
         return {
           id: newId,
-          type: n.type as any,
+          // 模板节点 type 先归一化,避免别名/历史 type 进入状态并经协作广播出去。
+          type: tplNodeType,
           position: {
             x: world.x + (n.position.x - minX),
             y: world.y + (n.position.y - minY),
@@ -25600,6 +26344,7 @@ function FlowInner() {
         nodesToSave.map(async (n: any) => {
           const raw = { ...(n.data || {}) };
           delete raw.onRun;
+          delete raw.onStop;
           delete raw.onSend;
           const data: any = sanitizeNodeData(raw) || {};
           delete data.status;
@@ -25848,7 +26593,38 @@ function FlowInner() {
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         defaultViewport={initialViewport}
+        onSelectionChange={(sel: any) => {
+          // collab: 选中即对对象加锁(满足"选中/拖动 → 他人看到边框且不能同时编辑"),
+          // 取消选中则释放。不抢占他人已锁定的对象。
+          if (!collab?.connected) return;
+          const selArr = ((sel?.nodes as any[]) || []).map((n) => String(n.id));
+          // collab: 框选/多选大批节点属批量操作, 不逐个加锁(避免锁请求洪泛)。
+          // 仅对小规模选择(<=8)做单对象锁保护, 超过则只释放旧锁不再 claim。
+          const SEL_LOCK_CAP = 8;
+          const selIds = new Set<string>(selArr.length <= SEL_LOCK_CAP ? selArr : []);
+          for (const id of selIds) {
+            if (collabMyLocksRef.current.has(id)) continue;
+            if (lockedByOthersRef.current.has(id)) continue;
+            collabMyLocksRef.current.add(id);
+            collab
+              .claimLock(id)
+              .then((r) => { if (!r?.acquired) collabMyLocksRef.current.delete(id); })
+              .catch(() => { collabMyLocksRef.current.delete(id); });
+          }
+          for (const id of [...collabMyLocksRef.current]) {
+            if (!selIds.has(id)) {
+              collabMyLocksRef.current.delete(id);
+              collab.releaseLock(id).catch(() => {});
+            }
+          }
+        }}
         onNodeDragStart={(event, node) => {
+          // collab: claim lock for this node while dragging; 记入本端锁集合, 由选中生命周期/续约维持,
+          // 拖拽结束不在此释放(否则仍处选中态的对象会失去锁)。
+          if (collab?.connected) {
+            collabMyLocksRef.current.add(node.id);
+            collab.claimLock(node.id).catch(() => {});
+          }
           nodeDraggingRef.current = true;
           setIsNodeDragging(true);
           const allNodes = rf.getNodes() as RFNode[];
@@ -25903,6 +26679,7 @@ function FlowInner() {
                   ...((n.data || {}) as Record<string, unknown>),
                 };
                 delete rawData.onRun;
+                delete rawData.onStop;
                 delete rawData.onSend;
                 let data = sanitizeNodeData(rawData, {
                   preserveImagePayload: true,
@@ -25994,6 +26771,20 @@ function FlowInner() {
           }
         }}
         onNodeDragStop={(event, node) => {
+          // collab: 拖拽结束不主动释放锁——对象通常仍处选中态, 锁由 onSelectionChange
+          // 在取消选中时释放、由续约定时器维持。若该节点未被选中持有(纯拖拽), 退回 TTL 自动过期。
+          // collab: 显式广播【最终位置】——拖拽过程中的位置流是尽力而为(单次 POST 可能丢),
+          // 这里把被拖动节点(含多选)的终态位置再确定性发一次, 确保对端最终对齐。
+          try {
+            const c0 = collabRef.current;
+            if (c0?.connected && !applyingRemoteRef.current) {
+              const selected = (rf.getNodes() as RFNode[]).filter((n) => n.selected);
+              const finalNodes = (selected.length > 0 ? selected : [node])
+                .filter((n) => n && n.id && n.position && !lockedByOthersRef.current.has(String(n.id)))
+                .map((n) => ({ id: n.id, position: n.position }));
+              if (finalNodes.length > 0) c0.sendPatch({ upsertNodes: finalNodes });
+            }
+          } catch {}
           nodeDraggingRef.current = false;
           draggingGroupNodeRef.current = false;
           groupDragSnapshotRef.current = null;
@@ -26085,6 +26876,11 @@ function FlowInner() {
           </>
         )}
       </ReactFlow>
+
+      {/* 节点评论浮层：气泡角标随节点(Flow 坐标)移动，团队模式下经 WS 实时刷新 */}
+      <CanvasCommentLayer />
+
+      <DirectorCaptureRunner nodes={nodes} />
 
       {!effectiveFlowLowDetailMode && flowSnapAlignments.length > 0 && (
         <svg className='tanva-flow-snap-guides' aria-hidden='true'>

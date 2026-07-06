@@ -30,7 +30,10 @@ export interface UpdateVideoTaskParams {
 }
 
 const QUEUED_STUCK_MS = 40 * 60 * 1000; // queued 兜底超时（Redis job 可能还在，重启后 worker 会重投）
-const VIDEO_PROCESSING_STUCK_MS = 40 * 60 * 1000; // 视频/3D 生成可能较久，用较长阈值，避免误杀正常任务
+// 视频/3D 生成可能较久，用较长阈值避免误杀正常任务。默认 1h，env VIDEO_TASK_MAX_DURATION_MS 可调。
+const VIDEO_PROCESSING_STUCK_MS = Number(
+  process.env.VIDEO_TASK_MAX_DURATION_MS ?? 60 * 60 * 1000,
+);
 // 图像：worker 侧已有 15min 硬上限(race)+退款；这里取「硬上限 + 5min 上传缓冲」，只兜进程崩溃的孤儿，
 // 避免误杀「已出图、正在上传 OSS」尚未写完的任务（race 只包住生成，不包住上传/落库）。
 const IMAGE_PROCESSING_STUCK_MS =
@@ -181,6 +184,18 @@ export class GenerationTaskService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (!this.collabBus || !this.collabLog) return;
     try {
+      // 进度同步：后端无细粒度进度列，按状态给出与本人轮询一致的粗粒度进度
+      // (queued=10 / processing=50 / succeeded=100 / failed=0)，让其他在线成员
+      // 的节点进度随状态推进，而非仅起止两点。已带 progress 时不覆盖。
+      if (typeof payload.progress !== 'number') {
+        const p =
+          payload.status === 'succeeded' ? 100
+          : payload.status === 'processing' ? 50
+          : payload.status === 'queued' ? 10
+          : payload.status === 'failed' ? 0
+          : undefined;
+        if (typeof p === 'number') payload = { ...payload, progress: p };
+      }
       const seq = await this.collabLog.nextSeq(projectId);
       const envelope: CollabEnvelope<TaskStatusPayload> = {
         type: 'task_status',

@@ -13,7 +13,19 @@ export enum PaymentStatus {
   CANCELLED = 'cancelled',
 }
 
-export type PaymentOrderType = 'recharge' | 'membership' | 'team_seat';
+export type PaymentOrderType = 'recharge' | 'membership' | 'team_seat' | 'team_credits';
+
+// 团队积分独立充值套餐（与个人 RECHARGE_PACKAGES 同规格）
+export const TEAM_CREDITS_PACKAGES = [
+  { price: 25,   credits: 2500   },
+  { price: 50,   credits: 5000   },
+  { price: 100,  credits: 10000  },
+  { price: 200,  credits: 20000  },
+  { price: 500,  credits: 50000  },
+  { price: 1000, credits: 100000 },
+];
+// 最低充值金额（元），与个人充值最低档对齐
+export const TEAM_CREDITS_MIN_AMOUNT = 25;
 
 // 创建订单请求
 export interface CreateOrderDto {

@@ -120,6 +120,10 @@ var defaultModelRatio = map[string]float64{
 	"code-davinci-edit-001":                     10,
 	"whisper-1":                                 15,  // $0.006 / minute -> $0.006 / 150 words -> $0.006 / 200 tokens -> $0.03 / 1k tokens
 	"tts-1":                                     7.5, // 1k characters -> $0.015
+	// doubao-seed-audio：用户侧积分以响应头 X-NewApi-Consumed-Credits 为唯一口径
+	// （按 original_duration 秒 × SEED_AUDIO_CREDITS_PER_SECOND）。此处仅为网关内部
+	// 共享 token 记账兜底，避免未定价模型报错；不影响后端单轨扣费。
+	"doubao-seed-audio-1-0":                     7.5,
 	"tts-1-1106":                                7.5, // 1k characters -> $0.015
 	"tts-1-hd":                                  15,  // 1k characters -> $0.03
 	"tts-1-hd-1106":                             15,  // 1k characters -> $0.03
@@ -258,6 +262,8 @@ var defaultModelRatio = map[string]float64{
 	"deepseek-v3-0324":           0.27 / 2,
 	"deepseek-v3.1-250821":       0.27 / 2,
 	"deepseek-v3.1-think-250821": 0.55 / 2,
+	"deepseek-v4-flash-260425":   0.0100 * RMB,
+	"deepseek-v4-pro-260425":     0.0120 * RMB,
 	// Doubao Seed 1.6 (APIMart) 参考同级中文 chat / reasoner 模型
 	"doubao-seed-1-6-251015":          0.27 / 2,
 	"doubao-seed-1-6-flash-250828":    0.15,
@@ -410,6 +416,8 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-image-1":      8,
 	"gpt-4o-image":     8, // 参考 gpt-image-1
 	"gemini-3.5-flash": 6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
+	"deepseek-v4-flash-260425": 2,
+	"deepseek-v4-pro-260425":   2,
 	// Doubao Seed 2.0 completion ratio = output/input
 	"doubao-seed-2-0-pro-260428":  5,
 	"doubao-seed-2.0-pro":         5,

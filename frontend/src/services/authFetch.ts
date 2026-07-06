@@ -12,12 +12,18 @@ export type AuthFetchInit = RequestInit & {
   /**
    * 单个请求最长存活时间（毫秒），超时后中止以释放连接。
    * 默认 3 分钟。传 0 或负数可禁用（用于同步视频生成等长耗时接口）。
+   * 图像生成/编辑等长耗时接口应显式传 IMAGE_REQUEST_TIMEOUT_MS（15 分钟）。
    */
   timeoutMs?: number;
 };
 
 // 默认 3 分钟：避免请求长时间占用 HTTP/1.1 连接槽（单 origin 仅 6 个并发）。
 const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
+
+// 图像生成/编辑专用：与后端图像任务上限（IMAGE_TASK_MAX_DURATION_MS）及前端轮询超时
+// （imageTaskPoller DEFAULT_TIMEOUT_MS）对齐，避免长耗时图像请求在客户端被过早中止
+// （旧的 3 分钟会把同步图像任务掐断，造成「扣费却拿不到图」）。
+export const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
 let refreshPromise: Promise<boolean> | null = null;
 let creditsRefreshTimer: ReturnType<typeof setTimeout> | null = null;

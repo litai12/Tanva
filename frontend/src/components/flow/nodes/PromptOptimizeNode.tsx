@@ -15,6 +15,27 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import RunCreditBadge from './RunCreditBadge';
 import { useBackendCreditsPreview } from '../hooks/useBackendCreditsPreview';
 
+const DEEPSEEK_V4_PROMPT_OPTIMIZE_CREDITS: Record<string, number> = {
+  'deepseek-v4-flash': 30,
+  'deepseek-v4-flash-260425': 30,
+  'deepseek-v4-pro': 60,
+  'deepseek-v4-pro-260425': 60,
+};
+
+const resolveDeepSeekPromptOptimizeCredits = (
+  provider?: string | null,
+  model?: string | null
+): number | undefined => {
+  const candidates = [provider, model];
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+    if (!normalized) continue;
+    const credits = DEEPSEEK_V4_PROMPT_OPTIMIZE_CREDITS[normalized];
+    if (typeof credits === 'number') return credits;
+  }
+  return undefined;
+};
+
 // 已去除可视化设置面板，采用内部默认参数
 type Props = {
   id: string;
@@ -71,6 +92,16 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
         label: 'Ultra',
         description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
       },
+      {
+        value: 'deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash',
+        description: lt('DeepSeek V4 Flash 文本模型', 'DeepSeek V4 Flash text model'),
+      },
+      {
+        value: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        description: lt('DeepSeek V4 Pro 文本模型', 'DeepSeek V4 Pro text model'),
+      },
     ],
     [lt]
   );
@@ -94,7 +125,8 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
     },
     enabled: true,
   });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
+  const deepSeekCredits = resolveDeepSeekPromptOptimizeCredits(effectiveProvider, textModel);
+  const resolvedRunCredits = backendCredits ?? deepSeekCredits ?? data.creditsPerCall;
 
   const readUpstreamText = React.useCallback((optimisticSource?: {
     sourceId: string;

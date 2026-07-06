@@ -28,6 +28,8 @@ model User {
   lastLoginAt                DateTime?
   createdAt                  DateTime               @default(now())
   updatedAt                  DateTime               @updatedAt
+  generationImageAssets      GenerationImageAsset[]
+  generationImageReuses      GenerationImageReuse[]
   invitedById                String?
   apiUsageRecords            ApiUsageRecord[]
   creditAccount              CreditAccount?
@@ -45,6 +47,8 @@ model User {
   invites                    User[]                 @relation("UserInvitedBy")
   teamMemberships            TeamMembership[]
   ownedTeams                 Team[]           @relation("TeamOwner")
+  authoredComments           CanvasComment[]        @relation("CommentAuthor")
+  resolvedCommentThreads     CanvasCommentThread[]  @relation("ThreadResolver")
 
   // 租户隔离唯一约束（替代原单列全局唯一）
   @@unique([tenantId, phone])
@@ -137,11 +141,57 @@ model Project {
   user           User     @relation(fields: [userId], references: [id])
   workflowHistory WorkflowHistory[]
   teamShares      TeamProjectShare[]
+  commentThreads  CanvasCommentThread[]
 
   // 索引优化：加速项目列表查询
   @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
   @@index([userId, updatedAt])     // 用户项目列表，按更新时间倒序
   @@index([createdAt])             // 全局项目统计
+}
+
+/// 画布评论线程（Figma 式）：锚定到画布坐标(x/y, flow 坐标系)，pin 随平移缩放移动。
+/// nodeId 保留为可选(历史节点锚定数据/未来扩展)，当前主路径走 x/y 自由落点。
+/// resolve 是线程级语义(只对线程有意义，回复不单独 resolve)。
+model CanvasCommentThread {
+  id           String    @id @default(uuid())
+  projectId    String
+  nodeId       String?
+  x            Float?
+  y            Float?
+  resolved     Boolean   @default(false)
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resolvedBy   User?           @relation("ThreadResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  comments     CanvasComment[]
+
+  @@index([projectId, nodeId])
+  @@index([projectId, resolved])
+}
+
+/// 线程内的单条评论/回复。软删(deletedAt)：返回时正文显示为「已删除」但保留占位与排序。
+/// mentions 存被 @ 的 userId 数组(本期仅高亮，不做通知)；服务端校验其为项目可访问用户。
+model CanvasComment {
+  id        String    @id @default(uuid())
+  threadId  String
+  authorId  String
+  body      String
+  mentions  String[]  @default([])
+  /// 评论附带的图片 URL（已上传 OSS/TOS）。Figma 式图片附件，本期支持。
+  imageUrls String[]  @default([])
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  thread    CanvasCommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User                @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([authorId])
 }
 
 model WorkflowHistory {
@@ -325,6 +375,31 @@ model ApiUsageRecord {
   @@index([responseStatus, serviceType, createdAt])
 }
 
+/// 按天预聚合的 API 用量统计（rollup）。
+/// 粒度 = 本地自然日 × 用户 × 服务类型 × 服务名 × 渠道 × 响应状态。
+/// 由定时任务从 ApiUsageRecord 滚动生成，用于 admin 统计的历史部分；
+/// 「昨天+今天」仍从明细表实时读，避免与未滚动完成的当天数据重复/缺口。
+model ApiUsageDailyStat {
+  id             String   @id @default(uuid())
+  day            DateTime @db.Date
+  userId         String
+  serviceType    String
+  serviceName    String
+  provider       String
+  responseStatus String
+  totalCalls     Int      @default(0)
+  totalCredits   Int      @default(0)
+  inputTokens    BigInt   @default(0)
+  outputTokens   BigInt   @default(0)
+  sumProcessTime BigInt   @default(0)
+  procTimeCount  Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([day, userId, serviceType, serviceName, provider, responseStatus], map: "ApiUsageDailyStat_grain_key")
+  @@index([day, serviceType])
+  @@index([day, userId])
+}
+
 model CreditPricing {
   id               String   @id @default(uuid())
   serviceType      String   @unique
@@ -486,6 +561,51 @@ model GlobalImageHistory {
   @@index([userId, createdAt(sort: Desc)])
   @@index([sourceType])
   @@index([userId, sourceProjectId, createdAt(sort: Desc)])
+}
+
+model GenerationImageAsset {
+  id               String                 @id @default(uuid())
+  userId           String
+  requestSignature String
+  prompt           String                 @db.Text
+  params           Json
+  imageUrl         String                 @db.Text
+  imageUrlHash     String
+  imageKey         String?
+  sourceType       String                 @default("text-to-image")
+  provider         String?
+  model            String?
+  serviceType      String?
+  textResponse     String?                @db.Text
+  status           String                 @default("active")
+  metadata         Json?
+  reuseCount       Int                    @default(0)
+  lastReusedAt     DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reuses           GenerationImageReuse[]
+
+  @@unique([userId, imageUrlHash])
+  @@index([userId, requestSignature, status, createdAt])
+  @@index([requestSignature, status, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model GenerationImageReuse {
+  id               String               @id @default(uuid())
+  userId           String
+  assetId          String
+  requestSignature String
+  apiUsageId       String?
+  createdAt        DateTime             @default(now())
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset            GenerationImageAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, assetId])
+  @@index([userId, requestSignature, createdAt])
+  @@index([assetId, createdAt])
+  @@index([apiUsageId])
 }
 
 model PublicTemplate {
@@ -900,4 +1020,37 @@ model TenantDomain {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ── 素材库 / Material Library（个人 + 团队资产，从 TapCanvas-pro 移植）────────────
+// 说明：版本表已折叠为 MaterialAsset.data(Json) + currentVersion 计数器（无版本历史 UI）。
+// currentVersion 仅作展示/计数，不可回滚；API 据此合成 latestVersion 返给前端。
+// 作用域：personal = teamId 为 null 且 ownerId=用户；team = teamId 非空（ownerId 仅记录创建者，团队鉴权按 teamId）。
+model MaterialAsset {
+  id             String   @id @default(uuid())
+  ownerId        String   // 创建者；个人作用域同时用于鉴权
+  teamId         String?  // null = 个人资产
+  folderId       String?  // 自定义文件夹；null = 固定 kind 文件夹
+  kind           String   // character | scene | prop | style | text
+  name           String
+  favorite       Boolean  @default(false)
+  currentVersion Int      @default(1)
+  data           Json     @default("{}") // { imageUrl, url?, thumbnailUrl?, ossKey?, width?, height?, contentType? }
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([ownerId, teamId, kind, updatedAt(sort: Desc)])
+  @@index([teamId, kind, updatedAt(sort: Desc)])
+  @@index([folderId])
+}
+
+model MaterialFolder {
+  id        String   @id @default(uuid())
+  ownerId   String?  // 个人文件夹（teamId 为 null 时使用）
+  teamId    String?  // 团队文件夹
+  name      String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([teamId])
 }

@@ -23,6 +23,7 @@ interface SseConn {
   connId: string;
   userId: string;
   userName: string;
+  avatarUrl: string | null;
   teamId: string;
   projectId: string;
   res: any;
@@ -67,6 +68,7 @@ export class CanvasSseManager implements OnModuleInit, OnModuleDestroy {
     projectId: string,
     userId: string,
     userName: string,
+    avatarUrl: string | null,
     teamId: string,
     res: any,
   ): Promise<{ connId: string; unsubscribe: () => void } | { error: string }> {
@@ -89,6 +91,7 @@ export class CanvasSseManager implements OnModuleInit, OnModuleDestroy {
       connId,
       userId,
       userName,
+      avatarUrl,
       teamId,
       projectId,
       res,
@@ -110,7 +113,7 @@ export class CanvasSseManager implements OnModuleInit, OnModuleDestroy {
     // notify presence_join
     const joinEnv: CollabEnvelope<PresenceUserPayload> = {
       type: 'presence_join',
-      payload: { userId, name: userName },
+      payload: { userId, name: userName, avatarUrl },
       ts: Date.now(),
       senderUserId: userId,
       senderConnId: connId,
@@ -146,7 +149,7 @@ export class CanvasSseManager implements OnModuleInit, OnModuleDestroy {
     if (removed) {
       const leaveEnv: CollabEnvelope<PresenceUserPayload> = {
         type: 'presence_leave',
-        payload: { userId: removed.userId, name: removed.userName },
+        payload: { userId: removed.userId, name: removed.userName, avatarUrl: removed.avatarUrl },
         ts: Date.now(),
         senderUserId: removed.userId,
         senderConnId: removed.connId,
@@ -280,7 +283,7 @@ export class CanvasSseManager implements OnModuleInit, OnModuleDestroy {
     const seen = new Map<string, PresenceUserPayload>();
     for (const c of conns) {
       if (!seen.has(c.userId)) {
-        seen.set(c.userId, { userId: c.userId, name: c.userName });
+        seen.set(c.userId, { userId: c.userId, name: c.userName, avatarUrl: c.avatarUrl });
       }
     }
     return [...seen.values()];

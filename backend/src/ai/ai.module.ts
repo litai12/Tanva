@@ -17,11 +17,13 @@ import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
+import { SeedAudioVoiceService } from './services/seed-audio-voice.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ImageTaskService } from './services/image-task.service';
 import { ImageTaskQueueService } from './services/image-task-queue.service';
 import { ImageTaskWorkerService } from './services/image-task-worker.service';
 import { GenerationTaskService } from './services/generation-task.service';
+import { ImageReuseCacheService } from './services/image-reuse-cache.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -38,6 +40,11 @@ import { TelemetryModule } from '../telemetry/telemetry.module';
 import { TeamCreditsModule } from '../team-credits/team-credits.module';
 import { VolcAssetModule } from '../volc-asset/volc-asset.module';
 import { TeamCollabModule } from '../team-collab/team-collab.module';
+import { AudioRoutingService } from './audio/audio-routing.service';
+import { SeedAudioProvider } from './audio/providers/seed-audio.provider';
+import { MinimaxSpeechProvider } from './audio/providers/minimax-speech.provider';
+import { MinimaxMusicProvider } from './audio/providers/minimax-music.provider';
+import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
 
 @Module({
   imports: [
@@ -67,21 +74,28 @@ import { TeamCollabModule } from '../team-collab/team-collab.module';
     ExpandImageService,
     Sora2VideoService,
     VeoVideoService,
+    SeedAudioVoiceService,
     VideoProviderService,
     VideoWatermarkService,
     Seedream5Service,
     MinimaxSpeechService,
     MinimaxMusicService,
     TencentSpeechService,
+    SeedAudioProvider,
+    MinimaxSpeechProvider,
+    MinimaxMusicProvider,
+    TencentDubProvider,
+    AudioRoutingService,
     TencentVodAigcService,
     ModelRoutingService,
     ImageTaskService,
     ImageTaskQueueService,
     ImageTaskWorkerService,
     GenerationTaskService,
+    ImageReuseCacheService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController, InternalTencentVodController],
-  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, GenerationTaskService],
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService, VeoVideoService, SeedAudioVoiceService, GenerationTaskService],
 })
 export class AiModule {}

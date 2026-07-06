@@ -1,9 +1,10 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { Video, Download, Share2, AlertTriangle } from "lucide-react";
+import { Video, Download, Share2, AlertTriangle, Square } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
+import { formatVideoProviderError } from "@/utils/videoProviderError";
 import RunCreditBadge from "./RunCreditBadge";
 import NodeSelect from "./NodeSelect";
 import { useNodeRunCredits } from "../hooks/useNodeRunCredits";
@@ -19,18 +20,41 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     creditsPerCall?: number;
     managedModelKey?: string;
     resolution?: string;
     duration?: number;
     aspectRatio?: string;
+    videoMode?: string;
   };
   selected?: boolean;
+};
+
+type FlowEdgeLike = {
+  target?: string | null;
+  targetHandle?: string | null;
+};
+
+type FlowStoreStateLike = {
+  edges?: FlowEdgeLike[];
 };
 
 const DURATION_OPTIONS = [4, 6, 8, 10];
 const RESOLUTION_OPTIONS = ["720P", "1080P", "4K"];
 const ASPECT_OPTIONS = ["16:9", "9:16"];
+const MODE_OPTIONS = [
+  {
+    value: "frame",
+    label: "单图模式",
+    description: "1 张图生成视频",
+  },
+  {
+    value: "reference",
+    label: "参考模式",
+    description: "1~3 张参考图，或 1 条参考视频",
+  },
+];
 
 const getStyles = (selected?: boolean) => ({
   card: {
@@ -65,13 +89,13 @@ const getStyles = (selected?: boolean) => ({
 });
 
 function OmniFlashExtVideoNode({ id, data, selected }: Props) {
-  const { lt } = useLocaleText();
+  const { lt, language } = useLocaleText();
   const styles = getStyles(selected);
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>("16/9");
   const [isDownloading, setIsDownloading] = React.useState(false);
 
-  const updateNodeData = React.useCallback((patch: Record<string, any>) => {
+  const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent("flow:updateNodeData", { detail: { id, patch } }));
   }, [id]);
 
@@ -102,38 +126,73 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     typeof data.aspectRatio === "string" && ASPECT_OPTIONS.includes(data.aspectRatio)
       ? data.aspectRatio
       : "16:9";
+  const configuredVideoMode = data.videoMode === "reference" ? "reference" : "frame";
 
   const imageInputCount = useStore(
     React.useCallback(
-      (state: any) =>
+      (state: FlowStoreStateLike) =>
         (state.edges || []).filter(
-          (e: any) => e.target === id && e.targetHandle === "image"
+          (e) => e.target === id && e.targetHandle === "image"
+        ).length,
+      [id]
+    )
+  );
+  const videoInputCount = useStore(
+    React.useCallback(
+      (state: FlowStoreStateLike) =>
+        (state.edges || []).filter(
+          (e) => e.target === id && e.targetHandle === "video"
+        ).length,
+      [id]
+    )
+  );
+  const textInputCount = useStore(
+    React.useCallback(
+      (state: FlowStoreStateLike) =>
+        (state.edges || []).filter(
+          (e) => e.target === id && e.targetHandle === "text"
         ).length,
       [id]
     )
   );
 
+  const effectiveVideoMode = videoInputCount > 0 ? "reference" : configuredVideoMode;
+
   const validationMessages = React.useMemo(() => {
     const msgs: string[] = [];
-    if (imageInputCount === 2) {
-      msgs.push(lt("不支持 2 张图片输入，仅支持 0、1 或 3 张", "2-image input not supported; use 0, 1, or 3 images"));
+    if (textInputCount === 0) {
+      msgs.push(lt("请连接提示词", "Connect a prompt"));
+    }
+    if (videoInputCount > 1) {
+      msgs.push(lt("参考视频最多 1 条", "Reference video: max 1"));
     }
     if (imageInputCount > 3) {
-      msgs.push(lt("最多支持 3 张图片", "Maximum 3 images supported"));
+      msgs.push(lt("图片最多 3 张", "Images: max 3"));
+    } else if (effectiveVideoMode === "frame" && imageInputCount > 1) {
+      msgs.push(lt("单图模式只接 1 张图", "Single-image mode accepts 1 image"));
     }
     return msgs;
-  }, [imageInputCount, lt]);
+  }, [imageInputCount, textInputCount, videoInputCount, effectiveVideoMode, lt]);
+
+  const imageHandleTooltip = React.useMemo(
+    () =>
+      effectiveVideoMode === "reference"
+        ? lt("参考图片：1~3 张", "Reference images: 1-3")
+        : lt("单图生成视频：1 张图", "Single-image video: 1 image"),
+    [effectiveVideoMode, lt]
+  );
 
   const previewRequestParams = React.useMemo(
     () => ({
       managedModelKey: "omni-flash-ext",
       modelKey: "omni-flash-ext",
       resolution: resolution.toLowerCase(),
-      duration,
-      durationSec: duration,
+      ...(videoInputCount > 0 ? {} : { duration, durationSec: duration }),
       aspectRatio,
+      videoMode: effectiveVideoMode,
+      hasReferenceVideo: videoInputCount > 0,
     }),
-    [duration, resolution, aspectRatio]
+    [duration, resolution, aspectRatio, effectiveVideoMode, videoInputCount]
   );
 
   const { credits: backendCredits } = useBackendCreditsPreview({
@@ -189,6 +248,17 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
     ) : null;
 
   const previewAspectStyle = aspectRatio === "9:16" ? "9/16" : "16/9";
+  const displayError = React.useMemo(
+    () =>
+      data.error
+        ? formatVideoProviderError(data.error, {
+            language,
+            fallbackZh: "视频生成失败，请调整提示词或素材后重试。",
+            fallbackEn: "Video generation failed. Please revise the prompt or media and try again.",
+          })
+        : "",
+    [data.error, language]
+  );
 
   React.useEffect(() => {
     setPreviewAspect(previewAspectStyle);
@@ -208,8 +278,16 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="image"
-        style={{ top: "50%" }}
+        style={{ top: "43%" }}
         onMouseEnter={() => setHover("image")}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="video"
+        style={{ top: "66%" }}
+        onMouseEnter={() => setHover("video-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
@@ -221,8 +299,9 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         onMouseLeave={() => setHover(null)}
       />
 
-      {tooltip("text", "20%", lt("提示词（可选）", "Prompt (optional)"))}
-      {tooltip("image", "50%", lt("参考图片（0、1 或 3 张）", "Reference images (0, 1, or 3)"))}
+      {tooltip("text", "20%", lt("提示词（必填）", "Prompt (required)"))}
+      {tooltip("image", "43%", imageHandleTooltip)}
+      {tooltip("video-in", "66%", lt("参考视频（最多 1 个）", "Reference video (max 1)"))}
       {hover === "video-out" && (
         <div className="flow-tooltip" style={{ right: -8, top: "50%", transform: "translate(100%, -50%)" }}>
           {lt("生成视频输出", "Generated video output")}
@@ -236,31 +315,45 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           <span>Omni Flash Ext</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={() => data.onRun?.(id)}
-            onMouseDown={(e) => e.stopPropagation()}
-            disabled={data.status === "running"}
-            style={{
-              ...styles.iconBtn,
-              width: hasRunCredits ? "auto" : styles.iconBtn.width,
-              minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
-              padding: hasRunCredits ? "0 10px" : undefined,
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              opacity: data.status === "running" ? 0.6 : 1,
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-            }}
-          >
-            {data.status === "running" ? (
-              <span className="run-text-trigger">Running...</span>
-            ) : (
-              <>
-                <span className="run-text-trigger">Run</span>
-                {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
-              </>
-            )}
-          </button>
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run"
+              onClick={() => data.onStop?.(id)}
+              onMouseDown={(e) => e.stopPropagation()}
+              title="停止并重置，可重新生成"
+              style={{
+                ...styles.iconBtn,
+                width: hasRunCredits ? "auto" : styles.iconBtn.width,
+                minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                background: "#111827",
+                cursor: "pointer",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={() => data.onRun?.(id)}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                ...styles.iconBtn,
+                width: hasRunCredits ? "auto" : styles.iconBtn.width,
+                minWidth: hasRunCredits ? 64 : styles.iconBtn.width,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
@@ -288,7 +381,17 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
       </div>
 
       {/* Controls */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: videoInputCount > 0 ? 4 : 8 }}>
+        <label style={{ fontSize: 11, color: "#475569" }}>
+          <div style={{ marginBottom: 3 }}>{lt("模式", "Mode")}</div>
+          <NodeSelect
+            value={effectiveVideoMode}
+            options={MODE_OPTIONS}
+            onChange={(v) => updateNodeData({ videoMode: v })}
+            menuLabel={lt("模式", "Mode")}
+            title={lt("选择生成模式", "Select generation mode")}
+          />
+        </label>
         <label style={{ fontSize: 11, color: "#475569" }}>
           <div style={{ marginBottom: 3 }}>{lt("时长", "Duration")}</div>
           <NodeSelect
@@ -320,6 +423,14 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           />
         </label>
       </div>
+      {videoInputCount > 0 && (
+        <div style={{ marginBottom: 8, color: "#64748b", fontSize: 10, lineHeight: 1.35 }}>
+          {lt(
+            "已接入参考视频：本次按参考模式发送，不下发时长。",
+            "Reference video connected: this run uses reference mode and omits duration."
+          )}
+        </div>
+      )}
 
       {/* Video preview */}
       <div
@@ -383,7 +494,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
         </div>
       )}
 
-      {data.error && (
+      {displayError && (
         <div
           style={{
             marginTop: 6,
@@ -399,7 +510,7 @@ function OmniFlashExtVideoNode({ id, data, selected }: Props) {
           }}
         >
           <AlertTriangle size={14} />
-          <span>{data.error}</span>
+          <span>{displayError}</span>
         </div>
       )}
     </div>

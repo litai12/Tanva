@@ -75,6 +75,7 @@ const FREE_USER_QUOTA_BUSINESS_TYPES = [
 ];
 const FREE_USER_LEGACY_QUOTA_GRANTED_BY = 'free_user_monthly_quota';
 const FREE_USER_STARTER_QUOTA_GRANTED_BY = 'free_user_starter_quota';
+const ENABLE_FREE_USER_STARTER_QUOTA = true;
 const DEFAULT_FREE_USER_DAILY_IMAGE_LIMIT = 20;
 const DEFAULT_FREE_USER_DAILY_VIDEO_LIMIT = 3;
 const DEFAULT_FREE_USER_MONTHLY_IMAGE_LIMIT = 100;
@@ -83,6 +84,12 @@ const PREVIEW_CREDITS_CACHE_TTL_SEC = 30;
 const CREDITS_PER_YUAN = 100;
 const GPT_IMAGE2_SERVICE_TYPE = 'gpt-image-2';
 const GPT_IMAGE2_CREDITS = 40;
+const DEEPSEEK_V4_MODEL_CREDITS: Record<string, number> = {
+  'deepseek-v4-flash': 30,
+  'deepseek-v4-flash-260425': 30,
+  'deepseek-v4-pro': 60,
+  'deepseek-v4-pro-260425': 60,
+};
 const GPT_IMAGE2_NORMAL_RESOLUTION_PRICING: Record<'1K' | '2K' | '4K', number> = {
   '1K': 20,
   '2K': 30,
@@ -282,6 +289,8 @@ type SoraBillingModel = 'sora-2' | 'sora-2-vip' | 'sora-2-pro';
 type KlingBillingModel = 'kling-v2-6' | 'kling-v3-0' | 'kling-o3';
 type BananaTencentPricingTier = 'fast' | 'pro' | 'ultra';
 type BananaTextPricingTier = 'fast' | 'pro' | 'ultra';
+
+const OMNI_FLASH_EXT_MODEL_KEY = 'omni-flash-ext';
 
 const BANANA_TENCENT_IMAGE_SERVICE_TIERS: Partial<
   Record<ServiceType, BananaTencentPricingTier>
@@ -738,6 +747,12 @@ export class CreditsService {
       params.model,
     );
 
+    creditsToDeduct = this.resolveDeepSeekV4ModelCredits(
+      creditsToDeduct,
+      effectiveRequestParams,
+      params.model,
+    );
+
     creditsToDeduct = this.resolveVideoAnalyzeRouteCredits(
       params.serviceType,
       creditsToDeduct,
@@ -819,6 +834,26 @@ export class CreditsService {
     if (serviceType === 'gemini-2.5-image-analyze') return 10;
     if (serviceType === 'gemini-image-analyze') return 10;
     if (serviceType === 'gemini-3.1-image-analyze') return 10;
+    return currentCredits;
+  }
+
+  private resolveDeepSeekV4ModelCredits(
+    currentCredits: number,
+    requestParams: any,
+    model?: string,
+  ): number {
+    const candidates = [
+      model,
+      requestParams?.model,
+      requestParams?.aiProvider,
+      requestParams?.requestedProvider,
+    ];
+    for (const candidate of candidates) {
+      const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+      if (!normalized) continue;
+      const credits = DEEPSEEK_V4_MODEL_CREDITS[normalized];
+      if (typeof credits === 'number') return credits;
+    }
     return currentCredits;
   }
 
@@ -961,6 +996,20 @@ export class CreditsService {
     return null;
   }
 
+  private isOmniFlashExtRequest(requestParams: any, model?: string): boolean {
+    const candidates = [
+      requestParams?.modelKey,
+      requestParams?.managedModelKey,
+      requestParams?.model,
+      model,
+    ];
+    return candidates.some(
+      (candidate) =>
+        typeof candidate === 'string' &&
+        candidate.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY,
+    );
+  }
+
   private normalizeKlingMode(raw: unknown): 'std' | 'pro' {
     if (typeof raw === 'string' && raw.trim().toLowerCase() === 'pro') {
       return 'pro';
@@ -996,13 +1045,14 @@ export class CreditsService {
         select: { value: true },
       });
       const raw = typeof setting?.value === 'string' ? setting.value.trim() : '';
-      const parsed = raw
+      const parsedBase = raw
         ? normalizeSeedance20DiscountPricing(
             JSON.parse(raw) as ManagedPricingMappingLike,
           )
         : normalizeSeedance20DiscountPricing({
             models: [{ modelKey: 'seedance-2.0' }],
           } as ManagedPricingMappingLike);
+      const parsed = this.withDefaultManagedPricingModels(parsedBase);
 
       // 腾讯路由已下线：vidu/kling 视频前端不再下发 vendor。计价与路由解耦——请求带
       // 空 vendor 或陈旧 tencent_vod 时，按该模型 defaultVendor 对应的“已启用”费率表
@@ -1048,6 +1098,47 @@ export class CreditsService {
    *   3) 首个已启用 vendor；4) 首个 vendor。
    * 模型不含 tencent_vod vendor 时返回 null，保持图片等模型计价不变。
    */
+  private withDefaultManagedPricingModels(
+    mapping: ManagedPricingMappingLike,
+  ): ManagedPricingMappingLike {
+    const models = Array.isArray(mapping?.models) ? mapping.models.filter(Boolean) : [];
+    const hasOmniFlashExt = models.some(
+      (item) =>
+        typeof item?.modelKey === 'string' &&
+        item.modelKey.trim().toLowerCase() === OMNI_FLASH_EXT_MODEL_KEY,
+    );
+    if (hasOmniFlashExt) {
+      return mapping;
+    }
+
+    return {
+      ...mapping,
+      models: [
+        ...models,
+        {
+          modelKey: OMNI_FLASH_EXT_MODEL_KEY,
+          modelName: 'Omni Flash Ext',
+          taskType: 'video',
+          enabled: true,
+          defaultVendor: 'new_api',
+          vendors: [
+            {
+              vendorKey: 'new_api',
+              platformKey: 'new_api',
+              label: 'New API',
+              enabled: true,
+              route: 'legacy',
+              provider: 'new-api',
+              modelName: OMNI_FLASH_EXT_MODEL_KEY,
+              creditsPerCall: 600,
+              priceYuan: 6,
+            },
+          ],
+        },
+      ],
+    } as ManagedPricingMappingLike;
+  }
+
   private pickPricingFallbackVendorKey(
     mapping: ManagedPricingMappingLike,
     modelKey: string,
@@ -1066,6 +1157,20 @@ export class CreditsService {
       typeof v?.vendorKey === 'string' ? v.vendorKey.trim() : '';
     const isEnabled = (v: any): boolean =>
       (v as { enabled?: boolean })?.enabled !== false;
+    if (mk === OMNI_FLASH_EXT_MODEL_KEY) {
+      const defaultVendor = String(
+        (model as { defaultVendor?: string })?.defaultVendor || '',
+      ).trim();
+      const byDefault = vendors.find((v) => vk(v) && vk(v) === defaultVendor && isEnabled(v));
+      if (byDefault) return vk(byDefault);
+
+      const firstEnabled = vendors.find((v) => vk(v) && isEnabled(v));
+      if (firstEnabled) return vk(firstEnabled);
+
+      const first = vendors.find((v) => vk(v));
+      return first ? vk(first) : null;
+    }
+
     const hasTencent = vendors.some((v) => vk(v).toLowerCase() === 'tencent_vod');
     if (!hasTencent) return null;
 
@@ -1442,6 +1547,10 @@ export class CreditsService {
     defaultCredits: number,
     requestParams: any,
   ): number {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return defaultCredits;
+    }
+
     const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
     if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
       return defaultCredits;
@@ -1469,6 +1578,10 @@ export class CreditsService {
     defaultServiceName: string,
     requestParams: any,
   ): string {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return defaultServiceName;
+    }
+
     const model = this.normalizeKlingBillingModel(requestParams?.klingModel, serviceType);
     if (model !== 'kling-v2-6' && model !== 'kling-v3-0') {
       return defaultServiceName;
@@ -1493,6 +1606,10 @@ export class CreditsService {
     defaultServiceName: string,
     requestParams: any,
   ): string {
+    if (this.isOmniFlashExtRequest(requestParams)) {
+      return 'Omni Flash Ext 视频生成';
+    }
+
     if (serviceType !== 'doubao-video') {
       return defaultServiceName;
     }
@@ -2429,6 +2546,10 @@ export class CreditsService {
       });
 
       return true;
+    }, {
+      timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
+      maxWait: 10_000,
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
     });
   }
 
@@ -2595,6 +2716,10 @@ export class CreditsService {
     // 该服务的产品计费模型恒为 kling-o3，直接锁定，保持标题/备注一致。
     if (serviceType === 'kling-o3-video') {
       return 'kling-o3';
+    }
+
+    if (this.isOmniFlashExtRequest(requestParams, model)) {
+      return OMNI_FLASH_EXT_MODEL_KEY;
     }
 
     const isVideoService =
@@ -3146,6 +3271,42 @@ export class CreditsService {
     return !!paidOrder;
   }
 
+  private isClosedPrismaTransactionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return (
+      message.includes('Transaction not found') ||
+      message.includes('Transaction ID is invalid') ||
+      message.includes('old closed transaction')
+    );
+  }
+
+  private async grantFreeUserStarterQuotaBestEffort(params: {
+    userId: string;
+    account: {
+      id: string;
+      balance: number;
+      totalEarned: number;
+    };
+    now?: Date;
+  }): Promise<boolean> {
+    if (!ENABLE_FREE_USER_STARTER_QUOTA) {
+      // Product policy: new users no longer receive the 500-credit starter quota.
+      return false;
+    }
+
+    try {
+      return await this.grantFreeUserStarterQuotaIfNeeded(params);
+    } catch (error) {
+      if (this.isClosedPrismaTransactionError(error)) {
+        this.logger.warn(
+          `免费用户初始额度发放事务已关闭，跳过本次发放以不中断当前请求: userId=${params.userId}`,
+        );
+        return false;
+      }
+      throw error;
+    }
+  }
+
   /**
    * ???????????
    * ???????????Double-Checked Locking?????????
@@ -3161,7 +3322,7 @@ export class CreditsService {
         return account;
       }
 
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId,
         account,
       });
@@ -3207,7 +3368,7 @@ export class CreditsService {
         return account;
       }
 
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId,
         account,
       });
@@ -3234,7 +3395,7 @@ export class CreditsService {
           return existingAccount;
         }
 
-        const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+        const granted = await this.grantFreeUserStarterQuotaBestEffort({
           userId,
           account: existingAccount,
         });
@@ -3284,7 +3445,7 @@ export class CreditsService {
       }
 
       const account = await this.getOrCreateAccount(user.id, { skipStarterQuota: true });
-      const granted = await this.grantFreeUserStarterQuotaIfNeeded({
+      const granted = await this.grantFreeUserStarterQuotaBestEffort({
         userId: user.id,
         account,
         now,
@@ -4119,6 +4280,206 @@ export class CreditsService {
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
         creditsToDeduct,
+      };
+    }, {
+      timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
+    });
+  }
+
+  /**
+   * 单轨网关计费：扣除一个【已知】金额（new-api 已定价并回报）。
+   *
+   * 与 preDeductCredits 不同点：不做 credits.config 价格查询/动态计价——金额由
+   * 调用方（new-api 响应头 X-NewApi-Consumed-Credits）给定。复用 preDeductCredits
+   * 的扣费原语（lot 扣减计划 + 账户余额更新 + SPEND 流水），并直接落 SUCCESS 的
+   * 用量记录（先扣后记，扣的就是上游实际消耗，无需后续 finalize）。
+   *
+   * teamId 非空（团队项目）时：只建 SUCCESS 用量记录、不动个人积分；团队积分由
+   * 控制器侧 TeamCreditLedger 处理。
+   */
+  async deductExact(
+    userId: string,
+    teamId: string | null | undefined,
+    amount: number,
+    meta: {
+      serviceType: ServiceType;
+      serviceName?: string;
+      provider?: string;
+      model?: string;
+      requestParams?: Record<string, any>;
+      ipAddress?: string;
+      userAgent?: string;
+    },
+  ): Promise<{
+    success: boolean;
+    newBalance: number;
+    apiUsageId: string;
+    transactionId: string;
+    creditsCharged: number;
+  }> {
+    const normalizedAmount =
+      Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
+    const serviceType = meta.serviceType;
+    const provider = meta.provider || 'volcengine';
+    const serviceName = meta.serviceName || serviceType;
+    const model = meta.model;
+    const requestParams = meta.requestParams
+      ? (Object.fromEntries(
+          Object.entries(meta.requestParams).filter(([, value]) => value !== undefined),
+        ) as Record<string, any>)
+      : undefined;
+
+    return await this.prisma.$transaction(async (tx) => {
+      const account = await tx.creditAccount.findUnique({ where: { userId } });
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const buildUsageData = (creditsUsed: number, status: ApiResponseStatus) => ({
+        userId,
+        serviceType,
+        serviceName,
+        provider,
+        model,
+        creditsUsed,
+        requestParams: requestParams as any,
+        responseStatus: status,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
+
+      // 团队项目：不动个人积分，仅落用量记录（团队积分由 TeamCreditLedger 处理）。
+      if (teamId) {
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          apiUsageId: apiUsage.id,
+          transactionId: `team:${apiUsage.id}`,
+          creditsCharged: normalizedAmount,
+        };
+      }
+
+      // 金额为 0：只记录，不扣费、不建流水。
+      if (normalizedAmount === 0) {
+        const apiUsage = await tx.apiUsageRecord.create({
+          data: buildUsageData(0, ApiResponseStatus.SUCCESS),
+        });
+        return {
+          success: true,
+          newBalance: account.balance,
+          apiUsageId: apiUsage.id,
+          transactionId: `zero:${apiUsage.id}`,
+          creditsCharged: 0,
+        };
+      }
+
+      // 个人模式：复用 lot 扣减原语。
+      const activeLots = await tx.creditLot.findMany({
+        where: { accountId: account.id, status: 'active' },
+        select: {
+          id: true,
+          sourceType: true,
+          validityType: true,
+          scopeType: true,
+          scopeValue: true,
+          totalAmount: true,
+          remainingAmount: true,
+          grantedAt: true,
+          activeAt: true,
+          expiresAt: true,
+          priority: true,
+          status: true,
+        },
+      });
+
+      const consumePolicy = await this.resolveCreditConsumePolicy(tx, {
+        serviceType,
+        provider,
+        model: model ?? null,
+      });
+      const deductionPlan = buildHybridCreditDeductionPlan({
+        accountBalance: account.balance,
+        amount: normalizedAmount,
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        now: new Date(),
+        scope: { serviceType, provider, model: model ?? null },
+        policy: consumePolicy,
+      });
+
+      if (!deductionPlan.sufficient) {
+        throw new BadRequestException(
+          `积分不足，当前余额: ${account.balance}，需要: ${normalizedAmount}`,
+        );
+      }
+
+      const updatedLots = applyLotDeductionsToSnapshots({
+        lots: activeLots.map((lot) => this.toCreditLotCandidate(lot)),
+        deductions: deductionPlan.deductions,
+      });
+      for (const updatedLot of updatedLots) {
+        const originalLot = activeLots.find((lot) => lot.id === updatedLot.id);
+        if (!originalLot) continue;
+        if (
+          originalLot.remainingAmount === updatedLot.remainingAmount &&
+          originalLot.status === updatedLot.status
+        ) {
+          continue;
+        }
+        await tx.creditLot.update({
+          where: { id: updatedLot.id },
+          data: {
+            remainingAmount: updatedLot.remainingAmount,
+            status: updatedLot.status,
+          },
+        });
+      }
+
+      const newBalance = account.balance - deductionPlan.totalDeducted;
+      const billingRemark = this.buildBillingRemark({
+        serviceType,
+        model,
+        provider,
+        requestParams: requestParams as any,
+      });
+
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: newBalance,
+          totalSpent: account.totalSpent + normalizedAmount,
+        },
+      });
+
+      const apiUsage = await tx.apiUsageRecord.create({
+        data: buildUsageData(normalizedAmount, ApiResponseStatus.SUCCESS),
+      });
+
+      const transaction = await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.SPEND,
+          amount: -deductionPlan.totalDeducted,
+          balanceBefore: account.balance,
+          balanceAfter: newBalance,
+          description: `Use ${serviceName}`,
+          apiUsageId: apiUsage.id,
+          consumePolicyCode: consumePolicy.code,
+          consumePolicyVersion: consumePolicy.version,
+          metadata: this.buildLotDeductionsMetadata(deductionPlan.deductions, {
+            billingRemark,
+          }),
+        },
+      });
+
+      return {
+        success: true,
+        newBalance,
+        apiUsageId: apiUsage.id,
+        transactionId: transaction.id,
+        creditsCharged: normalizedAmount,
       };
     }, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
@@ -5666,6 +6027,8 @@ export class CreditsService {
       if (startDate) where.createdAt.gte = startDate;
       if (endDate) where.createdAt.lte = endDate;
     }
+    // 团队出资的用量记录（requestParams.teamId 已标记）归团队账单，不在个人「积分使用记录」展示。
+    where.NOT = { requestParams: { path: ['teamId'], not: Prisma.DbNull } };
 
     const [records, total] = await Promise.all([
       this.prisma.apiUsageRecord.findMany({

@@ -359,7 +359,10 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	// referenceImages) into req.Images, so iterate req.Images once and dedupe;
 	// the separate ReferenceImages pass below is a defensive top-up (req bypassed
 	// normalize) and never double-emits thanks to the shared `seen` set.
-	referenceOnly := len(req.ReferenceImages) > 0
+	// Reference videos (Seedance 2.0 视频参考 / 换主体) are subject references just like
+	// reference images: their presence puts the whole request in r2v mode, so NO image
+	// may be tagged first_frame (else Ark 400s on mixed first/last-frame + reference media).
+	referenceOnly := len(req.ReferenceImages) > 0 || len(req.ReferenceVideos) > 0
 	seen := make(map[string]bool, len(req.Images)+len(req.ReferenceImages))
 	if req.HasImage() {
 		for i, imgURL := range req.Images {
@@ -398,6 +401,19 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 			Type:     "image_url",
 			Role:     "reference_image",
 			ImageURL: &MediaURL{URL: imgURL},
+		})
+	}
+	// 视频参考(reference_video)：与参考图同属主体参考，紧跟参考图后追加。dedupe 复用 seen
+	// （视频/图片 URL 不会相同，但同一视频不重复下发）。
+	for _, videoURL := range req.ReferenceVideos {
+		if videoURL == "" || seen[videoURL] {
+			continue
+		}
+		seen[videoURL] = true
+		r.Content = append(r.Content, ContentItem{
+			Type:     "video_url",
+			Role:     "reference_video",
+			VideoURL: &MediaURL{URL: videoURL},
 		})
 	}
 

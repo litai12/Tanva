@@ -19,13 +19,14 @@ export interface UseTaskBroadcastOptions {
  * per taskId so consumers can render running tasks without polling.
  */
 export function useTaskBroadcast(
-  collab: CanvasCollabHandle,
+  collab: CanvasCollabHandle | null | undefined,
   options: UseTaskBroadcastOptions = {},
 ): { tasks: Record<string, TaskBroadcastEntry> } {
   const [tasks, setTasks] = useState<Record<string, TaskBroadcastEntry>>({});
   const { onTaskStatus } = options;
 
   useEffect(() => {
+    if (!collab) return;
     const off = collab.subscribe('task_status', (env: CollabEnvelope) => {
       const p = env.payload as TaskStatusPayload;
       const entry: TaskBroadcastEntry = { ...p, receivedAt: Date.now() };

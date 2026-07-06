@@ -17,10 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Button, Typography, Spin } from '@douyinfe/semi-ui';
 import { IconExternalOpen, IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+import { collectMediaUrls } from '../../../../helpers/mediaPreview';
+import MediaPreviewStrip from '../../../common/media/MediaPreviewStrip';
 
 const { Text } = Typography;
 
@@ -33,6 +35,13 @@ const ContentModal = ({
   const { t } = useTranslation();
   const [videoError, setVideoError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Text mode shows the task record JSON (request chain) — preview any input
+  // reference media referenced inside it.
+  const textMedia = useMemo(
+    () => (isVideo ? { images: [], videos: [] } : collectMediaUrls(modalContent)),
+    [isVideo, modalContent],
+  );
 
   useEffect(() => {
     if (isModalOpen && isVideo) {
@@ -170,7 +179,16 @@ const ContentModal = ({
       {isVideo ? (
         renderVideoContent()
       ) : (
-        <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>
+        <>
+          <MediaPreviewStrip
+            images={textMedia.images}
+            videos={textMedia.videos}
+            totalImages={textMedia.totalImages}
+            totalVideos={textMedia.totalVideos}
+            t={t}
+          />
+          <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>
+        </>
       )}
     </Modal>
   );

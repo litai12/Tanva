@@ -51,17 +51,19 @@ export class TeamSeatPackageService {
       data: { status: 'expired' },
     });
 
+    // 展示用：仅列用户实际购买的套餐，后台赠送的 admin 永久包不进「已购套餐」
     const activePackages = await this.prisma.teamSeatPackage.findMany({
-      where: { teamId, status: 'active' },
+      where: { teamId, status: 'active', cycle: { not: 'admin' } },
       orderBy: { expiresAt: 'asc' },
     });
 
-    const purchasedSeats = activePackages.reduce((sum, p) => sum + p.seats, 0);
+    // 容量走唯一真相（含 admin 包），避免与加人闸门口径不一致
+    const totalSeats = await this.teamCore.getSeatCapacity(teamId);
     const usedSeats = await this.prisma.teamMembership.count({ where: { teamId } });
 
     return {
       permanentSeats: TEAM_PERMANENT_SEATS,
-      totalSeats: TEAM_PERMANENT_SEATS + purchasedSeats,
+      totalSeats,
       usedSeats,
       activePackages,
     };

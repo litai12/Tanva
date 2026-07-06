@@ -197,7 +197,7 @@ func observeTencentVodTask(c *gin.Context, ch *model.Channel, action string, req
 		if taskId == "" {
 			return
 		}
-		billAndMirrorTencentVodCreate(c, ch, reqBody, taskId)
+		billAndMirrorTencentVodCreate(c, ch, reqBody, respBytes, taskId)
 	case isTencentVodDescribeAction(action):
 		mirrorTencentVodPoll(c, reqBody, respBytes)
 	}

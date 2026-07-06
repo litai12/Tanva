@@ -1,6 +1,7 @@
 export type CollabEventType =
   | 'cursor'
   | 'node_patch'
+  | 'canvas_patch'
   | 'node_lock'
   | 'task_status'
   | 'toast'
@@ -9,6 +10,9 @@ export type CollabEventType =
   | 'access_revoked'
   | 'connected'
   | 'snapshot_required'
+  | 'comment_changed'
+  | 'team_projects_changed'
+  | 'comment_marker_move'
   | 'team_credits_changed'
   | 'user_credits_changed';
 
@@ -24,15 +28,18 @@ export interface CollabEnvelope<T = unknown> {
 export interface CursorPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
+  // 画布世界坐标（Paper project 坐标），与各端的平移/缩放/窗口无关。
+  // 接收端用本地视口把它投影回自己的屏幕坐标，从而做到跨视窗对齐。
   x: number;
   y: number;
-  viewport?: { zoom?: number; offsetX?: number; offsetY?: number };
 }
 
 export interface PresenceUser {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   color?: string;
 }
 
@@ -41,6 +48,14 @@ export interface NodePatchPayload {
   removeNodeIds?: string[];
   upsertEdges?: unknown[];
   removeEdgeIds?: string[];
+}
+
+/** 画布图片对象协作 patch：移动/缩放/插入=upsertImages(含 imageId+bounds[+快照]); 删除=removeImageIds。 */
+export interface CanvasImagePatchPayload {
+  upsertImages?: Array<Record<string, unknown>>;
+  removeImageIds?: string[];
+  upsertPaths?: Array<Record<string, unknown>>;
+  removePathIds?: string[];
 }
 
 export type NodeLockAction = 'claim' | 'release' | 'expired' | 'renewed';
@@ -70,6 +85,7 @@ export type ToastKind = 'upload' | 'generate' | 'delete' | 'share' | 'info';
 export interface ToastPayload {
   userId: string;
   name: string;
+  avatarUrl?: string | null;
   kind: ToastKind;
   text: string;
 }
@@ -78,6 +94,21 @@ export interface ConnectedPayload {
   connId: string;
   presence: PresenceUser[];
   degraded?: boolean;
+}
+
+export type TeamProjectsChangeAction =
+  | 'created'
+  | 'deleted'
+  | 'renamed'
+  | 'shared'
+  | 'unshared';
+
+/** 团队项目列表变更失效通知：收到后 debounce 重新拉取列表，不做增量合并。 */
+export interface TeamProjectsChangedPayload {
+  teamId: string;
+  action: TeamProjectsChangeAction;
+  projectId: string;
+  actorUserId?: string | null;
 }
 
 export type TeamCreditsChangeReason =
@@ -97,6 +128,28 @@ export interface TeamCreditsChangedPayload {
   reason: TeamCreditsChangeReason;
   actorUserId?: string | null;
   taskId?: string | null;
+}
+
+export type CommentChangeAction =
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'resolved'
+  | 'reopened'
+  | 'moved';
+
+/** 评论变更失效通知：只说明「评论变了」，收到后 debounce refetch，不做增量合并。 */
+export interface CommentChangedPayload {
+  action: CommentChangeAction;
+  nodeId?: string | null;
+  threadId: string;
+  commentId?: string;
+}
+
+export interface CommentMarkerMovePayload {
+  threadId: string;
+  x: number;
+  y: number;
 }
 
 export type CollabListener = (envelope: CollabEnvelope) => void;

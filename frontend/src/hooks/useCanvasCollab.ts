@@ -7,12 +7,15 @@ import type {
   CollabEnvelope,
   CollabEventType,
   CollabListener,
+  CommentMarkerMovePayload,
   ConnectedPayload,
   NodePatchPayload,
 } from '../collab/types';
 
 const PATCH_DEBOUNCE_MS = 200;
-const CURSOR_THROTTLE_MS = 150;
+const PATCH_MAXWAIT_MS = 150; // 持续拖动时最长 150ms 强制推送一次, 保证 <300ms 实时跟随
+const CURSOR_THROTTLE_MS = 80;
+const COMMENT_MARKER_THROTTLE_MS = 80;
 const RECONNECT_MS = 3000;
 const SEQ_DEDUP_WINDOW = 200;
 
@@ -33,7 +36,9 @@ export interface CanvasCollabHandle {
   degraded: boolean;
   subscribe: (type: CollabEventType | CollabEventType[], listener: CollabListener) => () => void;
   sendPatch: (patch: NodePatchPayload) => void;
-  sendCursor: (x: number, y: number, viewport?: { zoom?: number; offsetX?: number; offsetY?: number }) => void;
+  /** x/y 为画布世界坐标（Paper project 坐标），由调用方换算后传入。 */
+  sendCursor: (x: number, y: number) => void;
+  sendCommentMarkerMove: (threadId: string, x: number, y: number) => void;
   claimLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number; holder?: { userId: string } }>;
   renewLock: (nodeId: string) => Promise<{ acquired: boolean; expiresAt: number }>;
   releaseLock: (nodeId: string) => Promise<boolean>;
@@ -55,7 +60,10 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const cleanupRef = useRef<(() => void) | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const patchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatch = useRef<NodePatchPayload | null>(null);
+  const patchLastFlush = useRef<number>(0);
   const cursorLastSent = useRef<number>(0);
+  const commentMarkerLastSent = useRef<number>(0);
   const lastSeqRef = useRef<number>(0);
   const seenSeqs = useRef<number[]>([]);
   const listenersRef = useRef<Map<CollabEventType | '*', Set<CollabListener>>>(new Map());
@@ -102,6 +110,8 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
       if (envelope.seq > lastSeqRef.current) {
         lastSeqRef.current = envelope.seq;
       }
+      // 向 realtimeClient 推进补帧游标，断线重连时带上 after=seq。
+      realtimeClient.noteSeq(envelope.seq);
     }
     const set = listenersRef.current.get(envelope.type);
     if (set) for (const fn of set) fn(envelope);
@@ -118,7 +128,9 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
         const data = env.payload as ConnectedPayload;
         setConnected(true);
         setDegraded(Boolean(data?.degraded));
-        // 注意：connId 故意不写入 connIdRef（锁功能 v1 不启用，保持 no-op）。
+        // 写入 connId：激活 sendPatch / claimLock / sendToast（此前为 no-op 导致协作编辑不生效）。
+        connIdRef.current = data?.connId ?? null;
+        setConnId(data?.connId ?? null);
         dispatch({ type: 'connected', payload: data, ts: Date.now() });
         return;
       }
@@ -139,7 +151,12 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
 
   useEffect(() => {
     connect();
+    const handleProfileUpdated = () => {
+      realtimeClient.refresh();
+    };
+    window.addEventListener('tanva:profile-updated', handleProfileUpdated);
     return () => {
+      window.removeEventListener('tanva:profile-updated', handleProfileUpdated);
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
@@ -159,24 +176,101 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   const sendPatch = useCallback(
     (patch: NodePatchPayload) => {
       if (!connIdRef.current) return;
-      if (patchDebounce.current) clearTimeout(patchDebounce.current);
-      patchDebounce.current = setTimeout(() => {
+      // 合并待发送 patch：200ms 去抖窗口内多次调用（移动/增删/Prompt 等不同来源）
+      // 必须累积合并，否则后一次会覆盖前一次导致编辑丢失。upsert 按 id 去重保留最新。
+      const dedupById = (arr?: unknown[]): unknown[] | undefined => {
+        if (!arr || arr.length === 0) return undefined;
+        const byId = new Map<string, Record<string, unknown>>();
+        const noId: unknown[] = [];
+        for (const it of arr) {
+          const cur = it as Record<string, unknown>;
+          const id = cur?.id;
+          if (typeof id === 'string') {
+            const prev = byId.get(id);
+            if (!prev) {
+              byId.set(id, cur);
+              continue;
+            }
+            // 合并而非整体替换：同一去抖窗口内，先到的完整新增补丁{id,type,data,...}
+            // 不能被后到的局部补丁{id,position}覆盖丢掉 type/data，否则对端会据此合成
+            // 无 type 的"未知节点"。{...prev,...cur} 已能保留 cur 未携带的 type；
+            // data/style 再做深合并，避免互相覆盖。
+            const merged: Record<string, unknown> = { ...prev, ...cur };
+            if (prev.data || cur.data) {
+              merged.data = { ...(prev.data as object || {}), ...(cur.data as object || {}) };
+            }
+            if (prev.style || cur.style) {
+              merged.style = { ...(prev.style as object || {}), ...(cur.style as object || {}) };
+            }
+            byId.set(id, merged);
+          } else {
+            noId.push(it);
+          }
+        }
+        return [...noId, ...byId.values()];
+      };
+      const prev = pendingPatch.current ?? {};
+      pendingPatch.current = {
+        upsertNodes: dedupById([...(prev.upsertNodes ?? []), ...(patch.upsertNodes ?? [])]),
+        removeNodeIds: [...new Set([...(prev.removeNodeIds ?? []), ...(patch.removeNodeIds ?? [])])],
+        upsertEdges: dedupById([...(prev.upsertEdges ?? []), ...(patch.upsertEdges ?? [])]),
+        removeEdgeIds: [...new Set([...(prev.removeEdgeIds ?? []), ...(patch.removeEdgeIds ?? [])])],
+      };
+      const post = (payload: NodePatchPayload, attempt: number) => {
+        // 用当前(可能刚重连刷新过的) connId 发送；失败(网络抖动/重连后旧 connId 被判 403)
+        // 重试一次, 避免单次丢包导致对端漏掉该次编辑(尤其拖拽最终位置)。
         fetchWithAuth(`${base}/api/canvas/${projectId}/patch?teamId=${activeTeamId ?? ''}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ patch, connId: connIdRef.current }),
-        }).catch(() => undefined);
-      }, PATCH_DEBOUNCE_MS);
+          body: JSON.stringify({ patch: payload, connId: connIdRef.current }),
+        })
+          .then((res) => {
+            if (!res.ok && attempt === 0 && connIdRef.current) {
+              setTimeout(() => post(payload, 1), 300);
+            }
+          })
+          .catch(() => {
+            if (attempt === 0 && connIdRef.current) setTimeout(() => post(payload, 1), 300);
+          });
+      };
+      const flush = () => {
+        if (patchDebounce.current) { clearTimeout(patchDebounce.current); patchDebounce.current = null; }
+        const toSend = pendingPatch.current;
+        pendingPatch.current = null;
+        patchLastFlush.current = Date.now();
+        if (!toSend) return;
+        post(toSend, 0);
+      };
+      // maxWait 节流：持续拖动(每帧调用)时, 距上次发送 >=150ms 立即推送, 实现实时跟随;
+      // 否则按 200ms 去抖在停顿后发出最终值。两者都保证不丢、不积压。
+      if (Date.now() - patchLastFlush.current >= PATCH_MAXWAIT_MS) {
+        flush();
+        return;
+      }
+      if (patchDebounce.current) clearTimeout(patchDebounce.current);
+      patchDebounce.current = setTimeout(flush, PATCH_DEBOUNCE_MS);
     },
     [projectId, activeTeamId],
   );
 
   const sendCursor = useCallback(
-    (x: number, y: number, viewport?: { zoom?: number; offsetX?: number; offsetY?: number }) => {
+    (x: number, y: number) => {
       const now = Date.now();
       if (now - cursorLastSent.current < CURSOR_THROTTLE_MS) return;
       cursorLastSent.current = now;
-      realtimeClient.send({ type: 'cursor', payload: { x, y, viewport } });
+      realtimeClient.send({ type: 'cursor', payload: { x, y } });
+    },
+    [],
+  );
+
+  const sendCommentMarkerMove = useCallback(
+    (threadId: string, x: number, y: number) => {
+      if (!connIdRef.current || !threadId) return;
+      const now = Date.now();
+      if (now - commentMarkerLastSent.current < COMMENT_MARKER_THROTTLE_MS) return;
+      commentMarkerLastSent.current = now;
+      const payload: CommentMarkerMovePayload = { threadId, x, y };
+      realtimeClient.send({ type: 'comment_marker_move', payload });
     },
     [],
   );
@@ -266,6 +360,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
     subscribe,
     sendPatch,
     sendCursor,
+    sendCommentMarkerMove,
     claimLock,
     renewLock,
     releaseLock,

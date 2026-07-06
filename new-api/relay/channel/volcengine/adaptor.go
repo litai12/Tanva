@@ -52,6 +52,13 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("unsupported audio relay mode")
 	}
 
+	// doubao-seed-audio：同步 HTTP（openspeech /api/v3/tts/create），不走 volcano_tts WS。
+	if isSeedAudioModel(info.OriginModelName) {
+		c.Set(contextKeyResponseFormat, request.ResponseFormat)
+		info.IsStream = false
+		return convertSeedAudioRequest(request)
+	}
+
 	appID, token, err := parseVolcengineAuth(info.ApiKey)
 	if err != nil {
 		return nil, err
@@ -248,6 +255,12 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		if isSeedreamModel(info.UpstreamModelName) || isSeedreamModel(info.OriginModelName) {
 			request.Size = resolveSeedreamSize(request.Size, request.Extra)
 			normSeedreamImageField(&request)
+			// seedream 默认会给图片打水印（watermark 默认 true），业务侧固定去水印。
+			// 文档：https://www.volcengine.com/docs/82379/1541523
+			disableWatermark := false
+			request.Watermark = &disableWatermark
+			// 清掉客户端可能从 Extra 透传的同名键，避免与上面的显式 false 冲突。
+			delete(request.Extra, "watermark")
 		}
 		return request, nil
 	// 根据官方文档,并没有发现豆包生图支持表单请求:https://www.volcengine.com/docs/82379/1824121
@@ -415,6 +428,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case constant.RelayModeResponses:
 			return fmt.Sprintf("%s/api/v3/responses", baseUrl), nil
 		case constant.RelayModeAudioSpeech:
+			if isSeedAudioModel(info.OriginModelName) {
+				if baseUrl == channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {
+					return seedAudioCreateURL, nil
+				}
+				return fmt.Sprintf("%s/api/v3/tts/create", baseUrl), nil
+			}
 			if baseUrl == channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {
 				return "wss://openspeech.bytedance.com/api/v1/tts/ws_binary", nil
 			}
@@ -429,6 +448,12 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	channel.SetupApiRequestHeader(info, c, req)
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
+		// doubao-seed-audio：新版语音控制台 X-Api-Key 单头鉴权（渠道 key 即 X-Api-Key）。
+		if isSeedAudioModel(info.OriginModelName) {
+			req.Set("X-Api-Key", info.ApiKey)
+			req.Set("Content-Type", "application/json")
+			return nil
+		}
 		parts := strings.Split(info.ApiKey, "|")
 		if len(parts) == 2 {
 			req.Set("Authorization", "Bearer;"+parts[1])
@@ -495,6 +520,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
+		if isSeedAudioModel(info.OriginModelName) {
+			return handleSeedAudioResponse(c, resp, info)
+		}
 		encoding := mapEncoding(c.GetString(contextKeyResponseFormat))
 		if info.IsStream {
 			volcRequestInterface, exists := c.Get(contextKeyTTSRequest)

@@ -896,6 +896,36 @@ type AvailableTool =
 
 type AIProviderType = SupportedAIProvider;
 
+const isDeepSeekProvider = (provider: AIProviderType): boolean =>
+  provider === "deepseek-v4-flash" || provider === "deepseek-v4-pro";
+
+const filterToolsForProvider = (
+  provider: AIProviderType,
+  tools: AvailableTool[]
+): AvailableTool[] => {
+  if (isDeepSeekProvider(provider)) {
+    return tools.filter(
+      (tool) =>
+        tool === "chatResponse" ||
+        tool === "analyzeImage" ||
+        tool === "analyzePdf"
+    );
+  }
+  return tools;
+};
+
+const fallbackToolForProvider = (
+  provider: AIProviderType,
+  totalImageCount: number,
+  hasPdfForAnalysis: boolean
+): AvailableTool => {
+  if (isDeepSeekProvider(provider)) {
+    if (hasPdfForAnalysis) return "analyzePdf";
+    return totalImageCount > 0 ? "analyzeImage" : "chatResponse";
+  }
+  return "chatResponse";
+};
+
 type SetAIProviderOptions = {
   syncFlowNodes?: boolean;
   source?: "global" | "dialog" | "internal";
@@ -942,6 +972,8 @@ const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
 const BANANA_31_TEXT_MODEL = "gemini-3.1-pro-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
+const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro-260425";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 export const SORA2_VIDEO_MODELS = {
   hd: "sora-2-pro-reverse",
@@ -1442,6 +1474,12 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === "banana-3.1") {
     return BANANA_31_IMAGE_MODEL;
   }
+  if (provider === "deepseek-v4-flash") {
+    return DEEPSEEK_V4_FLASH_MODEL;
+  }
+  if (provider === "deepseek-v4-pro") {
+    return DEEPSEEK_V4_PRO_MODEL;
+  }
   if (provider === "seedream5") {
     return SEEDREAM5_IMAGE_MODEL;
   }
@@ -1463,6 +1501,8 @@ const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   banana: BANANA_PRO_TEXT_MODEL,
   "banana-2.5": BANANA_25_TEXT_MODEL,
   "banana-3.1": BANANA_31_TEXT_MODEL,
+  "deepseek-v4-flash": DEEPSEEK_V4_FLASH_MODEL,
+  "deepseek-v4-pro": DEEPSEEK_V4_PRO_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
   nano2: BANANA_31_TEXT_MODEL,
@@ -3216,6 +3256,7 @@ export const useAIChatStore = create<AIChatState>()(
                 ? { remoteUrl: initialRemoteUrl }
                 : { dataUrl }),
               title: prompt,
+              prompt,
               nodeId: aiMessageId,
               nodeType: "generate",
               projectId,
@@ -6635,9 +6676,11 @@ export const useAIChatStore = create<AIChatState>()(
           let aiMessageId: string | undefined;
 
           // 格式化 PDF 数据
-          const formattedPdfData = sourcePdf.startsWith("data:application/pdf")
-            ? sourcePdf
-            : `data:application/pdf;base64,${sourcePdf}`;
+          const formattedPdfData =
+            sourcePdf.startsWith("data:application/pdf") ||
+            /^https?:\/\//i.test(sourcePdf)
+              ? sourcePdf
+              : `data:application/pdf;base64,${sourcePdf}`;
 
           if (override) {
             aiMessageId = override.aiMessageId;
@@ -7876,7 +7919,9 @@ export const useAIChatStore = create<AIChatState>()(
           const preferAnalyzeForMultiImage = hasMultiExplicitImages
             ? prefersAnalyzeForMultiImage(input)
             : false;
-          const availableToolsForSelection: AvailableTool[] = isSingleExplicitImage
+          const availableToolsForSelection: AvailableTool[] = filterToolsForProvider(
+            state.aiProvider,
+            isSingleExplicitImage
             ? allowAnalyzeImageTool
               ? ["editImage", "analyzeImage"]
               : ["editImage"]
@@ -7896,7 +7941,8 @@ export const useAIChatStore = create<AIChatState>()(
                   "chatResponse",
                   "generateVideo",
                   "generatePaperJS",
-                ];
+                ]
+          );
 
           const toolSelectionRequest = {
             userInput: input,
@@ -8001,12 +8047,31 @@ export const useAIChatStore = create<AIChatState>()(
             }
           }
 
+          if (state.sourcePdfForAnalysis && selectedTool === "chatResponse") {
+            selectedTool = "analyzePdf";
+            logProcessStep(metrics, "pdf upload detected, text chat redirected to analyzePdf");
+          }
+
           if (!allowAnalyzeImageTool && selectedTool === "analyzeImage") {
             selectedTool = hasMultiExplicitImages ? "blendImages" : "editImage";
             logProcessStep(
               metrics,
               "analyzeImage disabled on stable banana route, fallback tool applied"
             );
+          }
+
+          if (
+            selectedTool &&
+            !filterToolsForProvider(state.aiProvider, [selectedTool]).includes(
+              selectedTool
+            )
+          ) {
+            selectedTool = fallbackToolForProvider(
+              state.aiProvider,
+              totalImageCount,
+              Boolean(state.sourcePdfForAnalysis)
+            );
+            logProcessStep(metrics, `provider capability fallback tool applied: ${selectedTool}`);
           }
 
           if (!selectedTool) {
@@ -8369,17 +8434,18 @@ export const useAIChatStore = create<AIChatState>()(
               state.aiProvider,
               state.bananaImageRoute
             );
-            const traceAvailableTools =
-              traceImageCount === 1 &&
+            const traceAvailableTools = filterToolsForProvider(
+              state.aiProvider,
+              (traceImageCount === 1 &&
               state.sourceImagesForBlending.length === 0
                 ? traceAllowAnalyze
-                  ? (["editImage", "analyzeImage"] as const)
-                  : (["editImage"] as const)
+                  ? ["editImage", "analyzeImage"]
+                  : ["editImage"]
                 : traceImageCount > 1
                   ? traceAllowAnalyze
-                    ? (["blendImages", "analyzeImage"] as const)
-                    : (["blendImages"] as const)
-                  : ([
+                    ? ["blendImages", "analyzeImage"]
+                    : ["blendImages"]
+                  : [
                       "generateImage",
                       "editImage",
                       "blendImages",
@@ -8387,7 +8453,8 @@ export const useAIChatStore = create<AIChatState>()(
                       "chatResponse",
                       "generateVideo",
                       "generatePaperJS",
-                    ] as const);
+                    ]) as AvailableTool[]
+            );
 
             const runAgentTrace = async () => {
               const updateAgentTrace = (event: AgentRunEvent) => {
@@ -8576,7 +8643,8 @@ export const useAIChatStore = create<AIChatState>()(
                 ? prefersAnalyzeForMultiImage(input)
                 : false;
 
-              const availableToolsForSelection: AvailableTool[] =
+              const availableToolsForSelection: AvailableTool[] = filterToolsForProvider(
+                state.aiProvider,
                 isSingleExplicitImage
                   ? allowAnalyzeImageTool
                     ? ["editImage", "analyzeImage"]
@@ -8597,7 +8665,8 @@ export const useAIChatStore = create<AIChatState>()(
                         "chatResponse",
                         "generateVideo",
                         "generatePaperJS",
-                      ];
+                      ]
+              );
 
               const toolSelectionRequest = {
                 userInput: input,
@@ -8659,7 +8728,23 @@ export const useAIChatStore = create<AIChatState>()(
                   ? "blendImages"
                   : "editImage";
               }
+              if (
+                selectedTool &&
+                !filterToolsForProvider(state.aiProvider, [selectedTool]).includes(
+                  selectedTool
+                )
+              ) {
+                selectedTool = fallbackToolForProvider(
+                  state.aiProvider,
+                  totalImageCount,
+                  Boolean(state.sourcePdfForAnalysis)
+                );
+              }
             }
+          }
+
+          if (state.sourcePdfForAnalysis && selectedTool === "chatResponse") {
+            selectedTool = "analyzePdf";
           }
 
           if (!selectedTool) {
@@ -8674,6 +8759,23 @@ export const useAIChatStore = create<AIChatState>()(
             "editImage",
             "blendImages",
           ];
+          if (
+            selectedTool &&
+            !filterToolsForProvider(state.aiProvider, [selectedTool]).includes(
+              selectedTool
+            )
+          ) {
+            const selectedImageTotal =
+              state.sourceImagesForBlending.length +
+              (state.sourceImageForEditing ? 1 : 0) +
+              (state.sourceImageForAnalysis ? 1 : 0) +
+              (contextManager.getCachedImage() ? 1 : 0);
+            selectedTool = fallbackToolForProvider(
+              state.aiProvider,
+              selectedImageTotal,
+              Boolean(state.sourcePdfForAnalysis)
+            );
+          }
           const isImageGenerationTool =
             selectedTool && imageGenerationTools.includes(selectedTool);
 

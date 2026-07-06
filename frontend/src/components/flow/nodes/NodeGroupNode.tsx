@@ -469,14 +469,14 @@ function NodeGroupNode({ id, data, selected }: Props) {
             border: stopping
               ? '1px solid #e5e7eb'
               : running
-              ? '1px solid rgba(239, 68, 68, 0.35)'
+              ? '1px solid #111827'
               : '1px solid #d1d5db',
             background: stopping
               ? '#f3f4f6'
               : running
-              ? 'rgba(239, 68, 68, 0.08)'
+              ? '#111827'
               : 'rgba(255, 255, 255, 0.5)',
-            color: stopping ? '#9ca3af' : running ? '#dc2626' : '#4b5563',
+            color: stopping ? '#9ca3af' : running ? '#ffffff' : '#4b5563',
             borderRadius: 9999,
             padding: 0,
             fontSize: 12,
@@ -492,9 +492,9 @@ function NodeGroupNode({ id, data, selected }: Props) {
           onMouseEnter={(event) => {
             if (stopping) return;
             if (running) {
-              event.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.55)';
-              event.currentTarget.style.color = '#b91c1c';
-              event.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)';
+              event.currentTarget.style.borderColor = '#000000';
+              event.currentTarget.style.color = '#ffffff';
+              event.currentTarget.style.background = '#000000';
             } else {
               event.currentTarget.style.borderColor = '#9ca3af';
               event.currentTarget.style.color = '#374151';
@@ -504,9 +504,9 @@ function NodeGroupNode({ id, data, selected }: Props) {
           onMouseLeave={(event) => {
             if (stopping) return;
             if (running) {
-              event.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.35)';
-              event.currentTarget.style.color = '#dc2626';
-              event.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+              event.currentTarget.style.borderColor = '#111827';
+              event.currentTarget.style.color = '#ffffff';
+              event.currentTarget.style.background = '#111827';
             } else {
               event.currentTarget.style.borderColor = '#d1d5db';
               event.currentTarget.style.color = '#4b5563';

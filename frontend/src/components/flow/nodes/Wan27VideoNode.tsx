@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { Video, Download, Share2, AlertTriangle, Music4, Image as ImageIcon, Clapperboard, HelpCircle } from "lucide-react";
+import { Video, Download, Share2, AlertTriangle, Music4, Image as ImageIcon, Clapperboard, HelpCircle, Square } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -29,6 +29,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     creditsPerCall?: number;
     resolution?: "720P" | "1080P" | string;
     aspectRatio?: string;
@@ -389,16 +390,22 @@ function Wan27VideoNode({ id, data, selected }: Props) {
           >
             <HelpCircle size={14} />
           </button>
-          <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} disabled={data.status === "running"} style={{ ...styles.iconBtn, width: hasRunCredits ? "auto" : styles.iconBtn.width, minWidth: hasRunCredits ? 64 : styles.iconBtn.width, padding: hasRunCredits ? "0 10px" : undefined, background: data.status === "running" ? "#e5e7eb" : "#111827", opacity: data.status === "running" ? 0.6 : 1, cursor: data.status === "running" ? "not-allowed" : "pointer", fontSize: 12 }}>
-            {data.status === "running" ? (
-              <span className="run-text-trigger">Running...</span>
-            ) : (
-              <>
-                <span className="run-text-trigger">Run</span>
-                {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
-              </>
-            )}
-          </button>
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run"
+              onClick={() => data.onStop?.(id)}
+              onMouseDown={handleButtonMouseDown}
+              title="停止并重置，可重新生成"
+              style={{ ...styles.iconBtn, width: hasRunCredits ? "auto" : styles.iconBtn.width, minWidth: hasRunCredits ? 64 : styles.iconBtn.width, padding: hasRunCredits ? "0 10px" : undefined, background: "#111827", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit" onClick={() => data.onRun?.(id)} onMouseDown={handleButtonMouseDown} style={{ ...styles.iconBtn, width: hasRunCredits ? "auto" : styles.iconBtn.width, minWidth: hasRunCredits ? 64 : styles.iconBtn.width, padding: hasRunCredits ? "0 10px" : undefined, cursor: "pointer", fontSize: 12 }}>
+              <span className="run-text-trigger">Run</span>
+              {hasRunCredits ? <RunCreditBadge credits={runCredits} runButton /> : null}
+            </button>
+          )}
           <button className="tanva-video-header-btn tanva-video-header-share" onClick={() => copyVideoLink(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl} style={{ ...styles.iconBtn, opacity: data.videoUrl ? 1 : 0.35, cursor: data.videoUrl ? "pointer" : "not-allowed" }}><Share2 size={14} /></button>
           <button className="tanva-video-header-btn tanva-video-header-download" onClick={() => triggerDownload(data.videoUrl)} onMouseDown={handleButtonMouseDown} disabled={!data.videoUrl || isDownloading} style={{ ...styles.iconBtn, background: !data.videoUrl || isDownloading ? "#e5e7eb" : "#111827", opacity: !data.videoUrl || isDownloading ? 0.35 : 1, cursor: !data.videoUrl || isDownloading ? "not-allowed" : "pointer" }}>{isDownloading ? <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>...</span> : <Download size={14} />}</button>
         </div>

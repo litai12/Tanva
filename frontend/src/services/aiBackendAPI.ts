@@ -16,7 +16,7 @@ import type {
   AIServiceResponse,
   SupportedAIProvider,
 } from "@/types/ai";
-import { fetchWithAuth } from "./authFetch";
+import { fetchWithAuth, IMAGE_REQUEST_TIMEOUT_MS } from "./authFetch";
 import { logger } from "@/utils/logger";
 
 // 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
@@ -28,6 +28,8 @@ const API_BASE_URL =
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
+const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro-260425";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
 const SEEDREAM5_IMAGE_MODEL = "doubao-seedream-5-0-260128";
 const SEEDREAM_PROVIDER_CACHE_TTL_MS = 30_000;
@@ -101,6 +103,73 @@ const logAIImageResponse = (
     textResponse: textResponse || "(无文本返回)",
     hasImage: hasImageData || hasImageUrl,
   });
+};
+
+const logImageReuseCacheResult = (
+  endpoint: string,
+  result: AIImageResult
+) => {
+  const cacheMeta = result.metadata?.imageReuseCache;
+  if (!cacheMeta || typeof cacheMeta !== "object" || Array.isArray(cacheMeta)) {
+    return;
+  }
+  const cache = cacheMeta as Record<string, any>;
+  const isHit = cache.hit === true;
+  const isStored = cache.stored === true;
+  const availablePoolSize =
+    typeof cache.availablePoolSize === "number"
+      ? cache.availablePoolSize
+      : typeof cache.poolSize === "number"
+      ? cache.poolSize
+      : undefined;
+  const title = isHit
+    ? "[ImageReuseCache] SEARCH RESULT / CACHE HIT"
+    : isStored
+    ? "[ImageReuseCache] STORED FRESH GENERATION"
+    : "[ImageReuseCache] CACHE METADATA";
+  const style = isHit
+    ? "background:#065f46;color:#ecfdf5;font-size:16px;font-weight:800;padding:6px 10px;border-radius:6px;"
+    : "background:#1e40af;color:#eff6ff;font-size:14px;font-weight:700;padding:5px 9px;border-radius:6px;";
+  const details = {
+    isSearchResult: isHit,
+    hit: isHit,
+    stored: isStored,
+    scope:
+      typeof cache.scope === "string" ? cache.scope : undefined,
+    assetOwnerIsRequester:
+      typeof cache.assetOwnerIsRequester === "boolean"
+        ? cache.assetOwnerIsRequester
+        : undefined,
+    assetId:
+      typeof cache.assetId === "string" ? cache.assetId : undefined,
+    signature:
+      typeof cache.signature === "string"
+        ? cache.signature
+        : undefined,
+    version: cache.version,
+    availablePoolSize,
+    poolSize:
+      typeof cache.poolSize === "number" ? cache.poolSize : undefined,
+    minPoolSize:
+      typeof cache.minPoolSize === "number" ? cache.minPoolSize : undefined,
+    presentationDelayMs:
+      typeof cache.presentationDelayMs === "number"
+        ? cache.presentationDelayMs
+        : undefined,
+    imageUrlPreview: result.imageUrl
+      ? truncateText(result.imageUrl, 120)
+      : undefined,
+  };
+
+  console.info(`%c${title}`, style, { endpoint, ...details });
+  if (isHit) {
+    console.groupCollapsed("[ImageReuseCache] cache-hit proof");
+    console.table([details]);
+    console.info(
+      "This image was returned from GenerationImageAsset instead of calling the image provider. availablePoolSize is the unused same-signature pool before this claim; presentationDelayMs is the deliberate UI pacing delay."
+    );
+    console.groupEnd();
+  }
 };
 
 const generateUUID = () => {
@@ -410,6 +479,8 @@ const resolveDefaultModel = (
   if (provider === "banana-3.1" || provider === "nano2") {
     return BANANA_31_IMAGE_MODEL;
   }
+  if (provider === "deepseek-v4-flash") return DEEPSEEK_V4_FLASH_MODEL;
+  if (provider === "deepseek-v4-pro") return DEEPSEEK_V4_PRO_MODEL;
   if (provider === "runninghub") return RUNNINGHUB_IMAGE_MODEL;
   if (provider === "seedream5") return SEEDREAM5_IMAGE_MODEL;
   return DEFAULT_IMAGE_MODEL;
@@ -512,6 +583,7 @@ async function performGenerateImageRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -559,6 +631,7 @@ async function performGenerateImageRequest(
       model: resolvedModel,
       outputFormat: requestWithRoute.outputFormat || "png",
     });
+    logImageReuseCacheResult("generate-image", mapped);
     if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
       return {
         success: false,
@@ -1083,6 +1156,7 @@ async function performEditImageRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -1282,6 +1356,7 @@ async function performBlendImagesRequest(
           : {}),
       },
       body: JSON.stringify(requestWithRoute),
+      timeoutMs: IMAGE_REQUEST_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -2532,4 +2607,3 @@ export async function queryDashscopeTask(taskId: string): Promise<{
     };
   }
 }
-

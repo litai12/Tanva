@@ -19,6 +19,7 @@ import tanvasAiNoticeImage from "@/assets/TanvasAI.png";
 
 const DISMISSED_KEY_PREFIX = "tanva:login-notice:dismissed";
 const DEFAULT_CONTEST_NOTICE_UPDATED_AT = "contest-default-2026-06-06";
+const ENABLE_DEFAULT_CONTEST_NOTICE = false;
 const CONTEST_DETAIL_URL =
   "https://mp.weixin.qq.com/s/E-WqYdpy-9bU5gtw0xQI4g";
 const API_BASE =
@@ -39,7 +40,7 @@ const buildApiUrl = (path: string) => {
 const DEFAULT_CONTEST_NOTICE: LoginNotice = {
   enabled: true,
   content:
-    "2026 Tanvas AI 全球AI创意自由创作公开赛\n参赛赢百万算力 | 全年会员 | 商业签约 | 丰厚奖金\n赛程设置：初赛、晋级赛、决赛三轮选拔，7月31日于横琴举办线下颁奖典礼。",
+    "2026 Tanvas AI 全球AI创意自由创作公开赛\n参赛赢百万算力 | 全年会员 | 商业签约 | 丰厚奖金\n赛程设置:初赛晋级赛决赛三轮选拔，8月2日12:00初赛截稿。1月中旬，横琴举办线下颁奖典礼，赛事收官;",
   contentHtml:
     "<p><strong>2026 Tanvas AI 全球AI创意自由创作公开赛</strong></p><p>参赛赢百万算力 | 全年会员 | 商业签约 | 丰厚奖金</p>",
   mediaType: "image",
@@ -56,6 +57,9 @@ const DEFAULT_CONTEST_NOTICE: LoginNotice = {
 const resolveNotice = (nextNotice: LoginNotice): LoginNotice => {
   const content = nextNotice.content.trim();
   if (nextNotice.enabled && content) return nextNotice;
+  if (!ENABLE_DEFAULT_CONTEST_NOTICE) {
+    return { ...nextNotice, enabled: false };
+  }
   return {
     ...DEFAULT_CONTEST_NOTICE,
     secondaryButtonQrUrl:
@@ -219,12 +223,16 @@ export default function LoginNoticeModal() {
     getLoginNotice()
       .then((nextNotice) => {
         if (cancelled) return;
-        showResolvedNotice(resolveNotice(nextNotice));
+        const resolvedNotice = resolveNotice(nextNotice);
+        if (!resolvedNotice.enabled) return;
+        showResolvedNotice(resolvedNotice);
       })
       .catch((error) => {
         if (!cancelled) {
           console.warn("Failed to load login notice:", error);
-          showResolvedNotice(DEFAULT_CONTEST_NOTICE);
+          if (ENABLE_DEFAULT_CONTEST_NOTICE) {
+            showResolvedNotice(DEFAULT_CONTEST_NOTICE);
+          }
         }
       });
 
@@ -405,7 +413,7 @@ export default function LoginNoticeModal() {
             <div className='mt-[clamp(14px,1.8vw,22px)] space-y-2 text-[clamp(11px,1.25vw,14px)] font-medium leading-[1.45] tracking-normal text-[#4b4b4b]'>
               <p>
                 <span className='mr-2'>📌</span>
-                <span>赛程设置：初赛、晋级赛、决赛三轮选拔，7月31日于横琴举办线下颁奖典礼。</span>
+                <span>赛程设置:初赛晋级赛决赛三轮选拔，8月2日12:00初赛截稿。1月中旬，横琴举办线下颁奖典礼，赛事收官。</span>
               </p>
               <p>
                 <span className='mr-2'>🔹</span>

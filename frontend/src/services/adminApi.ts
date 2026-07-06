@@ -61,6 +61,13 @@ export interface UserWithCredits {
   apiCallCount: number;
 }
 
+export interface CreateAdminUserPayload {
+  phone: string;
+  password: string;
+  name: string;
+  email?: string;
+}
+
 export interface ApiUsageStats {
   serviceType: string;
   serviceName: string;
@@ -77,6 +84,59 @@ export interface ApiUsageStats {
     userEmail: string | null;
     callCount: number;
   }>;
+}
+
+export interface ApiUsageModelTopUser {
+  userId: string;
+  userName: string | null;
+  userPhone: string;
+  userEmail: string | null;
+  callCount: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+}
+
+export interface ApiUsageModelChannelStats {
+  channel: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  userCount: number;
+}
+
+export interface ApiUsageModelStats {
+  modelNode: string;
+  modelName: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  successRate: number;
+  totalCreditsUsed: number;
+  userCount: number;
+  serviceTypes: string[];
+  providers: string[];
+  models: string[];
+  channels: ApiUsageModelChannelStats[];
+  topUsers: ApiUsageModelTopUser[];
+}
+
+export interface ApiUsageModelStatsResponse {
+  items: ApiUsageModelStats[];
+  summary: {
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    pendingCalls: number;
+    totalCreditsUsed: number;
+    uniqueUsers: number;
+  };
+  modelNodes: Array<{ key: string; name: string }>;
+  channels: string[];
 }
 
 export interface ApiUsageRecord {
@@ -121,10 +181,82 @@ export interface Pagination {
   totalPages: number;
 }
 
+export interface ApiUsageRecordsSummary {
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  pendingCalls: number;
+  totalCreditsUsed: number;
+  successfulCredits: number;
+  pendingCredits: number;
+  refundedCredits: number;
+  rawCreditsRecorded: number;
+  inputTokens: number;
+  outputTokens: number;
+  uniqueUsers: number;
+  averageProcessingTime: number | null;
+}
+
+export interface ApiUsageFilterOption {
+  value: string;
+  label: string;
+  source: "credit-transactions" | "usage";
+  count?: number;
+}
+
+export interface ApiUsageFilterOptions {
+  providers: ApiUsageFilterOption[];
+  models: ApiUsageFilterOption[];
+  sources: string[];
+}
+
 export interface UserCreditsInfo {
   balance: number;
   totalEarned: number;
   totalSpent: number;
+}
+
+export interface AdminUserRechargeOrderSummary {
+  count: number;
+  totalAmount: number;
+  totalCredits: number;
+  latestPaidAt: string | null;
+}
+
+export interface AdminUserRechargeOrderItem {
+  id: string;
+  orderNo: string;
+  orderType: "membership" | "recharge" | string;
+  amount: number;
+  credits: number;
+  paymentMethod: string;
+  paidAt: string | null;
+  createdAt: string;
+  membershipPlanId: string | null;
+  planName: string | null;
+}
+
+export interface AdminUserRechargeOrders {
+  membership: AdminUserRechargeOrderSummary;
+  wechatRecharge: AdminUserRechargeOrderSummary;
+  recentOrders: AdminUserRechargeOrderItem[];
+}
+
+export interface AdminUserDetail {
+  id: string;
+  email: string | null;
+  phone: string;
+  name: string | null;
+  role: string;
+  status: string;
+  wechatOfficialOpenId?: string | null;
+  wechatUnionId?: string | null;
+  wechatBound: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  creditAccount: unknown;
+  recentApiUsage: unknown[];
+  rechargeOrders: AdminUserRechargeOrders;
 }
 
 export interface PaginatedResponse<T> {
@@ -137,6 +269,108 @@ export interface PaginatedResponse<T> {
 export async function getDashboardStats(params?: { tenantId?: string }): Promise<DashboardStats> {
   const qs = params?.tenantId ? `?tenantId=${encodeURIComponent(params.tenantId)}` : "";
   const response = await request(`/api/admin/dashboard${qs}`);
+  return response.json();
+}
+
+// ── 系统监控 ──────────────────────────────────────────────────────────────
+export interface SystemMonitorTrendPoint {
+  t: number;
+  rss: number;
+  heapUsed: number;
+  externalBytes: number;
+  active: number;
+  eventLoopP99Ms: number;
+}
+
+export interface SystemMonitorSnapshot {
+  timestamp: number;
+  warmingUp: boolean;
+  process: {
+    pid: number;
+    nodeVersion: string;
+    uptimeSec: number;
+    cpuPercent: number;
+    memory: {
+      rss: number;
+      heapUsed: number;
+      heapTotal: number;
+      heapSizeLimit: number;
+      totalAvailableSize: number;
+      external: number;
+      arrayBuffers: number;
+      rssRestartLimit: number;
+    };
+    eventLoop: { p50Ms: number; p99Ms: number; maxMs: number };
+  };
+  queue: {
+    name: string;
+    counts: {
+      waiting: number;
+      active: number;
+      delayed: number;
+      failed: number;
+      completed: number;
+      paused: number;
+    };
+    config: {
+      maxConcurrent: number;
+      highWatermark: number;
+      lowWatermark: number;
+    };
+  };
+  redis: {
+    connected: boolean;
+    usedMemory: number;
+    usedMemoryRss: number;
+    usedMemoryPeak: number;
+    memFragmentationRatio: number;
+    connectedClients: number;
+    blockedClients: number;
+    instantaneousOpsPerSec: number;
+    keyspaceHits: number;
+    keyspaceMisses: number;
+    evictedKeys: number;
+    expiredKeys: number;
+    dbsize: number;
+    uptimeSec: number;
+    version: string;
+  };
+  os: {
+    loadavg: number[];
+    cpuCount: number;
+    totalmem: number;
+    freemem: number;
+    cgroupMemoryLimit?: number;
+    cgroupMemoryCurrent?: number;
+  };
+  tasks: SystemMonitorTaskStats | null;
+  history: SystemMonitorTrendPoint[];
+}
+
+export interface SystemMonitorTaskBreakdown {
+  queued: number;
+  processing: number;
+  failed24h: number;
+  succeeded24h: number;
+}
+
+export interface SystemMonitorTaskError {
+  message: string;
+  count: number;
+  source: "image" | "video";
+}
+
+export interface SystemMonitorTaskStats {
+  updatedAt: number;
+  windowHours: number;
+  backlogTotal: number;
+  image: SystemMonitorTaskBreakdown;
+  video: SystemMonitorTaskBreakdown;
+  topErrors: SystemMonitorTaskError[];
+}
+
+export async function getSystemMonitor(): Promise<SystemMonitorSnapshot> {
+  const response = await request("/api/admin/system-monitor");
   return response.json();
 }
 
@@ -309,7 +543,16 @@ export async function setTenantPaymentConfig(
 }
 
 // 获取用户详情
-export async function getUserDetail(userId: string) {
+export async function createAdminUser(payload: CreateAdminUserPayload): Promise<UserWithCredits> {
+  const response = await request("/api/admin/users", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+export async function getUserDetail(userId: string): Promise<AdminUserDetail> {
   const response = await request(`/api/admin/users/${userId}`);
   return response.json();
 }
@@ -437,7 +680,23 @@ export async function getApiUsageStats(params?: {
   return response.json();
 }
 
-// 获取 API 使用记录
+// 获取模型用量监测统计
+export async function getApiUsageModelStats(params?: {
+  startDate?: string;
+  endDate?: string;
+  modelNode?: string;
+  channel?: string;
+}): Promise<ApiUsageModelStatsResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.modelNode) searchParams.set("modelNode", params.modelNode);
+  if (params?.channel) searchParams.set("channel", params.channel);
+
+  const response = await request(`/api/admin/api-usage/model-stats?${searchParams}`);
+  return response.json();
+}
+
 export async function getApiUsageRecords(params: {
   page?: number;
   pageSize?: number;
@@ -445,11 +704,12 @@ export async function getApiUsageRecords(params: {
   userSearch?: string;
   serviceType?: string;
   provider?: string;
+  model?: string;
   status?: string;
   startDate?: string;
   endDate?: string;
   tenantId?: string; // 仅主站超管：租户id 或 "all"
-}): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
+}): Promise<{ records: ApiUsageRecord[]; summary: ApiUsageRecordsSummary; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
   if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
@@ -457,6 +717,7 @@ export async function getApiUsageRecords(params: {
   if (params.userSearch) searchParams.set("userSearch", params.userSearch);
   if (params.serviceType) searchParams.set("serviceType", params.serviceType);
   if (params.provider) searchParams.set("provider", params.provider);
+  if (params.model) searchParams.set("model", params.model);
   if (params.status) searchParams.set("status", params.status);
   if (params.startDate) searchParams.set("startDate", params.startDate);
   if (params.endDate) searchParams.set("endDate", params.endDate);
@@ -469,6 +730,11 @@ export async function getApiUsageRecords(params: {
 }
 
 // 获取服务定价
+export async function getApiUsageFilterOptions(): Promise<ApiUsageFilterOptions> {
+  const response = await request("/api/admin/api-usage/filter-options");
+  return response.json();
+}
+
 export async function getPricing() {
   const response = await request("/api/admin/pricing");
   return response.json();
@@ -1172,6 +1438,14 @@ export interface MembershipCurrentResponse {
     pauseGiftDecay: boolean;
     hasActiveSubscription: boolean;
   };
+  balances: {
+    freeCredits: number;
+    rechargeCredits: number;
+    subscriptionCredits: number;
+    giftCredits: number;
+    fixedCredits: number;
+    totalCredits: number;
+  };
 }
 
 export interface MembershipMeResponse {
@@ -1183,6 +1457,8 @@ export interface MembershipMeResponse {
     pauseGiftDecay: boolean;
   };
   balances: {
+    freeCredits: number;
+    rechargeCredits: number;
     subscriptionCredits: number;
     giftCredits: number;
     fixedCredits: number;
@@ -1750,7 +2026,8 @@ export interface AdminTeamItem {
   ownerId: string;
   ownerName: string;
   memberCount: number;
-  maxSeats: number;
+  /** 席位容量（唯一口径）：永久席位 + 有效席位包 */
+  seatCapacity: number;
   status: string;
   availableCredits: number;
   totalCredits: number;

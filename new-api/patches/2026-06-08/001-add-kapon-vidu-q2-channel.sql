@@ -99,7 +99,11 @@ SELECT 'kapon-vidu', 52, 'default',
   1, 'https://models.kapon.cloud/vidu',
   (SELECT key FROM channels WHERE name = 'kapon' AND type = 59 LIMIT 1),
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 1200, 0, 'kapon-vidu', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-vidu' AND type = 52);
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-vidu' AND type = 52)
+  AND EXISTS (
+    SELECT 1 FROM channels
+    WHERE name = 'kapon' AND type = 59 AND NULLIF(key, '') IS NOT NULL
+  );
 
 UPDATE channels AS c
 SET models = 'vidu-q2,vidu-q3',
@@ -132,7 +136,11 @@ SELECT 'kapon-kling', 50, 'default',
   1, 'https://models.kapon.cloud',
   (SELECT key FROM channels WHERE name = 'kapon' AND type = 59 LIMIT 1),
   EXTRACT(EPOCH FROM NOW())::bigint, 0, 50, 0, 'kapon-kling', NULL, NULL, NULL
-WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-kling' AND type = 50);
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE name = 'kapon-kling' AND type = 50)
+  AND EXISTS (
+    SELECT 1 FROM channels
+    WHERE name = 'kapon' AND type = 59 AND NULLIF(key, '') IS NOT NULL
+  );
 
 UPDATE channels AS c
 SET models = 'kling-v2-6,kling-v3,kling-v3-omni',

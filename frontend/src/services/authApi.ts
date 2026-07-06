@@ -11,6 +11,7 @@ export type UserInfo = {
   id: string;
   email: string;
   name?: string;
+  avatarUrl?: string | null;
   role?: string;
   phone?: string;
   tenantId?: string;
@@ -453,6 +454,12 @@ export const authApi = {
       if (trimmedName === payload.phone) {
         throw new Error("用户名不能与手机号相同");
       }
+      if (payload.inviteCode?.trim()) {
+        const inviteResult = await validateInviteCode(payload.inviteCode.trim());
+        if (!inviteResult.valid) {
+          throw new Error(inviteResult.message || "invalid_invite_code");
+        }
+      }
       const existsPhoneMatchedByName = users.find((u) => u.phone === trimmedName);
       if (existsPhoneMatchedByName) {
         throw new Error("用户名不能与手机号相同");
@@ -633,9 +640,15 @@ export const authApi = {
       }
       const data = await res.json().catch(() => null);
       if (!data) return null;
-      return data && typeof data === "object" && "user" in data
+      const user = data && typeof data === "object" && "user" in data
         ? (data.user as UserInfo)
         : (data as UserInfo);
+      if (user) {
+        saveSession(user);
+        setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+        setStoredLastAuthAt(Date.now());
+      }
+      return user;
     } catch (e) {
       console.warn("authApi.me network error:", e);
       return loadSession();
@@ -727,6 +740,31 @@ export const authApi = {
       allowRefresh: false,
     });
     return json<{ success: boolean; hasCustomKey: boolean; mode: string }>(res);
+  },
+
+  // 更新当前用户资料（用户名）
+  async updateProfile(dto: { name?: string; avatarUrl?: string | null }): Promise<UserInfo> {
+    if (isMock) {
+      await delay(200);
+      const session = loadSession();
+      const user = { ...(session || {}), ...dto } as UserInfo;
+      saveSession(user);
+      return user;
+    }
+
+    const res = await fetchWithAuth(`${base}/api/users/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...getAccessAuthHeader() },
+      body: JSON.stringify(dto),
+      credentials: "include",
+      auth: "omit",
+      allowRefresh: false,
+    });
+    const user = await json<UserInfo>(res);
+    saveSession(user);
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
+    return user;
   },
 
   // 忘记密码重置

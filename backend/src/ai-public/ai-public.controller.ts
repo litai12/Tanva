@@ -13,6 +13,7 @@ import { RemoveBackgroundDto } from '../ai/dto/background-removal.dto';
 import { VeoVideoService } from '../ai/services/veo-video.service';
 import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from '../ai/dto/veo-video.dto';
 import { NodeConfigService } from '../admin/services/node-config.service';
+import { SeedAudioVoiceService } from '../ai/services/seed-audio-voice.service';
 
 /**
  * 公开 AI API 控制器
@@ -29,6 +30,7 @@ export class AiPublicController {
     private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly veoVideoService: VeoVideoService,
     private readonly nodeConfigService: NodeConfigService,
+    private readonly seedAudioVoiceService: SeedAudioVoiceService,
   ) {}
 
   @Post('generate')
@@ -298,5 +300,40 @@ export class AiPublicController {
   async getNodeConfigs() {
     this.logger.log('📋 [PUBLIC] Node configs requested');
     return this.nodeConfigService.getAllNodeConfigs();
+  }
+
+  // ==================== seed-audio 音色目录（公开接口） ====================
+
+  @Get('seed-audio-voices')
+  @ApiOperation({
+    summary: '获取 seed-audio（豆包）音色目录',
+    description:
+      '返回火山引擎 seed-tts-2.0 在线音色列表（含头像 + 试听链接），供画布富音色选择器渲染。无需身份认证。',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '返回音色列表',
+    schema: {
+      example: {
+        voices: [
+          {
+            id: 'zh_female_vv_uranus_bigtts',
+            name: 'Vivi',
+            avatar: 'https://.../avatar.png',
+            trialUrl: 'https://.../trial.wav',
+            gender: '女',
+            age: '青年',
+            scene: '通用场景',
+            description: '...',
+            emotions: ['开心', '难过'],
+          },
+        ],
+      },
+    },
+  })
+  async getSeedAudioVoices() {
+    this.logger.log('🎙️ [PUBLIC] seed-audio voices requested');
+    const voices = await this.seedAudioVoiceService.getVoices();
+    return { voices };
   }
 }

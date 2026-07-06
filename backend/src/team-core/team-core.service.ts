@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { CreateTeamDto } from './dto/create-team.dto';
+import { TEAM_PERMANENT_SEATS } from '../payment/dto/payment.dto';
 import { randomBytes } from 'crypto';
 
 @Injectable()
@@ -52,6 +53,27 @@ export class TeamCoreService {
         creditAccount: { create: { tenantId } },
       },
     });
+  }
+
+  /**
+   * 团队席位容量 —— 全站唯一真相。
+   * 容量 = 永久基础席位(TEAM_PERMANENT_SEATS) + 所有「有效(未过期、active)」席位包 seats 之和。
+   * 购买席位包、后台调席位都只写 TeamSeatPackage（后台为 cycle='admin' 的永久包），
+   * 这里统一汇总，加人闸门 / 团队弹窗 / 后台显示全部调用本方法，杜绝多轨漂移。
+   * 个人团队恒为 1。tx 透传以便在事务内做原子上限校验。
+   */
+  async getSeatCapacity(teamId: string, db: any = this.prisma): Promise<number> {
+    const team = await db.team.findUnique({
+      where: { id: teamId },
+      select: { isPersonal: true },
+    });
+    if (!team) throw new NotFoundException('团队不存在');
+    if (team.isPersonal) return 1;
+    const agg = await db.teamSeatPackage.aggregate({
+      where: { teamId, status: 'active', expiresAt: { gt: new Date() } },
+      _sum: { seats: true },
+    });
+    return TEAM_PERMANENT_SEATS + (agg._sum.seats ?? 0);
   }
 
   async getMyTeams(userId: string) {
@@ -226,6 +248,58 @@ export class TeamCoreService {
     const m = await this.assertMember(teamId, userId);
     if (!roles.includes(m.role)) throw new ForbiddenException('权限不足');
     return m;
+  }
+
+  async getMyQuota(teamId: string, userId: string) {
+    await this.assertMember(teamId, userId);
+    const [membership, creditAccount] = await Promise.all([
+      this.prisma.teamMembership.findUniqueOrThrow({
+        where: { teamId_userId: { teamId, userId } },
+        select: {
+          creditQuotaMonthly: true,
+          creditQuotaTotal: true,
+          creditUsedThisCycle: true,
+          creditUsedTotal: true,
+          quotaCycleStartAt: true,
+        },
+      }),
+      this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      }),
+    ]);
+
+    const teamAvailableCredits =
+      (creditAccount?.balance ?? 0) - (creditAccount?.frozenBalance ?? 0);
+
+    const { creditQuotaMonthly, creditQuotaTotal, creditUsedThisCycle, creditUsedTotal } = membership;
+
+    // 计算个人可用配额
+    let personalAvailable: number | null = null;
+    if (creditQuotaMonthly === null && creditQuotaTotal === null) {
+      // 无限配额
+      personalAvailable = null;
+    } else {
+      // 有限配额：取月度剩余和总量剩余中较小的那个，再与团队余额取最小
+      let remaining = Infinity;
+      if (creditQuotaMonthly !== null) {
+        remaining = Math.min(remaining, Math.max(0, creditQuotaMonthly - creditUsedThisCycle));
+      }
+      if (creditQuotaTotal !== null) {
+        remaining = Math.min(remaining, Math.max(0, creditQuotaTotal - creditUsedTotal));
+      }
+      personalAvailable = Math.min(remaining, teamAvailableCredits);
+    }
+
+    return {
+      creditQuotaMonthly,
+      creditQuotaTotal,
+      creditUsedThisCycle,
+      creditUsedTotal,
+      quotaCycleStartAt: membership.quotaCycleStartAt,
+      teamAvailableCredits,
+      personalAvailable,
+    };
   }
 
   async getPersonalTeam(userId: string) {

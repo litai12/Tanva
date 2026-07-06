@@ -12,16 +12,32 @@
 ## API（前缀 `/api/admin`，节选）
 - `GET dashboard`
 - `GET users` / `GET users/:userId`
+- `POST users`: full-admin user creation using phone, password, name, and optional email; creates the personal team and credit account just like registration.
 - `DELETE users/:userId`
 - `POST users/:userId/unbind-wechat`
 - `PATCH users/:userId/status` / `PATCH users/:userId/role`
 - `POST users/:userId/credits/add` / `POST users/:userId/credits/deduct`
-- `GET api-usage/stats` / `GET api-usage/records`
+- `GET api-usage/stats` / `GET api-usage/model-stats` / `GET api-usage/records`
 - `GET pricing`
 - `GET settings` / `GET settings/:key` / `POST settings`
 - `GET /api/settings/login-notice`：公开读取登录后用户提醒弹窗配置
 - `POST templates` / `GET templates` / `GET templates/:id` / `PATCH templates/:id` / `DELETE templates/:id`
 - `GET templates/categories` / `POST templates/categories`
+
+## Admin RBAC
+- `admin` is the highest admin-console role. It bypasses admin permission checks and can see/use all admin tabs and operations.
+- `normal_admin` can enter the admin console; this is based on `User.role` and is independent of team roles/permissions.
+- `normal_admin` keeps non-sensitive admin views including dashboard, user list, user details, order list, credit records/anomalies, API stats/records, public templates, team list, and team credit history.
+- `normal_admin` is blocked from paid-user management, watermark whitelist, system settings, node management, user creation/deletion, user credit add/deduct, and user membership operations. Team credit add/deduct and team deletion are also backend-blocked because they mirror the same sensitive recharge/deduct/delete operations.
+
+## API usage model monitoring
+- `GET api-usage/model-stats` returns model-node usage monitoring data for the admin stats tab.
+- Query params: `startDate`, `endDate`, `modelNode`, `channel`.
+- Model/provider/service labels are merged into one uppercase `modelName`; Sora is not listed as a default monitored model node.
+- Default monitored nodes include NANO BANANA GEMINI IMAGE GENERATION / EDIT / BLEND, NANO BANANA GEMINI IMAGE ANALYSIS, GPT-IMAGE-2 IMAGE GENERATION, DOUBAO SEEDREAM 5.0 IMAGE GENERATION, MIDJOURNEY V7 / V8 / NIJI 7 IMAGE GENERATION, GEMINI AI TEXT CHAT, GEMINI PROMPT OPTIMIZE / STORYBOARD TEXT, SEEDANCE 1.5 / SEEDANCE 2.0 / SEED 2.0 VIDEO, KLING 2.6 / KLING 3.0 / KLING O1-O3 VIDEO, VIDU Q2 / VIDU Q3 VIDEO, WAN 2.6 / WAN 2.7 VIDEO, HAPPYHORSE 1.0 R2V VIDEO, OMNI FLASH EXT VIDEO, GEMINI VIDEO ANALYSIS, SEED3D / 2D-TO-3D MODEL GENERATION, and MINIMAX / TENCENT AUDIO GENERATION.
+- Fast/Pro/Ultra or version variants are grouped into the same model node where they share the same product family; `channels[]` keeps provider/channel breakdowns separately. Seedance grouping is limited to the Seedance/Seed video node family, while Kling, Seed3D/2D-to-3D, Wan, Vidu, and HappyHorse are resolved before the Seedance fallback.
+- `topUsers` is limited to the Top10 users per model node and is sorted by consumed credits, then call count.
+- User deletion probes production table/column presence before optional cleanup, so databases missing newer tables can still delete the account. It also clears `TeamProjectShare` rows for the user's projects and owned-team child rows before deleting owned `Team` records.
 
 ## 注意事项
 - 认证/鉴权细节以 Guard 与具体实现为准（通常依赖 JWT + 用户 role/status）。

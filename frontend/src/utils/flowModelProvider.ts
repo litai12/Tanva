@@ -1,4 +1,9 @@
-export type FlowModelProvider = "banana-2.5" | "banana" | "banana-3.1";
+export type FlowModelProvider =
+  | "banana-2.5"
+  | "banana"
+  | "banana-3.1"
+  | "deepseek-v4-flash"
+  | "deepseek-v4-pro";
 
 export type FlowModelProviderMode = "fast" | "pro" | "ultra";
 
@@ -8,10 +13,13 @@ export const FLOW_IMAGE_REFERENCE_LIMITS: Record<FlowModelProvider, number> = {
   "banana-2.5": 3,
   banana: 11,
   "banana-3.1": 14,
+  "deepseek-v4-flash": 0,
+  "deepseek-v4-pro": 0,
 };
 
 export const normalizeFlowModelProvider = (
-  value?: string | null
+  value?: string | null,
+  allowDeepSeek = true
 ): FlowModelProvider => {
   const normalized = String(value || "")
     .trim()
@@ -19,6 +27,8 @@ export const normalizeFlowModelProvider = (
   if (normalized === "banana-2.5") return "banana-2.5";
   if (normalized === "banana-3.1" || normalized === "nano2") return "banana-3.1";
   if (normalized === "banana" || normalized === "gemini-pro") return "banana";
+  if (allowDeepSeek && normalized === "deepseek-v4-flash") return "deepseek-v4-flash";
+  if (allowDeepSeek && normalized === "deepseek-v4-pro") return "deepseek-v4-pro";
   return "banana";
 };
 
@@ -27,8 +37,8 @@ export const resolveFlowModelProvider = (
   fallbackProvider?: string | null
 ): FlowModelProvider => {
   const local = typeof nodeProvider === "string" ? nodeProvider.trim() : "";
-  if (local) return normalizeFlowModelProvider(local);
-  return normalizeFlowModelProvider(fallbackProvider);
+  if (local) return normalizeFlowModelProvider(local, true);
+  return normalizeFlowModelProvider(fallbackProvider, false);
 };
 
 export const getFlowModelProviderMode = (
@@ -36,6 +46,8 @@ export const getFlowModelProviderMode = (
 ): FlowModelProviderMode => {
   if (provider === "banana-2.5") return "fast";
   if (provider === "banana-3.1") return "ultra";
+  if (provider === "deepseek-v4-flash") return "fast";
+  if (provider === "deepseek-v4-pro") return "pro";
   return "pro";
 };
 

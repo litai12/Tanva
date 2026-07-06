@@ -57,6 +57,9 @@ class CanvasEventBus {
   }
 
   emit<T extends CanvasEventType>(type: T, event: CanvasEventMap[T]): void {
+    if ((event as Event & { __tanvaCanvasEventHandled?: boolean }).__tanvaCanvasEventHandled) {
+      return;
+    }
     const list = this._listeners.get(type);
     if (!list) return;
     for (const { handler } of list) {

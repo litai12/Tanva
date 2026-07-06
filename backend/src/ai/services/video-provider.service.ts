@@ -8,6 +8,7 @@ import {
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
 import type { ReferenceImageItem } from "../dto/video-provider.dto";
 import { OssService } from "../../oss/oss.service";
+import { bufferResponseWithLimit } from "../../common/http-buffer.util";
 import { Readable } from "node:stream";
 import { TencentVodAigcService } from "./tencent-vod-aigc.service";
 import {
@@ -21,6 +22,16 @@ import { VolcAssetService } from "../../volc-asset/volc-asset.service";
 const DEFAULT_FETCH_TIMEOUT = 180000; // 3分钟
 const QUERY_FETCH_TIMEOUT = 60000; // 60秒（避免触发阿里云 ESA 300秒超时限制，采用短超时+快速轮询策略）
 const IMAGE_FETCH_TIMEOUT = 60000;
+// Byte caps for full-buffer downloads so a single oversized payload can't OOM
+// the process. Videos are normally streamed; this only bounds the fallback.
+const VIDEO_DOWNLOAD_MAX_BYTES = (() => {
+  const raw = Number(process.env.VIDEO_DOWNLOAD_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 512 * 1024 * 1024; // 512MB
+})();
+const IMAGE_DOWNLOAD_MAX_BYTES = (() => {
+  const raw = Number(process.env.IMAGE_DOWNLOAD_MAX_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 64 * 1024 * 1024; // 64MB
+})();
 const MANAGED_IMAGE_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const MANAGED_KLING26_TENCENT_TASK_PREFIX = "tencentvod-kling26-";
 const MANAGED_KLING30_TENCENT_TASK_PREFIX = "tencentvod-kling30-";
@@ -487,7 +498,7 @@ export class VideoProviderService {
     const nodeStream =
       typeof fromWeb === "function"
         ? fromWeb(body as unknown)
-        : Readable.from(Buffer.from(await response.arrayBuffer()));
+        : Readable.from(await bufferResponseWithLimit(response, VIDEO_DOWNLOAD_MAX_BYTES));
 
     const { url } = await this.oss.putStream(key, nodeStream, {
       headers: { "Content-Type": contentType },
@@ -545,7 +556,7 @@ export class VideoProviderService {
               errors.push(`${candidate} -> invalid content-type ${nextContentType}`);
               continue;
             }
-            imageBuffer = Buffer.from(await response.arrayBuffer());
+            imageBuffer = await bufferResponseWithLimit(response, IMAGE_DOWNLOAD_MAX_BYTES);
             if (!imageBuffer.length) {
               errors.push(`${candidate} -> empty body`);
               continue;
@@ -690,7 +701,7 @@ export class VideoProviderService {
       throw new Error(`Failed to fetch image url: HTTP ${response.status}`);
     }
     const contentType = response.headers.get("content-type") || "image/png";
-    const buf = Buffer.from(await response.arrayBuffer());
+    const buf = await bufferResponseWithLimit(response, IMAGE_DOWNLOAD_MAX_BYTES);
     return `data:${contentType};base64,${buf.toString("base64")}`;
   }
 
@@ -782,6 +793,7 @@ export class VideoProviderService {
     "kling-2.6",
     "kling-3.0",
     "kling-o3",
+    "omni-flash-ext",
     "seedance-1.5",
     "seedance-2.0",
   ]);
@@ -792,14 +804,14 @@ export class VideoProviderService {
   ): Promise<boolean> {
     const modelKey = this.resolveManagedVideoModelKey(options);
     if (!modelKey) return false;
-    // Tencent route removed for managed video models: every model with a new-api
-    // channel ALWAYS goes through /v1/videos so new-api's own distributor picks
-    // the upstream per route (apimart / ark / its tencent-vod channel). The
-    // frontend no longer pins vidu/kling to tencent_vod; this guard also blocks
-    // any stale node data still carrying tencent_vod from forcing the legacy
-    // direct Tencent VOD path here. (Tencent VOD stays reachable only via
-    // new-api's tencent-vod channel calling back into /internal/tencent-vod →
-    // createViaTencentVod, which bypasses this decision entirely.)
+    // 尊享线路：用户显式选了腾讯 VOD（前端 vendorKey=tencent_vod）。直接走后端腾讯 VOD
+    // 路径(generateVideoLegacy → /proxy/tencent/vod，计费&被 new-api 记录、轮询用 queryTask)。
+    // 不走 /v1/videos 的 tencent-vod 渠道——其 new-api task 轮询有 task_id 映射 bug(任务卡
+    // NOT_START)。普通线路(下方)仍走 new-api /v1/videos → kapon。
+    if (this.isTencentPremiumRoute(options)) {
+      return true;
+    }
+    // 普通：有 new-api 渠道的视频模型走 /v1/videos，由 new-api 选上游(kapon/apimart)。
     if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
       return false;
     }
@@ -821,6 +833,9 @@ export class VideoProviderService {
   private resolveManagedVideoModelKey(
     options: VideoProviderRequestDto
   ): string | null {
+    if (String(options.managedModelKey || "").trim().toLowerCase() === "omni-flash-ext") {
+      return "omni-flash-ext";
+    }
     const provider = options.provider;
     if (
       (provider === "kling" || provider === "kling-2.6") &&
@@ -1066,6 +1081,7 @@ export class VideoProviderService {
     }
 
     const model = this.resolveNewApiVideoModel(options);
+    const isOmniFlashExt = model === "omni-flash-ext";
     // omni-flash-ext and Vidu (apimart viduq3/viduq2) use aspect_ratio + resolution
     // natively; a WxH size string only encodes 16:9/9:16 and would contradict the
     // 4:3 / 3:4 / 1:1 aspect ratios these models support. See APIMart vidu-q3 docs.
@@ -1076,17 +1092,22 @@ export class VideoProviderService {
     // Seedance 2.0 uses asset:// references so doubao doesn't re-run content moderation
     // on assets that already passed the upload-time check (volcAssetStatus === "active").
     // Other models fall back to raw HTTPS URLs.
-    const referenceImages = isSeedance2
+    const referenceImages = (isSeedance2
       ? this.extractReferenceImageUrlsWithVolcAssets(options.referenceImages)
-      : this.extractReferenceImageUrls(options.referenceImages);
+      : this.extractReferenceImageUrls(options.referenceImages)
+    ).map((url) => this.normalizeFirstPartyAssetUrl(url));
     // Raw URLs for new-api's own asset re-upload path (only needed when not using asset://).
     const referenceImageRawUrls: string[] | undefined = isSeedance2
-      ? this.extractReferenceImageUrls(options.referenceImages)
+      ? this.extractReferenceImageUrls(options.referenceImages).map((url) =>
+          this.normalizeFirstPartyAssetUrl(url),
+        )
       : undefined;
     const referenceVideos = [
       ...(Array.isArray(options.referenceVideos) ? options.referenceVideos : []),
       ...(options.referenceVideo ? [options.referenceVideo] : []),
-    ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    ]
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((url) => this.normalizeFirstPartyAssetUrl(url));
 
     // wan2.7-videoedit requires the source video via metadata.video_url (the
     // new-api apimart adaptor reads it from metadata, not the top-level
@@ -1100,7 +1121,9 @@ export class VideoProviderService {
     // upstream only via metadata. See APIMart kling-v2-6 / kling-v3 / kling-v3-omni docs.
     // Kling omni 命名角色(element_list)经独立的 elementImages 字段下发，与 image 桩的
     // 首尾帧/参考图(image_with_roles)分离，避免被当成普通参考图。
-    const elementImages = this.extractReferenceImageUrls(options.elementImages);
+    const elementImages = this.extractReferenceImageUrls(options.elementImages).map(
+      (url) => this.normalizeFirstPartyAssetUrl(url),
+    );
     const kling = this.buildKlingApimartParams(
       options,
       model,
@@ -1188,30 +1211,78 @@ export class VideoProviderService {
     };
     const seedanceImageFields = buildSeedanceImageFields(referenceImages);
 
+    const omniEffectiveVideoMode =
+      isOmniFlashExt && referenceVideos.length > 0
+        ? "reference"
+        : String(options.videoMode || "").trim().toLowerCase() === "reference"
+        ? "reference"
+        : "frame";
+    const omniGenerationType =
+      isOmniFlashExt && (referenceImages.length > 0 || referenceVideos.length > 0)
+        ? omniEffectiveVideoMode
+        : undefined;
+    // kapon-kling 原生请求（仅 v2-6/v3）：apimart 忽略此键，kapon-kling 适配器据其
+    // 选端点直发，从而让普通 kling 全模式经 kapon 而不破坏 apimart 回落。
+    const kaponKling = this.buildKaponKlingRequest(
+      model,
+      options,
+      referenceImages,
+      referenceVideos,
+      elementImages,
+    );
     const metadata = {
       ...(isWanVideoEdit && referenceVideos[0] ? { video_url: referenceVideos[0] } : {}),
+      ...(isOmniFlashExt
+        ? {
+            ...(omniGenerationType ? { generation_type: omniGenerationType } : {}),
+            ...(referenceVideos[0] ? { video_urls: referenceVideos.slice(0, 1) } : {}),
+          }
+        : {}),
       ...(kling?.metadata ?? {}),
+      ...(kaponKling ? { kapon: kaponKling } : {}),
     };
     const hasMetadata = Object.keys(metadata).length > 0;
 
     const payload = this.stripUndefined({
       model,
       prompt: options.prompt || "",
-      duration,
+      duration: isOmniFlashExt && referenceVideos.length > 0 ? undefined : duration,
       size,
       resolution: this.normalizeResolutionToken(options.resolution),
       // For Kling, image/images selection is decided by buildKlingApimartParams
       // (omni 首尾帧 uses image_with_roles and suppresses image_urls to satisfy the
       // upstream mutual-exclusion rule).
-      image: kling ? kling.image : seedanceImageFields.image,
-      images: kling ? kling.images : seedanceImageFields.images,
+      image: isOmniFlashExt
+        ? referenceImages[0]
+        : kling
+        ? kling.image
+        : seedanceImageFields.image,
+      images: isOmniFlashExt
+        ? referenceImages.length > 0
+          ? referenceImages
+          : undefined
+        : kling
+        ? kling.images
+        : seedanceImageFields.images,
       // Seedance 2.0 r2v：参考图经此字段下发，new-api 全部标 reference_image。
-      referenceImages: kling ? undefined : seedanceImageFields.referenceImages,
+      referenceImages: isOmniFlashExt
+        ? undefined
+        : kling
+        ? undefined
+        : seedanceImageFields.referenceImages,
       // Seedance 2.0 首尾帧：尾帧经此字段下发，new-api 标 last_frame（与 first_frame 成对）。
-      lastFrame: kling ? undefined : seedanceImageFields.lastFrame,
+      lastFrame: isOmniFlashExt
+        ? undefined
+        : kling
+        ? undefined
+        : seedanceImageFields.lastFrame,
       // Kling reference video now rides in metadata.video_list (see above); the
       // top-level reference_videos field is dropped by new-api for Kling anyway.
-      reference_videos: kling
+      reference_videos: isOmniFlashExt
+        ? referenceVideos.length > 0
+          ? referenceVideos.slice(0, 1)
+          : undefined
+        : kling
         ? undefined
         : referenceVideos.length > 0
         ? referenceVideos
@@ -1226,7 +1297,7 @@ export class VideoProviderService {
       generate_audio: options.generateAudio,
       provider_options: {
         sourceProvider: options.provider,
-        videoMode: options.videoMode,
+        videoMode: isOmniFlashExt ? omniEffectiveVideoMode : options.videoMode,
         klingModel: options.klingModel,
         viduModel: options.viduModel,
         viduModelVariant: options.viduModelVariant,
@@ -1363,6 +1434,15 @@ export class VideoProviderService {
     return { status, videoUrl, thumbnailUrl };
   }
 
+  /** 该请求是否尊享线路（前端 vendorKey/platformKey = tencent_vod/tengxun）。 */
+  private isTencentPremiumRoute(options: VideoProviderRequestDto): boolean {
+    const keys = [
+      (options as any).vendorKey,
+      (options as any).platformKey,
+    ].map((k) => String(k || "").trim().toLowerCase());
+    return keys.some((k) => k === "tencent_vod" || k === "tengxun");
+  }
+
   private resolveNewApiVideoModel(options: VideoProviderRequestDto): string {
     const explicit = String(
       options.managedModelKey || options.seedanceModel || options.klingModel || options.viduModel || "",
@@ -1402,6 +1482,11 @@ export class VideoProviderService {
       return "omni-flash-ext";
     }
     if (options.provider === "kling-o3" || explicit.includes("omni") || explicit.includes("o3")) {
+      // 命名元素(element_list) kapon omni-video 不支持 → 发 apimart 别名(仅 apimart 有该
+      // ability)精准命中 apimart；其余 omni 模式走 kapon omni-video(kling-v3-omni)。
+      if (this.extractReferenceImageUrls(options.elementImages).length > 0) {
+        return "kling-v3-omni-apimart";
+      }
       return "kling-v3-omni";
     }
     if (options.provider === "kling" || options.provider === "kling-2.6") {
@@ -1440,6 +1525,101 @@ export class VideoProviderService {
    *
    * Returns null for non-Kling models (leaves the generic payload path untouched).
    */
+  // 构造 kapon 原生 kling 请求（端点后缀 + body），写进 payload.metadata.kapon 供 new-api
+  // 的 kapon-kling 适配器直接转发。形状复刻已验证的历史客户端：
+  //   kling-v2-6    → generateKling26：kling/v1/videos/{text2video|image2video|image2video-tail|multi-image2video}
+  //   kling-v3 / o3 → generateKlingO1：kling/v1/videos/omni-video（model_name=kling-v3-omni）
+  // 命名元素(element_list) 历史 kapon 客户端不支持 → 返回 null → 仍由 apimart 服务
+  // （apimart 适配器忽略 metadata.kapon，不破坏回落）。
+  private buildKaponKlingRequest(
+    model: string,
+    options: VideoProviderRequestDto,
+    referenceImages: string[],
+    referenceVideos: string[] = [],
+    elementImages: string[] = [],
+  ): { suffix: string; body: Record<string, any> } | null {
+    const isV26 = model === "kling-v2-6";
+    const isV3 = model === "kling-v3";
+    const isOmni = model === "kling-v3-omni";
+    if (!isV26 && !isV3 && !isOmni) return null;
+    // 命名元素模式 kapon omni-video 不支持 → 回落 apimart。
+    if (elementImages.length > 0) return null;
+
+    const mode =
+      String(options.mode || "std").trim().toLowerCase() === "pro" ? "pro" : "std";
+    const prompt = options.prompt || "";
+    const aspectRatio = String(options.aspectRatio || "").trim();
+    const videoMode = String(options.videoMode || "").trim().toLowerCase();
+    const frameMode =
+      videoMode === "frame" || videoMode === "start_end" || videoMode === "start-end";
+    const imgs = referenceImages.filter((u) => typeof u === "string" && u.trim());
+    const REF_PROMPT = "参考图片内容生成视频";
+    // 多图：kapon 的 multi-image2video 仅认 kling-v1-6，而 kapon 已下架 v1-6 货源；唯一可用的
+    // 多图路径是 omni-video(kling-v3-omni)。故所有多图(含 v2-6/v3)走 omni-video（模型降级可接受）。
+    const isMulti = imgs.length >= 3 || (imgs.length === 2 && !frameMode);
+
+    // ── omni-video（kling-v3-omni）：o3 原生 + 任意多图。复刻历史 generateKlingO1。 ──
+    if (isOmni || isMulti) {
+      const hasVideo = referenceVideos.length > 0;
+      const dur = Math.max(3, Math.min(10, Number(options.duration) || 5));
+      const body: Record<string, any> = {
+        model_name: "kling-v3-omni",
+        mode,
+        prompt: prompt || (imgs.length > 0 ? "根据参考图片生成视频" : "生成视频"),
+        duration: String(dur),
+      };
+      const sound = String(options.sound || "").trim().toLowerCase();
+      if (sound === "on") body.sound = "on";
+      else if (sound === "off") body.sound = "off";
+      else if (mode === "pro") body.sound = "on";
+      const hasFirstFrame = imgs.length > 0 && !hasVideo;
+      const isVideoEdit = hasVideo && options.referenceVideoType === "base";
+      if (aspectRatio) body.aspect_ratio = aspectRatio;
+      else if (!hasFirstFrame && !isVideoEdit) body.aspect_ratio = "16:9";
+      if (imgs.length > 0) {
+        body.image_list = imgs.slice(0, 7).map((url, i) => {
+          const it: Record<string, any> = { image_url: url };
+          if (!hasVideo) {
+            if (i === 0) it.type = "first_frame";
+            else if (i === 1 && imgs.length === 2) it.type = "end_frame";
+          }
+          return it;
+        });
+      }
+      if (hasVideo) {
+        body.video_list = [
+          {
+            video_url: referenceVideos[0],
+            refer_type: options.referenceVideoType || "feature",
+            keep_original_sound: options.keepOriginalSound || "no",
+          },
+        ];
+      }
+      return { suffix: "omni-video", body };
+    }
+
+    // ── kling-v2-6 / kling-v3 非多图 → kling/v1/videos/* 用各自 kapon 模型名（不混 omni）。 ──
+    const kaponModel = isV3 ? "kling-v3" : "kling-v2-6";
+    const duration = Number(options.duration) === 10 ? "10" : "5";
+    const body: Record<string, any> = { model_name: kaponModel, mode, duration };
+    if (aspectRatio) body.aspect_ratio = aspectRatio;
+    if (imgs.length === 0) {
+      body.prompt = prompt;
+      return { suffix: "text2video", body };
+    }
+    if (imgs.length === 1) {
+      body.image = imgs[0];
+      if (prompt) body.prompt = prompt;
+      return { suffix: "image2video", body };
+    }
+    // 首尾帧（2 图 + frame）。kling-v2-6 的 image_tail 仅 pro 支持（std 报 1201）；v3 std 即可。
+    body.image = imgs[0];
+    body.image_tail = imgs[1];
+    body.prompt = prompt || REF_PROMPT;
+    if (isV26) body.mode = "pro";
+    return { suffix: "image2video", body };
+  }
+
   private buildKlingApimartParams(
     options: VideoProviderRequestDto,
     model: string,
@@ -1514,16 +1694,41 @@ export class VideoProviderService {
     }
 
     // ── omni 命名角色 → element_list=[{name,description,element_input_urls}]（@name 引用）。 ──
+    // 上游硬约束（apimart kling-v3-omni 文档 + 实测）：description 必填（空串直接
+    // kling_element_create_failed）；element_input_urls 每主体 2-4 张，第 1 张为正面照、
+    // 其余为参考图（单图会报 "at least 1 reference image required"，同 URL 复制可过）。
     if (isOmni && elementImages.length > 0) {
       const elementName = String(options.elementName || "").trim() || "role1";
-      const elementDescription = String(options.elementDescription || "").trim();
+      const elementDescription =
+        String(options.elementDescription || "").trim() ||
+        `提示词中@${elementName}引用的主体角色，以参考图为准`;
+      let elementUrls = elementImages.slice(0, 4);
+      if (elementImages.length > 4) {
+        this.logger.warn(
+          `Kling omni element_input_urls 上限 4 张，已截断（原 ${elementImages.length} 张）`,
+        );
+      }
+      if (elementUrls.length === 1) {
+        elementUrls = [elementUrls[0], elementUrls[0]];
+      }
       metadata.element_list = [
         {
           name: elementName,
           description: elementDescription,
-          element_input_urls: elementImages,
+          element_input_urls: elementUrls,
         },
       ];
+      // 主体需经 prompt 的 @name 引用才会绑定进画面，否则上游会无视 element_list。
+      // prompt 缺少对本主体的引用时自动前置（经 metadata.prompt 覆盖顶层 prompt——
+      // apimart Extras 合并时同名字段以 metadata 为准）。判断用具体的 @name 而非任意
+      // @，避免 prompt 里的 @图N 等其它 @ 引用误判为已绑定主体。
+      const promptText = String(options.prompt || "").trim();
+      if (promptText && !promptText.includes(`@${elementName}`)) {
+        metadata.prompt = `@${elementName} ${promptText}`;
+        this.logger.warn(
+          `Kling omni prompt 未引用主体 @${elementName}，已自动前置`,
+        );
+      }
     }
 
     // ── omni 参考视频 → video_list (refer_type / keep_original_sound from user choice). ──
@@ -1550,11 +1755,24 @@ export class VideoProviderService {
       images = referenceImages[0] ? [referenceImages[0]] : undefined;
     }
 
+    // ── omni duration 上游范围 3-15s；超界经 metadata.duration 收敛（覆盖顶层 duration）。 ──
+    let effectiveDuration = duration;
+    if (isOmni && typeof duration === "number" && Number.isFinite(duration)) {
+      const clamped = Math.max(3, Math.min(15, Math.round(duration)));
+      if (clamped !== duration) {
+        metadata.duration = clamped;
+        effectiveDuration = clamped;
+        this.logger.warn(
+          `Kling omni duration ${duration}s 超出上游 3-15s 范围，已收敛为 ${clamped}s`,
+        );
+      }
+    }
+
     // ── omni 多分镜 → multi_shot / shot_type / multi_prompt（复用历史 storyboard 校验）。 ──
     // multi_shot 与参考视频(video_list)互斥，上游报 "multi shot is not supported with
     // video input"。连了参考视频时跳过分镜，保证视频输入可用。
     if (isOmni && !hasVideo) {
-      this.applyKlingOmniStoryboard(options, metadata, duration);
+      this.applyKlingOmniStoryboard(options, metadata, effectiveDuration);
     }
 
     return { image, images, metadata };
@@ -1637,6 +1855,32 @@ export class VideoProviderService {
       .map((item) => (typeof item === "string" ? item : item?.url))
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       .map((item) => item.trim());
+  }
+
+  // 存量画布数据中的第一方资产 URL 可能带历史坏 host（公网 NoSuchBucket），Kling/apimart
+  // 等上游按 URL 直接拉取会失败（element 创建报"拉不到文件"、任务卡到超时）。命中坏 host
+  // 时按同 key 用当前 OSS 配置重建公网 URL；query 一并丢弃——坏桶上签出的参数本就无效。
+  private static readonly LEGACY_BROKEN_ASSET_HOSTS = new Set([
+    "tanva-ai.tos-cn-guangzhou.volces.com",
+  ]);
+
+  private normalizeFirstPartyAssetUrl(url: string): string {
+    if (!url || !/^https?:\/\//i.test(url)) return url;
+    try {
+      const parsed = new URL(url);
+      if (!VideoProviderService.LEGACY_BROKEN_ASSET_HOSTS.has(parsed.hostname)) {
+        return url;
+      }
+      const key = parsed.pathname.replace(/^\/+/, "");
+      if (!key) return url;
+      const rebuilt = this.oss.publicUrl(key);
+      this.logger.warn(
+        `第一方资产 URL 命中历史坏 host，已按当前 OSS 配置重建: ${parsed.hostname}/${key} -> ${rebuilt}`,
+      );
+      return rebuilt;
+    } catch {
+      return url;
+    }
   }
 
   // Seedance 2.0: use asset:// for active volc assets; fall back to raw URL otherwise.
@@ -2115,6 +2359,7 @@ export class VideoProviderService {
     if (upper === "480P") return "480p";
     if (upper === "720P") return "720p";
     if (upper === "1080P") return "1080p";
+    if (upper === "4K") return "4k";
     return normalized;
   }
 

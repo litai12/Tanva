@@ -2,7 +2,8 @@
 -- Purpose: add APIMart Omni-Flash-Ext video generation model to new-api.
 --
 -- API docs: https://docs.apimart.ai/cn/api-reference/videos/omni-flash-ext/generation
--- Endpoint: POST /v1/videos/generations (model="omni-flash-ext")
+-- Endpoint: POST /v1/videos/generations (upstream model="Omni-Flash-Ext";
+-- internal route key remains "omni-flash-ext")
 --
 -- Parameters:
 --   duration     : 4 | 6 | 8 | 10 seconds (default 6)

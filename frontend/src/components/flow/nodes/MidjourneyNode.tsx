@@ -41,6 +41,7 @@ type Props = {
     promptEn?: string;
     lastHistoryId?: string;
     speedMode?: 'draft' | 'fast' | 'turbo';
+    modelVersion?: 'v7' | 'v8';
     raw?: boolean;
     chaos?: string | number;
     stylize?: string | number;
@@ -54,6 +55,8 @@ type Props = {
     quality?: '1' | '2' | '4';
     draft?: boolean;
     tile?: boolean;
+    hd?: boolean;
+    objectReference?: string;
     omniReference?: string;
     omniWeight?: string | number;
     exp?: string | number;
@@ -97,7 +100,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const accentSoft = isNiji ? '#fdf2f8' : '#faf5ff';
   const accentBorder = isNiji ? '#f9a8d4' : '#e9d5ff';
   const isDarkTheme = useAIChatStore((state) => state.chatTheme === 'black');
-  const title = isNiji ? 'Niji 7' : 'Midjourney V7';
+  const title = isNiji ? 'Niji 7' : 'Midjourney';
+  const midjourneyModelVersion = !isNiji && data.modelVersion === 'v8' ? 'v8' : 'v7';
+  const isV8 = midjourneyModelVersion === 'v8';
+  const referenceImageLimit = isV8 ? 20 : 10;
   const { status, error } = data;
   const rawFullValue = data.imageUrl || data.imageData;
   const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
@@ -165,6 +171,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
   const { credits: backendCredits } = useImageNodeCreditsPreview({
     nodeType: type === 'niji7' ? 'niji7' : 'midjourneyV7',
     aiProvider: 'midjourney',
+    modelVersion: midjourneyModelVersion,
     aspectRatio: aspectRatioValue || undefined,
     referenceImageCount: imageInputCount,
     managedModelKey: data.managedModelKey,
@@ -297,8 +304,8 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         : data.draft
           ? 'draft'
           : 'fast';
-    const speedMode = isNiji && resolvedSpeedMode === 'draft' ? 'fast' : resolvedSpeedMode;
-    const qualityValue = data.quality ?? '1';
+    const speedMode = (isNiji || isV8) && resolvedSpeedMode !== 'fast' ? 'fast' : resolvedSpeedMode;
+    const qualityValue = isV8 && data.quality === '2' ? '1' : data.quality ?? '1';
     const chaosValue = String(data.chaos ?? '0');
     const stylizeValue = String(data.stylize ?? '100');
     const weirdValue = String(data.weird ?? '');
@@ -306,13 +313,19 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
       (!isNiji && qualityValue !== '1') ||
       chaosValue !== '0' ||
       stylizeValue !== '100' ||
-      weirdValue !== '' ||
+      (!isV8 && weirdValue !== '') ||
       String(data.seed ?? '') !== '' ||
       Boolean(data.raw) ||
-      speedMode === 'turbo' ||
-      (!isNiji && speedMode === 'draft') ||
-      (!isNiji && Boolean(data.tile)) ||
+      (!isV8 && speedMode === 'turbo') ||
+      (!isNiji && !isV8 && speedMode === 'draft') ||
+      (!isNiji && !isV8 && Boolean(data.tile)) ||
       (!isNiji && String(data.noPrompt ?? '').trim() !== '') ||
+      (isV8 && Boolean(data.hd)) ||
+      (isV8 && String(data.imageWeight ?? '').trim() !== '') ||
+      (isV8 && String(data.styleRefs ?? '').trim() !== '') ||
+      (isV8 && String(data.styleWeight ?? '').trim() !== '') ||
+      (isV8 && String(data.objectReference ?? '').trim() !== '') ||
+      (isV8 && String(data.exp ?? '').trim() !== '') ||
       String(data.presetPrompt ?? '').trim() !== '';
 
     return (
@@ -329,7 +342,6 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <Sparkles size={16} color={accentColor} />
             <span style={{ fontWeight: 600, color: accentColor }}>
               {title}
-              <RunCreditBadge credits={resolvedRunCredits} inline />
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -353,17 +365,40 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <button
               onClick={onRun}
               disabled={status === 'running'}
+              className='run-btn-with-credit'
+              title={
+                status === 'running'
+                  ? 'Running...'
+                  : resolvedRunCredits
+                    ? `${lt('Cost', 'Cost')}: ${resolvedRunCredits} ${lt('credits', 'credits')}`
+                    : lt('Run generation', 'Run generation')
+              }
               style={{
                 fontSize: 12,
-                padding: '4px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxSizing: 'border-box',
+                minHeight: 30,
+                padding: '0 10px',
                 background: status === 'running' ? '#e5e7eb' : accentColor,
                 color: '#fff',
                 borderRadius: 6,
                 border: 'none',
                 cursor: status === 'running' ? 'not-allowed' : 'pointer',
+                gap: 6,
+                ['--run-credit-hover-bg' as any]: accentColor,
+                ['--run-credit-hover-border' as any]: accentBorder,
               }}
             >
-              {status === 'running' ? 'Running...' : 'Run'}
+              {status === 'running' ? (
+                <span className='run-text-trigger'>Running...</span>
+              ) : (
+                <>
+                  <span className='run-text-trigger'>Run</span>
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
+                </>
+              )}
             </button>
             <button
               onClick={onSend}
@@ -401,19 +436,29 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               {title} {lt('玩法说明', 'Usage')}
             </div>
             <div>{isNiji ? lt('适合动漫角色、分镜、游戏立绘和日系插画。', 'Best for anime, character art, and stylized illustrations.') : lt('适合商业视觉、产品图、电影感场景和概念设计。', 'Best for commercial visuals, product shots, and cinematic concepts.')}</div>
-            <div>{lt('支持文本生图，也支持连接最多 10 张参考图。', 'Supports text-to-image and up to 10 reference images.')}</div>
-            <div>{lt('连图后 prompt 可继续填写；只接图也能运行。', 'You can still add prompt after connecting images; image-only generation is also allowed.')}</div>
-            <div>{lt('V7 / Niji 7 不支持多提示词 ::。', 'V7 / Niji 7 do not support multi-prompt "::".')}</div>
             <div>
-              {lt(
-                '万物参考请连「omni」柄（与参考图一并上传，勿在提示词里写 base64）；当前悠船接入不在提示词中传 sref/sv/sw/ow/exp/iw。',
-                'Use the omni handle for character-style refs (uploaded with images; do not put base64 in the prompt). This channel does not send sref/sv/sw/ow/exp/iw in the prompt text.'
-              )}
+              {isV8
+                ? lt('支持文本生图，也支持连接最多 20 张垫图。', 'Supports text-to-image and up to 20 prompt images.')
+                : lt('支持文本生图，也支持连接最多 10 张参考图。', 'Supports text-to-image and up to 10 reference images.')}
             </div>
+            <div>{lt('连图后 prompt 可继续填写；只接图也能运行。', 'You can still add prompt after connecting images; image-only generation is also allowed.')}</div>
+            <div>
+              {isV8
+                ? lt('V8 使用 v8.1 接入：支持 Raw、HD、SREF/OREF、IW、EXP；不支持 Draft、Turbo、Weird、Tile、CREF。', 'V8 uses v8.1: Raw, HD, SREF/OREF, IW, and EXP are supported; Draft, Turbo, Weird, Tile, and CREF are not.')
+                : lt('V7 / Niji 7 不支持多提示词 ::。', 'V7 / Niji 7 do not support multi-prompt "::".')}
+            </div>
+            {!isV8 && (
+              <div>
+                {lt(
+                  '万物参考请连「omni」柄（与参考图一并上传，勿在提示词里写 base64）；当前悠船接入不在提示词中传 sref/sv/sw/ow/exp/iw。',
+                  'Use the omni handle for character-style refs (uploaded with images; do not put base64 in the prompt). This channel does not send sref/sv/sw/ow/exp/iw in the prompt text.'
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {imageInputCount > 10 && (
+        {imageInputCount > referenceImageLimit && (
           <div
             style={{
               fontSize: 11,
@@ -425,7 +470,10 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               border: '1px solid #fecaca',
             }}
           >
-            {lt(`已连接 ${imageInputCount} 张参考图，最多支持 10 张，运行时只读取前 10 张。`, `Connected ${imageInputCount} references. Only the first 10 will be used.`)}
+            {lt(
+              `已连接 ${imageInputCount} 张参考图，最多支持 ${referenceImageLimit} 张，运行时只读取前 ${referenceImageLimit} 张。`,
+              `Connected ${imageInputCount} references. Only the first ${referenceImageLimit} will be used.`
+            )}
           </div>
         )}
 
@@ -441,7 +489,36 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isNiji ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+          {!isNiji && (
+            <div>
+              <label style={commonLabelStyle}>{lt('模型', 'Model')}</label>
+              <select
+                value={midjourneyModelVersion}
+                onChange={(e) => {
+                  const nextModelVersion = e.target.value === 'v8' ? 'v8' : 'v7';
+                  updateData(
+                    nextModelVersion === 'v8'
+                      ? {
+                          modelVersion: 'v8',
+                          speedMode: 'fast',
+                          draft: false,
+                          tile: false,
+                          weird: '',
+                          quality: data.quality === '4' ? '4' : '1',
+                        }
+                      : { modelVersion: 'v7' }
+                  );
+                }}
+                style={commonInputStyle}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              >
+                <option value="v7">V7</option>
+                <option value="v8">V8</option>
+              </select>
+            </div>
+          )}
           <div>
             <label style={commonLabelStyle}>{lt('尺寸比例', 'Aspect ratio')}</label>
             <select
@@ -467,16 +544,16 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                 updateData({
                   speedMode: nextSpeedMode,
                   // Keep legacy field in sync so old persisted flows behave consistently.
-                  draft: !isNiji && nextSpeedMode === 'draft',
+                  draft: !isNiji && !isV8 && nextSpeedMode === 'draft',
                 });
               }}
               style={commonInputStyle}
               onPointerDownCapture={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
             >
-              {!isNiji && <option value="draft">{lt('草图模式', 'Draft')}</option>}
+              {!isNiji && !isV8 && <option value="draft">{lt('草图模式', 'Draft')}</option>}
               <option value="fast">{lt('快速', 'Fast')}</option>
-              <option value="turbo">{lt('极速', 'Turbo')}</option>
+              {!isV8 && <option value="turbo">{lt('极速', 'Turbo')}</option>}
             </select>
           </div>
         </div>
@@ -525,7 +602,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                 onMouseDownCapture={stopNodeDrag}
               >
                 <option value="1">1</option>
-                <option value="2">2</option>
+                {!isV8 && <option value="2">2</option>}
                 <option value="4">4</option>
               </select>
             </div>
@@ -554,18 +631,20 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-          <div>
-            <label style={commonLabelStyle}>{lt('怪异度', 'Weird')}</label>
-            <input
-              value={weirdValue}
-              onChange={(e) => updateData({ weird: e.target.value })}
-              placeholder="0-3000"
-              style={commonInputStyle}
-              onPointerDownCapture={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-            />
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isV8 ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+          {!isV8 && (
+            <div>
+              <label style={commonLabelStyle}>{lt('怪异度', 'Weird')}</label>
+              <input
+                value={weirdValue}
+                onChange={(e) => updateData({ weird: e.target.value })}
+                placeholder="0-3000"
+                style={commonInputStyle}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+            </div>
+          )}
           <div>
             <label style={commonLabelStyle}>{lt('随机种子', 'Seed')}</label>
             <input
@@ -591,7 +670,20 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             />
             <span>{lt('原始风格 Raw', 'Raw style')}</span>
           </label>
-          {!isNiji && (
+          {isV8 && (
+            <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(data.hd)}
+                onChange={(e) => updateData({ hd: e.target.checked })}
+                style={{ marginRight: 6 }}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+              <span>{lt('原生高清 HD', 'Native HD')}</span>
+            </label>
+          )}
+          {!isNiji && !isV8 && (
             <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -618,6 +710,86 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               onMouseDownCapture={stopNodeDrag}
             />
           </div>
+        )}
+
+        {isV8 && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div>
+                <label style={commonLabelStyle}>{lt('图像权重', 'Image weight')}</label>
+                <input
+                  value={String(data.imageWeight ?? '')}
+                  onChange={(e) => updateData({ imageWeight: e.target.value })}
+                  placeholder="0-3"
+                  style={commonInputStyle}
+                  onPointerDownCapture={stopNodeDrag}
+                  onMouseDownCapture={stopNodeDrag}
+                />
+              </div>
+              <div>
+                <label style={commonLabelStyle}>{lt('实验参数', 'EXP')}</label>
+                <input
+                  value={String(data.exp ?? '')}
+                  onChange={(e) => updateData({ exp: e.target.value })}
+                  placeholder="0-100"
+                  style={commonInputStyle}
+                  onPointerDownCapture={stopNodeDrag}
+                  onMouseDownCapture={stopNodeDrag}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 8 }}>
+              <label style={commonLabelStyle}>{lt('风格参考 URL', 'Style reference URLs')}</label>
+              <input
+                value={data.styleRefs ?? ''}
+                onChange={(e) => updateData({ styleRefs: e.target.value })}
+                placeholder={lt('最多 20 个，逗号或换行分隔', 'Up to 20, separated by commas or new lines')}
+                style={commonInputStyle}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div>
+                <label style={commonLabelStyle}>{lt('风格权重', 'Style weight')}</label>
+                <input
+                  value={String(data.styleWeight ?? '')}
+                  onChange={(e) => updateData({ styleWeight: e.target.value })}
+                  placeholder="0-1000"
+                  style={commonInputStyle}
+                  onPointerDownCapture={stopNodeDrag}
+                  onMouseDownCapture={stopNodeDrag}
+                />
+              </div>
+              <div>
+                <label style={commonLabelStyle}>{lt('风格版本', 'Style version')}</label>
+                <select
+                  value="6"
+                  onChange={() => updateData({ styleVersion: '6' })}
+                  disabled
+                  style={commonInputStyle}
+                  onPointerDownCapture={stopNodeDrag}
+                  onMouseDownCapture={stopNodeDrag}
+                >
+                  <option value="6">6</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 8 }}>
+              <label style={commonLabelStyle}>{lt('物体参考 URL', 'Object reference URL')}</label>
+              <input
+                value={data.objectReference ?? data.omniReference ?? ''}
+                onChange={(e) => updateData({ objectReference: e.target.value })}
+                placeholder={lt('仅支持 1 张，用于 --oref', 'Only 1 URL, sent as --oref')}
+                style={commonInputStyle}
+                onPointerDownCapture={stopNodeDrag}
+                onMouseDownCapture={stopNodeDrag}
+              />
+            </div>
+          </>
         )}
 
         {/* V7/Niji7 多图矩阵显示 */}

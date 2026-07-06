@@ -31,11 +31,33 @@ export class TeamCreditsService {
   async getLedger(teamId: string, requestingUserId: string, take = 50, skip = 0) {
     await this.teamCore.assertMember(teamId, requestingUserId);
     const acc = await this.prisma.teamCreditAccount.findUniqueOrThrow({ where: { teamId } });
-    return this.prisma.teamCreditLedger.findMany({
+    const entries = await this.prisma.teamCreditLedger.findMany({
       where: { teamAccId: acc.id },
       orderBy: { createdAt: 'desc' },
       take,
       skip,
+    });
+
+    // 附带使用人昵称 + 手机尾号（actorUserId 是裸字段，回查 User）。
+    const actorIds = Array.from(
+      new Set(entries.map((e) => e.actorUserId).filter((id): id is string => !!id)),
+    );
+    const users = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, name: true, phone: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return entries.map((e) => {
+      const u = e.actorUserId ? userMap.get(e.actorUserId) : undefined;
+      const phone = u?.phone?.trim() || '';
+      return {
+        ...e,
+        actorName: u?.name?.trim() || null,
+        actorPhoneTail: phone ? phone.slice(-4) : null,
+      };
     });
   }
 

@@ -45,6 +45,17 @@ const pickString = (...values: unknown[]): string | undefined => {
   return undefined;
 };
 
+const GENERATED_HISTORY_TITLE_PATTERN =
+  /^(Generate(?:Pro4|Pro|Ref)?|Generate4|ViewAngle|Seedream|Nano2|GPT-Image-2|Midjourney(?: V[78])?|Niji 7)(?:\s+#\d+)?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AP]M)?$/i;
+
+const isLegacyGeneratedHistoryTitle = (
+  value: string | undefined,
+  sourceType: string
+): boolean => {
+  if (!value || !GENERATED_HISTORY_TITLE_PATTERN.test(value)) return false;
+  return /^(generate|generatePro|generatePro4|midjourneyV7|niji7)$/i.test(sourceType);
+};
+
 const isRenderableImageRef = (value?: string): boolean => {
   if (!value) return false;
   const trimmed = value.trim();
@@ -113,9 +124,12 @@ const findNestedImage = (
 };
 
 export const getHistoryRequestPrompt = (item: GlobalImageHistoryItem): string | undefined => {
+  const metadataPrompt = findNestedString(item.metadata, REQUEST_PROMPT_KEYS);
+  if (metadataPrompt) return metadataPrompt;
+  const legacyPrompt = pickString(item.prompt);
+  if (isLegacyGeneratedHistoryTitle(legacyPrompt, item.sourceType)) return undefined;
   return pickString(
-    findNestedString(item.metadata, REQUEST_PROMPT_KEYS),
-    item.prompt
+    legacyPrompt
   );
 };
 

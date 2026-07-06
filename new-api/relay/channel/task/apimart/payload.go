@@ -42,6 +42,20 @@ func isWan27VideoEditModel(name string) bool {
 	return wan27VideoEditModels[base]
 }
 
+var omniFlashExtModels = map[string]bool{
+	"omni-flash-ext": true,
+}
+
+const omniFlashExtUpstreamModel = "Omni-Flash-Ext"
+
+func isOmniFlashExtModel(name string) bool {
+	base := strings.TrimSpace(strings.ToLower(name))
+	for _, suffix := range []string{"-apimart", "-suchuang", "-all"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	return omniFlashExtModels[base]
+}
+
 // aspectRatioToken resolves a ratio token (e.g. "16:9") for the request.
 // Prefers the explicit aspect_ratio; otherwise derives it from a "WxH" size
 // string (the hono-api gateway emits pixel sizes like "1920x1080"). Returns
@@ -101,6 +115,7 @@ type SubmitPayload struct {
 	ImageUrls                 []string               `json:"image_urls,omitempty"`
 	VideoUrls                 []string               `json:"video_urls,omitempty"`
 	VideoList                 []VideoListItem        `json:"video_list,omitempty"`
+	GenerationType            string                 `json:"generation_type,omitempty"`
 	Watermark                 *bool                  `json:"watermark,omitempty"`
 	Seed                      *int64                 `json:"seed,omitempty"`
 	SequentialImageGeneration string                 `json:"sequential_image_generation,omitempty"`
@@ -154,6 +169,9 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 	}
 	if isWan27VideoEditModel(req.Model) {
 		return buildWan27VideoEditPayload(req)
+	}
+	if isOmniFlashExtModel(req.Model) {
+		return buildOmniFlashExtPayload(req)
 	}
 	p := &SubmitPayload{
 		Model:      req.Model,
@@ -227,6 +245,163 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 		}
 	}
 	p.ImageUrls = uniqueStrings(p.ImageUrls)
+	return p, nil
+}
+
+func stringFromMetadata(md map[string]interface{}, keys ...string) string {
+	if md == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if v, ok := md[key].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func stringsFromAny(value any) []string {
+	switch raw := value.(type) {
+	case []string:
+		return uniqueStrings(raw)
+	case []any:
+		out := make([]string, 0, len(raw))
+		for _, item := range raw {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return uniqueStrings(out)
+	case string:
+		if strings.TrimSpace(raw) != "" {
+			return []string{strings.TrimSpace(raw)}
+		}
+	}
+	return nil
+}
+
+func collectMetadataContentUrls(md map[string]interface{}) (images []string, videos []string) {
+	raw, ok := md["content"]
+	if !ok {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, nil
+	}
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := m["type"].(string)
+		switch typ {
+		case "image_url":
+			if iu, ok := m["image_url"].(map[string]any); ok {
+				if u, _ := iu["url"].(string); strings.TrimSpace(u) != "" {
+					images = append(images, strings.TrimSpace(u))
+				}
+			}
+		case "video_url":
+			if vu, ok := m["video_url"].(map[string]any); ok {
+				if u, _ := vu["url"].(string); strings.TrimSpace(u) != "" {
+					videos = append(videos, strings.TrimSpace(u))
+				}
+			}
+		}
+	}
+	return images, videos
+}
+
+// buildOmniFlashExtPayload constructs APIMart omni-flash-ext requests.
+// Contract: prompt required; image_urls count must be 0..3; 2+ images require
+// reference generation; video_urls count
+// must be 0/1; generation_type only applies when image_urls is present; omit
+// duration when a reference video is present.
+func buildOmniFlashExtPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) {
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		return nil, fmt.Errorf("apimart omni-flash-ext: prompt is required")
+	}
+
+	p := &SubmitPayload{
+		Model:       omniFlashExtUpstreamModel,
+		Prompt:      req.Prompt,
+		Resolution:  strings.ToLower(strings.TrimSpace(req.Resolution)),
+		AspectRatio: aspectRatioToken(req),
+		Duration:    req.Duration,
+	}
+
+	p.ImageUrls = append(p.ImageUrls, req.Images...)
+	if req.InputReference != "" {
+		p.ImageUrls = append(p.ImageUrls, req.InputReference)
+	}
+	if req.Image != "" {
+		p.ImageUrls = append(p.ImageUrls, req.Image)
+	}
+	p.VideoUrls = append(p.VideoUrls, req.ReferenceVideos...)
+
+	md := req.Metadata
+	if md != nil {
+		if values := stringsFromAny(md["image_urls"]); len(values) > 0 {
+			p.ImageUrls = append(p.ImageUrls, values...)
+		}
+		if values := stringsFromAny(md["video_urls"]); len(values) > 0 {
+			p.VideoUrls = append(p.VideoUrls, values...)
+		}
+		if u := stringFromMetadata(md, "video_url"); u != "" {
+			p.VideoUrls = append(p.VideoUrls, u)
+		}
+		contentImages, contentVideos := collectMetadataContentUrls(md)
+		p.ImageUrls = append(p.ImageUrls, contentImages...)
+		p.VideoUrls = append(p.VideoUrls, contentVideos...)
+	}
+
+	p.ImageUrls = uniqueStrings(p.ImageUrls)
+	p.VideoUrls = uniqueStrings(p.VideoUrls)
+
+	if len(p.ImageUrls) > 3 {
+		return nil, fmt.Errorf("apimart omni-flash-ext: image_urls count must be 0 to 3 (got %d)", len(p.ImageUrls))
+	}
+	if len(p.VideoUrls) > 1 {
+		return nil, fmt.Errorf("apimart omni-flash-ext: video_urls supports at most 1 item (got %d)", len(p.VideoUrls))
+	}
+
+	if len(p.ImageUrls) > 0 {
+		generationType := strings.ToLower(stringFromMetadata(md, "generation_type", "videoMode", "video_mode"))
+		if generationType != "reference" {
+			generationType = "frame"
+		}
+		if len(p.ImageUrls) >= 2 && generationType != "reference" {
+			return nil, fmt.Errorf("apimart omni-flash-ext: 2+ image_urls require generation_type=reference")
+		}
+		p.GenerationType = generationType
+	}
+	if len(p.VideoUrls) > 0 {
+		p.VideoUrls = p.VideoUrls[:1]
+		p.Duration = 0
+		p.GenerationType = "reference"
+	}
+
+	if md != nil {
+		skipKeys := map[string]bool{
+			"vendor": true, "taskKind": true, "content": true,
+			"generation_type": true, "videoMode": true, "video_mode": true,
+			"image_urls": true, "video_urls": true, "video_url": true,
+			"resolution": true, "aspect_ratio": true,
+		}
+		extras := make(map[string]any, len(md))
+		for k, v := range md {
+			if skipKeys[k] {
+				continue
+			}
+			extras[k] = v
+		}
+		if len(extras) > 0 {
+			p.Extras = extras
+		}
+	}
+
 	return p, nil
 }
 

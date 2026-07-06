@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useStore } from "reactflow";
-import { Send as SendIcon } from "lucide-react";
+import { Send as SendIcon, Square } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -58,6 +58,7 @@ type NodeData = {
   vendorKey?: string;
   platformKey?: string;
   onRun?: (id: string) => void;
+  onStop?: (id: string) => void;
   onSend?: (id: string) => void;
 };
 
@@ -459,14 +460,10 @@ function Nano2NodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (!isGptImage2Node) return;
-    if (normalizedResolutionValue === "1K" || normalizedResolutionValue === "2K" || normalizedResolutionValue === "4K") {
-      return;
-    }
-    const fallbackResolution =
-      resolutionOptions.find((value) => {
-        const normalized = value.trim().toUpperCase();
-        return normalized === "1K" || normalized === "2K" || normalized === "4K";
-      }) || "1K";
+    // 当前分辨率不在可选项内时回落到首个可选项。这样在切到普通/极速渠道后，
+    const allowed = resolutionOptions.map((value) => value.trim().toUpperCase());
+    if (allowed.includes(normalizedResolutionValue)) return;
+    const fallbackResolution = resolutionOptions[0] || "1K";
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: {
@@ -639,29 +636,43 @@ function Nano2NodeInner({ id, data, selected }: Props) {
       >
         <div className='tanva-flow-node-title' style={{ fontWeight: 600 }}>{lt(titleZh, titleEn)}</div>
         <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={onRun}
-            disabled={status === "running"}
-            className='run-btn-with-credit'
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              background: status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              borderRadius: 6,
-              border: "none",
-              cursor: status === "running" ? "not-allowed" : "pointer",
-            }}
-          >
-            {status === "running" ? (
-              <span className='run-text-trigger'>Running...</span>
-            ) : (
-              <>
-                <span className='run-text-trigger'>Run</span>
-                <RunCreditBadge credits={resolvedRunCredits} runButton />
-              </>
-            )}
-          </button>
+          {status === "running" ? (
+            <button
+              onClick={() => data.onStop?.(id)}
+              title={lt("停止并重置，可重新生成", "Stop and reset to regenerate")}
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                background: "#111827",
+                color: "#fff",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={onRun}
+              className='run-btn-with-credit'
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                background: "#111827",
+                color: "#fff",
+                borderRadius: 6,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <span className='run-text-trigger'>Run</span>
+              <RunCreditBadge credits={resolvedRunCredits} runButton />
+            </button>
+          )}
           <button
             onClick={onSend}
             disabled={!(data.imageData || data.imageUrl)}

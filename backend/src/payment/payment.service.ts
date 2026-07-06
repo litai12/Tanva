@@ -858,6 +858,44 @@ export class PaymentService implements OnModuleInit {
         topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
         return;
       }
+      if (currentOrder.orderType === 'team_credits') {
+        const meta = currentOrder.metadata as Record<string, unknown> | null;
+        const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
+        if (!teamId) return;
+        const paidAt = options?.paidAt ?? new Date();
+
+        let acc = await tx.teamCreditAccount.findUnique({ where: { teamId } });
+        if (!acc) {
+          acc = await tx.teamCreditAccount.create({
+            data: { teamId, balance: 0, frozenBalance: 0, totalEarned: 0 },
+          });
+        }
+        await tx.teamCreditLot.create({
+          data: {
+            teamCreditAccId: acc.id,
+            amount: credits,
+            remaining: credits,
+            expiresAt: null,
+            source: 'topup',
+            sourceRefId: orderId,
+          },
+        });
+        await tx.teamCreditAccount.update({
+          where: { id: acc.id },
+          data: { balance: { increment: credits }, totalEarned: { increment: credits } },
+        });
+        await tx.teamCreditLedger.create({
+          data: {
+            teamAccId: acc.id,
+            entryType: 'topup',
+            amount: credits,
+            taskId: `topup_${orderId}`,
+            note: `团队积分充值 ${credits} 积分`,
+          },
+        });
+        topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
+        return;
+      }
       let account = await tx.creditAccount.findUnique({ where: { userId } });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;

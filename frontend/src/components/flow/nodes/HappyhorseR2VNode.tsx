@@ -1,6 +1,6 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
-import { Video, Share2, Download, Plus, Minus } from "lucide-react";
+import { Handle, Position, useUpdateNodeInternals } from "reactflow";
+import { Video, Share2, Download, Plus, Minus, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -46,6 +46,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     creditsPerCall?: number;
     model?: HappyhorseModel;
     ratio?: Ratio;
@@ -137,6 +138,14 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
     () => computeCaps(model, referenceCount),
     [model, referenceCount]
   );
+
+  // 动态显隐 image-N / video 句柄（如多图参考自动扩出新空句柄、切换 model）后，必须通知
+  // React Flow 重算句柄坐标，否则连到新句柄的连线会画到旧/零坐标（新句柄看似出现却连不上）。
+  // 与 GenericVideoNode 同处理：可见句柄 signature 变化即触发 updateNodeInternals。
+  const updateNodeInternals = useUpdateNodeInternals();
+  React.useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals, caps.imageHandles, caps.hasVideoHandle]);
 
   const previewRequestParams = React.useMemo(
     () => ({
@@ -581,37 +590,53 @@ function HappyhorseR2VNodeInner({ id, data, selected }: Props) {
           <span>{lt("快乐马", "HappyHorse")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={() => data.onRun?.(id)}
-            disabled={data.status === "running"}
-            style={{
-              minWidth: hasRunCredits ? 64 : 36,
-              height: 32,
-              padding: hasRunCredits ? "0 10px" : undefined,
-              borderRadius: 8,
-              border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-              opacity: data.status === "running" ? 0.6 : 1,
-            }}
-          >
-            {data.status === "running" ? (
-              <span className="run-text-trigger">Running...</span>
-            ) : (
-              <>
-                <span className="run-text-trigger">Run</span>
-                {hasRunCredits ? (
-                  <RunCreditBadge credits={runCredits} runButton />
-                ) : null}
-              </>
-            )}
-          </button>
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run"
+              onClick={() => data.onStop?.(id)}
+              title="停止并重置，可重新生成"
+              style={{
+                minWidth: hasRunCredits ? 64 : 36,
+                height: 32,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={() => data.onRun?.(id)}
+              style={{
+                minWidth: hasRunCredits ? 64 : 36,
+                height: 32,
+                padding: hasRunCredits ? "0 10px" : undefined,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {hasRunCredits ? (
+                <RunCreditBadge credits={runCredits} runButton />
+              ) : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink((data as any)?.videoUrl)}

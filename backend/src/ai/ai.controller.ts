@@ -54,9 +54,13 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ModelRoutingService } from './services/model-routing.service';
+import { ImageReuseCacheService, type ImageReuseSignature } from './services/image-reuse-cache.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
+import { AudioGenerateDto } from './audio/audio-generate.dto';
+import { AudioRoutingService } from './audio/audio-routing.service';
+import { AudioGenerateResult } from './audio/audio-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { applyWatermarkToBase64, applyWatermarkToBuffer } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
@@ -78,6 +82,8 @@ import { verify } from 'jsonwebtoken';
 import { OpenObserveTelemetryService } from '../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../telemetry/tracing';
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
+import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
+import { PDFParse } from 'pdf-parse';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -113,6 +119,13 @@ const BANANA_ROUTE_SUCCESS_RATE_SERVICE_TYPES = [
   'gemini-prompt-optimize',
 ] as const;
 
+// seed-audio 单轨网关计费的【最坏情况】保底门槛（120s 上限的封顶价）。
+// 仅用于调用前的余额护栏，绝不是实际扣费金额——实际扣费以 new-api 回报的
+// X-NewApi-Consumed-Credits 为准（见 withCreditsFromGateway / deductExact）。
+// 取最坏情况 = 封顶 120s × 单价 2 积分/秒（1.2 元/分钟，1 元=100 积分）= 240。
+// 必须 >= new-api 实际可能扣的最大值，否则余额介于护栏与真实最大值之间会漏扣一次。
+const SEED_AUDIO_MAX_CREDITS = 240;
+
 type BananaRouteKey = 'normal' | 'stable' | 'ultra';
 
 type BananaRouteSuccessRateStats = {
@@ -136,6 +149,8 @@ export class AiController {
     banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
+    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
+    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
     runninghub: 'runninghub-su-effect',
     nano2: 'gemini-3.1-flash-image-preview',
     seedream5: 'doubao-seedream-5-0-260128',
@@ -146,6 +161,8 @@ export class AiController {
     banana: 'gemini-3.5-flash', // Pro 对话档改用 gemini-3.5-flash（仅对话能力）
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro-preview',
+    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
+    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
     runninghub: 'gemini-3.1-pro',
     midjourney: 'gemini-3.1-pro',
     nano2: 'gemini-3.1-pro-preview',
@@ -157,6 +174,8 @@ export class AiController {
     banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
+    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
+    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
     runninghub: 'gemini-3.1-pro',
     midjourney: 'gemini-3.1-pro',
     nano2: 'gemini-3.1-flash-image-preview',
@@ -180,6 +199,28 @@ export class AiController {
       524: '服务器处理超时，请稍后重试或简化请求内容',
     };
     return messages[status] || `服务器返回错误 ${status}`;
+  }
+
+  private isDeepSeekV4Model(model?: string | null, providerName?: string | null): boolean {
+    const normalizedModel = String(model || '').trim().toLowerCase();
+    const normalizedProvider = String(providerName || '').trim().toLowerCase();
+    return (
+      normalizedProvider === 'deepseek-v4-flash' ||
+      normalizedProvider === 'deepseek-v4-pro' ||
+      normalizedModel === 'deepseek-v4-flash-260425' ||
+      normalizedModel === 'deepseek-v4-pro-260425'
+    );
+  }
+
+  private isImageInputUnsupportedError(message?: string | null): boolean {
+    const normalized = String(message || '').toLowerCase();
+    return (
+      normalized.includes('do not support image input') ||
+      normalized.includes('does not support image input') ||
+      normalized.includes('not support image') ||
+      normalized.includes('不支持图片') ||
+      normalized.includes('不支持图像')
+    );
   }
 
   private normalizeSeedance2Access(value: unknown): 'enabled' | 'disabled' {
@@ -382,7 +423,45 @@ export class AiController {
     return 'disabled';
   }
 
-  private async assertHappyhorseEntitlement(userId: string | null): Promise<void> {
+  /**
+   * 团队出资模式的快乐马权益判定：只要团队【已充值】即放行（与扣费同样落到团队账户）。
+   * 「已充值」= 团队有 paid 的团队订单（team_credits/team_seat）或团队账户 totalEarned>0。
+   * 不依赖个人付费记录——否则团队充了值、成员个人没买过任何东西时会被误拦 403。
+   */
+  private async resolveTeamHappyhorseAccess(teamId: string): Promise<'enabled' | 'disabled'> {
+    if (!(await this.isNonPersonalTeam(teamId))) {
+      return 'disabled';
+    }
+
+    const paidOrder = await this.prisma.paymentOrder.findFirst({
+      where: {
+        teamId,
+        status: 'paid',
+        paidAt: { not: null },
+        orderType: { in: ['team_credits', 'team_seat'] },
+      },
+      select: { id: true },
+    });
+    if (paidOrder) {
+      return 'enabled';
+    }
+
+    const acc = await this.prisma.teamCreditAccount.findUnique({
+      where: { teamId },
+      select: { totalEarned: true },
+    });
+    return acc && acc.totalEarned > 0 ? 'enabled' : 'disabled';
+  }
+
+  private async assertHappyhorseEntitlement(
+    userId: string | null,
+    teamId?: string | null,
+  ): Promise<void> {
+    // 团队模式：团队已充值即放行（团队出资，权益看团队）。
+    if (teamId && (await this.resolveTeamHappyhorseAccess(teamId)) === 'enabled') {
+      return;
+    }
+
     if (!userId) {
       throw new ForbiddenException('快乐马仅支持已充值或已开通对应套餐权益的付费用户使用');
     }
@@ -433,12 +512,15 @@ export class AiController {
     private readonly minimaxSpeechService: MinimaxSpeechService,
     private readonly tencentSpeechService: TencentSpeechService,
     private readonly minimaxMusicService: MinimaxMusicService,
+    private readonly audioRouting: AudioRoutingService,
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
+    private readonly imageReuseCache: ImageReuseCacheService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
+    @Optional() private readonly creditCharge?: CreditChargeService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -1105,6 +1187,73 @@ export class AiController {
     };
   }
 
+  private async updateImageReuseApiUsageParams(
+    apiUsageId: string | undefined | null,
+    patch: Record<string, any>,
+  ): Promise<void> {
+    if (!apiUsageId) return;
+    try {
+      await this.creditsService.updateApiUsageRequestParams(apiUsageId, patch);
+    } catch (error) {
+      this.logger.warn(
+        `[image-reuse-cache] failed to update api usage params: ${this.summarizeError(error)}`,
+      );
+    }
+  }
+
+  private async recordGeneratedImageReuseAsset(params: {
+    userId: string | null | undefined;
+    signature: ImageReuseSignature | null;
+    result: GenerateImageUrlResult;
+    providerName: string | null;
+    model?: string;
+    serviceType: ServiceType;
+    apiUsageId?: string | null;
+  }): Promise<GenerateImageUrlResult> {
+    if (!params.userId || !params.signature || !params.result.imageUrl) {
+      return params.result;
+    }
+
+    const metadata = params.result.metadata || {};
+    const recorded = await this.imageReuseCache.recordGeneratedAsset({
+      userId: params.userId,
+      signature: params.signature,
+      imageUrl: params.result.imageUrl,
+      imageKey: typeof metadata.imageKey === 'string' ? metadata.imageKey : undefined,
+      provider: params.providerName || 'gemini',
+      model: params.model,
+      serviceType: params.serviceType,
+      textResponse: params.result.textResponse,
+      metadata,
+      apiUsageId: params.apiUsageId,
+    });
+
+    if (!recorded) return params.result;
+
+    await this.updateImageReuseApiUsageParams(params.apiUsageId, {
+      imageReuseCacheEligible: true,
+      imageReuseCacheHit: false,
+      imageReuseCacheStored: true,
+      imageReuseAssetId: recorded.id,
+      imageReuseCacheSignature: params.signature.signature,
+      imageReuseCacheVersion: params.signature.version,
+    });
+
+    return {
+      ...params.result,
+      metadata: {
+        ...metadata,
+        imageReuseCache: {
+          hit: false,
+          stored: true,
+          assetId: recorded.id,
+          signature: params.signature.signature,
+          version: params.signature.version,
+        },
+      },
+    };
+  }
+
   private async buildVideoProviderCreditParams(
     dto: VideoProviderRequestDto,
   ): Promise<Record<string, any>> {
@@ -1121,6 +1270,10 @@ export class AiController {
     if (typeof dto.managedModelKey === 'string' && dto.managedModelKey.trim().length > 0) {
       params.managedModelKey = dto.managedModelKey.trim();
     }
+    const normalizedManagedModelKey =
+      typeof dto.managedModelKey === 'string'
+        ? dto.managedModelKey.trim().toLowerCase()
+        : '';
 
     // kling-o3(Omni) 计费的线路 modelKey 必须钉死为 'kling-o3'，命中专属的 kling-o3 计价书。
     // 否则 managedModelKey 缺失时(老/新节点未带该字段)会按 klingModel='kling-v3-0' 推断成
@@ -1332,6 +1485,13 @@ export class AiController {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
 
+    if (normalizedManagedModelKey === 'omni-flash-ext') {
+      assignRouteParams(
+        await this.modelRoutingService.resolveVideoModel('omni-flash-ext', preferredVendorKey),
+      );
+      return params;
+    }
+
     // kling-o3(Omni) 不能并入 kling-3.0 路由：它虽下发 klingModel='kling-v3-0'(为让 new-api
     // 路由到 kling-v3-omni)，但计费/线路必须用 kling-o3 自己的计价书。否则 params.modelKey 会被
     // 设成 'kling-3.0'，而 resolveManagedRoutePricing 中 modelKey 优先级高于 managedModelKey，
@@ -1401,6 +1561,14 @@ export class AiController {
   private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
     const normalizedKlingModel =
       typeof dto.klingModel === 'string' ? dto.klingModel.trim().toLowerCase() : '';
+    const normalizedManagedModelKey =
+      typeof dto.managedModelKey === 'string'
+        ? dto.managedModelKey.trim().toLowerCase()
+        : '';
+
+    if (normalizedManagedModelKey === 'omni-flash-ext') {
+      return 'kling-video';
+    }
 
     // kling-o3(Omni) 计费一律走 kling-o3-video，不受其路由用的 klingModel 影响。
     // Omni 节点为让 new-api 路由到 kling-v3-omni 固定带 klingModel='kling-v3-0'，
@@ -1644,7 +1812,7 @@ export class AiController {
 
     const startTime = Date.now();
     let apiUsageId: string | null = null;
-    let teamReserve: { isTeamMode: true; teamId: string; amount: number } | null = null;
+    let chargeHandle: ChargeHandle | null = null;
     const sanitizedRequestParams = requestParams
       ? Object.fromEntries(
           Object.entries(requestParams).filter(([_, value]) => value !== undefined),
@@ -1652,14 +1820,11 @@ export class AiController {
       : undefined;
     const idempotencyKey = this.extractIdempotencyKey(req, sanitizedRequestParams);
 
-    // 团队模式检测（在预扣积分前）：团队项目不扣个人积分
-    const teamId = this.getTeamId(req);
-    const isTeamProject = !!(teamId && this.teamCreditLedger && await this.isNonPersonalTeam(teamId));
-
     try {
-      // 预扣积分（团队模式只建用量记录，不动个人积分）
-      const deductResult = await this.creditsService.preDeductCredits({
+      // 统一计费：团队/个人判定 + 预扣（团队跳过个人积分）+ 团队预留 + teamId 标记，全在一处。
+      chargeHandle = await this.creditCharge!.begin({
         userId,
+        teamId: this.getTeamId(req),
         serviceType,
         model,
         inputImageCount,
@@ -1668,27 +1833,11 @@ export class AiController {
         ipAddress: req.ip,
         userAgent: req.headers?.['user-agent'],
         idempotencyKey,
-        skipPersonalDeduction: isTeamProject,
       });
 
-      apiUsageId = deductResult.apiUsageId;
-      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${isTeamProject}`);
+      apiUsageId = chargeHandle.apiUsageId;
+      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
       creditOptions?.onApiUsageId?.(apiUsageId);
-
-      // 团队积分预留（在个人积分处理后执行）
-      if (isTeamProject && teamId) {
-        const reserved = await this.teamCreditLedger!.reserve({
-          teamId,
-          amount: deductResult.creditsToDeduct,
-          taskId: apiUsageId,
-          taskKind: serviceType,
-          actorUserId: userId,
-        });
-        if (!reserved.reserved) {
-          throw new BadRequestException(reserved.reason ?? '团队积分不足');
-        }
-        teamReserve = { isTeamMode: true, teamId, amount: deductResult.creditsToDeduct };
-      }
 
       // 执行实际操作
       const result = await operation();
@@ -1745,28 +1894,14 @@ export class AiController {
           creditOptions.skipFinalizeSuccessIf(result),
       );
       if (deferFinalize) {
+        // 延迟结算：begin 已给团队记录打了 teamId 标记，后续由前端轮询触发
+        // video-task-success / video-task-refund 反查团队上下文结算。
         return { ...(result as object), apiUsageId } as T;
       }
 
-      // 更新状态为成功
+      // 成功结算：标记成功 + 团队模式确认扣除（个人模式余额已在 begin 扣除）。
       const processingTime = Date.now() - startTime;
-      await this.creditsService.updateApiUsageStatus(
-        apiUsageId,
-        ApiResponseStatus.SUCCESS,
-        undefined,
-        processingTime,
-      );
-
-      // 团队积分确认扣除
-      if (teamReserve) {
-        await this.teamCreditLedger!.deduct({
-          teamId: teamReserve.teamId,
-          amount: teamReserve.amount,
-          taskId: apiUsageId!,
-          taskKind: serviceType,
-          actorUserId: userId,
-        }).catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
-      }
+      await this.creditCharge!.commit(chargeHandle!, { processingTime });
 
       return result;
     } catch (error) {
@@ -1780,43 +1915,32 @@ export class AiController {
         `error=${this.summarizeError(error)}`
       );
 
-      if (apiUsageId) {
-        if (isTeamProject) {
-          // 团队模式：只标记失败，无个人积分需退还
-          await this.creditsService.updateApiUsageStatus(
-            apiUsageId,
-            ApiResponseStatus.FAILED,
-            errorMessage,
-            processingTime,
-          ).catch((e) => this.logger.warn(`团队模式标记失败状态出错: ${e?.message}`));
-        } else {
-          const refunded = await this.markFailedAndRefundWithRetry({
-            userId,
-            apiUsageId,
-            serviceType,
-            errorMessage,
-            processingTime,
-          });
-          if (refunded) {
-            this.logger.warn(
-              `[${serviceType}] Credits successfully refunded for failed operation: ` +
-                `userId=${userId}, apiUsageId=${apiUsageId}`,
-            );
-          } else {
-            this.logger.error(
-              `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
-                `userId=${userId}, apiUsageId=${apiUsageId}`,
-            );
-          }
-        }
-        // 释放团队积分预留
-        if (teamReserve) {
-          await this.teamCreditLedger!.release({
-            teamId: teamReserve.teamId,
-            amount: teamReserve.amount,
-            taskId: apiUsageId,
-          }).catch((e) => this.logger.warn(`团队积分释放失败: ${e?.message}`));
-        }
+      if (apiUsageId && chargeHandle) {
+        // 失败结算：团队模式标记失败+释放预留；个人模式沿用带重试的退款逻辑。
+        await this.creditCharge!.rollback(chargeHandle, {
+          errorMessage,
+          processingTime,
+          personalRefund: async () => {
+            const refunded = await this.markFailedAndRefundWithRetry({
+              userId,
+              apiUsageId: apiUsageId!,
+              serviceType,
+              errorMessage,
+              processingTime,
+            });
+            if (refunded) {
+              this.logger.warn(
+                `[${serviceType}] Credits successfully refunded for failed operation: ` +
+                  `userId=${userId}, apiUsageId=${apiUsageId}`,
+              );
+            } else {
+              this.logger.error(
+                `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+                  `userId=${userId}, apiUsageId=${apiUsageId}`,
+              );
+            }
+          },
+        });
       } else {
         this.logger.error(
           `[${serviceType}] CRITICAL: No apiUsageId available for refund. ` +
@@ -1843,6 +1967,128 @@ export class AiController {
 
       throw error;
     }
+  }
+
+  /**
+   * 单轨网关计费包装器（seed-audio 专用）。
+   *
+   * 与 withCredits 的固定预扣不同：价格只存在于 new-api，后端按 new-api 实际回报的
+   * 积分【后扣】。
+   *  (a) 调用前只做余额护栏（>= 最坏情况 SEED_AUDIO_MAX_CREDITS，不是实际扣费）。
+   *  (b) 执行 op()，它返回 { result, consumedCredits }（来自 new-api 响应头）。
+   *  (c) 成功后用 deductExact 精确扣 consumedCredits。
+   *  (d) 抛错则一分不扣（无预扣即无需退款）。
+   * API Key 认证路径与 withCredits 一致——跳过扣费。
+   */
+  private async withCreditsFromGateway<T>(
+    req: any,
+    serviceType: ServiceType,
+    op: () => Promise<{ result: T; consumedCredits?: number }>,
+    requestParams?: Record<string, any>,
+  ): Promise<T> {
+    const userId = this.getUserId(req);
+
+    // API Key 认证不扣积分（与 withCredits 相同规则）。
+    if (!userId) {
+      this.logger.debug('API Key authentication - skipping gateway credits deduction');
+      const { result } = await op();
+      return result;
+    }
+
+    await this.creditsService.getOrCreateAccount(userId);
+
+    const teamId = this.getTeamId(req);
+    const isTeamProject = !!(
+      teamId &&
+      this.teamCreditLedger &&
+      (await this.isNonPersonalTeam(teamId))
+    );
+
+    // (a) 最坏情况护栏（不是实际扣费）。
+    if (isTeamProject && teamId) {
+      const account = await this.prisma.teamCreditAccount.findUnique({
+        where: { teamId },
+        select: { balance: true, frozenBalance: true },
+      });
+      const available = account ? account.balance - account.frozenBalance : 0;
+      if (available < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `团队积分不足（音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}，当前可用 ${available}）`,
+        );
+      }
+    } else {
+      const balance = await this.creditsService.getBalance(userId);
+      if (balance < SEED_AUDIO_MAX_CREDITS) {
+        throw new BadRequestException(
+          `积分不足，当前余额: ${balance}，音频生成最多可能消耗 ${SEED_AUDIO_MAX_CREDITS}`,
+        );
+      }
+    }
+
+    // (b) 执行上游操作（抛错则向上传播，不扣费）。
+    const { result, consumedCredits } = await op();
+
+    const amount =
+      Number.isFinite(consumedCredits) && (consumedCredits as number) > 0
+        ? Math.round(consumedCredits as number)
+        : 0;
+
+    if (amount <= 0) {
+      this.logger.warn(
+        `[${serviceType}] gateway reported no consumed credits; charging nothing (userId=${userId})`,
+      );
+      return result;
+    }
+
+    const sanitizedRequestParams = {
+      ...(requestParams
+        ? Object.fromEntries(
+            Object.entries(requestParams).filter(([, value]) => value !== undefined),
+          )
+        : {}),
+      // 团队出资：打 teamId 标记（个人「积分使用记录」据此过滤）。
+      ...(isTeamProject && teamId ? { teamId } : {}),
+    };
+
+    // (c) 精确后扣 new-api 回报的积分。
+    const deducted = await this.creditsService.deductExact(userId, teamId ?? null, amount, {
+      serviceType,
+      provider: 'volcengine',
+      requestParams: sanitizedRequestParams,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
+
+    // 团队项目：deductExact 只落用量记录，团队积分在此 reserve+deduct。
+    if (isTeamProject && teamId) {
+      const reserved = await this.teamCreditLedger!.reserve({
+        teamId,
+        amount,
+        taskId: deducted.apiUsageId,
+        taskKind: serviceType,
+        actorUserId: userId,
+      });
+      if (reserved.reserved) {
+        await this.teamCreditLedger!
+          .deduct({
+            teamId,
+            amount,
+            taskId: deducted.apiUsageId,
+            taskKind: serviceType,
+            actorUserId: userId,
+          })
+          .catch((e) => this.logger.warn(`团队积分确认扣除失败: ${e?.message}`));
+      } else {
+        this.logger.warn(
+          `[${serviceType}] 团队积分预留失败（已产出但未能记账）: ${reserved.reason}`,
+        );
+      }
+    }
+
+    this.logger.debug(
+      `[${serviceType}] gateway billed exactly ${amount} credits (userId=${userId}, team=${isTeamProject})`,
+    );
+    return result;
   }
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
@@ -1908,22 +2154,19 @@ export class AiController {
 
   private resolvePdfAnalyzeModel(providerName: string | null, requestedModel?: string): string {
     const model = requestedModel?.trim();
-    if (model?.length && !this.isImageAnalyzeModel(model)) {
+    if (model?.length) {
       this.logger.debug(`[${providerName || 'default'}] Using requested PDF analyze model: ${model}`);
       return model;
     }
 
-    const providerKey = providerName || 'gemini';
-    const fallback =
-      this.providerDefaultTextModels[providerKey] ||
-      this.providerDefaultAnalyzeModels[providerKey] ||
-      this.providerDefaultTextModels.gemini;
-    if (model?.length) {
-      this.logger.debug(
-        `[${providerName || 'default'}] Replacing image analyze model ${model} with PDF-capable model ${fallback}`,
+    if (providerName) {
+      return (
+        this.providerDefaultAnalyzeModels[providerName] ||
+        this.providerDefaultTextModels[providerName] ||
+        this.providerDefaultAnalyzeModels.gemini
       );
     }
-    return fallback;
+    return this.providerDefaultAnalyzeModels.gemini;
   }
 
   private resolveGeminiVideoModel(requestedModel?: string): string {
@@ -2136,6 +2379,17 @@ export class AiController {
     const path = await import('path');
     const fsp = await import('fs/promises');
 
+    // Hard internal ceilings so this can never balloon the heap regardless of
+    // what a caller passes. All frames are base64-encoded and held in one array
+    // (~1.33x raw bytes each), so an unbounded frame count / huge frames is a
+    // heap-OOM risk (incident 2026-06-25).
+    const MAX_FRAMES_CEILING = 16;
+    const MAX_TOTAL_FRAME_BYTES = 48 * 1024 * 1024; // 48MB of raw jpg bytes
+    const frameCount = Math.min(
+      MAX_FRAMES_CEILING,
+      Math.max(1, Math.floor(params.maxFrames)),
+    );
+
     const framesDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'video-frames-'));
     try {
       const outputPattern = path.join(framesDir, 'frame-%03d.jpg');
@@ -2148,7 +2402,7 @@ export class AiController {
         '-vf',
         `fps=1/${Math.max(1, Math.floor(params.intervalSeconds))}`,
         '-frames:v',
-        String(Math.max(1, Math.floor(params.maxFrames))),
+        String(frameCount),
         outputPattern,
       ];
 
@@ -2164,13 +2418,22 @@ export class AiController {
 
       const files = (await fsp.readdir(framesDir))
         .filter((f) => f.toLowerCase().endsWith('.jpg'))
-        .sort();
+        .sort()
+        .slice(0, frameCount);
 
       const dataUrls: string[] = [];
+      let totalBytes = 0;
       for (const file of files) {
         const buf = await fsp.readFile(path.join(framesDir, file));
-        const base64 = buf.toString('base64');
-        dataUrls.push(`data:image/jpeg;base64,${base64}`);
+        totalBytes += buf.length;
+        if (totalBytes > MAX_TOTAL_FRAME_BYTES) {
+          // Stop accumulating rather than risk OOM; return what we have so far.
+          this.logger?.warn?.(
+            `extractFramesAsDataUrls: frame bytes exceeded ${MAX_TOTAL_FRAME_BYTES}, truncating at ${dataUrls.length} frames`,
+          );
+          break;
+        }
+        dataUrls.push(`data:image/jpeg;base64,${buf.toString('base64')}`);
       }
       return dataUrls;
     } finally {
@@ -2470,6 +2733,75 @@ export class AiController {
       }
     }
     throw new BadGatewayException('图片资源不可访问，请确认图片链接有效且服务端可访问');
+  }
+
+  private async resolvePdfSourceForInline(source: string): Promise<string> {
+    const trimmed = String(source || '').trim();
+    if (!trimmed) return trimmed;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return trimmed.startsWith('data:application/pdf')
+        ? trimmed
+        : `data:application/pdf;base64,${trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '')}`;
+    }
+
+    const parsed = this.parseAndValidateAllowedImageUrl(trimmed);
+    const candidates = this.buildImageFetchCandidates(parsed);
+    const maxBytes = 15 * 1024 * 1024;
+    const errors: string[] = [];
+
+    for (const candidateUrl of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch(candidateUrl, { signal: controller.signal });
+        if (!response.ok) {
+          errors.push(`${candidateUrl} -> HTTP ${response.status}`);
+          continue;
+        }
+        const contentLength = Number(response.headers.get('content-length') || 0);
+        if (contentLength && contentLength > maxBytes) {
+          throw new BadRequestException('PDF 文件过大，请使用 15MB 以内的文件');
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+          throw new BadRequestException('PDF 文件过大，请使用 15MB 以内的文件');
+        }
+        const header = buffer.subarray(0, 5).toString('ascii');
+        if (header !== '%PDF-') {
+          const contentType = response.headers.get('content-type') || '';
+          throw new BadRequestException(`PDF 文件格式无效: ${contentType || 'unknown content-type'}`);
+        }
+        return `data:application/pdf;base64,${buffer.toString('base64')}`;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          errors.push(`${candidateUrl} -> timeout`);
+          continue;
+        }
+        if (error instanceof HttpException) throw error;
+        errors.push(`${candidateUrl} -> ${this.summarizeError(error)}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+    this.logger.warn(`PDF source fetch failed: ${errors.join('; ')}`);
+    throw new BadGatewayException('PDF 文件不可访问，请确认文件链接有效且服务端可访问');
+  }
+
+  private async extractPdfTextForAnalysis(source: string): Promise<{ text: string; pages?: number }> {
+    const dataUrl = await this.resolvePdfSourceForInline(source);
+    const base64 = dataUrl.replace(/^data:application\/pdf(?:;[^,]*)?,/i, '').replace(/\s+/g, '');
+    const buffer = Buffer.from(base64, 'base64');
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const parsed = await parser.getText();
+      const text = String(parsed.text || '').replace(/\r/g, '').trim();
+      if (!text) {
+        throw new BadRequestException('PDF 未提取到可分析文本；如果这是扫描件，请先 OCR 或转换为可复制文本的 PDF');
+      }
+      return { text, pages: parsed.total };
+    } finally {
+      await parser.destroy().catch(() => undefined);
+    }
   }
 
   private async watermarkBufferIfNeeded(buffer: Buffer, req: any): Promise<Buffer> {
@@ -3233,6 +3565,7 @@ export class AiController {
         providerName,
         { traceId, parentRequestId },
         dto.nodeId,
+        this.getTeamId(req),
       );
       return { taskId: task.id, status: task.status } as any;
     }
@@ -3252,6 +3585,34 @@ export class AiController {
       dto.batchMode && Number.isFinite(Number(dto.batchCount))
         ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
         : 1;
+    const imageReuseUserId = this.getUserId(req);
+    const imageReuseSignature = imageReuseUserId
+      ? this.imageReuseCache.buildTextToImageSignature({
+          prompt: dto.prompt,
+          providerName: providerName || 'gemini',
+          model,
+          serviceType,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          outputFormat: dto.outputFormat,
+          thinkingLevel: dto.thinkingLevel,
+          imageOnly: dto.imageOnly,
+          providerOptions: dto.providerOptions,
+          enableWebSearch: dto.enableWebSearch,
+          googleSearch: dto.googleSearch,
+          googleImageSearch: dto.googleImageSearch,
+          imageUrls: normalizedImageUrlsForProvider,
+          batchMode: dto.batchMode,
+          batchCount: dto.batchCount,
+          outputImageCount: requestedOutputImageCount,
+          officialFallback: dto.officialFallback,
+          quality: dto.quality,
+          background: dto.background,
+          moderation: dto.moderation,
+          outputCompression: dto.outputCompression,
+          maskUrl: dto.maskUrl,
+        })
+      : null;
 
     void this.telemetryService.ingestGenerationTask({
       traceId,
@@ -3294,7 +3655,77 @@ export class AiController {
         receivedAt: new Date().toISOString(),
       });
 
+      let imageGenerationApiUsageId: string | undefined;
+      const imageCreditRequestParams = this.buildCreditRequestParams(providerName, {
+        imageSize: dto.imageSize,
+        quality: dto.quality,
+        aspectRatio: dto.aspectRatio,
+        outputImageCount: requestedOutputImageCount,
+        parallelGroupId: dto.parallelGroupId,
+        parallelGroupIndex: dto.parallelGroupIndex,
+        parallelGroupTotal: dto.parallelGroupTotal,
+        nodeConfigKey: dto.nodeConfigKey,
+        nodeConfigNameZh: dto.nodeConfigNameZh,
+        nodeConfigNameEn: dto.nodeConfigNameEn,
+        ...(imageReuseSignature
+          ? {
+              imageReuseCacheEligible: true,
+              imageReuseCacheSignature: imageReuseSignature.signature,
+              imageReuseCacheVersion: imageReuseSignature.version,
+            }
+          : {}),
+        ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
+      }, dto.providerOptions);
+
       const result = await this.withCredits(req, serviceType, model, async () => {
+        if (imageReuseUserId && imageReuseSignature) {
+          const claimed = await this.imageReuseCache.claimNextUnusedAsset({
+            userId: imageReuseUserId,
+            signature: imageReuseSignature.signature,
+            apiUsageId: imageGenerationApiUsageId,
+          });
+          if (claimed) {
+            const presentationDelayMs =
+              await this.imageReuseCache.waitForHitPresentationDelay(claimed.presentationDelayMs);
+            await this.updateImageReuseApiUsageParams(imageGenerationApiUsageId, {
+              imageReuseCacheEligible: true,
+              imageReuseCacheHit: true,
+              imageReuseAssetId: claimed.id,
+              imageReuseCacheScope: claimed.scope,
+              imageReuseAssetOwnerIsRequester: claimed.assetOwnerIsRequester,
+              imageReuseAssetOwnerUserId: claimed.assetOwnerUserId,
+              imageReuseCacheSignature: imageReuseSignature.signature,
+              imageReuseCacheVersion: imageReuseSignature.version,
+              imageReuseCachePoolSize: claimed.poolSize,
+              imageReuseCacheAvailablePoolSize: claimed.availablePoolSize,
+              imageReuseCacheMinPoolSize: claimed.minPoolSize,
+              imageReuseCachePresentationDelayMs: presentationDelayMs,
+            });
+
+            return {
+              imageUrl: claimed.imageUrl,
+              textResponse: claimed.textResponse || '',
+              metadata: {
+                ...(claimed.metadata || {}),
+                imageUrl: claimed.imageUrl,
+                ...(claimed.imageKey ? { imageKey: claimed.imageKey } : {}),
+                imageReuseCache: {
+                  hit: true,
+                  scope: claimed.scope,
+                  assetId: claimed.id,
+                  signature: imageReuseSignature.signature,
+                  version: imageReuseSignature.version,
+                  assetOwnerIsRequester: claimed.assetOwnerIsRequester,
+                  availablePoolSize: claimed.availablePoolSize,
+                  poolSize: claimed.poolSize,
+                  minPoolSize: claimed.minPoolSize,
+                  presentationDelayMs,
+                },
+              },
+            };
+          }
+        }
+
         const maxAttempts = 3;
         const retryDelaysMs = [500, 1200];
 
@@ -3355,17 +3786,25 @@ export class AiController {
                 if (result.data.imageData) {
                   const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
                   const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-                  return {
-                    imageUrl: upload.url,
-                    textResponse: result.data.textResponse || '',
-                    metadata: {
-                      ...responseMetadata,
+                  return this.recordGeneratedImageReuseAsset({
+                    userId: imageReuseUserId,
+                    signature: imageReuseSignature,
+                    providerName,
+                    model,
+                    serviceType,
+                    apiUsageId: imageGenerationApiUsageId,
+                    result: {
                       imageUrl: upload.url,
-                      imageKey: upload.key,
-                      mimeType: upload.mimeType,
-                      bytes: upload.size,
+                      textResponse: result.data.textResponse || '',
+                      metadata: {
+                        ...responseMetadata,
+                        imageUrl: upload.url,
+                        imageKey: upload.key,
+                        mimeType: upload.mimeType,
+                        bytes: upload.size,
+                      },
                     },
-                  };
+                  });
                 }
 
                 const providerImageUrls = this.collectProviderImageUrls(result.data);
@@ -3386,24 +3825,32 @@ export class AiController {
 
                     const primaryImageUrl = managedImageUrls[0];
                     const firstUploaded = managedResults.find((item) => item.uploaded);
-                    return {
-                      imageUrl: primaryImageUrl,
-                      textResponse: result.data.textResponse || '',
-                      metadata: {
-                        ...responseMetadata,
+                    return this.recordGeneratedImageReuseAsset({
+                      userId: imageReuseUserId,
+                      signature: imageReuseSignature,
+                      providerName,
+                      model,
+                      serviceType,
+                      apiUsageId: imageGenerationApiUsageId,
+                      result: {
                         imageUrl: primaryImageUrl,
-                        imageUrls: managedImageUrls,
-                        sourceImageUrl: providerImageUrls[0],
-                        sourceImageUrls: providerImageUrls,
-                        ...(firstUploaded
-                          ? {
-                              imageKey: firstUploaded.key,
-                              mimeType: firstUploaded.mimeType,
-                              bytes: firstUploaded.bytes,
-                            }
-                          : {}),
+                        textResponse: result.data.textResponse || '',
+                        metadata: {
+                          ...responseMetadata,
+                          imageUrl: primaryImageUrl,
+                          imageUrls: managedImageUrls,
+                          sourceImageUrl: providerImageUrls[0],
+                          sourceImageUrls: providerImageUrls,
+                          ...(firstUploaded
+                            ? {
+                                imageKey: firstUploaded.key,
+                                mimeType: firstUploaded.mimeType,
+                                bytes: firstUploaded.bytes,
+                              }
+                            : {}),
+                        },
                       },
-                    };
+                    });
                   } catch (error) {
                     this.logger.error(
                       `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
@@ -3435,19 +3882,10 @@ export class AiController {
         }
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
-      }, 0, requestedOutputImageCount, skipCredits, this.buildCreditRequestParams(providerName, {
-        imageSize: dto.imageSize,
-        quality: dto.quality,
-        aspectRatio: dto.aspectRatio,
-        outputImageCount: requestedOutputImageCount,
-        parallelGroupId: dto.parallelGroupId,
-        parallelGroupIndex: dto.parallelGroupIndex,
-        parallelGroupTotal: dto.parallelGroupTotal,
-        nodeConfigKey: dto.nodeConfigKey,
-        nodeConfigNameZh: dto.nodeConfigNameZh,
-        nodeConfigNameEn: dto.nodeConfigNameEn,
-        ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
-      }, dto.providerOptions), {
+      }, 0, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
+        onApiUsageId: (apiUsageId) => {
+          imageGenerationApiUsageId = apiUsageId;
+        },
         validateSuccessResult: (payload) => ({
           ok: this.hasImagePayload(payload),
           message: 'Image generation succeeded but no image payload returned',
@@ -4048,6 +4486,52 @@ export class AiController {
         : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
+      if (hasPdf) {
+        const pdfTexts = await Promise.all(
+          normalizedImages
+            .filter((source) => this.isPdfAnalysisSource(source))
+            .map((source, index) =>
+              this.extractPdfTextForAnalysis(source).then((result) => ({
+                index,
+                ...result,
+              })),
+            ),
+        );
+        const maxCharsPerPdf = Math.max(12000, Math.floor(60000 / Math.max(1, pdfTexts.length)));
+        const pdfContext = pdfTexts
+          .map((item) => {
+            const text =
+              item.text.length > maxCharsPerPdf
+                ? `${item.text.slice(0, maxCharsPerPdf)}\n\n[PDF text truncated: ${item.text.length} chars total]`
+                : item.text;
+            return `PDF #${item.index + 1}${item.pages ? ` (${item.pages} pages)` : ''}:\n${text}`;
+          })
+          .join('\n\n---\n\n');
+        const analysisPrompt = [
+          '请基于以下 PDF 文本内容进行分析，使用中文回答。',
+          dto.prompt ? `用户要求：${dto.prompt}` : '用户要求：请详细分析这个 PDF 文件的内容。',
+          '如果文本中缺少图片、表格视觉细节，请明确说明只能基于可提取文本分析。',
+          '',
+          pdfContext,
+        ].join('\n');
+        const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
+        const result = await provider.generateText({
+          prompt: analysisPrompt,
+          model,
+          providerOptions: dto.providerOptions,
+        });
+        if (!result.success || !result.data) {
+          throw new ServiceUnavailableException(result.error?.message || 'Failed to analyze PDF');
+        }
+        const text = typeof result.data.text === 'string' ? result.data.text.trim() : '';
+        if (!text) {
+          throw new ServiceUnavailableException(
+            'Analysis returned empty response, please try again later',
+          );
+        }
+        return { text };
+      }
+
       if (!customApiKey) {
         const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
         const result = await provider.analyzeImage({
@@ -4069,7 +4553,68 @@ export class AiController {
             text,
           };
         }
-        throw new ServiceUnavailableException(result.error?.message || 'Failed to analyze image');
+        const errorMessage = result.error?.message || 'Failed to analyze image';
+        if (
+          this.isDeepSeekV4Model(model, providerName) &&
+          this.isImageInputUnsupportedError(errorMessage)
+        ) {
+          this.logger.warn(
+            `[${model}] Direct image input rejected by upstream; using vision extraction bridge before DeepSeek final analysis.`,
+          );
+          const visionModel = this.providerDefaultAnalyzeModels['banana-2.5'] || 'gemini-2.5-flash-image-preview';
+          const visionProvider = this.factory.getProvider(visionModel, 'new-api');
+          const visionPrompt = [
+            '请详细识别并描述图片内容，使用中文输出，供后续文本模型进行最终分析。',
+            dto.prompt ? `用户原始要求：${dto.prompt}` : '',
+            '请覆盖主体、文字、布局、颜色、风格、可见细节、可能的用途或语义。不要编造不可见信息。',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          const visionResult = await visionProvider.analyzeImage({
+            prompt: visionPrompt,
+            sourceImage: primarySourceImage,
+            sourceImages: normalizedImages,
+            model: visionModel,
+          });
+          if (!visionResult.success || !visionResult.data) {
+            throw new ServiceUnavailableException(
+              visionResult.error?.message || errorMessage || 'Failed to extract image content',
+            );
+          }
+          const imageDescription =
+            typeof visionResult.data.text === 'string' ? visionResult.data.text.trim() : '';
+          if (!imageDescription) {
+            throw new ServiceUnavailableException(
+              'Image extraction returned empty response, please try again later',
+            );
+          }
+          const finalPrompt = [
+            '你是 DeepSeek V4。请基于下方图片内容描述，按用户要求完成最终图片分析，使用中文回答。',
+            dto.prompt ? `用户要求：${dto.prompt}` : '用户要求：请详细分析这张图片。',
+            '',
+            '图片内容描述：',
+            imageDescription,
+          ].join('\n');
+          const finalResult = await provider.generateText({
+            prompt: finalPrompt,
+            model,
+            providerOptions: dto.providerOptions,
+          });
+          if (!finalResult.success || !finalResult.data) {
+            throw new ServiceUnavailableException(
+              finalResult.error?.message || 'Failed to analyze image with DeepSeek',
+            );
+          }
+          const finalText =
+            typeof finalResult.data.text === 'string' ? finalResult.data.text.trim() : '';
+          if (!finalText) {
+            throw new ServiceUnavailableException(
+              'DeepSeek analysis returned empty response, please try again later',
+            );
+          }
+          return { text: finalText };
+        }
+        throw new ServiceUnavailableException(errorMessage);
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
@@ -5112,9 +5657,11 @@ export class AiController {
       effectiveDto.seedanceModel ||
       effectiveDto.provider;
 
-    // 预扣积分
-    const deductResult = await this.creditsService.preDeductCredits({
+    // 统一计费：团队/个人判定 + 预扣（团队跳过个人积分）+ 团队预留 + teamId 标记。
+    // 异步任务由前端轮询触发 video-task-success / video-task-refund 据 teamId 反查结算。
+    const chargeHandle = await this.creditCharge!.begin({
       userId,
+      teamId: this.getTeamId(req),
       serviceType,
       model: billingModel,
       inputImageCount: effectiveDto.referenceImages?.length || undefined,
@@ -5125,8 +5672,9 @@ export class AiController {
       idempotencyKey,
     });
 
-    const apiUsageId = deductResult.apiUsageId;
-    this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}`);
+    const apiUsageId = chargeHandle.apiUsageId;
+    this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
+
     this.emitVideoProviderGenerationTaskLog({
       stage: 'queued',
       userId,
@@ -5198,14 +5746,10 @@ export class AiController {
         });
       }
 
-      // 兼容“立即出片”供应商：直接标记成功；异步任务维持 pending，交由轮询结果决定是否退款
+      // 兼容“立即出片”供应商：直接标记成功（团队模式同步确认扣除）；
+      // 异步任务维持 pending，交由轮询结果决定是否结算/退款。
       if (result.videoUrl) {
-        await this.creditsService.updateApiUsageStatus(
-          apiUsageId,
-          ApiResponseStatus.SUCCESS,
-          undefined,
-          0,
-        );
+        await this.creditCharge!.commit(chargeHandle, { processingTime: 0 });
       }
 
       // 返回 apiUsageId，前端在任务失败时可请求退款
@@ -5227,20 +5771,26 @@ export class AiController {
         error: errorMessage,
       });
 
-      const refunded = await this.markFailedAndRefundWithRetry({
-        userId,
-        apiUsageId,
-        serviceType,
+      await this.creditCharge!.rollback(chargeHandle, {
         errorMessage,
         processingTime,
+        personalRefund: async () => {
+          const refunded = await this.markFailedAndRefundWithRetry({
+            userId,
+            apiUsageId,
+            serviceType,
+            errorMessage,
+            processingTime,
+          });
+          if (refunded) {
+            this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
+          } else {
+            this.logger.error(
+              `Failed to mark/refund video task after retries. apiUsageId=${apiUsageId}`,
+            );
+          }
+        },
       });
-      if (refunded) {
-        this.logger.debug(`Credits refunded for failed video task creation: ${apiUsageId}`);
-      } else {
-        this.logger.error(
-          `Failed to mark/refund video task after retries. apiUsageId=${apiUsageId}`,
-        );
-      }
       throw error;
     }
   }
@@ -5271,6 +5821,17 @@ export class AiController {
         '视频生成任务失败',
         0,
       );
+
+      // 团队任务：无个人积分需退还（且 refundCredits 会错误地把积分加进个人账户），只释放团队预留。
+      const teamHandle = await this.creditCharge!.resolveHandle(apiUsageId);
+      if (teamHandle) {
+        await this.creditCharge!.rollback(teamHandle, {
+          errorMessage: '视频生成任务失败',
+          processingTime: 0,
+        });
+        this.logger.log(`✅ 视频任务释放团队预留: apiUsageId=${apiUsageId}`);
+        return { success: true, newBalance: 0 };
+      }
 
       // 退还积分
       const result = await this.creditsService.refundCredits(userId, apiUsageId);
@@ -5375,6 +5936,13 @@ export class AiController {
       ? Math.max(0, Math.floor(Number(body?.outputTokens)))
       : undefined;
 
+    // 团队任务：按预留固定额扣团队积分，跳过个人 seed2 token 结算（其会动个人账户）。
+    const teamHandle = await this.creditCharge!.resolveHandle(apiUsageId);
+    if (teamHandle) {
+      await this.creditCharge!.commit(teamHandle, { processingTime });
+      return { success: true };
+    }
+
     const resolvedTokenUsage = await this.resolveSeed2TokenUsageForSuccess({
       userId,
       apiUsageId,
@@ -5468,11 +6036,14 @@ export class AiController {
     };
     const startTime = Date.now();
     let apiUsageId: string | null = null;
+    let chargeHandle: ChargeHandle | null = null;
 
     if (userId) {
       await this.creditsService.getOrCreateAccount(userId);
-      const deductResult = await this.creditsService.preDeductCredits({
+      // 统一计费：团队/个人判定 + 预扣 + 团队预留 + teamId 标记。
+      chargeHandle = await this.creditCharge!.begin({
         userId,
+        teamId: this.getTeamId(req),
         serviceType,
         model: billingModel,
         requestParams: creditRequestParams,
@@ -5480,7 +6051,7 @@ export class AiController {
         userAgent: req.headers?.['user-agent'],
         idempotencyKey: this.extractIdempotencyKey(req, creditRequestParams),
       });
-      apiUsageId = deductResult.apiUsageId;
+      apiUsageId = chargeHandle.apiUsageId;
     }
 
     try {
@@ -5544,19 +6115,27 @@ export class AiController {
         },
       };
     } catch (error: any) {
-      if (apiUsageId && userId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage: error instanceof Error ? error.message : String(error),
-          processingTime: Math.max(0, Date.now() - startTime),
+      if (apiUsageId && userId && chargeHandle) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const processingTime = Math.max(0, Date.now() - startTime);
+        await this.creditCharge!.rollback(chargeHandle, {
+          errorMessage,
+          processingTime,
+          personalRefund: async () => {
+            const refunded = await this.markFailedAndRefundWithRetry({
+              userId,
+              apiUsageId: apiUsageId!,
+              serviceType,
+              errorMessage,
+              processingTime,
+            });
+            if (!refunded) {
+              this.logger.error(
+                `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
+              );
+            }
+          },
         });
-        if (!refunded) {
-          this.logger.error(
-            `Failed to mark/refund volc-enhance task after retries. apiUsageId=${apiUsageId}`,
-          );
-        }
       }
       if (error instanceof HttpException) {
         throw error;
@@ -6597,7 +7176,7 @@ export class AiController {
   async generateHappyhorseVideoViaDashscope(@Body() body: any, @Req() req: any) {
     const model = this.resolveHappyhorseModelOrThrow(body);
     const taskLabel = model.replace(/^happyhorse-1\.0-/, 'happyhorse-');
-    await this.assertHappyhorseEntitlement(this.getUserId(req));
+    await this.assertHappyhorseEntitlement(this.getUserId(req), this.getTeamId(req));
     return this.withCredits(
       req,
       'happyhorse-r2v-video',
@@ -7047,6 +7626,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {
@@ -7084,6 +7664,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {
@@ -7121,6 +7702,7 @@ export class AiController {
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
+      this.getTeamId(req),
     );
 
     return {
@@ -7151,23 +7733,135 @@ export class AiController {
     };
   }
 
-  @Post('tencent-speech')
-  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+  // 各非网关 mode → 后端固定计费 serviceType。
+  private static readonly AUDIO_MODE_SERVICE_TYPE: Record<string, ServiceType> = {
+    'minimax-speech': 'minimax-speech',
+    'minimax-music': 'minimax-music',
+    'tencent-dub': 'tencent-speech',
+  };
+
+  /**
+   * 统一音频生成入口：按 dto.mode 路由 provider 并计费。
+   *  - seed-audio → withCreditsFromGateway（单轨，后扣 new-api 实际积分）。
+   *  - minimax-* / tencent-dub → 既有 withCredits(固定计费)。
+   *  - upload → 由前端处理，这里拒绝。
+   */
+  private async runAudioGenerate(
+    dto: AudioGenerateDto,
+    req: any,
+  ): Promise<AudioGenerateResult> {
+    if (dto.mode === 'upload') {
+      throw new BadRequestException('upload 模式由前端直接上传，无需调用音频生成接口');
+    }
+
+    const ctx = {
+      userId: this.getUserId(req),
+      teamId: this.getTeamId(req),
+      projectId: dto.projectId,
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    };
+    const provider = this.audioRouting.resolve(dto.mode);
+
+    if (dto.mode === 'seed-audio') {
+      return this.withCreditsFromGateway<AudioGenerateResult>(
+        req,
+        'seed-audio',
+        async () => {
+          const result = await provider.generate(dto, ctx);
+          return { result, consumedCredits: result.consumedCredits };
+        },
+        {
+          mode: dto.mode,
+          projectId: dto.projectId,
+          textLength: (dto.text || '').trim().length || undefined,
+          voice: dto.voice,
+          format: dto.format,
+        },
+      );
+    }
+
+    const serviceType = AiController.AUDIO_MODE_SERVICE_TYPE[dto.mode];
+    if (!serviceType) {
+      throw new BadRequestException(`不支持的音频模式: ${dto.mode}`);
+    }
+
+    const requestParams: Record<string, any> =
+      dto.mode === 'tencent-dub'
+        ? {
+            inputVideoUrl: dto.inputVideoUrl,
+            textLength: (dto.text || '').trim().length || undefined,
+            speakerUrl: dto.speakerUrl,
+            srcSubtitleUrl: dto.srcSubtitleUrl,
+            dstLangs: dto.dstLangs,
+          }
+        : dto.mode === 'minimax-speech'
+          ? { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
+          : { promptLength: (dto.prompt || '').trim().length || undefined };
+
     return this.withCredits(
       req,
-      'tencent-speech',
-      undefined,
-      async () => this.tencentSpeechService.synthesizeSpeech(dto),
+      serviceType,
+      dto.model,
+      async () => provider.generate(dto, ctx),
       undefined,
       undefined,
       false,
+      requestParams,
+    );
+  }
+
+  @Post('audio/generate')
+  async generateAudio(
+    @Body() dto: AudioGenerateDto,
+    @Req() req: any,
+  ): Promise<AudioGenerateResult> {
+    return this.runAudioGenerate(dto, req);
+  }
+
+  @Post('audio/generate/async')
+  async generateAudioAsync(@Body() dto: AudioGenerateDto) {
+    if (dto.mode !== 'tencent-dub') {
+      throw new BadRequestException('仅 tencent-dub 模式支持异步任务');
+    }
+    return this.audioRouting.tencent().createAsyncTask(dto);
+  }
+
+  @Get('audio/task/:taskId')
+  async queryAudioTask(@Param('taskId') taskId: string) {
+    const normalizedTaskId = taskId?.trim();
+    if (!normalizedTaskId) {
+      throw new BadRequestException('taskId 参数不能为空');
+    }
+    return this.audioRouting.tencent().queryTask(normalizedTaskId);
+  }
+
+  // ---- 旧路由：薄 shim，构造 AudioGenerateDto 走统一入口；保留原响应关键字段 ----
+
+  @Post('tencent-speech')
+  async generateTencentSpeech(@Body() dto: TencentSpeechDto, @Req() req: any) {
+    return this.runAudioGenerate(
       {
+        mode: 'tencent-dub',
         inputVideoUrl: dto.inputVideoUrl,
-        textLength: (dto.text || '').trim().length || undefined,
+        text: dto.text,
         speakerUrl: dto.speakerUrl,
-        srcSubtitleUrl: dto.srcSubtitleUrl,
+        voiceId: dto.voiceId,
+        speakerGender: dto.speakerGender,
+        srcLang: dto.srcLang,
         dstLangs: dto.dstLangs,
-      },
+        dstLang: dto.dstLang,
+        srcSubtitleUrl: dto.srcSubtitleUrl,
+        dstSubtitleUrls: dto.dstSubtitleUrls,
+        dstSubtitleUrl: dto.dstSubtitleUrl,
+        embedSubtitle: dto.embedSubtitle,
+        font: dto.font,
+        fontSize: dto.fontSize,
+        marginV: dto.marginV,
+        outputPattern: dto.outputPattern,
+        notifyUrl: dto.notifyUrl,
+      } as AudioGenerateDto,
+      req,
     );
   }
 
@@ -7187,15 +7881,18 @@ export class AiController {
 
   @Post('minimax-speech')
   async generateSpeech(@Body() dto: MinimaxSpeechDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-speech',
+        text: dto.text,
+        voiceId: dto.voiceId,
+        model: dto.model,
+        outputFormat: dto.outputFormat,
+        audioMode: dto.audioMode,
+        emotion: dto.emotion,
+        soundEffects: dto.soundEffects,
+      } as AudioGenerateDto,
       req,
-      'minimax-speech',
-      dto.model,
-      async () => this.minimaxSpeechService.synthesizeSpeech(dto),
-      undefined,
-      undefined,
-      false,
-      { text: dto.text, voiceId: dto.voiceId, emotion: dto.emotion }
     );
   }
 
@@ -7215,11 +7912,16 @@ export class AiController {
 
   @Post('minimax-music')
   async generateMusic(@Body() dto: MinimaxMusicDto, @Req() req: any) {
-    return this.withCredits(
+    return this.runAudioGenerate(
+      {
+        mode: 'minimax-music',
+        prompt: dto.prompt,
+        lyrics: dto.lyrics,
+        isInstrumental: dto.isInstrumental,
+        lyricsOptimizer: dto.lyricsOptimizer,
+        musicModel: dto.model,
+      } as AudioGenerateDto,
       req,
-      'minimax-music',
-      dto.model,
-      async () => this.minimaxMusicService.generateMusic(dto),
     );
   }
 

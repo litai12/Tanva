@@ -29,7 +29,7 @@ export class RegisterDto {
   @Matches(/^\d{6}$/, { message: '验证码必须是6位数字' })
   code!: string;
 
-  @ApiProperty({ required: false, description: '邀请码（选填）' })
+  @ApiProperty({ required: false, description: '邀请码（可选）' })
   @IsOptional()
   @IsString({ message: '邀请码必须是字符串' })
   inviteCode?: string;

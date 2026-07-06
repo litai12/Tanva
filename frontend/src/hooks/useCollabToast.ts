@@ -15,12 +15,13 @@ export interface UseCollabToastOptions {
 }
 
 export function useCollabToast(
-  collab: CanvasCollabHandle,
+  collab: CanvasCollabHandle | null | undefined,
   options: UseCollabToastOptions,
 ): void {
   const { show, ignoreOwn = true, currentUserId } = options;
 
   useEffect(() => {
+    if (!collab) return;
     const off = collab.subscribe('toast', (env: CollabEnvelope) => {
       const p = env.payload as ToastPayload;
       if (ignoreOwn && currentUserId && p.userId === currentUserId) return;

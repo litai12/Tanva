@@ -103,7 +103,15 @@ export class NewApiProvider implements IAIProvider {
     return {
       name: 'new-api',
       version: 'openai-compatible',
-      supportedModels: ['gemini', 'gpt-image-2', 'sora-2', 'kling-v3', 'wan2.7-videoedit'],
+      supportedModels: [
+        'gemini',
+        'gpt-image-2',
+        'sora-2',
+        'kling-v3',
+        'wan2.7-videoedit',
+        'deepseek-v4-flash-260425',
+        'deepseek-v4-pro-260425',
+      ],
     };
   }
 
@@ -185,9 +193,12 @@ export class NewApiProvider implements IAIProvider {
     );
     const hasPdf = fileReferences.some((item) => this.isPdfReference(item));
 
+    const fileParts = await Promise.all(
+      fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+    );
     const content: Array<Record<string, unknown>> = [
       { type: 'text', text: request.prompt || (hasPdf ? '请分析这个 PDF 文件。' : '请分析这张图片。') },
-      ...fileReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+      ...fileParts,
     ];
 
     const result = await this.chat(
@@ -223,7 +234,9 @@ export class NewApiProvider implements IAIProvider {
       imageReferences.length > 0
         ? [
             { type: 'text', text: request.prompt },
-            ...imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+            ...(await Promise.all(
+              imageReferences.map((item, index) => this.toAnalysisContentPart(item, index)),
+            )),
           ]
         : request.prompt;
 
@@ -571,11 +584,16 @@ export class NewApiProvider implements IAIProvider {
       if (typeof payload.model === 'string') {
         payload = { ...payload, model: this.normalizeUpstreamModel(payload.model) };
       }
+      if (this.isDeepSeekArkModel(payload.model)) {
+        return this.responses(payload, providerOptions);
+      }
       const result = await this.requestJson(
         '/v1/chat/completions',
         {
           method: 'POST',
-          body: JSON.stringify(this.stripUndefined({ ...payload, stream: false })),
+          body: JSON.stringify(
+            this.stripUndefined(this.stripUnsupportedTextPayloadFields({ ...payload, stream: false })),
+          ),
         },
         await this.resolveApiKey(providerOptions),
       );
@@ -593,6 +611,113 @@ export class NewApiProvider implements IAIProvider {
     } catch (error) {
       return this.errorResponse('TEXT_GENERATION_FAILED', error);
     }
+  }
+
+  private async responses(
+    payload: Record<string, unknown>,
+    providerOptions?: ProviderOptionsPayload,
+  ): Promise<AIProviderResponse<TextResult>> {
+    try {
+      const result = await this.requestJson(
+        '/v1/responses',
+        {
+          method: 'POST',
+          body: JSON.stringify(
+            this.stripUndefined(this.stripUnsupportedTextPayloadFields(this.toResponsesPayload(payload))),
+          ),
+        },
+        await this.resolveApiKey(providerOptions),
+      );
+      return {
+        success: true,
+        data: {
+          text: this.extractText(result),
+          metadata: {
+            provider: 'new-api',
+            model: payload.model,
+            raw: result,
+          },
+        },
+      };
+    } catch (error) {
+      return this.errorResponse('TEXT_GENERATION_FAILED', error);
+    }
+  }
+
+  private isDeepSeekArkModel(model: unknown): boolean {
+    const normalized = String(model || '').trim().toLowerCase();
+    return (
+      normalized === 'deepseek-v4-flash-260425' ||
+      normalized === 'deepseek-v4-pro-260425'
+    );
+  }
+
+  private toResponsesPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    return {
+      model: payload.model,
+      stream: false,
+      input: messages.map((message: any) => ({
+        role: typeof message?.role === 'string' ? message.role : 'user',
+        content: this.toResponsesContent(message?.content),
+      })),
+      tools: this.toResponsesTools(payload.tools),
+      temperature: payload.temperature,
+      top_p: payload.top_p,
+      max_output_tokens: payload.max_tokens || payload.max_completion_tokens,
+    };
+  }
+
+  private toResponsesTools(value: unknown): Array<Record<string, unknown>> | undefined {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    return value.map((tool) => {
+      const type = String((tool as any)?.type || '').trim();
+      if (type === 'web_search_preview' || type === 'web_search') {
+        return { type: 'web_search', max_keyword: 3 };
+      }
+      return tool as Record<string, unknown>;
+    });
+  }
+
+  private toResponsesContent(content: unknown): Array<Record<string, unknown>> {
+    if (typeof content === 'string') {
+      return [{ type: 'input_text', text: content }];
+    }
+    if (!Array.isArray(content)) {
+      return [{ type: 'input_text', text: String(content || '') }];
+    }
+    return content.map((part: any) => {
+      if (part?.type === 'text') {
+        return { type: 'input_text', text: String(part.text || '') };
+      }
+      if (part?.type === 'image_url') {
+        return {
+          type: 'input_image',
+          image_url: String(part?.image_url?.url || part?.image_url || ''),
+        };
+      }
+      if (part?.type === 'file') {
+        const fileData = String(part?.file?.file_data || part?.file_data || '').trim();
+        if (fileData) {
+          if (/^https?:\/\//i.test(fileData)) {
+            return {
+              type: 'input_file',
+              file_url: fileData,
+            };
+          }
+          return {
+            type: 'input_file',
+            filename: String(part?.file?.filename || part?.filename || 'document.pdf'),
+            file_data: fileData,
+          };
+        }
+        return {
+          type: 'input_file',
+          file_url: String(part?.file?.url || part?.file_url || ''),
+        };
+      }
+      return part as Record<string, unknown>;
+    });
   }
 
   private async requestJson(path: string, init: RequestInit, apiKey?: string): Promise<any> {
@@ -678,6 +803,13 @@ export class NewApiProvider implements IAIProvider {
         .join('');
     }
     if (typeof result?.output_text === 'string') return result.output_text;
+    if (Array.isArray(result?.output)) {
+      return result.output
+        .flatMap((item: any) => (Array.isArray(item?.content) ? item.content : []))
+        .map((part: any) => part?.text || part?.content || '')
+        .filter(Boolean)
+        .join('');
+    }
     if (typeof result?.text === 'string') return result.text;
     if (typeof result?.data?.text === 'string') return result.data.text;
     return '';
@@ -752,13 +884,30 @@ export class NewApiProvider implements IAIProvider {
     return `data:application/pdf;base64,${trimmed.replace(/^data:[^;]+;base64,/i, '').replace(/\s+/g, '')}`;
   }
 
-  private toAnalysisContentPart(value: string, index: number): Record<string, unknown> {
+  private async fetchPdfDataUrl(url: string): Promise<string> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF for analysis: ${response.status} ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const maxBytes = 15 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      throw new Error(`PDF is too large for analysis: ${(buffer.length / 1024 / 1024).toFixed(2)}MB`);
+    }
+    return `data:application/pdf;base64,${buffer.toString('base64')}`;
+  }
+
+  private async toAnalysisContentPart(value: string, index: number): Promise<Record<string, unknown>> {
     if (this.isPdfReference(value)) {
+      const trimmed = String(value || '').trim();
       return {
         type: 'file',
         file: {
           filename: `document-${index + 1}.pdf`,
-          file_data: this.toPdfFileReference(value),
+          file_data: /^https?:\/\//i.test(trimmed)
+            ? await this.fetchPdfDataUrl(trimmed)
+            : this.toPdfFileReference(value),
         },
       };
     }
@@ -861,6 +1010,12 @@ export class NewApiProvider implements IAIProvider {
     return Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined),
     );
+  }
+
+  private stripUnsupportedTextPayloadFields(payload: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...payload };
+    delete next.watermark;
+    return next;
   }
 
   private parseJsonObject(value: string): any {

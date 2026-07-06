@@ -1,10 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
+import { CollabEventBus, channelForTeam } from '../team-collab/collab-event-bus.service';
+import type { CollabEnvelope, TeamProjectsChangeAction, TeamProjectsChangedPayload } from '../team-collab/types';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
-import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
+import { sanitizeDesignJson, dropGhostFlowNodes } from '../utils/designJsonSanitizer';
+import { mergeProjectSnapshots } from './merge-project-snapshots';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { assertSameTenant } from '../tenancy/assert-same-tenant';
 
@@ -29,7 +32,48 @@ export class ProjectsService {
     private oss: OssService,
     private readonly tenantContext: TenantContextService,
     @Optional() private readonly canvasSse?: CanvasSseManager,
+    @Optional() private readonly bus?: CollabEventBus,
   ) {}
+
+  /**
+   * 向某团队频道广播「团队项目列表已变更」失效事件，让该团队其他在线成员重新拉取列表。
+   * best-effort：未注入 bus 或发布失败均静默，绝不影响项目增删改本身的成功。
+   */
+  private broadcastTeamProjectsChanged(
+    teamId: string,
+    action: TeamProjectsChangeAction,
+    projectId: string,
+    actorUserId?: string | null,
+  ): void {
+    if (!this.bus) return;
+    const env: CollabEnvelope<TeamProjectsChangedPayload> = {
+      type: 'team_projects_changed',
+      payload: { teamId, action, projectId, actorUserId: actorUserId ?? null },
+      ts: Date.now(),
+      senderUserId: actorUserId ?? undefined,
+    };
+    this.bus.publishTo(channelForTeam(teamId), env).catch(() => undefined);
+  }
+
+  /** 对一个项目当前共享到的所有团队广播列表变更（用于重命名/删除等无显式 teamId 的场景）。 */
+  private async broadcastForProjectTeams(
+    projectId: string,
+    action: TeamProjectsChangeAction,
+    actorUserId?: string | null,
+  ): Promise<void> {
+    if (!this.bus) return;
+    try {
+      const shares = await this.prisma.teamProjectShare.findMany({
+        where: { projectId },
+        select: { teamId: true },
+      });
+      for (const s of shares) {
+        this.broadcastTeamProjectsChanged(s.teamId, action, projectId, actorUserId);
+      }
+    } catch {
+      // best-effort，忽略
+    }
+  }
 
   private readonly projectMetadataSelect = {
     id: true,
@@ -110,6 +154,8 @@ export class ProjectsService {
           await this.prisma.teamProjectShare.create({
             data: { projectId: project.id, teamId, access: 'edit', sharedByUserId: userId },
           });
+          // 新建团队项目：通知该团队其他在线成员刷新项目列表（实时同步，免手动刷新）。
+          this.broadcastTeamProjectsChanged(teamId, 'created', project.id, userId);
         }
       }
     }
@@ -128,7 +174,19 @@ export class ProjectsService {
     });
     if (!p) throw new NotFoundException('项目不存在');
     if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
-    return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
+    // 解析该项目对当前用户而言所属的团队（被共享到的、用户为成员的团队）。
+    // 前端据此在通过 URL 打开项目时把团队上下文切到项目所属团队，
+    // 避免复制/重开团队项目链接时顶部仍停留在个人身份/余额。null = 个人项目。
+    const teamShare = await this.prisma.teamProjectShare.findFirst({
+      where: { projectId: id, team: { memberships: { some: { userId } } } },
+      select: { teamId: true },
+    });
+    return {
+      ...p,
+      teamId: teamShare?.teamId ?? null,
+      mainUrl: this.oss.publicUrl(p.mainKey),
+      thumbnailUrl: this.extractThumbnail(p) || undefined,
+    };
   }
 
   async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }, role?: string) {
@@ -145,8 +203,11 @@ export class ProjectsService {
     if (!this.isSuperAdmin(role) && p.userId !== userId) await this.assertTeamProjectAccess(userId, id);
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
+    const nextName = payload.name !== undefined ? (payload.name || '未命名项目') : undefined;
+    // 仅在「名称真的变了」时广播，避免缩略图自动保存(thumbnailUrl)频繁触发列表刷新。
+    const nameChanged = nextName !== undefined && nextName !== p.name;
     if (payload.name !== undefined) {
-      data.name = payload.name || '未命名项目';
+      data.name = nextName as string;
     }
     if (payload.thumbnailUrl !== undefined) {
       if (supportsThumbnailColumn) {
@@ -165,6 +226,7 @@ export class ProjectsService {
 
     try {
       const updated = await this.prisma.project.update({ where: { id }, data });
+      if (nameChanged) void this.broadcastForProjectTeams(id, 'renamed', userId);
       return { ...updated, mainUrl: this.oss.publicUrl(updated.mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
     } catch (error: any) {
       if (this.shouldDowngradeThumbnailColumn(error)) {
@@ -179,6 +241,7 @@ export class ProjectsService {
             ) as Prisma.InputJsonValue,
           },
         });
+        if (nameChanged) void this.broadcastForProjectTeams(id, 'renamed', userId);
         return { ...downgraded, mainUrl: this.oss.publicUrl(downgraded.mainKey), thumbnailUrl: this.extractThumbnail(downgraded) || undefined };
       }
       throw error;
@@ -198,7 +261,15 @@ export class ProjectsService {
       });
       if (!manageable) throw new NotFoundException('项目不存在');
     }
+    // 删除会级联清掉 teamProjectShare，故先取出受影响团队，删除后再广播。
+    const affectedTeams = await this.prisma.teamProjectShare.findMany({
+      where: { projectId: id },
+      select: { teamId: true },
+    });
     await this.prisma.project.delete({ where: { id } });
+    for (const s of affectedTeams) {
+      this.broadcastTeamProjectsChanged(s.teamId, 'deleted', id, userId);
+    }
     return { ok: true };
   }
 
@@ -210,7 +281,7 @@ export class ProjectsService {
 
     if (!project.mainKey) {
       return {
-        content: sanitizeDesignJson((project as any).contentJson || null),
+        content: dropGhostFlowNodes(sanitizeDesignJson((project as any).contentJson || null)),
         version: project.contentVersion,
         updatedAt: project.updatedAt,
       };
@@ -218,7 +289,9 @@ export class ProjectsService {
 
     try {
       const content = await this.oss.getJSON(project.mainKey);
-      const resolved = sanitizeDesignJson(content ?? ((project as any).contentJson || null));
+      const resolved = dropGhostFlowNodes(
+        sanitizeDesignJson(content ?? ((project as any).contentJson || null)),
+      );
       return {
         content: resolved,
         version: project.contentVersion ?? 1,
@@ -228,7 +301,7 @@ export class ProjectsService {
       // eslint-disable-next-line no-console
       console.warn('OSS getJSON failed, returning null content:', err);
       return {
-        content: sanitizeDesignJson((project as any).contentJson || null),
+        content: dropGhostFlowNodes(sanitizeDesignJson((project as any).contentJson || null)),
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
@@ -249,7 +322,6 @@ export class ProjectsService {
     },
     role?: string
   ) {
-    void version;
     return this.runProjectSaveSerialized(id, async () => {
       const saveStartedAt = Date.now();
       const timings: Record<string, number> = {};
@@ -279,11 +351,11 @@ export class ProjectsService {
       const prefix = project.ossPrefix || `projects/${project.userId}/${project.id}/`;
       const mainKey = project.mainKey || `${prefix}project.json`;
       const sanitizeStartedAt = Date.now();
-      const sanitizedContent = sanitizeDesignJson(content);
+      let sanitizedContent = dropGhostFlowNodes(sanitizeDesignJson(content));
       const contentFingerprint = this.hashProjectContent(sanitizedContent);
       timings.sanitizeAndHashMs = Date.now() - sanitizeStartedAt;
-      const contentHash = contentFingerprint.hash;
-      const contentBytes = contentFingerprint.bytes;
+      let contentHash = contentFingerprint.hash;
+      let contentBytes = contentFingerprint.bytes;
       const cachedFingerprint = this.projectContentFingerprint.get(id);
 
       // Skip duplicate saves that would write exactly the same payload again.
@@ -305,6 +377,33 @@ export class ProjectsService {
           mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
           thumbnailUrl: this.extractThumbnail(project) || undefined,
         };
+      }
+
+      // 乐观并发：客户端携带其加载时的 baseVersion(version)。若已落后于服务端当前版本，
+      // 说明期间有他人(协作)/他端保存过。此前是拒绝(version_conflict)，现改为「取并集」：
+      // 读取远端当前快照，与本次提交(incoming = 当前用户)合并，同 id 冲突以 incoming 为准，
+      // remote-only 追加，谁的新增都不丢。合并后照常落盘，并在返回里带 merged/content 供前端 adopt。
+      const currentContentVersion = project.contentVersion ?? 0;
+      let mergedFromConflict = false;
+      if (typeof version === 'number' && version > 0 && version < currentContentVersion) {
+        let remoteContent: any = null;
+        try {
+          remoteContent = supportsThumbnailColumn
+            ? await timeStep('conflictReadRemoteMs', () => this.oss.getJSON(mainKey))
+            : ((project as any).contentJson ?? null);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn('[merge] 读取远端快照失败，回退为仅用当前用户内容:', err);
+        }
+        if (remoteContent) {
+          sanitizedContent = dropGhostFlowNodes(
+            sanitizeDesignJson(mergeProjectSnapshots(remoteContent, sanitizedContent)),
+          );
+          const mergedFingerprint = this.hashProjectContent(sanitizedContent);
+          contentHash = mergedFingerprint.hash;
+          contentBytes = mergedFingerprint.bytes;
+          mergedFromConflict = true;
+        }
       }
 
       try {
@@ -387,6 +486,9 @@ export class ProjectsService {
         updatedAt: updated2.updatedAt,
         mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
         thumbnailUrl: this.extractThumbnail(updated2) || undefined,
+        // 命中版本冲突并做了并集合并时，回传合并结果供前端 adopt（把远端新增补进本地运行时，
+        // 避免下一次保存又用本地内容覆盖丢掉远端项）。非冲突路径不带这两个字段。
+        ...(mergedFromConflict ? { merged: true, content: sanitizedContent } : {}),
       };
     });
   }
@@ -811,11 +913,13 @@ export class ProjectsService {
     });
     assertSameTenant(this.tenantContext.getTenantId(), team, 'team');
 
-    return this.prisma.teamProjectShare.upsert({
+    const share = await this.prisma.teamProjectShare.upsert({
       where: { projectId_teamId: { projectId, teamId } },
       create: { projectId, teamId, access: 'edit', sharedByUserId: userId },
       update: { access: 'edit', updatedAt: new Date() },
     });
+    this.broadcastTeamProjectsChanged(teamId, 'shared', projectId, userId);
+    return share;
   }
 
   async unshareFromTeam(projectId: string, teamId: string, userId: string) {
@@ -833,6 +937,7 @@ export class ProjectsService {
     await this.prisma.teamProjectShare.delete({
       where: { projectId_teamId: { projectId, teamId } },
     });
+    this.broadcastTeamProjectsChanged(teamId, 'unshared', projectId, userId);
     this.canvasSse?.kickTeamConnections(projectId, teamId);
   }
 
@@ -890,6 +995,7 @@ export class ProjectsService {
       create: { projectId: newProject.id, teamId, access: 'edit', sharedByUserId: userId },
       update: {},
     });
+    this.broadcastTeamProjectsChanged(teamId, 'created', newProject.id, userId);
 
     return { ...newProject, teamId };
   }

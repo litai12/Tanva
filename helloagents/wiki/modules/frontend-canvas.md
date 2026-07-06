@@ -12,7 +12,7 @@
   - `InteractionController.tsx`：交互控制（拖拽、选择等）
   - `GridRenderer.tsx`、`SnapGuideRenderer.tsx`、`ScaleBarRenderer.tsx`：辅助渲染
   - `TextEditor.tsx` / `SimpleTextEditor.tsx`：文字编辑
-- `frontend/src/components/panels/LibraryPanel.tsx`：右侧库面板（手动素材 / 全局历史切换，支持拖拽或发送到画板）
+- `frontend/src/components/panels/LibraryPanel.tsx`：右侧素材库面板（个人库 / 团队库 / 项目库切换，支持拖拽或发送到画板）
 - `frontend/src/components/canvas/hooks/`：与画布交互相关 hooks
 
 ## 图片引用协议（重要）
@@ -95,7 +95,7 @@
 - 图片拖动期间，`CanvasImageLayer` 通过 `tanva:image-drag-preview` 事件直接对 DOM 图片做 `translate3d` 预览；选中图片的 React 覆盖层复用同一预览事件，并在拖动期间暂停 Paper bounds 轮询；`useInteractionController` 只在鼠标松开时一次性提交 `imageInstances`，避免多图场景每帧触发 React 图片列表更新。
 
 ## 历史视频上画布
-- 库面板全局历史/项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。
+- 素材库面板项目库中的视频记录可通过发送按钮或拖拽写入画板，走 `canvas:insert-video` 事件创建 `StoredVideoAsset`，仅保存已有远程视频 URL/封面引用，不走图片上传链路。
 
 ## 图层面板反向选中
 - 当用户在画板中选中图片/3D/路径时，`DrawingController` 会派发 `tanva-canvas-selection-updated`，`LayerPanel` 会据此自动高亮对应图元项。
@@ -103,10 +103,11 @@
 - 主要实现位于 `frontend/src/components/panels/LayerPanel.tsx`。
 
 ## 库面板（右侧）
-- 顶部提供三标签：`全局历史`、`项目库` 与 `手动素材`。
-- `手动素材` 维持原逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传/删除/详情/发送到画板。
-- `全局历史` / `项目库` 在库面板内独立拉取，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽图片到画板。
-- 历史视频记录在库面板内复用 `global-history/historyMedia.ts` 解析视频 URL 和封面；发送/拖拽到画板时走 `canvas:insert-video` 创建视频资产，避免视频误进入图片上传链路。
+- 顶部提供三标签：`个人库`、`团队库` 与 `项目库`，工具栏入口显示为 `素材库`。
+- `个人库` 维持原个人资产逻辑：来自 `personalLibraryStore + personalLibraryApi`，支持上传、删除、详情和发送到画板。
+- `团队库` 使用 `material-library` 团队素材/文件夹接口；个人工作区下无团队时显示空态，有团队时可选择已加入团队，团队工作区下固定当前团队。
+- `项目库` 继续按当前项目过滤 Global History，支持搜索、类型筛选、页码分页（`1 2 ... N`）、点击发送或拖拽图片到画板。
+- 项目库历史视频记录在素材库面板内复用 `global-history/historyMedia.ts` 解析视频 URL 和封面；发送/拖拽到画板时走 `canvas:insert-video` 创建视频资产，避免视频误进入图片上传链路。
 - 库面板主内容区使用固定滚动容器（`flex + min-h-0 + overflow-y-auto`），避免历史列表在部分视口下无法下滑的问题。
 
 ## 3D 拍照白图防护

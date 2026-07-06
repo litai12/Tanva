@@ -9,6 +9,7 @@ import {
   type Edge,
 } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
+import { useCanvasStore } from '@/stores';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import { useLocaleText } from '@/utils/localeText';
@@ -42,6 +43,12 @@ type Props = {
 const TEXT_CHAT_NODE_SIZE_VERSION = 2;
 const DEFAULT_TITLE = 'Text Chat';
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
+const DEEPSEEK_V4_TEXT_CREDITS: Record<string, number> = {
+  'deepseek-v4-flash': 30,
+  'deepseek-v4-flash-260425': 30,
+  'deepseek-v4-pro': 60,
+  'deepseek-v4-pro-260425': 60,
+};
 type TextChatSkillId = 'custom' | 'shotSplit' | 'promptOptimize' | 'translate';
 
 type TextChatSkillOption = {
@@ -86,6 +93,34 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   }
 };
 
+const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) => {
+  const store = useCanvasStore.getState();
+  const isModifierWheel = event.ctrlKey || event.metaKey;
+  return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
+};
+
+const stopFlowPanUnlessCanvasZoom = (event: React.WheelEvent<HTMLElement>) => {
+  if (shouldPassWheelToCanvas(event)) return;
+  event.stopPropagation();
+  if (event.nativeEvent?.stopImmediatePropagation) {
+    event.nativeEvent.stopImmediatePropagation();
+  }
+};
+
+const resolveDeepSeekTextCredits = (
+  provider?: string | null,
+  model?: string | null
+): number | undefined => {
+  const candidates = [provider, model];
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+    if (!normalized) continue;
+    const credits = DEEPSEEK_V4_TEXT_CREDITS[normalized];
+    if (typeof credits === 'number') return credits;
+  }
+  return undefined;
+};
+
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
@@ -121,6 +156,16 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         value: 'banana-3.1',
         label: 'Ultra',
         description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
+      },
+      {
+        value: 'deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash',
+        description: lt('DeepSeek V4 Flash 文本模型', 'DeepSeek V4 Flash text model'),
+      },
+      {
+        value: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        description: lt('DeepSeek V4 Pro 文本模型', 'DeepSeek V4 Pro text model'),
       },
     ],
     [lt]
@@ -190,7 +235,8 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     },
     enabled: true,
   });
-  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
+  const deepSeekCredits = resolveDeepSeekTextCredits(effectiveProvider, textModel);
+  const resolvedRunCredits = backendCredits ?? deepSeekCredits ?? data.creditsPerCall;
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
@@ -791,7 +837,10 @@ Rules:
         </div>
 
         <div style={{ fontSize: 11, color: themePalette.secondaryText }}>{lt('已连接提示', 'Connected prompts')}: {incomingTexts.length} {lt('条', 'item(s)')}</div>
-        <div style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? themePalette.panelText : themePalette.panelMutedText }}>
+        <div
+          onWheelCapture={stopFlowPanUnlessCanvasZoom}
+          style={{ ...connectionStyle, display: 'flex', flexDirection: 'column', gap: 8, color: incomingTexts.length ? themePalette.panelText : themePalette.panelMutedText }}
+        >
           {incomingTexts.length
             ? incomingTexts.map((text, index) => (
               <div key={`${index}-${text.slice(0, 12)}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
@@ -802,7 +851,10 @@ Rules:
             : <span>{lt('连接多个 Prompt 节点以聚合输入', 'Connect multiple Prompt nodes to aggregate input')}</span>}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div
+          onWheelCapture={stopFlowPanUnlessCanvasZoom}
+          style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={labelStyle}>{lt('Skill', 'Skill')}</div>
             <DropdownMenu>
@@ -898,7 +950,7 @@ Rules:
                 fontFamily: 'inherit',
                 boxShadow: isDarkTheme ? '0 1px 2px rgba(15, 23, 42, 0.2)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
               }}
-              onWheelCapture={stopFlowPan}
+              onWheelCapture={stopFlowPanUnlessCanvasZoom}
               onPointerDownCapture={stopFlowPan}
               onMouseDownCapture={stopFlowPan}
             />
@@ -907,7 +959,10 @@ Rules:
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={labelStyle}>{lt('回复结果', 'Response')}</div>
-          <div style={{ ...panelStyle, minHeight: 64, maxHeight: 180, overflowY: 'auto' }}>
+          <div
+            onWheelCapture={stopFlowPanUnlessCanvasZoom}
+            style={{ ...panelStyle, minHeight: 64, maxHeight: 180, overflowY: 'auto' }}
+          >
             {responseText || lt('运行后将在此处展示回复内容', 'Run to see response text here')}
           </div>
         </div>

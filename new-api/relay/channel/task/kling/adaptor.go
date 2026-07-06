@@ -2,6 +2,7 @@ package kling
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -116,6 +117,37 @@ type TaskAdaptor struct {
 	ChannelType int
 	apiKey      string
 	baseURL     string
+	// kaponSuffix is set in BuildRequestBody when the request carries a
+	// metadata.kapon directive (backend pre-built kapon-native request). It tells
+	// BuildRequestURL which kapon endpoint to hit (text2video / image2video /
+	// multi-image2video). Empty → legacy behavior.
+	kaponSuffix string
+}
+
+// extractKaponKling reads the backend-provided metadata.kapon = {suffix, body}
+// directive. The backend (apps backend video-provider.service.ts buildKaponKlingRequest)
+// pre-builds the kapon-native kling request so this adaptor can forward it verbatim,
+// covering text2video / image2video(+image_tail) / multi-image2video without
+// re-deriving the shape here. apimart ignores metadata.kapon, so it never affects
+// the apimart fallback path.
+func extractKaponKling(metadata map[string]interface{}) (string, map[string]interface{}, bool) {
+	if metadata == nil {
+		return "", nil, false
+	}
+	raw, ok := metadata["kapon"]
+	if !ok {
+		return "", nil, false
+	}
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return "", nil, false
+	}
+	suffix, _ := m["suffix"].(string)
+	body, _ := m["body"].(map[string]interface{})
+	if suffix == "" || body == nil {
+		return "", nil, false
+	}
+	return suffix, body, true
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -134,6 +166,12 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	// kapon native: backend pre-selected the endpoint (text2video / image2video /
+	// multi-image2video) via metadata.kapon → forward to it directly.
+	if istanvasMartRelay(info.ApiKey) && a.kaponSuffix != "" {
+		return fmt.Sprintf("%s/kling/v1/videos/%s", a.baseURL, a.kaponSuffix), nil
+	}
+
 	path := lo.Ternary(info.Action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
 
 	if istanvasMartRelay(info.ApiKey) {
@@ -164,6 +202,25 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("request not found in context")
 	}
 	req := v.(relaycommon.TaskSubmitReq)
+
+	// kapon native (sk- key): forward the backend pre-built request verbatim.
+	if istanvasMartRelay(info.ApiKey) {
+		if suffix, kbody, ok := extractKaponKling(req.Metadata); ok {
+			a.kaponSuffix = suffix
+			// text2video poll endpoint differs; record action so FetchTask polls right.
+			if suffix == "text2video" {
+				c.Set("action", constant.TaskActionTextGenerate)
+			} else {
+				c.Set("action", constant.TaskActionGenerate)
+			}
+			c.Set("kapon_suffix", suffix)
+			data, err := common.Marshal(kbody)
+			if err != nil {
+				return nil, err
+			}
+			return bytes.NewReader(data), nil
+		}
+	}
 
 	body, err := a.convertToRequestPayload(&req, info)
 	if err != nil {
@@ -224,31 +281,70 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if !ok {
 		return nil, fmt.Errorf("invalid action")
 	}
-	path := lo.Ternary(action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
-	url := fmt.Sprintf("%s%s/%s", baseUrl, path, taskID)
-	if istanvasMartRelay(key) {
-		url = fmt.Sprintf("%s/kling%s/%s", baseUrl, path, taskID)
-	}
-
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	token, err := a.createJWTTokenWithKey(key)
 	if err != nil {
 		token = key
 	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("User-Agent", "kling-sdk/1.0")
-
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
-	return client.Do(req)
+
+	doGet := func(url string) (*http.Response, error) {
+		req, rerr := http.NewRequest(http.MethodGet, url, nil)
+		if rerr != nil {
+			return nil, rerr
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", "kling-sdk/1.0")
+		return client.Do(req)
+	}
+
+	// kapon (sk- key): the task-status endpoint is mode-specific. action only
+	// distinguishes text vs image, not image2video vs multi-image2video, so for the
+	// image branch try both and return the one that resolves (code==0), mirroring
+	// the backend's queryKling probe. omni stays on apimart, so it is not polled here.
+	if istanvasMartRelay(key) {
+		var suffixes []string
+		if action == constant.TaskActionGenerate {
+			// image branch covers image2video / multi-image2video (v2-6) and
+			// omni-video (v3 / o3, including omni text2video which we mark generate).
+			suffixes = []string{"image2video", "multi-image2video", "omni-video"}
+		} else {
+			suffixes = []string{"text2video"}
+		}
+		var lastResp *http.Response
+		for _, sfx := range suffixes {
+			resp, derr := doGet(fmt.Sprintf("%s/kling/v1/videos/%s/%s", baseUrl, sfx, taskID))
+			if derr != nil {
+				continue
+			}
+			data, rerr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if rerr != nil {
+				lastResp = resp
+				continue
+			}
+			var probe struct {
+				Code int             `json:"code"`
+				Data json.RawMessage `json:"data"`
+			}
+			_ = common.Unmarshal(data, &probe)
+			rebuilt := &http.Response{StatusCode: resp.StatusCode, Header: resp.Header, Body: io.NopCloser(bytes.NewReader(data))}
+			if probe.Code == 0 && len(probe.Data) > 0 && string(probe.Data) != "null" {
+				return rebuilt, nil
+			}
+			lastResp = rebuilt
+		}
+		if lastResp != nil {
+			return lastResp, nil
+		}
+		return doGet(fmt.Sprintf("%s/kling/v1/videos/%s/%s", baseUrl, suffixes[len(suffixes)-1], taskID))
+	}
+
+	path := lo.Ternary(action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
+	return doGet(fmt.Sprintf("%s%s/%s", baseUrl, path, taskID))
 }
 
 func (a *TaskAdaptor) GetModelList() []string {

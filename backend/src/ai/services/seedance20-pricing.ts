@@ -48,6 +48,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
         { value: '480P', label: '480P' },
         { value: '720P', label: '720P' },
         { value: '1080P', label: '1080P' },
+        { value: '4K', label: '4K' },
       ],
     },
     {
@@ -123,6 +124,19 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
         ],
       },
     },
+    {
+      ruleKey: 'seedance20_4k',
+      label: 'Seedance 2.0 4K',
+      enabled: true,
+      priority: 110,
+      evaluatorKey: 'seedance20_4k_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seedance-2.0' },
+          { field: 'resolution', op: 'eq', value: '4K' },
+        ],
+      },
+    },
   ],
   evaluators: {
     seedance20_fast_480p_eval: {
@@ -150,6 +164,11 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       unitField: 'duration',
       unitPriceYuan: applySeedance20Discount(3.0),
     },
+    seedance20_4k_eval: {
+      type: 'linear',
+      unitField: 'duration',
+      unitPriceYuan: applySeedance20Discount(6.0),
+    },
   },
   displayConfig: {
     specAxes: ['seedanceModel', 'resolution', 'duration'],
@@ -159,6 +178,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       'resolution.480P': '480P',
       'resolution.720P': '720P',
       'resolution.1080P': '1080P',
+      'resolution.4K': '4K',
     },
     defaultSelections: {
       seedanceModel: 'seedance-2.0',
@@ -169,6 +189,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       { seedanceModel: 'seedance-2.0', resolution: '720P', duration: 5 },
       { seedanceModel: 'seedance-2.0', resolution: '720P', duration: 10 },
       { seedanceModel: 'seedance-2.0', resolution: '1080P', duration: 5 },
+      { seedanceModel: 'seedance-2.0', resolution: '4K', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '480P', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '720P', duration: 5 },
     ],

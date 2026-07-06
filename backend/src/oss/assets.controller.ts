@@ -1,8 +1,26 @@
-import { BadGatewayException, BadRequestException, Controller, Get, Query, Req, Res } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Controller,
+  GatewayTimeoutException,
+  Get,
+  PayloadTooLargeException,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Readable } from 'node:stream';
-import { OssService } from './oss.service';
+import { OssObjectTooLargeError, OssReadTimeoutError, OssService } from './oss.service';
+
+// Cap for the rare full-buffer fallbacks below (no presigned URL / no upstream
+// body stream). Streaming is always preferred; this only bounds the worst case
+// so a giant object can't OOM the process. Overridable via env.
+const PROXY_BUFFER_FALLBACK_MAX_BYTES = (() => {
+  const raw = Number(process.env.ASSET_PROXY_MAX_BUFFER_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 64 * 1024 * 1024; // 64MB
+})();
 
 const MANAGED_ASSET_KEY_REGEX = /^(projects|uploads|templates|videos|ai)\//i;
 const DEFAULT_PROXY_UPSTREAM_TIMEOUT_MS = 12_000;
@@ -247,22 +265,50 @@ export class AssetsController {
       // fail-closed: signing unavailable → fall through to byte streaming below.
     }
 
+    // Managed keys (no range): stream the bytes from a short-lived presigned
+    // URL via the bounded streaming path below (real AbortController
+    // cancellation, no full-object buffering). This replaces an in-memory
+    // getObjectBuffer() read that ran on the SDK's 5-min request timeout, which
+    // let slow/dangling objects pile up full-image buffers and saturate the
+    // event loop (incident 2026-06-15). Only fall back to the authenticated
+    // buffer read — now bounded by a short read timeout — when a presigned URL
+    // cannot be produced (signing unavailable).
+    let managedStreamUrl: string | null = null;
     if (directManagedKey && !range) {
-      try {
-        const object = await this.oss.getObjectBuffer(directManagedKey);
-        this.setProxyCorsHeaders(reply);
-        this.setPassthroughHeaders(reply, object.headers || {});
-        if (!object.headers?.['cache-control']) {
-          reply.header('cache-control', 'public, max-age=3600');
+      const signed = this.oss.signUrl(directManagedKey, 300);
+      if (this.isPresignedUrl(signed)) {
+        // Reuse the signature for the streaming path below instead of
+        // re-signing via resolveTargetUrl().
+        managedStreamUrl = signed;
+      } else {
+        try {
+          const object = await this.oss.getObjectBuffer(directManagedKey, {
+            maxBytes: PROXY_BUFFER_FALLBACK_MAX_BYTES,
+          });
+          this.setProxyCorsHeaders(reply);
+          this.setPassthroughHeaders(reply, object.headers || {});
+          if (!object.headers?.['cache-control']) {
+            reply.header('cache-control', 'public, max-age=3600');
+          }
+          reply.status(200).send(object.buffer);
+          return;
+        } catch (err) {
+          if (err instanceof OssReadTimeoutError) {
+            reply.header('cache-control', 'no-store');
+            throw new GatewayTimeoutException('Asset read timed out');
+          }
+          if (err instanceof OssObjectTooLargeError) {
+            // Object too big to buffer; never OOM. Fail fast — client can retry
+            // a presigned/streamed path or the object is genuinely oversized.
+            reply.header('cache-control', 'no-store');
+            throw new PayloadTooLargeException('Asset too large to proxy');
+          }
+          // Fall through to URL proxy path.
         }
-        reply.status(200).send(object.buffer);
-        return;
-      } catch {
-        // Fall through to URL proxy path.
       }
     }
 
-    const initialUrl = this.resolveTargetUrl({ url, key });
+    const initialUrl = managedStreamUrl ?? this.resolveTargetUrl({ url, key });
 
     let parsed: URL;
     try {
@@ -401,16 +447,34 @@ export class AssetsController {
     reply.status(upstream.status);
 
     if (!upstream.body) {
-      reply.send(Buffer.from(await upstream.arrayBuffer()));
+      reply.send(await this.readUpstreamArrayBufferCapped(upstream));
       return;
     }
 
     const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
     const nodeStream: Readable = typeof fromWeb === 'function'
       ? fromWeb(upstream.body as unknown)
-      : Readable.from(Buffer.from(await upstream.arrayBuffer()));
+      : Readable.from(await this.readUpstreamArrayBufferCapped(upstream));
 
     upstreamNodeStream = nodeStream;
     reply.send(nodeStream);
+  }
+
+  // Bounded read for the rare full-buffer fallbacks (no body stream / no
+  // Readable.fromWeb). Rejects via Content-Length up-front and re-checks the
+  // realized size so an oversized upstream object can't OOM the proxy.
+  private async readUpstreamArrayBufferCapped(upstream: {
+    headers: { get(name: string): string | null };
+    arrayBuffer(): Promise<ArrayBuffer>;
+  }): Promise<Buffer> {
+    const declared = Number(upstream.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > PROXY_BUFFER_FALLBACK_MAX_BYTES) {
+      throw new PayloadTooLargeException('Upstream asset too large to proxy');
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.length > PROXY_BUFFER_FALLBACK_MAX_BYTES) {
+      throw new PayloadTooLargeException('Upstream asset too large to proxy');
+    }
+    return buf;
   }
 }

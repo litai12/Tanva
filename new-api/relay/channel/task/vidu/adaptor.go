@@ -127,6 +127,9 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			body.Model = "viduq2"
 		}
 	}
+	if info.Action == constant.TaskActionTextGenerate {
+		body.Model = normalizeTextToVideoModel(body.Model)
+	}
 
 	data, err := common.Marshal(body)
 	if err != nil {
@@ -236,6 +239,20 @@ func viduAuthScheme(apiKey string) string {
 // ============================
 // helpers
 // ============================
+
+// normalizeTextToVideoModel 调整模型名以适配 text2video 端点
+// （docs.kapon.cloud/vidu/video-generation）：
+//   - Q2 及更早系列只接受基础模型名（kapon 实测返回
+//     "model viduq2-pro does not support text2video"），去掉 pro/turbo 后缀；
+//   - Q3 系列相反，只有 viduq3-pro / viduq3-turbo，没有裸 viduq3，必须保留后缀。
+func normalizeTextToVideoModel(model string) string {
+	if strings.Contains(model, "viduq3") {
+		return model
+	}
+	model = strings.TrimSuffix(model, "-pro")
+	model = strings.TrimSuffix(model, "-turbo")
+	return model
+}
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
 	r := requestPayload{

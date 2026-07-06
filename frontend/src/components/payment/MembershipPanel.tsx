@@ -10,7 +10,6 @@ import {
   getMembershipOrders,
   getPaymentMembershipPlans,
   getPaymentStatus,
-  getSeedance2Access,
   type MembershipCurrentResponse,
   type MembershipOrderRecord,
   type PaymentMembershipPlan,
@@ -54,6 +53,13 @@ const FREE_FEATURES: string[] = [
 
 function getPlanMetadataObject(metadata?: Record<string, unknown> | null): Record<string, unknown> {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+}
+
+function getPlanTierRank(plan: PaymentMembershipPlan): number | null {
+  const metadataTier = Number(getPlanMetadataObject(plan.metadata).tierRank);
+  if (Number.isFinite(metadataTier)) return metadataTier;
+  const sortOrder = Number(plan.sortOrder);
+  return Number.isFinite(sortOrder) ? sortOrder : null;
 }
 
 function splitBenefitText(value: unknown): string[] {
@@ -104,7 +110,7 @@ function vipFeatureLines(plan: PaymentMembershipPlan, rewardMultiplier: number):
   }
 
   if (typeof plan.dailyGiftCredits === "number" && plan.dailyGiftCredits > 0) {
-    const { weeklyStreakBonusCredits } = getPlanMonthlyCreditsBreakdown(plan, rewardMultiplier);
+    const { weeklyStreakBonusCredits } = getPlanPeriodCreditsBreakdown(plan, rewardMultiplier);
     accent.push(`每周连签7天：额外 ${weeklyStreakBonusCredits} 积分`);
   }
 
@@ -142,26 +148,37 @@ function isRecommendedPlan(plan: PaymentMembershipPlan): boolean {
 const PLAN_CARD_MIN_H = "min-h-[440px] sm:min-h-[470px] lg:min-h-[500px] xl:min-h-[520px]";
 const MEMBERSHIP_MONTH_DAYS = 30;
 const MONTHLY_7_DAY_STREAK_CYCLES = 4;
+const MEMBERSHIP_YEAR_DAYS = 365;
+const YEARLY_7_DAY_STREAK_CYCLES = 52;
 const DEFAULT_7_DAY_REWARD_MULTIPLIER = 3;
 
-function getPlanMonthlyCreditsBreakdown(plan: PaymentMembershipPlan, rewardMultiplier: number) {
-  const immediateCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+function getPlanPeriodCreditsBreakdown(
+  plan: PaymentMembershipPlan,
+  rewardMultiplier: number,
+  immediateCreditsOverride?: number,
+) {
+  const immediateCredits = immediateCreditsOverride ?? (plan.monthlyQuotaCredits + plan.signupBonusCredits);
+  const periodDays = plan.billingCycle === "yearly" ? MEMBERSHIP_YEAR_DAYS : MEMBERSHIP_MONTH_DAYS;
+  const streakCycles = plan.billingCycle === "yearly" ? YEARLY_7_DAY_STREAK_CYCLES : MONTHLY_7_DAY_STREAK_CYCLES;
   const dailyCheckInCredits = Math.max(0, Math.trunc(plan.dailyGiftCredits || 0));
   const normalizedMultiplier = Math.max(
     1,
     Math.trunc(Number.isFinite(rewardMultiplier) ? rewardMultiplier : DEFAULT_7_DAY_REWARD_MULTIPLIER),
   );
-  const monthlyDailyCheckInCredits = dailyCheckInCredits * MEMBERSHIP_MONTH_DAYS;
+  const periodDailyCheckInCredits = dailyCheckInCredits * periodDays;
   const weeklyStreakBonusCredits = dailyCheckInCredits * (normalizedMultiplier - 1);
-  const monthlyStreakBonusCredits = weeklyStreakBonusCredits * MONTHLY_7_DAY_STREAK_CYCLES;
+  const periodStreakBonusCredits = weeklyStreakBonusCredits * streakCycles;
 
   return {
     immediateCredits,
+    periodLabel: plan.billingCycle === "yearly" ? "年" : "月",
+    periodDays,
+    streakCycles,
     dailyCheckInCredits,
-    monthlyDailyCheckInCredits,
+    periodDailyCheckInCredits,
     weeklyStreakBonusCredits,
-    monthlyStreakBonusCredits,
-    totalCredits: immediateCredits + monthlyDailyCheckInCredits + monthlyStreakBonusCredits,
+    periodStreakBonusCredits,
+    totalCredits: immediateCredits + periodDailyCheckInCredits + periodStreakBonusCredits,
   };
 }
 
@@ -181,7 +198,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<MembershipOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [hasWhitelistTopUpAccess, setHasWhitelistTopUpAccess] = useState(false);
   const [sevenDayRewardMultiplier, setSevenDayRewardMultiplier] = useState(DEFAULT_7_DAY_REWARD_MULTIPLIER);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -192,16 +208,45 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     return list;
   }, [plans, billingPeriod]);
 
+  const monthlyPlans = useMemo(
+    () => (plans || []).filter((plan) => plan.billingCycle === "monthly").sort(sortPlansByTier),
+    [plans],
+  );
+
+  const yearlyPlans = useMemo(
+    () => (plans || []).filter((plan) => plan.billingCycle === "yearly").sort(sortPlansByTier),
+    [plans],
+  );
+
+  const getPeriodImmediateCredits = useCallback(
+    (plan: PaymentMembershipPlan) => {
+      const ownImmediateCredits = plan.monthlyQuotaCredits + plan.signupBonusCredits;
+      if (plan.billingCycle !== "yearly") return ownImmediateCredits;
+
+      const yearlyTierRank = getPlanTierRank(plan);
+      const monthlyPeer =
+        yearlyTierRank !== null
+          ? monthlyPlans.find((monthlyPlan) => getPlanTierRank(monthlyPlan) === yearlyTierRank)
+          : null;
+      const monthlyPeerByIndex = yearlyPlans.findIndex((yearlyPlan) => yearlyPlan.code === plan.code);
+      const matchedMonthlyPlan = monthlyPeer ?? (monthlyPeerByIndex >= 0 ? monthlyPlans[monthlyPeerByIndex] : null);
+
+      return matchedMonthlyPlan
+        ? (matchedMonthlyPlan.monthlyQuotaCredits + matchedMonthlyPlan.signupBonusCredits) * 12
+        : ownImmediateCredits;
+    },
+    [monthlyPlans, yearlyPlans],
+  );
+
   const selectedPlan = useMemo(
     () => filteredPlans.find((plan) => plan.code === selectedPlanCode) ?? null,
     [filteredPlans, selectedPlanCode],
   );
 
   const loadData = useCallback(async () => {
-    const [plansResult, currentResult, seedance2AccessResult, dailyRewardStatusResult] = await Promise.allSettled([
+    const [plansResult, currentResult, dailyRewardStatusResult] = await Promise.allSettled([
       getPaymentMembershipPlans(),
       getMembershipCurrent(),
-      getSeedance2Access(),
       getDailyRewardStatus(),
     ]);
 
@@ -219,13 +264,6 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       // current 失败时仍允许展示套餐和支付区，避免整块不可用
       console.warn("加载当前会员状态失败，已降级为仅展示套餐列表:", currentResult.reason);
       setCurrent(null);
-    }
-
-    if (seedance2AccessResult.status === "fulfilled") {
-      setHasWhitelistTopUpAccess(Boolean(seedance2AccessResult.value.byWhitelist));
-    } else {
-      console.warn("加载白名单状态失败，默认按非白名单处理:", seedance2AccessResult.reason);
-      setHasWhitelistTopUpAccess(false);
     }
 
     if (dailyRewardStatusResult.status === "fulfilled") {
@@ -385,18 +423,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const currentPlanName = isFreeUser
     ? TIER_SERIF_LABEL.free
     : current?.plan?.name || "会员";
-  const currentMonthlyQuota =
-    typeof current?.plan?.monthlyQuotaCredits === "number"
-      ? current.plan.monthlyQuotaCredits
-      : isFreeUser
-        ? 500
-        : 0;
-  const currentDailyGiftCredits =
-    typeof current?.plan?.dailyGiftCredits === "number"
-      ? current.plan.dailyGiftCredits
-      : isFreeUser
-        ? 50
-        : 0;
+  const currentFreeCredits =
+    typeof current?.balances?.freeCredits === "number" ? current.balances.freeCredits : 0;
+  const currentRechargeCredits =
+    typeof current?.balances?.rechargeCredits === "number" ? current.balances.rechargeCredits : 0;
 
   const isWhite = useAIChatStore((state) => state.chatTheme === "white");
 
@@ -618,11 +648,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {[
-                { label: "当前月卡额度", value: `${currentMonthlyQuota} 积分` },
-                { label: "每日赠送", value: `${currentDailyGiftCredits} 积分` },
-                { label: "积分充值", value: hasWhitelistTopUpAccess ? "白名单已开放" : "所有用户开放" },
+                { label: "免费积分", value: `${currentFreeCredits} 积分` },
+                { label: "充值积分", value: `${currentRechargeCredits} 积分` },
               ].map((item) => (
                 <div
                   key={item.label}
@@ -759,7 +788,12 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                       plan.billingCycle === "yearly" && plan.price > 0
                         ? Math.round((plan.price / 12) * 100) / 100
                         : null;
-                    const creditsBreakdown = getPlanMonthlyCreditsBreakdown(plan, sevenDayRewardMultiplier);
+                    const periodImmediateCredits = getPeriodImmediateCredits(plan);
+                    const creditsBreakdown = getPlanPeriodCreditsBreakdown(
+                      plan,
+                      sevenDayRewardMultiplier,
+                      periodImmediateCredits,
+                    );
 
                     return (
                       <div
@@ -841,15 +875,15 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             >
                               ✦
                             </span>{" "}
-                            {creditsBreakdown.totalCredits} 预计月合计积分
+                            {creditsBreakdown.totalCredits} 预计{creditsBreakdown.periodLabel}合计积分
                           </div>
                           <div className={cn("mt-2 grid gap-1 text-[11px] leading-relaxed", isWhite ? "text-indigo-600/80" : "text-violet-100/80")}>
                             <div>套餐到账：{creditsBreakdown.immediateCredits} 积分</div>
                             <div>
-                              每日签到：{creditsBreakdown.dailyCheckInCredits} × {MEMBERSHIP_MONTH_DAYS} = {creditsBreakdown.monthlyDailyCheckInCredits} 积分
+                              每日签到：{creditsBreakdown.dailyCheckInCredits} × {creditsBreakdown.periodDays} = {creditsBreakdown.periodDailyCheckInCredits} 积分
                             </div>
                             <div>
-                              7天连签额外：{creditsBreakdown.weeklyStreakBonusCredits} × {MONTHLY_7_DAY_STREAK_CYCLES} = {creditsBreakdown.monthlyStreakBonusCredits} 积分
+                              7天连签额外：{creditsBreakdown.weeklyStreakBonusCredits} × {creditsBreakdown.streakCycles} = {creditsBreakdown.periodStreakBonusCredits} 积分
                             </div>
                           </div>
                         </div>

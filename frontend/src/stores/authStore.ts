@@ -23,13 +23,31 @@ export async function refreshTeams() {
   return loadTeams();
 }
 
-async function loadTeams() {
+async function loadTeams(retry = true) {
   try {
     const teams = await teamApi.getMyTeams();
     const { setTeams, setActiveTeamId, activeTeamId } = useTeamStore.getState();
     setTeams(teams);
-    // 只在没有 activeTeamId 或 activeTeamId 不在当前团队列表时，默认设为个人团队
-    if (!activeTeamId || !teams.find((t: any) => t.id === activeTeamId)) {
+
+    // 空列表时不做任何下调：可能是瞬时/失败返回，贸然回落会把团队模式刷回个人。
+    if (teams.length === 0) return;
+
+    // 没有持久化的 activeTeamId → 默认进入个人团队。
+    if (!activeTeamId) {
+      const personal = teams.find((t: any) => t.isPersonal);
+      if (personal) setActiveTeamId(personal.id);
+      return;
+    }
+
+    // 已持久化的 activeTeamId 不在本次返回的团队列表里：
+    // 这正是「团队模式刷新后概率回到个人模式」的根因——getMyTeams() 在刷新瞬间
+    // 偶发返回不完整的列表（memberships 尚未就绪）。先重试一次拉取，
+    // 仍然找不到才认定该团队确实已不可用，回落到个人，避免误降级。
+    if (!teams.find((t: any) => t.id === activeTeamId)) {
+      if (retry) {
+        await new Promise((r) => setTimeout(r, 800));
+        return loadTeams(false);
+      }
       const personal = teams.find((t: any) => t.isPersonal);
       if (personal) setActiveTeamId(personal.id);
     }

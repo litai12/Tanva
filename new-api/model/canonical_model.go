@@ -195,6 +195,18 @@ func BuildImplicitModelMapping(channel *Channel) string {
 		}
 		channelModelSet[model] = struct{}{}
 	}
+	// 显式映射的目标（上游模型名）不允许再作为隐式映射的键：若该上游名恰好是某个
+	// 渠道内部模型的别名（如 kapon-vidu 的 vidu-q3 → viduq3-pro，而 viduq3-pro 又是
+	// vidu-q3 的别名），补出的 viduq3-pro → vidu-q3 会让 MapModelName 沿
+	// vidu-q3 → viduq3-pro → vidu-q3 报 model_mapping_contains_cycle。
+	explicitTargets := make(map[string]struct{}, len(base))
+	for _, target := range base {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		explicitTargets[target] = struct{}{}
+	}
 	for _, internalModel := range channel.GetModels() {
 		internalModel = strings.TrimSpace(internalModel)
 		if internalModel == "" {
@@ -206,6 +218,9 @@ func BuildImplicitModelMapping(channel *Channel) string {
 				continue
 			}
 			if _, exists := channelModelSet[candidate]; exists {
+				continue
+			}
+			if _, exists := explicitTargets[candidate]; exists {
 				continue
 			}
 			if _, exists := base[candidate]; !exists {

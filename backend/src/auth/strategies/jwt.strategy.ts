@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -46,6 +46,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // findById 经租户扩展注入 tenantId，本就限定当前租户用户（跨租户自然查不到）
     const user = await this.usersService.findById(payload.sub);
     if (!user) return null;
+    if (user.status === 'banned') {
+      throw new UnauthorizedException('\u6b64\u8d26\u53f7\u5df2\u88ab\u5c01\u63a7');
+    }
     void this.usersService.touchLastLoginAt(user.id).catch(() => undefined);
     return {
       sub: user.id, // 标准JWT字段
@@ -53,8 +56,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: user.email,
       name: user.name,
       phone: user.phone,
+      avatarUrl: user.avatarUrl,
       role: user.role,
       tenantId: (user as any).tenantId,
+      status: user.status,
     };
   }
 }

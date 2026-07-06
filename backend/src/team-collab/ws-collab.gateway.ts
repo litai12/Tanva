@@ -13,12 +13,15 @@ import {
   channelForTeam,
   channelForUser,
 } from './collab-event-bus.service';
-import { CollabEnvelope, CursorPayload, PresenceUserPayload } from './types';
+import { CollabEventLog } from './collab-event-log.service';
+import { CollabEnvelope, CommentMarkerMovePayload, CursorPayload, PresenceUserPayload } from './types';
 
 const WS_PATH = '/ws/collab';
 const HEARTBEAT_MS = 25_000;
 
-// 只把这几类信号下发给客户端（其余事件一律不走 WS）
+// 下发给客户端的事件类型（其余事件一律不走 WS）。
+// node_patch / node_lock / toast 是协作编辑的核心信号，必须转发，
+// 否则远端编辑、锁、提示都无法到达其他在线成员。
 const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'team_credits_changed',
   'user_credits_changed',
@@ -26,6 +29,15 @@ const FORWARD_TYPES: ReadonlySet<string> = new Set([
   'task_status',
   'presence_join',
   'presence_leave',
+  'node_patch',
+  'canvas_patch',
+  'node_lock',
+  'toast',
+  'snapshot_required',
+  'access_revoked',
+  'comment_changed',
+  'team_projects_changed',
+  'comment_marker_move',
 ]);
 
 interface WsConn {
@@ -33,6 +45,7 @@ interface WsConn {
   connId: string;
   userId: string;
   userName: string;
+  avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
   tenantId: string;
@@ -43,9 +56,12 @@ interface WsConn {
 interface UpgradeCtx {
   userId: string;
   userName: string;
+  avatarUrl: string | null;
   teamId: string;
   projectId: string | null;
   tenantId: string;
+  /** 断线重连时客户端携带的最后已处理 seq，用于补帧。 */
+  afterSeq: number;
 }
 
 @Injectable()
@@ -54,6 +70,8 @@ export class WsCollabGateway implements OnModuleDestroy {
   private readonly wss = new WebSocketServer({ noServer: true });
   private readonly conns = new Set<WsConn>();
   private readonly projectConns = new Map<string, Set<WsConn>>();
+  /** connId -> conn，供 HTTP patch/lock 端点校验连接归属。 */
+  private readonly connIndex = new Map<string, WsConn>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private originAllowed: ((origin: string) => boolean) | null = null;
 
@@ -62,8 +80,19 @@ export class WsCollabGateway implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly bus: CollabEventBus,
     private readonly tenantContext: TenantContextService,
+    private readonly log: CollabEventLog,
   ) {
     this.heartbeatTimer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
+  }
+
+  /** 连接是否存在（HTTP patch/lock 端点用它替代失效的 SSE 校验）。 */
+  hasConn(connId: string): boolean {
+    return this.connIndex.has(connId);
+  }
+
+  /** 连接所属用户（校验 connId 与发起用户一致）。 */
+  getConnUserId(connId: string): string | undefined {
+    return this.connIndex.get(connId)?.userId;
   }
 
   /** main.ts 注入 Origin 白名单（与 CORS 配置一致）。 */
@@ -95,7 +124,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       return this.reject(socket, 400, 'Bad Request');
     }
     // 本进程只有这一个 upgrade 处理器，未匹配路径直接拒绝，避免 socket 悬挂泄漏。
-    if (url.pathname !== WS_PATH) return this.reject(socket, 404, 'Not Found');
+    if (url.pathname !== WS_PATH) return;
 
     const origin = req.headers.origin ?? '';
     if (this.originAllowed && origin && !this.originAllowed(origin)) {
@@ -105,15 +134,16 @@ export class WsCollabGateway implements OnModuleDestroy {
     const token = url.searchParams.get('token') ?? '';
     const teamId = url.searchParams.get('teamId') ?? '';
     const projectId = url.searchParams.get('projectId');
+    const afterSeq = Number.parseInt(url.searchParams.get('after') ?? '0', 10) || 0;
 
     let userId = '';
-    let userName = '';
+    let tokenName = '';
     let role = '';
     let tenantId = PLATFORM_TENANT_ID;
     try {
       const payload = await this.jwt.verifyAsync<any>(token);
       userId = String(payload?.sub ?? '');
-      userName = String(payload?.name ?? payload?.username ?? userId.slice(0, 8));
+      tokenName = String(payload?.name ?? payload?.username ?? '').trim();
       role = String(payload?.role ?? '');
       tenantId = String(payload?.tenantId ?? PLATFORM_TENANT_ID);
     } catch {
@@ -124,6 +154,11 @@ export class WsCollabGateway implements OnModuleDestroy {
     // WS 升级不经 HTTP 的 CLS 中间件：用 token 的租户建立上下文，
     // 否则成员/项目校验会落主站租户，多租户下非主站用户全被 403。
     await this.tenantContext.runAsTenant(tenantId, async () => {
+      // presence 显示名以 DB 当前用户名为准（JWT 里的 name 可能是登录时的旧值，且
+      // 普通访问令牌并不携带 name → 旧逻辑会回落成 userId 前 8 位的占位 id）。
+      // 团队内所有人据此看到彼此真实用户名，改名后重连即生效。
+      const profile = await this.resolveUserProfile(userId, tokenName);
+
       // 仅当 token 声称 admin 时才查 DB 确认当前角色（普通用户零额外开销），
       // 避免被降权用户凭旧 token 在过期前继续越权访问协作流。
       const isSuperAdmin =
@@ -149,9 +184,21 @@ export class WsCollabGateway implements OnModuleDestroy {
       }
 
       this.wss.handleUpgrade(req, socket, head, (ws) => {
-        void this.register(ws, { userId, userName, teamId, projectId, tenantId });
+        void this.register(ws, { userId, userName: profile.name, avatarUrl: profile.avatarUrl, teamId, projectId, tenantId, afterSeq });
       });
     });
+  }
+
+  /**
+   * 解析 presence 显示名：DB 当前用户名优先，其次 token 内名字，最后回落 userId 前 8 位。
+   * 每次连接查一次（非逐消息），开销可忽略；保证团队成员看到的是真实、最新的用户名。
+   */
+  private async resolveUserProfile(userId: string, tokenName: string): Promise<{ name: string; avatarUrl: string | null }> {
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { name: true, avatarUrl: true } })
+      .catch(() => null);
+    const dbName = typeof user?.name === 'string' ? user.name.trim() : '';
+    return { name: dbName || tokenName || userId.slice(0, 8), avatarUrl: user?.avatarUrl ?? null };
   }
 
   /** 以数据库当前角色为准判断超级管理员，避免信任可能过期的 JWT role。 */
@@ -187,6 +234,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       connId: randomUUID(),
       userId: ctx.userId,
       userName: ctx.userName,
+      avatarUrl: ctx.avatarUrl,
       teamId: ctx.teamId,
       projectId: ctx.projectId,
       tenantId: ctx.tenantId,
@@ -194,10 +242,13 @@ export class WsCollabGateway implements OnModuleDestroy {
       isAlive: true,
     };
     this.conns.add(conn);
+    this.connIndex.set(conn.connId, conn);
 
     const forward = (env: CollabEnvelope) => {
       if (!FORWARD_TYPES.has(env.type)) return;
-      // 不把自己的光标回推给自己
+      // 不把自己发出的事件回推给自己（patch/lock/toast/cursor 统一按 connId 抑制）。
+      if (env.senderConnId && env.senderConnId === conn.connId) return;
+      // 光标额外按 userId 抑制（同一用户多连接时也不回推）。
       if (env.type === 'cursor' && env.senderUserId === conn.userId) return;
       this.safeSend(conn, env);
     };
@@ -218,7 +269,7 @@ export class WsCollabGateway implements OnModuleDestroy {
       set.add(conn);
       await this.bus.publishTo(channelForProject(conn.projectId), {
         type: 'presence_join',
-        payload: { userId: conn.userId, name: conn.userName },
+        payload: { userId: conn.userId, name: conn.userName, avatarUrl: conn.avatarUrl },
         ts: Date.now(),
         senderUserId: conn.userId,
         senderConnId: conn.connId,
@@ -235,6 +286,24 @@ export class WsCollabGateway implements OnModuleDestroy {
       },
       ts: Date.now(),
     } as CollabEnvelope);
+
+    // 断线重连补帧：客户端带上最后已处理 seq，回放其后持久化的事件（node_patch 等）。
+    // 缺帧过多（事件日志已截断）则下发 snapshot_required，客户端转为拉取全量快照。
+    if (ctx.projectId && ctx.afterSeq > 0) {
+      try {
+        const { envelopes, truncated } = await this.log.readAfter(ctx.projectId, ctx.afterSeq, 200);
+        if (truncated) {
+          this.safeSend(conn, {
+            type: 'snapshot_required' as any,
+            payload: { after: ctx.afterSeq },
+            ts: Date.now(),
+          } as CollabEnvelope);
+        }
+        for (const env of envelopes) {
+          this.safeSend(conn, env);
+        }
+      } catch {}
+    }
 
     ws.on('pong', () => {
       conn.isAlive = true;
@@ -262,6 +331,7 @@ export class WsCollabGateway implements OnModuleDestroy {
         payload: {
           userId: conn.userId,
           name: conn.userName,
+          avatarUrl: conn.avatarUrl,
           x: p.x,
           y: p.y,
           viewport: p.viewport,
@@ -270,6 +340,23 @@ export class WsCollabGateway implements OnModuleDestroy {
         senderUserId: conn.userId,
         senderConnId: conn.connId,
       } as CollabEnvelope<CursorPayload>);
+      return;
+    }
+    if (msg?.type === 'comment_marker_move' && conn.projectId) {
+      const p = msg.payload ?? {};
+      if (typeof p.threadId !== 'string' || !p.threadId) return;
+      if (typeof p.x !== 'number' || typeof p.y !== 'number') return;
+      void this.bus.publishTo(channelForProject(conn.projectId), {
+        type: 'comment_marker_move',
+        payload: {
+          threadId: p.threadId,
+          x: p.x,
+          y: p.y,
+        },
+        ts: Date.now(),
+        senderUserId: conn.userId,
+        senderConnId: conn.connId,
+      } as CollabEnvelope<CommentMarkerMovePayload>);
     }
   }
 
@@ -279,7 +366,7 @@ export class WsCollabGateway implements OnModuleDestroy {
     if (!set) return [];
     const seen = new Map<string, PresenceUserPayload>();
     for (const c of set) {
-      if (!seen.has(c.userId)) seen.set(c.userId, { userId: c.userId, name: c.userName });
+      if (!seen.has(c.userId)) seen.set(c.userId, { userId: c.userId, name: c.userName, avatarUrl: c.avatarUrl });
     }
     return [...seen.values()];
   }
@@ -294,6 +381,7 @@ export class WsCollabGateway implements OnModuleDestroy {
   private cleanup(conn: WsConn): void {
     if (!this.conns.has(conn)) return;
     this.conns.delete(conn);
+    this.connIndex.delete(conn.connId);
     for (const u of conn.unsubs) {
       try {
         u();
@@ -309,7 +397,7 @@ export class WsCollabGateway implements OnModuleDestroy {
         if (!stillThere) {
           void this.bus.publishTo(channelForProject(conn.projectId), {
             type: 'presence_leave',
-            payload: { userId: conn.userId, name: conn.userName },
+            payload: { userId: conn.userId, name: conn.userName, avatarUrl: conn.avatarUrl },
             ts: Date.now(),
             senderUserId: conn.userId,
             senderConnId: conn.connId,

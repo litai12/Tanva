@@ -515,7 +515,322 @@ const createQ3TurboPricingTemplate = (): ManagedPricingBook => ({
   },
 });
 
-const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
+// ---------- 音频模型（audioStudio）spec / 选项 ----------
+type AudioSpecLocale = { zh: string; en: string };
+type AudioSpecOption = { value: string | number | boolean; label: AudioSpecLocale };
+
+const MINIMAX_SPEECH_VOICE_OPTIONS: AudioSpecOption[] = [
+  { value: 'male-qn-qingse', label: { zh: 'male-qn-qingse（实际音色）', en: 'male-qn-qingse (raw)' } },
+  { value: 'female-chengshu', label: { zh: 'female-chengshu（实际音色）', en: 'female-chengshu (raw)' } },
+  { value: 'echo', label: { zh: 'echo（男声青年-清色）', en: 'echo (male youth clear)' } },
+  { value: 'alloy', label: { zh: 'alloy（女声成熟）', en: 'alloy (female mature)' } },
+  { value: 'fable', label: { zh: 'fable（男声青年-精英）', en: 'fable (male youth elite)' } },
+  { value: 'onyx', label: { zh: 'onyx（男主持）', en: 'onyx (presenter male)' } },
+  { value: 'nova', label: { zh: 'nova（女主持）', en: 'nova (presenter female)' } },
+  { value: 'shimmer', label: { zh: 'shimmer（有声书女声）', en: 'shimmer (audiobook female)' } },
+];
+
+const MINIMAX_SPEECH_EMOTION_OPTIONS: AudioSpecOption[] = [
+  { value: '', label: { zh: '情感：默认', en: 'Emotion: default' } },
+  { value: 'happy', label: { zh: 'happy（开心）', en: 'happy' } },
+  { value: 'sad', label: { zh: 'sad（悲伤）', en: 'sad' } },
+  { value: 'angry', label: { zh: 'angry（愤怒）', en: 'angry' } },
+  { value: 'fearful', label: { zh: 'fearful（恐惧）', en: 'fearful' } },
+  { value: 'disgusted', label: { zh: 'disgusted（厌恶）', en: 'disgusted' } },
+  { value: 'surprised', label: { zh: 'surprised（惊讶）', en: 'surprised' } },
+  { value: 'calm', label: { zh: 'calm（平静）', en: 'calm' } },
+  { value: 'fluent', label: { zh: 'fluent（流畅）', en: 'fluent' } },
+  { value: 'whisper', label: { zh: 'whisper（耳语）', en: 'whisper' } },
+];
+
+const MINIMAX_SOUND_EFFECT_OPTIONS: AudioSpecOption[] = [
+  { value: 'spacious_echo', label: { zh: '空旷回音', en: 'Spacious echo' } },
+  { value: 'auditorium_echo', label: { zh: '大礼堂回音', en: 'Auditorium echo' } },
+  { value: 'lofi_telephone', label: { zh: '复古电话音', en: 'Lo-fi telephone' } },
+  { value: 'robotic', label: { zh: '机器人电音', en: 'Robotic' } },
+];
+
+const AUDIO_LANGUAGE_OPTIONS: AudioSpecOption[] = [
+  { value: 'zh', label: { zh: '中文 (zh)', en: 'Chinese (zh)' } },
+  { value: 'yue', label: { zh: '粤语 (yue)', en: 'Cantonese (yue)' } },
+  { value: 'en', label: { zh: '英语 (en)', en: 'English (en)' } },
+  { value: 'ja', label: { zh: '日语 (ja)', en: 'Japanese (ja)' } },
+  { value: 'ko', label: { zh: '韩语 (ko)', en: 'Korean (ko)' } },
+  { value: 'es', label: { zh: '西班牙语 (es)', en: 'Spanish (es)' } },
+  { value: 'fr', label: { zh: '法语 (fr)', en: 'French (fr)' } },
+  { value: 'de', label: { zh: '德语 (de)', en: 'German (de)' } },
+  { value: 'ru', label: { zh: '俄语 (ru)', en: 'Russian (ru)' } },
+  { value: 'pt', label: { zh: '葡萄牙语 (pt)', en: 'Portuguese (pt)' } },
+  { value: 'it', label: { zh: '意大利语 (it)', en: 'Italian (it)' } },
+  { value: 'id', label: { zh: '印尼语 (id)', en: 'Indonesian (id)' } },
+  { value: 'vi', label: { zh: '越南语 (vi)', en: 'Vietnamese (vi)' } },
+];
+
+const buildSeedAudioSpec = () => ({
+  mode: 'seed-audio',
+  fields: [
+    {
+      key: 'voice',
+      type: 'doubaoVoicePicker',
+      label: { zh: '音色 (speaker)', en: 'Voice (speaker)' },
+      placeholder: { zh: '留空走参考音频/图', en: 'Blank = use reference audio/image' },
+    },
+    {
+      key: 'format',
+      type: 'select',
+      label: { zh: '输出格式', en: 'Format' },
+      default: 'mp3',
+      options: [
+        { value: 'wav', label: { zh: 'wav', en: 'wav' } },
+        { value: 'mp3', label: { zh: 'mp3', en: 'mp3' } },
+        { value: 'pcm', label: { zh: 'pcm', en: 'pcm' } },
+        { value: 'ogg_opus', label: { zh: 'ogg_opus', en: 'ogg_opus' } },
+      ],
+    },
+    {
+      key: 'sampleRate',
+      type: 'select',
+      label: { zh: '采样率', en: 'Sample rate' },
+      default: 24000,
+      options: [8000, 16000, 24000, 32000, 44100, 48000].map((v) => ({
+        value: v,
+        label: { zh: String(v), en: String(v) },
+      })),
+    },
+    { key: 'speechRate', type: 'slider', label: { zh: '语速', en: 'Speech rate' }, min: -50, max: 100, step: 1, default: 0 },
+    { key: 'pitchRate', type: 'slider', label: { zh: '音调', en: 'Pitch' }, min: -12, max: 12, step: 1, default: 0 },
+    { key: 'loudnessRate', type: 'slider', label: { zh: '响度', en: 'Loudness' }, min: -50, max: 100, step: 1, default: 0 },
+  ],
+  inputs: [
+    { handle: 'text', dtoField: 'text', required: true },
+    { handle: 'audio', dtoField: 'referenceAudioUrls', multiple: true },
+    { handle: 'image', dtoField: 'referenceImageUrl' },
+  ],
+  outputs: ['audio'],
+});
+
+const buildMinimaxSpeechSpec = (modelValue: string) => ({
+  mode: 'minimax-speech',
+  modelField: 'model',
+  modelValue,
+  fields: [
+    { key: 'voiceId', type: 'select', label: { zh: '音色', en: 'Voice' }, default: 'male-qn-qingse', options: MINIMAX_SPEECH_VOICE_OPTIONS },
+    { key: 'emotion', type: 'select', label: { zh: '情感', en: 'Emotion' }, default: '', options: MINIMAX_SPEECH_EMOTION_OPTIONS },
+    { key: 'soundEffects', type: 'multiSelect', label: { zh: '音效', en: 'Sound effects' }, options: MINIMAX_SOUND_EFFECT_OPTIONS, group: { zh: '高级设置', en: 'Advanced' } },
+    {
+      key: 'outputFormat', type: 'select', label: { zh: '返回方式', en: 'Output' }, default: 'url',
+      options: [
+        { value: 'url', label: { zh: '返回 URL', en: 'Output URL' } },
+        { value: 'hex', label: { zh: '返回 HEX', en: 'Output HEX' } },
+      ],
+      group: { zh: '高级设置', en: 'Advanced' },
+    },
+    {
+      key: 'audioMode', type: 'select', label: { zh: '返回模式', en: 'Mode' }, default: 'json',
+      options: [
+        { value: 'json', label: { zh: 'JSON 模式', en: 'JSON mode' } },
+        { value: 'hex', label: { zh: '裸流模式', en: 'Raw stream' } },
+      ],
+      group: { zh: '高级设置', en: 'Advanced' },
+    },
+  ],
+  inputs: [{ handle: 'text', dtoField: 'text', required: true }],
+  outputs: ['audio'],
+});
+
+const buildMinimaxMusicSpec = (modelValue: string) => ({
+  mode: 'minimax-music',
+  modelField: 'musicModel',
+  modelValue,
+  fields: [
+    { key: 'prompt', type: 'textarea', label: { zh: '曲风提示词', en: 'Style prompt' }, placeholder: { zh: '流行音乐, 难过, 适合在下雨的晚上', en: 'Pop music, sad, rainy night' } },
+    { key: 'isInstrumental', type: 'checkbox', label: { zh: '纯音乐模式', en: 'Instrumental' }, default: false },
+    { key: 'lyricsOptimizer', type: 'checkbox', label: { zh: 'AI 自动填词', en: 'AI lyrics optimizer' }, default: false },
+    { key: 'lyrics', type: 'textarea', label: { zh: '歌词', en: 'Lyrics' }, placeholder: { zh: '支持 [Verse], [Chorus], [Bridge] 等结构标签', en: 'Supports [Verse], [Chorus], [Bridge]' }, visibleWhen: { field: 'isInstrumental', equals: false } },
+  ],
+  inputs: [{ handle: 'text', dtoField: 'prompt' }],
+  outputs: ['audio'],
+});
+
+const buildTencentDubSpec = () => ({
+  mode: 'tencent-dub',
+  fields: [
+    { key: 'speakerUrl', type: 'text', label: { zh: 'Speaker 文件 URL', en: 'Speaker URL' }, placeholder: { zh: '优先使用该 speaker 文件', en: 'Preferred speaker file' } },
+    { key: 'srcLang', type: 'select', label: { zh: '源语言', en: 'Source language' }, default: 'zh', options: AUDIO_LANGUAGE_OPTIONS, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'dstLang', type: 'select', label: { zh: '目标语言', en: 'Target language' }, default: 'en', options: AUDIO_LANGUAGE_OPTIONS, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'voiceId', type: 'tencentVoicePicker', label: { zh: '系统音色', en: 'System voice' }, group: { zh: '高级设置', en: 'Advanced' } },
+    {
+      key: 'speakerGender', type: 'select', label: { zh: '说话人性别', en: 'Speaker gender' }, default: 'male',
+      options: [
+        { value: 'male', label: { zh: '男声', en: 'Male' } },
+        { value: 'female', label: { zh: '女声', en: 'Female' } },
+      ],
+      group: { zh: '高级设置', en: 'Advanced' },
+    },
+    { key: 'srcSubtitleUrl', type: 'text', label: { zh: '源字幕 URL', en: 'Source subtitle URL' }, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'dstSubtitleUrl', type: 'text', label: { zh: '目标字幕 URL', en: 'Target subtitle URL' }, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'font', type: 'text', label: { zh: '字幕字体', en: 'Subtitle font' }, default: 'auto', group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'fontSize', type: 'number', label: { zh: '字幕字号', en: 'Font size' }, default: 50, min: 1, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'marginV', type: 'number', label: { zh: '字幕底边距', en: 'Bottom margin' }, default: 50, min: 0, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'outputPattern', type: 'text', label: { zh: '输出文件前缀', en: 'Output prefix' }, group: { zh: '高级设置', en: 'Advanced' } },
+    { key: 'embedSubtitle', type: 'checkbox', label: { zh: '压制字幕', en: 'Burn subtitles' }, default: true, group: { zh: '高级设置', en: 'Advanced' } },
+  ],
+  inputs: [
+    { handle: 'video', dtoField: 'inputVideoUrl', required: true },
+    { handle: 'text', dtoField: 'text' },
+  ],
+  outputs: ['audio', 'video'],
+});
+
+const AUDIO_MODEL_DEFAULTS: ManagedModelConfig[] = [
+  {
+    modelKey: 'doubao-seed-audio-1-0',
+    modelName: '豆包 Seed Audio 1.0',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'volc_seed_audio',
+    vendors: [
+      {
+        vendorKey: 'volc_seed_audio',
+        platformKey: 'new_api',
+        label: '火山 Seed Audio',
+        enabled: true,
+        route: 'legacy',
+        provider: 'volcengine',
+        modelName: 'doubao-seed-audio-1-0',
+        creditsPerCall: 2,
+        priceYuan: 0.02,
+        pricing: {
+          version: 'v1',
+          defaults: { credits: 2, priceYuan: 0.02 },
+          matchingRules: [
+            {
+              ruleKey: 'by_duration',
+              enabled: true,
+              priority: 1,
+              evaluatorKey: 'perSecond',
+              conditions: { all: [{ field: 'durationSec', op: 'gt', value: 0 }] },
+            },
+          ],
+          evaluators: { perSecond: { type: 'linear', unitField: 'durationSec', unitPriceYuan: 0.02 } },
+        } as any,
+      },
+    ],
+    metadata: { audioSpec: buildSeedAudioSpec() },
+  },
+  {
+    modelKey: 'minimax-speech-2.6-hd',
+    modelName: 'MiniMax 语音 2.6 HD',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'minimax_speech',
+    vendors: [
+      {
+        vendorKey: 'minimax_speech',
+        platformKey: 'new_api',
+        label: 'MiniMax Speech',
+        enabled: true,
+        route: 'legacy',
+        provider: 'minimax',
+        modelName: 'speech-2.6-hd',
+        creditsPerCall: 10,
+        priceYuan: 0.1,
+        pricing: { version: 'v1', defaults: { credits: 10, priceYuan: 0.1 } } as any,
+      },
+    ],
+    metadata: { audioSpec: buildMinimaxSpeechSpec('speech-2.6-hd') },
+  },
+  {
+    modelKey: 'minimax-speech-2.5',
+    modelName: 'MiniMax 语音 2.5',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'minimax_speech',
+    vendors: [
+      {
+        vendorKey: 'minimax_speech',
+        platformKey: 'new_api',
+        label: 'MiniMax Speech',
+        enabled: true,
+        route: 'legacy',
+        provider: 'minimax',
+        modelName: 'speech-2.5',
+        creditsPerCall: 10,
+        priceYuan: 0.1,
+        pricing: { version: 'v1', defaults: { credits: 10, priceYuan: 0.1 } } as any,
+      },
+    ],
+    metadata: { audioSpec: buildMinimaxSpeechSpec('speech-2.5') },
+  },
+  {
+    modelKey: 'minimax-music-2.5+',
+    modelName: 'MiniMax 音乐 2.5+',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'minimax_music',
+    vendors: [
+      {
+        vendorKey: 'minimax_music',
+        platformKey: 'new_api',
+        label: 'MiniMax Music',
+        enabled: true,
+        route: 'legacy',
+        provider: 'minimax',
+        modelName: 'music-2.5+',
+        creditsPerCall: 30,
+        priceYuan: 0.3,
+        pricing: { version: 'v1', defaults: { credits: 30, priceYuan: 0.3 } } as any,
+      },
+    ],
+    metadata: { audioSpec: buildMinimaxMusicSpec('music-2.5+') },
+  },
+  {
+    modelKey: 'minimax-music-2.5',
+    modelName: 'MiniMax 音乐 2.5',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'minimax_music',
+    vendors: [
+      {
+        vendorKey: 'minimax_music',
+        platformKey: 'new_api',
+        label: 'MiniMax Music',
+        enabled: true,
+        route: 'legacy',
+        provider: 'minimax',
+        modelName: 'music-2.5',
+        creditsPerCall: 30,
+        priceYuan: 0.3,
+        pricing: { version: 'v1', defaults: { credits: 30, priceYuan: 0.3 } } as any,
+      },
+    ],
+    metadata: { audioSpec: buildMinimaxMusicSpec('music-2.5') },
+  },
+  {
+    modelKey: 'tencent-dub',
+    modelName: '腾讯视频配音',
+    taskType: 'audio',
+    enabled: true,
+    defaultVendor: 'tencent_dub',
+    vendors: [
+      {
+        vendorKey: 'tencent_dub',
+        platformKey: 'new_api',
+        label: '腾讯 配音',
+        enabled: true,
+        route: 'legacy',
+        provider: 'tencent',
+        modelName: 'tencent-dub',
+        creditsPerCall: 10,
+        priceYuan: 0.1,
+        pricing: { version: 'v1', defaults: { credits: 10, priceYuan: 0.1 } } as any,
+      },
+    ],
+    metadata: { audioSpec: buildTencentDubSpec() },
+  },
+];
+
+export const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
   version: 'v2',
   platforms: [
     {
@@ -786,6 +1101,26 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
+    {
+      modelKey: 'omni-flash-ext',
+      modelName: 'Omni Flash Ext',
+      taskType: 'video',
+      enabled: true,
+      defaultVendor: 'new_api',
+      vendors: [
+        {
+          vendorKey: 'new_api',
+          platformKey: 'new_api',
+          label: 'New API',
+          enabled: true,
+          route: 'legacy',
+          provider: 'new-api',
+          modelName: 'omni-flash-ext',
+          creditsPerCall: 600,
+          priceYuan: 6,
+        },
+      ],
+    },
     // ---------- 图像模型 ----------
     {
       modelKey: 'gemini-2.5-image',
@@ -887,6 +1222,8 @@ const DEFAULT_MODEL_PROVIDER_MAPPING_V2: ModelProviderMappingV2 = {
         },
       ],
     },
+    // ---------- 音频模型（audioStudio）----------
+    ...AUDIO_MODEL_DEFAULTS,
   ],
 };
 
@@ -1022,7 +1359,33 @@ export class ModelRoutingService {
       ),
     ];
 
-    const mergedModels = Array.isArray(input.models) ? input.models.filter(Boolean) : fallback.models || [];
+    const existingModels = Array.isArray(input.models) ? input.models.filter(Boolean) : [];
+    const existingModelKeys = new Set(
+      existingModels
+        .map((item) => (typeof item?.modelKey === 'string' ? item.modelKey : ''))
+        .filter(Boolean),
+    );
+    const fallbackAppendModelKeys = new Set([
+      'omni-flash-ext',
+      'doubao-seed-audio-1-0',
+      'minimax-speech-2.6-hd',
+      'minimax-speech-2.5',
+      'minimax-music-2.5+',
+      'minimax-music-2.5',
+      'tencent-dub',
+    ]);
+    const mergedModels = existingModels.length > 0
+      ? [
+          ...existingModels,
+          ...(fallback.models || []).filter(
+            (item) =>
+              item &&
+              typeof item.modelKey === 'string' &&
+              fallbackAppendModelKeys.has(item.modelKey) &&
+              !existingModelKeys.has(item.modelKey),
+          ),
+        ]
+      : fallback.models || [];
 
     return this.normalizeSpecialCases({
       version: input.version || fallback.version || 'v2',

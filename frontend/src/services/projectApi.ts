@@ -109,11 +109,14 @@ export const projectApi = {
     });
     return json<Project>(res);
   },
-  async create(payload: { name?: string }): Promise<Project> {
+  async create(payload: { name?: string; teamId?: string | null }): Promise<Project> {
+    // 后端从 x-team-id 头读取团队上下文：团队模式下新建项目会立即共享给该团队。
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (payload.teamId) headers["x-team-id"] = payload.teamId;
     const res = await fetchWithAuth(`${base}/api/projects`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers,
+      body: JSON.stringify({ name: payload.name }),
     });
     return json<Project>(res);
   },
@@ -180,6 +183,9 @@ export const projectApi = {
     version: number;
     updatedAt: string | null;
     thumbnailUrl?: string;
+    /** 服务端命中版本冲突并做了并集合并时为 true，此时 content 为合并后的快照。 */
+    merged?: boolean;
+    content?: ProjectContentSnapshot;
   }> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}/content`, {
       method: "PUT",
@@ -191,15 +197,30 @@ export const projectApi = {
         workflowHistoryMeta: payload.workflowHistoryMeta,
       }),
     });
+    // 乐观并发冲突：服务端检测到 baseVersion 落后(他人已保存)。抛出带 latestVersion 的
+    // 错误，调用方据此把本地版本对齐到最新后重试，避免覆盖他人改动。
+    if (res.status === 409) {
+      let body: any = null;
+      try { body = await res.json(); } catch {}
+      const err = new Error('version_conflict') as Error & { conflict?: boolean; latestVersion?: number };
+      err.conflict = true;
+      const latest = body?.latestVersion ?? body?.message?.latestVersion;
+      if (typeof latest === 'number') err.latestVersion = latest;
+      throw err;
+    }
     const data = await json<{
       version: number;
       updatedAt: string | null;
       thumbnailUrl?: string;
+      merged?: boolean;
+      content?: ProjectContentSnapshot;
     }>(res);
     return {
       version: data.version,
       updatedAt: data.updatedAt,
       thumbnailUrl: data.thumbnailUrl,
+      merged: data.merged,
+      content: data.content,
     };
   },
 

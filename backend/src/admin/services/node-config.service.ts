@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { MODEL_PROVIDER_MAPPING_SETTING_KEY } from '../../ai/services/model-routing.service';
+import {
+  MODEL_PROVIDER_MAPPING_SETTING_KEY,
+  DEFAULT_MODEL_PROVIDER_MAPPING_V2,
+} from '../../ai/services/model-routing.service';
 import {
   resolveManagedModelPricingV2,
   resolveManagedVendorDefaultPricing,
@@ -126,11 +129,34 @@ const buildManagedImageNodeMetadata = (params: {
   },
 });
 
+// 统一音频工作台的 6 个注册表模型（spec/计费在 model_provider_mapping_v2 注册表）。
+const AUDIO_STUDIO_MODEL_KEYS = [
+  'doubao-seed-audio-1-0',
+  'minimax-speech-2.6-hd',
+  'minimax-speech-2.5',
+  'minimax-music-2.5+',
+  'minimax-music-2.5',
+  'tencent-dub',
+];
+const AUDIO_STUDIO_DEFAULT_MODEL_KEY = 'doubao-seed-audio-1-0';
+
+const buildAudioStudioNodeMetadata = (): Record<string, any> => ({
+  type: 'audioStudio',
+  routeStrategy: 'model_management_v2',
+  nodeKind: 'ai_audio_generation',
+  modelKeys: [...AUDIO_STUDIO_MODEL_KEYS],
+  managedModelKey: AUDIO_STUDIO_DEFAULT_MODEL_KEY,
+  defaultData: {
+    managedModelKey: AUDIO_STUDIO_DEFAULT_MODEL_KEY,
+    mode: 'seed-audio',
+  },
+});
+
 const SEEDANCE20_SUPPORTED_MODELS = ['seedance-1.5-pro', 'seedance-2.0'];
 const SEED20_SUPPORTED_MODELS = ['seed-2.0-pro', 'seed-2.0-lite', 'seed-2.0-mini'];
 const SEEDANCE20_ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P'];
+const SEEDANCE20_RESOLUTIONS = ['480P', '720P', '1080P', '4K'];
 const SEED20_RESOLUTIONS = ['480P', '720P', '1080P'];
 const SEEDANCE20_DEFAULT_CREDITS = SEEDANCE20_DISCOUNT_CREDITS;
 const SEEDANCE20_DEFAULT_PRICE_YUAN = SEEDANCE20_DISCOUNT_PRICE_YUAN;
@@ -163,18 +189,19 @@ export class NodeConfigService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private normalizeManagedTaskType(value?: string): 'text' | 'image' | 'video' {
+  private normalizeManagedTaskType(value?: string): 'text' | 'image' | 'video' | 'audio' {
     const normalized = String(value || '')
       .trim()
       .toLowerCase();
     if (normalized === 'text' || normalized === 'input') return 'text';
     if (normalized === 'image') return 'image';
+    if (normalized === 'audio') return 'audio';
     return 'video';
   }
 
   private normalizeManagedNodeCategory(
     value: string | undefined,
-    taskType: 'text' | 'image' | 'video',
+    taskType: 'text' | 'image' | 'video' | 'audio',
   ): 'input' | 'image' | 'video' | 'audio' | 'other' {
     const normalized = String(value || '')
       .trim()
@@ -190,6 +217,7 @@ export class NodeConfigService {
     }
     if (taskType === 'text') return 'input';
     if (taskType === 'image') return 'image';
+    if (taskType === 'audio') return 'audio';
     return 'video';
   }
 
@@ -211,7 +239,20 @@ export class NodeConfigService {
       const parsed = normalizeSeedance20DiscountPricing(
         JSON.parse(raw) as ModelProviderMappingV2Like,
       );
-      const models = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+      const savedModels = Array.isArray(parsed?.models) ? parsed.models.filter(Boolean) : [];
+
+      // 音频模型只存在于代码默认(DEFAULT_MODEL_PROVIDER_MAPPING_V2)，由 model-routing 的
+      // fallbackAppendModelKeys 在其读取路径合并；但本方法直读 SystemSetting，不经那条合并。
+      // 故在此补齐缺失的 audio 默认模型，确保 audioStudio 能拿到 managedRoutes(模型下拉)。
+      const presentKeys = new Set(
+        savedModels
+          .map((m) => String((m as any)?.modelKey || '').trim())
+          .filter(Boolean),
+      );
+      const audioDefaults = ((DEFAULT_MODEL_PROVIDER_MAPPING_V2.models || []) as any[]).filter(
+        (m) => m && m.taskType === 'audio' && !presentKeys.has(String(m.modelKey).trim()),
+      );
+      const models = [...savedModels, ...(audioDefaults as typeof savedModels)];
 
       return new Map(
         models
@@ -470,6 +511,57 @@ export class NodeConfigService {
                 (nextMetadata.vod as Record<string, any>).modelVersion,
             };
           }
+        }
+      }
+    }
+
+    // 音频工作台：把节点声明的全部音频模型聚合成 managedRoutes.vendors（每个模型一项），
+    // 并把各模型 metadata.audioSpec 原样透出给前端（buildManagedRouteView 不透传 metadata，
+    // 故这里专门挂上 audioSpec，前端据此渲染 spec 表单）。
+    if (nodeKey === 'audioStudio' && currentModelKeys.length > 0) {
+      const audioVendors = currentModelKeys
+        .map((key) => {
+          const model = managedModelMap.get(key);
+          if (!model) return null;
+          const view = this.buildManagedRouteView(model);
+          const defaultVendor =
+            view?.vendors.find((vendor) => vendor.vendorKey === view.defaultVendor) ||
+            view?.vendors[0];
+          const audioSpec =
+            model.metadata && typeof model.metadata === 'object'
+              ? (model.metadata as Record<string, any>).audioSpec
+              : undefined;
+          return {
+            vendorKey: model.modelKey,
+            platformKey: defaultVendor?.platformKey,
+            label: model.modelName || model.modelKey,
+            provider: defaultVendor?.provider,
+            route: defaultVendor?.route,
+            creditsPerCall: defaultVendor?.creditsPerCall,
+            priceYuan: defaultVendor?.priceYuan,
+            pricing: defaultVendor?.pricing,
+            audioSpec:
+              audioSpec && typeof audioSpec === 'object' ? audioSpec : undefined,
+          };
+        })
+        .filter(Boolean) as Array<Record<string, any>>;
+
+      if (audioVendors.length > 0) {
+        const defaultKey =
+          explicitManagedModelKey && audioVendors.some((v) => v.vendorKey === explicitManagedModelKey)
+            ? explicitManagedModelKey
+            : audioVendors[0].vendorKey;
+        nextMetadata.managedModelKey = defaultKey;
+        nextMetadata.managedRoutes = {
+          modelKey: 'audioStudio',
+          defaultVendor: defaultKey,
+          vendors: audioVendors,
+        };
+        if (nextMetadata.defaultData && typeof nextMetadata.defaultData === 'object') {
+          nextMetadata.defaultData = {
+            ...(nextMetadata.defaultData as Record<string, any>),
+            managedModelKey: defaultKey,
+          };
         }
       }
     }
@@ -1605,9 +1697,9 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      // 统一音频工作台（seed-audio/minimax 语音·音乐/腾讯配音/导入合一），常驻面板。
+      // 计费按模式与时长由后端动态决定（seed-audio 经 new-api 单轨后扣），故不设固定 serviceType/价。
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）', metadata: buildAudioStudioNodeMetadata() },
     ];
 
     let created = 0;
@@ -1626,7 +1718,30 @@ export class NodeConfigService {
       }
     }
 
-    this.logger.log(`节点配置初始化完成: 创建 ${created} 个, 跳过 ${skipped} 个`);
+    // 旧 4 个音频节点已合并为 audioStudio：隐藏旧节点，避免面板出现无法渲染/重名的旧卡片。
+    // 幂等，每次启动执行；已迁移的画布节点在前端按别名映射为 audioStudio。
+    const hidden = await this.prisma.nodeConfig.updateMany({
+      where: {
+        nodeKey: { in: ['minimaxSpeech', 'tencentSpeech', 'minimaxMusic', 'audioUpload'] },
+        isVisible: true,
+      },
+      data: { isVisible: false },
+    });
+
+    // audioStudio 早期版本插入时没有托管元数据(modelKeys)；insert-missing 不会更新已存在行，
+    // 导致前端拿不到 managedRoutes(模型下拉只剩“导入”)。这里幂等强制对齐其 metadata。
+    await this.prisma.nodeConfig.updateMany({
+      where: { nodeKey: 'audioStudio' },
+      data: {
+        category: 'audio',
+        isVisible: true,
+        metadata: buildAudioStudioNodeMetadata() as any,
+      },
+    });
+
+    this.logger.log(
+      `节点配置初始化完成: 创建 ${created} 个, 跳过 ${skipped} 个, 隐藏旧音频节点 ${hidden.count} 个`,
+    );
     return { created, skipped };
   }
 
@@ -2282,9 +2397,8 @@ export class NodeConfigService {
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 40, creditsPerCall: 0, description: '按档位压缩图片，免费' },
       { nodeKey: 'three', nameZh: '2D转3D', nameEn: '2D to 3D', category: 'other', sortOrder: 41, creditsPerCall: 200, serviceType: 'convert-2d-to-3d', priceYuan: 2, description: '图片转3D模型' },
       { nodeKey: 'seed3d', nameZh: 'Seed 3D', nameEn: 'Seed 3D', category: 'other', sortOrder: 42, creditsPerCall: 300, serviceType: 'convert-2d-to-3d', priceYuan: 3, description: 'Prompt/图片生成3D模型', metadata: { type: 'seed3d', flowNodeType: 'seed3d', defaultData: { model: '3.1', lowPoly: false, sketch: false } } },
-      { nodeKey: 'minimaxSpeech', nameZh: 'MiniMax语音合成', nameEn: 'MiniMax Speech', category: 'audio', sortOrder: 42, creditsPerCall: 10, serviceType: 'minimax-speech', priceYuan: 0.1, description: 'MiniMax Speech 语音合成' },
-      { nodeKey: 'tencentSpeech', nameZh: '腾讯语音合成', nameEn: 'Tencent Speech', category: 'audio', sortOrder: 43, creditsPerCall: 10, serviceType: 'tencent-speech', priceYuan: 0.1, description: '腾讯 MPS AI 配音语音合成' },
-      { nodeKey: 'minimaxMusic', nameZh: 'MiniMax音乐生成', nameEn: 'MiniMax Music', category: 'audio', sortOrder: 44, creditsPerCall: 30, serviceType: 'minimax-music', priceYuan: 0.3, description: 'MiniMax 音乐生成' },
+      // 统一音频工作台，常驻面板（详见 initializeDefaultConfigs 注释）。
+      { nodeKey: 'audioStudio', nameZh: '音频工作台', nameEn: 'Audio Studio', category: 'audio', sortOrder: 42, creditsPerCall: 0, description: '统一音频生成：语音/音乐/音效/配音/导入（按模式与时长计费）', metadata: buildAudioStudioNodeMetadata() },
     ];
   }
 

@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 
 // Module-level registry so the same (url, version) pair always gets the same _ts.
 // Prevents remount of GenericVideoNode (or useMemo re-run) from producing a new
@@ -14,7 +14,7 @@ function getStableVideoTimestamp(url: string, version: number): number {
   return ts;
 }
 import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
-import { AlertTriangle, Video, Share2, Download, HelpCircle } from "lucide-react";
+import { AlertTriangle, Video, Share2, Download, HelpCircle, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -78,6 +78,7 @@ type Props = {
     error?: string;
     videoVersion?: number;
     onRun?: (id: string) => void;
+    onStop?: (id: string) => void;
     onSend?: (id: string) => void;
     creditsPerCall?: number;
     managedModelKey?: string;
@@ -240,6 +241,9 @@ const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
+const SEEDANCE15_DOC_RESOLUTIONS = ["720P", "1080P"] as const;
+// Only the base seedance-2.0 upstream exposes 4K; seed-2.0-pro stays on 480P/720P/1080P.
+const SEEDANCE20_BASE_DOC_RESOLUTIONS = ["480P", "720P", "1080P", "4K"] as const;
 const SEED20_LITE_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 const SEED20_MINI_DOC_RESOLUTIONS = ["480P", "720P"] as const;
 
@@ -324,6 +328,7 @@ const getSeedance20ResolutionList = (model: SeedanceModel): string[] => {
   // Seedance 2.0 Fast shares the doubao-seedance-2-0-fast upstream (480P/720P,
   // no 1080P) — same as Lite/Mini.
   if (model === "seedance-2.0-fast") return [...SEED20_LITE_DOC_RESOLUTIONS];
+  if (model === "seedance-2.0") return [...SEEDANCE20_BASE_DOC_RESOLUTIONS];
   return [...SEEDANCE20_DOC_RESOLUTIONS];
 };
 
@@ -1140,6 +1145,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
+  const onStop = React.useCallback(() => data.onStop?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
 
   const clipDuration =
@@ -1439,8 +1445,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   );
   const legacySeedanceResolutionOptions = React.useMemo(() => {
     if (provider !== "doubao" || isVodManagedNode) return [];
-    // Seedance 1.5-pro (via new-api ark) supports 480P/720P/1080P, same as 2.0.
-    return isSeedance20Model ? seedance20ResolutionList : ["480P", "720P", "1080P"];
+    return isSeedance20Model ? seedance20ResolutionList : [...SEEDANCE15_DOC_RESOLUTIONS];
   }, [isSeedance20Model, isVodManagedNode, provider, seedance20ResolutionList]);
   const resolutionOptions = React.useMemo(
     () => {
@@ -1450,12 +1455,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
         return filtered.length > 0 ? filtered : seedance20ResolutionList;
       }
+      if (provider === "doubao" && isSeedanceModel) {
+        const allowed = new Set<string>(SEEDANCE15_DOC_RESOLUTIONS);
+        const filtered = vodResolutionOptions.filter((value) => allowed.has(value));
+        return filtered.length > 0 ? filtered : [...SEEDANCE15_DOC_RESOLUTIONS];
+      }
       return vodResolutionOptions.length > 0
         ? vodResolutionOptions
         : legacySeedanceResolutionOptions;
     },
     [
       isSeedance20Model,
+      isSeedanceModel,
       legacySeedanceResolutionOptions,
       provider,
       seedance20ResolutionList,
@@ -1473,6 +1484,24 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   // 回退成默认的 "Vidu Q2"——一个 Q3 节点被错显成 Q2，菜单也无高亮项。
   const viduModelSelectionValue: "q2" | "q3" = viduModelFamily;
   const shouldShowResolutionSelector = resolutionOptions.length > 0;
+  React.useEffect(() => {
+    if (provider !== "doubao" || !isSeedanceModel || isSeedance20Model) return;
+    const currentResolution =
+      typeof data.resolution === "string" ? data.resolution.trim().toUpperCase() : "";
+    if (!currentResolution || resolutionOptions.includes(currentResolution)) return;
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { resolution: resolutionOptions[0] || "720P" } },
+      })
+    );
+  }, [
+    data.resolution,
+    id,
+    isSeedance20Model,
+    isSeedanceModel,
+    provider,
+    resolutionOptions,
+  ]);
   const shouldShowLegacyViduOptions =
     (provider === "vidu" || provider === "viduq3-pro") && !isVodManagedNode;
   const shouldShowLegacySeedanceOptions =
@@ -2609,45 +2638,64 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
                 display: "flex",
                 alignItems: "center",
               }}
-              title={lt("鐜╂硶璇存槑", "Help")}
+              title={lt("玩法说明", "Help")}
             >
               <HelpCircle size={14} />
             </button>
           )}
-          <button
-            className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
-            onClick={onRun}
-            onMouseDown={handleButtonMouseDown}
-            disabled={data.status === "running"}
-            style={{
-              width: showRunCredits ? "auto" : 36,
-              minWidth: showRunCredits ? 64 : 36,
-              padding: showRunCredits ? "0 10px" : undefined,
-              height: 32,
-              borderRadius: 8,
-              border: "none",
-              background: data.status === "running" ? "#e5e7eb" : "#111827",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: data.status === "running" ? "not-allowed" : "pointer",
-              fontSize: 12,
-              opacity: data.status === "running" ? 0.6 : 1,
-              gap: 0,
-            }}
+          {data.status === "running" ? (
+            <button
+              className="tanva-video-header-btn tanva-video-header-stop"
+              onClick={onStop}
+              onMouseDown={handleButtonMouseDown}
+              title={lt("停止并重置，可重新生成", "Stop and reset to regenerate")}
+              style={{
+                width: 64,
+                minWidth: 64,
+                padding: "0 10px",
+                height: 32,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
             >
-              {data.status === "running" ? (
-                <span className="run-text-trigger">Running...</span>
-              ) : (
-                <>
-                  <span className="run-text-trigger">Run</span>
-                  {showRunCredits ? (
-                    <RunCreditBadge credits={selectedCredits} runButton />
-                  ) : null}
-                </>
-              )}
-          </button>
+              <Square size={12} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              className="tanva-video-header-btn tanva-video-header-run run-btn-with-credit"
+              onClick={onRun}
+              onMouseDown={handleButtonMouseDown}
+              style={{
+                width: showRunCredits ? "auto" : 36,
+                minWidth: showRunCredits ? 64 : 36,
+                padding: showRunCredits ? "0 10px" : undefined,
+                height: 32,
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: 12,
+                gap: 0,
+              }}
+            >
+              <span className="run-text-trigger">Run</span>
+              {showRunCredits ? (
+                <RunCreditBadge credits={selectedCredits} runButton />
+              ) : null}
+            </button>
+          )}
           <button
             className="tanva-video-header-btn tanva-video-header-share"
             onClick={() => copyVideoLink(data.videoUrl)}
@@ -2692,7 +2740,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           >
             {isDownloading ? (
               <span style={{ fontSize: 10, fontWeight: 600, color: "#111827" }}>
-                下载中
+                下载中...
               </span>
             ) : (
               <Download size={14} />

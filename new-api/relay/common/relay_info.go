@@ -677,6 +677,12 @@ type TaskSubmitReq struct {
 	Images          []string `json:"images,omitempty"`
 	Urls            []string `json:"urls,omitempty"`
 	ReferenceImages []string `json:"referenceImages,omitempty"`
+	// ReferenceVideos carries source/reference video URLs (e.g. Seedance 2.0 视频参考 /
+	// 换主体). The doubao adaptor emits each as a video_url content item with
+	// role="reference_video". Kept as a typed top-level field because TaskSubmitReq
+	// otherwise drops unknown top-level keys (callers previously had to smuggle videos
+	// through metadata.content).
+	ReferenceVideos []string `json:"reference_videos,omitempty"`
 	// LastFrame is the tail keyframe for first/last-frame (首尾帧) generation. It is
 	// kept OUT of the Images merge in normalizeTaskSubmitReq so the doubao adaptor can
 	// emit it with role="last_frame" instead of folding it into the reference_image set.
@@ -704,6 +710,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		Metadata             json.RawMessage `json:"metadata,omitempty"`
 		Duration             json.RawMessage `json:"duration,omitempty"`
 		ReferenceImagesSnake json.RawMessage `json:"reference_images,omitempty"`
+		ReferenceVideosCamel json.RawMessage `json:"referenceVideos,omitempty"`
 		AspectRatioCamel     json.RawMessage `json:"aspectRatio,omitempty"`
 		*Alias
 	}{
@@ -748,6 +755,14 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		var values []string
 		if err := common.Unmarshal(aux.ReferenceImagesSnake, &values); err == nil {
 			t.ReferenceImages = values
+		}
+	}
+
+	// 主字段是 snake_case reference_videos（Tanva 后端如此下发）；兼容直连客户端的 camelCase。
+	if len(t.ReferenceVideos) == 0 && len(aux.ReferenceVideosCamel) > 0 {
+		var values []string
+		if err := common.Unmarshal(aux.ReferenceVideosCamel, &values); err == nil {
+			t.ReferenceVideos = values
 		}
 	}
 

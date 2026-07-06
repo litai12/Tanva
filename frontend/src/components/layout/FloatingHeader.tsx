@@ -53,13 +53,26 @@ import {
   Users,
   Share2,
   Image as ImageIcon,
+  Building2,
+  Camera,
+  Pencil,
+  X,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { teamMyQuotaApi, type MyTeamQuota } from "@/services/teamCreditsApi";
 import MemoryDebugPanel from "@/components/debug/MemoryDebugPanel";
 import HistoryDebugPanel from "@/components/debug/HistoryDebugPanel";
 import { useProjectStore } from "@/stores/projectStore";
 import { projectApi } from "@/services/projectApi";
+import { TEAM_PROJECTS_CHANGED_EVENT } from "@/hooks/useTeamRealtime";
 import ProjectManagerModal from "@/components/projects/ProjectManagerModal";
 import { useUIStore, useCanvasStore, GridStyle } from "@/stores";
+import { useCommentStore } from "@/stores/commentStore";
 import { useFlowStore, FlowEdgeColorMode } from "@/stores/flowStore";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -77,6 +90,8 @@ import { clipboardService } from "@/services/clipboardService";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { authApi, type GoogleApiKeyInfo } from "@/services/authApi";
+import { getDefaultAvatarColor } from "@/utils/defaultAvatar";
+import { ossUploadService } from "@/services/ossUploadService";
 import {
   getBananaRouteSuccessRates,
   type BananaRouteSuccessRatesResponse,
@@ -201,6 +216,11 @@ const resolveRouteSignalLevel = (rate: number | null | undefined): number => {
   return 1;
 };
 
+const hasAdminPanelRole = (role?: string | null): boolean => {
+  const normalized = (role || "").trim().toLowerCase();
+  return normalized === "admin" || normalized === "normal_admin";
+};
+
 const FloatingHeader: React.FC = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -235,6 +255,7 @@ const FloatingHeader: React.FC = () => {
     snapAlignmentEnabled,
     toggleSnapAlignment,
   } = useUIStore();
+  const commentActive = useCommentStore((state) => state.active);
 
   const {
     gridStyle,
@@ -310,15 +331,18 @@ const FloatingHeader: React.FC = () => {
   }, []);
   const quickCreateInFlightRef = useRef(false);
   const [isQuickCreatingProject, setIsQuickCreatingProject] = useState(false);
-  const [dropdownContextId, setDropdownContextId] = useState<string>('personal');
   const handleQuickCreateProject = useCallback(async () => {
     if (quickCreateInFlightRef.current) return;
     quickCreateInFlightRef.current = true;
     setIsQuickCreatingProject(true);
     try {
-      // 个人tab下创建项目：若当前是团队模式，先切换到个人团队再创建，避免新项目混入团队项目列表
-      if (dropdownContextId === 'personal') {
-        const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+      // 顶部"+"按当前【实际团队身份】创建：团队身份→团队项目，个人身份→个人项目。
+      // 不再依据下拉视图的 personal/team 状态(其默认 'personal' 会导致在团队身份下误把
+      // 新项目创建为个人、并使顶部切回个人)。create() 依据 activeTeam 自动决定 x-team-id。
+      const { activeTeamId: curTeamId, teams: curTeams, setActiveTeamId } = useTeamStore.getState();
+      const activeTeam = curTeams.find((t) => t.id === curTeamId) ?? null;
+      const inTeam = !!(activeTeam && !activeTeam.isPersonal);
+      if (!inTeam) {
         const personalTeam = curTeams.find((t) => t.isPersonal);
         if (personalTeam && curTeamId !== personalTeam.id) {
           setActiveTeamId(personalTeam.id);
@@ -332,7 +356,7 @@ const FloatingHeader: React.FC = () => {
       quickCreateInFlightRef.current = false;
       setIsQuickCreatingProject(false);
     }
-  }, [create, dropdownContextId]);
+  }, [create]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   useEffect(() => {
@@ -384,9 +408,20 @@ const FloatingHeader: React.FC = () => {
     typeof setTimeout
   > | null>(null);
 
+  // 用户名编辑
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
   // 用户积分状态
   const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
+  // 团队模式：当前用户的个人配额信息
+  const [teamMyQuota, setTeamMyQuota] = useState<MyTeamQuota | null>(null);
+  const [teamMyQuotaLoading, setTeamMyQuotaLoading] = useState(false);
   const [bananaRouteSuccessRates, setBananaRouteSuccessRates] =
     useState<BananaRouteSuccessRatesResponse | null>(null);
   const [dailyRewardStatus, setDailyRewardStatus] =
@@ -400,6 +435,7 @@ const FloatingHeader: React.FC = () => {
   const wechatQrContainerRef = useRef<HTMLDivElement | null>(null);
   const [teamManagementId, setTeamManagementId] = useState<string | null>(null);
   const [teamModalInitialTab, setTeamModalInitialTab] = useState<'members' | 'subscription'>('members');
+  const [serverHasAdminPanelAccess, setServerHasAdminPanelAccess] = useState(false);
   const [fpsOverlayAdminButtonLayout, setFpsOverlayAdminButtonLayout] = useState<{
     top: number;
     left: number;
@@ -480,6 +516,97 @@ const FloatingHeader: React.FC = () => {
       }
     },
     []
+  );
+
+  const authUser = useAuthStore((s) => s.user);
+
+  const handleStartEditName = useCallback(() => {
+    setNameInput(authUser?.name ?? "");
+    setNameError(null);
+    setIsEditingName(true);
+  }, [authUser?.name]);
+
+  const handleCancelEditName = useCallback(() => {
+    setIsEditingName(false);
+    setNameError(null);
+  }, []);
+
+  const handleSaveName = useCallback(async () => {
+    if (nameSaving) return;
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      setNameError(t("workspace.settings.workspaceTab.name.empty"));
+      return;
+    }
+    if (trimmed.length > 50) {
+      setNameError(t("workspace.settings.workspaceTab.name.tooLong"));
+      return;
+    }
+    if (trimmed === (authUser?.name ?? "")) {
+      setIsEditingName(false);
+      return;
+    }
+    setNameSaving(true);
+    setNameError(null);
+    try {
+      const updated = await authApi.updateProfile({ name: trimmed });
+      const current = useAuthStore.getState();
+      useAuthStore
+        .getState()
+        .setAuthenticatedUser(
+          { ...(current.user || {}), ...updated },
+          (current.connection as any) || "server"
+        );
+      window.dispatchEvent(new CustomEvent("tanva:profile-updated", { detail: updated }));
+      setIsEditingName(false);
+    } catch (e: any) {
+      console.error("Failed to update username:", e);
+      setNameError(
+        e?.message || t("workspace.settings.workspaceTab.name.error")
+      );
+    } finally {
+      setNameSaving(false);
+    }
+  }, [nameInput, nameSaving, authUser?.name, t]);
+
+  const handleAvatarFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || avatarSaving) return;
+      if (!file.type.startsWith("image/")) {
+        setNameError("请选择图片文件");
+        return;
+      }
+      setAvatarSaving(true);
+      setNameError(null);
+      try {
+        const result = await ossUploadService.uploadToOSS(file, {
+          dir: "uploads/avatars/",
+          contentType: file.type,
+          fileName: file.name,
+        });
+        const avatarUrl = result.url?.trim();
+        if (!result.success || !avatarUrl) {
+          throw new Error(result.error || "头像上传失败");
+        }
+        const updated = await authApi.updateProfile({ avatarUrl });
+        const current = useAuthStore.getState();
+        useAuthStore
+          .getState()
+          .setAuthenticatedUser(
+            { ...(current.user || {}), ...updated },
+            (current.connection as any) || "server"
+          );
+        window.dispatchEvent(new CustomEvent("tanva:profile-updated", { detail: updated }));
+      } catch (e: any) {
+        console.error("Failed to update avatar:", e);
+        setNameError(e?.message || "头像上传失败");
+      } finally {
+        setAvatarSaving(false);
+      }
+    },
+    [avatarSaving]
   );
 
   const handleSaveGoogleApiKey = useCallback(async () => {
@@ -755,7 +882,6 @@ const FloatingHeader: React.FC = () => {
   const fetchGlobalHistoryCount = useGlobalImageHistoryStore(
     (state) => state.fetchCount
   );
-  const authUser = useAuthStore((s) => s.user);
 
   const refreshBananaRouteSuccessRates = useCallback(async () => {
     try {
@@ -884,11 +1010,28 @@ const FloatingHeader: React.FC = () => {
   const activeTeamForCredits = useTeamStore((s) => s.getActiveTeam());
   const allTeams = useTeamStore((s) => s.teams);
   const nonPersonalTeams = useMemo(() => allTeams.filter((t) => !t.isPersonal), [allTeams]);
+  // 当前【实际身份】对应的团队 id（个人身份为 null）。下拉视图必须跟随它，
+  // 否则会一直停留在默认 'personal' 并回退到 nonPersonalTeams[0]（首个团队），
+  // 导致顶部已切到团队 A、下拉里却显示/分享到团队 B。
+  const activeOrgTeamId = activeTeamForCredits && !activeTeamForCredits.isPersonal
+    ? activeTeamForCredits.id
+    : null;
   const [dropdownTeamProjects, setDropdownTeamProjects] = useState<typeof projects>([]);
   const [dropdownTeamLoading, setDropdownTeamLoading] = useState(false);
+  // 下拉视图始终跟随顶部【实际身份】：团队身份显示该团队项目，个人身份显示个人项目。
+  const dropdownContextId = activeOrgTeamId ?? 'personal';
+  // 下拉中“分享/标签”指向的目标团队：优先当前身份团队，否则回退到首个团队。
+  const dropdownTargetTeamId = dropdownContextId !== 'personal'
+    ? dropdownContextId
+    : (activeOrgTeamId ?? nonPersonalTeams[0]?.id);
 
-  useEffect(() => {
-    if (dropdownContextId === 'personal') return;
+  // 刷新下拉里的项目列表：个人身份走 store.load()（与团队切换同一条加载路径，
+  // recentProjects 会随 store 重算），团队身份重新拉取该团队项目。
+  const refreshDropdownProjects = useCallback(() => {
+    if (dropdownContextId === 'personal') {
+      void useProjectStore.getState().load();
+      return;
+    }
     setDropdownTeamLoading(true);
     projectApi.listByTeam(dropdownContextId)
       .then(setDropdownTeamProjects)
@@ -896,11 +1039,55 @@ const FloatingHeader: React.FC = () => {
       .finally(() => setDropdownTeamLoading(false));
   }, [dropdownContextId]);
 
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    refreshDropdownProjects();
+  }, [dropdownContextId, refreshDropdownProjects]);
+
+  // 实时同步：他人新建/删除/重命名团队项目时，刷新左上角项目下拉的本地列表
+  // （个人身份的 recentProjects 由 store.refreshList 重算，无需在此处理）。
+  useEffect(() => {
+    if (dropdownContextId === 'personal') return;
+    const onTeamProjectsChanged = () => refreshDropdownProjects();
+    window.addEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+    return () => window.removeEventListener(TEAM_PROJECTS_CHANGED_EVENT, onTeamProjectsChanged);
+  }, [dropdownContextId, refreshDropdownProjects]);
+
   // 加载用户的 Google API Key 设置
   useEffect(() => {
     if (!user) return;
     authApi.getGoogleApiKey().then(setGoogleApiKeyInfo).catch(console.warn);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setServerHasAdminPanelAccess(false);
+      return;
+    }
+    let cancelled = false;
+
+    authApi
+      .me()
+      .then((latestUser) => {
+        if (cancelled || !latestUser || latestUser.id !== user.id) return;
+
+        const currentRole = (user.role || "").trim().toLowerCase();
+        const latestRole = (latestUser.role || "").trim().toLowerCase();
+        setServerHasAdminPanelAccess(hasAdminPanelRole(latestRole));
+        if (latestRole && latestRole !== currentRole) {
+          useAuthStore.setState((state) => ({
+            user: state.user?.id === latestUser.id ? latestUser : state.user,
+          }));
+        }
+      })
+      .catch((error) => {
+        console.warn("[FloatingHeader] Failed to refresh user role:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role]);
 
   // 加载用户积分信息
   useEffect(() => {
@@ -954,14 +1141,29 @@ const FloatingHeader: React.FC = () => {
     refreshCreditsAndDailyReward();
   }, [isSettingsOpen, refreshCreditsAndDailyReward, user]);
 
+  const refreshTeamMyQuota = useCallback(async (teamId: string) => {
+    setTeamMyQuotaLoading(true);
+    try {
+      const quota = await teamMyQuotaApi.getMyQuota(teamId);
+      setTeamMyQuota(quota);
+    } catch (e) {
+      console.warn('Failed to fetch team quota:', e);
+      setTeamMyQuota(null);
+    } finally {
+      setTeamMyQuotaLoading(false);
+    }
+  }, []);
+
   // 监听全局积分刷新事件
   useEffect(() => {
     const handleRefreshCredits = () => {
       const activeTeam = useTeamStore.getState().getActiveTeam();
       if (activeTeam && !activeTeam.isPersonal) {
-        // 团队模式：刷新团队积分
+        // 团队模式：刷新团队积分 + 个人配额
         void refreshTeams();
+        void refreshTeamMyQuota(activeTeam.id);
       } else {
+        setTeamMyQuota(null);
         refreshCreditsAndDailyReward();
       }
     };
@@ -969,7 +1171,17 @@ const FloatingHeader: React.FC = () => {
     return () => {
       window.removeEventListener("refresh-credits", handleRefreshCredits);
     };
-  }, [refreshCreditsAndDailyReward]);
+  }, [refreshCreditsAndDailyReward, refreshTeamMyQuota]);
+
+  // 团队切换时自动拉取个人配额
+  useEffect(() => {
+    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
+      void refreshTeamMyQuota(activeTeamForCredits.id);
+    } else {
+      setTeamMyQuota(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamForCredits?.id]);
 
   const handleClaimDailyReward = useCallback(async () => {
     if (!user || dailyRewardClaiming) return;
@@ -1012,14 +1224,39 @@ const FloatingHeader: React.FC = () => {
     setIsMembershipOpen(true);
   }, [activeTeamForCredits]);
 
+  const isTeamMode = !!(activeTeamForCredits && !activeTeamForCredits.isPersonal);
+
+  /**
+   * 团队模式下积分显示规则：
+   * - 无限配额 (personalAvailable === null) → 显示团队可用余额，badge 标「不限·团队额度」
+   * - 有限配额 → 显示 min(剩余配额, 团队余额)
+   * 个人模式 → 原逻辑不变
+   */
   const topCreditsText = useMemo(() => {
-    if (activeTeamForCredits && !activeTeamForCredits.isPersonal) {
-      return activeTeamForCredits.availableCredits.toLocaleString();
+    if (isTeamMode) {
+      if (teamMyQuotaLoading && !teamMyQuota) return "...";
+      if (teamMyQuota) {
+        if (teamMyQuota.personalAvailable === null) {
+          // 无限配额：显示团队可用余额
+          return teamMyQuota.teamAvailableCredits.toLocaleString();
+        }
+        return teamMyQuota.personalAvailable.toLocaleString();
+      }
+      // 尚未加载到配额数据时回退到 availableCredits
+      return activeTeamForCredits!.availableCredits.toLocaleString();
     }
     if (creditsLoading && !creditsInfo) return "...";
     if (creditsInfo) return creditsInfo.balance.toLocaleString();
     return "--";
-  }, [creditsInfo, creditsLoading, activeTeamForCredits]);
+  }, [isTeamMode, teamMyQuota, teamMyQuotaLoading, activeTeamForCredits, creditsInfo, creditsLoading]);
+
+  /** 团队无限配额时显示的 badge 文字 */
+  const teamUnlimitedBadge = useMemo(() => {
+    if (!isTeamMode) return null;
+    if (!teamMyQuota) return null;
+    if (teamMyQuota.personalAvailable === null) return '不限·团队额度';
+    return null;
+  }, [isTeamMode, teamMyQuota]);
   const isEnglish = i18n.resolvedLanguage?.toLowerCase().startsWith("en");
   const isDarkTheme = chatTheme === "black";
   const themeToggleLabel =
@@ -1107,6 +1344,30 @@ const FloatingHeader: React.FC = () => {
     user?.email ||
     user?.id?.slice(-4) ||
     t("common.user");
+  const avatarColor = getDefaultAvatarColor(user?.id || displayName);
+  const renderAvatar = useCallback(
+    (sizeClass: string, textClass: string) => (
+      <div
+        className={cn(
+          "overflow-hidden rounded-full flex items-center justify-center font-medium shrink-0",
+          sizeClass,
+          textClass
+        )}
+        style={{ backgroundColor: avatarColor.bg, color: avatarColor.text }}
+      >
+        {user?.avatarUrl ? (
+          <img
+            src={user.avatarUrl}
+            alt={displayName}
+            className='h-full w-full object-cover'
+          />
+        ) : (
+          displayName.charAt(0).toUpperCase()
+        )}
+      </div>
+    ),
+    [avatarColor.bg, avatarColor.text, displayName, user?.avatarUrl]
+  );
   const secondaryId =
     user?.email ||
     (user?.phone
@@ -1127,8 +1388,7 @@ const FloatingHeader: React.FC = () => {
         return { label: t("common.status.unknown"), color: "#9ca3af" };
     }
   })();
-  const normalizedRole = (user?.role || "").trim().toLowerCase();
-  const isAdmin = normalizedRole === "admin" || normalizedRole === "normal_admin";
+  const isAdmin = hasAdminPanelRole(user?.role) || serverHasAdminPanelAccess;
   useEffect(() => {
     if (!isAdmin || typeof window === "undefined") {
       setFpsOverlayAdminButtonLayout(null);
@@ -1302,18 +1562,92 @@ const FloatingHeader: React.FC = () => {
           <div className='pb-6 space-y-5 '>
             {/* User Greeting Section */}
             <div className='flex items-center gap-4 mb-10 mt-8'>
-              <div className='w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-base font-medium text-slate-600 shrink-0'>
-                {displayName.charAt(0).toUpperCase()}
+              <div className='relative shrink-0'>
+                {renderAvatar("w-12 h-12", "text-base")}
+                <button
+                  type='button'
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={avatarSaving}
+                  title='修改头像'
+                  className='absolute -bottom-1 -right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white bg-slate-900 text-white shadow-sm transition-colors hover:bg-slate-700 disabled:opacity-50'
+                >
+                  <Camera className='h-3.5 w-3.5' />
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type='file'
+                  accept='image/*'
+                  className='hidden'
+                  onChange={handleAvatarFileChange}
+                />
               </div>
               <div className='flex-1 min-w-0'>
-                <div className='flex items-center gap-2 mb-0.5'>
-                  <span className='text-base font-medium text-slate-900'>
-                    {t("workspace.settings.workspaceTab.greeting", {
-                      name: displayName,
-                    })}
-                  </span>
-                </div>
-                <div className='text-sm text-slate-400'>{secondaryId}</div>
+                {isEditingName ? (
+                  <div className='flex flex-col gap-1.5'>
+                    <div className='flex items-center gap-2'>
+                      <input
+                        type='text'
+                        autoFocus
+                        value={nameInput}
+                        maxLength={50}
+                        disabled={nameSaving}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            handleCancelEditName();
+                          }
+                        }}
+                        placeholder={t(
+                          "workspace.settings.workspaceTab.name.placeholder"
+                        )}
+                        className='flex-1 min-w-0 h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40'
+                      />
+                      <button
+                        type='button'
+                        onClick={() => void handleSaveName()}
+                        disabled={nameSaving || !nameInput.trim()}
+                        title={t("workspace.settings.workspaceTab.name.save")}
+                        className='shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors'
+                      >
+                        <Check className='w-4 h-4' />
+                      </button>
+                      <button
+                        type='button'
+                        onClick={handleCancelEditName}
+                        disabled={nameSaving}
+                        title={t("workspace.settings.workspaceTab.name.cancel")}
+                        className='shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition-colors'
+                      >
+                        <X className='w-4 h-4' />
+                      </button>
+                    </div>
+                    {nameError && (
+                      <span className='text-xs text-rose-500'>{nameError}</span>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className='flex items-center gap-2 mb-0.5'>
+                      <span className='text-base font-medium text-slate-900 truncate'>
+                        {t("workspace.settings.workspaceTab.greeting", {
+                          name: displayName,
+                        })}
+                      </span>
+                      <button
+                        type='button'
+                        onClick={handleStartEditName}
+                        title={t("workspace.settings.workspaceTab.name.edit")}
+                        className='shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors'
+                      >
+                        <Pencil className='w-3.5 h-3.5' />
+                      </button>
+                    </div>
+                    <div className='text-sm text-slate-400'>{secondaryId}</div>
+                  </>
+                )}
               </div>
               <div className='shrink-0 text-sm leading-none text-right select-none'>
                 <AutosaveStatus />
@@ -2267,6 +2601,7 @@ const FloatingHeader: React.FC = () => {
         className={cn(
           "tanva-header-shell fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
           showLayerPanel ? "left-[306px]" : "left-0",
+          commentActive ? "right-[338px]" : showLibraryPanel ? "right-80" : "right-0",
           focusMode && "hidden"
         )}
       >
@@ -2308,7 +2643,12 @@ const FloatingHeader: React.FC = () => {
                 }}
               />
             ) : (
-              <DropdownMenu>
+              <DropdownMenu
+                onOpenChange={(isOpen) => {
+                  // 每次拉开项目下拉时刷新列表，避免别处新建/重命名后不刷新页面看不到。
+                  if (isOpen) refreshDropdownProjects();
+                }}
+              >
                 <DropdownMenuTrigger
                   className={cn(
                     "tanva-project-selector flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none",
@@ -2350,21 +2690,6 @@ const FloatingHeader: React.FC = () => {
                       : undefined
                   }
                 >
-                  {/* Workspace context switcher — Switch toggle */}
-                  {nonPersonalTeams.length > 0 && (
-                    <div className="px-3 pt-2 pb-1.5 flex items-center justify-between gap-3">
-                      <span className={cn("text-xs", isDarkTheme ? "text-slate-400" : "text-slate-400")}>
-                        {nonPersonalTeams.find((tm) => tm.id === dropdownContextId)?.name ?? nonPersonalTeams[0]?.name}
-                      </span>
-                      <Switch
-                        checked={dropdownContextId !== 'personal'}
-                        onCheckedChange={(checked) => {
-                          setDropdownContextId(checked ? (nonPersonalTeams[0]?.id ?? 'personal') : 'personal');
-                        }}
-                        className="h-5 w-9"
-                      />
-                    </div>
-                  )}
                   <div className='max-h-[340px] overflow-y-auto space-y-0.5'>
                     {dropdownTeamLoading ? (
                       <DropdownMenuItem disabled className={cn("cursor-default", isDarkTheme ? "text-slate-500" : "text-slate-400")}>
@@ -2452,25 +2777,34 @@ const FloatingHeader: React.FC = () => {
                         className='my-1'
                         style={isDarkTheme ? { background: "rgba(148, 163, 184, 0.25)" } : undefined}
                       />
-                      <DropdownMenuItem
-                        onClick={() => {
-                          const targetTeamId = dropdownContextId !== 'personal'
-                            ? dropdownContextId
-                            : nonPersonalTeams[0]?.id;
-                          const targetTeamName = nonPersonalTeams.find((tm) => tm.id === targetTeamId)?.name ?? '团队';
-                          if (!targetTeamId || !currentProject) return;
-                          void projectApi.cloneToTeam(currentProject.id, targetTeamId)
-                            .then(() => alert(`已分享至 ${targetTeamName}`))
-                            .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
-                        }}
+                      {/* 多团队时逐个列出，点哪个就分享到哪个团队（自定义 dropdown 无子菜单，故平铺） */}
+                      <DropdownMenuLabel
                         className={cn(
-                          "flex items-center gap-2 px-2 py-1 text-sm",
-                          isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                          "px-2 py-0.5 text-[11px] font-normal flex items-center gap-1.5",
+                          isDarkTheme ? "text-slate-400" : "text-slate-400"
                         )}
                       >
-                        <Share2 className='w-4 h-4' />
-                        {`分享至 ${nonPersonalTeams.find((tm) => tm.id === (dropdownContextId !== 'personal' ? dropdownContextId : nonPersonalTeams[0]?.id))?.name ?? '团队'}`}
-                      </DropdownMenuItem>
+                        <Share2 className='w-3.5 h-3.5' />
+                        分享至团队
+                      </DropdownMenuLabel>
+                      {nonPersonalTeams.map((tm) => (
+                        <DropdownMenuItem
+                          key={tm.id}
+                          onClick={() => {
+                            if (!currentProject) return;
+                            void projectApi.cloneToTeam(currentProject.id, tm.id)
+                              .then(() => alert(`已分享至 ${tm.name}`))
+                              .catch((e: any) => alert(`分享失败：${e?.message || ''}`));
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1 text-sm",
+                            isDarkTheme ? "text-teal-300 hover:!bg-slate-700/70" : "text-teal-600 hover:text-teal-700"
+                          )}
+                        >
+                          <Users className='w-4 h-4 shrink-0' />
+                          <span className='truncate'>{tm.name}</span>
+                        </DropdownMenuItem>
+                      ))}
                     </>
                   )}
                 </DropdownMenuContent>
@@ -2496,20 +2830,6 @@ const FloatingHeader: React.FC = () => {
           </div>
         </div>
 
-        {isAdmin && !fpsOverlayAdminButtonLayout && (
-          <div className='flex items-center h-[46px] pointer-events-auto'>
-            <Button
-              variant='ghost'
-              size='sm'
-              className='h-8 w-8 p-0 text-slate-600 transition-all duration-200 border rounded-full bg-white/80 border-slate-300 hover:bg-slate-100 hover:text-slate-700'
-              onClick={() => navigate("/admin")}
-              title='Admin 后台'
-              aria-label='打开 Admin 后台'
-            >
-              <Activity className='w-3.5 h-3.5' />
-            </Button>
-          </div>
-        )}
         {isAdmin && fpsOverlayAdminButtonLayout && (
           <div
             className='pointer-events-auto'
@@ -2529,8 +2849,8 @@ const FloatingHeader: React.FC = () => {
                 height: fpsOverlayAdminButtonLayout.size,
               }}
               onClick={() => navigate("/admin")}
-              title='Admin 后台'
-              aria-label='打开 Admin 后台'
+              title='Admin'
+              aria-label='打开 Admin'
             >
               <Activity className='w-3.5 h-3.5' />
             </Button>
@@ -2570,19 +2890,47 @@ const FloatingHeader: React.FC = () => {
             {/* 团队切换器 */}
             <TeamSwitcher onManage={setTeamManagementId} variant="header" />
 
-            <Button
-              variant='ghost'
-              size='sm'
-              className='h-7 px-2.5 text-xs rounded-full border border-liquid-glass-light bg-liquid-glass-light backdrop-blur-minimal text-gray-700 hover:bg-liquid-glass-hover transition-all duration-200 flex items-center gap-1.5'
-              title={t("workspace.header.myCredits")}
-              onClick={openMembershipHub}
-            >
-              <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
-                <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
-                <Star className='relative w-2.5 h-2.5 text-amber-50 fill-amber-100/90' />
-              </span>
-              <span className='tabular-nums font-medium'>{topCreditsText}</span>
-            </Button>
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className={cn(
+                      'h-7 px-2.5 text-xs rounded-full border backdrop-blur-minimal transition-all duration-200 flex items-center gap-1.5',
+                      isTeamMode
+                        ? 'border-teal-200/70 bg-teal-50/60 text-teal-800 hover:bg-teal-100/80'
+                        : 'border-liquid-glass-light bg-liquid-glass-light text-gray-700 hover:bg-liquid-glass-hover',
+                    )}
+                    title={isTeamMode ? '团队额度' : t("workspace.header.myCredits")}
+                    onClick={openMembershipHub}
+                  >
+                    {isTeamMode ? (
+                      <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-teal-400 via-teal-500 to-cyan-600 shadow-[0_1px_4px_rgba(20,184,166,0.5)]'>
+                        <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-teal-300/80 to-teal-600/80' />
+                        <Users className='relative w-3 h-3 text-white' />
+                      </span>
+                    ) : (
+                      <span className='relative flex items-center justify-center w-4 h-4 rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 shadow-[0_1px_4px_rgba(245,158,11,0.5)]'>
+                        <span className='absolute inset-[1px] rounded-full bg-gradient-to-br from-amber-200/85 to-amber-500/80' />
+                        <Star className='relative w-3 h-3 text-amber-50 fill-amber-100/90' />
+                      </span>
+                    )}
+                    <span className='tabular-nums font-medium'>{topCreditsText}</span>
+                    {teamUnlimitedBadge && (
+                      <span className='ml-0.5 text-[10px] font-medium text-teal-600 bg-teal-100 rounded-full px-1.5 py-0.5 leading-none'>
+                        不限
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                {isTeamMode && (
+                  <TooltipContent side='bottom'>
+                    当前使用团队额度，显示为你的个人可用配额
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
 
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -2943,9 +3291,7 @@ const FloatingHeader: React.FC = () => {
                     {/* 底部用户信息 */}
                     <div className='px-6 pt-4 mt-auto'>
                       <div className='flex items-center gap-2'>
-                        <div className='w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-white'>
-                          {displayName.charAt(0).toUpperCase()}
-                        </div>
+                        {renderAvatar("w-8 h-8", "text-xs")}
                         <span className='text-sm text-slate-600'>
                           {displayName}
                         </span>

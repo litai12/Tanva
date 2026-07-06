@@ -19,6 +19,41 @@ type PresignPolicy = {
   securityToken?: string;
 };
 
+/**
+ * Thrown when an object read exceeds the dedicated proxy read timeout. Callers
+ * (the asset proxy) use this to fail fast instead of falling back to another
+ * slow path. See getObjectBuffer().
+ */
+export class OssReadTimeoutError extends Error {
+  constructor(
+    readonly objectKey: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`OSS read timed out after ${timeoutMs}ms for key: ${objectKey}`);
+    this.name = 'OssReadTimeoutError';
+  }
+}
+
+/**
+ * Thrown when an object read exceeds the byte cap. getObjectBuffer() buffers the
+ * whole object into the JS heap; without a size cap a single large image/video
+ * could balloon the heap past V8's limit and crash the process with
+ * "JavaScript heap out of memory" (incident 2026-06-25). Callers fail fast
+ * (502/413) instead of OOMing. See getObjectBuffer().
+ */
+export class OssObjectTooLargeError extends Error {
+  constructor(
+    readonly limitBytes: number,
+    readonly actualBytes?: number,
+  ) {
+    super(
+      `OSS object exceeds byte cap of ${limitBytes}` +
+        (typeof actualBytes === 'number' ? ` (read ${actualBytes})` : ''),
+    );
+    this.name = 'OssObjectTooLargeError';
+  }
+}
+
 @Injectable()
 export class OssService {
   constructor(private readonly config: ConfigService) {}
@@ -81,6 +116,36 @@ export class OssService {
     return this.isOssEnabled();
   }
 
+  diagnostics(): {
+    enabled: boolean;
+    bucket: string;
+    region: string;
+    endpoint: string;
+    s3Endpoint: string;
+    cdnHost: string;
+    objectHost: string;
+    provider: 'tos' | 'oss';
+    hasAccessKeyId: boolean;
+    hasAccessKeySecret: boolean;
+    hasSessionToken: boolean;
+  } {
+    const conf = this.conf;
+    const objectHost = this.resolveObjectHost();
+    return {
+      enabled: this.isOssEnabled(),
+      bucket: conf.bucket,
+      region: conf.region,
+      endpoint: conf.endpoint || '',
+      s3Endpoint: conf.s3Endpoint || '',
+      cdnHost: conf.cdnHost || '',
+      objectHost,
+      provider: this.isTosHost(objectHost) ? 'tos' : 'oss',
+      hasAccessKeyId: Boolean(conf.accessKeyId && conf.accessKeyId !== 'test-id'),
+      hasAccessKeySecret: Boolean(conf.accessKeySecret && conf.accessKeySecret !== 'test-secret'),
+      hasSessionToken: Boolean(conf.sessionToken),
+    };
+  }
+
   private logDisabledOnce() {
     if (this.loggedDisabled) return;
     this.loggedDisabled = true;
@@ -93,6 +158,18 @@ export class OssService {
     const n = raw ? Number(raw) : 300000;
     if (!Number.isFinite(n)) return 300000;
     return Math.max(1000, Math.min(600000, Math.floor(n)));
+  }
+
+  // Dedicated, short timeout for object *reads* (asset proxy). Kept separate
+  // from timeoutMs() — that default (5 min) must stay large for big uploads,
+  // but reusing it for proxy reads let slow/dangling objects hang for minutes
+  // and pile up full-image buffers, saturating the event loop (incident
+  // 2026-06-15). Default 12s, clamped to [1s, 60s], override via env.
+  private readTimeoutMs(): number {
+    const raw = this.config.get<string>('OSS_READ_TIMEOUT_MS');
+    const n = raw ? Number(raw) : 12000;
+    if (!Number.isFinite(n)) return 12000;
+    return Math.max(1000, Math.min(60000, Math.floor(n)));
   }
 
   private stripProtocolAndSlash(value: string): string {
@@ -136,6 +213,33 @@ export class OssService {
     return [accessKeyId, secret, bucket, region, this.resolveTosEndpoint(), sessionToken || ''].join('|');
   }
 
+  private ensureNoProxyForTosHosts(): void {
+    const { bucket } = this.conf;
+    const endpoint = this.resolveTosEndpoint();
+    const hosts = [
+      endpoint,
+      endpoint ? `.${endpoint}` : '',
+      endpoint ? `${bucket}.${endpoint}` : '',
+      this.resolveObjectHost(),
+    ].filter(Boolean);
+
+    if (hosts.length === 0) return;
+
+    for (const envKey of ['NO_PROXY', 'no_proxy']) {
+      const current = process.env[envKey] || '';
+      if (current.trim() === '*') continue;
+
+      const values = new Set(
+        current
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      );
+      hosts.forEach((host) => values.add(host));
+      process.env[envKey] = Array.from(values).join(',');
+    }
+  }
+
   private getTosClient(secret: string): TosClient {
     const cacheKey = this.buildTosClientCacheKey(secret);
     const cached = this.tosClients.get(cacheKey);
@@ -143,6 +247,7 @@ export class OssService {
 
     const { accessKeyId, bucket, region, sessionToken } = this.conf;
     const endpoint = this.resolveTosEndpoint();
+    this.ensureNoProxyForTosHosts();
     const client = new TosClient({
       accessKeyId,
       accessKeySecret: secret,
@@ -150,6 +255,7 @@ export class OssService {
       bucket,
       region,
       endpoint: endpoint || undefined,
+      secure: true,
       requestTimeout: this.timeoutMs(),
     });
     this.tosClients.set(cacheKey, client);
@@ -285,18 +391,38 @@ export class OssService {
     };
   }
 
-  private async readStreamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  // Default ceiling for in-memory object reads. Overridable via env. The asset
+  // proxy fallback and any getObjectBuffer() caller buffer the whole object into
+  // the JS heap, so this bounds the worst-case single allocation.
+  private maxObjectBytes(): number {
+    const raw = Number(this.config.get<string>('OSS_MAX_OBJECT_BYTES'));
+    if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+    return 64 * 1024 * 1024; // 64MB
+  }
+
+  private async readStreamToBuffer(
+    stream: NodeJS.ReadableStream,
+    maxBytes?: number,
+  ): Promise<Buffer> {
+    const cap = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : undefined;
     const chunks: Buffer[] = [];
+    let total = 0;
     for await (const chunk of stream as unknown as AsyncIterable<Buffer | Uint8Array | string>) {
-      if (Buffer.isBuffer(chunk)) {
-        chunks.push(chunk);
-      } else if (typeof chunk === 'string') {
-        chunks.push(Buffer.from(chunk));
-      } else {
-        chunks.push(Buffer.from(chunk));
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any);
+      total += buf.length;
+      if (cap !== undefined && total > cap) {
+        // Stop pulling bytes the instant we cross the cap so an oversized object
+        // can never balloon the heap; best-effort destroy the source stream.
+        try {
+          (stream as any)?.destroy?.();
+        } catch {
+          /* ignore */
+        }
+        throw new OssObjectTooLargeError(cap, total);
       }
+      chunks.push(buf);
     }
-    return Buffer.concat(chunks);
+    return Buffer.concat(chunks, total);
   }
 
   private normalizeHeaders(input: unknown): Record<string, string> {
@@ -316,23 +442,31 @@ export class OssService {
     return out;
   }
 
-  private async toBuffer(input: unknown): Promise<Buffer> {
-    if (Buffer.isBuffer(input)) return input;
-    if (input instanceof Uint8Array) return Buffer.from(input);
-    if (input instanceof ArrayBuffer) return Buffer.from(input);
-    if (typeof input === 'string') return Buffer.from(input);
+  private async toBuffer(input: unknown, maxBytes?: number): Promise<Buffer> {
+    const cap = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : undefined;
+    const check = (buf: Buffer): Buffer => {
+      if (cap !== undefined && buf.length > cap) {
+        throw new OssObjectTooLargeError(cap, buf.length);
+      }
+      return buf;
+    };
+
+    if (Buffer.isBuffer(input)) return check(input);
+    if (input instanceof Uint8Array) return check(Buffer.from(input));
+    if (input instanceof ArrayBuffer) return check(Buffer.from(input));
+    if (typeof input === 'string') return check(Buffer.from(input));
 
     const anyInput = input as any;
     if (anyInput && typeof anyInput.arrayBuffer === 'function') {
       const ab = await anyInput.arrayBuffer();
-      return Buffer.from(ab);
+      return check(Buffer.from(ab));
     }
 
     if (anyInput && typeof anyInput.read === 'function') {
-      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream);
+      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream, cap);
     }
     if (anyInput && typeof anyInput[Symbol.asyncIterator] === 'function') {
-      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream);
+      return this.readStreamToBuffer(anyInput as NodeJS.ReadableStream, cap);
     }
 
     throw new Error('Unsupported object body type');
@@ -400,6 +534,11 @@ export class OssService {
     stream: NodeJS.ReadableStream,
     options?: any
   ): Promise<{ key: string; url: string }> {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      throw new Error('OSS is disabled');
+    }
+
     if (this.isTosHost(this.resolveObjectHost())) {
       const buffer = await this.readStreamToBuffer(stream);
       const contentType = options?.headers?.['Content-Type'] || options?.headers?.['content-type'];
@@ -502,33 +641,74 @@ export class OssService {
   }
 
   async getObjectBuffer(
-    key: string
+    key: string,
+    opts?: { timeoutMs?: number; maxBytes?: number },
   ): Promise<{ key: string; buffer: Buffer; headers: Record<string, string> }> {
     const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
     if (!normalizedKey) throw new Error('Invalid object key');
     if (!this.isOssEnabled()) throw new Error('OSS is disabled');
 
-    if (this.isTosHost(this.resolveObjectHost())) {
-      const tosResult = await this.withTosSecretCandidates(async (client) => {
-        return await client.getObject({ key: normalizedKey });
+    const timeoutMs =
+      typeof opts?.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs)
+        ? Math.max(1000, Math.min(60000, Math.floor(opts.timeoutMs)))
+        : this.readTimeoutMs();
+
+    const maxBytes =
+      typeof opts?.maxBytes === 'number' && Number.isFinite(opts.maxBytes) && opts.maxBytes > 0
+        ? Math.floor(opts.maxBytes)
+        : this.maxObjectBytes();
+
+    // Bound every read. The SDK clients carry timeoutMs() (default 5 min) so
+    // uploads can finish; that is far too long for a proxy read. We pass a
+    // short per-call timeout to the SDK *and* race a guard so the caller is
+    // unblocked even if the SDK ignores it. The background SDK promise is
+    // swallowed so a late settle after the race never becomes an unhandled
+    // rejection.
+    const withReadTimeout = <T>(work: Promise<T>): Promise<T> => {
+      let timer: NodeJS.Timeout | undefined;
+      const guard = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new OssReadTimeoutError(normalizedKey, timeoutMs)),
+          timeoutMs,
+        );
       });
+      work.catch(() => {
+        // Late settle after a race timeout — intentionally ignored.
+      });
+      return Promise.race([work, guard]).finally(() => {
+        if (timer) clearTimeout(timer);
+      }) as Promise<T>;
+    };
+
+    if (this.isTosHost(this.resolveObjectHost())) {
+      const tosResult = await withReadTimeout(
+        this.withTosSecretCandidates(async (client) => {
+          // requestTimeout is honored per-call by newer SDKs and harmlessly
+          // ignored by older ones (the Promise.race guard still applies).
+          return await client.getObject({ key: normalizedKey, requestTimeout: timeoutMs } as any);
+        }),
+      );
       const payload =
         (tosResult as any)?.data ??
         (tosResult as any)?.content ??
         (tosResult as any)?.body ??
         tosResult;
-      const buffer = await this.toBuffer(payload);
+      const buffer = await this.toBuffer(payload, maxBytes);
       const headers = this.normalizeHeaders((tosResult as any)?.headers);
       return { key: normalizedKey, buffer, headers };
     }
 
     const client = this.client();
-    const aliResult = await client.get(normalizedKey);
+    // 2-arg form: ali-oss treats a non-stream/non-string 2nd arg as options and
+    // returns the object body as a buffer in result.content.
+    const aliResult = await withReadTimeout(
+      client.get(normalizedKey, { timeout: timeoutMs } as any),
+    );
     const payload =
       (aliResult as any)?.content ??
       (aliResult as any)?.data ??
       aliResult;
-    const buffer = await this.toBuffer(payload);
+    const buffer = await this.toBuffer(payload, maxBytes);
     const headers = this.normalizeHeaders((aliResult as any)?.res?.headers || (aliResult as any)?.headers);
     return { key: normalizedKey, buffer, headers };
   }

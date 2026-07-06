@@ -26,17 +26,20 @@ import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { MembershipModule } from './membership/membership.module';
 import { VolcAssetModule } from './volc-asset/volc-asset.module';
 import { BioAuthModule } from './bio-auth/bio-auth.module';
-import { TeamSubscriptionModule } from './team-subscription/team-subscription.module';
 import { TeamCoreModule } from './team-core/team-core.module';
 import { TeamCreditsModule } from './team-credits/team-credits.module';
 import { TeamCollabModule } from './team-collab/team-collab.module';
+import { CanvasCommentsModule } from './canvas-comments/canvas-comments.module';
 import { AgentModule } from './agent/agent.module';
+import { DirectorCaptureModule } from './director-capture/director-capture.module';
+import { MaterialLibraryModule } from './material-library/material-library.module';
+import { AsrModule } from './asr/asr.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../.env'],
+      envFilePath: ['.env', 'backend/.env', '../.env'],
       expandVariables: true,
     }),
     TenancyModule,
@@ -75,11 +78,14 @@ import { AgentModule } from './agent/agent.module';
     UserTemplatesModule,
     VolcAssetModule,
     BioAuthModule,
-    TeamSubscriptionModule,
     TeamCoreModule,
     TeamCreditsModule,
     TeamCollabModule,
+    CanvasCommentsModule,
     AgentModule,
+    DirectorCaptureModule,
+    MaterialLibraryModule,
+    AsrModule,
   ],
 })
 export class AppModule {}

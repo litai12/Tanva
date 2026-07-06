@@ -7,13 +7,14 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 )
 
 // billAndMirrorTencentVodCreate 在 CreateAigcVideoTask 成功后：插入视频记录 + 扣费 + 写消费日志。
 // 顺序为「去重 → 插任务 → 扣费」：先插任务保证失败退还总有落点；插任务失败则跳过扣费，避免孤儿扣费。
 // 任何子步骤失败只 SysLog，绝不影响已成功的透传响应。
-func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody []byte, taskId string) {
+func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody, respBytes []byte, taskId string) {
 	// 去重：同一 TaskId 已处理过（重试/重复观察）则跳过，避免重复扣费/重复任务行。
 	if _, exist, _ := model.GetByOnlyTaskId(taskId); exist {
 		return
@@ -89,6 +90,31 @@ func billAndMirrorTencentVodCreate(c *gin.Context, ch *model.Channel, reqBody []
 			"audio":         p.Audio,
 			"credits":       credits,
 		},
+	})
+
+	// 4. 请求链路：腾讯 VOD 是签名透传，不经过 relay handler，需在此旁路补记 trace，
+	// 否则使用日志里这条任务点「请求链路」会查不到（入参参考图也无从预览）。
+	// 与上面消费日志共用同一 request_id（全局 RequestId 中间件注入），故能对齐。
+	recordTencentVodCreateTrace(c, ch, display, userId, reqBody, respBytes)
+}
+
+// recordTencentVodCreateTrace 旁路记录腾讯 VOD 创建任务的请求链路（原始请求 + 一次上游尝试）。
+// best-effort：失败只忽略，绝不影响已成功的透传/计费。
+func recordTencentVodCreateTrace(c *gin.Context, ch *model.Channel, display string, userId int, reqBody, respBytes []byte) {
+	// ChannelId / UpstreamModel 由下面的 attempt patch 携带，info 只需提供链路头部信息。
+	info := &relaycommon.RelayInfo{
+		UserId:          userId,
+		OriginModelName: display,
+		RequestURLPath:  c.Request.URL.Path,
+	}
+	_ = model.UpsertRequestTraceOriginal(c, info, string(reqBody))
+	_ = model.UpsertRequestTraceAttempt(c, info, model.RequestTraceAttemptPatch{
+		ChannelId:            ch.Id,
+		RequestModel:         display,
+		UpstreamModel:        display,
+		UpstreamURL:          "https://vod.tencentcloudapi.com/",
+		UpstreamRequestBody:  string(reqBody),
+		UpstreamResponseBody: string(respBytes),
 	})
 }
 

@@ -74,6 +74,11 @@ export class TeamCoreController {
     return this.teamCore.removeMember(teamId, userId, req.user.sub);
   }
 
+  @Get('teams/:teamId/my-quota')
+  myQuota(@Req() req: any, @Param('teamId') teamId: string) {
+    return this.teamCore.getMyQuota(teamId, req.user.sub);
+  }
+
   @Post('teams/:teamId/transfer-ownership')
   transferOwnership(
     @Req() req: any,

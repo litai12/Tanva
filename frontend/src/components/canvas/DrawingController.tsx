@@ -92,6 +92,7 @@ import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { imageUploadService } from "@/services/imageUploadService";
 import { generateOssKey } from "@/services/ossUploadService";
 import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { collabCanvasBridge } from "@/collab/collabCanvasBridge";
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
@@ -132,6 +133,12 @@ const extractPersistableImageRef = (imageData: unknown): string | null => {
 };
 
 type RectLike = { x: number; y: number; width: number; height: number };
+
+type CanvasPathPatchItem = {
+  pathId: string;
+  json: string;
+  layerName?: string | null;
+};
 
 const PRECISE_EDIT_ASPECT_RATIO_LABELS = [
   "1:1",
@@ -658,6 +665,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
+  const lastPathCollabSentAtRef = useRef(0);
   const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
     new Map()
   );
@@ -3706,6 +3714,162 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     [projectId]
   );
 
+  const getOrCreateCollabPathId = useCallback((path: paper.Path): string => {
+    const existing =
+      typeof path.data?.pathId === "string"
+        ? path.data.pathId
+        : typeof path.data?.collabPathId === "string"
+        ? path.data.collabPathId
+        : "";
+    const pathId =
+      existing ||
+      `path_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    path.data = {
+      ...(path.data || {}),
+      type: path.data?.type || "path",
+      pathId,
+      collabPathId: pathId,
+    };
+    return pathId;
+  }, []);
+
+  const sendPathCollabPatch = useCallback(
+    (path: paper.Path, options?: { force?: boolean }) => {
+      if (!path || collabCanvasBridge.isApplyingRemote) return;
+      if (!collabCanvasBridge.connected) return;
+      if (path.data?.isHelper || path.data?.isActiveEraserTrail) return;
+      if (path.data?.type === "image" || path.data?.type === "image-placeholder") return;
+
+      try {
+        const now = Date.now();
+        if (!options?.force && now - lastPathCollabSentAtRef.current < 80) {
+          return;
+        }
+        lastPathCollabSentAtRef.current = now;
+        const pathId = getOrCreateCollabPathId(path);
+        const json = path.exportJSON({ asString: true }) as string;
+        if (!json) return;
+        collabCanvasBridge.sendCanvasPatch({
+          upsertPaths: [
+            {
+              pathId,
+              json,
+              layerName: path.layer?.name ?? null,
+            },
+          ],
+        });
+      } catch (error) {
+        logger.warn("画笔路径协作同步失败", error);
+      }
+    },
+    [getOrCreateCollabPathId]
+  );
+
+  useEffect(() => {
+    const findPathById = (pathId: string): paper.Path | null => {
+      try {
+        const items = paper.project?.getItems?.({ class: paper.Path }) as
+          | paper.Path[]
+          | undefined;
+        return (
+          items?.find(
+            (item) =>
+              item?.data?.pathId === pathId || item?.data?.collabPathId === pathId
+          ) ?? null
+        );
+      } catch {
+        return null;
+      }
+    };
+
+    const applyPathSnapshot = (snapshot: CanvasPathPatchItem) => {
+      if (!snapshot?.pathId || !snapshot?.json || !paper?.project) return;
+
+      const prevLayer = paper.project.activeLayer;
+      const existing = findPathById(snapshot.pathId);
+      if (existing) {
+        try {
+          existing.remove();
+        } catch {}
+      }
+
+      if (snapshot.layerName) {
+        const targetLayer = paper.project.layers.find(
+          (layer) => layer.name === snapshot.layerName
+        );
+        if (targetLayer) targetLayer.activate();
+        else drawingContext.ensureDrawingLayer();
+      } else {
+        drawingContext.ensureDrawingLayer();
+      }
+
+      const imported = paper.project.importJSON(snapshot.json);
+      const items = Array.isArray(imported) ? imported : [imported];
+      items.forEach((item) => {
+        if (!(item instanceof paper.Path)) {
+          try {
+            item.remove();
+          } catch {}
+          return;
+        }
+        paper.project.activeLayer.addChild(item);
+        item.visible = true;
+        item.selected = false;
+        item.fullySelected = false;
+        item.data = {
+          ...(item.data || {}),
+          type: item.data?.type || "path",
+          pathId: snapshot.pathId,
+          collabPathId: snapshot.pathId,
+        };
+      });
+
+      if (prevLayer && prevLayer.isInserted()) {
+        try {
+          prevLayer.activate();
+        } catch {}
+      }
+    };
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            upsertPaths?: CanvasPathPatchItem[];
+            removePathIds?: string[];
+          }
+        | undefined;
+      if (!detail) return;
+      const upserts = Array.isArray(detail.upsertPaths) ? detail.upsertPaths : [];
+      const removeIds = Array.isArray(detail.removePathIds) ? detail.removePathIds : [];
+      if (upserts.length === 0 && removeIds.length === 0) return;
+
+      collabCanvasBridge.setApplyingRemote(true);
+      try {
+        removeIds.forEach((pathId) => {
+          if (typeof pathId !== "string" || !pathId) return;
+          const existing = findPathById(pathId);
+          if (existing) {
+            try {
+              existing.remove();
+            } catch {}
+          }
+        });
+        upserts.forEach((snapshot) => applyPathSnapshot(snapshot));
+        try {
+          paper.view?.update();
+        } catch {}
+        try {
+          paperSaveService.triggerAutoSave("collab-path");
+        } catch {}
+      } finally {
+        queueMicrotask(() => collabCanvasBridge.setApplyingRemote(false));
+      }
+    };
+
+    window.addEventListener("collab:canvas-apply", handler as EventListener);
+    return () => window.removeEventListener("collab:canvas-apply", handler as EventListener);
+  }, [drawingContext]);
+
   // ========== 初始化自动对齐Hook ==========
   const snapAlignment = useSnapAlignment({
     imageInstances: imageTool.imageInstances,
@@ -3801,6 +3965,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       onPathCreate: (path) => {
         logger.debug("路径创建:", path);
       },
+      onPathUpdate: (path) => {
+        sendPathCollabPatch(path as unknown as paper.Path);
+      },
       onPathComplete: (path) => {
         const completedPath = path as unknown as paper.Path;
         const mergeTarget = resolveDrawMergeTarget(completedPath);
@@ -3871,6 +4038,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 检查 Paper.js 项目状态后再触发保存
         if (!mergeTarget && paper && paper.project && paper.view) {
+          sendPathCollabPatch(completedPath, { force: true });
           paperSaveService.triggerAutoSave();
         } else if (!mergeTarget) {
           console.warn("⚠️ Paper.js项目状态异常，跳过自动保存");
@@ -4388,6 +4556,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       clearTextItems();
       clearSelections();
+      document.body.classList.remove("tanva-canvas-dragging");
+      document.body.classList.remove("tanva-selection-dragging");
+      document.body.classList.remove("tanva-image-dragging");
 
       try {
         (window as any).tanvaImageInstances = [];
@@ -4484,6 +4655,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 清空选择工具状态
       clearProjectSelections();
+      document.body.classList.remove("tanva-canvas-dragging");
+      document.body.classList.remove("tanva-selection-dragging");
+      document.body.classList.remove("tanva-image-dragging");
 
       blobUrlsToRevoke.forEach((url) => {
         try {

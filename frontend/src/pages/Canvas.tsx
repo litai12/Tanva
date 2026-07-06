@@ -9,6 +9,7 @@ import FocusModeButton from '@/components/canvas/FocusModeButton';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import LibraryPanel from '@/components/panels/LibraryPanel';
+import MaterialLibraryPanel from '@/components/panels/MaterialLibraryPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
@@ -23,6 +24,10 @@ import { logger } from '@/utils/logger';
 import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 import GlobalEventCapture from '@/components/canvas/GlobalEventCapture';
 import CollabRoot from '@/components/collab/CollabRoot';
+import CurrentProjectDeletedModal from '@/components/collab/CurrentProjectDeletedModal';
+import { CollabProvider } from '@/collab/CollabContext';
+import { CanvasCommentsProvider } from '@/contexts/CanvasCommentsContext';
+import CommentDrawer from '@/components/comments/CommentDrawer';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // No longer needed after fast upload flow.
 
@@ -76,6 +81,8 @@ const Canvas: React.FC = () => {
     }, [chatTheme]);
 
     return (
+        <CollabProvider>
+        <CanvasCommentsProvider>
         <div className="relative w-full h-full overflow-hidden">
             <GlobalEventCapture />
             <GlobalZoomCapture />
@@ -139,8 +146,14 @@ const Canvas: React.FC = () => {
             {/* Personal library panel - expands from right side */}
             <LibraryPanel />
 
+            {/* Asset / material library panel - right side, personal + team assets */}
+            <MaterialLibraryPanel />
+
             {/* AI chat dialog - hidden by component in focus mode */}
             <AIChatDialog />
+
+            {/* 评论抽屉（Figma 式画布评论）——与对话框互斥，后开覆盖先开 */}
+            <CommentDrawer />
 
             {/* Paper.js sandbox code panel */}
             <CodeSandboxPanel />
@@ -148,9 +161,14 @@ const Canvas: React.FC = () => {
             {/* Real-time team collaboration overlay (presence, cursors, toasts) */}
             <CollabRoot />
 
+            {/* 当前项目被他人删除时的阻断式交互（另存为新项目 / 返回列表） */}
+            <CurrentProjectDeletedModal />
+
             {/* Debug panel for cached image info (hidden) */}
             {/* <CachedImageDebug /> */}
         </div>
+        </CanvasCommentsProvider>
+        </CollabProvider>
     );
 };
 
