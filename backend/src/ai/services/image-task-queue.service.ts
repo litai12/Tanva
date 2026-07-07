@@ -62,7 +62,17 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
   /** Returns true if the job is still waiting/active (DB record not yet written). */
   async hasJob(taskId: string): Promise<boolean> {
     const job = await this.queue.getJob(taskId);
-    return job != null;
+    if (!job) return false;
+    // getJob 也会返回已终态的 job（removeOnComplete/Fail 各保留 200/500 个）。
+    // 已 completed/failed 却没有 DB 行的任务（如被别的环境的 worker 抢走消费）
+    // 不能再对外报 queued，否则前端永远轮询不到终态。
+    const state = await job.getState();
+    return (
+      state === 'waiting' ||
+      state === 'delayed' ||
+      state === 'prioritized' ||
+      state === 'active'
+    );
   }
 
   /**
