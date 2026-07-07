@@ -35,6 +35,7 @@ type NodeConfigMetadata = {
 
 type NodeData = {
   status?: "idle" | "running" | "succeeded" | "failed";
+  taskPhase?: "queued" | "processing";
   progressStartedAt?: number | string | null;
   imageData?: string;
   imageUrl?: string;
@@ -1050,6 +1051,13 @@ function Nano2NodeInner({ id, data, selected }: Props) {
         startedAt={data.progressStartedAt}
         runKey={id}
       />
+      {status === "running" && (
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+          {data.taskPhase === "queued"
+            ? lt("排队中…点停止可取消（未扣积分）", "Queued… press stop to cancel (not charged)")
+            : lt("生成中…", "Generating…")}
+        </div>
+      )}
       {status === "failed" && error && (
         <div
           style={{

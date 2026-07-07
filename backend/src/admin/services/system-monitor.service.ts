@@ -36,7 +36,7 @@ const TASK_ERROR_MESSAGE_MAXLEN = 300;
 
 // 与 worker / queue 侧保持一致的配置读取（仅展示，不改行为）
 const IMAGE_TASK_MAX_CONCURRENT = Number(
-  process.env.IMAGE_TASK_MAX_CONCURRENT ?? 200,
+  process.env.IMAGE_TASK_MAX_CONCURRENT ?? 1000,
 );
 const QUEUE_HIGH_WATERMARK = Number(
   process.env.IMAGE_TASK_QUEUE_HIGH ?? 200_000_000,

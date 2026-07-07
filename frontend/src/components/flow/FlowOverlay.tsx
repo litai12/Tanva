@@ -182,6 +182,7 @@ import {
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
+  cancelImageTaskViaAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -15882,15 +15883,40 @@ function FlowInner() {
           const r = await waitForTask(taskId, 15 * 60 * 1000, nodeId);
           applyTerminal(nodeId, taskId, r);
         } catch (e) {
+          const { describeTaskPollError } = await import("@/utils/imageTaskPoller");
           applyTerminal(nodeId, taskId, {
             status: "failed",
-            error: e instanceof Error ? e.message : "任务恢复超时",
+            error: describeTaskPollError(e, "任务恢复超时"),
           });
         }
       })();
     }
   }, [nodes, setNodes]);
 
+  // 图像任务阶段同步：轮询池广播 queued/processing 时写到 node.data.taskPhase，
+  // 节点据此显示「排队中（可取消，未扣积分）/生成中」；终态清除。
+  React.useEffect(() => {
+    const onPhase = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as
+        | { taskId?: string; ownerId?: string; status?: string }
+        | undefined;
+      const ownerId = detail?.ownerId;
+      const status = detail?.status;
+      if (!ownerId || !status) return;
+      const phase = status === "queued" || status === "processing" ? status : undefined;
+      setNodes((prev: any[]) =>
+        prev.map((n) => {
+          if (n.id !== ownerId) return n;
+          const d = (n.data as any) || {};
+          if (phase && d.status !== "running") return n;
+          if (d.taskPhase === phase) return n;
+          return { ...n, data: { ...d, taskPhase: phase } };
+        })
+      );
+    };
+    window.addEventListener("image-task:phase", onPhase);
+    return () => window.removeEventListener("image-task:phase", onPhase);
+  }, [setNodes]);
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(
@@ -21978,7 +22004,7 @@ function FlowInner() {
                     )
                   );
 
-                  const { waitForTask } = await import("@/utils/imageTaskPoller");
+                  const { waitForTask, describeTaskPollError } = await import("@/utils/imageTaskPoller");
                   let resolvedImageUrl = "";
                   let resolvedTextResponse = "";
                   let failureMessage = "";
@@ -21992,7 +22018,7 @@ function FlowInner() {
                       failureMessage = r.error || "GPT-Image-2 任务失败，积分将自动返还。";
                     }
                   } catch (e) {
-                    failureMessage = e instanceof Error ? e.message : "GPT-Image-2 生成超时（15分钟），积分将自动返还。";
+                    failureMessage = describeTaskPollError(e, "GPT-Image-2 生成失败，积分将自动返还。");
                   }
 
                   if (!resolvedImageUrl) {
@@ -24395,13 +24421,20 @@ function FlowInner() {
       if (!node) return;
       if ((node.data as any)?.status !== "running") return;
 
-      // 取消前端轮询
-      const { cancelTask: cancelTaskFn, cancelTasksByOwner: cancelByOwner } =
-        await import("@/utils/imageTaskPoller");
-      cancelByOwner([nodeId]);
+      const {
+        cancelTask: cancelTaskFn,
+        cancelTasksByOwner: cancelByOwner,
+        getTaskIdsByOwner,
+      } = await import("@/utils/imageTaskPoller");
+
+      // 先收集该节点名下所有 taskId（多槽流程的 taskId 只在轮询池里有记录），再取消本地轮询
       const taskId = typeof (node.data as any)?.taskId === "string"
         ? (node.data as any).taskId.trim()
         : "";
+      const backendTaskIds = new Set<string>(getTaskIdsByOwner(nodeId));
+      if (taskId) backendTaskIds.add(taskId);
+
+      cancelByOwner([nodeId]);
       if (taskId) cancelTaskFn(taskId);
 
       // 重置节点为 idle，用户可重新生成
@@ -24415,11 +24448,35 @@ function FlowInner() {
                   status: "idle",
                   error: undefined,
                   taskId: undefined,
+                  taskPhase: undefined,
                 },
               }
             : n
         )
       );
+
+      // 向后端撤下仍在排队的任务（未被 worker 拾取 = 尚未扣积分）；
+      // 已开始生成的任务后端拒绝取消，仍按最终结果结算积分。
+      if (backendTaskIds.size > 0) {
+        void (async () => {
+          const results = await Promise.all(
+            Array.from(backendTaskIds).map((id) => cancelImageTaskViaAPI(id))
+          );
+          const cancelledCount = results.filter((r) => r.cancelled).length;
+          const total = results.length;
+          const message =
+            cancelledCount === total
+              ? "已取消排队任务，未扣除积分"
+              : cancelledCount > 0
+              ? `已取消 ${cancelledCount}/${total} 个排队任务，其余已开始生成，将按最终结果结算积分`
+              : "任务已开始生成，无法取消，将按最终结果结算积分";
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: cancelledCount > 0 ? "success" : "info" },
+            })
+          );
+        })();
+      }
     },
     [rf, setNodes]
   );

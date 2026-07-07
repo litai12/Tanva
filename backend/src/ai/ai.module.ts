@@ -23,7 +23,6 @@ import { ImageTaskService } from './services/image-task.service';
 import { ImageTaskQueueService } from './services/image-task-queue.service';
 import { ImageTaskWorkerService } from './services/image-task-worker.service';
 import { GenerationTaskService } from './services/generation-task.service';
-import { ImageReuseCacheService } from './services/image-reuse-cache.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -92,7 +91,6 @@ import { TencentDubProvider } from './audio/providers/tencent-dub.provider';
     ImageTaskQueueService,
     ImageTaskWorkerService,
     GenerationTaskService,
-    ImageReuseCacheService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController, InternalTencentVodController],

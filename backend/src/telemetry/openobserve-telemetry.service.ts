@@ -83,7 +83,7 @@ type GenerationTaskLog = {
   requestId?: string | null;
   taskId: string;
   taskType: string;
-  stage: 'queued' | 'processing' | 'succeeded' | 'failed';
+  stage: 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
   userId: string | null;
   provider: string | null;
   prompt: string | null;

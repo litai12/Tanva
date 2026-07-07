@@ -144,8 +144,8 @@ async function runImageGenerationTask(
         },
     };
   }
-  // pollImageTaskResult 默认 15min 超时；失败/超时返回的 error.message 已含
-  // “积分将自动返还”提示，与后端退款语义一致。
+  // pollImageTaskResult 的 15min 时限只约束生成（processing）阶段，排队等待不计入；
+  // 失败/超时返回的 error.message 已含“积分将自动返还”提示，与后端退款语义一致。
   return pollImageTaskResult(
     createResult.data.taskId,
     undefined,

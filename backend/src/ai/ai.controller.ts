@@ -54,7 +54,6 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ModelRoutingService } from './services/model-routing.service';
-import { ImageReuseCacheService, type ImageReuseSignature } from './services/image-reuse-cache.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
@@ -516,7 +515,6 @@ export class AiController {
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
-    private readonly imageReuseCache: ImageReuseCacheService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
@@ -1184,73 +1182,6 @@ export class AiController {
       ...(requestPrompt ? { requestPrompt } : {}),
       ...(requestThumbnailUrls[0] ? { requestThumbnailUrl: requestThumbnailUrls[0] } : {}),
       ...(requestThumbnailUrls.length > 0 ? { requestThumbnailUrls } : {}),
-    };
-  }
-
-  private async updateImageReuseApiUsageParams(
-    apiUsageId: string | undefined | null,
-    patch: Record<string, any>,
-  ): Promise<void> {
-    if (!apiUsageId) return;
-    try {
-      await this.creditsService.updateApiUsageRequestParams(apiUsageId, patch);
-    } catch (error) {
-      this.logger.warn(
-        `[image-reuse-cache] failed to update api usage params: ${this.summarizeError(error)}`,
-      );
-    }
-  }
-
-  private async recordGeneratedImageReuseAsset(params: {
-    userId: string | null | undefined;
-    signature: ImageReuseSignature | null;
-    result: GenerateImageUrlResult;
-    providerName: string | null;
-    model?: string;
-    serviceType: ServiceType;
-    apiUsageId?: string | null;
-  }): Promise<GenerateImageUrlResult> {
-    if (!params.userId || !params.signature || !params.result.imageUrl) {
-      return params.result;
-    }
-
-    const metadata = params.result.metadata || {};
-    const recorded = await this.imageReuseCache.recordGeneratedAsset({
-      userId: params.userId,
-      signature: params.signature,
-      imageUrl: params.result.imageUrl,
-      imageKey: typeof metadata.imageKey === 'string' ? metadata.imageKey : undefined,
-      provider: params.providerName || 'gemini',
-      model: params.model,
-      serviceType: params.serviceType,
-      textResponse: params.result.textResponse,
-      metadata,
-      apiUsageId: params.apiUsageId,
-    });
-
-    if (!recorded) return params.result;
-
-    await this.updateImageReuseApiUsageParams(params.apiUsageId, {
-      imageReuseCacheEligible: true,
-      imageReuseCacheHit: false,
-      imageReuseCacheStored: true,
-      imageReuseAssetId: recorded.id,
-      imageReuseCacheSignature: params.signature.signature,
-      imageReuseCacheVersion: params.signature.version,
-    });
-
-    return {
-      ...params.result,
-      metadata: {
-        ...metadata,
-        imageReuseCache: {
-          hit: false,
-          stored: true,
-          assetId: recorded.id,
-          signature: params.signature.signature,
-          version: params.signature.version,
-        },
-      },
     };
   }
 
@@ -3585,35 +3516,6 @@ export class AiController {
       dto.batchMode && Number.isFinite(Number(dto.batchCount))
         ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
         : 1;
-    const imageReuseUserId = this.getUserId(req);
-    const imageReuseSignature = imageReuseUserId
-      ? this.imageReuseCache.buildTextToImageSignature({
-          prompt: dto.prompt,
-          providerName: providerName || 'gemini',
-          model,
-          serviceType,
-          aspectRatio: dto.aspectRatio,
-          imageSize: dto.imageSize,
-          outputFormat: dto.outputFormat,
-          thinkingLevel: dto.thinkingLevel,
-          imageOnly: dto.imageOnly,
-          providerOptions: dto.providerOptions,
-          enableWebSearch: dto.enableWebSearch,
-          googleSearch: dto.googleSearch,
-          googleImageSearch: dto.googleImageSearch,
-          imageUrls: normalizedImageUrlsForProvider,
-          batchMode: dto.batchMode,
-          batchCount: dto.batchCount,
-          outputImageCount: requestedOutputImageCount,
-          officialFallback: dto.officialFallback,
-          quality: dto.quality,
-          background: dto.background,
-          moderation: dto.moderation,
-          outputCompression: dto.outputCompression,
-          maskUrl: dto.maskUrl,
-        })
-      : null;
-
     void this.telemetryService.ingestGenerationTask({
       traceId,
       parentRequestId,
@@ -3655,7 +3557,6 @@ export class AiController {
         receivedAt: new Date().toISOString(),
       });
 
-      let imageGenerationApiUsageId: string | undefined;
       const imageCreditRequestParams = this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         quality: dto.quality,
@@ -3667,65 +3568,10 @@ export class AiController {
         nodeConfigKey: dto.nodeConfigKey,
         nodeConfigNameZh: dto.nodeConfigNameZh,
         nodeConfigNameEn: dto.nodeConfigNameEn,
-        ...(imageReuseSignature
-          ? {
-              imageReuseCacheEligible: true,
-              imageReuseCacheSignature: imageReuseSignature.signature,
-              imageReuseCacheVersion: imageReuseSignature.version,
-            }
-          : {}),
         ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
       }, dto.providerOptions);
 
       const result = await this.withCredits(req, serviceType, model, async () => {
-        if (imageReuseUserId && imageReuseSignature) {
-          const claimed = await this.imageReuseCache.claimNextUnusedAsset({
-            userId: imageReuseUserId,
-            signature: imageReuseSignature.signature,
-            apiUsageId: imageGenerationApiUsageId,
-          });
-          if (claimed) {
-            const presentationDelayMs =
-              await this.imageReuseCache.waitForHitPresentationDelay(claimed.presentationDelayMs);
-            await this.updateImageReuseApiUsageParams(imageGenerationApiUsageId, {
-              imageReuseCacheEligible: true,
-              imageReuseCacheHit: true,
-              imageReuseAssetId: claimed.id,
-              imageReuseCacheScope: claimed.scope,
-              imageReuseAssetOwnerIsRequester: claimed.assetOwnerIsRequester,
-              imageReuseAssetOwnerUserId: claimed.assetOwnerUserId,
-              imageReuseCacheSignature: imageReuseSignature.signature,
-              imageReuseCacheVersion: imageReuseSignature.version,
-              imageReuseCachePoolSize: claimed.poolSize,
-              imageReuseCacheAvailablePoolSize: claimed.availablePoolSize,
-              imageReuseCacheMinPoolSize: claimed.minPoolSize,
-              imageReuseCachePresentationDelayMs: presentationDelayMs,
-            });
-
-            return {
-              imageUrl: claimed.imageUrl,
-              textResponse: claimed.textResponse || '',
-              metadata: {
-                ...(claimed.metadata || {}),
-                imageUrl: claimed.imageUrl,
-                ...(claimed.imageKey ? { imageKey: claimed.imageKey } : {}),
-                imageReuseCache: {
-                  hit: true,
-                  scope: claimed.scope,
-                  assetId: claimed.id,
-                  signature: imageReuseSignature.signature,
-                  version: imageReuseSignature.version,
-                  assetOwnerIsRequester: claimed.assetOwnerIsRequester,
-                  availablePoolSize: claimed.availablePoolSize,
-                  poolSize: claimed.poolSize,
-                  minPoolSize: claimed.minPoolSize,
-                  presentationDelayMs,
-                },
-              },
-            };
-          }
-        }
-
         const maxAttempts = 3;
         const retryDelaysMs = [500, 1200];
 
@@ -3786,25 +3632,17 @@ export class AiController {
                 if (result.data.imageData) {
                   const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
                   const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-                  return this.recordGeneratedImageReuseAsset({
-                    userId: imageReuseUserId,
-                    signature: imageReuseSignature,
-                    providerName,
-                    model,
-                    serviceType,
-                    apiUsageId: imageGenerationApiUsageId,
-                    result: {
+                  return {
+                    imageUrl: upload.url,
+                    textResponse: result.data.textResponse || '',
+                    metadata: {
+                      ...responseMetadata,
                       imageUrl: upload.url,
-                      textResponse: result.data.textResponse || '',
-                      metadata: {
-                        ...responseMetadata,
-                        imageUrl: upload.url,
-                        imageKey: upload.key,
-                        mimeType: upload.mimeType,
-                        bytes: upload.size,
-                      },
+                      imageKey: upload.key,
+                      mimeType: upload.mimeType,
+                      bytes: upload.size,
                     },
-                  });
+                  };
                 }
 
                 const providerImageUrls = this.collectProviderImageUrls(result.data);
@@ -3825,32 +3663,24 @@ export class AiController {
 
                     const primaryImageUrl = managedImageUrls[0];
                     const firstUploaded = managedResults.find((item) => item.uploaded);
-                    return this.recordGeneratedImageReuseAsset({
-                      userId: imageReuseUserId,
-                      signature: imageReuseSignature,
-                      providerName,
-                      model,
-                      serviceType,
-                      apiUsageId: imageGenerationApiUsageId,
-                      result: {
+                    return {
+                      imageUrl: primaryImageUrl,
+                      textResponse: result.data.textResponse || '',
+                      metadata: {
+                        ...responseMetadata,
                         imageUrl: primaryImageUrl,
-                        textResponse: result.data.textResponse || '',
-                        metadata: {
-                          ...responseMetadata,
-                          imageUrl: primaryImageUrl,
-                          imageUrls: managedImageUrls,
-                          sourceImageUrl: providerImageUrls[0],
-                          sourceImageUrls: providerImageUrls,
-                          ...(firstUploaded
-                            ? {
-                                imageKey: firstUploaded.key,
-                                mimeType: firstUploaded.mimeType,
-                                bytes: firstUploaded.bytes,
-                              }
-                            : {}),
-                        },
+                        imageUrls: managedImageUrls,
+                        sourceImageUrl: providerImageUrls[0],
+                        sourceImageUrls: providerImageUrls,
+                        ...(firstUploaded
+                          ? {
+                              imageKey: firstUploaded.key,
+                              mimeType: firstUploaded.mimeType,
+                              bytes: firstUploaded.bytes,
+                            }
+                          : {}),
                       },
-                    });
+                    };
                   } catch (error) {
                     this.logger.error(
                       `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
@@ -3883,9 +3713,6 @@ export class AiController {
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
-        onApiUsageId: (apiUsageId) => {
-          imageGenerationApiUsageId = apiUsageId;
-        },
         validateSuccessResult: (payload) => ({
           ok: this.hasImagePayload(payload),
           message: 'Image generation succeeded but no image payload returned',
@@ -7731,6 +7558,20 @@ export class AiController {
       error: (task as any).error ?? null,
       progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
     };
+  }
+
+  /**
+   * 取消排队中的图像任务（未被 worker 拾取 = 尚未扣积分，直接移除队列）。
+   * 已开始生成的任务返回 409，由 worker 的成功/失败/超时结算链路负责积分。
+   */
+  @Post('image-task/:taskId/cancel')
+  async cancelImageTask(@Param('taskId') taskId: string, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    return this.imageTaskService.cancelTask(taskId, userId);
   }
 
   // 各非网关 mode → 后端固定计费 serviceType。
