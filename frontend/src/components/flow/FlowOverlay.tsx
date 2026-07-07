@@ -16640,18 +16640,32 @@ function FlowInner() {
         return { texts, hasEdge: true };
       };
 
+      // "图N/项目图N/资产N" 这类兜底名没有语义，不值得写进映射脚注；
+      // 资产卡的角色名（如"老孟婆"）才需要随映射一起下发给模型。
+      const isGenericPromptMentionLabel = (value: string): boolean =>
+        /^(图|项目图|资产|image|project image|asset)\s*\d+$/i.test(value.trim());
+
       const resolvePromptMentionImagesForNode = async (
         targetId: string,
         limit: number
-      ): Promise<Array<{ token: string; image: string }>> => {
+      ): Promise<
+        Array<{ token: string; tokens: string[]; label?: string; image: string }>
+      > => {
         if (limit <= 0) return [];
         const textEdges = currentEdges.filter(
           (e) => e.target === targetId && e.targetHandle === "text"
         );
         if (!textEdges.length) return [];
 
-        const out: string[] = [];
-        const seen = new Set<string>();
+        // 一张图一条结果，但保留引用它的全部 token（同图可能同时被 @图N 和 @角色名 引用，
+        // 丢掉任何一个 token 都会让正文里那个 token 失去改写与映射）。limit 按唯一图片数计。
+        const out: Array<{
+          token: string;
+          tokens: string[];
+          label?: string;
+          image: string;
+        }> = [];
+        const entryIndexByImage = new Map<string, number>();
         for (const edge of textEdges) {
           const promptNode = rf.getNode(edge.source);
           if (!promptNode) continue;
@@ -16707,10 +16721,32 @@ function FlowInner() {
             }
 
             const normalized = typeof resolved === "string" ? resolved.trim() : "";
-            if (!normalized || seen.has(normalized)) continue;
-            seen.add(normalized);
-            out.push({ token: mention.token, image: normalized });
-            if (out.length >= limit) return out;
+            if (!normalized) continue;
+            const label =
+              typeof mention.label === "string" ? mention.label.trim() : "";
+            const existingIdx = entryIndexByImage.get(normalized);
+            if (existingIdx !== undefined) {
+              const entry = out[existingIdx];
+              if (!entry.tokens.includes(mention.token)) {
+                entry.tokens.push(mention.token);
+              }
+              if (
+                label &&
+                !isGenericPromptMentionLabel(label) &&
+                (!entry.label || isGenericPromptMentionLabel(entry.label))
+              ) {
+                entry.label = label;
+              }
+              continue;
+            }
+            if (out.length >= limit) continue;
+            entryIndexByImage.set(normalized, out.length);
+            out.push({
+              token: mention.token,
+              tokens: [mention.token],
+              label: label || undefined,
+              image: normalized,
+            });
           }
         }
         return out;
@@ -16728,18 +16764,77 @@ function FlowInner() {
         return out;
       };
 
-      type PromptMentionImageRef = { token: string; image: string };
+      type PromptMentionImageRef = {
+        token: string;
+        tokens?: string[];
+        label?: string;
+        image: string;
+      };
 
+      // 统一的 @ 引用规范化：把正文里的原始 token（@角色名、@旧图N 等）改写成按下发
+      // 顺序编号的 @图N，并追加映射脚注（带角色名保语义）。所有视频/图片路径共用。
       const appendPromptMentionImageMapping = (
         promptText: string,
-        mentionRefs: PromptMentionImageRef[]
+        mentionRefs: PromptMentionImageRef[],
+        // 参考图数组里 mention 图不一定从第 1 张排起（可能有连线图在前），
+        // 调用方可传入真实下标解析器；返回 <1 表示该图未随任务下发，跳过改写与映射。
+        positionOfImage?: (item: PromptMentionImageRef, index: number) => number,
+        // 追加在脚注句尾的额外说明（如图片路径的"不要按原始编号猜测"）。
+        noteSuffix?: string
       ): string => {
         const base = typeof promptText === "string" ? promptText.trim() : "";
         if (!base || mentionRefs.length === 0) return base;
-        const mappingText = mentionRefs
-          .map((item, index) => `${item.token}=第${index + 1}张参考图`)
-          .join("；");
-        return `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
+
+        const canonicalTokenByOriginal = new Map<string, string>();
+        const labelByPosition = new Map<number, string | undefined>();
+        mentionRefs.forEach((item, index) => {
+          const position = positionOfImage ? positionOfImage(item, index) : index + 1;
+          if (!Number.isFinite(position) || position < 1) return;
+          const tokens =
+            Array.isArray(item.tokens) && item.tokens.length > 0
+              ? item.tokens
+              : [item.token];
+          for (const token of tokens) {
+            if (!token || canonicalTokenByOriginal.has(token)) continue;
+            canonicalTokenByOriginal.set(token, `@图${position}`);
+          }
+          const label =
+            item.label && !isGenericPromptMentionLabel(item.label)
+              ? item.label
+              : undefined;
+          if (!labelByPosition.has(position) || (!labelByPosition.get(position) && label)) {
+            labelByPosition.set(position, label);
+          }
+        });
+        if (canonicalTokenByOriginal.size === 0) return base;
+
+        // 基于位置的单遍整体替换（防 @图1 误伤 @图10），把原始 token 改写成 @图N。
+        let rewritten = base;
+        const matches = findPromptMentionTokenMatches(
+          base,
+          Array.from(canonicalTokenByOriginal.keys())
+        );
+        if (matches.length > 0) {
+          let next = "";
+          let cursor = 0;
+          for (const m of matches) {
+            next += base.slice(cursor, m.start);
+            next += canonicalTokenByOriginal.get(m.token) ?? m.token;
+            cursor = m.end;
+          }
+          next += base.slice(cursor);
+          rewritten = next.trim() || base;
+        }
+
+        const lines = Array.from(labelByPosition.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(
+            ([position, label]) =>
+              `@图${position}=第${position}张参考图${label ? `（${label}）` : ""}`
+          );
+        return `${rewritten}\n\n引用图片映射：${lines.join(
+          "；"
+        )}。请严格按这个映射理解 @ 图片引用${noteSuffix || ""}。`;
       };
 
       const uploadPromptMentionImageToRemote = async (
@@ -17118,7 +17213,19 @@ function FlowInner() {
           ]);
           const promptTextForRequest = appendPromptMentionImageMapping(
             promptTextNormalized,
-            usedPromptMentionImages
+            usedPromptMentionImages,
+            // media 下发顺序是 first_frame 在前、last_frame 在后：
+            // 首帧位（连线或 mention）存在时，尾帧 mention 是第 2 张，否则是第 1 张。
+            (item) => {
+              if (promptMentionBySlot.get("image") === item) {
+                return firstFrameUrl ? 1 : 0;
+              }
+              if (promptMentionBySlot.get("image-2") === item) {
+                if (!lastFrameUrl) return 0;
+                return firstFrameUrl ? 2 : 1;
+              }
+              return 0;
+            }
           );
           const firstClipUrl = resolveVideoUrl(firstClipEdge);
           const audioUrlFromEdge = resolveAudioUrl(audioEdge);
@@ -18031,10 +18138,8 @@ function FlowInner() {
           Math.max(0, allowedImageHandles - imageEdges.length)
         );
         const totalReferenceImageCount = imageEdges.length + promptMentionImages.length;
-        const promptTextForRequest = appendPromptMentionImageMapping(
-          promptTrimmed,
-          promptMentionImages
-        );
+        // 连线图可能解析/上传失败被静默跳过，映射序号必须等上传完成后按实际下发数组计算。
+        let promptTextForRequest = promptTrimmed;
 
         // video-edit 必须连接一个视频源
         const videoEdge =
@@ -18168,13 +18273,23 @@ function FlowInner() {
             const url = await uploadResolvedImageEdge(edge);
             if (url) referenceImageUrls.push(url);
           }
+          const mentionPositionByImage = new Map<string, number>();
           for (const mention of promptMentionImages) {
             const url = await uploadPromptMentionImageToRemote(
               mention.image,
               projectId
             );
-            if (url) referenceImageUrls.push(url);
+            if (url) {
+              referenceImageUrls.push(url);
+              mentionPositionByImage.set(mention.image, referenceImageUrls.length);
+            }
           }
+          promptTextForRequest = appendPromptMentionImageMapping(
+            promptTrimmed,
+            promptMentionImages,
+            // 按上传成功后在下发数组里的真实位置；上传失败的 mention 不改写、不写映射。
+            (item) => mentionPositionByImage.get(item.image) ?? 0
+          );
           const inputVideoUrl = resolveVideoEdgeUrl(videoEdge);
 
           if (
@@ -18993,7 +19108,9 @@ function FlowInner() {
         ]).slice(0, SORA2_MAX_REFERENCE_IMAGES);
         finalPromptText = appendPromptMentionImageMapping(
           finalPromptText,
-          promptMentionImages
+          promptMentionImages,
+          // 连线图排在前且按 url 去重过，用最终下发数组里的真实位置做映射序号。
+          (item) => referenceImages.indexOf(item.image) + 1
         );
 
         const generationStartMs = Date.now();
@@ -20206,26 +20323,52 @@ function FlowInner() {
         const referenceImages = limitedReferenceImageInputs.map((item) => item.dataUrl);
         const referenceImageSourceEdges = limitedReferenceImageInputs.map((item) => item.edge);
 
-        // 把正文里的原始 @ token（如 "@Midjourney V7 #2 10:42:01"）改写成规范的 "@图N"，
+        // 把正文里的原始 @ token（如 "@老孟婆"、"@Midjourney V7 #2 10:42:01"）改写成规范的 "@图N"，
         // N = 该图在去重后 referenceImages 中的 1-based 下标，确保与下发顺序严格一致。
         // 用 findPromptMentionTokenMatches 做基于位置的整体替换，避免 "@图1" 误伤 "@图10"。
         const canonicalTokenByOriginal = new Map<string, string>();
-        // 同一张图可能被多个 @ token 引用（重复选取），它们都要指向该图的规范下标。
+        // 资产卡角色名等有语义的 label 记到规范下标上，随映射脚注一起下发，改写后语义不丢。
+        const canonicalLabelByIndex = new Map<number, string>();
+        // 同一张图可能被多个 @ token 引用（如 @图2 与 @老孟婆 指同一张卡），全部指向该图的规范下标。
         for (const item of mergedReferenceImageInputs) {
-          const originalToken = item.mention?.token;
-          if (!originalToken || canonicalTokenByOriginal.has(originalToken)) continue;
+          const mentionRef = item.mention;
+          if (!mentionRef) continue;
           const key = typeof item.dataUrl === "string" ? item.dataUrl.trim() : "";
           const dedupedIdx = key ? referenceImageIndexByUrl.get(key) : undefined;
           if (dedupedIdx === undefined || dedupedIdx >= limitedReferenceImageInputs.length) {
             continue;
           }
-          canonicalTokenByOriginal.set(originalToken, `@图${dedupedIdx + 1}`);
+          const mentionTokens =
+            Array.isArray(mentionRef.tokens) && mentionRef.tokens.length > 0
+              ? mentionRef.tokens
+              : [mentionRef.token];
+          for (const originalToken of mentionTokens) {
+            if (!originalToken || canonicalTokenByOriginal.has(originalToken)) continue;
+            canonicalTokenByOriginal.set(originalToken, `@图${dedupedIdx + 1}`);
+          }
+          const label =
+            typeof mentionRef.label === "string" ? mentionRef.label.trim() : "";
+          if (
+            label &&
+            !isGenericPromptMentionLabel(label) &&
+            !canonicalLabelByIndex.has(dedupedIdx)
+          ) {
+            canonicalLabelByIndex.set(dedupedIdx, label);
+          }
         }
-        // 映射说明按去重后顺序、每张被 @ 引用的图一行。
-        const canonicalMentionRefs: Array<{ token: string; index: number }> = [];
+        // 映射说明按去重后顺序、每张被 @ 引用的图一行；有角色名的带上角色名。
+        const canonicalMentionRefs: Array<{
+          token: string;
+          index: number;
+          label?: string;
+        }> = [];
         limitedReferenceImageInputs.forEach((item, idx) => {
           if (!item.mention?.token) return;
-          canonicalMentionRefs.push({ token: `@图${idx + 1}`, index: idx + 1 });
+          canonicalMentionRefs.push({
+            token: `@图${idx + 1}`,
+            index: idx + 1,
+            label: canonicalLabelByIndex.get(idx),
+          });
         });
         if (canonicalTokenByOriginal.size > 0) {
           const sourceText = finalPrompt || "";
@@ -20248,7 +20391,12 @@ function FlowInner() {
           const base = (finalPrompt || "").trim();
           if (base) {
             const mappingText = canonicalMentionRefs
-              .map((ref) => `${ref.token}=第${ref.index}张参考图`)
+              .map(
+                (ref) =>
+                  `${ref.token}=第${ref.index}张参考图${
+                    ref.label ? `（${ref.label}）` : ""
+                  }`
+              )
               .join("；");
             finalPrompt = `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
           }
@@ -22534,12 +22682,13 @@ function FlowInner() {
             ...mentionImageRefs.map((item) => item.image),
             ...imageDatas,
           ]).slice(0, maxFlowReferenceImages);
-          const mappingText = mentionImageRefs
-            .map((item, index) => `${item.token}=第${index + 1}张参考图`)
-            .join("；");
-          if (mappingText) {
-            prompt = `${prompt}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用，不要按图片原始编号或视觉猜测重新匹配。`;
-          }
+          prompt = appendPromptMentionImageMapping(
+            prompt,
+            mentionImageRefs,
+            // 用最终下发数组里的真实位置；被 slice 截掉的图不改写、不写映射。
+            (item) => imageDatas.indexOf(item.image) + 1,
+            "，不要按图片原始编号或视觉猜测重新匹配"
+          );
         }
       }
 
