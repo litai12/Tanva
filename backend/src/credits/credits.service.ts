@@ -2445,6 +2445,15 @@ export class CreditsService {
       return false;
     }
 
+    // 产品策略(2026-07-09)：注册不再无条件赠送初始额度，仅填写过邀请码（存在兑换记录）的用户可获得
+    const inviteRedemption = await this.prisma.invitationRedemption.findFirst({
+      where: { inviteeUserId: params.userId },
+      select: { id: true },
+    });
+    if (!inviteRedemption) {
+      return false;
+    }
+
     const validityDays = Math.max(1, Math.floor(policy.membershipRefreshCycleDays));
     const expiresAt = new Date(now.getTime() + validityDays * 24 * 60 * 60 * 1000);
 

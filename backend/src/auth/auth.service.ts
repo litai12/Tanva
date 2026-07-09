@@ -13,6 +13,7 @@ import { UsersService } from "../users/users.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegisterDto } from "./dto/register.dto";
 import { SmsService } from "./sms.service";
+import { RegisterIpLimitService } from "./register-ip-limit.service";
 import { ReferralService } from "../referral/referral.service";
 import { CreditsService } from "../credits/credits.service";
 import { OpenObserveTelemetryService } from "../telemetry/openobserve-telemetry.service";
@@ -130,6 +131,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly smsService: SmsService,
+    private readonly registerIpLimit: RegisterIpLimitService,
     @Inject(forwardRef(() => ReferralService))
     private readonly referralService: ReferralService,
     private readonly creditsService: CreditsService,
@@ -818,6 +820,7 @@ export class AuthService {
       10
     );
 
+    let createdNewUser = false;
     const user = await this.prisma.$transaction(async (tx) => {
       const existingWechatUser = await this.findWechatOfficialUserByIdentity(
         tx,
@@ -853,6 +856,10 @@ export class AuthService {
         return this.attachWechatIdentityToUser(tx, userByPhone.id, profile);
       }
 
+      // 新建账号才受注册 IP 限流；老账号绑定/换绑不受影响
+      await this.registerIpLimit.assertAllowed(meta?.ip);
+      createdNewUser = true;
+
       const name =
         this.resolveWechatDisplayName({
           nickname: profile.nickname,
@@ -881,10 +888,21 @@ export class AuthService {
       return createdUser;
     });
 
+    if (createdNewUser) {
+      await this.registerIpLimit.record(meta?.ip);
+    }
+
     const tokens = await this.login(
       { id: user.id, email: user.email || "", role: user.role },
       meta
     );
+
+    // 创建积分账户；填写过邀请码的新用户在此发放初始积分
+    try {
+      await this.creditsService.getOrCreateAccount(user.id);
+    } catch (e) {
+      console.warn(`[WechatBind] 创建积分账户失败: ${e instanceof Error ? e.message : e}`);
+    }
 
     await this.prisma.wechatLoginSession.update({
       where: { id: session.id },
@@ -1278,6 +1296,8 @@ export class AuthService {
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
     const normalizedInviteCode = dto.inviteCode?.trim() || null;
 
+    await this.registerIpLimit.assertAllowed(meta?.ip);
+
     const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
     if (!verify.ok) {
       throw new UnauthorizedException(verify.msg || "验证码错误");
@@ -1338,7 +1358,9 @@ export class AuthService {
       return newUser;
     });
 
-    // 创建积分账户并赠送新用户初始积分
+    await this.registerIpLimit.record(meta?.ip);
+
+    // 创建积分账户；仅填写过邀请码的新用户获得初始积分
     try {
       await this.creditsService.getOrCreateAccount(user.id);
     } catch (e) {

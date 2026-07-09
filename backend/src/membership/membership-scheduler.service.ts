@@ -19,8 +19,8 @@ export class MembershipSchedulerService {
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async handleFreeStarterQuotaIssue() {
-    // Product policy: 仅新注册用户赠送 500 积分（注册时经 getOrCreateAccount 发放）。
-    // 不再对存量免费用户进行每日定时补发。
+    // Product policy(2026-07-09): 注册不再无条件赠送积分，仅填写邀请码的用户获得初始积分
+    // （注册/绑定邀请码时经 getOrCreateAccount 发放）。不再对存量免费用户进行每日定时补发。
     return;
   }
 
