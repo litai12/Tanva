@@ -6,7 +6,7 @@ import {
   type ApiUsageModelStatsResponse,
 } from "@/services/adminApi";
 
-type RangeKey = "total" | "today" | "yesterday" | "day" | "week" | "custom";
+type RangeKey = "today" | "yesterday" | "day" | "week" | "custom";
 
 const inputClass =
   "h-9 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -46,7 +46,7 @@ export default function ApiModelStatsTab() {
   const [loading, setLoading] = useState(false);
   const [expandedNode, setExpandedNode] = useState<string | null>(null);
   const [filters, setFilters] = useState({
-    range: "total" as RangeKey,
+    range: "today" as RangeKey,
     day: new Date().toISOString().slice(0, 10),
     week: new Date().toISOString().slice(0, 10),
     startDate: "",
@@ -120,7 +120,6 @@ export default function ApiModelStatsTab() {
                 setFilters((current) => ({ ...current, range: event.target.value as RangeKey }))
               }
             >
-              <option value='total'>总用量</option>
               <option value='today'>今日</option>
               <option value='yesterday'>昨日</option>
               <option value='day'>指定日期</option>

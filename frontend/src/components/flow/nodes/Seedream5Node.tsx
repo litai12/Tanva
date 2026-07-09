@@ -11,7 +11,6 @@ import { useLocaleText } from "@/utils/localeText";
 import { flowImagePreviewWell, flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import RunCreditBadge from "./RunCreditBadge";
 import { useImageNodeCreditsPreview } from "../hooks/useImageNodeCreditsPreview";
-import { getSeedream5ProviderInfo, type SeedreamProviderType } from "@/services/aiBackendAPI";
 
 type Props = {
   id: string;
@@ -24,7 +23,7 @@ type Props = {
     error?: string;
     batchMode?: boolean;
     batchCount?: number;
-    modelVersion?: "4.0" | "4.5" | "5.0";
+    modelVersion?: "4.0" | "4.5" | "5.0" | "5.0-pro";
     size?: string;
     watermark?: boolean;
     creditsPerCall?: number;
@@ -47,13 +46,15 @@ const buildImageSrc = (value?: string): string | undefined => {
 type SeedreamResolution = "1K" | "2K" | "3K" | "4K";
 
 const resolveSeedreamResolutionOptions = (
-  modelVersion: "4.0" | "4.5" | "5.0"
+  modelVersion: "4.0" | "4.5" | "5.0" | "5.0-pro"
 ): SeedreamResolution[] =>
   modelVersion === "4.0"
     ? ["1K", "2K", "4K"]
     : modelVersion === "4.5"
       ? ["2K", "4K"]
-      : ["2K", "3K", "4K"];
+      : modelVersion === "5.0-pro"
+        ? ["1K", "2K"]
+        : ["2K", "3K", "4K"];
 
 const normalizeSeedreamResolution = (
   value: string,
@@ -91,7 +92,10 @@ function Seedream5Node({ id, data, selected }: Props) {
       ? data.size.trim()
       : "2K";
   const modelVersionValue =
-    data.modelVersion === "4.0" || data.modelVersion === "4.5" || data.modelVersion === "5.0"
+    data.modelVersion === "4.0" ||
+    data.modelVersion === "4.5" ||
+    data.modelVersion === "5.0" ||
+    data.modelVersion === "5.0-pro"
       ? data.modelVersion
       : "5.0";
   const availableResolutionOptions = React.useMemo(
@@ -107,7 +111,6 @@ function Seedream5Node({ id, data, selected }: Props) {
   const [showHelp, setShowHelp] = React.useState(false);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState(0);
-  const [seedreamProvider, setSeedreamProvider] = React.useState<SeedreamProviderType>("watcha");
   const isFlowDark = useFlowNodeDarkTheme();
 
   // 妫€娴嬭繛鎺ョ殑鍥剧墖鏁伴噺
@@ -131,7 +134,6 @@ function Seedream5Node({ id, data, selected }: Props) {
   });
   const resolvedRunCredits =
     typeof backendCredits === "number" ? backendCredits : data.creditsPerCall;
-  const showModelVersionSelect = seedreamProvider === "doubao";
 
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
@@ -155,23 +157,6 @@ function Seedream5Node({ id, data, selected }: Props) {
     },
     [id]
   );
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void getSeedream5ProviderInfo().then((info) => {
-      if (cancelled) return;
-      setSeedreamProvider(info.provider);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (seedreamProvider === "watcha" && data.modelVersion !== "5.0") {
-      updateData({ modelVersion: "5.0" });
-    }
-  }, [data.modelVersion, seedreamProvider, updateData]);
 
   React.useEffect(() => {
     const normalized = normalizeSeedreamResolution(
@@ -383,8 +368,7 @@ function Seedream5Node({ id, data, selected }: Props) {
           ))}
         </select>
         </div>
-      {showModelVersionSelect ? (
-        <div style={{ marginBottom: 8 }}>
+      <div style={{ marginBottom: 8 }}>
           <label style={{ display: "block", fontSize: 12, color: "#6b7280", marginBottom: 2 }}>
             {lt("模型版本", "Model")}
           </label>
@@ -397,7 +381,9 @@ function Seedream5Node({ id, data, selected }: Props) {
                     ? "4.0"
                     : e.target.value === "4.5"
                       ? "4.5"
-                      : "5.0",
+                      : e.target.value === "5.0-pro"
+                        ? "5.0-pro"
+                        : "5.0",
               })
             }
             style={{
@@ -414,10 +400,10 @@ function Seedream5Node({ id, data, selected }: Props) {
           >
             <option value="4.0">Seedream 4.0</option>
             <option value="5.0">Seedream 5.0</option>
+            <option value="5.0-pro">Seedream 5.0 Pro</option>
             <option value="4.5">Seedream 4.5</option>
           </select>
         </div>
-      ) : null}
       {/* 鍥剧墖棰勮 */}
       <div
         className="nodrag nopan nowheel"

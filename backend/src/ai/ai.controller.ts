@@ -907,6 +907,10 @@ export class AiController {
       return 'midjourney-imagine';
     }
 
+    if (normalizedModel?.includes('seedream-5-0-pro') || normalizedModel?.includes('seedream-5.0-pro')) {
+      return 'doubao-seedream-5-0-pro-260628';
+    }
+
     if (provider === 'seedream5' || normalizedModel?.includes('seedream')) {
       return 'doubao-seedream-5-0-260128';
     }

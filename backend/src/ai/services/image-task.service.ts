@@ -18,6 +18,7 @@ import {
   TaskStatusPayload,
 } from '../../team-collab/types';
 import { CreditChargeService, type ChargeHandle } from '../../team-credits/credit-charge.service';
+import { Seedream5Service } from './seedream5.service';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
@@ -25,12 +26,32 @@ export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
 /**
  * 根据任务类型和模型映射到 ServiceType
  */
-function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string {
+function resolveTaskServiceType(
+  taskType: ImageTaskType,
+  model?: string,
+  modelVersion?: string,
+): string {
   const normalizedModel = model?.trim().toLowerCase();
   switch (taskType) {
     case 'generate':
       if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
-      if (normalizedModel?.includes('seedream')) return 'doubao-seedream-5-0-260128';
+      if (normalizedModel?.includes('seedream')) {
+        // 与 Seedream5Service.resolveDoubaoModel 保持同一优先级：显式 modelVersion 优先，model 子串兜底
+        const normalizedVersion = modelVersion?.trim().toLowerCase();
+        if (normalizedVersion === '5.0-pro' || normalizedVersion === '5-0-pro' || normalizedVersion === '5.0pro') {
+          return 'doubao-seedream-5-0-pro-260628';
+        }
+        if (normalizedVersion === '4.0' || normalizedVersion === '4.5' || normalizedVersion === '5.0') {
+          return 'doubao-seedream-5-0-260128';
+        }
+        if (
+          normalizedModel.includes('seedream-5-0-pro') ||
+          normalizedModel.includes('seedream-5.0-pro')
+        ) {
+          return 'doubao-seedream-5-0-pro-260628';
+        }
+        return 'doubao-seedream-5-0-260128';
+      }
       if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image';
       return 'gemini-3-pro-image';
@@ -81,6 +102,7 @@ export class ImageTaskService {
     @Optional() private readonly collabBus?: CollabEventBus,
     @Optional() private readonly collabLog?: CollabEventLog,
     @Optional() private readonly creditCharge?: CreditChargeService,
+    @Optional() private readonly seedream5Service?: Seedream5Service,
   ) {}
 
   private async publishTaskStatus(
@@ -408,6 +430,9 @@ export class ImageTaskService {
       taskType,
       ...(this.asOptionalString(providerName) ? { aiProvider: this.asOptionalString(providerName) } : {}),
       ...(this.asOptionalString(requestData?.model) ? { model: this.asOptionalString(requestData?.model) } : {}),
+      ...(this.asOptionalString(requestData?.modelVersion)
+        ? { modelVersion: this.asOptionalString(requestData?.modelVersion) }
+        : {}),
       ...(this.asOptionalString(requestData?.imageSize)
         ? { imageSize: this.asOptionalString(requestData?.imageSize) }
         : {}),
@@ -448,6 +473,7 @@ export class ImageTaskService {
     const result = await provider.generateImage({
       prompt: task.prompt,
       model,
+      modelVersion: taskRequestData.modelVersion,
       imageOnly: taskRequestData.imageOnly,
       aspectRatio: taskRequestData.aspectRatio,
       imageSize: taskRequestData.imageSize,
@@ -752,7 +778,28 @@ export class ImageTaskService {
     // 解析任务的服务类型
     const model = taskRequestData?.model as string | undefined;
     const taskType = task.type as ImageTaskType;
-    const serviceType = resolveTaskServiceType(taskType, model);
+    let serviceType = resolveTaskServiceType(
+      taskType,
+      model,
+      typeof taskRequestData?.modelVersion === 'string' ? taskRequestData.modelVersion : undefined,
+    );
+    // Pro 只有 doubao 通道真实提供；watcha 通道实际执行 lite 模型，按普通版计费，避免多扣
+    if (serviceType === 'doubao-seedream-5-0-pro-260628' && this.seedream5Service) {
+      try {
+        const executionInfo = await this.seedream5Service.getProviderExecutionInfoWithOptions({
+          requestedModel: model,
+          requestedModelVersion:
+            typeof taskRequestData?.modelVersion === 'string'
+              ? taskRequestData.modelVersion
+              : undefined,
+        });
+        if (executionInfo.provider === 'watcha') {
+          serviceType = 'doubao-seedream-5-0-260128';
+        }
+      } catch {
+        // 通道信息读取失败时保持原判定，由生成阶段的失败回滚兜底
+      }
+    }
     const outputImageCount = this.resolveAsyncTaskOutputImageCount(
       taskType,
       taskRequestData,

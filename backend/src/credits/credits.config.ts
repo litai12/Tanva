@@ -409,6 +409,16 @@ export const CREDIT_PRICING_CONFIG = {
       '4K': 60,
     },
   },
+  'doubao-seedream-5-0-pro-260628': {
+    serviceName: 'Seedream 5.0 Pro 图像生成',
+    provider: 'seedream5',
+    creditsPerCall: 90,
+    description: '使用 Seedream 5.0 Pro 生成图像',
+    resolutionPricing: {
+      '1K': 50,
+      '2K': 90,
+    },
+  },
 } as const;
 
 export type ServiceType = string;

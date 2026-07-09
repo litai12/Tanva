@@ -22392,7 +22392,7 @@ function FlowInner() {
             if (!value) return "2K";
             const compact = value.replace(/\s+/g, "");
             const upper = compact.toUpperCase();
-            if (upper === "2K" || upper === "3K" || upper === "4K") return upper;
+            if (upper === "1K" || upper === "2K" || upper === "3K" || upper === "4K") return upper;
             const dimMatch = compact.match(/^(\d{3,5})[xX](\d{3,5})$/);
             if (dimMatch) return `${dimMatch[1]}x${dimMatch[2]}`;
             console.warn(`Seedream5: invalid size "${value}", fallback to 2K`);
@@ -22406,12 +22406,16 @@ function FlowInner() {
               ? "4.0"
               : (node.data as any)?.modelVersion === "4.5"
               ? "4.5"
+              : (node.data as any)?.modelVersion === "5.0-pro"
+              ? "5.0-pro"
               : "5.0";
           const seedreamModelId =
             seedreamModelVersion === "4.0"
               ? "doubao-seedream-4-0-250828"
               : seedreamModelVersion === "4.5"
               ? "doubao-seedream-4-5-251128"
+              : seedreamModelVersion === "5.0-pro"
+              ? "doubao-seedream-5-0-pro-260628"
               : "doubao-seedream-5-0-260128";
 
           const result = await generateImageViaAPI({

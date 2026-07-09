@@ -865,6 +865,7 @@ export class CreditsService {
     const isImageLikeService =
       serviceType.includes('image') ||
       serviceType.startsWith('midjourney') ||
+      serviceType.startsWith('doubao-seedream-') ||
       serviceType === GPT_IMAGE2_SERVICE_TYPE ||
       serviceType === 'expand-image' ||
       serviceType === 'background-removal';

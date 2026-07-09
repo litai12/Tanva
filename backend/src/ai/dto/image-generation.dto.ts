@@ -35,6 +35,7 @@ enum SeedreamModelVersion {
   V4_0 = '4.0',
   V4_5 = '4.5',
   V5_0 = '5.0',
+  V5_0_PRO = '5.0-pro',
 }
 
 enum Hunyuan3DModelVersion {
@@ -71,7 +72,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsEnum(SeedreamModelVersion)
-  modelVersion?: '4.0' | '4.5' | '5.0';
+  modelVersion?: '4.0' | '4.5' | '5.0' | '5.0-pro';
 
   @IsOptional()
   @IsString()
