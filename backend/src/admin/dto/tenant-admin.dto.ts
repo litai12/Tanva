@@ -26,10 +26,10 @@ export class UpdateTenantDto {
   @IsIn(['active', 'suspended'])
   status?: 'active' | 'suspended';
 
-  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页
+  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页；xingdou = 星斗传媒官网（含 /workspace 工作台）
   @IsOptional()
-  @IsIn(['default', 'newway'])
-  homepage?: 'default' | 'newway';
+  @IsIn(['default', 'newway', 'xingdou'])
+  homepage?: 'default' | 'newway' | 'xingdou';
 }
 
 export class AddDomainDto {

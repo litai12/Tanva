@@ -114,7 +114,7 @@ export default function TenantManagement() {
     }
   };
 
-  const handleHomepageChange = async (t: TenantInfo, homepage: "default" | "newway") => {
+  const handleHomepageChange = async (t: TenantInfo, homepage: "default" | "newway" | "xingdou") => {
     if (homepage === t.homepage) return;
     try {
       await updateTenant(t.id, { homepage });
@@ -408,13 +408,14 @@ export default function TenantManagement() {
                   className="rounded-md border px-2 py-1 text-xs"
                   value={t.homepage ?? "default"}
                   onChange={(e) =>
-                    void handleHomepageChange(t, e.target.value as "default" | "newway")
+                    void handleHomepageChange(t, e.target.value as "default" | "newway" | "xingdou")
                   }
                 >
                   <option value="default">平台默认首页</option>
                   <option value="newway">NewWay 官网（宣发页）</option>
+                  <option value="xingdou">星斗传媒官网（着陆页+工作台）</option>
                 </select>
-                {t.homepage === "newway" && (
+                {t.homepage !== "default" && (
                   <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-xs text-cyan-700">
                     官网已启用
                   </span>
