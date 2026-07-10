@@ -18,7 +18,11 @@ import { projectApi, type Project } from "@/services/projectApi";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
 import { TeamSwitcher } from "@/components/team/TeamSwitcher";
-import { createEmptyProjectContent, type FlowGraphSnapshot } from "@/types/project";
+import {
+  createEmptyProjectContent,
+  type FlowGraphSnapshot,
+  type ProjectContentSnapshot,
+} from "@/types/project";
 
 const xingdouAssetBase = "https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/xingdou";
 
@@ -31,7 +35,6 @@ const activitySlides = [
 const recentSlotCount = 3;
 const workspaceMaxWidth = "1440px";
 const heroMaxWidth = "1560px";
-const sampleProjectImages = [`${xingdouAssetBase}/banner-3.png`, `${xingdouAssetBase}/banner-3.png`, null];
 const fastImageTemplatePath = "/xingdou/fast-image-template.json";
 
 const isZhLanguage = (language: string | undefined) =>
@@ -49,19 +52,62 @@ const loadFastImageTemplate = async (): Promise<FlowGraphSnapshot> => {
   } as FlowGraphSnapshot;
 };
 
-const getDisplayName = (project: Project | null, isZh: boolean) => {
-  if (project?.name?.trim()) return project.name.trim();
-  return isZh ? "项目名称项目名称项目名称" : "Project name project name";
+const getDisplayName = (project: Project, isZh: boolean) => {
+  if (project.name?.trim()) return project.name.trim();
+  return isZh ? "未命名项目" : "Untitled Project";
 };
 
 const formatProjectDate = (value: string | undefined, isZh: boolean) => {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) return isZh ? "2026/6/10" : "6/10/2026";
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {
     year: "numeric",
     month: "numeric",
     day: "numeric",
   }).format(date);
+};
+
+const isUsableImageUrl = (value: unknown): value is string =>
+  typeof value === "string" &&
+  /^https?:\/\//i.test(value) &&
+  !/\.(mp4|webm|mov|glb|gltf)(\?|#|$)/i.test(value);
+
+/** 收集项目内容里的图片 URL（画布图片资产 + flow 节点常见图片字段）。 */
+const collectProjectImageUrls = (content: ProjectContentSnapshot): string[] => {
+  const urls: string[] = [];
+  const push = (value: unknown) => {
+    if (isUsableImageUrl(value)) urls.push(value);
+  };
+  for (const image of content.assets?.images ?? []) push(image.url);
+  for (const node of content.flow?.nodes ?? []) {
+    const data = (node as { data?: Record<string, unknown> }).data;
+    if (!data || typeof data !== "object") continue;
+    push(data.imageUrl);
+    push(data.url);
+    push(data.image);
+    for (const key of ["images", "imageUrls", "generatedImages"]) {
+      const list = data[key];
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        push(item);
+        if (item && typeof item === "object") push((item as { url?: unknown }).url);
+      }
+    }
+  }
+  return Array.from(new Set(urls));
+};
+
+const hashString = (input: string): number => {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  return hash;
+};
+
+/** 封面从项目里的图片中选一张：按项目 id 哈希固定，不随刷新变化。 */
+const pickProjectCover = (project: Project, content: ProjectContentSnapshot): string | null => {
+  const candidates = collectProjectImageUrls(content);
+  if (candidates.length === 0) return project.thumbnailUrl || null;
+  return candidates[hashString(project.id) % candidates.length];
 };
 
 /** 星斗联盟工作台页（/workspace，Tenant.homepage = 'xingdou' 时启用），未登录也可浏览。 */
@@ -170,11 +216,36 @@ export default function XingdouWorkspace() {
     }
   }, [creating, isZh, navigate, user]);
 
-  const recentSlots = useMemo(
-    () =>
-      Array.from({ length: recentSlotCount }, (_, index) => projects[index] ?? null),
+  const recentProjects = useMemo(
+    () => projects.slice(0, recentSlotCount),
     [projects]
   );
+
+  const [covers, setCovers] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    if (recentProjects.length === 0) {
+      setCovers({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        recentProjects.map(async (project) => {
+          try {
+            const { content } = await projectApi.getContent(project.id);
+            return [project.id, pickProjectCover(project, content)] as const;
+          } catch {
+            return [project.id, project.thumbnailUrl || null] as const;
+          }
+        })
+      );
+      if (!cancelled) setCovers(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recentProjects]);
 
   const quickActions = useMemo(
     () => [
@@ -523,18 +594,13 @@ export default function XingdouWorkspace() {
             </span>
           </button>
 
-          {recentSlots.map((project, index) => {
-            const preview = project?.thumbnailUrl || sampleProjectImages[index];
-            const disabled = !project;
+          {recentProjects.map((project) => {
+            const preview = covers[project.id] ?? project.thumbnailUrl ?? null;
             return (
-              <article
-                key={project?.id ?? `empty-${index}`}
-                className={cn("group min-w-0", disabled ? "pointer-events-none" : "")}
-              >
+              <article key={project.id} className="group min-w-0">
                 <button
                   type="button"
-                  disabled={disabled}
-                  onClick={() => project && navigate(`/app?projectId=${project.id}`)}
+                  onClick={() => navigate(`/app?projectId=${project.id}`)}
                   className="block h-[232px] w-[348px] overflow-hidden rounded-[12px] border border-[#7e95ff] bg-white text-left transition-all group-hover:shadow-[0_12px_24px_rgba(0,15,83,0.12)]"
                 >
                   {preview ? (
@@ -556,13 +622,12 @@ export default function XingdouWorkspace() {
                       {getDisplayName(project, isZh)}
                     </h2>
                     <p className="mt-1 text-[16px] font-normal leading-4 text-black/50">
-                      {formatProjectDate(project?.updatedAt || project?.createdAt, isZh)}
+                      {formatProjectDate(project.updatedAt || project.createdAt, isZh)}
                     </p>
                   </div>
                   <button
                     type="button"
-                    disabled={disabled}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-black transition-colors hover:bg-black/5 disabled:opacity-100"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-black transition-colors hover:bg-black/5"
                     aria-label={isZh ? "更多项目操作" : "More project actions"}
                     onClick={(event) => {
                       event.stopPropagation();
