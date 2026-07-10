@@ -69,7 +69,7 @@ export default function XingdouLanding() {
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black text-white">
       <img
-        src="/xingdou/XingdouBg.png"
+        src="https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/xingdou/XingdouBg.png"
         alt=""
         aria-hidden="true"
         draggable="false"
@@ -171,7 +171,7 @@ export default function XingdouLanding() {
             </h1>
             <div className="h-[58px] w-px bg-white/24 max-md:h-11" />
             <img
-              src="/xingdou/XingdouLogo.png"
+              src="https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/xingdou/XingdouLogo.png"
               alt="Tanvas"
               draggable="false"
               className={cn(

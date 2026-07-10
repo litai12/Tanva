@@ -20,16 +20,18 @@ import { useAuthStore } from "@/stores/authStore";
 import { TeamSwitcher } from "@/components/team/TeamSwitcher";
 import { createEmptyProjectContent, type FlowGraphSnapshot } from "@/types/project";
 
+const xingdouAssetBase = "https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/xingdou";
+
 const activitySlides = [
-  { src: "/xingdou/banner-1.png", altZh: "活动案例插画", altEn: "Campaign illustration" },
-  { src: "/xingdou/banner-2.png", altZh: "Seedance 2.0 活动", altEn: "Seedance 2.0 campaign" },
-  { src: "/xingdou/banner-3.png", altZh: "活动案例海报", altEn: "Campaign poster" },
+  { src: `${xingdouAssetBase}/banner-1.png`, altZh: "活动案例插画", altEn: "Campaign illustration" },
+  { src: `${xingdouAssetBase}/banner-2.png`, altZh: "Seedance 2.0 活动", altEn: "Seedance 2.0 campaign" },
+  { src: `${xingdouAssetBase}/banner-3.png`, altZh: "活动案例海报", altEn: "Campaign poster" },
 ];
 
 const recentSlotCount = 3;
 const workspaceMaxWidth = "1440px";
 const heroMaxWidth = "1560px";
-const sampleProjectImages = ["/xingdou/banner-3.png", "/xingdou/banner-3.png", null];
+const sampleProjectImages = [`${xingdouAssetBase}/banner-3.png`, `${xingdouAssetBase}/banner-3.png`, null];
 const fastImageTemplatePath = "/xingdou/fast-image-template.json";
 
 const isZhLanguage = (language: string | undefined) =>
@@ -268,7 +270,7 @@ export default function XingdouWorkspace() {
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-[661px]"
         style={{
-          backgroundImage: "url('/xingdou/XingdouBg2.png')",
+          backgroundImage: `url('${xingdouAssetBase}/XingdouBg2.png')`,
           backgroundPosition: "top center",
           backgroundRepeat: "no-repeat",
           backgroundSize: "1920px 1080px",
@@ -289,7 +291,7 @@ export default function XingdouWorkspace() {
           }}
         >
           <img
-            src="/LogoText.svg"
+            src="https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/LogoText.svg"
             alt="Tanvas"
             draggable="false"
             className="h-[20px] w-[136px] object-contain"
