@@ -15,6 +15,8 @@ export type AgentEventType =
   | "tool_selected"
   | "research_text"
   | "research_result"
+  | "assistant_delta"
+  | "flow_patch"
   | "final"
   | "error"
   | "done";
@@ -64,6 +66,9 @@ export interface CreateAgentRunRequest {
   imageCount?: number;
   enableWebSearch?: boolean;
   context?: Record<string, unknown>;
+  mode?: "research" | "canvasAgent";
+  canvasContext?: Record<string, unknown>;
+  capabilityManifest?: Record<string, unknown>;
 }
 
 export async function createAgentRunViaAPI(

@@ -28,6 +28,11 @@ import {
   type AgentRunEvent,
   type AgentToolName,
 } from "@/services/agentBackendAPI";
+import { TANVA_CAPABILITY_MANIFEST } from "@/services/agentCanvasProtocol";
+import {
+  applyAgentPatch,
+  resetAgentPatchSession,
+} from "@/services/agentPatchApplier";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
@@ -3020,11 +3025,13 @@ interface AIChatState {
   imageInputTarget: ImageInputTarget;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
+  xiaotMode: boolean; // 小T画布智能体模式开关
 
   // 操作方法
   showDialog: () => void;
   hideDialog: () => void;
   toggleDialog: () => void;
+  toggleXiaotMode: () => void;
   setIsMaximized: (value: boolean) => void; // 设置最大化状态
 
   // 输入管理
@@ -3135,6 +3142,9 @@ interface AIChatState {
 
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
+
+  // 小T画布智能体链路（快照上送 + delta 渲染 + flow_patch 落画布）
+  runXiaotAgent: (input: string) => Promise<void>;
 
   // 核心处理流程
   executeProcessFlow: (
@@ -3574,6 +3584,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
+        xiaotMode: false, // 小T画布智能体模式默认关闭
 
         // 对话框控制
         showDialog: () => {
@@ -3582,6 +3593,8 @@ export const useAIChatStore = create<AIChatState>()(
         },
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
+        toggleXiaotMode: () =>
+          set((state) => ({ xiaotMode: !state.xiaotMode })),
         setIsMaximized: (value) => set({ isMaximized: value }),
 
         // 输入管理
@@ -8360,6 +8373,193 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "executeProcessFlow done");
         },
 
+        // 🤖 小T画布智能体：采集画布快照 → createAgentRun(mode: canvasAgent) → SSE 增量渲染 + flow_patch 落画布
+        runXiaotAgent: async (input: string) => {
+          const state = get();
+
+          // 会话保障（processUserInput 已做过完整同步，这里仅兜底）
+          let sessionId =
+            state.currentSessionId || contextManager.getCurrentSessionId();
+          if (!sessionId) {
+            sessionId = contextManager.createSession();
+            set({ currentSessionId: sessionId });
+          }
+
+          // 1️⃣ 采集画布快照：请求 FlowOverlay 重播 flow:nodes-snapshot，800ms 超时给空快照兜底
+          const snapshot = await new Promise<{
+            nodes: Array<Record<string, unknown>>;
+            edges: Array<Record<string, unknown>>;
+          }>((resolve) => {
+            if (typeof window === "undefined") {
+              resolve({ nodes: [], edges: [] });
+              return;
+            }
+            let settled = false;
+            const onSnapshot = (event: Event) => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timer);
+              window.removeEventListener("flow:nodes-snapshot", onSnapshot);
+              const detail = (event as CustomEvent).detail as
+                | {
+                    nodes?: Array<Record<string, unknown>>;
+                    edges?: Array<Record<string, unknown>>;
+                  }
+                | undefined;
+              resolve({
+                nodes: detail?.nodes ?? [],
+                edges: detail?.edges ?? [],
+              });
+            };
+            const timer = window.setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              window.removeEventListener("flow:nodes-snapshot", onSnapshot);
+              resolve({ nodes: [], edges: [] });
+            }, 800);
+            window.addEventListener("flow:nodes-snapshot", onSnapshot);
+            window.dispatchEvent(
+              new CustomEvent("flow:request-nodes-snapshot")
+            );
+          });
+
+          // 2️⃣ 用户消息 + 占位 AI 消息（复用 processUserInput 的消息创建方式）
+          get().addMessage({
+            type: "user",
+            content: input,
+          });
+          const aiMessage = get().addMessage({
+            type: "ai",
+            content: "小T正在思考...",
+            generationStatus: {
+              isGenerating: true,
+              progress: 5,
+              error: null,
+              stage: "小T思考中",
+            },
+            provider: state.aiProvider,
+          });
+
+          // 3️⃣ 新一轮 patch 会话（清空 agent 节点 id 映射）
+          resetAgentPatchSession();
+
+          let assembled = "";
+          let patchCount = 0;
+          let streamErrored = false;
+
+          try {
+            const projectId =
+              useProjectContentStore.getState().projectId || undefined;
+            const run = await createAgentRunViaAPI({
+              prompt: input,
+              mode: "canvasAgent",
+              sessionId,
+              projectId,
+              canvasContext: {
+                nodes: snapshot.nodes,
+                edges: snapshot.edges,
+              },
+              capabilityManifest:
+                TANVA_CAPABILITY_MANIFEST as unknown as Record<string, unknown>,
+            });
+
+            await streamAgentRunEvents(run.id, (event) => {
+              if (event.type === "assistant_delta") {
+                const delta =
+                  typeof event.data?.delta === "string" ? event.data.delta : "";
+                if (!delta) return;
+                assembled += delta;
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  content: assembled,
+                }));
+              } else if (event.type === "flow_patch") {
+                if (applyAgentPatch(event.data?.patch)) {
+                  patchCount += 1;
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    metadata: {
+                      ...(msg.metadata || {}),
+                      agentPatchCount: patchCount,
+                    },
+                  }));
+                }
+              } else if (event.type === "final") {
+                if (
+                  typeof event.message === "string" &&
+                  event.message.trim()
+                ) {
+                  assembled = event.message;
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: assembled,
+                  }));
+                }
+              } else if (event.type === "error") {
+                streamErrored = true;
+                const errText = event.message || "小T处理失败";
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  content: assembled || `处理失败: ${errText}`,
+                  generationStatus: {
+                    ...(msg.generationStatus || {
+                      isGenerating: true,
+                      progress: 0,
+                      error: null,
+                    }),
+                    isGenerating: false,
+                    progress: 0,
+                    error: errText,
+                    stage: "已终止",
+                  },
+                }));
+              }
+            });
+
+            if (!streamErrored) {
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || msg.content,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 100,
+                  error: null,
+                  stage: "已完成",
+                },
+              }));
+            }
+          } catch (error) {
+            const errorMessage =
+              error instanceof Error ? error.message : "小T处理失败";
+            get().updateMessage(aiMessage.id, (msg) => ({
+              ...msg,
+              content: assembled || `处理失败: ${errorMessage}`,
+              generationStatus: {
+                ...(msg.generationStatus || {
+                  isGenerating: true,
+                  progress: 0,
+                  error: null,
+                }),
+                isGenerating: false,
+                progress: 0,
+                error: errorMessage,
+                stage: "已终止",
+              },
+            }));
+          } finally {
+            try {
+              await get().refreshSessions({ immediate: true });
+            } catch (persistError) {
+              console.warn("⚠️ runXiaotAgent 持久化会话失败:", persistError);
+            }
+          }
+        },
+
         // 智能工具选择功能 - 统一入口（支持并行生成）
         processUserInput: async (input: string) => {
           const state = get();
@@ -8382,6 +8582,18 @@ export const useAIChatStore = create<AIChatState>()(
           }
 
           get().refreshSessions();
+
+          // 🤖 小T画布智能体模式：v1 只处理纯文本输入；带图片/PDF 附件不拦截，走原链路
+          if (
+            state.xiaotMode &&
+            state.sourceImagesForBlending.length === 0 &&
+            !state.sourceImageForEditing &&
+            !state.sourceImageForAnalysis &&
+            !state.sourcePdfForAnalysis
+          ) {
+            await get().runXiaotAgent(input);
+            return;
+          }
 
           // 🧠 检测迭代意图（processUserInput 为统一入口，这里只计一次）
           const isIterative = contextManager.detectIterativeIntent(input);

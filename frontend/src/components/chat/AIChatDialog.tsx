@@ -253,6 +253,8 @@ const AIChatDialog: React.FC = () => {
     isIterativeMode,
     updateMessageStatus,
     toggleWebSearch,
+    xiaotMode,
+    toggleXiaotMode,
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
@@ -3623,6 +3625,34 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
+
+                {/* 小T画布智能体模式开关 */}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={false}
+                  onClick={toggleXiaotMode}
+                  aria-pressed={xiaotMode}
+                  className={cn(
+                    "order-4 h-7 px-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    xiaotMode
+                      ? isBlackTheme
+                        ? "bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : !generationStatus.isGenerating
+                      ? isBlackTheme
+                        ? "text-gray-400 border-gray-600"
+                        : "hover:bg-gray-100 text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={lt(
+                    `小T画布智能体模式: ${xiaotMode ? "开启" : "关闭"}`,
+                    `XiaoT canvas agent mode: ${xiaotMode ? "On" : "Off"}`
+                  )}
+                >
+                  <span className='font-medium'>{lt("小T", "XiaoT")}</span>
+                </Button>
               </div>
 
               {/* 长宽比选择按钮 */}
