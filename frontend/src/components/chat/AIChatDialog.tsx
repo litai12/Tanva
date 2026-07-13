@@ -2583,6 +2583,11 @@ const AIChatDialog: React.FC = () => {
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
+      // 输入法合成中（如中文拼音选词）的回车用于上屏，不触发发送
+      // keyCode 229 兜底 Safari：确认合成的回车 isComposing 已为 false
+      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+        return;
+      }
       const isModKey = e.ctrlKey || e.metaKey;
       if (sendShortcut === "enter") {
         // Enter 直接发送；Shift+Enter 继续换行
