@@ -370,6 +370,17 @@ export function getVideoModelLabel(nodeType: string): string {
   return VIDEO_TYPE_LABELS[nodeType] ?? nodeType;
 }
 
+// 画布把 seedance 系列归一到 doubaoVideo 节点，版本/模式靠 data 区分
+// （agent 建 type=seedance20Video 会被归一成 doubaoVideo，默认 seedanceModel=
+// seedance-1.5-pro → 建成 1.5）。agent 建这些 type 时必须注入下列 data，
+// 否则用默认 1.5-pro/text 模式（2.0 无 text 模式会报错）。
+// first_frame = 首帧图驱动，2.0 四个模式里最通用最简单的图生模式。
+export const VIDEO_NODE_FORCED_DATA: Record<string, Record<string, string>> = {
+  seedance20Video: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
+  seedVideo: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
+  doubaoVideo: { seedanceModel: "seedance-1.5-pro" },
+};
+
 // 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。
 // 现场核实：seedance20Video/wan27Video 默认模式需图；wan2R2V/happyhorseR2V
 // 是参考图生视频（型号即图生）。

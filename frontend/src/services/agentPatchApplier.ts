@@ -3,7 +3,10 @@
 // 事件接线（FlowOverlay 侧监听）：
 //   flow:agent-add-node / flow:agent-connect-edge / flow:agent-run-node（本文件新增约定）
 //   flow:updateNodeData / flow:focus-node / triggerQuickImageUpload（画布既有事件，直接复用）
-import { parseAgentFlowPatch } from "./agentCanvasProtocol";
+import {
+  parseAgentFlowPatch,
+  VIDEO_NODE_FORCED_DATA,
+} from "./agentCanvasProtocol";
 
 const toast = (message: string, type: "error" | "warning" | "success" = "error") => {
   try {
@@ -92,12 +95,20 @@ export function applyAgentPatch(raw: unknown): boolean {
     case "addNode": {
       const node = p.node!;
       const agentId = node.id;
+      // 画布把 seedance 系列归一到 doubaoVideo 节点，版本/模式靠 data 区分。
+      // 建这些 type 时强制注入版本/模式 data（forced 覆盖 agent 给的，防小T
+      // 给错版本，如 seedance20Video 被默认成 1.5-pro）。改写路径也经此注入，
+      // 故 rewrite 白名单剥离 seedanceModel 无碍。
+      const forced = VIDEO_NODE_FORCED_DATA[node.type];
+      const nodeData = forced
+        ? { ...(node.data ?? {}), ...forced }
+        : node.data;
       enqueue(() => {
         window.dispatchEvent(
           new CustomEvent("flow:agent-add-node", {
             detail: {
               type: node.type,
-              data: node.data,
+              data: nodeData,
               position: node.position,
               done: (createdId: string | null) => {
                 if (createdId) {
