@@ -93,7 +93,17 @@ export class XiaotAgentService {
         content: `<canvas_context>${JSON.stringify(dto.canvasContext)}</canvas_context>`,
       });
     }
-    messages.push({ role: 'user', content: dto.prompt });
+    if (dto.generationContract) {
+      messages.push({
+        role: 'system',
+        content: `<generation_contract>${JSON.stringify(dto.generationContract)}</generation_contract>`,
+      });
+    }
+    // 风格参考图：拼进 prompt 前缀，指示小T把它接入生成节点 img 输入
+    const prompt = dto.styleReferenceUrl
+      ? `【风格参考图】${dto.styleReferenceUrl}（把它接入生成节点的 img 输入作为风格参考）\n${dto.prompt}`
+      : dto.prompt;
+    messages.push({ role: 'user', content: prompt });
     return messages;
   }
 

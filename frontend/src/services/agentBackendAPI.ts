@@ -80,6 +80,14 @@ export interface CreateAgentRunRequest {
   mode?: "research" | "canvasAgent";
   canvasContext?: Record<string, unknown>;
   capabilityManifest?: Record<string, unknown>;
+  generationContract?: {
+    version: "v1";
+    lockedAnchors: string[];
+    editableVariable: string | null;
+    forbiddenChanges: string[];
+    approvedKeyframeId: string | null;
+  };
+  styleReferenceUrl?: string;
 }
 
 export async function createAgentRunViaAPI(
