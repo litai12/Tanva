@@ -27,6 +27,7 @@ import {
   streamAgentRunEvents,
   type AgentRunEvent,
   type AgentToolName,
+  type XiaotChatModel,
 } from "@/services/agentBackendAPI";
 import { TANVA_CAPABILITY_MANIFEST } from "@/services/agentCanvasProtocol";
 import {
@@ -3026,12 +3027,14 @@ interface AIChatState {
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
   xiaotMode: boolean; // 小T画布智能体模式开关
+  xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
 
   // 操作方法
   showDialog: () => void;
   hideDialog: () => void;
   toggleDialog: () => void;
   toggleXiaotMode: () => void;
+  setXiaotModel: (model: XiaotChatModel) => void;
   setIsMaximized: (value: boolean) => void; // 设置最大化状态
 
   // 输入管理
@@ -3585,6 +3588,7 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
         xiaotMode: false, // 小T画布智能体模式默认关闭
+        xiaotModel: "xiaot-agent-claude-4-8", // 小T大脑默认 Claude 4.8
 
         // 对话框控制
         showDialog: () => {
@@ -3595,6 +3599,7 @@ export const useAIChatStore = create<AIChatState>()(
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
         toggleXiaotMode: () =>
           set((state) => ({ xiaotMode: !state.xiaotMode })),
+        setXiaotModel: (model) => set({ xiaotModel: model }),
         setIsMaximized: (value) => set({ isMaximized: value }),
 
         // 输入管理
@@ -8454,6 +8459,7 @@ export const useAIChatStore = create<AIChatState>()(
             const run = await createAgentRunViaAPI({
               prompt: input,
               mode: "canvasAgent",
+              model: state.xiaotModel,
               sessionId,
               projectId,
               canvasContext: {
@@ -9635,6 +9641,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
+        xiaotModel: state.xiaotModel,
       }),
       // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
       merge: (persistedState, currentState) => ({

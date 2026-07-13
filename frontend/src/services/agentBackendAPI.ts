@@ -7,6 +7,16 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
 
+// 小T可选「大脑」模型清单。
+// 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
+// （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。
+export const XIAOT_CHAT_MODELS = [
+  "xiaot-agent-claude-4-8",
+  "xiaot-agent-claude-4-7",
+  "xiaot-agent-claude-4-6",
+] as const;
+export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
+
 export type AgentEventType =
   | "run_started"
   | "step_started"

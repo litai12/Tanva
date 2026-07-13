@@ -83,6 +83,7 @@ import {
 import {
   RealtimeAsrClient,
 } from "@/services/realtimeAsrClient";
+import type { XiaotChatModel } from "@/services/agentBackendAPI";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -107,6 +108,13 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: "analyze", label: "Analysis", description: "图像分析模式" },
   { value: "video", label: "Video", description: "视频生成模式" },
   { value: "vector", label: "Vector", description: "矢量图形模式" },
+];
+
+// 小T大脑选项（值与 backend XIAOT_CHAT_MODELS 对齐，见 agentBackendAPI.ts）
+const XIAOT_BRAIN_OPTIONS: Array<{ label: string; value: XiaotChatModel }> = [
+  { label: "Claude 4.8", value: "xiaot-agent-claude-4-8" },
+  { label: "Claude 4.7", value: "xiaot-agent-claude-4-7" },
+  { label: "Claude 4.6", value: "xiaot-agent-claude-4-6" },
 ];
 
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）
@@ -255,6 +263,8 @@ const AIChatDialog: React.FC = () => {
     toggleWebSearch,
     xiaotMode,
     toggleXiaotMode,
+    xiaotModel,
+    setXiaotModel,
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
@@ -3403,6 +3413,7 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
+                {!xiaotMode && (
                 <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -3490,8 +3501,81 @@ const AIChatDialog: React.FC = () => {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
 
-                {!shouldHideImageParamControls && (
+                {/* 小T大脑选择器 - 小T模式下替换常规模型下拉 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("选择小T大脑", "Select XiaoT brain")}
+                      >
+                        <span className='font-medium'>
+                          {XIAOT_BRAIN_OPTIONS.find(
+                            (option) => option.value === xiaotModel
+                          )?.label ?? XIAOT_BRAIN_OPTIONS[0].label}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[160px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("小T大脑", "XiaoT brain")}
+                      </DropdownMenuLabel>
+                      {XIAOT_BRAIN_OPTIONS.map((option) => {
+                        const isActive = xiaotModel === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotModel(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {!xiaotMode && !shouldHideImageParamControls && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -3656,7 +3740,7 @@ const AIChatDialog: React.FC = () => {
               </div>
 
               {/* 长宽比选择按钮 */}
-              {showAspectRatioControls && (
+              {!xiaotMode && showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3759,7 +3843,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {showImageSizeControls && (
+              {!xiaotMode && showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
@@ -3788,7 +3872,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 思考级别按钮 - Gemini Pro 和 Banana API */}
-              {showThinkingLevelControls && (
+              {!xiaotMode && showThinkingLevelControls && (
                 <Button
                   ref={thinkingLevelButtonRef}
                   onClick={() => setIsThinkingLevelOpen((v) => !v)}
@@ -4063,7 +4147,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 联网搜索开关 */}
-              {!shouldHideImageParamControls && (
+              {!xiaotMode && !shouldHideImageParamControls && (
                 <Button
                   onClick={toggleWebSearch}
                   disabled={false}
@@ -4092,7 +4176,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 提示词扩写按钮：单击切换自动扩写，长按打开配置面板 */}
-              {!shouldHideImageParamControls && (
+              {!xiaotMode && !shouldHideImageParamControls && (
                 <Button
                   ref={promptButtonRef}
                   size='sm'
@@ -4131,7 +4215,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {/* +号上传按钮 - 替换原来的上传图片按钮位置 */}
+              {/* +号上传按钮 - 替换原来的上传图片按钮位置（小T模式 v1 不支持附件，先隐藏） */}
+              {!xiaotMode && (
               <DropdownMenu
                 open={isUploadMenuOpen}
                 onOpenChange={setIsUploadMenuOpen}
@@ -4181,6 +4266,7 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
 
               {/* 发送按钮 */}
               <Button
