@@ -69,7 +69,11 @@ export class AgentRuntimeService {
     private readonly xiaotAgent: XiaotAgentService,
   ) {}
 
-  createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
+  createRun(
+    dto: CreateAgentRunDto,
+    userId: string,
+    teamId?: string,
+  ): AgentRunSummary {
     this.cleanupExpiredRuns();
 
     // canvasAgent 模式：绕过本地 intent/plan 流程，直接经 new-api 流式调用小T。
@@ -92,7 +96,7 @@ export class AgentRuntimeService {
         run.status = 'running';
         run.updatedAt = new Date();
         this.xiaotAgent
-          .run(dto, userId, (type, payload) => this.emit(run, type, payload))
+          .run(dto, userId, (type, payload) => this.emit(run, type, payload), teamId)
           .then(() => {
             run.status = 'completed';
             run.completedAt = new Date();

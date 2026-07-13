@@ -3,6 +3,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CreditsService } from '../credits/credits.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateAgentRunDto } from './dto/agent-run.dto';
 import { AgentEventType } from './agent.types';
 
@@ -30,6 +31,7 @@ export class XiaotAgentService {
   constructor(
     private readonly config: ConfigService,
     private readonly creditsService: CreditsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private get baseUrl(): string {
@@ -107,12 +109,41 @@ export class XiaotAgentService {
     return messages;
   }
 
-  async run(dto: CreateAgentRunDto, userId: string, emit: XiaotEmit): Promise<void> {
+  /**
+   * 判定是否为"真团队"（存在且非个人团队）。对齐 credits 侧口径
+   * `teamId = (activeTeam && !activeTeam.isPersonal) ? activeTeam.id : null`；
+   * 个人空间(isPersonal)或空 header 一律返 null，走个人隔离分支。
+   */
+  private async resolveRealTeamId(teamId?: string): Promise<string | null> {
+    const id = typeof teamId === 'string' ? teamId.trim() : '';
+    if (!id) return null;
+    try {
+      const team = await this.prisma.team.findUnique({
+        where: { id },
+        select: { isPersonal: true },
+      });
+      return team && team.isPersonal === false ? id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async run(
+    dto: CreateAgentRunDto,
+    userId: string,
+    emit: XiaotEmit,
+    teamId?: string,
+  ): Promise<void> {
     // 模型透传：仅白名单内的 dto.model 生效，其余一律回落默认模型。
     const model =
       dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
         ? dto.model
         : this.model;
+
+    // 记忆/skill/画像隔离维度：真团队 → 全团队共享同一空间；个人模式 → 每用户独立。
+    // 前缀防 team/user id 命名空间相撞。
+    const realTeamId = await this.resolveRealTeamId(teamId);
+    const hostScopeId = realTeamId ? `team:${realTeamId}` : `user:${userId}`;
     emit('run_started', {
       title: '小T已接入',
       data: { model },
@@ -135,9 +166,9 @@ export class XiaotAgentService {
           // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
           stream_options: { include_usage: true },
           user: dto.sessionId || `tanva:${userId}`, // 会话级隔离（不变）
-          // 子用户级隔离：facade 读此字段拼进传给 agents-cli 的 userId，记忆/skill/画像按此分叉。
-          // 与 user(会话)正交。userId=当前登录子用户 uuid（全局唯一，已保证跨子用户独立）。
-          host_user_id: userId,
+          // 记忆/skill/画像隔离维度：facade 读此字段拼进传给 agents-cli 的 userId 按此分叉。
+          // 与 user(会话)正交。团队模式=team:${teamId}(成员共享)，个人模式=user:${userId}(独立)。
+          host_user_id: hostScopeId,
           messages: this.buildMessages(dto),
         }),
         signal: controller.signal,

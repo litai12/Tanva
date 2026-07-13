@@ -24,7 +24,8 @@ export class AgentController {
   @Post('runs')
   createRun(@Body() dto: CreateAgentRunDto, @Req() req: any) {
     const userId = this.resolveUserId(req);
-    return this.agentRuntime.createRun(dto, userId);
+    const teamId = req.headers?.['x-team-id'] as string | undefined;
+    return this.agentRuntime.createRun(dto, userId, teamId);
   }
 
   @Get('runs/:runId')
