@@ -54,6 +54,18 @@ export function resetAgentPatchSession(): void {
   idMap.clear();
   session += 1;
   chain = Promise.resolve();
+  sessionKey = null;
+}
+
+// idMap 生命周期跟随「聊天会话」而非「单轮运行」：小T第 2 轮可能继续引用它
+// 第 1 轮自造的 agent 节点 id，若每轮清空 idMap，realId() 回退原样会去操作
+// 不存在的节点（静默 no-op）。仅当聊天会话切换时才全清（含丢弃旧队列）。
+let sessionKey: string | null = null;
+
+export function ensureAgentPatchSession(key: string): void {
+  if (sessionKey === key) return;
+  resetAgentPatchSession();
+  sessionKey = key;
 }
 
 // 校验同步返回（false = patch 无法识别/缺参），实际画布操作串行入队异步执行。

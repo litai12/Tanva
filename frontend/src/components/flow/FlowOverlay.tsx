@@ -15463,6 +15463,7 @@ function FlowInner() {
           imageUrl: data.imageUrl,
           videoUrl: data.videoUrl,
           audioUrl: data.audioUrl,
+          text: typeof data.text === "string" ? data.text.slice(0, 80) : undefined,
         };
       });
     const edgesSummary = rf.getEdges().map((e) => ({
@@ -15507,6 +15508,7 @@ function FlowInner() {
             imageUrl: data.imageUrl,
             videoUrl: data.videoUrl,
             audioUrl: data.audioUrl,
+            text: typeof data.text === "string" ? data.text.slice(0, 80) : undefined,
           };
         });
       const edgesSummary = rf.getEdges().map((e) => ({

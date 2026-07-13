@@ -31,7 +31,7 @@ import {
 import { TANVA_CAPABILITY_MANIFEST } from "@/services/agentCanvasProtocol";
 import {
   applyAgentPatch,
-  resetAgentPatchSession,
+  ensureAgentPatchSession,
 } from "@/services/agentPatchApplier";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
@@ -8440,8 +8440,9 @@ export const useAIChatStore = create<AIChatState>()(
             provider: state.aiProvider,
           });
 
-          // 3️⃣ 新一轮 patch 会话（清空 agent 节点 id 映射）
-          resetAgentPatchSession();
+          // 3️⃣ patch 会话跟随聊天会话：同会话保留 agent 节点 id 映射
+          //（小T下轮可继续引用上轮自造 id），仅聊天会话切换时才重置
+          ensureAgentPatchSession(sessionId);
 
           let assembled = "";
           let patchCount = 0;
