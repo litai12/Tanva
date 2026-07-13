@@ -23794,9 +23794,22 @@ function FlowInner() {
             target?: string;
             sourceHandle?: string | null;
             targetHandle?: string | null;
+            done?: () => void;
           }
         | undefined;
-      if (!detail?.source || !detail?.target) return;
+      // 通知 applier 串行队列本次连线已处理完（无论成败），让其推进到下一 op。
+      // 放在函数各返回/结束路径都触发，避免队列死等（applier 有 2s 兜底）。
+      const notifyDone = () => {
+        try {
+          detail?.done?.();
+        } catch {
+          /* ignore */
+        }
+      };
+      if (!detail?.source || !detail?.target) {
+        notifyDone();
+        return;
+      }
       const d = {
         source: detail.source,
         target: detail.target,
@@ -23811,7 +23824,6 @@ function FlowInner() {
         const srcMap = DEFAULT_NODE_HANDLES[srcType];
         const tgtMap = DEFAULT_NODE_HANDLES[tgtType];
         const PURE_TEXT = new Set(["textPrompt", "textChat", "textNote"]);
-        const targetIsVideo = !!tgtMap?.videoOut; // 视频节点以 videoOut 存在为特征
         // 判定这条边"连的是什么流"：text / image / video
         let flow: "text" | "image" | "video" | null = null;
         if (d.sourceHandle) {
@@ -23821,7 +23833,6 @@ function FlowInner() {
           else flow = "image";
         } else if (srcMap) {
           if (PURE_TEXT.has(srcType)) flow = "text";
-          else if (targetIsVideo && srcMap.imageOut) flow = "image"; // 图→视频
           else if (srcMap.imageOut) flow = "image";
           else if (srcMap.videoOut) flow = "video";
           else if (srcMap.textOut) flow = "text";
@@ -23881,6 +23892,9 @@ function FlowInner() {
       } catch (err) {
         console.warn("[agent-bridge] connect-edge failed:", err);
       }
+      // 连线已提交（onConnect 同步 setEdges），放行 applier 队列推进到下一 op；
+      // 下面的 350ms 落地核对仍独立进行（不阻塞队列）
+      notifyDone();
       // isValidConnection/canAcceptConnection 静默拒绝时用户只看到"连线少了"——
       // 等 handle 就绪 + onConnect 后再 +350ms（React 渲染+协作回声）核对边是否落进
       // state，没有则可见化告警。放在 waitHandleReady 之后避免等待期误报。

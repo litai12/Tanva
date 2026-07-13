@@ -6,6 +6,7 @@
 import {
   parseAgentFlowPatch,
   NODE_FORCED_DATA,
+  NODE_DEFAULT_DATA,
 } from "./agentCanvasProtocol";
 
 const toast = (message: string, type: "error" | "warning" | "success" = "error") => {
@@ -39,13 +40,15 @@ const yieldToRender = (): Promise<void> =>
     }
   });
 
-const enqueue = (task: () => void): void => {
+const enqueue = (task: () => void | Promise<void>): void => {
   const taskSession = session;
   chain = chain
     .then(async () => {
       // 会话已重置（resetAgentPatchSession）则丢弃旧队列中未执行的操作
       if (taskSession !== session) return;
-      task();
+      // task 可返回 promise（如 connectEdge 等监听器连线完成），await 之保证
+      // 真正串行化（connect 落地后再推进到 runNode）
+      await task();
       await yieldToRender();
     })
     .catch((err) => {
@@ -95,14 +98,16 @@ export function applyAgentPatch(raw: unknown): boolean {
     case "addNode": {
       const node = p.node!;
       const agentId = node.id;
-      // 画布把 seedance 系列归一到 doubaoVideo 节点，版本/模式靠 data 区分。
-      // 建这些 type 时强制注入版本/模式 data（forced 覆盖 agent 给的，防小T
-      // 给错版本，如 seedance20Video 被默认成 1.5-pro）。改写路径也经此注入，
-      // 故 rewrite 白名单剥离 seedanceModel 无碍。
-      const forced = NODE_FORCED_DATA[node.type];
-      const nodeData = forced
-        ? { ...(node.data ?? {}), ...forced }
-        : node.data;
+      // 建这些 type 时注入版本/模式 data。合并优先级：
+      //   defaults（缺省填充，agent 给了就用 agent 的）
+      //   < node.data（小T/用户意图，如 seedanceMode 首尾帧）
+      //   < hardForced（版本必须钉死，覆盖一切，防小T给错版本）
+      const hardForced = NODE_FORCED_DATA[node.type];
+      const defaults = NODE_DEFAULT_DATA[node.type];
+      const nodeData =
+        hardForced || defaults
+          ? { ...(defaults ?? {}), ...(node.data ?? {}), ...(hardForced ?? {}) }
+          : node.data;
       enqueue(() => {
         window.dispatchEvent(
           new CustomEvent("flow:agent-add-node", {
@@ -136,18 +141,33 @@ export function applyAgentPatch(raw: unknown): boolean {
     }
     case "connectEdge": {
       const { source, target, sourceHandle, targetHandle } = p;
-      enqueue(() => {
-        window.dispatchEvent(
-          new CustomEvent("flow:agent-connect-edge", {
-            detail: {
-              source: realId(source!),
-              target: realId(target!),
-              sourceHandle: sourceHandle ?? null,
-              targetHandle: targetHandle ?? null,
-            },
+      // FlowOverlay.onAgentConnectEdge 是 async（连线前轮询等 handle ~1.5s）。
+      // 用 done 回调让入队任务等到监听器真正连完再推进，避免 connect 还没落地
+      // 就跑 runNode。2s 超时兜底防死等（监听器异常/未接线时不卡队列）。
+      enqueue(
+        () =>
+          new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timer);
+              resolve();
+            };
+            const timer = window.setTimeout(finish, 2000);
+            window.dispatchEvent(
+              new CustomEvent("flow:agent-connect-edge", {
+                detail: {
+                  source: realId(source!),
+                  target: realId(target!),
+                  sourceHandle: sourceHandle ?? null,
+                  targetHandle: targetHandle ?? null,
+                  done: finish,
+                },
+              })
+            );
           })
-        );
-      });
+      );
       return true;
     }
     case "focusNode": {
