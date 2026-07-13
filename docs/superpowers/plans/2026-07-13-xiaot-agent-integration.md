@@ -95,7 +95,7 @@ describe("extractHostSegments", () => {
 - [ ] **Step 3: 跑测试确认失败**
 
 ```bash
-cd /Users/libiqiang/workspace/TapCanvas-pro && pnpm --filter hono-api exec vitest run src/modules/task/host-canvas-protocol.test.ts
+cd /Users/libiqiang/workspace/TapCanvas-pro && pnpm --filter @tapcanvas/api exec vitest run src/modules/task/host-canvas-protocol.test.ts
 ```
 Expected: FAIL（模块不存在）
 
@@ -294,7 +294,7 @@ export function buildHostFlowPatchTool(manifest: HostCapabilityManifest) {
 - [ ] **Step 5: 跑测试确认通过**
 
 ```bash
-pnpm --filter hono-api exec vitest run src/modules/task/host-canvas-protocol.test.ts
+pnpm --filter @tapcanvas/api exec vitest run src/modules/task/host-canvas-protocol.test.ts
 ```
 Expected: PASS（5 个用例）
 
@@ -413,8 +413,8 @@ router.post("/agents/tools/host-execute", async (c) => {
 - [ ] **Step 4: 类型检查 + 既有测试回归**
 
 ```bash
-pnpm --filter hono-api exec tsc --noEmit -p apps/hono-api/tsconfig.json 2>/dev/null || pnpm --filter hono-api build
-pnpm --filter hono-api test
+pnpm --filter @tapcanvas/api exec tsc --noEmit -p apps/hono-api/tsconfig.json 2>/dev/null || pnpm --filter @tapcanvas/api build
+pnpm --filter @tapcanvas/api test
 ```
 Expected: 编译通过；既有测试（含 task.agents-bridge.*.test.ts）全绿——无 manifest 路径行为不变。
 
@@ -554,7 +554,7 @@ describe("translateStreamEvent", () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-pnpm --filter hono-api exec vitest run src/modules/task/public-openai-compat.test.ts
+pnpm --filter @tapcanvas/api exec vitest run src/modules/task/public-openai-compat.test.ts
 ```
 Expected: FAIL（模块不存在）
 
@@ -718,8 +718,8 @@ publicApiRouter.post("/v1/chat/completions", (c) => handlePublicOpenAiChatRoute(
 - [ ] **Step 5: 跑单测 + 类型检查**
 
 ```bash
-pnpm --filter hono-api exec vitest run src/modules/task/public-openai-compat.test.ts
-pnpm --filter hono-api build
+pnpm --filter @tapcanvas/api exec vitest run src/modules/task/public-openai-compat.test.ts
+pnpm --filter @tapcanvas/api build
 ```
 Expected: PASS + 编译通过
 
@@ -768,7 +768,7 @@ await send(buildChunk(ids.req, model, ids.created, {}, "stop", {
 - [ ] **Step 3: 类型检查 + 回归**
 
 ```bash
-pnpm --filter hono-api build && pnpm --filter hono-api test
+pnpm --filter @tapcanvas/api build && pnpm --filter @tapcanvas/api test
 ```
 Expected: 通过
 
