@@ -23715,6 +23715,106 @@ function FlowInner() {
     ]
   );
 
+  // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
+  React.useEffect(() => {
+    const onAgentAddNode = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            type?: string;
+            data?: Record<string, any>;
+            position?: { x?: number; y?: number };
+            done?: (createdId: string | null) => void;
+          }
+        | undefined;
+      if (!detail?.type) {
+        try {
+          detail?.done?.(null);
+        } catch {}
+        return;
+      }
+      let createdId: string | null = null;
+      try {
+        // position 有则视为世界坐标直接用；无则取当前视口中心（照 flow:createImageNode 的算法）
+        let world: { x: number; y: number };
+        if (
+          detail.position &&
+          Number.isFinite(detail.position.x) &&
+          Number.isFinite(detail.position.y)
+        ) {
+          world = { x: Number(detail.position.x), y: Number(detail.position.y) };
+        } else {
+          const rect = containerRef.current?.getBoundingClientRect();
+          const screenPosition = {
+            x:
+              (rect?.left || 0) +
+              (rect?.width || window.innerWidth) / 2 +
+              (Math.random() * 120 - 60),
+            y:
+              (rect?.top || 0) +
+              (rect?.height || window.innerHeight) / 2 +
+              (Math.random() * 80 - 40),
+          };
+          world = rf.screenToFlowPosition(screenPosition);
+        }
+        createdId = createNodeAtWorldCenter(detail.type, world, detail.data);
+      } catch (err) {
+        console.warn("[agent-bridge] add-node failed:", err);
+        createdId = null;
+      }
+      try {
+        detail.done?.(createdId ?? null);
+      } catch {}
+    };
+
+    const onAgentConnectEdge = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            source?: string;
+            target?: string;
+            sourceHandle?: string | null;
+            targetHandle?: string | null;
+          }
+        | undefined;
+      if (!detail?.source || !detail?.target) return;
+      try {
+        onConnect({
+          source: detail.source,
+          target: detail.target,
+          sourceHandle: detail.sourceHandle ?? null,
+          targetHandle: detail.targetHandle ?? null,
+        } as Connection);
+      } catch (err) {
+        console.warn("[agent-bridge] connect-edge failed:", err);
+      }
+    };
+
+    const onAgentRunNode = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { id?: string } | undefined;
+      const nodeId = detail?.id;
+      if (!nodeId) return;
+      const node = rf.getNodes().find((n) => n.id === nodeId);
+      if (!node) return;
+      const nodeType = String(node.type || "");
+      if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+        // 文本类节点自监听 flow:run-node 本地执行
+        window.dispatchEvent(
+          new CustomEvent("flow:run-node", { detail: { id: nodeId } })
+        );
+      } else {
+        void runNode(nodeId);
+      }
+    };
+
+    window.addEventListener("flow:agent-add-node", onAgentAddNode as EventListener);
+    window.addEventListener("flow:agent-connect-edge", onAgentConnectEdge as EventListener);
+    window.addEventListener("flow:agent-run-node", onAgentRunNode as EventListener);
+    return () => {
+      window.removeEventListener("flow:agent-add-node", onAgentAddNode as EventListener);
+      window.removeEventListener("flow:agent-connect-edge", onAgentConnectEdge as EventListener);
+      window.removeEventListener("flow:agent-run-node", onAgentRunNode as EventListener);
+    };
+  }, [createNodeAtWorldCenter, onConnect, runNode, rf]);
+
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback(
     async (id: string) => {
