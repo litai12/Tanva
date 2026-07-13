@@ -139,9 +139,9 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "seedance20Video",
       label: "Seedance2.0 视频",
-      purpose: "即梦 Seedance2.0：参考图/首尾帧/智能帧全能，可生成音频（未指定视频模型时的默认选择）",
+      purpose: "即梦 Seedance2.0：仅图生视频，4个模式(reference_images/首尾帧/首帧/智能帧)全部需要≥1张图，无纯文生模式。用它必须先有图节点连入 image 输入。纯文本生视频请改用支持文生的模型。",
       params: {
-        seedanceMode: { type: "string", enum: ["reference_images", "start_end", "first_frame", "smart_frames"] },
+        seedanceMode: { type: "string", enum: ["reference_images", "start_end", "first_frame", "smart_frames"], description: "全部模式均需≥1张图：reference_images(参考图)/start_end(首尾帧,需首+尾)/first_frame(首帧)/smart_frames(智能帧)" },
         resolution: { type: "string", enum: ["720P", "1080P"] },
         aspectRatio: { type: "string", enum: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"], description: "缺省 16:9" },
         generateAudio: { type: "boolean" },
@@ -222,6 +222,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "用户未指定视频模型/参数时，默认创建 seedance20Video（Seedance 2.0），resolution 720P、aspectRatio 16:9",
     "textChat 输出 handle 是 text；textNote 输出 handle 是 text-right-out（一般不要用 textNote 做提示词源，用 textPrompt）",
     "视频节点输出统一为 video handle；生图输出统一为 img handle；第二层清单只列了型号名，参数走节点默认值，需要精细控制时优先用第一层节点",
+    "视频生成两条路径：①【纯文本→视频】用支持文生的模型（sora2Video 等），只需建 textPrompt 连到 text 输入，一步到位；②【图生视频/高质量】先建图片生成节点(generatePro)+textPrompt+runNode 出关键帧图，再建视频节点(图生模式)+把图连进 image 输入。选图生视频模式却不给图会报错。",
+    "seedance20Video 只支持路径②；纯文本任务默认走路径①的文生模型。",
   ],
 };
 
@@ -234,6 +236,10 @@ export interface XiaotPreferredModelOption {
   short: string;
   nodeType: string;
   extra?: string;
+  // 视频专属：该节点默认模式能否无图纯文生（现场核实各 Node 默认模式的 visibleHandles）
+  textToVideo?: boolean;
+  // textToVideo=false 时，纯文本场景回退到的文生节点 type
+  textFallback?: string;
 }
 
 export const XIAOT_PREFERRED_IMAGE_MODELS = [
@@ -247,11 +253,13 @@ export type XiaotPreferredImageModel =
   (typeof XIAOT_PREFERRED_IMAGE_MODELS)[number]["value"];
 
 export const XIAOT_PREFERRED_VIDEO_MODELS = [
-  { value: "seedance20Video", label: "Seedance 2.0", short: "SD2", nodeType: "seedance20Video" },
-  { value: "kling26Video", label: "可灵2.6", short: "可灵2.6", nodeType: "kling26Video" },
-  { value: "sora2Video", label: "Sora 2", short: "Sora2", nodeType: "sora2Video" },
-  { value: "wan27Video", label: "Wan 2.7", short: "Wan2.7", nodeType: "wan27Video" },
-  { value: "viduQ3", label: "Vidu Q3", short: "ViduQ3", nodeType: "viduQ3" },
+  // textToVideo 现场核实：seedance20Video/wan27Video 默认模式需≥1图(false)，
+  // sora2Video/kling26Video/viduQ3 默认模式可纯文生(true)；false 者纯文本回退 sora2Video
+  { value: "seedance20Video", label: "Seedance 2.0", short: "SD2", nodeType: "seedance20Video", textToVideo: false, textFallback: "sora2Video" },
+  { value: "kling26Video", label: "可灵2.6", short: "可灵2.6", nodeType: "kling26Video", textToVideo: true },
+  { value: "sora2Video", label: "Sora 2", short: "Sora2", nodeType: "sora2Video", textToVideo: true },
+  { value: "wan27Video", label: "Wan 2.7", short: "Wan2.7", nodeType: "wan27Video", textToVideo: false, textFallback: "sora2Video" },
+  { value: "viduQ3", label: "Vidu Q3", short: "ViduQ3", nodeType: "viduQ3", textToVideo: true },
 ] as const;
 export type XiaotPreferredVideoModel =
   (typeof XIAOT_PREFERRED_VIDEO_MODELS)[number]["value"];
@@ -283,6 +291,25 @@ const VIDEO_MODEL_MENTION_RE =
 export function mentionsVideoModel(text: string): boolean {
   return VIDEO_MODEL_MENTION_RE.test(text);
 }
+
+// 用户是否明确要求"先出参考图/高质量/基于图"的图生视频编排（走路径②）。
+// 命中则不强改视频节点类型，保留小T的 seedance2.0 图生流程编排。
+const VIDEO_IMAGE_WORKFLOW_RE =
+  /参考图|先出图|先生成图|关键帧|首帧|高质量|电影级|基于.*图|图生视频|imagetovideo|image.to.video/i;
+
+export function detectVideoImageWorkflow(text: string): boolean {
+  return VIDEO_IMAGE_WORKFLOW_RE.test(text);
+}
+
+// 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。
+// 现场核实：seedance20Video/wan27Video 默认模式需图；wan2R2V/happyhorseR2V
+// 是参考图生视频（型号即图生）。
+export const VIDEO_TYPES_REQUIRE_IMAGE = new Set([
+  "seedance20Video",
+  "wan27Video",
+  "wan2R2V",
+  "happyhorseR2V",
+]);
 
 // 确定性兜底：manifest 的优选 note 只是提示级约束（大 manifest+画布惯性下
 // 小T仍可能跟随画布已有节点选别的视频模型）。addNode 落画布前把非优选的
