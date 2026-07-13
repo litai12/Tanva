@@ -2971,6 +2971,14 @@ const sessionsEqual = (
   b: SerializedConversationContext[]
 ): boolean => JSON.stringify(a ?? []) === JSON.stringify(b);
 
+// 小T风格锚定：风格参考图 + 风格描述 + 摄像机预设（会话级，不进 persist）
+export interface XiaotStyleAnchor {
+  imageUrl?: string;
+  assetName?: string;
+  description: string;
+  camera: { shotSize?: string; movement?: string };
+}
+
 interface AIChatState {
   // 对话框状态
   isVisible: boolean;
@@ -3039,6 +3047,7 @@ interface AIChatState {
   xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
   xiaotPreferredImage: XiaotPreferredImageModel; // 小T优选图片模型
   xiaotPreferredVideo: XiaotPreferredVideoModel; // 小T优选视频模型
+  xiaotStyleAnchor: XiaotStyleAnchor | null; // 小T风格锚定（会话级，不进 persist）
 
   // 操作方法
   showDialog: () => void;
@@ -3048,6 +3057,8 @@ interface AIChatState {
   setXiaotModel: (model: XiaotChatModel) => void;
   setXiaotPreferredImage: (value: XiaotPreferredImageModel) => void;
   setXiaotPreferredVideo: (value: XiaotPreferredVideoModel) => void;
+  setXiaotStyleAnchor: (anchor: XiaotStyleAnchor | null) => void;
+  clearXiaotStyleAnchor: () => void;
   setIsMaximized: (value: boolean) => void; // 设置最大化状态
 
   // 输入管理
@@ -3604,6 +3615,7 @@ export const useAIChatStore = create<AIChatState>()(
         xiaotModel: "xiaot-agent-claude-4-8", // 小T大脑默认 Claude 4.8
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
+        xiaotStyleAnchor: null, // 小T风格锚定默认无
 
         // 对话框控制
         showDialog: () => {
@@ -3619,6 +3631,8 @@ export const useAIChatStore = create<AIChatState>()(
           set({ xiaotPreferredImage: value }),
         setXiaotPreferredVideo: (value) =>
           set({ xiaotPreferredVideo: value }),
+        setXiaotStyleAnchor: (anchor) => set({ xiaotStyleAnchor: anchor }),
+        clearXiaotStyleAnchor: () => set({ xiaotStyleAnchor: null }),
         setIsMaximized: (value) => set({ isMaximized: value }),
 
         // 输入管理
@@ -8498,6 +8512,46 @@ export const useAIChatStore = create<AIChatState>()(
                 }；视频生成一律用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
               ],
             };
+            // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
+            const styleAnchor = state.xiaotStyleAnchor;
+            let generationContract:
+              | {
+                  version: "v1";
+                  lockedAnchors: string[];
+                  editableVariable: string | null;
+                  forbiddenChanges: string[];
+                  approvedKeyframeId: string | null;
+                }
+              | undefined;
+            let styleReferenceUrl: string | undefined;
+            if (styleAnchor) {
+              const cameraParts = [
+                styleAnchor.camera.shotSize,
+                styleAnchor.camera.movement,
+              ].filter((s): s is string => Boolean(s && s.trim()));
+              const cameraTerm = cameraParts.join(" ");
+              const lockedAnchors = [
+                styleAnchor.description,
+                cameraTerm,
+                styleAnchor.imageUrl ? "风格参考图见输入" : "",
+              ]
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+                .slice(0, 12)
+                .map((s) => s.slice(0, 240));
+              if (lockedAnchors.length > 0 || styleAnchor.imageUrl) {
+                generationContract = {
+                  version: "v1",
+                  lockedAnchors,
+                  editableVariable: null,
+                  forbiddenChanges: [],
+                  approvedKeyframeId: null,
+                };
+              }
+              if (styleAnchor.imageUrl) {
+                styleReferenceUrl = styleAnchor.imageUrl;
+              }
+            }
             const run = await createAgentRunViaAPI({
               prompt: input,
               mode: "canvasAgent",
@@ -8510,6 +8564,8 @@ export const useAIChatStore = create<AIChatState>()(
               },
               capabilityManifest:
                 capabilityManifest as unknown as Record<string, unknown>,
+              ...(generationContract ? { generationContract } : {}),
+              ...(styleReferenceUrl ? { styleReferenceUrl } : {}),
             });
 
             await streamAgentRunEvents(run.id, (event) => {

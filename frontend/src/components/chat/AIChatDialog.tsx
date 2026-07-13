@@ -89,6 +89,7 @@ import {
   XIAOT_PREFERRED_VIDEO_MODELS,
 } from "@/services/agentCanvasProtocol";
 import XiaotCards from "@/components/chat/XiaotCards";
+import XiaotStyleAnchorButton from "@/components/chat/XiaotStyleAnchorButton";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -3602,13 +3603,13 @@ const AIChatDialog: React.FC = () => {
                         )}
                         title={lt("优选图片模型（小T生图时优先使用）", "Preferred image model for XiaoT")}
                       >
-                        <span className='font-medium'>
+                        <span className='max-w-[92px] truncate font-medium'>
                           {lt("图", "Img")}·
                           {XIAOT_PREFERRED_IMAGE_MODELS.find(
                             (option) => option.value === xiaotPreferredImage
-                          )?.label ?? XIAOT_PREFERRED_IMAGE_MODELS[1].label}
+                          )?.short ?? XIAOT_PREFERRED_IMAGE_MODELS[1].short}
                         </span>
-                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                        <ChevronDown className='h-3.5 w-3.5 shrink-0 opacity-60' />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -3675,13 +3676,13 @@ const AIChatDialog: React.FC = () => {
                         )}
                         title={lt("优选视频模型（小T生视频时优先使用）", "Preferred video model for XiaoT")}
                       >
-                        <span className='font-medium'>
+                        <span className='max-w-[92px] truncate font-medium'>
                           {lt("视", "Vid")}·
                           {XIAOT_PREFERRED_VIDEO_MODELS.find(
                             (option) => option.value === xiaotPreferredVideo
-                          )?.label ?? XIAOT_PREFERRED_VIDEO_MODELS[0].label}
+                          )?.short ?? XIAOT_PREFERRED_VIDEO_MODELS[0].short}
                         </span>
-                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                        <ChevronDown className='h-3.5 w-3.5 shrink-0 opacity-60' />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -3728,6 +3729,16 @@ const AIChatDialog: React.FC = () => {
                       })}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                )}
+
+                {/* 小T风格锚定 */}
+                {xiaotMode && (
+                  <XiaotStyleAnchorButton
+                    isBlackTheme={isBlackTheme}
+                    disabled={generationStatus.isGenerating}
+                    dropdownSide={dropdownSide}
+                    lt={lt}
+                  />
                 )}
 
                 {!xiaotMode && !shouldHideImageParamControls && (

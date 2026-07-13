@@ -231,26 +231,27 @@ export const TANVA_CAPABILITY_MANIFEST = {
 export interface XiaotPreferredModelOption {
   value: string;
   label: string;
+  short: string;
   nodeType: string;
   extra?: string;
 }
 
 export const XIAOT_PREFERRED_IMAGE_MODELS = [
-  { value: "banana-fast", label: "Nano Banana Fast", nodeType: "generatePro", extra: "banana-2.5" },
-  { value: "banana-pro", label: "Nano Banana Pro", nodeType: "generatePro", extra: "banana" },
-  { value: "banana-ultra", label: "Nano Banana2 Ultra", nodeType: "generatePro", extra: "banana-3.1" },
-  { value: "seedream5", label: "Seedream", nodeType: "seedream5", extra: undefined },
-  { value: "gptImage2", label: "GPT Image", nodeType: "gptImage2", extra: undefined },
+  { value: "banana-fast", label: "Nano Banana Fast", short: "Fast", nodeType: "generatePro", extra: "banana-2.5" },
+  { value: "banana-pro", label: "Nano Banana Pro", short: "Pro", nodeType: "generatePro", extra: "banana" },
+  { value: "banana-ultra", label: "Nano Banana2 Ultra", short: "Ultra", nodeType: "generatePro", extra: "banana-3.1" },
+  { value: "seedream5", label: "Seedream", short: "Seedream", nodeType: "seedream5", extra: undefined },
+  { value: "gptImage2", label: "GPT Image", short: "GPT", nodeType: "gptImage2", extra: undefined },
 ] as const;
 export type XiaotPreferredImageModel =
   (typeof XIAOT_PREFERRED_IMAGE_MODELS)[number]["value"];
 
 export const XIAOT_PREFERRED_VIDEO_MODELS = [
-  { value: "seedance20Video", label: "Seedance 2.0", nodeType: "seedance20Video" },
-  { value: "kling26Video", label: "可灵2.6", nodeType: "kling26Video" },
-  { value: "sora2Video", label: "Sora 2", nodeType: "sora2Video" },
-  { value: "wan27Video", label: "Wan 2.7", nodeType: "wan27Video" },
-  { value: "viduQ3", label: "Vidu Q3", nodeType: "viduQ3" },
+  { value: "seedance20Video", label: "Seedance 2.0", short: "SD2", nodeType: "seedance20Video" },
+  { value: "kling26Video", label: "可灵2.6", short: "可灵2.6", nodeType: "kling26Video" },
+  { value: "sora2Video", label: "Sora 2", short: "Sora2", nodeType: "sora2Video" },
+  { value: "wan27Video", label: "Wan 2.7", short: "Wan2.7", nodeType: "wan27Video" },
+  { value: "viduQ3", label: "Vidu Q3", short: "ViduQ3", nodeType: "viduQ3" },
 ] as const;
 export type XiaotPreferredVideoModel =
   (typeof XIAOT_PREFERRED_VIDEO_MODELS)[number]["value"];
