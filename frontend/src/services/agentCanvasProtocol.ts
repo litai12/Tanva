@@ -50,9 +50,11 @@ export const DEFAULT_NODE_HANDLES: Record<
   textChat: { textOut: "text" },
   textNote: { textOut: "text-right-out" },
   generate: { textIn: "text", imageOut: "img", imageIn: "img" },
-  generate4: { textIn: "text", imageOut: "img", imageIn: "img" },
+  // 四宫格输出 handle 是 img1..img4（非 "img"），不给 imageOut：强制小T按
+  // manifest outputs 显式给 sourceHandle，避免缺省补成无效的 "img" 静默失败
+  generate4: { textIn: "text", imageIn: "img" },
   generatePro: { textIn: "text", imageOut: "img", imageIn: "img" },
-  generatePro4: { textIn: "text", imageOut: "img", imageIn: "img" },
+  generatePro4: { textIn: "text", imageIn: "img" },
   generateRef: { textIn: "text", imageOut: "img" },
   nano2: { textIn: "text", imageOut: "img", imageIn: "img" },
   gptImage2: { textIn: "text", imageOut: "img", imageIn: "img" },
@@ -426,16 +428,18 @@ export const VIDEO_NODE_TYPES = new Set([
 // 用户消息是否显式提到某个视频模型（泛泛说"视频"不算）。
 // 显式点名时尊重用户选择，不做优选改写。
 const VIDEO_MODEL_MENTION_RE =
-  /可灵|kling|sora|wan\s*2|vidu|doubao|即梦|seedance|seed\s*[12]|happyhorse|omni\s*flash|1\.5|2\.6|3\.0/i;
+  /可灵|kling|sora|wan|万相|vidu|doubao|即梦|seedance|seed\s*[12]|happyhorse|omni\s*flash|1\.5|2\.6|3\.0/i;
 
 export function mentionsVideoModel(text: string): boolean {
   return VIDEO_MODEL_MENTION_RE.test(text);
 }
 
-// 用户是否明确要求"先出参考图/高质量/基于图"的图生视频编排（走路径②）。
-// 命中则不强改视频节点类型，保留小T的 seedance2.0 图生流程编排。
+// 用户是否明确要求"先出参考图/基于图"的图生视频编排（走路径②）。命中则不强改
+// 视频节点类型，保留小T的 seedance2.0 图生流程编排。
+// 注意：只保留真图生工作流词，不含"高质量/电影级"——它们是通用形容词、无图生
+// 意图（"给我高质量的视频"应能走纯文本回退，不该被抑制到缺图 seedance）。
 const VIDEO_IMAGE_WORKFLOW_RE =
-  /参考图|先出图|先生成图|关键帧|首帧|高质量|电影级|基于.*图|图生视频|imagetovideo|image.to.video/i;
+  /参考图|先出图|先生成图|关键帧|首帧|基于.*图|图生视频|imagetovideo|image.to.video/i;
 
 export function detectVideoImageWorkflow(text: string): boolean {
   return VIDEO_IMAGE_WORKFLOW_RE.test(text);
@@ -484,17 +488,24 @@ export function getVideoModelLabel(nodeType: string): string {
   return VIDEO_TYPE_LABELS[nodeType] ?? nodeType;
 }
 
-// agent 建这些 type 时强制注入版本/模式 data（applier 查表覆盖，防小T给错版本）。
+// 硬覆盖：版本必须钉死（防小T给错版本），覆盖 agent 给的 data。
 // seedance 系列被画布归一到 doubaoVideo 节点，版本靠 data.seedanceModel 区分
-// （不注入默认 seedance-1.5-pro → 建成 1.5）；first_frame=首帧图驱动，2.0 四模式
-// 里最通用的图生模式。midjourneyV7/niji7 共用 MidjourneyNode，靠 modelVersion 区分
-// （niji7 不注入，保持 undefined 走 niji 引擎默认）。
-// 注意：audioStudio 的 mode 不钉死（由小T按任务在 addNode 的 data 里指定）。
+// （不注入默认 seedance-1.5-pro → 建成 1.5）。midjourneyV7/niji7 共用 MidjourneyNode，
+// 靠 modelVersion 区分（niji7 不注入，保持 undefined 走 niji 引擎默认）。
 export const NODE_FORCED_DATA: Record<string, Record<string, string>> = {
-  seedance20Video: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
-  seedVideo: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
+  seedance20Video: { seedanceModel: "seedance-2.0" },
+  seedVideo: { seedanceModel: "seedance-2.0" },
   doubaoVideo: { seedanceModel: "seedance-1.5-pro" },
   midjourneyV7: { modelVersion: "v7" },
+};
+
+// 缺省填充：仅当 node.data 没有该键时填（agent 给了就用 agent 的，保留用户意图）。
+// seedanceMode 不能硬钉：用户说"seedance2.0 首尾帧"时小T会给 start_end，硬覆盖
+// 成 first_frame 会丢意图；缺 mode 时才填 first_frame（最通用图生模式）。
+// 注意：audioStudio 的 mode 也由小T按任务在 data 指定，不放缺省。
+export const NODE_DEFAULT_DATA: Record<string, Record<string, string>> = {
+  seedance20Video: { seedanceMode: "first_frame" },
+  seedVideo: { seedanceMode: "first_frame" },
 };
 
 // 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。
@@ -518,6 +529,9 @@ const VIDEO_REWRITE_DATA_WHITELIST = [
   "aspectRatio",
   "resolution",
   "clipDuration",
+  // 保留用户的 seedance 模式意图（首尾帧/智能帧等）；对齐后 applier 缺省填充
+  // 只在此键缺失时才补 first_frame，故保留它不会被误覆盖
+  "seedanceMode",
 ] as const;
 
 export function rewritePatchForPreferredVideo(
