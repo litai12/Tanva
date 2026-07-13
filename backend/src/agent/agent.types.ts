@@ -18,6 +18,8 @@ export type AgentEventType =
   | 'tool_selected'
   | 'research_text'
   | 'research_result'
+  | 'assistant_delta' // canvasAgent(小T)流式文本增量
+  | 'flow_patch' // canvasAgent(小T)画布补丁指令
   | 'final'
   | 'error'
   | 'done';

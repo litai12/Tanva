@@ -16,6 +16,7 @@ import {
   AgentToolName,
 } from './agent.types';
 import { VolcResearchSearchService, VolcResearchSearchPayload } from './volc-research-search.service';
+import { XiaotAgentService } from './xiaot-agent.service';
 
 type AgentEventSubscriber = (event: AgentRunEvent) => void;
 
@@ -65,10 +66,50 @@ export class AgentRuntimeService {
     private readonly volcResearchSearch: VolcResearchSearchService,
     private readonly providerFactory: AIProviderFactory,
     private readonly config: ConfigService,
+    private readonly xiaotAgent: XiaotAgentService,
   ) {}
 
   createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
     this.cleanupExpiredRuns();
+
+    // canvasAgent 模式：绕过本地 intent/plan 流程，直接经 new-api 流式调用小T。
+    if (dto.mode === 'canvasAgent') {
+      const now = new Date();
+      const run: AgentRunRecord = {
+        id: randomUUID(),
+        userId,
+        prompt: dto.prompt,
+        status: 'queued',
+        intent: 'text_chat',
+        selectedTool: 'chatResponse',
+        workflow: 'canvas_agent',
+        createdAt: now,
+        updatedAt: now,
+        events: [],
+      };
+      this.runs.set(run.id, run);
+      setTimeout(() => {
+        run.status = 'running';
+        run.updatedAt = new Date();
+        this.xiaotAgent
+          .run(dto, userId, (type, payload) => this.emit(run, type, payload))
+          .then(() => {
+            run.status = 'completed';
+            run.completedAt = new Date();
+            run.updatedAt = new Date();
+          })
+          .catch((error: unknown) => {
+            run.status = 'failed';
+            run.updatedAt = new Date();
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Xiaot canvasAgent run failed: ${run.id} ${message}`);
+            this.emit(run, 'error', { title: '小T执行失败', message });
+            this.emit(run, 'done', { title: '完成', message: 'Agent trace failed.' });
+          });
+      }, 0);
+      return this.toSummary(run);
+    }
 
     const decision = this.withOutputCountAwareness(
       dto,

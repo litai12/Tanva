@@ -74,4 +74,16 @@ export class CreateAgentRunDto {
   @IsOptional()
   @IsObject()
   context?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsIn(['research', 'canvasAgent'])
+  mode?: 'research' | 'canvasAgent';
+
+  @IsOptional()
+  @IsObject()
+  canvasContext?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  capabilityManifest?: Record<string, unknown>;
 }
