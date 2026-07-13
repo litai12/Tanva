@@ -23796,16 +23796,40 @@ function FlowInner() {
           }
         | undefined;
       if (!detail?.source || !detail?.target) return;
+      const d = {
+        source: detail.source,
+        target: detail.target,
+        sourceHandle: detail.sourceHandle ?? null,
+        targetHandle: detail.targetHandle ?? null,
+      };
       try {
-        onConnect({
-          source: detail.source,
-          target: detail.target,
-          sourceHandle: detail.sourceHandle ?? null,
-          targetHandle: detail.targetHandle ?? null,
-        } as Connection);
+        onConnect(d as Connection);
       } catch (err) {
         console.warn("[agent-bridge] connect-edge failed:", err);
       }
+      // isValidConnection/canAcceptConnection 静默拒绝时用户只看到"连线少了"——
+      // 350ms（等 React 渲染+协作回声）后核对边是否真的落进 state，没有则可见化告警。
+      window.setTimeout(() => {
+        const exists = rf
+          .getEdges()
+          .some(
+            (e) =>
+              e.source === d.source &&
+              e.target === d.target &&
+              (e.sourceHandle ?? null) === d.sourceHandle &&
+              (e.targetHandle ?? null) === d.targetHandle
+          );
+        if (exists) return;
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              type: "warning",
+              message: `小T连线未生效：${d.source}→${d.target}（handle 不匹配或节点不存在）`,
+            },
+          })
+        );
+        console.warn("[xiaot] connectEdge rejected", d);
+      }, 350);
     };
 
     const onAgentRunNode = (event: Event) => {
