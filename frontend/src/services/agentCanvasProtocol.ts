@@ -530,15 +530,28 @@ export function getVideoModelLabel(nodeType: string): string {
   return VIDEO_TYPE_LABELS[nodeType] ?? nodeType;
 }
 
-// 硬覆盖：版本必须钉死（防小T给错版本），覆盖 agent 给的 data。
+// 硬覆盖：版本/显示名钉死（防小T给错版本、防共用组件标题误导），覆盖 agent 给的 data。
 // seedance 系列被画布归一到 doubaoVideo 节点，版本靠 data.seedanceModel 区分
 // （不注入默认 seedance-1.5-pro → 建成 1.5）。midjourneyV7/niji7 共用 MidjourneyNode，
-// 靠 modelVersion 区分（niji7 不注入，保持 undefined 走 niji 引擎默认）。
+// 靠 modelVersion 区分（niji7 不注入，保持 undefined 走 niji 引擎默认；标题按 type 自判无需注入）。
+// nodeConfigNameZh/En：共用组件节点缺省会显示错/笼统的标题（gptImage2 共用 Nano2Node
+// 默认显示"Nano2"；seedance20Video/doubaoVideo 共用 GenericVideoNode 都显示笼统"Seedance"），
+// 注入正确显示名。model 判定另有依据（gptImage2 靠 nodeConfigKey/type，seedance 靠 seedanceModel），
+// 标题注入不影响模型。
 export const NODE_FORCED_DATA: Record<string, Record<string, string>> = {
-  seedance20Video: { seedanceModel: "seedance-2.0" },
+  seedance20Video: {
+    seedanceModel: "seedance-2.0",
+    nodeConfigNameZh: "Seedance 2.0",
+    nodeConfigNameEn: "Seedance 2.0",
+  },
   seedVideo: { seedanceModel: "seedance-2.0" },
-  doubaoVideo: { seedanceModel: "seedance-1.5-pro" },
+  doubaoVideo: {
+    seedanceModel: "seedance-1.5-pro",
+    nodeConfigNameZh: "Seedance 1.5 Pro",
+    nodeConfigNameEn: "Seedance 1.5 Pro",
+  },
   midjourneyV7: { modelVersion: "v7" },
+  gptImage2: { nodeConfigNameZh: "GPT Image", nodeConfigNameEn: "GPT Image" },
 };
 
 // 缺省填充：仅当 node.data 没有该键时填（agent 给了就用 agent 的，保留用户意图）。
