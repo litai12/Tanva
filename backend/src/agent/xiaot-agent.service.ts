@@ -59,6 +59,14 @@ export class XiaotAgentService {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5;
   }
 
+  /** 流式总时长上限（毫秒），默认 15 分钟；超时 abort 整个请求。 */
+  private get timeoutMs(): number {
+    const parsed = Number(
+      this.config.get<string>('XIAOT_AGENT_TIMEOUT_MS') || '900000',
+    );
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 900000;
+  }
+
   private buildMessages(dto: CreateAgentRunDto): ChatMessage[] {
     const messages: ChatMessage[] = [];
     if (dto.capabilityManifest) {
@@ -84,131 +92,144 @@ export class XiaotAgentService {
       data: { model },
     });
 
-    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        user: dto.sessionId || `tanva:${userId}`,
-        messages: this.buildMessages(dto),
-      }),
-    });
+    // 流式总时长上限：超时 abort fetch/reader，异常沿现有 catch 路径转成 error+done 事件。
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
+          stream_options: { include_usage: true },
+          user: dto.sessionId || `tanva:${userId}`,
+          messages: this.buildMessages(dto),
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok || !response.body) {
-      let detail = '';
-      try {
-        detail = (await response.text()).slice(0, 300);
-      } catch {}
-      throw new Error(
-        `xiaot-agent upstream error: status=${response.status} body=${detail}`,
-      );
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    // 跨 read 的行缓冲：一次 read 可能截断在行中间。
-    let buffer = '';
-    let fullText = '';
-    let patchCount = 0;
-    let usageUnits = 0;
-    // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
-    // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
-    // 后续帧补齐后再试，成功即 emit 并清该 index——两种形态都覆盖。
-    const toolCallBuffers = new Map<number, ToolCallAccumulator>();
-
-    const handleLine = (rawLine: string) => {
-      const line = rawLine.trim();
-      if (!line.startsWith('data:')) return;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === '[DONE]') return;
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(payload);
-      } catch {
-        return;
-      }
-      if (parsed?.error) {
+      if (!response.ok || !response.body) {
+        let detail = '';
+        try {
+          detail = (await response.text()).slice(0, 300);
+        } catch {}
         throw new Error(
-          `xiaot-agent stream error: ${JSON.stringify(parsed.error).slice(0, 300)}`,
+          `xiaot-agent upstream error: status=${response.status} body=${detail}`,
         );
       }
 
-      const delta = parsed?.choices?.[0]?.delta;
-      if (delta?.content && typeof delta.content === 'string') {
-        fullText += delta.content;
-        emit('assistant_delta', { data: { delta: delta.content } });
-      }
+      reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      // 跨 read 的行缓冲：一次 read 可能截断在行中间。
+      let buffer = '';
+      let fullText = '';
+      let patchCount = 0;
+      let usageUnits = 0;
+      // 小T facade 通常"每帧完整下发一个 tool_call"（arguments 一次给全），走单帧直解路径；
+      // 但标准 OpenAI 协议允许 arguments 按同 index 跨帧分片，所以 parse 失败时按 index 累积、
+      // 后续帧补齐后再试，成功即 emit 并清该 index——两种形态都覆盖。
+      const toolCallBuffers = new Map<number, ToolCallAccumulator>();
 
-      if (Array.isArray(delta?.tool_calls)) {
-        for (const tc of delta.tool_calls) {
-          const index = typeof tc?.index === 'number' ? tc.index : 0;
-          let acc = toolCallBuffers.get(index);
-          // 同 index 出现新 id 时视为新的一次 tool_call，重置累积器。
-          if (acc && tc?.id && acc.id && tc.id !== acc.id) {
-            acc = undefined;
-          }
-          if (!acc) {
-            acc = { id: '', name: '', args: '' };
-            toolCallBuffers.set(index, acc);
-          }
-          if (tc?.id) acc.id = tc.id;
-          if (tc?.function?.name) acc.name += tc.function.name;
-          if (typeof tc?.function?.arguments === 'string') {
-            acc.args += tc.function.arguments;
-          }
+      const handleLine = (rawLine: string) => {
+        const line = rawLine.trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
 
-          if (acc.name !== 'flow_patch') continue;
-          let patch: unknown;
-          try {
-            patch = JSON.parse(acc.args);
-          } catch {
-            continue; // 分片未齐，等后续帧补齐后再试
+        let parsed: any;
+        try {
+          parsed = JSON.parse(payload);
+        } catch {
+          return;
+        }
+        if (parsed?.error) {
+          throw new Error(
+            `xiaot-agent stream error: ${JSON.stringify(parsed.error).slice(0, 300)}`,
+          );
+        }
+
+        const delta = parsed?.choices?.[0]?.delta;
+        if (delta?.content && typeof delta.content === 'string') {
+          fullText += delta.content;
+          emit('assistant_delta', { data: { delta: delta.content } });
+        }
+
+        if (Array.isArray(delta?.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const index = typeof tc?.index === 'number' ? tc.index : 0;
+            let acc = toolCallBuffers.get(index);
+            // 同 index 出现新 id 时视为新的一次 tool_call，重置累积器。
+            if (acc && tc?.id && acc.id && tc.id !== acc.id) {
+              acc = undefined;
+            }
+            if (!acc) {
+              acc = { id: '', name: '', args: '' };
+              toolCallBuffers.set(index, acc);
+            }
+            if (tc?.id) acc.id = tc.id;
+            if (tc?.function?.name) acc.name += tc.function.name;
+            if (typeof tc?.function?.arguments === 'string') {
+              acc.args += tc.function.arguments;
+            }
+
+            if (acc.name !== 'flow_patch') continue;
+            let patch: unknown;
+            try {
+              patch = JSON.parse(acc.args);
+            } catch {
+              continue; // 分片未齐，等后续帧补齐后再试
+            }
+            toolCallBuffers.delete(index);
+            if (!patch || typeof patch !== 'object') continue;
+            patchCount += 1;
+            emit('flow_patch', {
+              data: { patch: patch as Record<string, unknown> },
+            });
           }
-          toolCallBuffers.delete(index);
-          if (!patch || typeof patch !== 'object') continue;
-          patchCount += 1;
-          emit('flow_patch', {
-            data: { patch: patch as Record<string, unknown> },
-          });
+        }
+
+        const totalTokens = parsed?.usage?.total_tokens;
+        if (typeof totalTokens === 'number' && Number.isFinite(totalTokens)) {
+          usageUnits = Math.max(usageUnits, totalTokens);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          handleLine(line);
         }
       }
-
-      const totalTokens = parsed?.usage?.total_tokens;
-      if (typeof totalTokens === 'number' && Number.isFinite(totalTokens)) {
-        usageUnits = Math.max(usageUnits, totalTokens);
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        handleLine(buffer);
       }
-    };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        handleLine(line);
-      }
+      await this.settleCredits(userId, usageUnits, {
+        textChars: fullText.length,
+        patchCount,
+      });
+
+      emit('final', {
+        message: fullText,
+        data: { text: fullText, patchCount, usageUnits },
+      });
+      emit('done', {});
+    } finally {
+      clearTimeout(timeout);
+      // 兜底释放上游 socket（正常读完 cancel 是幂等 no-op）。
+      void reader?.cancel().catch(() => {});
     }
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      handleLine(buffer);
-    }
-
-    await this.settleCredits(userId, usageUnits, {
-      textChars: fullText.length,
-      patchCount,
-    });
-
-    emit('final', {
-      message: fullText,
-      data: { text: fullText, patchCount, usageUnits },
-    });
-    emit('done', {});
   }
 
   private async settleCredits(
