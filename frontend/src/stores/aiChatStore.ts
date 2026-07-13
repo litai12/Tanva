@@ -33,6 +33,9 @@ import {
   TANVA_CAPABILITY_MANIFEST,
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
+  mentionsVideoModel,
+  parseAgentFlowPatch,
+  rewritePatchForPreferredVideo,
   type XiaotPreferredImageModel,
   type XiaotPreferredVideoModel,
 } from "@/services/agentCanvasProtocol";
@@ -8468,6 +8471,7 @@ export const useAIChatStore = create<AIChatState>()(
           let assembled = "";
           let patchCount = 0;
           let streamErrored = false;
+          let videoRewriteToasted = false;
 
           try {
             const projectId =
@@ -8519,7 +8523,43 @@ export const useAIChatStore = create<AIChatState>()(
                   content: assembled,
                 }));
               } else if (event.type === "flow_patch") {
-                if (applyAgentPatch(event.data?.patch)) {
+                // 确定性兜底：优选 note 是提示级约束，小T仍可能跟随画布惯性
+                // 选非优选视频模型；用户没显式点名模型时，addNode 落画布前把
+                // 视频节点类型改写成优选类型（只改本地，不回传小T；idMap 以
+                // agent id 为键，type 改写不影响 id 映射）
+                let patch: unknown = event.data?.patch;
+                if (!mentionsVideoModel(input)) {
+                  const parsed = parseAgentFlowPatch(patch);
+                  if (parsed) {
+                    const rewritten = rewritePatchForPreferredVideo(
+                      parsed,
+                      preferredVideo.nodeType
+                    );
+                    if (rewritten !== parsed) {
+                      console.info(
+                        "[xiaot] 按优选模型改写视频节点类型 →",
+                        preferredVideo.nodeType
+                      );
+                      patch = rewritten;
+                      if (!videoRewriteToasted) {
+                        videoRewriteToasted = true;
+                        try {
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message: `已按优选使用 ${preferredVideo.label}`,
+                                type: "success",
+                              },
+                            })
+                          );
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }
+                  }
+                }
+                if (applyAgentPatch(patch)) {
                   patchCount += 1;
                   get().updateMessage(aiMessage.id, (msg) => ({
                     ...msg,

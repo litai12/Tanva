@@ -255,6 +255,73 @@ export const XIAOT_PREFERRED_VIDEO_MODELS = [
 export type XiaotPreferredVideoModel =
   (typeof XIAOT_PREFERRED_VIDEO_MODELS)[number]["value"];
 
+// 画布已知的视频生成节点类型全集（与 nodeSpecs 第一/二层的视频节点对齐）
+export const VIDEO_NODE_TYPES = new Set([
+  "sora2Video",
+  "seedance20Video",
+  "kling26Video",
+  "wan27Video",
+  "klingVideo",
+  "kling30Video",
+  "viduVideo",
+  "viduQ3",
+  "doubaoVideo",
+  "seedVideo",
+  "wan26",
+  "wan2R2V",
+  "happyhorseR2V",
+  "omniFlashExtVideo",
+  "klingO1Video",
+]);
+
+// 用户消息是否显式提到某个视频模型（泛泛说"视频"不算）。
+// 显式点名时尊重用户选择，不做优选改写。
+const VIDEO_MODEL_MENTION_RE =
+  /可灵|kling|sora|wan\s*2|vidu|doubao|即梦|seedance|seed\s*[12]|happyhorse|omni\s*flash|1\.5|2\.6|3\.0/i;
+
+export function mentionsVideoModel(text: string): boolean {
+  return VIDEO_MODEL_MENTION_RE.test(text);
+}
+
+// 确定性兜底：manifest 的优选 note 只是提示级约束（大 manifest+画布惯性下
+// 小T仍可能跟随画布已有节点选别的视频模型）。addNode 落画布前把非优选的
+// 视频节点类型改写为优选类型；data 只保留通用白名单键，厂商专属参数丢弃
+// 防污染。改写只影响本地落画布不回传小T：小T后续 connectEdge/runNode 用的
+// 是它自造的 agent id，idMap 以 agent id 为键（node.id 不变），不受 type
+// 改写影响。
+const VIDEO_REWRITE_DATA_WHITELIST = [
+  "label",
+  "aspectRatio",
+  "resolution",
+  "clipDuration",
+] as const;
+
+export function rewritePatchForPreferredVideo(
+  patch: AgentFlowPatch,
+  preferredType: string
+): AgentFlowPatch {
+  if (patch.op !== "addNode") return patch;
+  const node = patch.node;
+  if (
+    !node ||
+    !VIDEO_NODE_TYPES.has(node.type) ||
+    node.type === preferredType
+  ) {
+    return patch;
+  }
+  const data = (
+    node.data && typeof node.data === "object" ? node.data : {}
+  ) as Record<string, unknown>;
+  const keptData: Record<string, unknown> = {};
+  for (const key of VIDEO_REWRITE_DATA_WHITELIST) {
+    if (data[key] !== undefined) keptData[key] = data[key];
+  }
+  return {
+    ...patch,
+    node: { ...node, type: preferredType, data: keptData },
+  };
+}
+
 export function buildManifestSystemMessage(): string {
   return `<capability_manifest>${JSON.stringify(TANVA_CAPABILITY_MANIFEST)}</capability_manifest>`;
 }
