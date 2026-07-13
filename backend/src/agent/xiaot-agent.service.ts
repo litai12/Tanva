@@ -16,6 +16,13 @@ type ChatMessage = { role: 'system' | 'user'; content: string };
 /** 按 tool_call index 累积的分片缓冲（兼容 arguments 跨帧分片的 OpenAI 协议形态）。 */
 type ToolCallAccumulator = { id: string; name: string; args: string };
 
+/** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
+export const XIAOT_CHAT_MODELS = [
+  'xiaot-agent-claude-4-8',
+  'xiaot-agent-claude-4-7',
+  'xiaot-agent-claude-4-6',
+] as const;
+
 @Injectable()
 export class XiaotAgentService {
   private readonly logger = new Logger(XiaotAgentService.name);
@@ -91,7 +98,11 @@ export class XiaotAgentService {
   }
 
   async run(dto: CreateAgentRunDto, userId: string, emit: XiaotEmit): Promise<void> {
-    const model = this.model;
+    // 模型透传：仅白名单内的 dto.model 生效，其余一律回落默认模型。
+    const model =
+      dto.model && (XIAOT_CHAT_MODELS as readonly string[]).includes(dto.model)
+        ? dto.model
+        : this.model;
     emit('run_started', {
       title: '小T已接入',
       data: { model },
@@ -183,19 +194,29 @@ export class XiaotAgentService {
               acc.args += tc.function.arguments;
             }
 
-            if (acc.name !== 'flow_patch') continue;
-            let patch: unknown;
+            // 累积对所有 name 通用，flush 时按 name 分派（当前认 flow_patch / host_ui）。
+            if (acc.name !== 'flow_patch' && acc.name !== 'host_ui') continue;
+            let parsedArgs: unknown;
             try {
-              patch = JSON.parse(acc.args);
+              parsedArgs = JSON.parse(acc.args);
             } catch {
               continue; // 分片未齐，等后续帧补齐后再试
             }
             toolCallBuffers.delete(index);
-            if (!patch || typeof patch !== 'object') continue;
-            patchCount += 1;
-            emit('flow_patch', {
-              data: { patch: patch as Record<string, unknown> },
-            });
+            if (!parsedArgs || typeof parsedArgs !== 'object') continue;
+            if (acc.name === 'flow_patch') {
+              patchCount += 1;
+              emit('flow_patch', {
+                data: { patch: parsedArgs as Record<string, unknown> },
+              });
+            } else {
+              // host_ui：协议 v1.1 富格式卡片，必须带 string 类型 kind（choices/suggestions/media）。
+              const args = parsedArgs as Record<string, unknown>;
+              if (typeof args.kind !== 'string') continue;
+              emit('host_ui', {
+                data: { kind: args.kind, payload: args.payload },
+              });
+            }
           }
         }
 
@@ -220,7 +241,7 @@ export class XiaotAgentService {
         handleLine(buffer);
       }
 
-      await this.settleCredits(userId, usageUnits, {
+      await this.settleCredits(userId, usageUnits, model, {
         textChars: fullText.length,
         patchCount,
       });
@@ -240,6 +261,7 @@ export class XiaotAgentService {
   private async settleCredits(
     userId: string,
     usageUnits: number,
+    model: string,
     meta: Record<string, unknown>,
   ): Promise<void> {
     const amount =
@@ -252,7 +274,7 @@ export class XiaotAgentService {
         serviceType: 'agent-chat',
         serviceName: 'xiaot-agent',
         provider: 'new-api',
-        model: this.model,
+        model,
         requestParams: { usageUnits, ...meta },
       });
     } catch (error) {
