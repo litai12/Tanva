@@ -202,6 +202,7 @@ import {
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { uploadVolcAsset } from "@/services/volcAssetAPI";
+import { DEFAULT_NODE_HANDLES } from "@/services/agentCanvasProtocol";
 import {
   fetchNodeConfigs,
   getStatusBadge,
@@ -23802,6 +23803,62 @@ function FlowInner() {
         sourceHandle: detail.sourceHandle ?? null,
         targetHandle: detail.targetHandle ?? null,
       };
+      // 小T 常常不带 handle（sourceHandle/targetHandle 都是 null），而 isValidConnection
+      // 硬要求 targetHandle → 静默拒绝。落连线前用两端真实 type 智能补全缺失 handle。
+      try {
+        const srcType = String(rf.getNode(d.source)?.type || "");
+        const tgtType = String(rf.getNode(d.target)?.type || "");
+        const srcMap = DEFAULT_NODE_HANDLES[srcType];
+        const tgtMap = DEFAULT_NODE_HANDLES[tgtType];
+        const PURE_TEXT = new Set(["textPrompt", "textChat", "textNote"]);
+        const targetIsVideo = !!tgtMap?.videoOut; // 视频节点以 videoOut 存在为特征
+        // 判定这条边"连的是什么流"：text / image / video
+        let flow: "text" | "image" | "video" | null = null;
+        if (d.sourceHandle) {
+          const h = d.sourceHandle;
+          if (h.startsWith("text") || h.startsWith("prompt")) flow = "text";
+          else if (h === "video" || h.startsWith("video")) flow = "video";
+          else flow = "image";
+        } else if (srcMap) {
+          if (PURE_TEXT.has(srcType)) flow = "text";
+          else if (targetIsVideo && srcMap.imageOut) flow = "image"; // 图→视频
+          else if (srcMap.imageOut) flow = "image";
+          else if (srcMap.videoOut) flow = "video";
+          else if (srcMap.textOut) flow = "text";
+        }
+        // 补 sourceHandle
+        if (!d.sourceHandle && srcMap && flow) {
+          const picked =
+            flow === "text"
+              ? srcMap.textOut
+              : flow === "image"
+              ? srcMap.imageOut
+              : srcMap.videoOut;
+          if (picked) d.sourceHandle = picked;
+        }
+        // 补 targetHandle：按"流"接目标对应输入
+        if (!d.targetHandle && tgtMap && flow) {
+          const picked =
+            flow === "text"
+              ? tgtMap.textIn
+              : flow === "image"
+              ? tgtMap.imageIn
+              : undefined; // 视频流暂无独立 videoIn 约定
+          if (picked) d.targetHandle = picked;
+        }
+        if (d.sourceHandle !== (detail.sourceHandle ?? null) ||
+            d.targetHandle !== (detail.targetHandle ?? null)) {
+          console.debug("[xiaot] connectEdge handle 补全", {
+            srcType,
+            tgtType,
+            flow,
+            sourceHandle: d.sourceHandle,
+            targetHandle: d.targetHandle,
+          });
+        }
+      } catch (err) {
+        console.warn("[agent-bridge] handle 补全失败，保持原样:", err);
+      }
       try {
         onConnect(d as Connection);
       } catch (err) {

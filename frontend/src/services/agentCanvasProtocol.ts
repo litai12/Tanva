@@ -41,6 +41,32 @@ export function parseAgentFlowPatch(raw: unknown): AgentFlowPatch | null {
   return p;
 }
 
+// 节点默认连线 handle（与 manifest nodeSpecs 同源；用于 agent 连线缺 handle 时补全）
+export const DEFAULT_NODE_HANDLES: Record<
+  string,
+  { textOut?: string; textIn?: string; imageIn?: string; imageOut?: string; videoOut?: string }
+> = {
+  textPrompt: { textOut: "text" },
+  textChat: { textOut: "text" },
+  textNote: { textOut: "text-right-out" },
+  generate: { textIn: "text", imageOut: "img", imageIn: "img" },
+  generate4: { textIn: "text", imageOut: "img", imageIn: "img" },
+  generatePro: { textIn: "text", imageOut: "img", imageIn: "img" },
+  generatePro4: { textIn: "text", imageOut: "img", imageIn: "img" },
+  generateRef: { textIn: "text", imageOut: "img" },
+  nano2: { textIn: "text", imageOut: "img", imageIn: "img" },
+  gptImage2: { textIn: "text", imageOut: "img", imageIn: "img" },
+  seedream5: { textIn: "prompt", imageOut: "img", imageIn: "img" },
+  image: { imageOut: "img" },
+  // 视频节点：文本入 text，图入 image，视频出 video
+  seedance20Video: { textIn: "text", imageIn: "image", videoOut: "video" },
+  sora2Video: { textIn: "text", imageIn: "image", videoOut: "video" },
+  kling26Video: { textIn: "text", imageIn: "image", videoOut: "video" },
+  wan27Video: { textIn: "text", imageIn: "image", videoOut: "video" },
+  viduQ3: { textIn: "text", imageIn: "image", videoOut: "video" },
+  doubaoVideo: { textIn: "text", imageIn: "image", videoOut: "video" },
+};
+
 // 暴露给小T的节点能力清单（分层：第一层完整 spec，第二层 stub 只报型号；
 // type 必须存在于 FlowOverlay rawNodeTypes）
 export const TANVA_CAPABILITY_MANIFEST = {
