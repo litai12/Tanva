@@ -65,6 +65,19 @@ export const DEFAULT_NODE_HANDLES: Record<
   wan27Video: { textIn: "text", imageIn: "image", videoOut: "video" },
   viduQ3: { textIn: "text", imageIn: "image", videoOut: "video" },
   doubaoVideo: { textIn: "text", imageIn: "image", videoOut: "video" },
+  // 扩展节点（部分 handle 如 audio/prompt/多输出无法用现有字段表达，
+  // 仅补常用 text/image/video 补全；连线仍以 manifest inputs/outputs 为准）
+  midjourneyV7: { textIn: "text", imageIn: "img", imageOut: "img" },
+  niji7: { textIn: "text", imageIn: "img", imageOut: "img" },
+  analysis: { textIn: "text", imageIn: "img", textOut: "prompt" },
+  promptOptimize: { textIn: "text", textOut: "text" },
+  imagePro: { imageIn: "img", imageOut: "img" },
+  imageCompress: { imageIn: "img", imageOut: "img" },
+  imageGrid: { imageIn: "images", imageOut: "img" },
+  imageSplit: { imageIn: "img" },
+  audioStudio: { textIn: "text" },
+  storyboardSplit: { textIn: "text" },
+  videoCompose: { videoOut: "video" },
 };
 
 // 暴露给小T的节点能力清单（分层：第一层完整 spec，第二层 stub 只报型号；
@@ -220,6 +233,103 @@ export const TANVA_CAPABILITY_MANIFEST = {
       ],
       outputs: [{ handle: "video", emits: "video" }],
     },
+    {
+      type: "audioStudio",
+      label: "音频工作台",
+      purpose: "按 mode 生成语音/音乐/配音：mode 决定输入 handle 与必填参数",
+      params: {
+        mode: { type: "string", enum: ["seed-audio", "minimax-speech", "minimax-music", "tencent-dub", "upload"], description: "seed-audio=火山语音(text必填,可连参考图/音频);minimax-speech=TTS;minimax-music=音乐(text=歌词/风格);tencent-dub=视频译制配音(需连video);upload=导入" },
+        text: { type: "string" },
+      },
+      inputs: [{ handle: "text" }, { handle: "video", accepts: "video" }, { handle: "audio", accepts: "audio" }, { handle: "image", accepts: "image" }],
+      outputs: [{ handle: "audio", emits: "audio" }, { handle: "video", emits: "video" }],
+      constraints: ["seed-audio/speech/music 连 text→出 audio；tencent-dub 需连 video→出 audio+video；建节点必须在 data 指定 mode"],
+    },
+    {
+      type: "midjourneyV7",
+      label: "Midjourney V7",
+      purpose: "MJ V7 文/图生图",
+      params: {
+        aspectRatio: { type: "string", enum: ["1:1", "16:9", "9:16", "2:3", "3:2", "4:5"] },
+        stylize: { type: "string", description: "风格化强度默认100" },
+        chaos: { type: "string" },
+        quality: { type: "string", enum: ["1", "2", "4"] },
+        speedMode: { type: "string", enum: ["draft", "fast", "turbo"] },
+      },
+      inputs: [{ handle: "img", accepts: "image" }, { handle: "omniImage", accepts: "image" }, { handle: "text" }],
+      outputs: [{ handle: "img", emits: "image" }],
+      constraints: ["可纯文生图或连参考图到 img/omniImage"],
+    },
+    {
+      type: "niji7",
+      label: "Niji 7 二次元",
+      purpose: "MJ Niji 引擎二次元风格生图；参数同 MidjourneyV7（aspectRatio/stylize/chaos/speedMode）但恒 niji 引擎、无 quality",
+      inputs: [{ handle: "img", accepts: "image" }, { handle: "omniImage", accepts: "image" }, { handle: "text" }],
+      outputs: [{ handle: "img", emits: "image" }],
+      constraints: ["可纯文生图或连参考图到 img/omniImage"],
+    },
+    {
+      type: "storyboardSplit",
+      label: "分镜拆分",
+      purpose: "把一段剧本文本拆成多个分镜提示词（单节点多输出）",
+      params: { outputCount: { type: "number", description: "分镜数默认9" } },
+      inputs: [{ handle: "text" }],
+      outputs: [{ handle: "prompt1", emits: "text" }],
+      constraints: ["输入连文本源；输出 prompt1..N（按 outputCount 动态）各接一个生图/生视频节点的提示词——是多镜头编排入口"],
+    },
+    {
+      type: "videoCompose",
+      label: "视频合成",
+      purpose: "浏览器端把多段视频拼成成片（不扣积分）",
+      inputs: [{ handle: "video", accepts: "video" }, { handle: "audio", accepts: "audio" }],
+      outputs: [{ handle: "video", emits: "video" }],
+      constraints: ["video 是单 handle 接多条连线：把≥2段生成好的视频的 video 输出都连到这个 video 输入；audio 可选连 audioStudio"],
+    },
+    {
+      type: "analysis",
+      label: "图像分析",
+      purpose: "看图/反推提示词/图像理解（需连图到 img，输出 prompt）",
+      params: { analysisSkillId: { type: "string", enum: ["prompt", "json", "promptOnly", "custom"] } },
+      inputs: [{ handle: "img", accepts: "image" }, { handle: "text" }],
+      outputs: [{ handle: "prompt", emits: "text" }],
+    },
+    {
+      type: "promptOptimize",
+      label: "提示词优化",
+      purpose: "扩写/优化简短提示词(text→text)",
+      inputs: [{ handle: "text" }],
+      outputs: [{ handle: "text", emits: "text" }],
+    },
+    {
+      type: "imagePro",
+      label: "图片Pro",
+      purpose: "承载图片(可调宽度,等价image)",
+      inputs: [{ handle: "img", accepts: "image" }],
+      outputs: [{ handle: "img", emits: "image" }],
+    },
+    {
+      type: "imageCompress",
+      label: "图片压缩",
+      purpose: "压缩图片体积(需连1图)",
+      params: { level: { type: "string", enum: ["light", "balanced", "strong"] } },
+      inputs: [{ handle: "img", accepts: "image" }],
+      outputs: [{ handle: "img", emits: "image" }],
+    },
+    {
+      type: "imageGrid",
+      label: "图片拼合",
+      purpose: "多图拼成网格图(images单handle连多图)",
+      inputs: [{ handle: "images", accepts: "image" }],
+      outputs: [{ handle: "img", emits: "image" }],
+    },
+    {
+      type: "imageSplit",
+      label: "图片分割",
+      purpose: "一张图分割成多张(需连1图,动态输出image1..N)",
+      params: { splitMode: { type: "string", enum: ["smart", "customGrid"] }, outputCount: { type: "number" } },
+      inputs: [{ handle: "img", accepts: "image" }],
+      outputs: [{ handle: "image1", emits: "image" }],
+    },
     // ── 第二层：stub（只报型号，参数走节点默认值）──
     { type: "generate", purpose: "单图生成，需连 text 边供提示词（presetPrompt 仅作前缀）" },
     { type: "generate4", purpose: "四宫格生成，需连 text 边供提示词" },
@@ -250,6 +360,10 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "视频节点输出统一为 video handle；生图输出统一为 img handle；第二层清单只列了型号名，参数走节点默认值，需要精细控制时优先用第一层节点",
     "视频生成两条路径：①【纯文本→视频】用支持文生的模型（sora2Video 等），只需建 textPrompt 连到 text 输入，一步到位；②【图生视频/高质量】先建图片生成节点(generatePro)+textPrompt+runNode 出关键帧图，再建视频节点(图生模式)+把图连进 image 输入。选图生视频模式却不给图会报错。",
     "seedance20Video 只支持路径②；纯文本任务默认走路径①的文生模型。",
+    "音频：audioStudio 建节点必须在 data 指定 mode；tencent-dub 需连视频，其余连文本",
+    "视频合成：videoCompose 的 video 输入单 handle 接多条——把多段视频输出都连进去；先各自生成视频再合成",
+    "分镜编排：storyboardSplit 输入剧本文本、输出多个 promptN，每个 promptN 接一个生成节点，是多镜头 TVC 的编排入口",
+    "图像处理链：analysis 需连图才能分析；imageGrid 连多图；imageSplit/imageGrid 输出可接后续生成",
   ],
 };
 
@@ -370,15 +484,17 @@ export function getVideoModelLabel(nodeType: string): string {
   return VIDEO_TYPE_LABELS[nodeType] ?? nodeType;
 }
 
-// 画布把 seedance 系列归一到 doubaoVideo 节点，版本/模式靠 data 区分
-// （agent 建 type=seedance20Video 会被归一成 doubaoVideo，默认 seedanceModel=
-// seedance-1.5-pro → 建成 1.5）。agent 建这些 type 时必须注入下列 data，
-// 否则用默认 1.5-pro/text 模式（2.0 无 text 模式会报错）。
-// first_frame = 首帧图驱动，2.0 四个模式里最通用最简单的图生模式。
-export const VIDEO_NODE_FORCED_DATA: Record<string, Record<string, string>> = {
+// agent 建这些 type 时强制注入版本/模式 data（applier 查表覆盖，防小T给错版本）。
+// seedance 系列被画布归一到 doubaoVideo 节点，版本靠 data.seedanceModel 区分
+// （不注入默认 seedance-1.5-pro → 建成 1.5）；first_frame=首帧图驱动，2.0 四模式
+// 里最通用的图生模式。midjourneyV7/niji7 共用 MidjourneyNode，靠 modelVersion 区分
+// （niji7 不注入，保持 undefined 走 niji 引擎默认）。
+// 注意：audioStudio 的 mode 不钉死（由小T按任务在 addNode 的 data 里指定）。
+export const NODE_FORCED_DATA: Record<string, Record<string, string>> = {
   seedance20Video: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
   seedVideo: { seedanceModel: "seedance-2.0", seedanceMode: "first_frame" },
   doubaoVideo: { seedanceModel: "seedance-1.5-pro" },
+  midjourneyV7: { modelVersion: "v7" },
 };
 
 // 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。

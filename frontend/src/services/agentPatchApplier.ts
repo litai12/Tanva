@@ -5,7 +5,7 @@
 //   flow:updateNodeData / flow:focus-node / triggerQuickImageUpload（画布既有事件，直接复用）
 import {
   parseAgentFlowPatch,
-  VIDEO_NODE_FORCED_DATA,
+  NODE_FORCED_DATA,
 } from "./agentCanvasProtocol";
 
 const toast = (message: string, type: "error" | "warning" | "success" = "error") => {
@@ -99,7 +99,7 @@ export function applyAgentPatch(raw: unknown): boolean {
       // 建这些 type 时强制注入版本/模式 data（forced 覆盖 agent 给的，防小T
       // 给错版本，如 seedance20Video 被默认成 1.5-pro）。改写路径也经此注入，
       // 故 rewrite 白名单剥离 seedanceModel 无碍。
-      const forced = VIDEO_NODE_FORCED_DATA[node.type];
+      const forced = NODE_FORCED_DATA[node.type];
       const nodeData = forced
         ? { ...(node.data ?? {}), ...forced }
         : node.data;
