@@ -225,6 +225,36 @@ export const TANVA_CAPABILITY_MANIFEST = {
   ],
 };
 
+// 小T「优选图片/优选视频」模型选项（用户偏好，随请求作为动态 note 注入，
+// 优先级高于画布惯性——canvas_context 里已有其他生成节点时也不跟随）。
+// nodeType 必须存在于上方 nodeSpecs；图片的 extra 是 generatePro 的 modelProvider 值。
+export interface XiaotPreferredModelOption {
+  value: string;
+  label: string;
+  nodeType: string;
+  extra?: string;
+}
+
+export const XIAOT_PREFERRED_IMAGE_MODELS = [
+  { value: "banana-fast", label: "Nano Banana Fast", nodeType: "generatePro", extra: "banana-2.5" },
+  { value: "banana-pro", label: "Nano Banana Pro", nodeType: "generatePro", extra: "banana" },
+  { value: "banana-ultra", label: "Nano Banana2 Ultra", nodeType: "generatePro", extra: "banana-3.1" },
+  { value: "seedream5", label: "Seedream", nodeType: "seedream5", extra: undefined },
+  { value: "gptImage2", label: "GPT Image", nodeType: "gptImage2", extra: undefined },
+] as const;
+export type XiaotPreferredImageModel =
+  (typeof XIAOT_PREFERRED_IMAGE_MODELS)[number]["value"];
+
+export const XIAOT_PREFERRED_VIDEO_MODELS = [
+  { value: "seedance20Video", label: "Seedance 2.0", nodeType: "seedance20Video" },
+  { value: "kling26Video", label: "可灵2.6", nodeType: "kling26Video" },
+  { value: "sora2Video", label: "Sora 2", nodeType: "sora2Video" },
+  { value: "wan27Video", label: "Wan 2.7", nodeType: "wan27Video" },
+  { value: "viduQ3", label: "Vidu Q3", nodeType: "viduQ3" },
+] as const;
+export type XiaotPreferredVideoModel =
+  (typeof XIAOT_PREFERRED_VIDEO_MODELS)[number]["value"];
+
 export function buildManifestSystemMessage(): string {
   return `<capability_manifest>${JSON.stringify(TANVA_CAPABILITY_MANIFEST)}</capability_manifest>`;
 }

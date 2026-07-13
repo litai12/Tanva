@@ -29,7 +29,13 @@ import {
   type AgentToolName,
   type XiaotChatModel,
 } from "@/services/agentBackendAPI";
-import { TANVA_CAPABILITY_MANIFEST } from "@/services/agentCanvasProtocol";
+import {
+  TANVA_CAPABILITY_MANIFEST,
+  XIAOT_PREFERRED_IMAGE_MODELS,
+  XIAOT_PREFERRED_VIDEO_MODELS,
+  type XiaotPreferredImageModel,
+  type XiaotPreferredVideoModel,
+} from "@/services/agentCanvasProtocol";
 import {
   applyAgentPatch,
   ensureAgentPatchSession,
@@ -3028,6 +3034,8 @@ interface AIChatState {
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
   xiaotMode: boolean; // 小T画布智能体模式开关
   xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
+  xiaotPreferredImage: XiaotPreferredImageModel; // 小T优选图片模型
+  xiaotPreferredVideo: XiaotPreferredVideoModel; // 小T优选视频模型
 
   // 操作方法
   showDialog: () => void;
@@ -3035,6 +3043,8 @@ interface AIChatState {
   toggleDialog: () => void;
   toggleXiaotMode: () => void;
   setXiaotModel: (model: XiaotChatModel) => void;
+  setXiaotPreferredImage: (value: XiaotPreferredImageModel) => void;
+  setXiaotPreferredVideo: (value: XiaotPreferredVideoModel) => void;
   setIsMaximized: (value: boolean) => void; // 设置最大化状态
 
   // 输入管理
@@ -3589,6 +3599,8 @@ export const useAIChatStore = create<AIChatState>()(
         chatTheme: "white",
         xiaotMode: false, // 小T画布智能体模式默认关闭
         xiaotModel: "xiaot-agent-claude-4-8", // 小T大脑默认 Claude 4.8
+        xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
+        xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
 
         // 对话框控制
         showDialog: () => {
@@ -3600,6 +3612,10 @@ export const useAIChatStore = create<AIChatState>()(
         toggleXiaotMode: () =>
           set((state) => ({ xiaotMode: !state.xiaotMode })),
         setXiaotModel: (model) => set({ xiaotModel: model }),
+        setXiaotPreferredImage: (value) =>
+          set({ xiaotPreferredImage: value }),
+        setXiaotPreferredVideo: (value) =>
+          set({ xiaotPreferredVideo: value }),
         setIsMaximized: (value) => set({ isMaximized: value }),
 
         // 输入管理
@@ -8456,6 +8472,28 @@ export const useAIChatStore = create<AIChatState>()(
           try {
             const projectId =
               useProjectContentStore.getState().projectId || undefined;
+            // 用户优选模型 → 每请求动态附加 note（优先级最高，压过画布惯性）。
+            // 浅拷贝构造，不改 TANVA_CAPABILITY_MANIFEST 模块常量；
+            // notes 上限 32 条/每条 1000 字符，当前 10+1 条，安全。
+            const preferredImage =
+              XIAOT_PREFERRED_IMAGE_MODELS.find(
+                (option) => option.value === state.xiaotPreferredImage
+              ) ?? XIAOT_PREFERRED_IMAGE_MODELS[1];
+            const preferredVideo =
+              XIAOT_PREFERRED_VIDEO_MODELS.find(
+                (option) => option.value === state.xiaotPreferredVideo
+              ) ?? XIAOT_PREFERRED_VIDEO_MODELS[0];
+            const capabilityManifest = {
+              ...TANVA_CAPABILITY_MANIFEST,
+              notes: [
+                ...TANVA_CAPABILITY_MANIFEST.notes,
+                `【用户优选·必须遵守】未明确要求其他模型时：图片生成一律用 ${preferredImage.nodeType}${
+                  preferredImage.extra
+                    ? `（modelProvider=${preferredImage.extra}）`
+                    : ""
+                }；视频生成一律用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
+              ],
+            };
             const run = await createAgentRunViaAPI({
               prompt: input,
               mode: "canvasAgent",
@@ -8467,7 +8505,7 @@ export const useAIChatStore = create<AIChatState>()(
                 edges: snapshot.edges,
               },
               capabilityManifest:
-                TANVA_CAPABILITY_MANIFEST as unknown as Record<string, unknown>,
+                capabilityManifest as unknown as Record<string, unknown>,
             });
 
             await streamAgentRunEvents(run.id, (event) => {
@@ -9682,6 +9720,8 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
         xiaotModel: state.xiaotModel,
+        xiaotPreferredImage: state.xiaotPreferredImage,
+        xiaotPreferredVideo: state.xiaotPreferredVideo,
       }),
       // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
       merge: (persistedState, currentState) => ({

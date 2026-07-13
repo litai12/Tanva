@@ -84,6 +84,10 @@ import {
   RealtimeAsrClient,
 } from "@/services/realtimeAsrClient";
 import type { XiaotChatModel } from "@/services/agentBackendAPI";
+import {
+  XIAOT_PREFERRED_IMAGE_MODELS,
+  XIAOT_PREFERRED_VIDEO_MODELS,
+} from "@/services/agentCanvasProtocol";
 import XiaotCards from "@/components/chat/XiaotCards";
 
 type ManualModeOption = {
@@ -266,6 +270,10 @@ const AIChatDialog: React.FC = () => {
     toggleXiaotMode,
     xiaotModel,
     setXiaotModel,
+    xiaotPreferredImage,
+    setXiaotPreferredImage,
+    xiaotPreferredVideo,
+    setXiaotPreferredVideo,
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
@@ -3546,6 +3554,152 @@ const AIChatDialog: React.FC = () => {
                             key={option.value}
                             onClick={(event) => {
                               setXiaotModel(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* 小T优选图片模型选择器 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("优选图片模型（小T生图时优先使用）", "Preferred image model for XiaoT")}
+                      >
+                        <span className='font-medium'>
+                          {lt("图", "Img")}·
+                          {XIAOT_PREFERRED_IMAGE_MODELS.find(
+                            (option) => option.value === xiaotPreferredImage
+                          )?.label ?? XIAOT_PREFERRED_IMAGE_MODELS[1].label}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[180px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("优选图片", "Preferred image")}
+                      </DropdownMenuLabel>
+                      {XIAOT_PREFERRED_IMAGE_MODELS.map((option) => {
+                        const isActive = xiaotPreferredImage === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotPreferredImage(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* 小T优选视频模型选择器 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("优选视频模型（小T生视频时优先使用）", "Preferred video model for XiaoT")}
+                      >
+                        <span className='font-medium'>
+                          {lt("视", "Vid")}·
+                          {XIAOT_PREFERRED_VIDEO_MODELS.find(
+                            (option) => option.value === xiaotPreferredVideo
+                          )?.label ?? XIAOT_PREFERRED_VIDEO_MODELS[0].label}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[160px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("优选视频", "Preferred video")}
+                      </DropdownMenuLabel>
+                      {XIAOT_PREFERRED_VIDEO_MODELS.map((option) => {
+                        const isActive = xiaotPreferredVideo === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotPreferredVideo(option.value);
                               const root = (
                                 event.currentTarget as HTMLElement
                               ).closest(".dropdown-menu-root");
