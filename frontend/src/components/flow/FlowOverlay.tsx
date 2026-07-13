@@ -23787,7 +23787,7 @@ function FlowInner() {
       } catch {}
     };
 
-    const onAgentConnectEdge = (event: Event) => {
+    const onAgentConnectEdge = async (event: Event) => {
       const detail = (event as CustomEvent).detail as
         | {
             source?: string;
@@ -23859,13 +23859,31 @@ function FlowInner() {
       } catch (err) {
         console.warn("[agent-bridge] handle 补全失败，保持原样:", err);
       }
+      // 视频节点(GenericVideoNode)渲染重，addNode 后 targetHandle 可能还没注册到 DOM，
+      // isValidConnection 查不到就静默拒绝。onConnect 前轮询等两端 handle 就绪（最多 ~1.5s）。
+      const waitHandleReady = async (
+        nodeId: string,
+        handleId: string | null
+      ): Promise<void> => {
+        if (!handleId) return;
+        for (let i = 0; i < 12; i++) {
+          const ok = document.querySelector(
+            `.react-flow__node[data-id="${nodeId}"] .react-flow__handle[data-handleid="${handleId}"]`
+          );
+          if (ok) return;
+          await new Promise((r) => setTimeout(r, 120));
+        }
+      };
+      await waitHandleReady(d.target, d.targetHandle);
+      await waitHandleReady(d.source, d.sourceHandle);
       try {
         onConnect(d as Connection);
       } catch (err) {
         console.warn("[agent-bridge] connect-edge failed:", err);
       }
       // isValidConnection/canAcceptConnection 静默拒绝时用户只看到"连线少了"——
-      // 350ms（等 React 渲染+协作回声）后核对边是否真的落进 state，没有则可见化告警。
+      // 等 handle 就绪 + onConnect 后再 +350ms（React 渲染+协作回声）核对边是否落进
+      // state，没有则可见化告警。放在 waitHandleReady 之后避免等待期误报。
       window.setTimeout(() => {
         const exists = rf
           .getEdges()
