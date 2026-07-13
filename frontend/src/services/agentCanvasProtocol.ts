@@ -327,6 +327,49 @@ export function detectVideoImageWorkflow(text: string): boolean {
   return VIDEO_IMAGE_WORKFLOW_RE.test(text);
 }
 
+// 用户显式点名的视频模型 → nodeType（没点名返 null）。点名=最高优先级，
+// 强制对齐（压过小T选择与优选偏好，防止小T建错版本，如说 seedance-2 却建
+// doubaoVideo/1.5-Pro）。注意 seedance-2 与 seedance-1.5 都含"seedance"，
+// 必须先判 1.5 再判 2 做互斥区分。规则按数组顺序短路。
+const REQUESTED_VIDEO_MODEL_RULES: Array<[RegExp, string]> = [
+  // seedance / 即梦 1.5（含 1.5-pro）→ doubaoVideo（先判，避免被 2 规则误吞）
+  [/seedance[\s\-]?1\.?5|即梦[\s\-]?1\.?5|1\.5[\s\-]?pro/i, "doubaoVideo"],
+  // seedance / 即梦 2.0 → seedance20Video
+  [/seedance[\s\-]?2(\.0)?|即梦[\s\-]?2|seedance20/i, "seedance20Video"],
+  // 可灵 / kling 2.6 → kling26Video（先于泛 kling3 之外的规则）
+  [/可灵[\s\-]?2\.?6|kling[\s\-]?2\.?6|kling26/i, "kling26Video"],
+  // 可灵 / kling 3 → kling30Video
+  [/可灵[\s\-]?3|kling[\s\-]?3|kling30/i, "kling30Video"],
+  // wan / 万相 2.7 → wan27Video
+  [/wan[\s\-]?2\.?7|万相[\s\-]?2\.?7/i, "wan27Video"],
+  // vidu(q3) → viduQ3
+  [/vidu[\s\-]?q?3|vidu/i, "viduQ3"],
+  // sora(2) → sora2Video
+  [/sora[\s\-]?2?/i, "sora2Video"],
+];
+
+export function detectRequestedVideoModel(text: string): string | null {
+  for (const [re, nodeType] of REQUESTED_VIDEO_MODEL_RULES) {
+    if (re.test(text)) return nodeType;
+  }
+  return null;
+}
+
+// 视频 nodeType → 展示名（toast 用；覆盖 detect 可能返回的全部类型）
+const VIDEO_TYPE_LABELS: Record<string, string> = {
+  seedance20Video: "Seedance 2.0",
+  doubaoVideo: "Seedance 1.5 Pro",
+  kling26Video: "可灵2.6",
+  kling30Video: "可灵3.0",
+  sora2Video: "Sora 2",
+  wan27Video: "Wan 2.7",
+  viduQ3: "Vidu Q3",
+};
+
+export function getVideoModelLabel(nodeType: string): string {
+  return VIDEO_TYPE_LABELS[nodeType] ?? nodeType;
+}
+
 // 纯图生视频节点类型：默认模式必须有≥1张图、无纯文生模式。缺图对账用。
 // 现场核实：seedance20Video/wan27Video 默认模式需图；wan2R2V/happyhorseR2V
 // 是参考图生视频（型号即图生）。
