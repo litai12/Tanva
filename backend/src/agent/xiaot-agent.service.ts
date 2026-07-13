@@ -168,6 +168,11 @@ export class XiaotAgentService {
           user: dto.sessionId || `tanva:${userId}`, // 会话级隔离（不变）
           // 记忆/skill/画像隔离维度：facade 读此字段拼进传给 agents-cli 的 userId 按此分叉。
           // 与 user(会话)正交。团队模式=team:${teamId}(成员共享)，个人模式=user:${userId}(独立)。
+          // **关键**：顶层 host_user_id 会被 new-api 的 GeneralOpenAIRequest 固定结构体丢弃（无该字段、
+          // 无兜底 map）→ 到 facade 恒空 → 所有 Tanva 用户塌缩同一 owner 目录、记忆互串。故主通道走
+          // metadata.host_user_id（OpenAI 标准字段，new-api 结构体有 Metadata、原样透传）；顶层保留只为
+          // 直连 facade(绕过 new-api)的调用方兜底。facade 优先读 metadata、回落顶层。
+          metadata: { host_user_id: hostScopeId },
           host_user_id: hostScopeId,
           messages: this.buildMessages(dto),
         }),
