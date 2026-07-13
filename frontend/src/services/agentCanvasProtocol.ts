@@ -560,6 +560,81 @@ export function rewritePatchForPreferredVideo(
   };
 }
 
+// ── 图片优选：与视频对称的确定性改写 ──
+// 生图节点类型全集（imagePro 是承载/展示、非生成，不含）
+export const IMAGE_GEN_NODE_TYPES = new Set([
+  "generate",
+  "generate4",
+  "generatePro",
+  "generatePro4",
+  "generateRef",
+  "nano2",
+  "gptImage2",
+  "seedream5",
+  "midjourneyV7",
+  "niji7",
+]);
+
+// 用户消息点名的图片模型 → nodeType（没点名返 null）。nano banana 家族统一
+// 落 generatePro（档位由 modelProvider 区分，此处不细分）。
+const REQUESTED_IMAGE_MODEL_RULES: Array<[RegExp, string]> = [
+  [/nano\s*banana|banana/i, "generatePro"],
+  [/midjourney/i, "midjourneyV7"],
+  [/niji/i, "niji7"],
+  [/seedream/i, "seedream5"],
+  // 图片语境下 gpt 一律指 GPT Image（含"gpt生图"裸 gpt，match 用户点名意图）
+  [/gpt/i, "gptImage2"],
+];
+
+export function detectRequestedImageModel(text: string): string | null {
+  for (const [re, nodeType] of REQUESTED_IMAGE_MODEL_RULES) {
+    if (re.test(text)) return nodeType;
+  }
+  return null;
+}
+
+// data 白名单：改写图片节点时只保留通用键，厂商专属参数丢弃防污染。
+const IMAGE_REWRITE_DATA_WHITELIST = [
+  "label",
+  "aspectRatio",
+  "presetPrompt",
+  "prompts",
+] as const;
+
+// 把 addNode 的图片生成节点强制改写成 targetType（用户优选/点名）。
+// generatePro 系（generatePro/generatePro4）且给了 modelProvider 则写入 data.modelProvider
+// （banana 档位 Fast/Pro/Ultra）。非生图节点/同类型/非 addNode 原样返回。
+const GENERATE_PRO_TYPES = new Set(["generatePro", "generatePro4"]);
+export function rewritePatchToImageType(
+  patch: AgentFlowPatch,
+  targetType: string,
+  modelProvider?: string
+): AgentFlowPatch {
+  if (patch.op !== "addNode") return patch;
+  const node = patch.node;
+  if (
+    !node ||
+    !IMAGE_GEN_NODE_TYPES.has(node.type) ||
+    node.type === targetType
+  ) {
+    return patch;
+  }
+  const data = (
+    node.data && typeof node.data === "object" ? node.data : {}
+  ) as Record<string, unknown>;
+  const keptData: Record<string, unknown> = {};
+  for (const key of IMAGE_REWRITE_DATA_WHITELIST) {
+    if (data[key] !== undefined) keptData[key] = data[key];
+  }
+  if (modelProvider && GENERATE_PRO_TYPES.has(targetType)) {
+    keptData.modelProvider = modelProvider;
+  }
+  return {
+    ...patch,
+    node: { ...node, type: targetType, data: keptData },
+  };
+}
+
 export function buildManifestSystemMessage(): string {
   return `<capability_manifest>${JSON.stringify(TANVA_CAPABILITY_MANIFEST)}</capability_manifest>`;
 }

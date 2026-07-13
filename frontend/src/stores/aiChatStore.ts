@@ -34,12 +34,12 @@ import {
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
   VIDEO_TYPES_REQUIRE_IMAGE,
-  mentionsVideoModel,
-  detectVideoImageWorkflow,
   detectRequestedVideoModel,
+  detectRequestedImageModel,
   getVideoModelLabel,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
+  rewritePatchToImageType,
   type XiaotPreferredImageModel,
   type XiaotPreferredVideoModel,
 } from "@/services/agentCanvasProtocol";
@@ -8492,6 +8492,7 @@ export const useAIChatStore = create<AIChatState>()(
           let patchCount = 0;
           let streamErrored = false;
           let videoRewriteToasted = false;
+          let imageRewriteToasted = false;
           // 缺图对账：本轮新建的「纯图生」视频节点 + 已连入图边的目标节点
           const addedImageVideoNodes = new Map<
             string,
@@ -8524,35 +8525,30 @@ export const useAIChatStore = create<AIChatState>()(
                 }；视频生成优先用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9），但纯文本→视频若该模型仅支持图生，请改用支持文生的模型（见 notes 视频两路径）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
               ],
             };
-            // 视频节点改写目标解析，优先级：
-            // ① 用户点名具体模型 → 强制对齐到该模型（最高优先级，压过小T选择与
-            //    优选偏好，防小T建错版本，如说 seedance-2 却建 doubaoVideo/1.5）
-            // ② 明确要求图生·高质量 / 泛提到模型词但没点名具体 → 不改，保留小T编排
-            // ③ 普通纯文本 → 优选支持文生用优选；优选仅图生(seedance/wan27)→
-            //    其 textFallback 文生模型，避免把纯文本任务改成缺图节点报错
+            // 视频节点改写目标解析（用户明确选择 = 强制对齐，高于小T自选）：
+            // ① 用户消息当轮点名具体模型 → 对齐到它（最高）
+            // ② 否则 → 用户在优选选择器里选的视频模型（强制，不再 textFallback
+            //    降级；用户既然设了优选就是要用它，即便是图生模型 SD2 也不偷换成
+            //    文生模型——缺图由缺图对账 toast 提示，属正确行为）
             const requestedVideoType = detectRequestedVideoModel(input);
-            let rewriteTargetType: string | null = null;
-            let rewriteTargetLabel: string = preferredVideo.label;
-            let rewriteIsAlignment = false; // toast 措辞区分：对齐点名 vs 优选
-            if (requestedVideoType) {
-              rewriteTargetType = requestedVideoType;
-              rewriteTargetLabel = getVideoModelLabel(requestedVideoType);
-              rewriteIsAlignment = true;
-            } else if (
-              !mentionsVideoModel(input) &&
-              !detectVideoImageWorkflow(input)
-            ) {
-              if (preferredVideo.textToVideo) {
-                rewriteTargetType = preferredVideo.nodeType;
-                rewriteTargetLabel = preferredVideo.label;
-              } else if (preferredVideo.textFallback) {
-                rewriteTargetType = preferredVideo.textFallback;
-                const fb = XIAOT_PREFERRED_VIDEO_MODELS.find(
-                  (o) => o.nodeType === preferredVideo.textFallback
-                );
-                rewriteTargetLabel = fb?.label ?? preferredVideo.textFallback;
-              }
-            }
+            const rewriteTargetType: string =
+              requestedVideoType ?? preferredVideo.nodeType;
+            const rewriteTargetLabel: string = requestedVideoType
+              ? getVideoModelLabel(requestedVideoType)
+              : preferredVideo.label;
+            // 图片节点改写目标解析（对称视频）：点名 > 优选，强制对齐
+            const requestedImageType = detectRequestedImageModel(input);
+            const imgTargetType: string =
+              requestedImageType ?? preferredImage.nodeType;
+            // 仅当目标是优选本身时带上 banana 档位（modelProvider）；点名场景
+            // 走目标节点默认档位
+            const imgTargetProvider =
+              !requestedImageType && preferredImage.extra
+                ? preferredImage.extra
+                : undefined;
+            const imgTargetLabel: string = requestedImageType
+              ? requestedImageType
+              : preferredImage.label;
             // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
             const styleAnchor = state.xiaotStyleAnchor;
             let generationContract:
@@ -8620,36 +8616,59 @@ export const useAIChatStore = create<AIChatState>()(
                   content: assembled,
                 }));
               } else if (event.type === "flow_patch") {
-                // 确定性兜底：优选 note 是提示级约束，小T仍可能跟随画布惯性
-                // 选非优选/或对纯文本任务选纯图生模型。rewriteTargetType 已按
-                // 「点名/图生工作流不改；纯文本→优选支持文生用优选，否则用文生
-                // 回退」解析好；只改本地不回传小T（idMap 以 agent id 为键，type
-                // 改写不影响 id 映射）
+                // 确定性改写：用户明确选择（消息点名/优选选择器）= 强制指令，
+                // 高于小T自选。视频/图片对称——addNode 落画布前把生成节点类型
+                // 强制对齐到目标（视频=优选视频/点名，图片=优选图片/点名）。
+                // 只改本地不回传小T（idMap 以 agent id 为键，type 改写不影响 id）。
                 let patch: unknown = event.data?.patch;
-                if (rewriteTargetType) {
-                  const parsed = parseAgentFlowPatch(patch);
-                  if (parsed) {
-                    const rewritten = rewritePatchForPreferredVideo(
-                      parsed,
+                const parsedForRewrite = parseAgentFlowPatch(patch);
+                if (parsedForRewrite) {
+                  // 视频节点强制对齐
+                  const vRewritten = rewritePatchForPreferredVideo(
+                    parsedForRewrite,
+                    rewriteTargetType
+                  );
+                  if (vRewritten !== parsedForRewrite) {
+                    console.info(
+                      "[xiaot] 视频节点强制对齐 →",
                       rewriteTargetType
                     );
-                    if (rewritten !== parsed) {
+                    patch = vRewritten;
+                    if (!videoRewriteToasted) {
+                      videoRewriteToasted = true;
+                      try {
+                        window.dispatchEvent(
+                          new CustomEvent("toast", {
+                            detail: {
+                              message: `已用你选的 ${rewriteTargetLabel}`,
+                              type: "success",
+                            },
+                          })
+                        );
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  } else {
+                    // 图片节点强制对齐（与视频互斥：一个 addNode 只可能是其一）
+                    const iRewritten = rewritePatchToImageType(
+                      parsedForRewrite,
+                      imgTargetType,
+                      imgTargetProvider
+                    );
+                    if (iRewritten !== parsedForRewrite) {
                       console.info(
-                        rewriteIsAlignment
-                          ? "[xiaot] 对齐到用户点名的视频模型 →"
-                          : "[xiaot] 按优选模型改写视频节点类型 →",
-                        rewriteTargetType
+                        "[xiaot] 图片节点强制对齐 →",
+                        imgTargetType
                       );
-                      patch = rewritten;
-                      if (!videoRewriteToasted) {
-                        videoRewriteToasted = true;
+                      patch = iRewritten;
+                      if (!imageRewriteToasted) {
+                        imageRewriteToasted = true;
                         try {
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message: rewriteIsAlignment
-                                  ? `已对齐到你指定的 ${rewriteTargetLabel}`
-                                  : `已按优选使用 ${rewriteTargetLabel}`,
+                                message: `已用你选的 ${imgTargetLabel}`,
                                 type: "success",
                               },
                             })
