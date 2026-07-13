@@ -34,8 +34,12 @@ import {
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
   VIDEO_TYPES_REQUIRE_IMAGE,
+  VIDEO_NODE_TYPES,
+  VIDEO_MAX_DURATION,
+  videoDurationField,
   detectRequestedVideoModel,
   detectRequestedImageModel,
+  detectVideoDuration,
   getVideoModelLabel,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
@@ -8549,6 +8553,8 @@ export const useAIChatStore = create<AIChatState>()(
             const imgTargetLabel: string = requestedImageType
               ? requestedImageType
               : preferredImage.label;
+            // 用户消息里的视频时长（如 15s）→ 建视频节点时确定性注入
+            const detectedDuration = detectVideoDuration(input);
             // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
             const styleAnchor = state.xiaotStyleAnchor;
             let generationContract:
@@ -8678,6 +8684,39 @@ export const useAIChatStore = create<AIChatState>()(
                         }
                       }
                     }
+                  }
+                }
+                // 视频时长确定性注入（用户显式时长 > 小T给的 > 节点默认）：
+                // 用最终 type 定字段名与上限，clamp 到模型上限。放在 rewrite 后、
+                // 对账前，直接写进 patch.node.data（clipDuration/duration 已在
+                // rewrite 白名单，不会被剥离；applier forced/defaults 不含时长键，
+                // 注入值得以保留）。
+                if (detectedDuration != null) {
+                  const dp = parseAgentFlowPatch(patch);
+                  if (
+                    dp?.op === "addNode" &&
+                    dp.node &&
+                    VIDEO_NODE_TYPES.has(dp.node.type)
+                  ) {
+                    const field = videoDurationField(dp.node.type);
+                    const cap = VIDEO_MAX_DURATION[dp.node.type] ?? 15;
+                    const clamped = Math.min(detectedDuration, cap);
+                    if (detectedDuration > cap) {
+                      console.info(
+                        `[xiaot] ${detectedDuration}s 超 ${dp.node.type} 上限${cap}，clamp`
+                      );
+                    }
+                    const baseData =
+                      dp.node.data && typeof dp.node.data === "object"
+                        ? (dp.node.data as Record<string, unknown>)
+                        : {};
+                    patch = {
+                      ...dp,
+                      node: {
+                        ...dp.node,
+                        data: { ...baseData, [field]: clamped },
+                      },
+                    };
                   }
                 }
                 // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标

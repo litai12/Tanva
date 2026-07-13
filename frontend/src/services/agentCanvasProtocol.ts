@@ -366,6 +366,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "视频合成：videoCompose 的 video 输入单 handle 接多条——把多段视频输出都连进去；先各自生成视频再合成",
     "分镜编排：storyboardSplit 输入剧本文本、输出多个 promptN，每个 promptN 接一个生成节点，是多镜头 TVC 的编排入口",
     "图像处理链：analysis 需连图才能分析；imageGrid 连多图；imageSplit/imageGrid 输出可接后续生成",
+    "视频时长：用户说的时长（如15s）建节点时设到 clipDuration（wan 系是 duration）；单条上限 Seedance/Wan 15秒、可灵约10秒、Sora2 最长25秒、ViduQ3 约16秒，超上限需用 storyboardSplit 分多镜头再 videoCompose 合成",
   ],
 };
 
@@ -443,6 +444,47 @@ const VIDEO_IMAGE_WORKFLOW_RE =
 
 export function detectVideoImageWorkflow(text: string): boolean {
   return VIDEO_IMAGE_WORKFLOW_RE.test(text);
+}
+
+// 从用户消息提取视频时长秒数（如 15s/15秒/15 秒/时长15/15-second）。
+// 要求后缀 s/秒/second，故不会误伤分辨率数字（720p/1080P 不含该后缀）。
+// 取第一个合理值（1-60 秒），越界返 null。
+export function detectVideoDuration(text: string): number | null {
+  const m = text.match(/(\d{1,3})\s*(?:s\b|秒|-?second)/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= 60) return n;
+  }
+  return null;
+}
+
+// 各视频模型单条时长上限（秒）。注入时 clamp：min(detected, 上限 ?? 15)。
+// 核实自各 Node 时长选择器上限（GenericVideoNode getDurationOptions）：
+// seedance2.0/seed=15、doubao(1.5-pro默认)=12、sora2=25、kling系=10、
+// wan27=15、viduQ3=16。查不准的 stub 给保守值。
+export const VIDEO_MAX_DURATION: Record<string, number> = {
+  seedance20Video: 15,
+  seedVideo: 15,
+  doubaoVideo: 12,
+  sora2Video: 25,
+  kling26Video: 10,
+  klingVideo: 10,
+  kling30Video: 10,
+  klingO1Video: 10,
+  wan27Video: 15,
+  wan26: 15,
+  viduQ3: 16,
+  viduVideo: 8,
+};
+
+// 各视频模型承载时长的 data 字段名：仅 Wan27 是标准节点用 duration，其余
+// (Seedance/Doubao/Seed/Kling/Vidu 都走 GenericVideoNode) 用 clipDuration。缺省 clipDuration。
+export const VIDEO_DURATION_FIELD: Record<string, string> = {
+  wan27Video: "duration",
+};
+
+export function videoDurationField(nodeType: string): string {
+  return VIDEO_DURATION_FIELD[nodeType] ?? "clipDuration";
 }
 
 // 用户显式点名的视频模型 → nodeType（没点名返 null）。点名=最高优先级，
@@ -529,6 +571,7 @@ const VIDEO_REWRITE_DATA_WHITELIST = [
   "aspectRatio",
   "resolution",
   "clipDuration",
+  "duration", // wan 系时长字段，改写时保留
   // 保留用户的 seedance 模式意图（首尾帧/智能帧等）；对齐后 applier 缺省填充
   // 只在此键缺失时才补 first_frame，故保留它不会被误覆盖
   "seedanceMode",
