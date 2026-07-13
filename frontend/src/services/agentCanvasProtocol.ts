@@ -65,6 +65,13 @@ export const TANVA_CAPABILITY_MANIFEST = {
       outputs: [{ handle: "text", emits: "text" }],
     },
     {
+      type: "textPrompt",
+      label: "提示词",
+      purpose: "生成类节点的提示词载体：data.text 写提示词，输出连到生成节点的 text 输入",
+      params: { text: { type: "string", description: "提示词正文" } },
+      outputs: [{ handle: "text", emits: "text" }],
+    },
+    {
       type: "image",
       label: "图片",
       purpose: "承载一张已有图片的画布节点（可连线；用 addNode 创建并在 data.imageUrl 给图）",
@@ -132,10 +139,11 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "seedance20Video",
       label: "Seedance2.0 视频",
-      purpose: "即梦 Seedance2.0：参考图/首尾帧/智能帧全能，可生成音频",
+      purpose: "即梦 Seedance2.0：参考图/首尾帧/智能帧全能，可生成音频（未指定视频模型时的默认选择）",
       params: {
         seedanceMode: { type: "string", enum: ["reference_images", "start_end", "first_frame", "smart_frames"] },
         resolution: { type: "string", enum: ["720P", "1080P"] },
+        aspectRatio: { type: "string", enum: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"], description: "缺省 16:9" },
         generateAudio: { type: "boolean" },
       },
       inputs: [
@@ -195,7 +203,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "kling30Video", purpose: "可灵3.0 视频" },
     { type: "viduVideo", purpose: "Vidu Q2 视频" },
     { type: "viduQ3", purpose: "Vidu Q3 Pro 视频" },
-    { type: "doubaoVideo", purpose: "Seedance1.5 Pro 视频" },
+    { type: "doubaoVideo", purpose: "Seedance 1.5 Pro（旧版；用户未指定模型时不要选它，用 seedance20Video）" },
     { type: "seedVideo", purpose: "Seed2.0 Lite 视频" },
     { type: "wan26", purpose: "Wan2.6 视频" },
     { type: "wan2R2V", purpose: "Wan2 参考图生视频" },
@@ -210,7 +218,9 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "placeImage 会把图片放到画布绘图层（非节点、不可连线）；需要可连线的图片节点请用 addNode {type:'image', data:{imageUrl}}",
     "操作已有节点时 id 必须来自 canvas_context.nodes（真实 id）；你此前轮次自造的节点 id 仅在同一聊天会话内有效",
     "生图节点 data.modelProvider 三档 banana-2.5/banana/banana-3.1（Fast/Pro/Ultra），参考图上限分别 3/11/14",
-    "除 generatePro/generatePro4（用 data.prompts 自足）外，其余生图与全部视频节点必须先建文本节点（textChat 或 textNote）并 connectEdge 其 text 输出到目标节点的 text 输入（seedream5 的文本输入 handle 名是 prompt），再 runNode",
+    "生成类节点（除 generatePro/Pro4）的提示词必须由 textPrompt 节点承载：创建生成节点时必须同步创建 textPrompt（data.text 写提示词）并 connectEdge {sourceHandle:'text', targetHandle:'text'}（seedream5 的 targetHandle 是 'prompt'）——即使用户说先不运行也要完成连线",
+    "用户未指定视频模型/参数时，默认创建 seedance20Video（Seedance 2.0），resolution 720P、aspectRatio 16:9",
+    "textChat 输出 handle 是 text；textNote 输出 handle 是 text-right-out（一般不要用 textNote 做提示词源，用 textPrompt）",
     "视频节点输出统一为 video handle；生图输出统一为 img handle；第二层清单只列了型号名，参数走节点默认值，需要精细控制时优先用第一层节点",
   ],
 };
