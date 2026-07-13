@@ -43,12 +43,17 @@ export class XiaotAgentService {
     return this.config.get<string>('XIAOT_AGENT_MODEL') || 'xiaot-agent';
   }
 
-  /** 每 1000 usage 单位（total_tokens）折多少积分。 */
+  /**
+   * 每 1000 usage 单位折多少 Tanva 积分。
+   * 注意：xiaot-agent 的 usage.total_tokens 不是 token 数，而是**小T侧实扣的 TapCanvas 积分**
+   * （单回合封顶其预扣额，默认 20）。默认 1000 即两边积分 1:1；上线前按实际汇率调
+   * XIAOT_AGENT_CREDITS_PER_1K（例如 Tanva 积分是 TapCanvas 的 2 倍价值则设 500）。
+   */
   private get creditsPerKUnit(): number {
     const parsed = Number(
-      this.config.get<string>('XIAOT_AGENT_CREDITS_PER_1K') || '10',
+      this.config.get<string>('XIAOT_AGENT_CREDITS_PER_1K') || '1000',
     );
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 10;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
   }
 
   /** 上游没给 usage 时的兜底整次计费。 */
