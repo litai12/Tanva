@@ -17,10 +17,46 @@ const toast = (message: string, type: "error" | "warning" | "success" = "error")
 const idMap = new Map<string, string>();
 const realId = (id: string): string => idMap.get(id) ?? id;
 
+// 串行执行队列：op 与 op 之间必须让出一次 React 提交渲染。
+// 原因：FlowOverlay 用 useNodesState，addNode 的 setNodes 要等重渲染后才进
+// ReactFlow store；紧跟着的 connectEdge（isValidConnection）与 runNode 都读
+// rf.getNodes()，同一 tick 看不到新节点会静默 no-op。且 createNodeAtWorldCenter
+// 的节点 id 是 `${type}_${Date.now()}`，同毫秒连建两个同类型节点会撞 id。
+// 让步用双 requestAnimationFrame（第一帧排在本次提交之后，第二帧确保渲染已 flush）；
+// 无 rAF 环境（如测试）退化为 setTimeout 60ms。
+let chain: Promise<void> = Promise.resolve();
+let session = 0;
+
+const yieldToRender = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    } else {
+      setTimeout(resolve, 60);
+    }
+  });
+
+const enqueue = (task: () => void): void => {
+  const taskSession = session;
+  chain = chain
+    .then(async () => {
+      // 会话已重置（resetAgentPatchSession）则丢弃旧队列中未执行的操作
+      if (taskSession !== session) return;
+      task();
+      await yieldToRender();
+    })
+    .catch((err) => {
+      console.warn("[agentPatchApplier] 队列任务执行失败:", err);
+    });
+};
+
 export function resetAgentPatchSession(): void {
   idMap.clear();
+  session += 1;
+  chain = Promise.resolve();
 }
 
+// 校验同步返回（false = patch 无法识别/缺参），实际画布操作串行入队异步执行。
 export function applyAgentPatch(raw: unknown): boolean {
   const p = parseAgentFlowPatch(raw);
   if (!p) {
@@ -32,79 +68,95 @@ export function applyAgentPatch(raw: unknown): boolean {
     case "addNode": {
       const node = p.node!;
       const agentId = node.id;
-      window.dispatchEvent(
-        new CustomEvent("flow:agent-add-node", {
-          detail: {
-            type: node.type,
-            data: node.data,
-            position: node.position,
-            done: (createdId: string | null) => {
-              if (createdId) {
-                idMap.set(agentId, createdId);
-              } else {
-                toast(`节点类型不可用：${node.type}`);
-              }
+      enqueue(() => {
+        window.dispatchEvent(
+          new CustomEvent("flow:agent-add-node", {
+            detail: {
+              type: node.type,
+              data: node.data,
+              position: node.position,
+              done: (createdId: string | null) => {
+                if (createdId) {
+                  idMap.set(agentId, createdId);
+                } else {
+                  toast(`节点类型不可用：${node.type}`);
+                }
+              },
             },
-          },
-        })
-      );
+          })
+        );
+      });
       return true;
     }
     case "updateNodeData": {
-      window.dispatchEvent(
-        new CustomEvent("flow:updateNodeData", {
-          detail: { id: realId(p.id!), patch: p.patch },
-        })
-      );
+      const { id, patch } = p;
+      enqueue(() => {
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: { id: realId(id!), patch },
+          })
+        );
+      });
       return true;
     }
     case "connectEdge": {
-      window.dispatchEvent(
-        new CustomEvent("flow:agent-connect-edge", {
-          detail: {
-            source: realId(p.source!),
-            target: realId(p.target!),
-            sourceHandle: p.sourceHandle ?? null,
-            targetHandle: p.targetHandle ?? null,
-          },
-        })
-      );
+      const { source, target, sourceHandle, targetHandle } = p;
+      enqueue(() => {
+        window.dispatchEvent(
+          new CustomEvent("flow:agent-connect-edge", {
+            detail: {
+              source: realId(source!),
+              target: realId(target!),
+              sourceHandle: sourceHandle ?? null,
+              targetHandle: targetHandle ?? null,
+            },
+          })
+        );
+      });
       return true;
     }
     case "focusNode": {
-      window.dispatchEvent(
-        new CustomEvent("flow:focus-node", { detail: { id: realId(p.id!) } })
-      );
+      const { id } = p;
+      enqueue(() => {
+        window.dispatchEvent(
+          new CustomEvent("flow:focus-node", { detail: { id: realId(id!) } })
+        );
+      });
       return true;
     }
     case "runNode": {
-      window.dispatchEvent(
-        new CustomEvent("flow:agent-run-node", { detail: { id: realId(p.id!) } })
-      );
+      const { id } = p;
+      enqueue(() => {
+        window.dispatchEvent(
+          new CustomEvent("flow:agent-run-node", { detail: { id: realId(id!) } })
+        );
+      });
       return true;
     }
     case "placeImage": {
       const url = String(p.url || "").trim();
       if (!url) return false;
       const fileName = (p.name || "agent-image").trim() || "agent-image";
-      // detail 形状照素材库「应用到画布」惯例（MaterialLibraryPanel applyAssetToCanvas）：
-      // imageData 传 payload 对象（url/src/remoteUrl），每次全新 placementId 防去重覆盖。
-      const placementId = `agent-image-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-      window.dispatchEvent(
-        new CustomEvent("triggerQuickImageUpload", {
-          detail: {
-            imageData: {
-              id: placementId,
-              url,
-              src: url,
-              remoteUrl: url,
+      enqueue(() => {
+        // detail 形状照素材库「应用到画布」惯例（MaterialLibraryPanel applyAssetToCanvas）：
+        // imageData 传 payload 对象（url/src/remoteUrl），每次全新 placementId 防去重覆盖。
+        const placementId = `agent-image-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: {
+                id: placementId,
+                url,
+                src: url,
+                remoteUrl: url,
+                fileName,
+              },
               fileName,
+              operationType: "manual",
             },
-            fileName,
-            operationType: "manual",
-          },
-        })
-      );
+          })
+        );
+      });
       return true;
     }
     default:

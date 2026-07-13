@@ -75,7 +75,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "image",
       label: "图片",
-      purpose: "承载一张已有图片（placeImage 的落点，或引用画布已有素材）",
+      purpose: "承载一张已有图片的画布节点（可连线；用 addNode 创建并在 data.imageUrl 给图）",
       params: { imageUrl: { type: "string" }, label: { type: "string" } },
       outputs: [{ handle: "image", emits: "image" }],
     },
@@ -83,6 +83,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
   notes: [
     "canvas_context.nodes 里的 id 是真实节点 id，操作已有节点必须用它",
     "addNode 的 position 缺省时宿主会自动排布",
+    "connectEdge 必须同时提供 sourceHandle 与 targetHandle（用节点清单中 inputs/outputs 声明的 handle 名），缺失会被画布拒绝",
+    "placeImage 会把图片放到画布绘图层（非节点、不可连线）；需要可连线的图片节点请用 addNode {type:'image', data:{imageUrl}}",
   ],
 };
 
