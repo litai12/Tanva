@@ -25,7 +25,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 
 const cardShellClass =
-  "mt-2 rounded-lg border border-white/35 bg-white/5 px-2.5 py-2 text-xs text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-[2px]";
+  "mt-2 rounded-lg border border-solid border-slate-300 bg-slate-50/80 px-2.5 py-2 text-xs text-slate-700 shadow-sm dark:border-white/20 dark:bg-white/5 dark:text-slate-200 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]";
 
 function ChoicesCard({
   payload,
@@ -55,7 +55,7 @@ function ChoicesCard({
   return (
     <div className={cardShellClass}>
       {question && (
-        <div className='mb-1.5 font-medium text-slate-800'>{question}</div>
+        <div className='mb-1.5 font-medium text-slate-800 dark:text-slate-100'>{question}</div>
       )}
       <div className='flex flex-col gap-1'>
         {options.map((option, idx) => (
@@ -65,15 +65,15 @@ function ChoicesCard({
             disabled={disabled}
             onClick={() => onSend(option.label)}
             className={cn(
-              "rounded-md border border-white/30 bg-white/10 px-2.5 py-1.5 text-left transition-colors",
+              "rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1.5 text-left transition-colors dark:border-white/15 dark:bg-white/10",
               disabled
                 ? "cursor-not-allowed opacity-50"
-                : "hover:bg-white/30 hover:border-white/50"
+                : "hover:border-slate-400 hover:bg-slate-100 dark:hover:border-white/40 dark:hover:bg-white/20"
             )}
           >
-            <span className='font-medium text-slate-800'>{option.label}</span>
+            <span className='font-medium text-slate-800 dark:text-slate-100'>{option.label}</span>
             {option.description && (
-              <span className='ml-1.5 text-[11px] text-slate-500'>
+              <span className='ml-1.5 text-[11px] text-slate-500 dark:text-slate-400'>
                 {option.description}
               </span>
             )}
@@ -128,21 +128,21 @@ function MediaCard({ payload }: { payload: unknown }) {
                 preload='metadata'
                 src={item.url}
                 poster={item.thumbnailUrl}
-                className='w-full max-w-full rounded-md border border-white/30'
+                className='w-full max-w-full rounded-md border border-solid border-slate-200 dark:border-white/15'
               />
             ) : (
               <img
                 src={item.thumbnailUrl || item.url}
                 alt={item.title || "小T媒体"}
                 loading='lazy'
-                className='w-full max-w-full cursor-pointer rounded-md border border-white/30 object-cover'
+                className='w-full max-w-full cursor-pointer rounded-md border border-solid border-slate-200 dark:border-white/15 object-cover'
                 onClick={() =>
                   window.open(item.url, "_blank", "noopener,noreferrer")
                 }
               />
             )}
             {item.title && (
-              <div className='mt-0.5 truncate text-[11px] text-slate-500'>
+              <div className='mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400'>
                 {item.title}
               </div>
             )}
@@ -191,10 +191,10 @@ export default function XiaotCards({
               disabled={disabled}
               onClick={() => onSend(chip)}
               className={cn(
-                "rounded-full border border-white/35 bg-white/15 px-2.5 py-1 text-[11px] text-slate-700 transition-colors",
+                "rounded-full border border-solid border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-700 transition-colors dark:border-white/25 dark:bg-white/15 dark:text-slate-200",
                 disabled
                   ? "cursor-not-allowed opacity-50"
-                  : "hover:bg-white/35 hover:border-white/55"
+                  : "hover:border-slate-400 hover:bg-slate-100 dark:hover:border-white/45 dark:hover:bg-white/25"
               )}
             >
               {chip}
