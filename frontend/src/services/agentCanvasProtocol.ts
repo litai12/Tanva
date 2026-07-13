@@ -164,6 +164,14 @@ export const TANVA_CAPABILITY_MANIFEST = {
       outputs: [{ handle: "video", emits: "video" }],
     },
     {
+      type: "nano2",
+      label: "Nano Banana 2",
+      purpose: "单图生成（banana-3.1 家族）；需连 text 边供提示词",
+      params: { presetPrompt: { type: "string", description: "前缀提示词（可选）" } },
+      inputs: [{ handle: "text" }, { handle: "img", accepts: "image" }],
+      outputs: [{ handle: "img", emits: "image" }],
+    },
+    {
       type: "wan27Video",
       label: "Wan2.7 视频",
       purpose: "阿里 Wan2.7：首帧图+音频驱动",
@@ -182,7 +190,6 @@ export const TANVA_CAPABILITY_MANIFEST = {
     { type: "generate", purpose: "单图生成，需连 text 边供提示词（presetPrompt 仅作前缀）" },
     { type: "generate4", purpose: "四宫格生成，需连 text 边供提示词" },
     { type: "generateRef", purpose: "参考图重绘" },
-    { type: "nano2", purpose: "Nano Banana2 单图生成" },
     { type: "gptImage2", purpose: "GPT 生图" },
     { type: "klingVideo", purpose: "可灵2.1 视频" },
     { type: "kling30Video", purpose: "可灵3.0 视频" },
