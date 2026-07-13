@@ -15465,14 +15465,23 @@ function FlowInner() {
           audioUrl: data.audioUrl,
         };
       });
+    const edgesSummary = rf.getEdges().map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle ?? null,
+      targetHandle: e.targetHandle ?? null,
+    }));
     try {
       window.dispatchEvent(
-        new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+        new CustomEvent("flow:nodes-snapshot", {
+          detail: { nodes: summary, edges: edgesSummary },
+        })
       );
     } catch {
       /* ignore */
     }
-  }, [nodes]);
+  }, [nodes, rf]);
 
   // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
   React.useEffect(() => {
@@ -15500,9 +15509,18 @@ function FlowInner() {
             audioUrl: data.audioUrl,
           };
         });
+      const edgesSummary = rf.getEdges().map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+      }));
       try {
         window.dispatchEvent(
-          new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+          new CustomEvent("flow:nodes-snapshot", {
+            detail: { nodes: summary, edges: edgesSummary },
+          })
         );
       } catch {
         /* ignore */
