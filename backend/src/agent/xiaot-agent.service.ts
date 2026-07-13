@@ -134,7 +134,10 @@ export class XiaotAgentService {
           stream: true,
           // OpenAI 流式 usage 惯例：不带这个经 new-api 转发时 usage 终帧可能不回，计费恒走 fallback。
           stream_options: { include_usage: true },
-          user: dto.sessionId || `tanva:${userId}`,
+          user: dto.sessionId || `tanva:${userId}`, // 会话级隔离（不变）
+          // 子用户级隔离：facade 读此字段拼进传给 agents-cli 的 userId，记忆/skill/画像按此分叉。
+          // 与 user(会话)正交。userId=当前登录子用户 uuid（全局唯一，已保证跨子用户独立）。
+          host_user_id: userId,
           messages: this.buildMessages(dto),
         }),
         signal: controller.signal,
