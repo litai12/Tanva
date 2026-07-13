@@ -84,6 +84,7 @@ import {
   RealtimeAsrClient,
 } from "@/services/realtimeAsrClient";
 import type { XiaotChatModel } from "@/services/agentBackendAPI";
+import XiaotCards from "@/components/chat/XiaotCards";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -5229,6 +5230,24 @@ const AIChatDialog: React.FC = () => {
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* 小T host_ui 卡片（choices/suggestions/media）；
+                                      error 时也保留已渲染卡片 */}
+                                  <XiaotCards
+                                    cards={
+                                      (message.metadata as any)?.xiaotCards
+                                    }
+                                    suggestions={
+                                      (message.metadata as any)
+                                        ?.xiaotSuggestions
+                                    }
+                                    disabled={Boolean(
+                                      message.generationStatus?.isGenerating
+                                    )}
+                                    onSend={(text) => {
+                                      void processUserInput(text);
+                                    }}
+                                  />
                                 </div>
                               ) : null;
                               const resendInfo =

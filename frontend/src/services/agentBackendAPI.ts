@@ -27,6 +27,7 @@ export type AgentEventType =
   | "research_result"
   | "assistant_delta"
   | "flow_patch"
+  | "host_ui"
   | "final"
   | "error"
   | "done";

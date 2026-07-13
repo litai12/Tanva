@@ -8491,6 +8491,46 @@ export const useAIChatStore = create<AIChatState>()(
                     },
                   }));
                 }
+              } else if (event.type === "host_ui") {
+                // 小T交互卡片：choices/media 追加进 xiaotCards；
+                // suggestions 覆盖式写 xiaotSuggestions（始终显示最新一批）
+                const kind =
+                  typeof event.data?.kind === "string" ? event.data.kind : "";
+                const payload = event.data?.payload;
+                if (kind && payload) {
+                  if (kind === "suggestions") {
+                    const rawItems = (payload as { items?: unknown }).items;
+                    const items = Array.isArray(rawItems)
+                      ? rawItems.filter(
+                          (s): s is string =>
+                            typeof s === "string" && s.trim().length > 0
+                        )
+                      : [];
+                    get().updateMessage(aiMessage.id, (msg) => ({
+                      ...msg,
+                      metadata: {
+                        ...(msg.metadata || {}),
+                        xiaotSuggestions: items,
+                      },
+                    }));
+                  } else {
+                    get().updateMessage(aiMessage.id, (msg) => {
+                      const prevCards = Array.isArray(msg.metadata?.xiaotCards)
+                        ? (msg.metadata!.xiaotCards as Array<{
+                            kind: string;
+                            payload: unknown;
+                          }>)
+                        : [];
+                      return {
+                        ...msg,
+                        metadata: {
+                          ...(msg.metadata || {}),
+                          xiaotCards: [...prevCards, { kind, payload }],
+                        },
+                      };
+                    });
+                  }
+                }
               } else if (event.type === "final") {
                 if (
                   typeof event.message === "string" &&
