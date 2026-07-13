@@ -33,7 +33,9 @@ import {
   TANVA_CAPABILITY_MANIFEST,
   XIAOT_PREFERRED_IMAGE_MODELS,
   XIAOT_PREFERRED_VIDEO_MODELS,
+  VIDEO_TYPES_REQUIRE_IMAGE,
   mentionsVideoModel,
+  detectVideoImageWorkflow,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
   type XiaotPreferredImageModel,
@@ -42,6 +44,8 @@ import {
 import {
   applyAgentPatch,
   ensureAgentPatchSession,
+  flushAgentPatchQueue,
+  resolveAgentNodeId,
 } from "@/services/agentPatchApplier";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
@@ -8486,6 +8490,12 @@ export const useAIChatStore = create<AIChatState>()(
           let patchCount = 0;
           let streamErrored = false;
           let videoRewriteToasted = false;
+          // 缺图对账：本轮新建的「纯图生」视频节点 + 已连入图边的目标节点
+          const addedImageVideoNodes = new Map<
+            string,
+            { type: string; label: string }
+          >();
+          const imageEdgeTargets = new Set<string>();
 
           try {
             const projectId =
@@ -8509,9 +8519,27 @@ export const useAIChatStore = create<AIChatState>()(
                   preferredImage.extra
                     ? `（modelProvider=${preferredImage.extra}）`
                     : ""
-                }；视频生成一律用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
+                }；视频生成优先用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9），但纯文本→视频若该模型仅支持图生，请改用支持文生的模型（见 notes 视频两路径）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
               ],
             };
+            // 视频节点改写目标解析（改写不再恒等于 preferredVideo.nodeType）：
+            // - 用户点名模型 / 明确要求图生·高质量 → null（不改，保留小T编排）
+            // - 普通纯文本：优选支持文生→用优选；优选仅图生(seedance/wan27)→
+            //   用其 textFallback 文生模型，避免把纯文本任务改成缺图节点报错
+            let rewriteTargetType: string | null = null;
+            let rewriteTargetLabel: string = preferredVideo.label;
+            if (!mentionsVideoModel(input) && !detectVideoImageWorkflow(input)) {
+              if (preferredVideo.textToVideo) {
+                rewriteTargetType = preferredVideo.nodeType;
+                rewriteTargetLabel = preferredVideo.label;
+              } else if (preferredVideo.textFallback) {
+                rewriteTargetType = preferredVideo.textFallback;
+                const fb = XIAOT_PREFERRED_VIDEO_MODELS.find(
+                  (o) => o.nodeType === preferredVideo.textFallback
+                );
+                rewriteTargetLabel = fb?.label ?? preferredVideo.textFallback;
+              }
+            }
             // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
             const styleAnchor = state.xiaotStyleAnchor;
             let generationContract:
@@ -8580,21 +8608,22 @@ export const useAIChatStore = create<AIChatState>()(
                 }));
               } else if (event.type === "flow_patch") {
                 // 确定性兜底：优选 note 是提示级约束，小T仍可能跟随画布惯性
-                // 选非优选视频模型；用户没显式点名模型时，addNode 落画布前把
-                // 视频节点类型改写成优选类型（只改本地，不回传小T；idMap 以
-                // agent id 为键，type 改写不影响 id 映射）
+                // 选非优选/或对纯文本任务选纯图生模型。rewriteTargetType 已按
+                // 「点名/图生工作流不改；纯文本→优选支持文生用优选，否则用文生
+                // 回退」解析好；只改本地不回传小T（idMap 以 agent id 为键，type
+                // 改写不影响 id 映射）
                 let patch: unknown = event.data?.patch;
-                if (!mentionsVideoModel(input)) {
+                if (rewriteTargetType) {
                   const parsed = parseAgentFlowPatch(patch);
                   if (parsed) {
                     const rewritten = rewritePatchForPreferredVideo(
                       parsed,
-                      preferredVideo.nodeType
+                      rewriteTargetType
                     );
                     if (rewritten !== parsed) {
                       console.info(
                         "[xiaot] 按优选模型改写视频节点类型 →",
-                        preferredVideo.nodeType
+                        rewriteTargetType
                       );
                       patch = rewritten;
                       if (!videoRewriteToasted) {
@@ -8603,7 +8632,7 @@ export const useAIChatStore = create<AIChatState>()(
                           window.dispatchEvent(
                             new CustomEvent("toast", {
                               detail: {
-                                message: `已按优选使用 ${preferredVideo.label}`,
+                                message: `已按优选使用 ${rewriteTargetLabel}`,
                                 type: "success",
                               },
                             })
@@ -8613,6 +8642,31 @@ export const useAIChatStore = create<AIChatState>()(
                         }
                       }
                     }
+                  }
+                }
+                // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标
+                const finalParsed = parseAgentFlowPatch(patch);
+                if (
+                  finalParsed?.op === "addNode" &&
+                  finalParsed.node &&
+                  VIDEO_TYPES_REQUIRE_IMAGE.has(finalParsed.node.type)
+                ) {
+                  const nodeData = (finalParsed.node.data || {}) as Record<
+                    string,
+                    unknown
+                  >;
+                  const label =
+                    (typeof nodeData.label === "string" && nodeData.label) ||
+                    finalParsed.node.type;
+                  addedImageVideoNodes.set(finalParsed.node.id, {
+                    type: finalParsed.node.type,
+                    label,
+                  });
+                }
+                if (finalParsed?.op === "connectEdge" && finalParsed.target) {
+                  const th = (finalParsed.targetHandle || "").toLowerCase();
+                  if (th.includes("image") || th.includes("img")) {
+                    imageEdgeTargets.add(finalParsed.target);
                   }
                 }
                 if (applyAgentPatch(patch)) {
@@ -8696,6 +8750,39 @@ export const useAIChatStore = create<AIChatState>()(
                 }));
               }
             });
+
+            // 缺图对账（确定性）：本轮新建的纯图生视频节点若无图边连入，
+            // 说明小T选了图生模式却没给图（会报错）。这些类型无纯文生模式，
+            // 无法切模式，只能提示用户连图/让小T先出图。队列 drain 后对账，
+            // 确保 addNode/connectEdge 都已落地。
+            if (!streamErrored && addedImageVideoNodes.size > 0) {
+              try {
+                await flushAgentPatchQueue();
+                for (const [agentId, info] of addedImageVideoNodes) {
+                  if (imageEdgeTargets.has(agentId)) continue;
+                  const realNodeId = resolveAgentNodeId(agentId);
+                  console.warn(
+                    "[xiaot] 图生视频节点缺参考图:",
+                    info.type,
+                    realNodeId
+                  );
+                  try {
+                    window.dispatchEvent(
+                      new CustomEvent("toast", {
+                        detail: {
+                          message: `「${info.label}」是图生视频需要参考图：请连入一张图，或让小T先生成参考图`,
+                          type: "warning",
+                        },
+                      })
+                    );
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              } catch (reconcileError) {
+                console.warn("[xiaot] 缺图对账失败:", reconcileError);
+              }
+            }
 
             if (!streamErrored) {
               get().updateMessage(aiMessage.id, (msg) => ({

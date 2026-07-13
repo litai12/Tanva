@@ -68,6 +68,18 @@ export function ensureAgentPatchSession(key: string): void {
   sessionKey = key;
 }
 
+// 把 agent 自造 id 解析成画布真实 id（addNode 落地后经 done 回调登记）；
+// 未登记（尚未落地/非本会话）则回退原值。供缺图对账时定位真实节点。
+export function resolveAgentNodeId(agentId: string): string {
+  return realId(agentId);
+}
+
+// 等待当前已入队的所有画布操作执行完（含 addNode 的 done 回调登记 idMap）。
+// 缺图对账须在队列 drain 后进行，否则 idMap 尚未填好、节点也未真正落地。
+export function flushAgentPatchQueue(): Promise<void> {
+  return chain;
+}
+
 // 校验同步返回（false = patch 无法识别/缺参），实际画布操作串行入队异步执行。
 export function applyAgentPatch(raw: unknown): boolean {
   const p = parseAgentFlowPatch(raw);
