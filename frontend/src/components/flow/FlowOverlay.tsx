@@ -147,7 +147,7 @@ import {
 } from "@/utils/assetProxy";
 import {
   FLOW_AUTO_LAYOUT_EVENT,
-  computeAutoLayout,
+  computeTidyByCategoryLayout,
 } from "@/utils/canvasAutoLayout";
 import {
   isAssetProxyRef,
@@ -15016,25 +15016,22 @@ function FlowInner() {
       );
   }, [rf, setNodes, sanitizeNodeData]);
 
-  // 监听「一键整理」：按连线拓扑分层重排所有顶层节点（组容器作为整体单元，
-  // 其子节点相对父容器不动、随组一起移动）。整理后广播协作 + 落库 + 进撤销历史。
+  // 监听「一键整理」：按节点类别分列重排（对齐 TapCanvas tidyByCategory）。
+  // 组容器(childNodeIds 模型)作为整体单元按成员类别投票归列，成员随组同 delta 平移；
+  // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
+  // 落库由 nodes effect 的 scheduleCommit 在状态更新后自动完成。
   React.useEffect(() => {
     const handler = () => {
       const allNodes = (rf.getNodes?.() || []) as RFNode[];
       if (!allNodes.length) return;
-      // 顶层单元 = 无 parentId/parentNode 的节点（含组容器）。组内子节点跟随父容器。
-      const topLevel = allNodes.filter(
-        (n) =>
-          !(n as { parentId?: string }).parentId &&
-          !(n as { parentNode?: string }).parentNode
-      );
-      if (!topLevel.length) return;
-      const allEdges = (rf.getEdges?.() || []) as Edge[];
-      const positions = computeAutoLayout(topLevel, allEdges, {
+      const positions = computeTidyByCategoryLayout(allNodes as any, {
         getSize: (node) => {
           const { width, height } = getNodeRenderSize(node as RFNode);
           return { w: width, h: height };
         },
+        lockedIds: new Set(
+          Array.from(lockedByOthersRef.current.keys(), String)
+        ),
       });
       if (!positions.size) return;
 
@@ -15052,24 +15049,15 @@ function FlowInner() {
       try {
         const c0 = collabRef.current;
         if (c0?.connected && !applyingRemoteRef.current) {
-          const upsertNodes = Array.from(positions.entries())
-            .filter(([id]) => !lockedByOthersRef.current.has(String(id)))
-            .map(([id, position]) => ({ id, position }));
+          const upsertNodes = Array.from(positions.entries()).map(
+            ([id, position]) => ({ id, position })
+          );
           if (upsertNodes.length > 0) c0.sendPatch({ upsertNodes });
         }
       } catch {}
 
       try {
         historyService.commit("flow-auto-layout").catch(() => {});
-      } catch {}
-
-      // 落库：与拖拽结束一致，把整图快照节流写回项目内容。
-      try {
-        const ns = rfNodesToTplNodes(nodesRef.current as any, {
-          preserveRunningState: true,
-        });
-        const es = rfEdgesToTplEdges(edgesRef.current);
-        scheduleCommit(ns, es);
       } catch {}
 
       try {
@@ -15086,7 +15074,7 @@ function FlowInner() {
         FLOW_AUTO_LAYOUT_EVENT,
         handler as EventListener
       );
-  }, [rf, setNodes, scheduleCommit, rfNodesToTplNodes, rfEdgesToTplEdges]);
+  }, [rf, setNodes]);
 
   // 监听节点右键菜单：添加到个人库（上传到 OSS 后写入 store）
   React.useEffect(() => {

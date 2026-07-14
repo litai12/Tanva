@@ -1290,17 +1290,25 @@ const AIChatDialog: React.FC = () => {
   }, []);
 
   // 检测长时间停留在“准备中”的生成任务，自动终止以防彩雾长驻
+  // 超时按“最后活动时间”计（内容/进度/阶段任一变化即视为活跃），
+  // 而非消息创建时间——小T等多轮长任务否则必被误杀
+  const generationActivityRef = useRef(
+    new Map<string, { fingerprint: string; ts: number }>()
+  );
   useEffect(() => {
     if (messages.length === 0) return;
     const now = Date.now();
-    const STALE_MS = 45_000; // 45s 视为超时
+    const STALE_MS = 45_000; // 45s 无活动视为超时
     const STALE_PROGRESS = 10; // 只处理早期阶段的卡住任务
     const hydrationCutoff = hydrationTimestampRef.current;
+    const activity = generationActivityRef.current;
+    const liveIds = new Set<string>();
 
     messages.forEach((msg) => {
       if (msg.type !== "ai") return;
       const status = msg.generationStatus;
       if (!status?.isGenerating) return;
+      liveIds.add(msg.id);
 
       const ts =
         msg.timestamp instanceof Date
@@ -1310,10 +1318,19 @@ const AIChatDialog: React.FC = () => {
       // 刷新前的旧任务不再自动标记为“已停止”
       if (ts <= hydrationCutoff) return;
 
+      const fingerprint = `${msg.content?.length ?? 0}|${
+        status.progress ?? ""
+      }|${status.stage ?? ""}`;
+      const entry = activity.get(msg.id);
+      if (!entry || entry.fingerprint !== fingerprint) {
+        activity.set(msg.id, { fingerprint, ts: now });
+        return;
+      }
+
       const isPreparing =
         (status.stage && status.stage.includes("准备")) ||
         (status.progress ?? 0) <= STALE_PROGRESS;
-      const isStale = now - ts > STALE_MS;
+      const isStale = now - entry.ts > STALE_MS;
 
       if (isPreparing && isStale) {
         updateMessageStatus(msg.id, {
@@ -1323,6 +1340,11 @@ const AIChatDialog: React.FC = () => {
         });
       }
     });
+
+    // 已结束/移除的消息清掉活跃记录，防 Map 长驻
+    for (const id of Array.from(activity.keys())) {
+      if (!liveIds.has(id)) activity.delete(id);
+    }
   }, [messages, updateMessageStatus]);
 
   // 刷新后清理旧任务遗留的“任务已停止”提示
@@ -3889,7 +3911,7 @@ const AIChatDialog: React.FC = () => {
                   onClick={toggleXiaotMode}
                   aria-pressed={xiaotMode}
                   className={cn(
-                    "order-4 h-7 px-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                    "relative order-4 h-7 px-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     xiaotMode
                       ? isBlackTheme
@@ -3907,6 +3929,16 @@ const AIChatDialog: React.FC = () => {
                   )}
                 >
                   <span className='font-medium'>{lt("小T", "XiaoT")}</span>
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute -top-1.5 -right-1.5 rounded-full px-1 py-px text-[9px] font-semibold leading-none",
+                      isBlackTheme
+                        ? "bg-amber-500 text-black"
+                        : "bg-amber-500 text-white"
+                    )}
+                  >
+                    beta
+                  </span>
                 </Button>
               </div>
 

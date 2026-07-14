@@ -2822,7 +2822,18 @@ const shouldDropMessageOnHydrate = (
     return true;
   }
   if (message.type === "ai" && message.generationStatus?.error && !hasMedia) {
-    return true;
+    // 只丢占位/失败空壳；有实际正文的回复保留（如小T长任务被看门狗
+    // 误标“任务已停止”），error 由 hydrateMessageGenerationState 清掉
+    const content = (message.content || "").trim();
+    if (!content) return true;
+    if (
+      content === "小T正在思考..." ||
+      content === "正在准备处理您的请求..." ||
+      content.startsWith("处理失败")
+    ) {
+      return true;
+    }
+    return false;
   }
   return false;
 };
@@ -8617,9 +8628,18 @@ export const useAIChatStore = create<AIChatState>()(
                   typeof event.data?.delta === "string" ? event.data.delta : "";
                 if (!delta) return;
                 assembled += delta;
+                // 同步抬升进度：progress 停在初始 5 会被 AIChatDialog 的
+                // 45s 早期卡住看门狗判为“任务已停止”（多轮 agent 常超 45s）
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
                   content: assembled,
+                  generationStatus: {
+                    ...(msg.generationStatus || {}),
+                    isGenerating: true,
+                    progress: Math.max(msg.generationStatus?.progress ?? 0, 30),
+                    error: null,
+                    stage: "小T执行中",
+                  },
                 }));
               } else if (event.type === "flow_patch") {
                 // 确定性改写：用户明确选择（消息点名/优选选择器）= 强制指令，
@@ -8751,6 +8771,16 @@ export const useAIChatStore = create<AIChatState>()(
                     metadata: {
                       ...(msg.metadata || {}),
                       agentPatchCount: patchCount,
+                    },
+                    generationStatus: {
+                      ...(msg.generationStatus || {}),
+                      isGenerating: true,
+                      progress: Math.max(
+                        msg.generationStatus?.progress ?? 0,
+                        60
+                      ),
+                      error: null,
+                      stage: "小T执行中",
                     },
                   }));
                 }
