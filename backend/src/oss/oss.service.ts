@@ -576,7 +576,7 @@ export class OssService {
   async putJSON(
     key: string,
     data: unknown,
-    options?: { acl?: 'private' | 'public-read' | 'public-read-write' }
+    options?: { acl?: 'private' | 'public-read' | 'public-read-write'; throwOnError?: boolean }
   ) {
     if (!this.isOssEnabled()) {
       this.logDisabledOnce();
@@ -604,6 +604,8 @@ export class OssService {
       return key;
     } catch (error: any) {
       console.warn(`OSS putJSON failed: ${error.message || error}`);
+      // 默认吞错保持既有调用点行为;写入是权威副本的场景(如项目内容保存)必须传 throwOnError 感知失败。
+      if (options?.throwOnError) throw error;
       return key;
     }
   }

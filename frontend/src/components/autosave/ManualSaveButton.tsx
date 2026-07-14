@@ -62,9 +62,11 @@ export default function ManualSaveButton() {
 
       setManualSaving(true);
 
+      // 记录发起保存时的修改计数:保存往返期间用户继续编辑时,markSaved 不能清掉新改动的 dirty 状态。
+      const counterAtSave = store.dirtyCounter;
       const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
 
-      markSaved(result.version, result.updatedAt ?? new Date().toISOString());
+      markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterAtSave);
       void refreshProjectThumbnail(currentProjectId, { force: true });
       setProjectCache({
         projectId: currentProjectId,

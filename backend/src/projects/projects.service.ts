@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, Optional } from '@nestjs/common';
 import { CanvasSseManager } from '../team-collab/canvas-sse.manager';
 import { CollabEventBus, channelForTeam } from '../team-collab/collab-event-bus.service';
 import type { CollabEnvelope, TeamProjectsChangeAction, TeamProjectsChangedPayload } from '../team-collab/types';
@@ -20,10 +20,15 @@ export class ProjectsService {
   private readonly projectSaveQueue = new Map<string, Promise<void>>();
   private readonly projectContentFingerprint = new Map<
     string,
-    { hash: string; version: number; touchedAt: number }
+    { hash: string; version: number; touchedAt: number; nodeCount?: number }
   >();
   private readonly projectContentFingerprintTtlMs = 30 * 60 * 1000;
   private readonly projectContentFingerprintMaxEntries = 1000;
+  /** 覆盖前备份的节流:每项目至多每 N 毫秒把「即将被覆盖的旧 flow」写一条 WorkflowHistory。 */
+  private static readonly PRE_OVERWRITE_BACKUP_INTERVAL_MS = Number(
+    process.env.PROJECT_HISTORY_BACKUP_INTERVAL_MS || 10 * 60 * 1000,
+  );
+  private readonly preOverwriteBackupAt = new Map<string, number>();
 
   constructor(
     private prisma: PrismaService,
@@ -356,7 +361,7 @@ export class ProjectsService {
       // Skip duplicate saves that would write exactly the same payload again.
       if (cachedFingerprint?.hash === contentHash) {
         const currentVersion = project.contentVersion ?? cachedFingerprint.version;
-        this.rememberProjectContentFingerprint(id, contentHash, currentVersion);
+        this.rememberProjectContentFingerprint(id, contentHash, currentVersion, cachedFingerprint.nodeCount);
         this.logProjectSaveIfHot({
           projectId: id,
           userId,
@@ -401,13 +406,28 @@ export class ProjectsService {
         }
       }
 
+      const { nodeCount: incomingNodeCount, edgeCount: incomingEdgeCount } =
+        this.countFlowEntries(sanitizedContent);
+
+      // 覆盖前备份:project.json 是原地覆盖写,任何一次坏保存都会永久丢掉旧内容。
+      // 每个项目按节流(默认10分钟)、以及检测到节点数骤降时,先把当前(旧)flow 存进 WorkflowHistory 再落盘。
+      await timeStep('preOverwriteBackupMs', () =>
+        this.tryBackupFlowBeforeOverwrite(project, mainKey, incomingNodeCount),
+      );
+
       try {
-        await timeStep('ossPutMs', () => this.oss.putJSON(mainKey, sanitizedContent));
+        await timeStep('ossPutMs', () => this.oss.putJSON(mainKey, sanitizedContent, { throwOnError: true }));
       } catch (err) {
-        // 在开发环境中，OSS错误不应该阻止项目内容更新
+        if (this.oss.isEnabled()) {
+          // getContent 以 OSS 为权威(DB contentJson 只是兜底副本)。OSS 写失败还返回成功,
+          // 客户端会 markSaved 清脏,内容却永远读不回来——必须让本次保存失败,交给前端重试。
+          // eslint-disable-next-line no-console
+          console.error('[ProjectSaveOssPutFailed]', JSON.stringify({ projectId: id, userId, version: currentContentVersion }), err);
+          throw new InternalServerErrorException('云端存储写入失败，本次保存未生效，请重试');
+        }
+        // OSS 未启用(本地开发)时读取本就回落 DB contentJson,继续落库即可。
         // eslint-disable-next-line no-console
-        console.warn('OSS putJSON failed, continuing with database update:', err);
-        // 不抛出错误，继续更新数据库
+        console.warn('OSS putJSON failed (OSS disabled), continuing with database update:', err);
       }
 
       const newVersion = (project.contentVersion ?? 0) + 1;
@@ -465,7 +485,19 @@ export class ProjectsService {
       }
 
       const persistedVersion = updated2.contentVersion ?? newVersion;
-      this.rememberProjectContentFingerprint(id, contentHash, persistedVersion);
+      this.rememberProjectContentFingerprint(id, contentHash, persistedVersion, incomingNodeCount);
+      // 每次真实落盘都留一条简明日志:事故回查时能回答「白天到底有没有保存、存了什么规模」。
+      // eslint-disable-next-line no-console
+      console.log('[ProjectSave]', JSON.stringify({
+        projectId: id,
+        userId,
+        version: persistedVersion,
+        nodes: incomingNodeCount,
+        edges: incomingEdgeCount,
+        bytes: contentBytes,
+        ms: Date.now() - saveStartedAt,
+        merged: mergedFromConflict,
+      }));
       this.logProjectSaveIfHot({
         projectId: id,
         userId,
@@ -493,8 +525,11 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('项目不存在');
     const isSuperAdmin = this.isSuperAdmin(role);
     if (!isSuperAdmin && project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
-    // 超管查看他人项目时，历史记录归属项目所有者，需按所有者 userId 查询。
-    const historyUserId = isSuperAdmin ? project.userId : userId;
+    // 历史按 userId 归属:超管查所有者;团队成员查「自己 + 所有者」并集——
+    // 服务端自动备份(覆盖前快照)统一归属所有者,必须让触发保存的成员也能看到/恢复。
+    const historyUserIds = isSuperAdmin
+      ? [project.userId]
+      : Array.from(new Set([userId, project.userId]));
 
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
@@ -510,7 +545,7 @@ export class ProjectsService {
       selectWithRestoreMeta.restoredFromVersion = true;
 
       return await this.prisma.workflowHistory.findMany({
-        where: { userId: historyUserId, projectId },
+        where: { userId: { in: historyUserIds }, projectId },
         orderBy: { updatedAt: 'desc' },
         take: parsedLimit,
         select: selectWithRestoreMeta,
@@ -519,7 +554,7 @@ export class ProjectsService {
       if (this.isMissingWorkflowHistoryTable(error)) return [];
       if (this.shouldDowngradeWorkflowHistoryRestoreFields(error)) {
         return await this.prisma.workflowHistory.findMany({
-          where: { userId: historyUserId, projectId },
+          where: { userId: { in: historyUserIds }, projectId },
           orderBy: { updatedAt: 'desc' },
           take: parsedLimit,
           select: {
@@ -540,8 +575,10 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('项目不存在');
     const isSuperAdmin = this.isSuperAdmin(role);
     if (!isSuperAdmin && project.userId !== userId) await this.assertTeamProjectAccess(userId, projectId);
-    // 超管查看他人项目时，历史记录归属项目所有者，需按所有者 userId 查询。
-    const historyUserId = isSuperAdmin ? project.userId : userId;
+    // 与 listWorkflowHistory 同口径:成员可取「自己 + 所有者」的历史(自动备份归属所有者)。
+    const historyUserIds = isSuperAdmin
+      ? [project.userId]
+      : Array.from(new Set([userId, project.userId]));
 
     const updatedAt = new Date(updatedAtRaw);
     if (Number.isNaN(updatedAt.getTime())) {
@@ -549,13 +586,11 @@ export class ProjectsService {
     }
 
     try {
-      const record = await this.prisma.workflowHistory.findUnique({
+      const record = await this.prisma.workflowHistory.findFirst({
         where: {
-          userId_projectId_updatedAt: {
-            userId: historyUserId,
-            projectId,
-            updatedAt,
-          },
+          userId: { in: historyUserIds },
+          projectId,
+          updatedAt,
         },
       });
       if (!record) throw new NotFoundException('历史版本不存在');
@@ -721,13 +756,112 @@ export class ProjectsService {
     }));
   }
 
-  private rememberProjectContentFingerprint(projectId: string, hash: string, version: number): void {
+  private rememberProjectContentFingerprint(projectId: string, hash: string, version: number, nodeCount?: number): void {
     this.projectContentFingerprint.set(projectId, {
       hash,
       version,
       touchedAt: Date.now(),
+      nodeCount,
     });
     this.pruneProjectContentFingerprintCache();
+  }
+
+  private countFlowEntries(content: unknown): { nodeCount: number; edgeCount: number } {
+    const flow = (content as any)?.flow;
+    return {
+      nodeCount: Array.isArray(flow?.nodes) ? flow.nodes.length : 0,
+      edgeCount: Array.isArray(flow?.edges) ? flow.edges.length : 0,
+    };
+  }
+
+  /**
+   * 覆盖前备份:把「即将被本次保存覆盖的旧 flow」写一条 WorkflowHistory。
+   * 触发条件:距该项目上次备份超过节流间隔;或检测到节点数骤降(疑似误覆盖/清空)。
+   * 快照归属项目所有者——WorkflowHistory 列表按查询者 userId 过滤,归属所有者才能保证始终可见。
+   * 全程 best-effort,任何失败都不影响保存主链路。
+   */
+  private async tryBackupFlowBeforeOverwrite(
+    project: { id: string; userId: string; contentVersion: number | null; updatedAt: Date },
+    mainKey: string,
+    incomingNodeCount: number,
+  ): Promise<void> {
+    try {
+      const previousVersion = project.contentVersion ?? 0;
+      if (previousVersion <= 0) return; // 新项目,没有旧内容可备份
+
+      const now = Date.now();
+      const lastBackupAt = this.preOverwriteBackupAt.get(project.id) ?? 0;
+      const intervalDue = now - lastBackupAt >= ProjectsService.PRE_OVERWRITE_BACKUP_INTERVAL_MS;
+
+      let previousNodeCount = this.projectContentFingerprint.get(project.id)?.nodeCount;
+      if (previousNodeCount === undefined && !intervalDue) return; // 冷启动且未到节流点,等下一次
+      if (previousNodeCount === undefined) {
+        // 冷启动兜底:用 DB 副本估算旧节点数(可能略旧,仅用于骤降判定)
+        try {
+          const rows = await this.prisma.$queryRawUnsafe<Array<{ count: number | null }>>(
+            `SELECT CASE WHEN jsonb_typeof("contentJson"->'flow'->'nodes') = 'array'
+                    THEN jsonb_array_length("contentJson"->'flow'->'nodes') END AS count
+             FROM "Project" WHERE id = $1`,
+            project.id,
+          );
+          previousNodeCount = typeof rows?.[0]?.count === 'number' ? rows[0].count : undefined;
+        } catch {
+          previousNodeCount = undefined;
+        }
+      }
+
+      const plunge =
+        typeof previousNodeCount === 'number' &&
+        previousNodeCount >= 20 &&
+        previousNodeCount - incomingNodeCount >= 20 &&
+        incomingNodeCount < previousNodeCount * 0.5;
+
+      if (!plunge && !intervalDue) return;
+
+      let previousContent: any = null;
+      try {
+        previousContent = await this.oss.getJSON(mainKey);
+      } catch {
+        previousContent = null;
+      }
+      if (!previousContent) {
+        try {
+          const row = await this.prisma.project.findUnique({
+            where: { id: project.id },
+            select: { contentJson: true },
+          });
+          previousContent = row?.contentJson ?? null;
+        } catch {
+          previousContent = null;
+        }
+      }
+
+      // 无论是否真的写成快照,都推进节流时间戳,避免旧内容不可读时每次保存都白读一遍 OSS。
+      this.preOverwriteBackupAt.set(project.id, now);
+
+      const { nodeCount: previousFlowNodes } = this.countFlowEntries(previousContent);
+      if (!previousContent || previousFlowNodes === 0) return; // 旧内容为空,快照无意义
+
+      if (plunge) {
+        // eslint-disable-next-line no-console
+        console.warn('[ProjectPlungeGuard]', JSON.stringify({
+          projectId: project.id,
+          previousNodeCount,
+          incomingNodeCount,
+          previousVersion,
+        }));
+      }
+
+      await this.tryCreateWorkflowHistorySnapshot(
+        project.userId,
+        project.id,
+        { updatedAt: project.updatedAt, contentVersion: previousVersion },
+        previousContent,
+      );
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[ProjectPreOverwriteBackup] failed (ignored):', error);
+    }
   }
 
   private pruneProjectContentFingerprintCache(): void {
