@@ -184,7 +184,9 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
     lastError: error,
     saving: false,
     manualSaving: false,
-    dirtySince: error ? Date.now() : state.dirtySince,
+    // 保存失败且确实有未落盘修改时,保留最早的脏起点(用于「已 X 分钟未保存」告警);
+    // 反复失败不能把计时清零;clean 状态下的错误不该污染下一轮编辑的计时。
+    dirtySince: error && state.dirty ? (state.dirtySince ?? Date.now()) : state.dirtySince,
   })),
   setWarning: (warning) => set({ lastWarning: warning }),
   reset: () => set(() => createInitialState()),

@@ -133,8 +133,10 @@ export default function KeyboardShortcuts() {
             } catch {}
           }
           store.setManualSaving(true);
+          // 记录发起保存时的修改计数:保存往返期间用户继续编辑时,markSaved 不能清掉新改动的 dirty 状态。
+          const counterAtSave = store.dirtyCounter;
           const result = await projectApi.saveContent(projectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
-          store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
+          store.markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterAtSave);
           try {
             saveMonitor.push(projectId, 'kb_save_success', {
               version: result.version,
