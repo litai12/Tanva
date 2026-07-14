@@ -53,6 +53,8 @@ export default function XiaotStyleAnchorButton({
   const [assets, setAssets] = useState<MaterialAssetDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 资产库来源：个人 / 团队 —— 显式选择，不再隐式跟随当前激活团队
+  const [assetScope, setAssetScope] = useState<"personal" | "team">("personal");
 
   const activeTeam = useTeamStore((s) => s.getActiveTeam());
   const teamId =
@@ -75,16 +77,20 @@ export default function XiaotStyleAnchorButton({
       setImageUrl(anchor?.imageUrl);
       setAssetName(anchor?.assetName);
       setPickerOpen(false);
+      // 默认落在当前上下文（在团队里默认团队库，否则个人库），仍可在 picker 里切换
+      setAssetScope(teamId ? "team" : "personal");
+      setAssets([]);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadAssets = async () => {
+  const loadAssets = async (scope: "personal" | "team") => {
     setLoading(true);
     setLoadError(null);
     try {
-      const list = teamId
-        ? await listTeamMaterialAssets({ teamId, kind: "style" })
-        : await listMaterialAssets({ kind: "style" });
+      const list =
+        scope === "team" && teamId
+          ? await listTeamMaterialAssets({ teamId, kind: "style" })
+          : await listMaterialAssets({ kind: "style" });
       setAssets(list);
     } catch (err) {
       setLoadError(
@@ -99,8 +105,17 @@ export default function XiaotStyleAnchorButton({
     const next = !pickerOpen;
     setPickerOpen(next);
     if (next && assets.length === 0 && !loading) {
-      void loadAssets();
+      void loadAssets(assetScope);
     }
+  };
+
+  // 切换个人/团队来源：清空并按新来源重载（团队来源需有激活团队）
+  const handleScopeChange = (scope: "personal" | "team") => {
+    if (scope === assetScope) return;
+    if (scope === "team" && !teamId) return;
+    setAssetScope(scope);
+    setAssets([]);
+    void loadAssets(scope);
   };
 
   const handlePickAsset = (asset: MaterialAssetDto) => {
@@ -224,42 +239,70 @@ export default function XiaotStyleAnchorButton({
               </button>
             )}
             {pickerOpen && (
-              <div className='mt-2 max-h-40 overflow-y-auto rounded-md border border-slate-200 p-1.5'>
-                {loading ? (
-                  <div className='flex items-center justify-center gap-1.5 py-3 text-slate-400'>
-                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                    {lt("加载中…", "Loading…")}
-                  </div>
-                ) : loadError ? (
-                  <div className='py-3 text-center text-red-500'>
-                    {loadError}
-                  </div>
-                ) : assets.length === 0 ? (
-                  <div className='py-3 text-center text-slate-400'>
-                    {lt("暂无风格资产", "No style assets")}
-                  </div>
-                ) : (
-                  <div className='grid grid-cols-4 gap-1.5'>
-                    {assets.map((asset) => {
-                      const url = getAssetImageUrl(asset);
-                      return (
-                        <button
-                          key={asset.id}
-                          type='button'
-                          className='group relative aspect-square overflow-hidden rounded border border-slate-200 hover:border-slate-900'
-                          title={asset.name}
-                          onClick={() => handlePickAsset(asset)}
-                        >
-                          <SmartImage
-                            src={url}
-                            alt={asset.name}
-                            className='h-full w-full object-cover'
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className='mt-2 space-y-1.5'>
+                {/* 个人 / 团队 来源切换 */}
+                <div className='flex gap-1'>
+                  <button
+                    type='button'
+                    className={chipClass(assetScope === "personal")}
+                    onClick={() => handleScopeChange("personal")}
+                  >
+                    {lt("个人", "Personal")}
+                  </button>
+                  <button
+                    type='button'
+                    disabled={!teamId}
+                    title={
+                      !teamId
+                        ? lt("切换到团队后可选", "Switch to a team first")
+                        : undefined
+                    }
+                    className={cn(
+                      chipClass(assetScope === "team"),
+                      !teamId && "cursor-not-allowed opacity-40"
+                    )}
+                    onClick={() => handleScopeChange("team")}
+                  >
+                    {lt("团队", "Team")}
+                  </button>
+                </div>
+                <div className='max-h-40 overflow-y-auto rounded-md border border-slate-200 p-1.5'>
+                  {loading ? (
+                    <div className='flex items-center justify-center gap-1.5 py-3 text-slate-400'>
+                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                      {lt("加载中…", "Loading…")}
+                    </div>
+                  ) : loadError ? (
+                    <div className='py-3 text-center text-red-500'>
+                      {loadError}
+                    </div>
+                  ) : assets.length === 0 ? (
+                    <div className='py-3 text-center text-slate-400'>
+                      {lt("暂无风格资产", "No style assets")}
+                    </div>
+                  ) : (
+                    <div className='grid grid-cols-4 gap-1.5'>
+                      {assets.map((asset) => {
+                        const url = getAssetImageUrl(asset);
+                        return (
+                          <button
+                            key={asset.id}
+                            type='button'
+                            className='group relative aspect-square overflow-hidden rounded border border-slate-200 hover:border-slate-900'
+                            title={asset.name}
+                            onClick={() => handlePickAsset(asset)}
+                          >
+                            <SmartImage
+                              src={url}
+                              alt={asset.name}
+                              className='h-full w-full object-cover'
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
