@@ -2992,12 +2992,11 @@ const sessionsEqual = (
   b: SerializedConversationContext[]
 ): boolean => JSON.stringify(a ?? []) === JSON.stringify(b);
 
-// 小T风格锚定：风格参考图 + 风格描述 + 摄像机预设（会话级，不进 persist）
+// 小T风格锚定：风格参考图 + 风格描述（会话级，不进 persist）
 export interface XiaotStyleAnchor {
   imageUrl?: string;
   assetName?: string;
   description: string;
-  camera: { shotSize?: string; movement?: string };
 }
 
 interface AIChatState {
@@ -8579,14 +8578,8 @@ export const useAIChatStore = create<AIChatState>()(
               | undefined;
             let styleReferenceUrl: string | undefined;
             if (styleAnchor) {
-              const cameraParts = [
-                styleAnchor.camera.shotSize,
-                styleAnchor.camera.movement,
-              ].filter((s): s is string => Boolean(s && s.trim()));
-              const cameraTerm = cameraParts.join(" ");
               const lockedAnchors = [
                 styleAnchor.description,
-                cameraTerm,
                 styleAnchor.imageUrl ? "风格参考图见输入" : "",
               ]
                 .map((s) => s.trim())

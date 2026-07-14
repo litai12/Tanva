@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../ui/button";
 import SmartImage from "../ui/SmartImage";
 import ImagePreviewModal from "../ui/ImagePreviewModal";
@@ -156,10 +157,32 @@ const getTypeLabel = (
   }
 };
 
-const LibraryPanel: React.FC = () => {
+export interface LibraryPanelProps {
+  /** "panel"（默认）= 现有右侧固定素材栏；"modal" = 居中弹窗选择器。 */
+  variant?: "panel" | "modal";
+  /** modal 变体的显隐（取代 showLibraryPanel）。 */
+  open?: boolean;
+  /** modal 变体关闭回调。 */
+  onClose?: () => void;
+  /** 选择模式：点击资产回调 onSelectAsset 而非应用到画布/展示详情。 */
+  selectMode?: boolean;
+  /** 选择模式下点选一张图片资产时触发（url 为原始图片地址）。 */
+  onSelectAsset?: (url: string, name?: string) => void;
+}
+
+const LibraryPanel: React.FC<LibraryPanelProps> = ({
+  variant = "panel",
+  open = false,
+  onClose,
+  selectMode = false,
+  onSelectAsset,
+}) => {
   const { lt, isZh } = useLocaleText();
   const locale = isZh ? "zh-CN" : "en-US";
   const { showLibraryPanel, setShowLibraryPanel } = useUIStore();
+  const isModal = variant === "modal";
+  // 面板"生效"标志：panel 变体沿用 showLibraryPanel（行为逐字节不变），modal 变体用 open。
+  const panelActive = isModal ? open : showLibraryPanel;
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const teams = useTeamStore((state) => state.teams);
   const activeTeamId = useTeamStore((state) => state.activeTeamId);
@@ -338,10 +361,10 @@ const LibraryPanel: React.FC = () => {
 
   // 面板关闭时自动清理悬停态
   React.useEffect(() => {
-    if (!showLibraryPanel && isLibraryDragHovering) {
+    if (!panelActive && isLibraryDragHovering) {
       setLibraryDragHovering(false);
     }
-  }, [showLibraryPanel, isLibraryDragHovering]);
+  }, [panelActive, isLibraryDragHovering]);
 
   React.useEffect(() => {
     if (activeTab === "manual") {
@@ -1084,10 +1107,26 @@ const LibraryPanel: React.FC = () => {
   };
 
   const handleClose = () => {
-    setShowLibraryPanel(false);
+    if (isModal) {
+      onClose?.();
+    } else {
+      setShowLibraryPanel(false);
+    }
     setSelectedAsset(null);
     setSelectedHistoryItem(null);
     setPreviewState(null);
+  };
+
+  // 选择模式：拿到一张图片 URL + 名称 → 回填风格锚定参考图 → 关闭弹窗。
+  // 无图片 URL（3D/视频/空素材）时不触发选择。
+  const handleSelectAsset = (
+    url: string | undefined | null,
+    name?: string
+  ) => {
+    const normalized = typeof url === "string" ? url.trim() : "";
+    if (!normalized) return;
+    onSelectAsset?.(normalized, name);
+    onClose?.();
   };
 
   const openImagePreview = React.useCallback(
@@ -1374,7 +1413,7 @@ const LibraryPanel: React.FC = () => {
 
   // 打开面板时从后端拉取个人库，避免仅依赖 localStorage
   React.useEffect(() => {
-    if (!showLibraryPanel) return;
+    if (!panelActive) return;
     let cancelled = false;
     void personalLibraryApi
       .list()
@@ -1392,7 +1431,7 @@ const LibraryPanel: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [showLibraryPanel, mergeAssets]);
+  }, [panelActive, mergeAssets]);
 
   React.useEffect(() => {
     setHistoryPage(1);
@@ -1413,7 +1452,7 @@ const LibraryPanel: React.FC = () => {
   }, [isInTeamWorkspace, joinedTeams, selectedTeamLibraryTeamId]);
 
   React.useEffect(() => {
-    if (!showLibraryPanel || activeTab !== "global-history") return;
+    if (!panelActive || activeTab !== "global-history") return;
     if (!effectiveTeamLibraryTeamId) {
       setTeamAssets([]);
       setTeamFolders([]);
@@ -1450,10 +1489,10 @@ const LibraryPanel: React.FC = () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [showLibraryPanel, activeTab, effectiveTeamLibraryTeamId]);
+  }, [panelActive, activeTab, effectiveTeamLibraryTeamId]);
 
   React.useEffect(() => {
-    if (!showLibraryPanel || activeTab !== "global-history") return;
+    if (!panelActive || activeTab !== "global-history") return;
     const shouldFetchLegacyGlobalHistory = false;
     if (!shouldFetchLegacyGlobalHistory) return;
     let cancelled = false;
@@ -1499,7 +1538,7 @@ const LibraryPanel: React.FC = () => {
       clearTimeout(timer);
     };
   }, [
-    showLibraryPanel,
+    panelActive,
     activeTab,
     historyPage,
     historyQueryOptions.search,
@@ -1507,7 +1546,7 @@ const LibraryPanel: React.FC = () => {
   ]);
 
   React.useEffect(() => {
-    if (!showLibraryPanel || activeTab !== "project-history") return;
+    if (!panelActive || activeTab !== "project-history") return;
     if (!currentProjectId) {
       setProjectHistoryItems([]);
       setProjectHistoryTotalCount(0);
@@ -1560,7 +1599,7 @@ const LibraryPanel: React.FC = () => {
       clearTimeout(timer);
     };
   }, [
-    showLibraryPanel,
+    panelActive,
     activeTab,
     currentProjectId,
     projectHistoryPage,
@@ -1614,9 +1653,10 @@ const LibraryPanel: React.FC = () => {
     : "";
 
   // 面板关闭时隐藏
-  if (!showLibraryPanel) return null;
+  if (!panelActive) return null;
 
-  return (
+  // 详情面板（仅 panel 变体使用；modal 选择器不展示详情）。
+  const detailPanels = (
     <>
       {/* 详情面板 - 在库面板左侧弹出 */}
       {activeTab === "manual" && selectedAsset && (
@@ -1858,15 +1898,13 @@ const LibraryPanel: React.FC = () => {
           </div>
         </div>
       )}
+    </>
+  );
 
-      {/* 主面板 */}
-      <div
-        data-library-drop-zone='true'
-        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1100] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
-          showLibraryPanel ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        {isLibraryDragHovering && (
+  // 主面板内容（tabs + 资源网格 + 底部），panel / modal 两种外壳共用。
+  const panelBody = (
+    <>
+      {isLibraryDragHovering && (
           <div className='pointer-events-none absolute inset-0 z-[1110] flex items-start justify-center px-3 pt-3'>
             <div className='w-full h-24 rounded-xl border-2 border-dashed border-blue-400/80 bg-blue-50/85 text-blue-700 flex items-center justify-center font-medium shadow-[0_10px_30px_rgba(59,130,246,0.15)] backdrop-blur-sm'>
               {lt("松开添加到库", "Release to add to library")}
@@ -1972,10 +2010,18 @@ const LibraryPanel: React.FC = () => {
                       key={asset.id}
                       data-library-thumbnail
                       draggable
-                      className={`aspect-square rounded-lg overflow-hidden bg-gray-100 cursor-grab transition-all hover:ring-2 hover:ring-blue-400 active:cursor-grabbing relative ${
-                        isSelected ? "ring-2 ring-blue-500" : ""
-                      }`}
-                      onClick={() => handleAssetClick(asset)}
+                      className={`aspect-square rounded-lg overflow-hidden bg-gray-100 transition-all hover:ring-2 hover:ring-blue-400 relative ${
+                        selectMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                      } ${isSelected ? "ring-2 ring-blue-500" : ""}`}
+                      onClick={() => {
+                        if (selectMode) {
+                          if (is2dOrSvg) {
+                            handleSelectAsset(asset.url || asset.thumbnail, asset.name);
+                          }
+                          return;
+                        }
+                        handleAssetClick(asset);
+                      }}
                       onDoubleClick={() => handleAssetDoubleClick(asset)}
                       onDragStart={(e) => handleDragStart(asset, e)}
                     >
@@ -2000,17 +2046,19 @@ const LibraryPanel: React.FC = () => {
                   );
                 })}
 
-                {/* 上传按钮方格 - 放在最后 */}
-                <div
-                  className='tanva-library-upload-tile aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
-                  onClick={triggerUpload}
-                >
-                  {isUploading ? (
-                    <div className='text-gray-400 text-xs'>{lt("上传中...", "Uploading...")}</div>
-                  ) : (
-                    <Plus className='w-8 h-8 text-gray-400' />
-                  )}
-                </div>
+                {/* 上传按钮方格 - 放在最后（选择模式下隐藏） */}
+                {!selectMode && (
+                  <div
+                    className='tanva-library-upload-tile aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200 cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50 flex items-center justify-center'
+                    onClick={triggerUpload}
+                  >
+                    {isUploading ? (
+                      <div className='text-gray-400 text-xs'>{lt("上传中...", "Uploading...")}</div>
+                    ) : (
+                      <Plus className='w-8 h-8 text-gray-400' />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ) : activeTab === "global-history" ? (
@@ -2041,24 +2089,26 @@ const LibraryPanel: React.FC = () => {
                     disabled={!effectiveTeamLibraryTeamId}
                   />
                 </div>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  className='h-8 w-8 p-0'
-                  onClick={() => void handleCreateTeamFolder()}
-                  disabled={!effectiveTeamLibraryTeamId || isTeamAssetUploading}
-                  title={lt("新建文件夹", "New folder")}
-                  aria-label={lt("新建文件夹", "New folder")}
-                >
-                  {isTeamAssetUploading ? (
-                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                  ) : (
-                    <Plus className='h-3.5 w-3.5' />
-                  )}
-                </Button>
+                {!selectMode && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-8 w-8 p-0'
+                    onClick={() => void handleCreateTeamFolder()}
+                    disabled={!effectiveTeamLibraryTeamId || isTeamAssetUploading}
+                    title={lt("新建文件夹", "New folder")}
+                    aria-label={lt("新建文件夹", "New folder")}
+                  >
+                    {isTeamAssetUploading ? (
+                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                    ) : (
+                      <Plus className='h-3.5 w-3.5' />
+                    )}
+                  </Button>
+                )}
               </div>
-              {effectiveTeamLibraryTeamId ? (
+              {!selectMode && effectiveTeamLibraryTeamId ? (
                 <Button
                   type='button'
                   variant='outline'
@@ -2116,6 +2166,7 @@ const LibraryPanel: React.FC = () => {
                             {folder.name}
                           </span>
                           <span className='text-xs text-gray-400'>{folderAssets.length}</span>
+                          {!selectMode && (
                           <button
                             type='button'
                             className='h-6 w-6 rounded text-gray-400 opacity-0 hover:bg-gray-200 group-hover:opacity-100'
@@ -2128,7 +2179,8 @@ const LibraryPanel: React.FC = () => {
                           >
                             ...
                           </button>
-                          {teamFolderMenuId === folder.id ? (
+                          )}
+                          {!selectMode && teamFolderMenuId === folder.id ? (
                             <div className='absolute right-2 top-8 z-[1200] w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg'>
                               <button className='block w-full px-3 py-2 text-left hover:bg-gray-100' onClick={() => { setTeamFolderMenuId(null); void handleCreateTeamFolder(); }}>
                                 {lt("新建文件夹", "New folder")}
@@ -2155,6 +2207,8 @@ const LibraryPanel: React.FC = () => {
                                   key={asset.id}
                                   asset={asset}
                                   folders={teamFolders}
+                                  selectMode={selectMode}
+                                  onSelect={(a) => handleSelectAsset(getAssetImageUrl(a), a.name)}
                                   onSend={handleTeamAssetSendToCanvas}
                                   onPreview={(url) => openImagePreview(url, asset.name)}
                                   onDownload={handleTeamAssetDownload}
@@ -2177,6 +2231,8 @@ const LibraryPanel: React.FC = () => {
                             key={asset.id}
                             asset={asset}
                             folders={teamFolders}
+                            selectMode={selectMode}
+                            onSelect={(a) => handleSelectAsset(getAssetImageUrl(a), a.name)}
                             onSend={handleTeamAssetSendToCanvas}
                             onPreview={(url) => openImagePreview(url, asset.name)}
                             onDownload={handleTeamAssetDownload}
@@ -2257,7 +2313,15 @@ const LibraryPanel: React.FC = () => {
                             ? "cursor-pointer"
                             : "cursor-grab active:cursor-grabbing"
                         }`}
-                        onClick={() => handleHistoryItemClick(item)}
+                        onClick={() => {
+                          if (selectMode) {
+                            if (!itemIsVideo) {
+                              handleSelectAsset(mediaUrl, itemTitle);
+                            }
+                            return;
+                          }
+                          handleHistoryItemClick(item);
+                        }}
                         onDoubleClick={() => handleHistoryItemDoubleClick(item)}
                         onDragStart={(event) => handleHistoryDragStart(item, event)}
                         title={itemTitle}
@@ -2415,13 +2479,45 @@ const LibraryPanel: React.FC = () => {
                 )}
           </div>
         </div>
+    </>
+  );
+
+  const previewModal = (
+    <ImagePreviewModal
+      isOpen={Boolean(previewState)}
+      imageSrc={previewState?.src || ""}
+      imageTitle={previewState?.title}
+      onClose={() => setPreviewState(null)}
+    />
+  );
+
+  // modal 变体：居中 portal 弹窗壳（对齐项目管理弹窗），背景遮罩点击关闭。
+  if (isModal) {
+    return createPortal(
+      <div className='fixed inset-0 z-[1000] flex items-center justify-center'>
+        <div className='absolute inset-0 bg-black/30' onClick={handleClose} />
+        <div className='tanva-library-panel relative flex h-[640px] max-h-[calc(100vh-64px)] w-[900px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl'>
+          {panelBody}
+        </div>
+        {previewModal}
+      </div>,
+      document.body
+    );
+  }
+
+  // panel 变体：现有右侧固定素材栏（行为逐字节不变）。
+  return (
+    <>
+      {detailPanels}
+      <div
+        data-library-drop-zone='true'
+        className={`tanva-library-panel fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1100] transform transition-transform duration-[50ms] ease-out flex flex-col overflow-hidden ${
+          showLibraryPanel ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        {panelBody}
       </div>
-      <ImagePreviewModal
-        isOpen={Boolean(previewState)}
-        imageSrc={previewState?.src || ""}
-        imageTitle={previewState?.title}
-        onClose={() => setPreviewState(null)}
-      />
+      {previewModal}
     </>
   );
 };
@@ -2508,6 +2604,9 @@ interface TeamAssetRowProps {
   onDownload: (asset: MaterialAssetDto) => void;
   onDelete: (asset: MaterialAssetDto) => void;
   onMove: (asset: MaterialAssetDto, folderId: string | null) => void;
+  /** 选择模式：点击整行触发 onSelect，隐藏操作菜单。 */
+  selectMode?: boolean;
+  onSelect?: (asset: MaterialAssetDto) => void;
 }
 
 const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
@@ -2518,6 +2617,8 @@ const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
   onDownload,
   onDelete,
   onMove,
+  selectMode = false,
+  onSelect,
 }) => {
   const { lt } = useLocaleText();
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -2525,9 +2626,17 @@ const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
   return (
     <div
       data-library-thumbnail
-      draggable={Boolean(imageUrl)}
-      className='group relative flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 active:cursor-grabbing'
-      onClick={() => onSend(asset)}
+      draggable={!selectMode && Boolean(imageUrl)}
+      className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 ${
+        selectMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+      }`}
+      onClick={() => {
+        if (selectMode) {
+          onSelect?.(asset);
+          return;
+        }
+        onSend(asset);
+      }}
       onDoubleClick={() => imageUrl && onPreview(imageUrl)}
       onDragStart={(event) => {
         if (!imageUrl) {
@@ -2566,6 +2675,7 @@ const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
       <span className='min-w-0 flex-1 truncate text-xs font-medium'>
         {asset.name}
       </span>
+      {!selectMode && (
       <button
         type='button'
         className='h-6 w-6 rounded text-gray-400 opacity-0 hover:bg-gray-200 group-hover:opacity-100'
@@ -2576,7 +2686,8 @@ const TeamAssetRow: React.FC<TeamAssetRowProps> = ({
       >
         ...
       </button>
-      {menuOpen ? (
+      )}
+      {!selectMode && menuOpen ? (
         <div
           className='absolute right-2 top-8 z-[1200] w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg'
           onClick={(event) => event.stopPropagation()}
