@@ -91,22 +91,6 @@ function JointMarkers({ rig, selectedRole }: { rig: RigState; selectedRole?: Joi
       j.bone.updateWorldMatrix(true, false)
       mesh.position.copy(_markerPos.setFromMatrixPosition(j.bone.matrixWorld).applyMatrix4(_markerInv))
     }
-    // 一次性诊断：定位「骨骼与素体脱离」——比较关节骨骼世界坐标 vs marker group 世界坐标。
-    if (!(window as any).__dirSkelDbg) {
-      ;(window as any).__dirSkelDbg = true
-      const entries = Object.entries(rig.joints) as [JointRole, any][]
-      const gw = new THREE.Vector3().setFromMatrixPosition(g.matrixWorld)
-      const rows = entries.slice(0, 4).map(([role, j]) => {
-        const bw = new THREE.Vector3().setFromMatrixPosition(j.bone.matrixWorld)
-        return `${role}: boneWorld=(${bw.x.toFixed(2)},${bw.y.toFixed(2)},${bw.z.toFixed(2)}) boneName=${j.bone.name}`
-      })
-      // eslint-disable-next-line no-console
-      console.log('[director-skel-debug]', {
-        markerGroupWorld: `(${gw.x.toFixed(2)},${gw.y.toFixed(2)},${gw.z.toFixed(2)})`,
-        jointCount: entries.length,
-        samples: rows,
-      })
-    }
   })
   return (
     <group ref={groupRef} userData={{ directorHelper: true }}>
@@ -157,10 +141,17 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
     c.position.x -= center.x
     c.position.z -= center.z
     c.position.y -= box2.min.y
-    // 标定骨架：关节映射 + 绑定姿态 + 解剖学规范坐标系（pose.ts）
-    rigState.current = calibrateRig(c)
     return c
   }, [scene, colorHex, heightM, widthScale])
+
+  // 标定骨架（关节映射 + 绑定姿态 + 解剖学规范坐标系，pose.ts）必须在【已提交】的 cloned 上做：
+  // React StrictMode 双调 useMemo 工厂，在工厂内写 ref 会让 rig 指向被丢弃的那份克隆 →
+  // 姿势/动作全打在孤儿骨架上，渲染中的素体纹丝不动、关节点脱离(2026-07-15 已踩)。
+  // useLayoutEffect 在提交后、passive effect(应用姿势)之前运行，时序安全。
+  React.useLayoutEffect(() => {
+    rigState.current = calibrateRig(cloned)
+    return () => { rigState.current = null }
+  }, [cloned])
 
   // 骨骼动画：在克隆骨架上建 mixer + 按 clip 名建 action（内嵌 7 段 + 程序化 wave）。
   // 交互态不 play/不 update —— 只在 capture 离屏逐帧由 Viewport setTime 驱动。
