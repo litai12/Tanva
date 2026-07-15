@@ -7,10 +7,11 @@ export type LibraryItem =
   | { id: string; name: string; kind: 'prop'; shape: PropShape; defaultColor?: string }
 
 // 自托管素体 GLB（标准 Mixamo 骨骼 X Bot，T-pose 绑定，见 public/director/ATTRIBUTION.md），可用环境变量覆盖为自有模型。
+// 姿势系统按人形骨骼校准（pose.ts）：Mixamo 命名精确映射，其它命名走模糊匹配。
 const GLB_A = import.meta.env.VITE_DIRECTOR_GLB_MALE || '/director/xbot.glb'
 const GLB_B = import.meta.env.VITE_DIRECTOR_GLB_FEMALE || '/director/xbot.glb'
 
-// 身型档：同一标准骨骼 GLB + 身高/体宽比例。
+// 身型档：同一标准骨骼 GLB + 身高/体宽比例近似 liblib 的素体库（模型本体可后续换成自有 8 套）。
 export const BODY_TYPES: LibraryItem[] = [
   { id: 'male', name: '男性素体', kind: 'body', url: GLB_A, heightM: 1.78 },
   { id: 'female', name: '女性素体', kind: 'body', url: GLB_B, heightM: 1.66, widthScale: 0.88 },
@@ -30,7 +31,7 @@ export const PROP_TYPES: LibraryItem[] = [
   { id: 'prop-plane', name: '平面', kind: 'prop', shape: 'plane' },
 ]
 
-// 家具道具：程序化组合几何体（CharacterObject.tsx PropObject），真实米制尺寸、底面落地 y=0。
+// 家具道具：程序化组合几何体（CharacterObject.tsx PropObject），blocking 占位风格，真实米制尺寸、底面落地 y=0。
 export const FURNITURE_TYPES: LibraryItem[] = [
   { id: 'prop-table', name: '桌子', kind: 'prop', shape: 'table', defaultColor: '#A1795B' },
   { id: 'prop-low-table', name: '茶几', kind: 'prop', shape: 'low-table', defaultColor: '#A1795B' },

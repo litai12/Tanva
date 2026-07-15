@@ -15,6 +15,7 @@ export function addCharacter(
   const next = clone(d)
   const idx = next.scene.characters.length
   const item = getLibraryItem(init.modelId)
+  // 道具按库名计数命名（桌子、桌子2…），角色按字母序且不被道具占位
   let name = init.name
   if (!name) {
     if (item?.kind === 'prop') {
@@ -29,7 +30,8 @@ export function addCharacter(
     id: init.id,
     name,
     modelId: init.modelId,
-    position: init.position ?? [idx * 0.9, 0, 0],
+    position: init.position ?? [idx * 0.9, 0, 0], // 错开生成，避免叠在一起
+
     rotation: [0, 0, 0],
     scale: [1, 1, 1],
     uniformScale: 1,
@@ -93,12 +95,9 @@ export function setSkybox(d: DirectorConsoleData, skybox?: string): DirectorCons
   return { ...d, scene: { ...d.scene, skybox } }
 }
 
-export function setGroundY(d: DirectorConsoleData, groundY: number): DirectorConsoleData {
-  return { ...d, scene: { ...d.scene, groundY } }
-}
-
-export function setSkyboxPitch(d: DirectorConsoleData, skyboxPitch: number): DirectorConsoleData {
-  return { ...d, scene: { ...d.scene, skyboxPitch } }
+export function setSkyboxYaw(d: DirectorConsoleData, yawDeg: number): DirectorConsoleData {
+  const yaw = ((Math.round(yawDeg) % 360) + 360) % 360
+  return { ...d, scene: { ...d.scene, skyboxYaw: yaw || undefined } }
 }
 
 export function setViewpoint(d: DirectorConsoleData, vp: 'director' | 'camera'): DirectorConsoleData {
