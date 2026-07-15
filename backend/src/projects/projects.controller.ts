@@ -65,6 +65,7 @@ export class ProjectsController {
       return await this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
         createWorkflowHistory: dto.createWorkflowHistory,
         workflowHistoryMeta: dto.workflowHistoryMeta,
+        allowMerge: dto.allowMerge,
       }, req.user.role);
     } catch (err: any) {
       // 保存被拒绝(鉴权/校验/存储故障)是排查「内容为什么没落库」的关键信号,必须留痕。

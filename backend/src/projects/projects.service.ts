@@ -319,6 +319,7 @@ export class ProjectsService {
         restoredFromUpdatedAt?: string;
         restoredFromVersion?: number;
       };
+      allowMerge?: boolean;
     },
     role?: string
   ) {
@@ -386,6 +387,27 @@ export class ProjectsService {
       const currentContentVersion = project.contentVersion ?? 0;
       let mergedFromConflict = false;
       if (typeof version === 'number' && version > 0 && version < currentContentVersion) {
+        // 版本落后且非活跃实时协作（前端只在 collab 长连接时传 allowMerge=true）：
+        // 直接拒绝、不写入，返回 stale 让前端冻结并强制刷新。串行锁内执行，无竞态，
+        // 落后写入永远落不了地——这是「旧画布覆盖新内容」的根治点。
+        // 缺省/false 一律按非协作拒绝（旧缓存 JS 不带该字段会被强制刷新加载新版本，自愈）。
+        if (options?.allowMerge !== true) {
+          // eslint-disable-next-line no-console
+          console.warn('[ProjectSaveStale]', JSON.stringify({
+            projectId: id,
+            userId,
+            baseVersion: version,
+            currentVersion: currentContentVersion,
+          }));
+          return {
+            stale: true as const,
+            version: currentContentVersion,
+            latestVersion: currentContentVersion,
+            updatedAt: project.updatedAt,
+            mainUrl: project.mainKey ? this.oss.publicUrl(project.mainKey) : undefined,
+            thumbnailUrl: this.extractThumbnail(project) || undefined,
+          };
+        }
         let remoteContent: any = null;
         try {
           remoteContent = supportsThumbnailColumn

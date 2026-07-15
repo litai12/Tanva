@@ -25,6 +25,11 @@ export class UpdateProjectContentDto {
   @IsNumber()
   version?: number;
 
+  @ApiProperty({ required: false, description: '是否允许在版本落后时做并集合并（仅活跃实时协作端为 true）。缺省/false 时落后保存将被拒绝，避免旧画布覆盖新内容。' })
+  @IsOptional()
+  @IsBoolean()
+  allowMerge?: boolean;
+
   @ApiProperty({ required: false, description: '是否写入工作流历史版本（仅保存 Flow 图快照）' })
   @IsOptional()
   @IsBoolean()
