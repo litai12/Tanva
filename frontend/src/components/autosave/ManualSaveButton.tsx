@@ -9,6 +9,8 @@ import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValida
 import { useTranslation } from 'react-i18next';
 import { setProjectCache } from '@/services/projectCacheStore';
 import { useAuthStore } from '@/stores/authStore';
+import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
+import { projectVersionChannel } from '@/services/projectVersionChannel';
 
 export default function ManualSaveButton() {
   const { i18n } = useTranslation();
@@ -21,11 +23,15 @@ export default function ManualSaveButton() {
   const setError = useProjectContentStore((state) => state.setError);
   const setWarning = useProjectContentStore((state) => state.setWarning);
   const cacheValidationPending = useProjectContentStore((state) => state.cacheValidationPending);
+  const staleContent = useProjectContentStore((state) => state.staleContent);
   const userId = useAuthStore((state) => state.user?.id ?? null);
 
   const handleSave = useCallback(async () => {
     const storeBefore = useProjectContentStore.getState();
     if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) {
+      return;
+    }
+    if (storeBefore.staleContent) {
       return;
     }
     if (storeBefore.cacheValidationPending) {
@@ -64,9 +70,16 @@ export default function ManualSaveButton() {
 
       // 记录发起保存时的修改计数:保存往返期间用户继续编辑时,markSaved 不能清掉新改动的 dirty 状态。
       const counterAtSave = store.dirtyCounter;
-      const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
+      const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version, createWorkflowHistory: true, allowMerge: collabCanvasBridge.connected });
+
+      if (result.stale) {
+        useProjectContentStore.getState().setStaleContent(true);
+        try { saveMonitor.push(currentProjectId, 'manual_save_stale_blocked', { baseVersion: version, latestVersion: result.latestVersion }); } catch {}
+        return;
+      }
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterAtSave);
+      projectVersionChannel.postSaved(currentProjectId, result.version);
       void refreshProjectThumbnail(currentProjectId, { force: true });
       setProjectCache({
         projectId: currentProjectId,
@@ -113,7 +126,7 @@ export default function ManualSaveButton() {
     <button
       type="button"
       onClick={handleSave}
-      disabled={!projectId || manualSaving || cacheValidationPending}
+      disabled={!projectId || manualSaving || cacheValidationPending || staleContent}
       className="rounded border border-sky-500 bg-sky-50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
     >
       {manualSaving ? lt('保存中…', 'Saving...') : lt('保存', 'Save')}

@@ -7,6 +7,8 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
 import { useAuthStore } from '@/stores/authStore';
+import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
+import { projectVersionChannel } from '@/services/projectVersionChannel';
 import {
   getNonRemoteImageAssetIds,
   getNonPersistableFlowImageNodeIds,
@@ -68,6 +70,9 @@ export function useProjectAutosave(projectId: string | null) {
     savedAtCounter: number,
     attempt = 1
   ) => {
+    if (useProjectContentStore.getState().staleContent) {
+      return;
+    }
     if (useProjectContentStore.getState().cacheValidationPending) {
       setWarning('本地缓存正在校验远端版本，校验完成前已暂停自动保存。');
       return;
@@ -83,7 +88,7 @@ export function useProjectAutosave(projectId: string | null) {
         minIntervalTimerRef.current = window.setTimeout(() => {
           minIntervalTimerRef.current = null;
           const store = useProjectContentStore.getState();
-          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
+          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && !store.staleContent && store.content) {
             void performSave(currentProjectId, store.content, store.version, store.dirtyCounter, 1);
           }
         }, waitMs);
@@ -151,9 +156,24 @@ export function useProjectAutosave(projectId: string | null) {
       const result = await projectApi.saveContent(currentProjectId, {
         content: contentForCloudSave,
         version: versionToSave,
+        allowMerge: collabCanvasBridge.connected,
       });
 
+      // 服务端判定本地版本落后且非协作 → 拒绝写入。冻结自动/手动保存并强制刷新，
+      // 绝不 markSaved（那会把本地旧内容的版本对齐成最新，误以为已保存）。
+      if (result.stale) {
+        useProjectContentStore.getState().setStaleContent(true);
+        saveMonitor.push(currentProjectId, 'save_stale_blocked', {
+          baseVersion: versionToSave,
+          latestVersion: result.latestVersion,
+          attempt,
+        });
+        return;
+      }
+
       markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterToSave);
+      // 保存成功：广播新版本，让同浏览器其它落后 tab 即时冻结。
+      projectVersionChannel.postSaved(currentProjectId, result.version);
 
       // 版本冲突 → 服务端已做并集合并并回传 merged/content。adopt：以合并后的快照为
       // 本地缓存/快照基线，并派发事件让画布层把远端新增补进运行时（详见 ProjectAutosaveManager）。
@@ -255,7 +275,7 @@ export function useProjectAutosave(projectId: string | null) {
 
         retryTimerRef.current = window.setTimeout(() => {
           const store = useProjectContentStore.getState();
-          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
+          if (store.projectId === currentProjectId && store.dirty && !store.saving && !store.cacheValidationPending && !store.staleContent && store.content) {
             void performSave(
               currentProjectId,
               store.content,
@@ -279,7 +299,7 @@ export function useProjectAutosave(projectId: string | null) {
 
     intervalTimerRef.current = window.setInterval(() => {
       const store = useProjectContentStore.getState();
-      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
+      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && !store.staleContent && store.content) {
         void performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, AUTOSAVE_INTERVAL);
@@ -294,6 +314,7 @@ export function useProjectAutosave(projectId: string | null) {
 
   useEffect(() => {
     if (!projectId || !dirty || !content || cacheValidationPending) return undefined;
+    if (useProjectContentStore.getState().staleContent) return undefined;
 
     if (debounceTimerRef.current) {
       window.clearTimeout(debounceTimerRef.current);
@@ -301,7 +322,7 @@ export function useProjectAutosave(projectId: string | null) {
 
     debounceTimerRef.current = window.setTimeout(() => {
       const store = useProjectContentStore.getState();
-      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && store.content) {
+      if (store.projectId === projectId && store.dirty && !store.saving && !store.cacheValidationPending && !store.staleContent && store.content) {
         void performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, DEBOUNCE_DELAY);
