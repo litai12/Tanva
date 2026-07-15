@@ -223,7 +223,7 @@ export function CameraPropertiesPanel({ camera, scene, tab, onTab, shotGroups, b
               style={{ width: '100%', padding: '9px 0', borderRadius: 8, background: scene.characters.length && !busy ? '#fff' : '#1c1f26', color: scene.characters.length && !busy ? '#111' : '#6b7280', border: 'none', cursor: scene.characters.length && !busy ? 'pointer' : 'not-allowed', fontWeight: 600, fontSize: 13 }}>
               {busy ? '渲染中…' : '渲染样片 → 画布'}
             </button>
-            <div style={{ fontSize: 10, color: '#5b6470', marginTop: 6 }}>角色在「属性」里选「动作片段」即可让其动起来；相机绕场景中心环绕。出 mp4 video 节点（带 sourceVideoUrl，可直接喂 seedance v2v）。</div>
+            <div style={{ fontSize: 10, color: '#5b6470', marginTop: 6 }}>角色在「属性」里选「动作片段」即可让其动起来；相机绕场景中心环绕。出 mp4 video 节点，连到 seedance 的视频输入即可做 v2v。</div>
           </Section>
         </div>
       ) : (

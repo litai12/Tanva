@@ -286,8 +286,8 @@ function synthOrbitClip(scene: DirectorScene, durationSeconds: number): ClipAnim
 
 /**
  * clip 模式离屏执行器：把 pending.animation 用确定性采样器逐帧展开 → Viewport.captureClipFrames
- * 离屏渲一段 clay 灰模动画 → WebCodecs 硬编 mp4（缺失降级 ffmpeg.wasm）→ 上传 R2 →
- * reportDirectorCapture({ videoUrl })，后端据此建带 sourceVideoUrl 的 video 节点（seedance v2v 入口）。
+ * 离屏渲一段 clay 灰模动画 → WebCodecs 硬编 mp4（不支持则优雅报错，无 ffmpeg 兜底）→ 上传 OSS →
+ * 【前端】建纯 video 节点（VideoNode，data.videoUrl，连 seedance video 输入即 v2v）→ report 仅记租约。
  */
 function OffscreenClipRender({ job, onDone }: { job: CaptureJob; onDone: () => void }) {
   const ref = React.useRef<ViewportHandle | null>(null)
