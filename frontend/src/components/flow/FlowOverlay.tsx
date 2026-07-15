@@ -15022,6 +15022,9 @@ function FlowInner() {
       );
   }, [rf, setNodes, sanitizeNodeData]);
 
+  // 一键整理的补间动画句柄(卸载/重复触发时取消)
+  const tidyAnimationRef = React.useRef<number | null>(null);
+
   // 监听「一键整理」：按节点类别分列重排（对齐 TapCanvas tidyByCategory）。
   // 组容器(childNodeIds 模型)作为整体单元按成员类别投票归列，成员随组同 delta 平移；
   // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
@@ -15041,30 +15044,69 @@ function FlowInner() {
       });
       if (!positions.size) return;
 
-      setNodes((prev: any[]) =>
-        prev.map((node) => {
-          const p = positions.get(node.id);
-          if (!p) return node;
-          if (node.position?.x === p.x && node.position?.y === p.y) return node;
-          const { positionAbsolute: _pa, ...rest } = node as any;
-          return { ...rest, position: { x: p.x, y: p.y } };
-        })
-      );
-
-      // collab: 广播最终位置，确保对端对齐（复用拖拽结束的 upsertNodes 通道）。
-      try {
-        const c0 = collabRef.current;
-        if (c0?.connected && !applyingRemoteRef.current) {
-          const upsertNodes = Array.from(positions.entries()).map(
-            ([id, position]) => ({ id, position })
-          );
-          if (upsertNodes.length > 0) c0.sendPatch({ upsertNodes });
+      // 平滑过渡:rAF 补间逐帧写 position(与拖拽同一更新通道,连线实时跟随;
+      // CSS transition 方案会让边按终点即时重算而节点还在飞,故不用)。
+      // 广播/历史只在动画结束后按最终位置做一次。
+      const startPositions = new Map<string, { x: number; y: number }>();
+      for (const node of allNodes) {
+        const p = positions.get(node.id);
+        if (!p) continue;
+        const cur = node.position || { x: 0, y: 0 };
+        if (cur.x === p.x && cur.y === p.y) {
+          positions.delete(node.id);
+          continue;
         }
-      } catch {}
+        startPositions.set(node.id, { x: cur.x, y: cur.y });
+      }
+      if (!positions.size) return;
 
-      try {
-        historyService.commit("flow-auto-layout").catch(() => {});
-      } catch {}
+      if (tidyAnimationRef.current) {
+        cancelAnimationFrame(tidyAnimationRef.current);
+        tidyAnimationRef.current = null;
+      }
+      const DURATION = 420;
+      const t0 = performance.now();
+      const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+      const finish = () => {
+        tidyAnimationRef.current = null;
+        // collab: 广播最终位置，确保对端对齐（复用拖拽结束的 upsertNodes 通道）。
+        try {
+          const c0 = collabRef.current;
+          if (c0?.connected && !applyingRemoteRef.current) {
+            const upsertNodes = Array.from(positions.entries()).map(
+              ([id, position]) => ({ id, position })
+            );
+            if (upsertNodes.length > 0) c0.sendPatch({ upsertNodes });
+          }
+        } catch {}
+        try {
+          historyService.commit("flow-auto-layout").catch(() => {});
+        } catch {}
+      };
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / DURATION);
+        const k = ease(t);
+        setNodes((prev: any[]) =>
+          prev.map((node) => {
+            const target = positions.get(node.id);
+            if (!target) return node;
+            const start = startPositions.get(node.id);
+            if (!start) return node;
+            const x = t >= 1 ? target.x : start.x + (target.x - start.x) * k;
+            const y = t >= 1 ? target.y : start.y + (target.y - start.y) * k;
+            const { positionAbsolute: _pa, ...rest } = node as any;
+            return { ...rest, position: { x, y } };
+          })
+        );
+        if (t < 1) {
+          tidyAnimationRef.current = requestAnimationFrame(step);
+        } else {
+          finish();
+        }
+      };
+      tidyAnimationRef.current = requestAnimationFrame(step);
 
       try {
         window.dispatchEvent(
@@ -15075,11 +15117,16 @@ function FlowInner() {
       } catch {}
     };
     window.addEventListener(FLOW_AUTO_LAYOUT_EVENT, handler as EventListener);
-    return () =>
+    return () => {
       window.removeEventListener(
         FLOW_AUTO_LAYOUT_EVENT,
         handler as EventListener
       );
+      if (tidyAnimationRef.current) {
+        cancelAnimationFrame(tidyAnimationRef.current);
+        tidyAnimationRef.current = null;
+      }
+    };
   }, [rf, setNodes]);
 
   // 监听节点右键菜单：添加到个人库（上传到 OSS 后写入 store）
