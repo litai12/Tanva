@@ -173,6 +173,7 @@ export const projectApi = {
     payload: {
       content: ProjectContentSnapshot;
       version?: number;
+      allowMerge?: boolean;
       createWorkflowHistory?: boolean;
       workflowHistoryMeta?: {
         restoredFromUpdatedAt?: string;
@@ -186,6 +187,9 @@ export const projectApi = {
     /** 服务端命中版本冲突并做了并集合并时为 true，此时 content 为合并后的快照。 */
     merged?: boolean;
     content?: ProjectContentSnapshot;
+    /** 服务端判定本地 baseVersion 落后且非协作，拒绝写入。此时前端应冻结并强制刷新。 */
+    stale?: boolean;
+    latestVersion?: number;
   }> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}/content`, {
       method: "PUT",
@@ -193,6 +197,7 @@ export const projectApi = {
       body: JSON.stringify({
         content: payload.content,
         version: payload.version,
+        allowMerge: payload.allowMerge,
         createWorkflowHistory: payload.createWorkflowHistory,
         workflowHistoryMeta: payload.workflowHistoryMeta,
       }),
@@ -214,6 +219,8 @@ export const projectApi = {
       thumbnailUrl?: string;
       merged?: boolean;
       content?: ProjectContentSnapshot;
+      stale?: boolean;
+      latestVersion?: number;
     }>(res);
     return {
       version: data.version,
@@ -221,6 +228,8 @@ export const projectApi = {
       thumbnailUrl: data.thumbnailUrl,
       merged: data.merged,
       content: data.content,
+      stale: data.stale,
+      latestVersion: data.latestVersion,
     };
   },
 
