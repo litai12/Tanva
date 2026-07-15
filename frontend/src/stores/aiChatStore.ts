@@ -8521,6 +8521,61 @@ export const useAIChatStore = create<AIChatState>()(
           let streamErrored = false;
           let videoRewriteToasted = false;
           let imageRewriteToasted = false;
+          // 打字机流式渲染：小T facade 常把整段回复一次性大块下发（assistant_delta
+          // 不是逐 token），直接写 content 会「唰」地整段冒出、毫无流式感。这里把
+          // 「真值文本 typeTarget」与「已显示字符数 typeShown」解耦，用 rAF 每帧按
+          // 剩余量自适应步进揭示（参照 TapCanvas animateAssistantReply：远则快、近则
+          // 慢），无论上游一次给多少字都平滑吐出。content 只由打字机泵写。
+          let typeTarget = "";
+          let typeShown = 0;
+          let typePumping = false;
+          const writeTypedContent = () => {
+            get().updateMessage(aiMessage.id, (msg) => ({
+              ...msg,
+              content: typeTarget.slice(0, typeShown),
+            }));
+          };
+          const pumpTypewriter = () => {
+            if (typePumping) return;
+            typePumping = true;
+            const tick = () => {
+              if (controller.signal.aborted) {
+                typePumping = false;
+                return;
+              }
+              const remaining = typeTarget.length - typeShown;
+              if (remaining <= 0) {
+                typePumping = false;
+                return;
+              }
+              const step =
+                remaining > 160 ? 20 : remaining > 80 ? 10 : remaining > 32 ? 6 : 3;
+              typeShown = Math.min(typeTarget.length, typeShown + step);
+              writeTypedContent();
+              if (typeShown < typeTarget.length) {
+                requestAnimationFrame(tick);
+              } else {
+                typePumping = false;
+              }
+            };
+            requestAnimationFrame(tick);
+          };
+          // 等打字机把已收到的文本吐完（收尾前调用，让最后一段也走完流式）
+          const drainTypewriter = () =>
+            new Promise<void>((resolve) => {
+              const check = () => {
+                if (
+                  controller.signal.aborted ||
+                  typeShown >= typeTarget.length
+                ) {
+                  resolve();
+                  return;
+                }
+                pumpTypewriter();
+                requestAnimationFrame(check);
+              };
+              check();
+            });
           // 缺图对账：本轮新建的「纯图生」视频节点 + 已连入图边的目标节点
           const addedImageVideoNodes = new Map<
             string,
@@ -8635,11 +8690,13 @@ export const useAIChatStore = create<AIChatState>()(
                   typeof event.data?.delta === "string" ? event.data.delta : "";
                 if (!delta) return;
                 assembled += delta;
-                // 同步抬升进度：progress 停在初始 5 会被 AIChatDialog 的
-                // 45s 早期卡住看门狗判为“任务已停止”（多轮 agent 常超 45s）
+                // content 交给打字机泵平滑揭示（大块也逐字吐）；这里只喂真值 +
+                // 抬进度。progress 停在初始 5 会被 AIChatDialog 的 45s 早期卡住
+                // 看门狗判为“任务已停止”（多轮 agent 常超 45s）。
+                typeTarget = assembled;
+                pumpTypewriter();
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
-                  content: assembled,
                   generationStatus: {
                     ...(msg.generationStatus || {}),
                     isGenerating: true,
@@ -8836,11 +8893,14 @@ export const useAIChatStore = create<AIChatState>()(
                   typeof event.message === "string" &&
                   event.message.trim()
                 ) {
+                  // 终帧权威文本（可能≠累计 delta）→ 喂打字机，收尾前的
+                  // drain 让它平滑吐完；若比已显示短则夹取避免回退。
                   assembled = event.message;
-                  get().updateMessage(aiMessage.id, (msg) => ({
-                    ...msg,
-                    content: assembled,
-                  }));
+                  typeTarget = assembled;
+                  if (typeShown > typeTarget.length) {
+                    typeShown = typeTarget.length;
+                  }
+                  pumpTypewriter();
                 }
               } else if (event.type === "error") {
                 streamErrored = true;
@@ -8897,6 +8957,10 @@ export const useAIChatStore = create<AIChatState>()(
             }
 
             if (!streamErrored) {
+              // 收尾前让打字机把最后一段吐完，再落定完整文本，避免「已完成」
+              // 却截断在打字中途。
+              typeTarget = assembled || typeTarget;
+              await drainTypewriter();
               get().updateMessage(aiMessage.id, (msg) => ({
                 ...msg,
                 content: assembled || msg.content,

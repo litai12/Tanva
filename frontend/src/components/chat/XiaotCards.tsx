@@ -2,7 +2,12 @@
 // 数据来源：aiChatStore runXiaotAgent 把 SSE host_ui 事件写进消息 metadata.xiaotCards /
 // metadata.xiaotSuggestions；点击选项/chip 把文本原文作为用户消息发送（小T模式下走 runXiaotAgent）。
 import React from "react";
+import { Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ImagePreviewModal, {
+  type ImageItem,
+} from "@/components/ui/ImagePreviewModal";
+import { downloadFile } from "@/utils/downloadHelper";
 
 export interface XiaotCard {
   kind: string;
@@ -110,6 +115,31 @@ function MediaCard({ payload }: { payload: unknown }) {
         })
         .filter((item): item is MediaItem => item !== null)
     : [];
+  // 预览集合：仅图片可放大浏览（视频保留原生 controls）。用原图 url 作放大源，
+  // 缩略图仅用于列表小图。id 用稳定 url+idx，供预览左右切换定位。
+  const imageItems = items
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => item.kind === "image");
+  const collection: ImageItem[] = imageItems.map(({ item, idx }) => ({
+    id: `${item.url}-${idx}`,
+    src: item.url,
+    title: item.title,
+  }));
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const activePreview = collection.find((c) => c.id === previewId) || null;
+
+  const handleDownload = React.useCallback(
+    (item: MediaItem, idx: number) => {
+      const base = (item.title || `小T图片_${idx + 1}`).replace(
+        /[\\/:*?"<>|]+/g,
+        "_"
+      );
+      const fileName = /\.[a-z0-9]{2,4}$/i.test(base) ? base : `${base}.png`;
+      void downloadFile(item.url, fileName);
+    },
+    []
+  );
+
   if (items.length === 0) return null;
   return (
     <div className={cardShellClass}>
@@ -131,15 +161,28 @@ function MediaCard({ payload }: { payload: unknown }) {
                 className='w-full max-w-full rounded-md border border-solid border-slate-200 dark:border-white/15'
               />
             ) : (
-              <img
-                src={item.thumbnailUrl || item.url}
-                alt={item.title || "小T媒体"}
-                loading='lazy'
-                className='w-full max-w-full cursor-pointer rounded-md border border-solid border-slate-200 dark:border-white/15 object-cover'
-                onClick={() =>
-                  window.open(item.url, "_blank", "noopener,noreferrer")
-                }
-              />
+              <div className='group relative'>
+                <img
+                  src={item.thumbnailUrl || item.url}
+                  alt={item.title || "小T媒体"}
+                  loading='lazy'
+                  className='w-full max-w-full cursor-zoom-in rounded-md border border-solid border-slate-200 dark:border-white/15 object-cover'
+                  onClick={() => setPreviewId(`${item.url}-${idx}`)}
+                />
+                {/* 右下角下载按钮：hover 显示，走同源资产代理下载原图 */}
+                <button
+                  type='button'
+                  title='下载'
+                  aria-label='下载图片'
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownload(item, idx);
+                  }}
+                  className='absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 backdrop-blur-sm transition-opacity duration-150 hover:bg-black/75 group-hover:opacity-100'
+                >
+                  <Download className='h-3.5 w-3.5' />
+                </button>
+              </div>
             )}
             {item.title && (
               <div className='mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400'>
@@ -149,6 +192,19 @@ function MediaCard({ payload }: { payload: unknown }) {
           </div>
         ))}
       </div>
+
+      {activePreview && (
+        <ImagePreviewModal
+          isOpen={true}
+          imageSrc={activePreview.src}
+          imageTitle={activePreview.title}
+          onClose={() => setPreviewId(null)}
+          imageCollection={collection}
+          currentImageId={activePreview.id}
+          onImageChange={(id) => setPreviewId(id)}
+          collectionTitle='本组图片'
+        />
+      )}
     </div>
   );
 }

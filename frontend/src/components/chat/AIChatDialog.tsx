@@ -5425,7 +5425,12 @@ const AIChatDialog: React.FC = () => {
                                       ),
                                     }}
                                   >
-                                    {message.content}
+                                    {/* 仍在生成中：正文末尾拼「...」作打字指示，
+                                        不入库（持久化的是干净 content） */}
+                                    {generationStatus?.isGenerating &&
+                                    message.content?.trim()
+                                      ? `${message.content}...`
+                                      : message.content}
                                   </ReactMarkdown>
 
                                   {message.webSearchResult

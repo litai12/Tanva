@@ -91,6 +91,22 @@ function JointMarkers({ rig, selectedRole }: { rig: RigState; selectedRole?: Joi
       j.bone.updateWorldMatrix(true, false)
       mesh.position.copy(_markerPos.setFromMatrixPosition(j.bone.matrixWorld).applyMatrix4(_markerInv))
     }
+    // 一次性诊断：定位「骨骼与素体脱离」——比较关节骨骼世界坐标 vs marker group 世界坐标。
+    if (!(window as any).__dirSkelDbg) {
+      ;(window as any).__dirSkelDbg = true
+      const entries = Object.entries(rig.joints) as [JointRole, any][]
+      const gw = new THREE.Vector3().setFromMatrixPosition(g.matrixWorld)
+      const rows = entries.slice(0, 4).map(([role, j]) => {
+        const bw = new THREE.Vector3().setFromMatrixPosition(j.bone.matrixWorld)
+        return `${role}: boneWorld=(${bw.x.toFixed(2)},${bw.y.toFixed(2)},${bw.z.toFixed(2)}) boneName=${j.bone.name}`
+      })
+      // eslint-disable-next-line no-console
+      console.log('[director-skel-debug]', {
+        markerGroupWorld: `(${gw.x.toFixed(2)},${gw.y.toFixed(2)},${gw.z.toFixed(2)})`,
+        jointCount: entries.length,
+        samples: rows,
+      })
+    }
   })
   return (
     <group ref={groupRef} userData={{ directorHelper: true }}>

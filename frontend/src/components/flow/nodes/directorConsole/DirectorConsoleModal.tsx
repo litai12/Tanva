@@ -3,6 +3,7 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from 'reactflow'
+import { useAIChatStore } from '@/stores/aiChatStore'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import { createDefaultDirectorConsoleData } from './types'
@@ -101,15 +102,14 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const [showPov, setShowPov] = React.useState(true)
   // 时间轴镜头片段缩略图胶片条（每镜头沿时长 ~每秒一帧，看相机运动）；scene 变更后防抖重渲
   const [shotThumbs, setShotThumbs] = React.useState<Record<string, string[]>>({})
-  // 导演台内「小T·动画师」聊天面板
+  // 导演台内「小T·动画师」聊天面板：打开 Tanva 画布的 AI 对话（AIChatDialog，由 useAIChatStore.isVisible 控制）。
   // 复用画布右侧那个对话抽屉(AiChatDialog)，不另起一套。它的真正显隐开关是 AiChatDialog 暴露的
   // window.__tcExpandChat/__tcToggleChat（compact 模式的右下浮标已隐藏、入口并进底部栏，被全屏 modal 盖住）；
   // uiStore.aiChatOpen 只是 AiChatDialog 回写的镜像，用来高亮按钮。
   // Tanva 无导演台专用会话镜像；按钮高亮暂关（切换仍尽力调用画布对话全局开关）。
-  const aiChatOpen = false
+  const aiChatOpen = useAIChatStore((s) => s.isVisible)
   const toggleCanvasChat = React.useCallback(() => {
-    const w = window as unknown as { __tcToggleChat?: () => void; __tcExpandChat?: () => void }
-    ;(w.__tcToggleChat ?? w.__tcExpandChat)?.()
+    useAIChatStore.getState().toggleDialog()
   }, [])
   // 导演台是全屏 modal(z 4000)，画布抽屉默认 z 650 会被盖住；挂 body class 让 CSS 把抽屉抬到 modal 之上。
   React.useEffect(() => {
