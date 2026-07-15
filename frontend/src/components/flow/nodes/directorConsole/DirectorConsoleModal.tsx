@@ -109,7 +109,13 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   // Tanva 无导演台专用会话镜像；按钮高亮暂关（切换仍尽力调用画布对话全局开关）。
   const aiChatOpen = useAIChatStore((s) => s.isVisible)
   const toggleCanvasChat = React.useCallback(() => {
-    useAIChatStore.getState().toggleDialog()
+    const st = useAIChatStore.getState()
+    if (st.isVisible) {
+      st.hideDialog()
+    } else {
+      // 导演台是全屏 modal(z 4000)；对话框需最大化(z 9999)才能盖在其上被看到，否则点了像「没反应」。
+      useAIChatStore.setState({ isVisible: true, isMaximized: true })
+    }
   }, [])
   // 导演台是全屏 modal(z 4000)，画布抽屉默认 z 650 会被盖住；挂 body class 让 CSS 把抽屉抬到 modal 之上。
   React.useEffect(() => {
