@@ -150,6 +150,18 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
   }, [projectId, dispatch]);
 
   useEffect(() => {
+    // 个人项目（非团队）不接入画布协作：无锁 / 光标 / 实时 patch。
+    // 这是原设计（见 FlowOverlay 注释 “collab handle null when not in a team
+    // project”），此前 isTeamMode 算了却没 gate 连接 → 个人项目也连协作、选中即
+    // claim 锁，同一用户的另一条连接会被渲染成「被他人锁定」的粉色虚线框（个人
+    // 项目根本不该有锁的概念）。这里把闸门接上：非团队一律不连、保持断开。
+    if (!isTeamMode) {
+      realtimeClient.setContext({ projectId: null });
+      setConnected(false);
+      setConnId(null);
+      connIdRef.current = null;
+      return;
+    }
     connect();
     const handleProfileUpdated = () => {
       realtimeClient.refresh();
@@ -171,7 +183,7 @@ export function useCanvasCollab({ projectId, onAccessRevoked, onSnapshotRequired
       setConnId(null);
       connIdRef.current = null;
     };
-  }, [connect]);
+  }, [connect, isTeamMode]);
 
   const sendPatch = useCallback(
     (patch: NodePatchPayload) => {

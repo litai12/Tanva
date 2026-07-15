@@ -3,7 +3,6 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from 'reactflow'
-import { useAIChatStore } from '@/stores/aiChatStore'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import { createDefaultDirectorConsoleData } from './types'
@@ -102,39 +101,12 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const [showPov, setShowPov] = React.useState(true)
   // 时间轴镜头片段缩略图胶片条（每镜头沿时长 ~每秒一帧，看相机运动）；scene 变更后防抖重渲
   const [shotThumbs, setShotThumbs] = React.useState<Record<string, string[]>>({})
-  // 导演台内「小T·动画师」聊天面板：打开 Tanva 画布的 AI 对话（AIChatDialog，由 useAIChatStore.isVisible 控制）。
-  // 复用画布右侧那个对话抽屉(AiChatDialog)，不另起一套。它的真正显隐开关是 AiChatDialog 暴露的
-  // window.__tcExpandChat/__tcToggleChat（compact 模式的右下浮标已隐藏、入口并进底部栏，被全屏 modal 盖住）；
-  // uiStore.aiChatOpen 只是 AiChatDialog 回写的镜像，用来高亮按钮。
-  // Tanva 无导演台专用会话镜像；按钮高亮暂关（切换仍尽力调用画布对话全局开关）。
-  const aiChatOpen = useAIChatStore((s) => s.isVisible)
-  const toggleCanvasChat = React.useCallback(() => {
-    const st = useAIChatStore.getState()
-    if (st.isVisible) {
-      st.hideDialog()
-    } else {
-      // 导演台是全屏 modal(z 4000)；对话框需最大化(z 9999)才能盖在其上被看到，否则点了像「没反应」。
-      useAIChatStore.setState({ isVisible: true, isMaximized: true })
-    }
-  }, [])
-  // 导演台是全屏 modal(z 4000)，画布抽屉默认 z 650 会被盖住；挂 body class 让 CSS 把抽屉抬到 modal 之上。
-  React.useEffect(() => {
-    document.body.classList.add('tc-director-console-open')
-    return () => { document.body.classList.remove('tc-director-console-open') }
-  }, [])
   // 接管本节点的 capture 认领：打开导演台时由 Modal 内挂的 scoped runner 负责（鲜活、不会被全局 runner 的 busyRef 卡死），
   // 全局 runner 跳过本节点。这样「在导演台里让小T 出图/出片」不再出现「无浏览器认领」。
   React.useEffect(() => {
     openDirectorModalNodes.add(nodeId)
     return () => { openDirectorModalNodes.delete(nodeId) }
   }, [nodeId])
-  // 导演台内的小T 会话与项目主对话隔离：打开时把本节点写入会话作用域，AiChatDialog 据此切到 director lane；关闭清空。
-  // Tanva 的小T 会话经 new-api facade + flow_patch 驱动，无需前端 director lane 作用域；留空实现占位。
-  const setDirectorChatScopeNodeId = React.useCallback((_id: string | null) => {}, [])
-  React.useEffect(() => {
-    setDirectorChatScopeNodeId(nodeId)
-    return () => setDirectorChatScopeNodeId(null)
-  }, [nodeId, setDirectorChatScopeNodeId])
   // 时间线长片拆分提示：合成时若超出单段上限(15s)，弹确认对话框（对话内补充每段时长后确认拆分 / 直接输出整段）
   const [splitPrompt, setSplitPrompt] = React.useState<{ totalSec: number } | null>(null)
   const [splitSeconds, setSplitSeconds] = React.useState(15)
@@ -776,10 +748,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         <div style={{ fontSize: 15, fontWeight: 600 }}>3D导演台</div>
         {/* 机位视角已由右侧「当前镜头机位」实时预览窗替代，顶栏不再需要视角切换 */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <button onClick={toggleCanvasChat} title="打开画布右侧小T 对话，按你的描述在导演台上搭场景"
-            style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid ' + (aiChatOpen ? '#16a34a' : '#2a2f3a'), background: aiChatOpen ? '#11261a' : '#16181d', color: aiChatOpen ? '#86efac' : '#cdd3dc', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-            🎬 小T·动画师
-          </button>
           <span style={{ fontSize: 11, color: '#5b6470' }} title="3D 素体模型许可证">素体 © Adobe Mixamo（X Bot）</span>
           <IconX size={20} color="#9ca3af" style={{ cursor: 'pointer' }} onClick={onClose} />
         </div>
