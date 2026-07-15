@@ -1234,7 +1234,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <Layers className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">{lt('图层面板', 'Layer Panel')}</TooltipContent>
+        <TooltipContent side="right">{lt('画布面板', 'Canvas Panel')}</TooltipContent>
       </Tooltip>
 
       {/* 个人库按钮 */}

@@ -24,7 +24,8 @@ import { useAIChatStore, type PreciseEditContext } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
-import Model3DContainer from './Model3DContainer';
+// Model3DContainer→Model3DViewer 依赖 three,懒加载让无3D模型的画布不下载three
+const Model3DContainer = React.lazy(() => import('./Model3DContainer'));
 import ImageContainer from './ImageContainer';
 import CanvasImageLayer from './CanvasImageLayer';
 import SelectionGroupToolbar from './SelectionGroupToolbar';
@@ -9423,8 +9424,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       {/* 3D模型渲染实例 */}
       {model3DTool.model3DInstances.map((model) => {
         return (
+          <React.Suspense key={model.id} fallback={null}>
           <Model3DContainer
-            key={model.id}
             modelData={model.modelData}
             modelId={model.id}
             bounds={model.bounds}
@@ -9460,6 +9461,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               handleModelSelectFromOverlay(model.id, !!addToSelection)
             }
           />
+          </React.Suspense>
         );
       })}
 

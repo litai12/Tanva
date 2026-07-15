@@ -27,7 +27,7 @@ import {
   model3DUploadService,
   type Model3DData,
 } from "@/services/model3DUploadService";
-import { model3DPreviewService } from "@/services/model3DPreviewService";
+import { model3DPreviewService } from "@/services/model3DPreviewLazy";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { fetchWithAuth } from "@/services/authFetch";

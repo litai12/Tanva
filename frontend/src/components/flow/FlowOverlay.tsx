@@ -51,15 +51,23 @@ import {
 import TextPromptNode from "./nodes/TextPromptNode";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
-import HtmlPptNode from "./nodes/HtmlPptNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
+import { lazyNodeComponent } from "./lazyNodeComponent";
+// 重依赖节点按需加载:three全家桶/PPT模板数据不进主包
+const HtmlPptNode = lazyNodeComponent(() => import("./nodes/HtmlPptNode"));
+const ThreeNode = lazyNodeComponent(() => import("./nodes/ThreeNode"));
+const ViewAngleNode = lazyNodeComponent(() => import("./nodes/ViewAngleNode"));
+const Seed3DNode = lazyNodeComponent(() => import("./nodes/Seed3DNode"));
+const DirectorCaptureRunner = lazyNodeComponent(() =>
+  import("./nodes/directorConsole/DirectorCaptureRunner").then((m) => ({
+    default: m.DirectorCaptureRunner,
+  })),
+);
 import ImageNode from "./nodes/ImageNode";
 import GenerateNode from "./nodes/GenerateNode";
 import Generate4Node from "./nodes/Generate4Node";
 import GenerateReferenceNode from "./nodes/GenerateReferenceNode";
-import ThreeNode from "./nodes/ThreeNode";
 import CameraNode from "./nodes/CameraNode";
-import ViewAngleNode from "./nodes/ViewAngleNode";
 import PromptOptimizeNode from "./nodes/PromptOptimizeNode";
 import AnalysisNode from "./nodes/AnalyzeNode";
 import Sora2VideoNode from "./nodes/Sora2VideoNode";
@@ -87,7 +95,6 @@ import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
-import { DirectorCaptureRunner } from "./nodes/directorConsole/DirectorCaptureRunner";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
@@ -113,7 +120,6 @@ import { getAudioStudioModeConfig, type AudioStudioMode } from "./nodes/audioStu
 import { getAudioSpecFromManagedRoute, MODE_DEFAULT_MODEL } from "./nodes/audioSpec";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
-import Seed3DNode from "./nodes/Seed3DNode";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
 import { isImageSplitHandle } from "./utils/imageSplitHandles";
