@@ -170,7 +170,12 @@ export class AuthController {
         ? req.rawBody
         : '';
 
-    const responseXml = await this.auth.handleWechatOfficialCallback(rawBody);
+    const responseXml = await this.auth.handleWechatOfficialCallback(
+      rawBody,
+      { signature, timestamp, nonce },
+      // 防环：带此头说明是别处转发来的，service 见到就不会再转发出去
+      req.headers?.['x-wechat-forwarded-by'] ?? null,
+    );
     if (typeof responseXml === 'string' && responseXml.trim().startsWith('<xml>')) {
       res.header('Content-Type', 'application/xml; charset=utf-8');
       return res.send(responseXml);

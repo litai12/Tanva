@@ -974,7 +974,60 @@ export class AuthService {
     };
   }
 
-  async handleWechatOfficialCallback(rawXml: string) {
+  /**
+   * 按 scene 前缀把 TapCanvas 画布(tclogin_)的扫码事件转发过去。
+   *
+   * 背景：公众号后台只能填【一个】回调 URL，现指向本服务；而微信没有「查询谁扫了 scene X」
+   * 的拉取接口，故画布拿不到自己的扫码事件，除非我们转发。画布的 scene 前缀是 tclogin_，
+   * 本服务是 wxlogin_，天然错开不会抢事件。
+   *
+   * 原样转发【原始 XML + signature/timestamp/nonce】，由画布用同一个 WECHAT_OFFICIAL_TOKEN
+   * 自行验签——所以画布的 callback 对「微信直连」和「本服务转发」行为一致，将来若把公众号
+   * 后台 URL 改指画布，两边都不用改代码。
+   *
+   * ⛔ 防死循环：带 X-Wechat-Forwarded-By 头的请求【绝不再转发】，兜住「转发目标被误配成
+   * 本服务自己」的事故。画布侧则根本不实现转发能力（只认 tclogin_，其余一律 success 放过），
+   * 故成环在结构上不可能。
+   */
+  private async forwardToTapCanvas(
+    rawXml: string,
+    query: { signature?: string; timestamp?: string; nonce?: string },
+  ): Promise<string | null> {
+    const base = (
+      this.config.get<string>("TAPCANVAS_WECHAT_CALLBACK_URL") || ""
+    ).trim();
+    if (!base) return null;
+
+    const url = new URL(base);
+    if (query.signature) url.searchParams.set("signature", query.signature);
+    if (query.timestamp) url.searchParams.set("timestamp", query.timestamp);
+    if (query.nonce) url.searchParams.set("nonce", query.nonce);
+
+    // 微信总预算 5s，留 2s 给本服务自身：超时宁可放弃转发也不能拖垮本服务的回复
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml",
+          "X-Wechat-Forwarded-By": "tanva",
+        },
+        body: rawXml,
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      return await res.text();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async handleWechatOfficialCallback(
+    rawXml: string,
+    query: { signature?: string; timestamp?: string; nonce?: string } = {},
+    forwardedBy?: string | null,
+  ) {
     await this.openObserveTelemetryService.ingestBackendEvent({
       traceId: null,
       category: "wechat_official",
@@ -1014,6 +1067,19 @@ export class AuthService {
         toUserName,
         this.getWechatOfficialConfig(false).welcomeMessage
       );
+    }
+
+    // 画布的 scene → 转发过去，不要按本库查（查不到会误回「二维码已过期」这个假原因）
+    if (sceneKey.startsWith("tclogin_")) {
+      if (forwardedBy) return "success"; // 防环第 2 层：转发来的请求绝不再转发
+      try {
+        const forwarded = await this.forwardToTapCanvas(rawXml, query);
+        if (forwarded) return forwarded;
+      } catch (err) {
+        console.error("[wechat-official] forward to tapcanvas failed", err);
+      }
+      // 画布不可达/超时：回 success 让微信收手，不把画布的故障波及本服务在产的登录
+      return "success";
     }
 
     const session = await this.prisma.wechatLoginSession.findUnique({
