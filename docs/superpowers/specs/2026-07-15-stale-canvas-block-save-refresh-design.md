@@ -5,7 +5,9 @@
 
 ## 背景与线上问题
 
-线上出现**旧画布项目覆盖了新内容**：一个落后版本的画布（旧标签页 / 断线后回来的会话）触发保存，把别人/别的标签页刚保存的新内容覆盖掉。
+线上出现**旧画布项目覆盖了新内容**：一个落后版本的画布触发保存，把别的标签页刚保存的新内容覆盖掉。
+
+**主要场景**：同一用户在**同一浏览器开同一项目的多个相同 tab**。tab A 保存把版本从 N 推到 N+1，tab B 仍持有版本 N；tab B 的自动/手动保存以落后的 baseVersion 写回，覆盖 A 的新内容。多 tab 均为**非协作**（`collabCanvasBridge.connected` 恒为 false，实时协作是团队功能），因此正好落在本方案的“非协作落后 → 拒绝写入”护栏内。跨设备/断线回来的落后会话为次要场景，由同一后端护栏覆盖。
 
 根因不在“没有版本号”，版本号一直存在（`Project.contentVersion`，前端 `projectContentStore.version` 作为 baseVersion 回传）。根因是**后端的版本落后分支不是拒绝，而是合并**：
 
@@ -18,7 +20,8 @@
 
 1. 当前画布内容落后于最新版本时，**旧画布不得把内容写回**（从根上避免覆盖，而不是覆盖后再补救）。
 2. 检测到过期后，前端**冻结自动保存与手动保存**，弹出**全屏蒙层强制刷新**弹窗（参考截图样式），用户唯一出口是刷新页面。
-3. **不破坏实时协作**：活跃协作会话（`collabCanvasBridge.connected`）下的落后保存仍走原有合并逻辑。
+3. **多 tab 即时冻结**：同浏览器另一个 tab 保存推进版本后，落后的 tab 立刻弹窗冻结，不必等它自己保存被拒（避免用户继续在废弃 tab 上做活、刷新后丢失）。
+4. **不破坏实时协作**：活跃协作会话（`collabCanvasBridge.connected`）下的落后保存仍走原有合并逻辑。
 
 ## 核心规则
 
@@ -60,9 +63,22 @@ DTO 变更：`UpdateProjectContentDto` 增加可选 `allowMerge?: boolean`。控
 
 **弹窗组件 `frontend/src/components/collab/ProjectContentStaleModal.tsx`**
 - 镜像现有 `CurrentProjectDeletedModal.tsx` 的挂载/层级方式。
-- 样式对齐参考截图：全屏毛玻璃蒙层（backdrop blur + 暗色遮罩）、居中卡片、⚠ 橙色圆形图标、标题 **「项目内容已过期」**、正文 **「当前画布内容已落后于最新版本，为避免覆盖他人的修改，请刷新页面加载最新内容」**、单个主按钮 **「刷新页面」**（`window.location.reload()`）。
+- 样式**逐字对齐参考截图**：全屏毛玻璃蒙层（backdrop blur + 暗色遮罩）、居中暗色卡片、⚠ 橙色圆形图标、蓝色主按钮。
+- 文案（按截图风格，去掉“协作”字样以适配个人多 tab）：
+  - 标题 **「项目内容已过期」**
+  - 正文第一行 **「此项目已在其他标签页打开」**
+  - 正文第二行 **「请刷新页面以继续编辑」**
+  - 按钮 **「刷新页面」**（`window.location.reload()`）
 - **无关闭、无遮罩点击关闭、无 ESC**：刷新是唯一出口。
 - 由 `staleContent === true` 驱动显示，挂在项目工作区顶层（与 `CurrentProjectDeletedModal` 同处）。
+
+### Layer 3 — 同浏览器跨 tab 即时通知（多 tab 场景的主动冻结）
+
+用 `BroadcastChannel`（同源同浏览器）让落后的 tab 无需等到自己保存就冻结：
+- 频道名如 `tanva:project-version`。每次**本 tab 保存成功**（`markSaved` 后，拿到新 `version`）广播 `{ projectId, version }`。
+- 其他 tab 收到后：若 `msg.projectId === store.projectId && msg.version > store.version` → 该 tab 已落后 → `setStaleContent(true)` + 弹窗。
+- 封装为 `frontend/src/services/projectVersionChannel.ts`（`postSaved(projectId, version)` + `onRemoteSaved(cb)`），在 `ProjectAutosaveManager` 挂载时订阅、卸载时关闭。
+- 仅覆盖同浏览器多 tab（主要场景）；跨设备/跨浏览器仍由 Layer 1 后端护栏在保存时兜底。`BroadcastChannel` 不可用时静默降级（不影响 Layer 1/2）。
 
 ## 数据流
 
@@ -99,8 +115,9 @@ DTO 变更：`UpdateProjectContentDto` 增加可选 `allowMerge?: boolean`。控
 - `frontend/src/stores/projectContentStore.ts`（`staleContent` + setter）
 - `frontend/src/hooks/useProjectAutosave.ts`（gating 补 `!staleContent`；响应处理 `stale`）
 - `frontend/src/components/autosave/ManualSaveButton.tsx`（同上）
-- `frontend/src/components/autosave/ProjectAutosaveManager.tsx`（加载期检测升级为弹窗；挂载弹窗）
-- `frontend/src/components/collab/ProjectContentStaleModal.tsx`（新增）
+- `frontend/src/components/autosave/ProjectAutosaveManager.tsx`（加载期检测升级为弹窗；挂载弹窗；订阅跨 tab 频道）
+- `frontend/src/components/collab/ProjectContentStaleModal.tsx`（新增，弹窗）
+- `frontend/src/services/projectVersionChannel.ts`（新增，BroadcastChannel 跨 tab 版本广播）
 
 ## 非目标（YAGNI）
 
@@ -112,4 +129,5 @@ DTO 变更：`UpdateProjectContentDto` 增加可选 `allowMerge?: boolean`。控
 
 - 后端单测：`version < currentContentVersion` 且 `allowMerge:false`/缺失 → 不写入、返回 `stale:true`、`contentVersion` 不变；`allowMerge:true` → 仍合并、version+1。
 - 前端：收到 `stale:true` → `staleContent=true`、`markSaved` 未被调用、后续 autosave/manual 均被冻结、弹窗出现且只有刷新出口。
-- 手动 E2E：两个标签页开同一项目，A 保存推进版本，B（旧 baseVersion，非协作）保存 → B 弹「项目内容已过期」，且服务器内容未被 B 覆盖。
+- 手动 E2E（主场景）：同浏览器两个 tab 开同一项目，A 保存推进版本 → B **立即**弹「项目内容已过期」并冻结（Layer 3）；即便 B 未收到广播、直接触发保存，也被后端拒绝且服务器内容未被 B 覆盖（Layer 1）。
+- 跨 tab 频道单测：`onRemoteSaved` 在 `version > store.version` 时置 `staleContent`，等于/小于时不触发；`projectId` 不匹配时忽略。
