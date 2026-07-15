@@ -55,6 +55,7 @@ import {
   Copy,
   FileText,
   Play,
+  Square,
   RotateCcw,
   Pencil,
   Lock,
@@ -275,6 +276,8 @@ const AIChatDialog: React.FC = () => {
     setXiaotPreferredImage,
     xiaotPreferredVideo,
     setXiaotPreferredVideo,
+    xiaotRunning,
+    stopXiaotAgent,
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
@@ -2533,7 +2536,8 @@ const AIChatDialog: React.FC = () => {
       !trimmedInput ||
       generationStatus.isGenerating ||
       autoOptimizing ||
-      sendInFlightRef.current
+      sendInFlightRef.current ||
+      (xiaotMode && xiaotRunning) // 小T流式进行中：禁止再起新一轮（先停止）
     )
       return;
 
@@ -3025,6 +3029,8 @@ const AIChatDialog: React.FC = () => {
     currentInput.trim().length > 0 &&
     !autoOptimizing &&
     (manualAIMode === "auto" || isManualModeSupported);
+  // 小T 正在流式运行：发送按钮切成「停止」，点击中断当前会话
+  const isXiaotBusy = xiaotMode && xiaotRunning;
   const hasHistoryContent = messages.length > 0 || isStreaming;
   const shouldShowHistoryPanel =
     (showHistory || isMaximized) && (hasHistoryContent || showHistory);
@@ -4503,21 +4509,36 @@ const AIChatDialog: React.FC = () => {
               </Button>
 
               <Button
-                onClick={handleSend}
-                disabled={!canSend}
+                onClick={isXiaotBusy ? stopXiaotAgent : handleSend}
+                disabled={isXiaotBusy ? false : !canSend}
                 size='sm'
                 variant='outline'
                 data-chat-primary-action='true'
-                title={sendButtonTitle}
+                title={
+                  isXiaotBusy
+                    ? lt("停止小T", "Stop assistant")
+                    : sendButtonTitle
+                }
+                aria-label={
+                  isXiaotBusy
+                    ? lt("停止小T", "Stop assistant")
+                    : lt("发送", "Send")
+                }
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  canSend
+                  isXiaotBusy
+                    ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
+                    : canSend
                     ? "hover:bg-liquid-glass-hover text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >
-                <Play className='h-3.5 w-3.5' />
+                {isXiaotBusy ? (
+                  <Square size={12} fill="currentColor" />
+                ) : (
+                  <Play className='h-3.5 w-3.5' />
+                )}
               </Button>
             </div>
 

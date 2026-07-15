@@ -5,6 +5,7 @@ import { IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from 'reactflow'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
+import { createDefaultDirectorConsoleData } from './types'
 import {
   addCharacter, addCamera, selectObject, removeObject,
   patchCharacter, patchCamera, setAspect, setViewpoint, setActiveCamera, setSkybox, setSkyboxYaw,
@@ -53,7 +54,12 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const storeData = useStore((s: any) => (s.nodeInternals as Map<string, any>)?.get(nodeId)?.data) as DirectorConsoleData | undefined
   // 供 Modal 内挂的 scoped runner 反应式读取节点（认领本节点的 pendingCapture）。runner 内部按 onlyNodeId 过滤。
   const scopedRunnerNodes = useNodes()
-  const [data, setData] = React.useState<DirectorConsoleData>(() => storeData ?? ({} as DirectorConsoleData))
+  // 新建的导演台节点 data 里没有 scene（createNodeAtWorldCenter 未 seed 场景），
+  // 而下方 `if (!scene) return null` 会让整个 Modal 渲染空白（点击「打开导演台」没反应）。
+  // 故首帧就用默认场景兜底；首次 apply() 会把 scene 落库。
+  const [data, setData] = React.useState<DirectorConsoleData>(() =>
+    storeData?.scene ? storeData : createDefaultDirectorConsoleData(),
+  )
   const dataRef = React.useRef(data); dataRef.current = data
   const viewportRef = React.useRef<ViewportHandle | null>(null)
   const [busy, setBusy] = React.useState(false)

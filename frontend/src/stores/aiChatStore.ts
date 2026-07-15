@@ -880,6 +880,9 @@ let hasHydratedSessions = false;
 let isHydratingNow = false;
 let refreshSessionsTimeout: NodeJS.Timeout | null = null;
 let legacyMigrationInProgress = false;
+// 小T 流式会话的中断句柄（模块级、非响应式、不持久化）：runXiaotAgent
+// 开始时置入，stopXiaotAgent 调 abort() 中断当前流，finally 清理。
+let xiaotAbortController: AbortController | null = null;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
 export type SendShortcut = "enter" | "mod-enter";
@@ -3192,6 +3195,10 @@ interface AIChatState {
 
   // 小T画布智能体链路（快照上送 + delta 渲染 + flow_patch 落画布）
   runXiaotAgent: (input: string) => Promise<void>;
+  // 小T 是否正在流式运行（发送按钮据此在「发送/停止」间切换）
+  xiaotRunning: boolean;
+  // 中断当前小T流式会话：abort 网络流 + 把占位消息标记为「已停止」
+  stopXiaotAgent: () => void;
 
   // 核心处理流程
   executeProcessFlow: (
@@ -3636,6 +3643,7 @@ export const useAIChatStore = create<AIChatState>()(
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
         xiaotStyleAnchor: null, // 小T风格锚定默认无
+        xiaotRunning: false, // 小T是否正在流式运行（运行时发送按钮变「停止」）
 
         // 对话框控制
         showDialog: () => {
@@ -8435,6 +8443,12 @@ export const useAIChatStore = create<AIChatState>()(
         runXiaotAgent: async (input: string) => {
           const state = get();
 
+          // 中断句柄：本轮开始即置入模块级 controller，并标记运行中
+          //（发送按钮据 xiaotRunning 在「发送 ↔ 停止」间切换）。
+          const controller = new AbortController();
+          xiaotAbortController = controller;
+          set({ xiaotRunning: true });
+
           // 会话保障（processUserInput 已做过完整同步，这里仅兜底）
           let sessionId =
             state.currentSessionId || contextManager.getCurrentSessionId();
@@ -8847,7 +8861,7 @@ export const useAIChatStore = create<AIChatState>()(
                   },
                 }));
               }
-            });
+            }, { signal: controller.signal });
 
             // 缺图对账（确定性）：本轮新建的纯图生视频节点若无图边连入，
             // 说明小T选了图生模式却没给图（会报错）。这些类型无纯文生模式，
@@ -8900,30 +8914,76 @@ export const useAIChatStore = create<AIChatState>()(
               }));
             }
           } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : "小T处理失败";
-            get().updateMessage(aiMessage.id, (msg) => ({
-              ...msg,
-              content: assembled || `处理失败: ${errorMessage}`,
-              generationStatus: {
-                ...(msg.generationStatus || {
-                  isGenerating: true,
-                  progress: 0,
+            // 用户主动中断（stopXiaotAgent → controller.abort()）：不当作错误，
+            // 保留已生成的部分内容，标记「已停止」（error 置空，不显红）。
+            const wasAborted =
+              controller.signal.aborted ||
+              (error instanceof DOMException && error.name === "AbortError") ||
+              (error instanceof Error && error.name === "AbortError");
+            if (wasAborted) {
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || msg.content,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 100,
                   error: null,
-                }),
-                isGenerating: false,
-                progress: 0,
-                error: errorMessage,
-                stage: "已终止",
-              },
-            }));
+                  stage: "已停止",
+                },
+              }));
+            } else {
+              const errorMessage =
+                error instanceof Error ? error.message : "小T处理失败";
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || `处理失败: ${errorMessage}`,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 0,
+                  error: errorMessage,
+                  stage: "已终止",
+                },
+              }));
+            }
           } finally {
+            // 仅在仍是本轮 controller 时清理（防并发轮次误清后一轮）
+            if (xiaotAbortController === controller) {
+              xiaotAbortController = null;
+            }
+            set({ xiaotRunning: false });
             try {
               await get().refreshSessions({ immediate: true });
             } catch (persistError) {
               console.warn("⚠️ runXiaotAgent 持久化会话失败:", persistError);
             }
           }
+        },
+
+        // 中断当前小T流式会话：abort 网络流；消息态与运行标记的收尾由
+        // runXiaotAgent 的 catch（标记「已停止」）+ finally（xiaotRunning=false）
+        // 统一处理。此处只做即时反馈：立刻翻转 xiaotRunning 让按钮回到「发送」。
+        stopXiaotAgent: () => {
+          const controller = xiaotAbortController;
+          if (!controller) {
+            if (get().xiaotRunning) set({ xiaotRunning: false });
+            return;
+          }
+          try {
+            controller.abort();
+          } catch {
+            /* ignore */
+          }
+          set({ xiaotRunning: false });
         },
 
         // 智能工具选择功能 - 统一入口（支持并行生成）
