@@ -41,6 +41,7 @@ import {
   detectRequestedImageModel,
   detectVideoDuration,
   getVideoModelLabel,
+  externalizeInlinePrompt,
   parseAgentFlowPatch,
   rewritePatchForPreferredVideo,
   rewritePatchToImageType,
@@ -8803,50 +8804,66 @@ export const useAIChatStore = create<AIChatState>()(
                     };
                   }
                 }
-                // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标
+                // 提示词强制外置（确定性根治）：生成节点 data 里的内联提示词
+                // 一律抽出，展开为 textPrompt 节点 + 连线承载。必须放在优选
+                // 改写之后——改写目标（如 gptImage2）不消费 data.prompts，
+                // 不外置会静默丢提示词报「缺少提示词输入」。
                 const finalParsed = parseAgentFlowPatch(patch);
-                if (
-                  finalParsed?.op === "addNode" &&
-                  finalParsed.node &&
-                  VIDEO_TYPES_REQUIRE_IMAGE.has(finalParsed.node.type)
-                ) {
-                  const nodeData = (finalParsed.node.data || {}) as Record<
-                    string,
-                    unknown
-                  >;
-                  const label =
-                    (typeof nodeData.label === "string" && nodeData.label) ||
-                    finalParsed.node.type;
-                  addedImageVideoNodes.set(finalParsed.node.id, {
-                    type: finalParsed.node.type,
-                    label,
-                  });
+                const expandedPatches: unknown[] = finalParsed
+                  ? externalizeInlinePrompt(finalParsed)
+                  : [patch];
+                if (expandedPatches.length > 1) {
+                  console.info(
+                    "[xiaot] 内联提示词已外置为 textPrompt 节点:",
+                    finalParsed?.node?.id
+                  );
                 }
-                if (finalParsed?.op === "connectEdge" && finalParsed.target) {
-                  const th = (finalParsed.targetHandle || "").toLowerCase();
-                  if (th.includes("image") || th.includes("img")) {
-                    imageEdgeTargets.add(finalParsed.target);
+                for (const onePatch of expandedPatches) {
+                  // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标
+                  const oneParsed = parseAgentFlowPatch(onePatch);
+                  if (
+                    oneParsed?.op === "addNode" &&
+                    oneParsed.node &&
+                    VIDEO_TYPES_REQUIRE_IMAGE.has(oneParsed.node.type)
+                  ) {
+                    const nodeData = (oneParsed.node.data || {}) as Record<
+                      string,
+                      unknown
+                    >;
+                    const label =
+                      (typeof nodeData.label === "string" && nodeData.label) ||
+                      oneParsed.node.type;
+                    addedImageVideoNodes.set(oneParsed.node.id, {
+                      type: oneParsed.node.type,
+                      label,
+                    });
                   }
-                }
-                if (applyAgentPatch(patch)) {
-                  patchCount += 1;
-                  get().updateMessage(aiMessage.id, (msg) => ({
-                    ...msg,
-                    metadata: {
-                      ...(msg.metadata || {}),
-                      agentPatchCount: patchCount,
-                    },
-                    generationStatus: {
-                      ...(msg.generationStatus || {}),
-                      isGenerating: true,
-                      progress: Math.max(
-                        msg.generationStatus?.progress ?? 0,
-                        60
-                      ),
-                      error: null,
-                      stage: "小T执行中",
-                    },
-                  }));
+                  if (oneParsed?.op === "connectEdge" && oneParsed.target) {
+                    const th = (oneParsed.targetHandle || "").toLowerCase();
+                    if (th.includes("image") || th.includes("img")) {
+                      imageEdgeTargets.add(oneParsed.target);
+                    }
+                  }
+                  if (applyAgentPatch(onePatch)) {
+                    patchCount += 1;
+                    get().updateMessage(aiMessage.id, (msg) => ({
+                      ...msg,
+                      metadata: {
+                        ...(msg.metadata || {}),
+                        agentPatchCount: patchCount,
+                      },
+                      generationStatus: {
+                        ...(msg.generationStatus || {}),
+                        isGenerating: true,
+                        progress: Math.max(
+                          msg.generationStatus?.progress ?? 0,
+                          60
+                        ),
+                        error: null,
+                        stage: "小T执行中",
+                      },
+                    }));
+                  }
                 }
               } else if (event.type === "host_ui") {
                 // 小T交互卡片：choices/media 追加进 xiaotCards；

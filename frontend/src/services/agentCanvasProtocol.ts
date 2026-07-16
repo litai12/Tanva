@@ -122,9 +122,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "generatePro",
       label: "Agent图像生成(Pro)",
-      purpose: "首选生图节点：data.prompts 数组即本地提示词，无需连文本边即可 runNode；可联网",
+      purpose: "首选生图节点：提示词由 textPrompt 节点承载（连 text 输入）；可联网",
       params: {
-        prompts: { type: "array", items: { type: "string" } },
         modelProvider: { type: "string", enum: ["banana-2.5", "banana", "banana-3.1"], description: "Fast/Pro/Ultra 三档" },
         enableWebSearch: { type: "boolean" },
       },
@@ -134,9 +133,8 @@ export const TANVA_CAPABILITY_MANIFEST = {
     {
       type: "generatePro4",
       label: "Agent图像生成(Pro)四宫格",
-      purpose: "同 generatePro 但一次出四张图（data.prompts 自足，无需连文本边）",
+      purpose: "同 generatePro 但一次出四张图（提示词同样由 textPrompt 承载）",
       params: {
-        prompts: { type: "array", items: { type: "string" } },
         modelProvider: { type: "string", enum: ["banana-2.5", "banana", "banana-3.1"], description: "Fast/Pro/Ultra 三档" },
         enableWebSearch: { type: "boolean" },
       },
@@ -356,7 +354,7 @@ export const TANVA_CAPABILITY_MANIFEST = {
     "placeImage 会把图片放到画布绘图层（非节点、不可连线）；需要可连线的图片节点请用 addNode {type:'image', data:{imageUrl}}",
     "操作已有节点时 id 必须来自 canvas_context.nodes（真实 id）；你此前轮次自造的节点 id 仅在同一聊天会话内有效",
     "生图节点 data.modelProvider 三档 banana-2.5/banana/banana-3.1（Fast/Pro/Ultra），参考图上限分别 3/11/14",
-    "生成类节点（除 generatePro/Pro4）的提示词必须由 textPrompt 节点承载：创建生成节点时必须同步创建 textPrompt（data.text 写提示词）并 connectEdge {sourceHandle:'text', targetHandle:'text'}（seedream5 的 targetHandle 是 'prompt'）——即使用户说先不运行也要完成连线",
+    "所有生成类节点（含 generatePro/Pro4、全部视频节点）的提示词一律由 textPrompt 节点承载：创建生成节点时必须同步创建 textPrompt（data.text 写提示词）并 connectEdge {sourceHandle:'text', targetHandle:'text'}（seedream5 的 targetHandle 是 'prompt'）——即使用户说先不运行也要完成连线；不要把提示词写进生成节点 data（宿主会强制抽出改为 textPrompt 承载）；后续改提示词用 updateNodeData 改对应 textPrompt 节点的 data.text，而非改生成节点",
     "用户未指定视频模型/参数时，默认创建 seedance20Video（Seedance 2.0），resolution 720P、aspectRatio 16:9",
     "textChat 输出 handle 是 text；textNote 输出 handle 是 text-right-out（一般不要用 textNote 做提示词源，用 textPrompt）",
     "视频节点输出统一为 video handle；生图输出统一为 img handle；第二层清单只列了型号名，参数走节点默认值，需要精细控制时优先用第一层节点",
@@ -573,6 +571,12 @@ export const VIDEO_TYPES_REQUIRE_IMAGE = new Set([
   "happyhorseR2V",
 ]);
 
+// 生成节点 data 里可能携带的内联提示词键（小T旧习惯/改写残留）。这些键
+// 生成节点自身并不消费（generatePro 系历史上消费 prompts，现统一外置；
+// gptImage2/视频节点从来只认外接 text 边），一律抽出改为 textPrompt 承载。
+// presetPrompt 是 generate/nano2 的真实前缀字段，不在此列。
+export const INLINE_PROMPT_KEYS = ["prompts", "prompt", "text"] as const;
+
 // 确定性兜底：manifest 的优选 note 只是提示级约束（大 manifest+画布惯性下
 // 小T仍可能跟随画布已有节点选别的视频模型）。addNode 落画布前把非优选的
 // 视频节点类型改写为优选类型；data 只保留通用白名单键，厂商专属参数丢弃
@@ -588,6 +592,9 @@ const VIDEO_REWRITE_DATA_WHITELIST = [
   // 保留用户的 seedance 模式意图（首尾帧/智能帧等）；对齐后 applier 缺省填充
   // 只在此键缺失时才补 first_frame，故保留它不会被误覆盖
   "seedanceMode",
+  // 内联提示词键：改写时保留，随后由 externalizeInlinePrompt 抽出改为
+  // textPrompt 节点承载（生成节点自身不消费这些键）
+  ...INLINE_PROMPT_KEYS,
 ] as const;
 
 export function rewritePatchForPreferredVideo(
@@ -650,11 +657,13 @@ export function detectRequestedImageModel(text: string): string | null {
 }
 
 // data 白名单：改写图片节点时只保留通用键，厂商专属参数丢弃防污染。
+// 内联提示词键保留，随后由 externalizeInlinePrompt 抽出改为 textPrompt 承载
+// （否则 generatePro→gptImage2 改写会静默丢提示词，节点报「缺少提示词输入」）。
 const IMAGE_REWRITE_DATA_WHITELIST = [
   "label",
   "aspectRatio",
   "presetPrompt",
-  "prompts",
+  ...INLINE_PROMPT_KEYS,
 ] as const;
 
 // 把 addNode 的图片生成节点强制改写成 targetType（用户优选/点名）。
@@ -689,6 +698,61 @@ export function rewritePatchToImageType(
     ...patch,
     node: { ...node, type: targetType, data: keptData },
   };
+}
+
+// ── 提示词强制外置（确定性根治）──
+// 所有图/视频生成节点的提示词一律由 textPrompt 节点承载：addNode 落画布前，
+// 把 data 里的内联提示词（INLINE_PROMPT_KEYS）抽出，展开成
+// [textPrompt addNode, 剥离后的生成节点 addNode, connectEdge] 三个 patch。
+// 动机：①优选改写（如 generatePro4→gptImage2）后目标节点不消费 data.prompts，
+// 提示词静默丢失、节点报「缺少提示词输入」；②统一画布形态——提示词永远
+// 可见可编辑地挂在节点旁。运行语义不变：generatePro 系运行时本地 prompts
+// 与外接提示词本就 join 合并（FlowOverlay handleGenerate）。
+// 无内联提示词/非生成节点原样返回单元素数组。
+export function externalizeInlinePrompt(patch: AgentFlowPatch): AgentFlowPatch[] {
+  if (patch.op !== "addNode" || !patch.node) return [patch];
+  const node = patch.node;
+  if (!IMAGE_GEN_NODE_TYPES.has(node.type) && !VIDEO_NODE_TYPES.has(node.type)) {
+    return [patch];
+  }
+  const data = (
+    node.data && typeof node.data === "object" ? node.data : {}
+  ) as Record<string, unknown>;
+  const pieces: string[] = [];
+  if (Array.isArray(data.prompts)) {
+    for (const p of data.prompts) {
+      if (typeof p === "string" && p.trim()) pieces.push(p.trim());
+    }
+  }
+  for (const key of ["prompt", "text"] as const) {
+    const v = data[key];
+    if (typeof v === "string" && v.trim()) pieces.push(v.trim());
+  }
+  if (pieces.length === 0) return [patch];
+  const strippedData: Record<string, unknown> = { ...data };
+  for (const key of INLINE_PROMPT_KEYS) delete strippedData[key];
+  // 合成 textPrompt：id 挂在生成节点 agent id 下（idMap 登记后 connectEdge 可解析）；
+  // 生成节点给了 position 时放到其左侧，否则交给宿主自动排布
+  const promptId = `${node.id}__prompt`;
+  const promptNode: AgentFlowPatch = {
+    op: "addNode",
+    node: {
+      id: promptId,
+      type: "textPrompt",
+      data: { text: pieces.join("\n\n") },
+      ...(node.position
+        ? { position: { x: node.position.x - 360, y: node.position.y } }
+        : {}),
+    },
+  };
+  const edge: AgentFlowPatch = {
+    op: "connectEdge",
+    source: promptId,
+    target: node.id,
+    sourceHandle: "text",
+    targetHandle: DEFAULT_NODE_HANDLES[node.type]?.textIn ?? "text",
+  };
+  return [promptNode, { ...patch, node: { ...node, data: strippedData } }, edge];
 }
 
 export function buildManifestSystemMessage(): string {
