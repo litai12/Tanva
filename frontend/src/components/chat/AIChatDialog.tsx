@@ -78,11 +78,14 @@ import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import {
+  DOC_MAX_TEXT_BYTES,
   DOC_TEXT_ACCEPT,
   DocExtractError,
   extractTextFromDocFile,
+  fitTextToBytes,
   isSupportedDocFile,
   pickSupportedDocFiles,
+  textByteLength,
 } from "@/utils/documentTextExtract";
 import {
   getTencentBananaMaxReferenceImages,
@@ -1753,13 +1756,26 @@ const AIChatDialog: React.FC = () => {
       const texts: string[] = [];
       const okNames: string[] = [];
       let truncatedAny = false;
+      // 多文件的总量闸门：单文件各自 ≤10MB，但一次拖 5 个就是 50MB，
+      // 故按累计字节再卡一道 10MB，超了就停止收后续文件。
+      let usedBytes = 0;
       try {
         for (const file of supported) {
+          if (usedBytes >= DOC_MAX_TEXT_BYTES) {
+            truncatedAny = true;
+            break;
+          }
           try {
             const result = await extractTextFromDocFile(file);
-            texts.push(result.text);
+            const fitted = fitTextToBytes(result.text, DOC_MAX_TEXT_BYTES - usedBytes);
+            if (!fitted.text) {
+              truncatedAny = true;
+              break;
+            }
+            usedBytes += textByteLength(fitted.text);
+            texts.push(fitted.text);
             okNames.push(result.fileName);
-            if (result.truncated) truncatedAny = true;
+            if (result.truncated || fitted.truncated) truncatedAny = true;
           } catch (error) {
             // 单个文件失败不连坐其余文件
             const message =
@@ -1790,11 +1806,12 @@ const AIChatDialog: React.FC = () => {
       });
 
       const chars = addition.length.toLocaleString();
+      const limitMb = DOC_MAX_TEXT_BYTES / 1024 / 1024;
       showToast(
         truncatedAny
           ? lt(
-              `已插入 ${okNames.join("、")}（内容过长，已截断至 ${chars} 字）`,
-              `Inserted ${okNames.join(", ")} (truncated to ${chars} chars)`
+              `已插入 ${okNames.join("、")}（超出 ${limitMb}MB 上限，已截断至 ${chars} 字）`,
+              `Inserted ${okNames.join(", ")} (over the ${limitMb}MB limit, truncated to ${chars} chars)`
             )
           : lt(
               `已插入 ${okNames.join("、")}（${chars} 字）`,

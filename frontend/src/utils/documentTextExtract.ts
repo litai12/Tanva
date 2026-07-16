@@ -7,10 +7,14 @@
 export const DOC_TEXT_ACCEPT =
   ".txt,.md,.markdown,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** 单文件体积上限（docx 解压后膨胀，10MB 原文已远超对话可用量） */
+/** 单文件体积上限：10MB */
 export const DOC_MAX_FILE_SIZE = 10 * 1024 * 1024;
-/** 单次插入输入框的字符上限：超出截断并提示（防超长文档打爆输入框与上下文） */
-export const DOC_MAX_CHARS = 100_000;
+/**
+ * 提取文本的体积上限：10MB（按 UTF-8 字节计，与文件上限同口径），超出截断并提示。
+ * 不是走过场的重复限制——txt 的文件大小≈文本大小，但 **docx 是 zip 压缩的 XML**，
+ * 10MB 的 docx 解压后可能吐出几十 MB 文本，这道才真正兜得住。
+ */
+export const DOC_MAX_TEXT_BYTES = 10 * 1024 * 1024;
 
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -86,12 +90,40 @@ function normalizeExtracted(raw: string): string {
     .trim();
 }
 
+/** 文本的 UTF-8 字节数 */
+export function textByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * 按 UTF-8 字节上限截断，且不切断多字节字符——中文一刀切在半个字上会留下 U+FFFD（�）。
+ * 做法：切到上限字节后解码（非 fatal，尾部残缺字节变 �），再剥掉尾部的 �。
+ * 调用方：单文件提取（本文件）+ 多文件累计闸门（AIChatDialog ingestDocFiles）。
+ */
+export function fitTextToBytes(
+  text: string,
+  maxBytes: number
+): { text: string; truncated: boolean } {
+  if (maxBytes <= 0) return { text: "", truncated: true };
+  return truncateToBytes(text, maxBytes);
+}
+
+function truncateToBytes(text: string, maxBytes: number): { text: string; truncated: boolean } {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= maxBytes) return { text, truncated: false };
+  const decoded = new TextDecoder("utf-8").decode(bytes.subarray(0, maxBytes));
+  return { text: decoded.replace(/�+$/, ""), truncated: true };
+}
+
 export interface DocExtractResult {
   fileName: string;
   text: string;
-  /** 是否因超过 DOC_MAX_CHARS 被截断 */
+  /** 是否因超过 DOC_MAX_TEXT_BYTES 被截断 */
   truncated: boolean;
+  /** 提取到的原始字符数（截断前） */
   charCount: number;
+  /** 提取到的原始 UTF-8 字节数（截断前） */
+  byteCount: number;
 }
 
 export class DocExtractError extends Error {
@@ -137,12 +169,13 @@ export async function extractTextFromDocFile(file: File): Promise<DocExtractResu
   if (!normalized) {
     throw new DocExtractError(`${file.name} 没有可提取的文字内容`);
   }
-  const truncated = normalized.length > DOC_MAX_CHARS;
+  const { text, truncated } = truncateToBytes(normalized, DOC_MAX_TEXT_BYTES);
   return {
     fileName: file.name || "未命名文件",
-    text: truncated ? normalized.slice(0, DOC_MAX_CHARS) : normalized,
+    text,
     truncated,
     charCount: normalized.length,
+    byteCount: textByteLength(normalized),
   };
 }
 
