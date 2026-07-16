@@ -4,10 +4,8 @@ import { History, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { projectApi, type WorkflowHistoryEntry } from "@/services/projectApi";
-import { paperSaveService } from "@/services/paperSaveService";
-import { flowSaveService } from "@/services/flowSaveService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { sanitizeProjectContentForCloudSave } from "@/utils/projectContentValidation";
+import { performManualSave } from "@/services/manualSaveService";
 import { useTranslation } from "react-i18next";
 
 type WorkflowHistoryButtonProps = {
@@ -145,41 +143,18 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
 
       useProjectContentStore.getState().updatePartial({ flow: flow as any }, { markDirty: true });
 
-      // 保存前补传/替换本地图片引用，避免把 blob:/data:/base64 落库
-      await paperSaveService.saveImmediately();
-      await flowSaveService.flushFlowNodeImageRefs();
-
-      const store = useProjectContentStore.getState();
-      if (!store.projectId || store.projectId !== projectId || !store.content) return;
-
-      const sanitizeResult = sanitizeProjectContentForCloudSave(store.content);
-      const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
-      const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
-      const contentForCloudSave = sanitizeResult?.sanitized ?? store.content;
-      if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        const message = lt(
-          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`,
-          `Found images not uploaded to OSS (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}); cloud save is blocked. Please upload and retry.`
-        );
-        try { store.setWarning(message); } catch {}
-        return;
-      } else {
-        try { store.setWarning(null); } catch {}
-      }
-
-      store.setManualSaving(true);
-      // 记录发起保存时的修改计数:保存往返期间用户继续编辑时,markSaved 不能清掉新改动的 dirty 状态。
-      const counterAtSave = store.dirtyCounter;
-      const result = await projectApi.saveContent(projectId, {
-        content: contentForCloudSave,
-        version: store.version,
-        createWorkflowHistory: true,
+      // 落盘走 manualSaveService（与保存按钮/Ctrl+S 同一实现）：图片 flush、sanitize、
+      // stale 判定、写本地缓存、跨 tab 广播都在里面，不要在这里复制。
+      const outcome = await performManualSave({
+        origin: 'history-restore',
+        lt,
         workflowHistoryMeta: {
           restoredFromUpdatedAt: entry.updatedAt,
           restoredFromVersion: entry.version,
         },
       });
-      store.markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterAtSave);
+      // 未落盘（被拒/被阻止/出错）时不关面板，让用户看到 store 里的告警并可重试。
+      if (outcome !== 'saved') return;
 
       await refresh();
       close();
@@ -189,10 +164,8 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
         useProjectContentStore.getState().setError(msg);
       } catch {}
     } finally {
-      const storeAfter = useProjectContentStore.getState();
-      if (storeAfter.projectId === projectId) {
-        storeAfter.setManualSaving(false);
-      }
+      // manualSaving 由 manualSaveService 自行置位/复位，这里不要越俎代庖清它，
+      // 否则会误清掉其它在途保存的标志。
       setRestoring(null);
     }
   }, [close, lt, projectId, refresh]);

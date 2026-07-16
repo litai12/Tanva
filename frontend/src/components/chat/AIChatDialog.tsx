@@ -54,6 +54,7 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  FileType,
   Play,
   Square,
   RotateCcw,
@@ -76,6 +77,13 @@ import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimiz
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import {
+  DOC_TEXT_ACCEPT,
+  DocExtractError,
+  extractTextFromDocFile,
+  isSupportedDocFile,
+  pickSupportedDocFiles,
+} from "@/utils/documentTextExtract";
 import {
   getTencentBananaMaxReferenceImages,
   isTencentBananaAnalyzeSupported,
@@ -327,6 +335,15 @@ const AIChatDialog: React.FC = () => {
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+  // ingestDocFiles 定义在 handlePaste 之后，粘贴分支经此 ref 取最新实现
+  const ingestDocFilesRef = useRef<(files: FileList | File[]) => Promise<void>>(
+    async () => {}
+  );
+  // 文档拖拽：dragenter/leave 会在子元素上冒泡触发，用深度计数判定真正离开
+  const dragDepthRef = useRef(0);
+  const [isDocDragging, setIsDocDragging] = useState(false);
+  const [isExtractingDoc, setIsExtractingDoc] = useState(false);
   const ownedObjectUrlsRef = useRef<Set<string>>(new Set());
   const historyRef = useRef<HTMLDivElement>(null);
   const historyInitialHeightRef = useRef<number | null>(null);
@@ -1510,11 +1527,24 @@ const AIChatDialog: React.FC = () => {
     sourceImagesForBlending,
   ]);
 
-  // 处理粘贴事件 - 支持从剪贴板粘贴图片
+  // 处理粘贴事件 - 支持从剪贴板粘贴图片 / 粘贴 txt·md·docx 文件
   const handlePaste = useCallback(
     (event: React.ClipboardEvent) => {
       const clipboardData = event.clipboardData;
       if (!clipboardData) return;
+
+      // 文档文件（在访达/资源管理器 Cmd+C 复制文件后粘贴）→ 抽文本进输入框。
+      // 与拖拽同一条链路；经 ref 调用是因为 ingestDocFiles 定义在本回调之后，
+      // 直接写进依赖数组会在渲染期 ReferenceError。
+      const pastedFiles = Array.from(clipboardData.files || []);
+      if (pastedFiles.length > 0) {
+        const docFiles = pastedFiles.filter(isSupportedDocFile);
+        if (docFiles.length > 0) {
+          event.preventDefault();
+          void ingestDocFilesRef.current(docFiles);
+          return;
+        }
+      }
 
       // 检查剪贴板中是否有图片
       const items = clipboardData.items;
@@ -1698,6 +1728,132 @@ const AIChatDialog: React.FC = () => {
       }
     },
     []
+  );
+
+  // ── 文档（txt/md/docx）→ 文本输入 ──
+  // 本地提取正文追加进输入框，不上传不扣费（与 PDF 的「传 OSS 做多模态分析」是两条路）。
+  // 入口三个：拖拽到输入区、上传菜单「上传文档」、以及两者共用的隐藏 input。
+  const ingestDocFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const { supported, rejected } = pickSupportedDocFiles(files);
+      if (supported.length === 0) {
+        if (rejected.length > 0) {
+          showToast(
+            lt(
+              "只支持 txt / md / docx 文档；图片和 PDF 请用上传菜单",
+              "Only txt / md / docx are supported; use the upload menu for images and PDFs"
+            ),
+            "error"
+          );
+        }
+        return;
+      }
+
+      setIsExtractingDoc(true);
+      const texts: string[] = [];
+      const okNames: string[] = [];
+      let truncatedAny = false;
+      try {
+        for (const file of supported) {
+          try {
+            const result = await extractTextFromDocFile(file);
+            texts.push(result.text);
+            okNames.push(result.fileName);
+            if (result.truncated) truncatedAny = true;
+          } catch (error) {
+            // 单个文件失败不连坐其余文件
+            const message =
+              error instanceof DocExtractError
+                ? error.message
+                : `${file.name} 解析失败`;
+            showToast(message, "error");
+          }
+        }
+      } finally {
+        setIsExtractingDoc(false);
+      }
+      if (texts.length === 0) return;
+
+      // 追加而非覆盖：用户可能已经写了指令（"把这个改成15s TVC"）再拖文件进来
+      const addition = texts.join("\n\n");
+      const merged = currentInput.trim()
+        ? `${currentInput.replace(/\s+$/, "")}\n\n${addition}`
+        : addition;
+      setCurrentInput(merged);
+      // 插入后把光标移到末尾并聚焦，接着打字即可
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(merged.length, merged.length);
+        scheduleEnsureInputVisible();
+      });
+
+      const chars = addition.length.toLocaleString();
+      showToast(
+        truncatedAny
+          ? lt(
+              `已插入 ${okNames.join("、")}（内容过长，已截断至 ${chars} 字）`,
+              `Inserted ${okNames.join(", ")} (truncated to ${chars} chars)`
+            )
+          : lt(
+              `已插入 ${okNames.join("、")}（${chars} 字）`,
+              `Inserted ${okNames.join(", ")} (${chars} chars)`
+            ),
+        "success"
+      );
+      if (rejected.length > 0) {
+        showToast(
+          lt(
+            `已忽略 ${rejected.length} 个不支持的文件`,
+            `Ignored ${rejected.length} unsupported file(s)`
+          ),
+          "error"
+        );
+      }
+    },
+    [currentInput, setCurrentInput, showToast, lt, scheduleEnsureInputVisible]
+  );
+
+  // 供 handlePaste（定义在前）取用最新实现
+  useEffect(() => {
+    ingestDocFilesRef.current = ingestDocFiles;
+  }, [ingestDocFiles]);
+
+  // 拖拽：只对「带文件的拖拽」响应，拖选中的文字/画布节点时不干扰
+  const dragHasFiles = (event: React.DragEvent): boolean =>
+    Array.from(event.dataTransfer?.types || []).includes("Files");
+
+  const handleDocDragEnter = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDocDragging(true);
+  }, []);
+
+  const handleDocDragOver = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    // 必须 preventDefault，否则浏览器不触发 drop（默认会拿文件去导航）
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleDocDragLeave = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDocDragging(false);
+  }, []);
+
+  const handleDocDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDocDragging(false);
+      const files = event.dataTransfer?.files;
+      if (files && files.length > 0) void ingestDocFiles(files);
+    },
+    [ingestDocFiles]
   );
 
   const handleCopyMessage = useCallback(
@@ -3144,6 +3300,12 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         data-prevent-add-panel
+        // 文档拖拽落点 = 整个对话框：用户拖文件时不会精准瞄准底部输入条，
+        // 只挂输入区会让人以为"拖了没反应"。挂根节点后对话框任意位置都能接。
+        onDragEnter={handleDocDragEnter}
+        onDragOver={handleDocDragOver}
+        onDragLeave={handleDocDragLeave}
+        onDrop={handleDocDrop}
         className={cn(
           "transition-all ease-out relative overflow-visible group ai-chat-glow-border",
           isBlackTheme && "ai-chat-theme-premium-dark",
@@ -3179,6 +3341,22 @@ const AIChatDialog: React.FC = () => {
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
+        {/* 文档拖入提示浮层：盖住整个对话框（落点即整个对话框）。
+            pointer-events-none 必须有，否则浮层自己会吃掉 dragleave/drop。 */}
+        {(isDocDragging || isExtractingDoc) && (
+          <div className='absolute inset-0 z-50 flex items-center justify-center rounded-2xl pointer-events-none bg-blue-50/70 backdrop-blur-[2px]'>
+            <div className='flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-700 border-2 border-blue-400 border-dashed rounded-xl bg-white/95 shadow-sm'>
+              <FileText className='w-4 h-4' />
+              {isExtractingDoc
+                ? lt("正在读取文档…", "Reading document…")
+                : lt(
+                    "松手插入文档文字（txt / md / docx）",
+                    "Drop to insert text (txt / md / docx)"
+                  )}
+            </div>
+          </div>
+        )}
+
         {showHistoryHoverIndicator && (
           <button
             type='button'
@@ -3280,7 +3458,7 @@ const AIChatDialog: React.FC = () => {
           <div
             ref={inputAreaRef}
             className={cn(
-              "order-2 flex-shrink-0",
+              "order-2 flex-shrink-0 relative",
               showHistory && !isMaximized && "mt-auto",
               isMaximized && "mt-auto",
               shouldShowHistoryPanel && "pt-2"
@@ -4473,6 +4651,15 @@ const AIChatDialog: React.FC = () => {
                     <FileText className='w-4 h-4' />
                     <span>{lt("上传PDF", "Upload PDF")}</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      docInputRef.current?.click();
+                    }}
+                    className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
+                  >
+                    <FileType className='w-4 h-4' />
+                    <span>{lt("上传文档", "Upload document")}</span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               )}
@@ -4563,6 +4750,20 @@ const AIChatDialog: React.FC = () => {
               multiple
               style={{ display: "none" }}
               onChange={handleImageUpload}
+            />
+            {/* 文档文件输入（txt/md/docx）：本地提取文字进输入框，与拖拽同一条链路 */}
+            <input
+              ref={docInputRef}
+              type='file'
+              accept={DOC_TEXT_ACCEPT}
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) void ingestDocFiles(files);
+                // 清空 value：否则连续选同一个文件不触发 change
+                if (docInputRef.current) docInputRef.current.value = "";
+              }}
             />
             {/* PDF文件输入 */}
             <input

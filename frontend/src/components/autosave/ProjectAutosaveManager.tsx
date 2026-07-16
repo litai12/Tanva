@@ -464,7 +464,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           if (hasLocalChangesAfterCache && data.version > cached.version) {
             setWarning('远端项目已有更新，且你已基于本地缓存做了修改；为避免覆盖远端版本，自动保存已暂停。请重新打开项目加载最新版本后再修改。');
             setCacheValidationPending(true);
-            useProjectContentStore.getState().setStaleContent(true);
+            useProjectContentStore.getState().setStaleContent(true, 'remote-newer');
             projectLoadDebug.end(projectId, {
               version: cached.version,
               source: 'cache',
@@ -739,7 +739,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       if (collabCanvasBridge.connected) return;
       const store = useProjectContentStore.getState();
       if (store.projectId === pid && version > store.version) {
-        store.setStaleContent(true);
+        store.setStaleContent(true, 'other-tab');
       }
     });
   }, [projectId]);

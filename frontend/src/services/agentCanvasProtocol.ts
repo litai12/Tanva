@@ -88,8 +88,22 @@ export const TANVA_CAPABILITY_MANIFEST = {
   protocol_version: "1" as const,
   host: "tanva",
   patchOps: [...AGENT_PATCH_OPS],
-  // 富格式 UI 能力声明（协议 v1.1；TapCanvas 侧旧 schema 会安全忽略该字段）
-  ui: ["choices", "suggestions", "media"],
+  // 富格式 UI 能力声明（协议 v1.2）。前三项是协议级 kind；其余是 tc-card 富卡 name
+  // （小T 用 ```tc-card 围栏产出，facade 按此声明经 host_ui 下发；未声明会降级成纯文本正文）。
+  // 可选值与形状见门面文档「富格式 UI 协议」节（TapCanvas apps/web/src/ui/account/
+  // integration-doc-content.ts），权威卡名源是 TapCanvas agents-cli types/content-blocks.ts。
+  // 每加一项都必须：① 在 XiaotCards.tsx 有对应 case（否则卡片静默丢弃）；
+  // ② 该名已在 TapCanvas host-canvas-protocol.ts 的 HOST_UI_KINDS 里（否则整份 manifest 被 400 拒）。
+  ui: [
+    "choices",
+    "suggestions",
+    "media",
+    "artifact",
+    "character_cards",
+    "scene_list",
+    "action_banner",
+    "role_note",
+  ],
   nodeSpecs: [
     // ── 第一层：完整 spec ──
     {

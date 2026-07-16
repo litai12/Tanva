@@ -9,6 +9,7 @@ import { setProjectCache } from '@/services/projectCacheStore';
 import { useAuthStore } from '@/stores/authStore';
 import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
 import { projectVersionChannel } from '@/services/projectVersionChannel';
+import { writeLastGoodSnapshot } from '@/services/projectSnapshotBackup';
 import {
   getNonRemoteImageAssetIds,
   getNonPersistableFlowImageNodeIds,
@@ -21,7 +22,6 @@ const DEBOUNCE_DELAY = 5 * 1000;
 const MIN_SAVE_INTERVAL_MS = 60 * 1000;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
-const MAX_LOCAL_SNAPSHOT_LENGTH = 2 * 1024 * 1024;
 
 export function useProjectAutosave(projectId: string | null) {
   const content = useProjectContentStore((state) => state.content);
@@ -162,7 +162,7 @@ export function useProjectAutosave(projectId: string | null) {
       // 服务端判定本地版本落后且非协作 → 拒绝写入。冻结自动/手动保存并强制刷新，
       // 绝不 markSaved（那会把本地旧内容的版本对齐成最新，误以为已保存）。
       if (result.stale) {
-        useProjectContentStore.getState().setStaleContent(true);
+        useProjectContentStore.getState().setStaleContent(true, 'save-rejected');
         saveMonitor.push(currentProjectId, 'save_stale_blocked', {
           baseVersion: versionToSave,
           latestVersion: result.latestVersion,
@@ -213,21 +213,11 @@ export function useProjectAutosave(projectId: string | null) {
           attempt,
         });
 
-        const paperJson = persistedContent.paperJson;
-        if (paperJson && paperJson.length > 0) {
-          if (paperJson.length <= MAX_LOCAL_SNAPSHOT_LENGTH) {
-            const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
-            localStorage.setItem(
-              `tanva_last_good_snapshot_${currentProjectId}`,
-              JSON.stringify(backup)
-            );
-          } else {
-            console.warn('skip local snapshot: paperJson too large', {
-              length: paperJson.length,
-              projectId: currentProjectId,
-            });
-          }
-        }
+        writeLastGoodSnapshot(currentProjectId, {
+          version: result.version,
+          updatedAt: result.updatedAt,
+          paperJson: persistedContent.paperJson,
+        });
       } catch {
         // noop
       }
