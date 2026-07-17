@@ -43,6 +43,14 @@ export class MembershipSchedulerService {
           `会员到期扫描完成: subscriptions=${result.expiredSubscriptions}, lots=${result.expiredLots}, resetSnapshots=${result.resetSnapshots}, expiredCredits=${result.expiredCredits}`,
         );
       }
+
+      // 兜底：按 lot 自身 expiresAt 清扫（跨周期换购后旧周期 lot 不再随订阅周期结束清扫）
+      const overdue = await this.membershipService.expireOverdueMembershipBoundLots();
+      if (overdue.expiredLots > 0) {
+        this.logger.log(
+          `会员积分 lot 到期兜底清扫完成: lots=${overdue.expiredLots}, credits=${overdue.expiredCredits}`,
+        );
+      }
     } catch (error) {
       this.logger.error('会员到期扫描失败:', error);
     } finally {

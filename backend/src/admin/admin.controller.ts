@@ -858,6 +858,7 @@ export class AdminController {
       status?: string;
       paymentMethod?: string;
       orderType?: string;
+      billingCycle?: string;
       startDate?: string;
       endDate?: string;
     },
@@ -870,6 +871,7 @@ export class AdminController {
       status: query.status,
       paymentMethod: query.paymentMethod,
       orderType: query.orderType,
+      billingCycle: query.billingCycle,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });

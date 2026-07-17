@@ -2342,16 +2342,26 @@ export class AdminService {
     status?: string;
     paymentMethod?: string;
     orderType?: string;
+    /** 订阅类型筛选：monthly=月卡 / yearly=年卡（按会员计划的 billingCycle 匹配） */
+    billingCycle?: string;
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, startDate, endDate } = options;
+    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, billingCycle, startDate, endDate } = options;
 
     const where: any = {};
 
     if (status && status !== 'all') where.status = status;
     if (paymentMethod && paymentMethod !== 'all') where.paymentMethod = paymentMethod;
     if (orderType && orderType !== 'all') where.orderType = orderType;
+    if (billingCycle && billingCycle !== 'all') {
+      const cyclePlans = await this.prisma.membershipPlan.findMany({
+        where: { billingCycle },
+        select: { id: true },
+      });
+      // 无匹配计划时返回空集而非放行
+      where.membershipPlanId = { in: cyclePlans.map((p) => p.id) };
+    }
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = startDate;
@@ -2396,9 +2406,23 @@ export class AdminService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    const planIds = [...new Set(orders.map((o) => o.membershipPlanId).filter(Boolean))] as string[];
+    const plans = planIds.length > 0
+      ? await this.prisma.membershipPlan.findMany({
+          where: { id: { in: planIds } },
+          select: { id: true, name: true, billingCycle: true },
+        })
+      : [];
+    const planMap = new Map(plans.map((p) => [p.id, p]));
+
     return {
       orders: orders.map((o) => {
         const u = userMap.get(o.userId);
+        const plan = o.membershipPlanId ? planMap.get(o.membershipPlanId) : undefined;
+        const snapshot =
+          o.planSnapshot && typeof o.planSnapshot === 'object' && !Array.isArray(o.planSnapshot)
+            ? (o.planSnapshot as Record<string, any>)
+            : null;
         return {
           id: o.id,
           orderNo: o.orderNo,
@@ -2407,6 +2431,10 @@ export class AdminService {
           userEmail: u?.email ?? null,
           userName: u?.name ?? null,
           orderType: o.orderType,
+          planName: plan?.name ?? (typeof snapshot?.name === 'string' ? snapshot.name : null),
+          billingCycle:
+            plan?.billingCycle ??
+            (typeof snapshot?.billingCycle === 'string' ? snapshot.billingCycle : null),
           amount: Number(o.amount),
           credits: o.credits,
           paymentMethod: o.paymentMethod,

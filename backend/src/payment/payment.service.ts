@@ -354,6 +354,8 @@ export class PaymentService implements OnModuleInit {
         membershipTransitionType: preview.actionType,
         membershipEffectiveMode: preview.effectiveMode,
         immediateCreditDelta: preview.immediateCreditDelta,
+        // 跨周期升级（月卡→年卡）：激活时重开完整目标周期
+        membershipCycleSwitch: preview.cycleSwitch === true,
         remainingRatio: preview.remainingRatio,
         currentPlanCode: preview.currentPlan?.code ?? null,
         targetPlanCode: preview.targetPlan.code,

@@ -8494,6 +8494,7 @@ function OrdersTab() {
   const [status, setStatus] = useState("all");
   const [paymentMethod, setPaymentMethod] = useState("all");
   const [orderType, setOrderType] = useState("all");
+  const [billingCycle, setBillingCycle] = useState("all");
   const [syncingOrderNo, setSyncingOrderNo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -8508,6 +8509,7 @@ function OrdersTab() {
           status: status !== "all" ? status : undefined,
           paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
           orderType: orderType !== "all" ? orderType : undefined,
+          billingCycle: billingCycle !== "all" ? billingCycle : undefined,
         });
         if (!cancelled) {
           setOrders(result.orders);
@@ -8521,7 +8523,7 @@ function OrdersTab() {
     };
     void run();
     return () => { cancelled = true; };
-  }, [page, committedSearch, status, paymentMethod, orderType]);
+  }, [page, committedSearch, status, paymentMethod, orderType, billingCycle]);
 
   const handleSearch = () => {
     setCommittedSearch(searchInput);
@@ -8615,6 +8617,15 @@ function OrdersTab() {
           <option value="membership">会员订阅</option>
           <option value="team_seat">团队座位</option>
         </select>
+        <select
+          value={billingCycle}
+          onChange={(e) => { setBillingCycle(e.target.value); setPage(1); }}
+          className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="all">全部订阅类型</option>
+          <option value="monthly">月卡</option>
+          <option value="yearly">年卡</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-lg border overflow-hidden">
@@ -8653,7 +8664,15 @@ function OrdersTab() {
                         <div className="text-gray-400">{order.userPhone ?? order.userEmail ?? order.userId.slice(0, 8)}</div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{orderTypeLabel[order.orderType] ?? order.orderType}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      <div>{orderTypeLabel[order.orderType] ?? order.orderType}</div>
+                      {order.orderType === "membership" && (
+                        <div className="text-xs text-gray-400">
+                          {(order.planName ?? "—")}
+                          {order.billingCycle === "yearly" ? " · 年卡" : order.billingCycle === "monthly" ? " · 月卡" : ""}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">¥{order.amount.toFixed(2)}</td>
                     <td className="px-4 py-3 text-right text-gray-600">{order.credits.toLocaleString()}</td>
                     <td className="px-4 py-3 text-gray-600">{methodLabel[order.paymentMethod] ?? order.paymentMethod}</td>
