@@ -1141,9 +1141,14 @@ export class AdminService {
   }
 
   private resolveMembershipOrderDisplayCredits(
-    order: { credits: number; planSnapshot?: unknown },
+    order: { credits: number; planSnapshot?: unknown; metadata?: unknown },
     plan: { monthlyQuotaCredits: number; signupBonusCredits: number } | null,
   ): number {
+    // 优先取订单 metadata.immediateCreditDelta：激活侧按它实发，历史折算单（如升级按比例
+    // 补发）实发≠套餐面值，直接显示面值会虚高。
+    const orderMetadata = this.asJsonObject(order.metadata);
+    const actualGranted = this.toNumber(orderMetadata?.immediateCreditDelta);
+    if (actualGranted > 0) return actualGranted;
     const snapshot = this.asJsonObject(order.planSnapshot);
     const snapshotCredits =
       this.toNumber(snapshot?.monthlyQuotaCredits) + this.toNumber(snapshot?.signupBonusCredits);
