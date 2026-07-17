@@ -8576,6 +8576,11 @@ function OrdersTab() {
     wechat: "微信",
   };
 
+  const billingCycleLabel: Record<string, string> = {
+    monthly: " · 月卡",
+    yearly: " · 年卡",
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -8669,7 +8674,7 @@ function OrdersTab() {
                       {order.orderType === "membership" && (
                         <div className="text-xs text-gray-400">
                           {(order.planName ?? "—")}
-                          {order.billingCycle === "yearly" ? " · 年卡" : order.billingCycle === "monthly" ? " · 月卡" : ""}
+                          {order.billingCycle ? (billingCycleLabel[order.billingCycle] ?? "") : ""}
                         </div>
                       )}
                     </td>
