@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
 import type {
   ActivatePaidMembershipOrderParams,
@@ -875,8 +876,8 @@ export class MembershipService {
       orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
     });
 
-    const account = await tx.creditAccount.findUnique({
-      where: { userId: subscription.userId },
+    const account = await findCreditAccountForUpdate(tx, {
+      userId: subscription.userId,
     });
 
     let accountBalance = account?.balance ?? 0;
@@ -1189,8 +1190,12 @@ export class MembershipService {
           orderBy: [{ grantedAt: 'asc' }, { createdAt: 'asc' }],
         });
 
+        // 行锁 + 事务内重读：accounts 快照里的余额可能已过期，避免覆盖并发变更。
+        const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
+        if (!lockedAccount) continue;
+
         let remainingDecay = dailyDecayAmount;
-        let accountBalance = account.balance;
+        let accountBalance = lockedAccount.balance;
         const deductions: Array<{ lotId: string; amount: number }> = [];
 
         for (const lot of lots) {
@@ -1369,8 +1374,8 @@ export class MembershipService {
           continue;
         }
 
-        let account = await tx.creditAccount.findUnique({
-          where: { userId: subscription.userId },
+        let account = await findCreditAccountForUpdate(tx, {
+          userId: subscription.userId,
         });
         if (!account) {
           account = await tx.creditAccount.create({
@@ -1506,8 +1511,8 @@ export class MembershipService {
           continue;
         }
 
-        let account = await tx.creditAccount.findUnique({
-          where: { userId: subscription.userId },
+        let account = await findCreditAccountForUpdate(tx, {
+          userId: subscription.userId,
         });
         if (!account) {
           account = await tx.creditAccount.create({
@@ -1688,8 +1693,8 @@ export class MembershipService {
       subscriptionId = createdSubscription.id;
     }
 
-    let account = await params.tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(params.tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await params.tx.creditAccount.create({
@@ -1837,8 +1842,8 @@ export class MembershipService {
       },
     });
 
-    let account = await params.tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(params.tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await params.tx.creditAccount.create({
@@ -2130,8 +2135,8 @@ export class MembershipService {
       },
     });
 
-    let account = await tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await tx.creditAccount.create({

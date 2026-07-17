@@ -14,6 +14,7 @@ import {
   type PaymentOrderType,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { ReferralService } from '../referral/referral.service';
 import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
@@ -865,7 +866,7 @@ export class PaymentService implements OnModuleInit {
         topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
         return;
       }
-      let account = await tx.creditAccount.findUnique({ where: { userId } });
+      let account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });

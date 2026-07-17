@@ -7201,6 +7201,8 @@ export const useAIChatStore = create<AIChatState>()(
               referenceImageUrls.length > 0 ? "reference_images" : "text";
 
             const createResult = await generateVideoByProvider({
+              // 消息级幂等键：同一条 AI 消息短窗内重复创建在服务端被吸收，避免重复预扣。
+              idempotencyKey: `chatvid-${aiMessageId}`,
               prompt,
               referenceImages: referenceImageUrls.length
                 ? referenceImageUrls

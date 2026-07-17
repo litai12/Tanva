@@ -16056,8 +16056,13 @@ function FlowInner() {
     return () => window.removeEventListener("image-task:phase", onPhase);
   }, [setNodes]);
 
+  // runNode 同步防重锁：runNodeInner 里 status:"running" 要等一串 await（@图解析/
+  // 音频时长/参考图上传）后才落地，期间的重复触发会各自预扣积分（2026-07-17 线上
+  // 同一节点同秒 5 次 -600 事故），这里在入口同步占位拦截。
+  const runNodeInFlightRef = React.useRef<Set<string>>(new Set());
+
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
-  const runNode = React.useCallback(
+  const runNodeInner = React.useCallback(
     async (nodeId: string) => {
       console.log('[runNode] 被调用, nodeId:', nodeId);
       const node = rf.getNode(nodeId);
@@ -17480,6 +17485,8 @@ function FlowInner() {
           if (useNewApiVideoEdit) {
             // 视频编辑模式：new-api wan2.7-videoedit，支持画幅比例。
             const providerResult = await generateVideoByProvider({
+              // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
+              idempotencyKey: `vnode-${nodeId}`,
               provider: "wan2.7",
               // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
               // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
@@ -21138,6 +21145,8 @@ function FlowInner() {
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
             ...requestPayload,
+            // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
+            idempotencyKey: `vnode-${nodeId}`,
           });
 
           console.log("✅ [Flow] Video task created", {
@@ -23853,6 +23862,22 @@ function FlowInner() {
     ]
   );
 
+  const runNode = React.useCallback(
+    async (nodeId: string) => {
+      if (runNodeInFlightRef.current.has(nodeId)) {
+        console.log("[runNode] 节点触发处理中，忽略重复触发", nodeId);
+        return;
+      }
+      runNodeInFlightRef.current.add(nodeId);
+      try {
+        await runNodeInner(nodeId);
+      } finally {
+        runNodeInFlightRef.current.delete(nodeId);
+      }
+    },
+    [runNodeInner]
+  );
+
   // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
   React.useEffect(() => {
     const onAgentAddNode = (event: Event) => {
@@ -24941,6 +24966,10 @@ function FlowInner() {
 
       cancelByOwner([nodeId]);
       if (taskId) cancelTaskFn(taskId);
+
+      // 释放 runNode 防重锁：取消轮询是静默移除（promise 永不 settle），
+      // runNodeInner 会永远挂起、finally 不执行，不在这里释放则该节点无法重新生成。
+      runNodeInFlightRef.current.delete(nodeId);
 
       // 重置节点为 idle，用户可重新生成
       setNodes((ns) =>

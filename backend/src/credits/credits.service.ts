@@ -8,6 +8,7 @@ import {
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
+import { findCreditAccountForUpdate } from './credit-account-lock.util';
 import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import {
@@ -2379,10 +2380,7 @@ export class CreditsService {
         continue;
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { id: params.accountId },
-        select: { id: true, balance: true },
-      });
+      const account = await findCreditAccountForUpdate(tx, { id: params.accountId });
       if (!account) {
         continue;
       }
@@ -4056,10 +4054,9 @@ export class CreditsService {
     );
 
     return await this.prisma.$transaction(async (tx) => {
-      // ???????
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      // 账户行级锁：串行化同一用户的并发预扣，兼保证下方幂等/指纹查重
+      // （先查后插）在并发下真正可见（详见 credit-account-lock.util.ts）。
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -4338,7 +4335,7 @@ export class CreditsService {
       : undefined;
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({ where: { userId } });
+      const account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
@@ -4768,9 +4765,7 @@ export class CreditsService {
         return;
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5246,9 +5241,7 @@ export class CreditsService {
         throw new BadRequestException('只有失败的API调用才能退款');
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5404,9 +5397,7 @@ export class CreditsService {
         throw new BadRequestException('只能调整成功的API调用积分');
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId: apiUsage.userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId: apiUsage.userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5769,9 +5760,7 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5834,9 +5823,7 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -6115,13 +6102,7 @@ export class CreditsService {
     tierCode?: string;
   }> {
     return await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`SELECT id FROM "CreditAccount" WHERE "userId" = ${userId} FOR UPDATE`,
-      );
-
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -6383,16 +6364,13 @@ export class CreditsService {
         continue;
       }
 
-      const account = await this.prisma.creditAccount.findUnique({
-        where: { id: lot.accountId },
-      });
+      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
+      const actualDeduct = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { id: lot.accountId });
+        if (!account) return 0;
 
-      if (!account) continue;
-
-      const actualDeduct = Math.min(lot.remainingAmount, account.balance);
-
-      await this.prisma.$transaction(async (tx) => {
-        const newBalance = account.balance - actualDeduct;
+        const deduct = Math.min(lot.remainingAmount, account.balance);
+        const newBalance = account.balance - deduct;
         await tx.creditAccount.update({
           where: { id: account.id },
           data: {
@@ -6412,7 +6390,7 @@ export class CreditsService {
           data: {
             accountId: account.id,
             type: TransactionType.EXPIRE,
-            amount: -actualDeduct,
+            amount: -deduct,
             balanceBefore: account.balance,
             balanceAfter: newBalance,
             description: '签到积分过期清除',
@@ -6431,9 +6409,11 @@ export class CreditsService {
           },
           data: {
             isExpired: true,
-            expiredAmount: actualDeduct,
+            expiredAmount: deduct,
           },
         });
+
+        return deduct;
       });
 
       totalExpiredCredits += actualDeduct;
@@ -6492,56 +6472,55 @@ export class CreditsService {
 
       if (expiredAmount <= 0) continue;
 
-      // ????????
-      const account = await this.prisma.creditAccount.findUnique({
-        where: { userId },
-      });
+      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
+      // 返回 null=账户不存在（跳过该用户，保持原 continue 语义）；0=余额不足仅标记过期。
+      const actualDeduct = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { userId });
+        if (!account) return null;
 
-      if (!account) continue;
+        const deduct = Math.min(expiredAmount, account.balance);
+        if (deduct <= 0) return 0;
 
-      // ???????????????
-      const actualDeduct = Math.min(expiredAmount, account.balance);
-
-      if (actualDeduct > 0) {
-        await this.prisma.$transaction(async (tx) => {
-          // ??????
-          const newBalance = account.balance - actualDeduct;
-          await tx.creditAccount.update({
-            where: { id: account.id },
-            data: { balance: newBalance },
-          });
-
-          // ????????
-          await tx.creditTransaction.create({
-            data: {
-              accountId: account.id,
-              type: TransactionType.EXPIRE,
-              amount: -actualDeduct,
-              balanceBefore: account.balance,
-              balanceAfter: newBalance,
-              description: `签到积分过期清除（${transactions.length}笔）`,
-              metadata: {
-                expiredTransactionIds: transactions.map(t => t.id),
-                originalExpiredAmount: expiredAmount,
-              },
-            },
-          });
-
-          // ????????????
-          await tx.creditTransaction.updateMany({
-            where: {
-              id: { in: transactions.map(t => t.id) },
-            },
-            data: {
-              isExpired: true,
-              expiredAmount: actualDeduct,
-            },
-          });
+        const newBalance = account.balance - deduct;
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: { balance: newBalance },
         });
 
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EXPIRE,
+            amount: -deduct,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: `签到积分过期清除（${transactions.length}笔）`,
+            metadata: {
+              expiredTransactionIds: transactions.map(t => t.id),
+              originalExpiredAmount: expiredAmount,
+            },
+          },
+        });
+
+        await tx.creditTransaction.updateMany({
+          where: {
+            id: { in: transactions.map(t => t.id) },
+          },
+          data: {
+            isExpired: true,
+            expiredAmount: deduct,
+          },
+        });
+
+        return deduct;
+      });
+
+      if (actualDeduct === null) continue;
+
+      if (actualDeduct > 0) {
         totalExpiredCredits += actualDeduct;
       } else {
-        // ???0????????
+        // 实际扣减为 0 时，仅将这些流水标记为已过期
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },
