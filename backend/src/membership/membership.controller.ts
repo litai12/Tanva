@@ -76,7 +76,7 @@ export class MembershipController {
   @Post('change-plan')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '用户自助变更套餐（目前用于降级排队）' })
+  @ApiOperation({ summary: '用户自助变更套餐（降级已禁用，恒返回 400）' })
   async changeMembershipPlan(
     @Request() req: FastifyRequest & { user: AuthenticatedUser },
     @Body() body: { planCode: string },

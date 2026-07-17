@@ -55,6 +55,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
@@ -137,6 +138,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     const requestId = ++orderRequestIdRef.current;
     setIsLoading(true);
     setIsExpired(false);
+    setOrderError(null);
     try {
       const order = await createPaymentOrder({
         amount: currentPayInfo.amount,
@@ -150,6 +152,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     } catch (error: any) {
       console.error("创建订单失败:", error);
       if (requestId === orderRequestIdRef.current) {
+        setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
         showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
       }
     } finally {
@@ -272,6 +275,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       const requestId = ++orderRequestIdRef.current;
       setIsLoading(true);
       setQrCodeUrl(null);
+      setOrderError(null);
       setCurrentOrderNo(null);
       setIsExpired(false);
       setCountdown(300);
@@ -282,6 +286,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         setCurrentOrderNo(order.orderNo);
       } catch (err: any) {
         if (requestId === orderRequestIdRef.current) {
+          setOrderError(err.message || lt("创建订单失败", "Failed to create order"));
           showToast(err.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
@@ -302,6 +307,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       void (async () => {
         setIsLoading(true);
         setIsExpired(false);
+        setOrderError(null);
         try {
           const order = await createPaymentOrder({
             amount: pkg.price,
@@ -315,6 +321,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         } catch (error: any) {
           console.error("创建订单失败:", error);
           if (requestId === orderRequestIdRef.current) {
+            setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
             showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
@@ -351,6 +358,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     orderRequestIdRef.current += 1;
     setPaymentMethod(method);
     setQrCodeUrl(null);
+    setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
     setCountdown(300);
@@ -374,6 +382,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         setCurrentOrderNo(order.orderNo);
       } catch (error: any) {
         if (requestId === orderRequestIdRef.current) {
+          setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
           showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
@@ -389,6 +398,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     setCustomAmountMode(false);
     setSelectedPackage(index);
     setQrCodeUrl(null);
+    setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
     setCountdown(300);
@@ -409,6 +419,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           setCurrentOrderNo(order.orderNo);
         } catch (error: any) {
           if (requestId === orderRequestIdRef.current) {
+            setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
             showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
@@ -761,6 +772,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
               <Loader2 className={cn("h-8 w-8 animate-spin", isWhite ? "text-slate-400" : "text-zinc-500")} />
             ) : qrCodeUrl ? (
               <img src={qrCodeUrl} alt={lt("支付二维码", "Payment QR code")} className="h-full w-full object-contain" />
+            ) : orderError ? (
+              <span className="px-2 text-center text-sm text-red-500">{orderError}</span>
             ) : (
               <span className={cn("px-2 text-center text-sm", isWhite ? "text-slate-400" : "text-zinc-500")}>
                 {customAmountMode

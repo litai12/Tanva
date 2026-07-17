@@ -675,52 +675,16 @@ export class MembershipService {
       };
     }
 
-    if (comparison < 0 && currentCycle !== targetCycle) {
-      // 月卡中途换年卡：重开完整年周期（等价于"退掉剩余月卡时间价值，买一张全新年卡"）。
-      // 价格 = 年卡全价 − 当前套餐未用时间价值；积分发全量（额度+赠送）；
-      // 周期自支付时刻重算（激活侧按 cycleSwitch 标记处理）。
-      // 旧月卡积分保留，仍在原到期日过期（由 expireOverdueMembershipBoundLots 每日清扫兜底）。
-      const unusedValue = Number(currentPlan.price) * remainingRatio;
-      const payableAmount = this.roundMoney(
-        Math.max(0.01, Number(targetPlan.price) - unusedValue),
-      );
+    if (comparison < 0) {
+      // 升级一律不折算：展示/支付 = 目标套餐全价，积分全量到账（额度+赠送），
+      // 周期自支付时刻重开为完整目标周期（激活侧按 cycleSwitch 标记处理）。
+      // 旧套餐剩余积分不清除，激活时把旧 membership_bound 批次顺延到新周期一起用。
       return {
         actionType: 'upgrade',
         effectiveMode: 'immediate',
-        payableAmount,
+        payableAmount: this.roundMoney(Number(targetPlan.price)),
         immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
         cycleSwitch: true,
-        remainingRatio,
-        targetPlan: {
-          id: targetPlan.id,
-          code: targetPlan.code,
-          name: targetPlan.name,
-          billingCycle: targetCycle,
-          price: Number(targetPlan.price),
-        },
-        currentPlan: {
-          id: currentPlan.id,
-          code: currentPlan.code,
-          name: currentPlan.name,
-          billingCycle: currentCycle,
-          price: Number(currentPlan.price),
-        },
-      };
-    }
-
-    if (comparison < 0) {
-      const amountDiff = Math.max(0, Number(targetPlan.price) - Number(currentPlan.price));
-      const payableAmount = this.roundMoney(Math.max(0.01, amountDiff * remainingRatio));
-      const immediateCreditDelta = Math.max(
-        0,
-        Math.round((targetPlan.monthlyQuotaCredits - currentPlan.monthlyQuotaCredits) * remainingRatio),
-      );
-      return {
-        actionType: 'upgrade',
-        effectiveMode: 'immediate',
-        payableAmount,
-        immediateCreditDelta,
-        cycleSwitch: false,
         remainingRatio,
         targetPlan: {
           id: targetPlan.id,
@@ -764,64 +728,10 @@ export class MembershipService {
     };
   }
 
-  async scheduleUserDowngrade(userId: string, planCode: string) {
-    const preview = await this.getUserTransitionPreview(userId, planCode);
-    if (preview.actionType !== 'downgrade') {
-      throw new BadRequestException('仅降级套餐可走下周期生效');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const current = await tx.userMembershipSubscription.findFirst({
-        where: { userId, status: 'active' },
-        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-      });
-      if (!current) {
-        throw new NotFoundException('当前用户没有生效中的订阅');
-      }
-
-      const targetPlan = await tx.membershipPlan.findFirst({
-        where: { code: planCode, isActive: true },
-      });
-      if (!targetPlan) {
-        throw new NotFoundException('目标套餐不存在');
-      }
-
-      await tx.membershipSubscriptionChange.updateMany({
-        where: { userId, status: 'scheduled' },
-        data: {
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          reason: 'replaced:user_downgrade',
-          requestedBy: userId,
-        },
-      });
-
-      const change = await tx.membershipSubscriptionChange.create({
-        data: {
-          userId,
-          currentSubscriptionId: current.id,
-          targetPlanId: targetPlan.id,
-          targetPlanCode: targetPlan.code,
-          targetBillingCycle: targetPlan.billingCycle,
-          changeType: 'downgrade',
-          effectiveMode: 'next_cycle',
-          status: 'scheduled',
-          reason: 'user_downgrade',
-          requestedBy: userId,
-          currentPeriodEndAt: current.currentPeriodEndAt,
-          effectiveAt: current.currentPeriodEndAt,
-          metadata: {
-            source: 'user',
-          },
-        },
-      });
-
-      return {
-        success: true,
-        nextChangeId: change.id,
-        effectiveAt: change.effectiveAt,
-      };
-    });
+  async scheduleUserDowngrade(_userId: string, _planCode: string): Promise<never> {
+    // 产品拍板（2026-07-17）：用户不允许降档（含年卡→月卡），只能升级/续费；
+    // 管理员侧走 adminScheduleMembershipChange，不受此限制。旧的下周期降级实现见 git 历史。
+    throw new BadRequestException('会员套餐不支持降级');
   }
 
   async adminExpireMembershipNow(userId: string, reason: string, requestedBy: string) {
@@ -1731,6 +1641,19 @@ export class MembershipService {
       });
     }
 
+    // 开通/续费开出新周期时同样不清除旧剩余积分：旧 membership_bound 活跃批次顺延到新周期结束。
+    // expiresAt > paidAt：只顺延支付时仍未到期的批次；已到期未被清扫的照旧清零，避免 cron 竞态复活。
+    await params.tx.creditLot.updateMany({
+      where: {
+        accountId: account.id,
+        validityType: 'membership_bound',
+        status: 'active',
+        remainingAmount: { gt: 0 },
+        expiresAt: { gt: paidAt, lt: currentPeriodEndAt },
+      },
+      data: { expiresAt: currentPeriodEndAt },
+    });
+
     const lot = await params.tx.creditLot.create({
       data: buildMembershipCreditLotData({
         accountId: account.id,
@@ -1847,7 +1770,7 @@ export class MembershipService {
       0,
       this.toInt(orderMetadata?.immediateCreditDelta, 0),
     );
-    // 跨周期升级（月卡→年卡）：周期自支付时刻重开为完整目标周期，periodType 同步切换。
+    // 升级（cycleSwitch）：周期自支付时刻重开为完整目标周期，periodType 同步切换。
     const cycleSwitch = orderMetadata?.membershipCycleSwitch === true;
     let periodStartAt = activeSubscription.currentPeriodStartAt;
     let periodEndAt = activeSubscription.currentPeriodEndAt;
@@ -1898,6 +1821,19 @@ export class MembershipService {
         },
       });
     }
+
+    // 升级不清除旧套餐剩余积分：把旧 membership_bound 活跃批次顺延到新周期结束，叠加继续用。
+    // expiresAt > paidAt：只顺延支付时仍未到期的批次；已到期未被清扫的照旧清零，避免 cron 竞态复活。
+    const carriedOverLots = await params.tx.creditLot.updateMany({
+      where: {
+        accountId: account.id,
+        validityType: 'membership_bound',
+        status: 'active',
+        remainingAmount: { gt: 0 },
+        expiresAt: { gt: params.paidAt, lt: periodEndAt },
+      },
+      data: { expiresAt: periodEndAt },
+    });
 
     if (immediateCreditDelta > 0) {
       const lot = await params.tx.creditLot.create({
@@ -1995,6 +1931,7 @@ export class MembershipService {
         metadata: {
           immediateCreditDelta,
           cycleSwitch,
+          carriedOverLots: carriedOverLots.count,
         },
       },
     });

@@ -341,7 +341,7 @@ export class PaymentService implements OnModuleInit {
     });
     if (!plan) throw new NotFoundException('会员套餐不存在');
     if (preview.actionType === 'downgrade') {
-      throw new BadRequestException('降级套餐请走下周期生效，不创建支付订单');
+      throw new BadRequestException('会员套餐不支持降级');
     }
 
     return this.createOrder(userId, {

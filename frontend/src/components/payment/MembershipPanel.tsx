@@ -191,6 +191,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
@@ -367,6 +368,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const createOrderForPlan = useCallback(async (planCode: string, method: PaymentMethod) => {
     setSubmitting(true);
     setQrCodeUrl(null);
+    setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
     setCountdown(300);
@@ -379,6 +381,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       setCurrentOrderNo(order.orderNo);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "创建会员订单失败";
+      setOrderError(message);
       showToast(message, "error");
     } finally {
       setSubmitting(false);
@@ -1053,6 +1056,10 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                                   </div>
                                 ) : null}
                               </div>
+                            </div>
+                          ) : orderError ? (
+                            <div className="py-8 text-sm text-red-500">
+                              {orderError}
                             </div>
                           ) : (
                             <div className={cn("py-8 text-sm", isWhite ? "text-slate-500" : "text-zinc-600")}>
