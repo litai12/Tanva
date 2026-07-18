@@ -1,4 +1,5 @@
-import { resolveFlowNodeSendAnchorClient } from '../../utils/flowNodeSendAnchor'
+import { dataUrlToBlob, uploadCanvasImageBlob } from './uploadCanvasImageBlob'
+import { isPersistableImageRef } from '@/utils/imageSource'
 
 // Tanva 约束：prompt 节点与 图片/视频节点是分开的。导演台产出「纯 image 节点」与「纯 video 节点」，
 // 绝不建 combined taskNode、不带 prompt。喂 seedance v2v：视频走连边、prompt 由独立 prompt 节点提供。
@@ -10,22 +11,49 @@ export type HostedClip = { url: string; assetId?: string; name: string }
  * 由 FlowOverlay/DrawingController 上传 OSS + 生成 image 节点 + 锚定到导演台节点下方。
  * shots[].imageUrl 为截图 dataURL。多张时按下标纵向错开锚点，避免叠放。
  */
-export function sendShotsToCanvas(directorNodeId: string, shots: { name: string; imageUrl: string }[]): void {
-  const baseAnchor = resolveFlowNodeSendAnchorClient({ nodeId: directorNodeId })
-  shots.forEach((shot, i) => {
-    const anchorClient = baseAnchor ? { x: baseAnchor.x, y: baseAnchor.y + i * 60 } : undefined
-    window.dispatchEvent(
-      new CustomEvent('triggerQuickImageUpload', {
+export async function sendShotsToCanvas(
+  directorNodeId: string,
+  directorFlowPos: { x: number; y: number } | null,
+  shots: { name: string; imageUrl: string }[],
+): Promise<string[]> {
+  const createdIds: string[] = []
+  for (let i = 0; i < shots.length; i++) {
+    const shot = shots[i]
+    const blob = await dataUrlToBlob(shot.imageUrl)
+    const hosted = await uploadCanvasImageBlob({
+      blob,
+      label: shot.name || '导演台截图',
+      filePrefix: 'director-shot',
+      ownerNodeId: directorNodeId,
+    })
+    if (!isPersistableImageRef(hosted.url)) throw new Error(`${shot.name || '导演台截图'}未获得可持久化远程地址`)
+    const createdId = await new Promise<string | null>((resolve) => {
+      let settled = false
+      const done = (id: string | null) => {
+        if (settled) return
+        settled = true
+        resolve(id)
+      }
+      window.dispatchEvent(new CustomEvent('flow:createImageNode', {
         detail: {
-          imageData: shot.imageUrl,
-          fileName: `${shot.name || 'director-shot'}.jpg`,
-          operationType: 'generate',
-          anchorClient,
-          forceAnchorPosition: true,
+          imageUrl: hosted.url,
+          label: shot.name || '导演台截图',
+          imageName: shot.name || '导演台截图',
+          worldPosition: directorFlowPos
+            ? { x: directorFlowPos.x + 520, y: directorFlowPos.y + i * 280 }
+            : undefined,
+          sourceNodeId: directorNodeId,
+          sourceHandle: 'source',
+          targetHandle: 'img',
+          done,
         },
-      }),
-    )
-  })
+      }))
+      window.setTimeout(() => done(null), 3000)
+    })
+    if (!createdId) throw new Error(`${shot.name || '导演台截图'}已上传，但画布图片节点创建失败`)
+    createdIds.push(createdId)
+  }
+  return createdIds
 }
 
 /**

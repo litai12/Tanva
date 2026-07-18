@@ -6,8 +6,20 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Frontend/Vite：强制 React 与 ReactDOM 在 pnpm 软链接依赖中去重，并将 `@xyflow/react` 纳入同一预构建图；修复从旧 `reactflow` 缓存迁移后 ReactFlowProvider 使用第二份 React dispatcher 导致的 Invalid hook call 与全页白屏。
 - Flow canvas engine upgraded from legacy `reactflow@11.11.4` to `@xyflow/react@12.11.2`, including the v12 named export, integrated node-resizer components, public node store selectors, and `nodeLookup` migration.
 - Flow/3D Director Console：开始按 LibTV 线上导演台进行替代式重写，不再保留 Tanva 导演台额外能力。顶部采用导演/机位视角，底部采用场景编辑/动画时间轴；新建场景默认包含机位1、角色A和 LibTV 同款 3D 场景参数；节点句柄改为 `target/source`。后续继续移除旧灰模样片与镜头片段时间线，改为截图输出和属性关键帧轨道。
+- Flow/3D Director Bodies：将八套素体模型本身纳入 LibTV 1:1 验收；当前同一 X Bot 的高度/宽度缩放方案已判定不合格，后续替换为八套独立许可资产并逐套完成骨骼重定向、姿势和截图回归。
+- Flow/3D Director I/O：导演台截图输出改为确定性远程链路：截图 Blob 先上传 OSS，再创建只含远程 URL 的 Flow 图片节点，并在同一次创建流程中建立导演台 `source` 到图片节点 `img` 的边；不再把 dataURL 交给不确定的 Paper quick-upload。图片节点创建事件新增 world position、source 连接和完成回调支持。
+- Flow/3D Director Camera：导演台已切换到 LibTV 字段集的摄像机面板，只展示属性与摄像机截图；属性包含 FOV、机位切换、位置、跟随目标、旋转、注视模式/坐标，截图包含分组、删除、单张发送、全屏、清空和批量发送。旧景别/镜头/焦距/景深/路径/飞行/环绕/灰模视频入口不再进入用户界面，导演台懒加载包减少约 11KB。
+- Flow/3D Director Scene：LibTV 场景缩放/平移/旋转、天空颜色、全景球半径、地面显示/高度/透明度和角色标签已接入实时 WebGL 场景；离屏摄像机截图复用同一天空颜色、全局变换和标签开关。导演台 `target` 输入会解析上游图片或 ImageSplit 的当前裁剪结果，以运行时 object URL 显示且不把 `blob:`/base64 写入设计 JSON。
+- Flow/3D Director Character：角色栏替换为 LibTV 固定的“属性/姿势”，动画、自定义动作、自定义姿势、收藏和群演广播不再暴露；姿势页固定按 LibTV 顺序展示站立、T型、行走、跑步等 20 项，并使用身体/躯干/头部/肩肘/髋膝同名调节组。动画模式额外显示“运动轨迹”页签。
+- Flow/3D Director Timeline：旧“添加镜头/镜头片段/运镜切换/合成视频”时间线 UI 已替换为 LibTV 属性轨道壳层，提供播放、自动关键帧、循环、播放头/总时长、秒/毫秒、轨道增删、缩放、角色轨、主摄像机轨和属性关键帧行；旧 timeline 数据只作兼容读取，不再作为产品交互暴露。
+- Flow/3D Director Keyframes：新增持久化的逐属性关键帧数据模型，角色位置/旋转/缩放/统一缩放与主摄像机位置/旋转/FOV/注视点可在播放头处添加或删除关键帧；播放和 scrub 会对数值/三维向量做线性插值并直接驱动 WebGL 场景。自动关键帧已接入属性面板和视口变换提交，关键帧只保存数值，不写入运行时媒体 URL。
+- Flow/3D Director Keyframes：角色姿势/逐关节欧拉角现可作为属性轨道关键帧保存并逐关节插值；“＋轨道/－轨道”会为当前选中角色或机位真实创建/删除属性轨，“循环”开关真实决定播放到末尾时回绕或停下，非循环播放结束后再次播放会从 0 秒开始。
+- Flow/3D Director Toolbar：底栏收敛到 LibTV 顺序的移动、添加角色、全景、添加机位、画幅、截图、AI 图片识别导入、全屏、场景编辑/动画时间轴；移除可见的撤销/重做、独立旋转/缩放、九宫格、删除选中和自定义群演阵列表单。BrowserSkill 已在真实本地项目中验证打开导演台无白屏、20 个姿势与属性轨道文本可见，且旧“添加镜头/合成视频/灰模”文本不再出现。
+- Flow/3D Director Objects：添加角色菜单中的“空对象”改为真正无网格对象，不再伪装成平面；几何模型补齐圆环和棱锥并按 LibTV 隐藏旧平面入口。高斯泼溅使用独立 `.splat` 文件选择、远程上传和 Drei Splat 渲染链路。
+- Flow/3D Director Uploads：本地 GLB/GLTF 与全景图不再把短命 `blob:` object URL 写入导演台 scene；模型先上传 `director-models/`、全景先上传 `director-shots/` 后才以远程 URL 添加对象/背景，高斯文件同样先上传 `director-gaussians/`，刷新和保存后资源引用可继续解析。
 - new-api/ToAPIs 补齐文档索引中的 30 个视频生成 model IDs，修复 flat `generation.task` 提交响应、视频专用轮询路径和状态/结果解析，并登记 Kling v3 Omni 的 Omni 引用及音视频互斥约束。
 - Flow 视频通道现在按已部署网关能力选择正确入口与令牌：普通经 new-api `/v1/videos` 使用 `NEW_API_KEY`，尊享经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。
 - Flow Vidu 节点恢复可操作的普通/尊享通道按钮，并在 Q2/Q3 切换时同步托管模型键；后端会纠正历史节点中 Vidu 家族与 `managedModelKey` 不一致的请求，避免 VIP 渠道误查 Q2 或计费串台。

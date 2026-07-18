@@ -18,11 +18,11 @@ export function addCharacter(
   // 道具按库名计数命名（桌子、桌子2…），角色按字母序且不被道具占位
   let name = init.name
   if (!name) {
-    if (item?.kind === 'prop') {
+    if (item?.kind === 'prop' || item?.kind === 'empty') {
       const same = next.scene.characters.filter((c) => c.modelId === init.modelId).length
       name = same > 0 ? `${item.name}${same + 1}` : item.name
     } else {
-      const bodyCount = next.scene.characters.filter((c) => getLibraryItem(c.modelId)?.kind !== 'prop').length
+      const bodyCount = next.scene.characters.filter((c) => !['prop', 'empty'].includes(getLibraryItem(c.modelId)?.kind ?? '')).length
       name = `角色${ALPHA(bodyCount)}`
     }
   }

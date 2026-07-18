@@ -284,7 +284,7 @@ type SkyboxState = { mode: 'equirect' | 'backdrop'; texture: THREE.Texture } | n
 
 /** 全景背景：~2:1 等距图设为天空盒；非 2:1 普通图自适应处理后贴 BackSide 穹顶（裸 equirect 会严重拉伸）。
  * yawDeg 水平旋转背景取景；清除/失败时恢复纯色。 */
-function Skybox({ url, yawDeg }: { url?: string; yawDeg?: number }) {
+function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: string; yawDeg?: number; skyColor?: string; radius?: number }) {
   const { scene, invalidate } = useThree()
   const [state, setState] = React.useState<SkyboxState>(null)
 
@@ -336,16 +336,16 @@ function Skybox({ url, yawDeg }: { url?: string; yawDeg?: number }) {
       state.texture.offset.x = (((yawDeg ?? 0) % 360) + 360) % 360 / 360
       scene.background = state.texture
     } else {
-      scene.background = new THREE.Color('#0a0b0d')
+      scene.background = new THREE.Color(skyColor)
     }
     invalidate?.()
-    return () => { scene.background = new THREE.Color('#0a0b0d') }
-  }, [state, yawDeg, scene, invalidate])
+    return () => { scene.background = new THREE.Color(skyColor) }
+  }, [state, yawDeg, skyColor, scene, invalidate])
 
   // 穹顶不参与拾取（raycast 置空），否则点空处永远命中背景球
   return state?.mode === 'backdrop' ? (
     <mesh frustumCulled={false} renderOrder={-1000} rotation={[0, yawRad, 0]} raycast={() => null}>
-      <sphereGeometry args={[60, 96, 64]} />
+      <sphereGeometry args={[Math.max(1, radius), 96, 64]} />
       <meshBasicMaterial map={state.texture} side={THREE.BackSide} depthWrite={false} toneMapped={false} />
     </mesh>
   ) : null
@@ -432,6 +432,10 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const anchorRef = React.useRef<THREE.Object3D>(null)
   const [orbitOn, setOrbitOn] = React.useState(true)
+  const scenePosition = scene.scenePosition ?? [0, 0, 0]
+  const sceneRotation = scene.sceneRotation ?? [0, 0, 0]
+  const sceneScale = Math.max(0.01, scene.sceneScale ?? 3)
+  const sceneRotationRad: Vec3 = sceneRotation.map((value) => THREE.MathUtils.degToRad(value)) as Vec3
 
   // 骨骼直掰：选中角色后场景里出现可点选关节球，点选 → rotate gizmo 挂到该骨骼
   const rigsRef = React.useRef(new Map<string, RigState>())
@@ -495,23 +499,40 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
         <Line points={cameraPath} color="#f59e0b" lineWidth={2} dashed dashSize={0.25} gapSize={0.12} onUpdate={(self) => { self.userData.directorHelper = true }} />
       ) : null}
 
-      <Skybox url={skyboxUrl ?? scene.skybox} yawDeg={scene.skyboxYaw} />
+      <Skybox url={skyboxUrl ?? scene.skybox} yawDeg={scene.skyboxYaw} skyColor={scene.skyColor ?? '#060608'} radius={scene.skyRadius ?? 60} />
       <ambientLight intensity={1.1} />
       <hemisphereLight args={['#ffffff', '#444a55', 0.8]} />
       <directionalLight position={[5, 10, 7]} intensity={1.4} />
       <directionalLight position={[-6, 4, -4]} intensity={0.5} />
-      <Grid args={[40, 40]} cellColor="#1d3a5f" sectionColor="#626872" infiniteGrid fadeDistance={60} position={[0, 0, 0]} onUpdate={(self) => { self.userData.directorHelper = true }} />
+      {(scene.groundVisible ?? true) ? (
+        <Grid
+          args={[40, 40]}
+          cellColor="#1d3a5f"
+          sectionColor="#626872"
+          infiniteGrid
+          fadeDistance={60}
+          position={[0, scene.groundHeight ?? 0, 0]}
+          cellThickness={0.6}
+          sectionThickness={1}
+          cellSize={1}
+          sectionSize={5}
+          fadeStrength={Math.max(0.01, scene.groundOpacity ?? 0.4)}
+          onUpdate={(self) => { self.userData.directorHelper = true }}
+        />
+      ) : null}
 
       {viewpoint === 'director' && pathDraw ? (
         <PathDrawLayer pd={pathDraw} onDragStart={() => setOrbitOn(false)} onDragEnd={() => setOrbitOn(true)} />
       ) : null}
 
-      {scene.characters.filter((c) => !c.hidden).map((c) => (
-        <CharacterObject
+      <group position={scenePosition} rotation={sceneRotationRad} scale={sceneScale}>
+        {scene.characters.filter((c) => !c.hidden).map((c) => (
+          <CharacterObject
           key={c.id}
           character={c}
           customMotions={scene.customMotions}
           selected={c.id === selectedId}
+          showLabel={scene.showCharacterLabels ?? true}
           onSelect={() => { setJointRole(null); onSelect(c.id) }}
           jointEditing={viewpoint === 'director' && c.id === selectedChar?.id}
           selectedJointRole={c.id === selectedChar?.id ? jointRole : null}
@@ -525,8 +546,9 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
           onMixerChange={(entry) => { if (entry) mixersRef.current.set(c.id, entry); else mixersRef.current.delete(c.id) }}
           motionPreviewPlaying={!!motionPreview?.playing && (motionPreview.characterId === undefined || motionPreview.characterId === c.id)}
           motionDriveTime={motionDriveTime}
-        />
-      ))}
+          />
+        ))}
+      </group>
       {scene.cameras.filter((c) => !c.hidden).map((c) => (
         <CameraRig key={c.id} camera={c} scene={scene} active={viewpoint === 'director'} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} override={liveCamera && liveCamera.id === c.id ? liveCamera : undefined} />
       ))}
@@ -610,7 +632,7 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
       rt.texture.colorSpace = THREE.SRGBColorSpace
       const prevClear = gl.getClearColor(new THREE.Color()).clone()
       gl.setRenderTarget(rt)
-      gl.setClearColor('#0a0b0d', 1)
+      gl.setClearColor(p.scene.skyColor ?? '#060608', 1)
       gl.clear()
       gl.render(scene, tmp)
       gl.setRenderTarget(null)
@@ -644,8 +666,20 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
       ctx.lineWidth = Math.max(2, labelFont / 5)
       const lp = new THREE.Vector3()
       const lm = new THREE.Matrix4()
+      const sceneMatrix = new THREE.Matrix4()
       const lq = new THREE.Quaternion()
-      for (const ch of p.scene.characters) {
+      const sceneQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        THREE.MathUtils.degToRad(p.scene.sceneRotation?.[0] ?? 0),
+        THREE.MathUtils.degToRad(p.scene.sceneRotation?.[1] ?? 0),
+        THREE.MathUtils.degToRad(p.scene.sceneRotation?.[2] ?? 0),
+      ))
+      const globalScale = Math.max(0.01, p.scene.sceneScale ?? 3)
+      sceneMatrix.compose(
+        new THREE.Vector3(...(p.scene.scenePosition ?? [0, 0, 0])),
+        sceneQuaternion,
+        new THREE.Vector3(globalScale, globalScale, globalScale),
+      )
+      for (const ch of (p.scene.showCharacterLabels ?? true) ? p.scene.characters : []) {
         if (ch.hidden) continue
         const us = ch.uniformScale
         lq.setFromEuler(new THREE.Euler(ch.rotation[0], ch.rotation[1], ch.rotation[2]))
@@ -654,6 +688,7 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
           lq,
           new THREE.Vector3(ch.scale[0] * us, ch.scale[1] * us, ch.scale[2] * us),
         )
+        lm.premultiply(sceneMatrix)
         lp.set(0, 2.05, 0).applyMatrix4(lm).project(tmp)
         if (lp.z < -1 || lp.z > 1) continue // 相机背后或视锥外
         if (lp.x < -1.05 || lp.x > 1.05 || lp.y < -1.05 || lp.y > 1.05) continue

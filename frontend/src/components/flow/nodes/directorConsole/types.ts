@@ -56,6 +56,8 @@ export type CameraObj = {
   id: string
   name: string
   position: Vec3
+  rotation?: Vec3
+  followTargetId?: string
   /** 绘制的相机运动路径；镜头 cameraMove 设为 'path' 时相机沿它飞（绘制见导演台相机面板）。 */
   path?: CameraPath
   /** 'manual' 表示用 lookAt 坐标，否则为某个 characterId（锁定该角色） */
@@ -99,6 +101,8 @@ export type DirectorScene = {
   customMotions?: PoseClip[]
   /** 全局多镜头时间线（动画化 blocking 的编排层）；缺省视为空时间线。定义见 state/timeline.ts */
   timeline?: import('./state/timeline').SceneTimeline
+  /** LibTV-style per-property keyframe tracks. Legacy shot timeline is read-only compatibility data. */
+  propertyTimeline?: import('./state/propertyTimeline').PropertyTimeline
 }
 
 export type DirectorConsoleData = {

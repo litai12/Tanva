@@ -15398,6 +15398,11 @@ function FlowInner() {
         label?: string;
         imageName?: string;
         screenPosition?: { x?: number; y?: number };
+        worldPosition?: { x?: number; y?: number };
+        sourceNodeId?: string;
+        sourceHandle?: string;
+        targetHandle?: string;
+        done?: (createdId: string | null) => void;
       };
       const imageUrlForNode =
         typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
@@ -15428,7 +15433,12 @@ function FlowInner() {
             60 +
             (Math.random() * 80 - 40),
       };
-      const position = rf.screenToFlowPosition(screenPosition);
+      const hasWorldPosition =
+        Number.isFinite(detail?.worldPosition?.x) &&
+        Number.isFinite(detail?.worldPosition?.y);
+      const position = hasWorldPosition
+        ? { x: Number(detail.worldPosition?.x), y: Number(detail.worldPosition?.y) }
+        : rf.screenToFlowPosition(screenPosition);
       const id = `img_${Date.now()}`;
       setNodes((ns) =>
         ns.concat([
@@ -15448,6 +15458,17 @@ function FlowInner() {
           } as any,
         ])
       );
+      if (detail.sourceNodeId) {
+        setEdges((current) => current.concat([{
+          id: `edge_${detail.sourceNodeId}_${id}_${Date.now()}`,
+          source: detail.sourceNodeId,
+          target: id,
+          sourceHandle: detail.sourceHandle || "source",
+          targetHandle: detail.targetHandle || "img",
+          type: "default",
+        } as any]));
+      }
+      try { detail.done?.(id); } catch {}
 
       // 已有远程 URL：无需再上传替换
       if (imageUrlForNode) {
@@ -15517,7 +15538,7 @@ function FlowInner() {
         "flow:createImageNode",
         handler as EventListener
       );
-  }, [rf, setNodes]);
+  }, [rf, setNodes, setEdges]);
 
   // 素材库「画布」标签：定位/聚焦某个节点（居中视口 + 选中）
   // 注意：真实视口由 useCanvasStore 驱动（ReactFlow 视口是从 canvasStore 单向同步），

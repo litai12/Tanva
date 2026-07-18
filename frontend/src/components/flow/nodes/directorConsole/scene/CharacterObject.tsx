@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useGLTF, Html } from '@react-three/drei'
+import { useGLTF, Html, Splat } from '@react-three/drei'
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import type { CharacterObj } from '../types'
@@ -41,6 +41,7 @@ export function resolveCharacterPose(character: Pick<CharacterObj, 'pose' | 'pos
 type Props = {
   character: CharacterObj
   selected: boolean
+  showLabel?: boolean
   /** 场景级自定义动作库（节点数据），character.motionClip 引用其 id 时从这里解析 */
   customMotions?: PoseClip[]
   onSelect: () => void
@@ -293,7 +294,9 @@ function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string })
     case 'box': return <mesh position={[0, 0.5, 0]}><boxGeometry args={[1, 1, 1]} />{mat}</mesh>
     case 'sphere': return <mesh position={[0, 0.5, 0]}><sphereGeometry args={[0.5, 24, 24]} />{mat}</mesh>
     case 'cylinder': return <mesh position={[0, 0.6, 0]}><cylinderGeometry args={[0.4, 0.4, 1.2, 24]} />{mat}</mesh>
+    case 'torus': return <mesh position={[0, 0.65, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.5, 0.14, 18, 48]} />{mat}</mesh>
     case 'cone': return <mesh position={[0, 0.6, 0]}><coneGeometry args={[0.5, 1.2, 24]} />{mat}</mesh>
+    case 'pyramid': return <mesh position={[0, 0.6, 0]}><coneGeometry args={[0.62, 1.2, 4]} />{mat}</mesh>
     case 'plane': return <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[1.5, 1.5]} />{mat}</mesh>
     case 'table': return (
       <group>
@@ -412,7 +415,7 @@ function PlaceholderBody({ colorHex }: { colorHex: string }) {
   )
 }
 
-export function CharacterObject({ character, selected, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, motionPreviewPlaying, motionDriveTime }: Props) {
+export function CharacterObject({ character, selected, showLabel = true, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, motionPreviewPlaying, motionDriveTime }: Props) {
   const item = getLibraryItem(character.modelId)
   const s = character.uniformScale
   // 稳定 ref 回调（inline 箭头会让 React 每次渲染都 detach/attach，上游 bump 会死循环）
@@ -463,7 +466,11 @@ export function CharacterObject({ character, selected, customMotions, onSelect, 
   )
 
   let body: React.ReactNode
-  if (item?.kind === 'prop') {
+  if (item?.kind === 'empty') {
+    body = null
+  } else if (item?.kind === 'gaussian') {
+    body = <Splat src={item.url} />
+  } else if (item?.kind === 'prop') {
     body = <PropObject shape={item.shape} colorHex={character.colorHex} />
   } else if (item?.kind === 'body' && item.url) {
     body = (
@@ -507,7 +514,7 @@ export function CharacterObject({ character, selected, customMotions, onSelect, 
           <meshBasicMaterial color="#f43f5e" depthTest={false} transparent opacity={0.95} />
         </mesh>
       ) : null}
-      <Label name={character.name} selected={selected} />
+      {showLabel ? <Label name={character.name} selected={selected} /> : null}
     </group>
   )
 }

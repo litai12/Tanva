@@ -103,3 +103,8 @@
 - Tuned stale-pending auto-refund default batch size from `200` to `100` to lower per-run DB burst pressure.
 - Added Prisma index for stale pending scan:
   - `ApiUsageRecord @@index([responseStatus, serviceType, createdAt])`
+# React / React Flow 单例
+
+- 前端当前使用 `@xyflow/react`；Vite 必须通过 `resolve.dedupe: ['react', 'react-dom']` 保证 pnpm 软链接下的 ReactFlow、Radix、R3F 等依赖共享应用根 React dispatcher。
+- 从旧 `reactflow` 迁移到 `@xyflow/react` 后，如果 `node_modules/.vite/deps` 同时残留 `reactflow.js` 与 `@xyflow_react.js`，开发态可能报 `Invalid hook call` 并在 `ReactFlowProvider` 白屏。移动/清理可再生 `.vite` 缓存后用 `vite --force` 重启。
+- 判断修复不能只看 Vite ready；应硬刷新真实 `/app` 标签并确认 React Flow 节点、MiniMap、顶栏和交互区均重新出现在浏览器结构树中。

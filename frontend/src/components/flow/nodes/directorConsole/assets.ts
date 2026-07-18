@@ -1,10 +1,12 @@
 export type PropShape =
-  | 'box' | 'sphere' | 'cylinder' | 'cone' | 'plane'
+  | 'box' | 'sphere' | 'cylinder' | 'torus' | 'cone' | 'pyramid' | 'plane'
   | 'table' | 'low-table' | 'chair' | 'stool' | 'sofa' | 'bed' | 'cabinet' | 'sideboard' | 'shelf' | 'lamp'
 
 export type LibraryItem =
   | { id: string; name: string; kind: 'body'; url: string; heightM: number; widthScale?: number }
   | { id: string; name: string; kind: 'prop'; shape: PropShape; defaultColor?: string }
+  | { id: string; name: string; kind: 'empty' }
+  | { id: string; name: string; kind: 'gaussian'; url: string }
 
 // 自托管素体 GLB（标准 Mixamo 骨骼 X Bot，T-pose 绑定，见 public/director/ATTRIBUTION.md），可用环境变量覆盖为自有模型。
 // 姿势系统按人形骨骼校准（pose.ts）：Mixamo 命名精确映射，其它命名走模糊匹配。
@@ -27,9 +29,13 @@ export const PROP_TYPES: LibraryItem[] = [
   { id: 'prop-box', name: '立方体', kind: 'prop', shape: 'box' },
   { id: 'prop-sphere', name: '球体', kind: 'prop', shape: 'sphere' },
   { id: 'prop-cylinder', name: '圆柱', kind: 'prop', shape: 'cylinder' },
+  { id: 'prop-torus', name: '圆环', kind: 'prop', shape: 'torus' },
   { id: 'prop-cone', name: '圆锥', kind: 'prop', shape: 'cone' },
+  { id: 'prop-pyramid', name: '棱锥', kind: 'prop', shape: 'pyramid' },
   { id: 'prop-plane', name: '平面', kind: 'prop', shape: 'plane' },
 ]
+
+export const EMPTY_OBJECT: LibraryItem = { id: 'empty-object', name: '空对象', kind: 'empty' }
 
 // 家具道具：程序化组合几何体（CharacterObject.tsx PropObject），blocking 占位风格，真实米制尺寸、底面落地 y=0。
 export const FURNITURE_TYPES: LibraryItem[] = [
@@ -45,13 +51,16 @@ export const FURNITURE_TYPES: LibraryItem[] = [
   { id: 'prop-lamp', name: '落地灯', kind: 'prop', shape: 'lamp', defaultColor: '#C9CDD6' },
 ]
 
-export const LIBRARY: LibraryItem[] = [...BODY_TYPES, ...FURNITURE_TYPES, ...PROP_TYPES]
+export const LIBRARY: LibraryItem[] = [...BODY_TYPES, EMPTY_OBJECT, ...FURNITURE_TYPES, ...PROP_TYPES]
 
 export function getLibraryItem(modelId: string): LibraryItem | undefined {
   const found = LIBRARY.find((m) => m.id === modelId)
   if (found) return found
   // 本地上传：modelId 直接是 blob/http URL
-  if (/^(blob:|https?:)/.test(modelId)) {
+  if (/^(https?:|projects\/|uploads\/)/.test(modelId) && /\.splat(?:[?#]|$)/i.test(modelId)) {
+    return { id: modelId, name: '高斯泼溅', kind: 'gaussian', url: modelId }
+  }
+  if (/^(blob:|https?:|projects\/|uploads\/)/.test(modelId)) {
     return { id: modelId, name: '上传素体', kind: 'body', url: modelId, heightM: 1.7 }
   }
   return undefined

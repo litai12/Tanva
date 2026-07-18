@@ -52,9 +52,17 @@ export default defineConfig({
     __STORAGE_SCHEMA_VERSION__: JSON.stringify(String(storageSchemaVersion)),
   },
   resolve: {
+    // pnpm 的软链接依赖可能让 Vite 把 @xyflow/react 内部的 React 解析成第二个
+    // 模块实例，ReactFlowProvider 随即触发 Invalid hook call。所有 React 生态包
+    // 必须共用应用根目录的 React/renderer。
+    dedupe: ['react', 'react-dom'],
     alias: {
       "@": fileURLToPath(new URL('./src', import.meta.url)),
     },
+  },
+  optimizeDeps: {
+    // 依赖从 reactflow v11 迁到 @xyflow/react v12 后不要复用旧的混合预构建图。
+    include: ['react', 'react-dom', 'react-dom/client', '@xyflow/react'],
   },
   server: {
     // 在本地开发时监听所有网络接口 (0.0.0.0)

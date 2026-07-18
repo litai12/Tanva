@@ -1,7 +1,7 @@
 import React from 'react'
-import { IconUserPlus, IconVideoPlus, IconAspectRatio, IconCamera, IconTrash, IconArrowsMove, IconRotate, IconResize, IconPhoto, IconUsers, IconArrowBackUp, IconArrowForwardUp, IconGrid3x3, IconPointer, IconClock } from '@tabler/icons-react'
+import { IconUserPlus, IconVideoPlus, IconAspectRatio, IconCamera, IconArrowsMove, IconPhoto, IconPointer, IconClock, IconScan, IconMaximize } from '@tabler/icons-react'
 import type { AspectKey } from '../types'
-import { BODY_TYPES, FURNITURE_TYPES, PROP_TYPES } from '../assets'
+import { BODY_TYPES, PROP_TYPES } from '../assets'
 import type { CrowdInput } from '../state/crowd'
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -14,6 +14,7 @@ type Props = {
   onAddCharacter: (modelId: string) => void
   onAddCrowd: (input: CrowdInput) => void
   onUploadModel: (file: File) => void
+  onUploadGaussian: (file: File) => void
   onSetSkybox: (file: File | null) => void
   hasSkybox: boolean
   panoConnected: boolean
@@ -37,11 +38,9 @@ const ASPECTS: AspectKey[] = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16
 
 const btn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', color: '#cdd3dc' }
 const btnOn: React.CSSProperties = { ...btn, background: '#2c313c', color: '#fff' }
-const btnDisabled: React.CSSProperties = { ...btn, color: '#4b5563', cursor: 'default' }
 const menu: React.CSSProperties = { position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', background: '#16181d', border: '1px solid #2a2f3a', borderRadius: 10, padding: 6, minWidth: 150, maxHeight: '62vh', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }
 const item: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#cdd3dc', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
 const sep: React.CSSProperties = { height: 1, background: '#2a2f3a', margin: '4px 2px' }
-const numInput: React.CSSProperties = { width: 44, background: '#0d0f13', color: '#e5e7eb', border: '1px solid #2a2f3a', borderRadius: 6, fontSize: 12.5, padding: '4px 6px', boxSizing: 'border-box' }
 
 function Pop({ icon, title, children }: { icon: React.ReactNode; title: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = React.useState(false)
@@ -58,84 +57,40 @@ function Pop({ icon, title, children }: { icon: React.ReactNode; title: string; 
   )
 }
 
-/** 群演阵列表单：行×列×间距 + 素体档，一键铺一组共享 crowdId 的群演 */
-function CrowdForm({ onAdd, close }: { onAdd: (input: CrowdInput) => void; close: () => void }) {
-  const [rows, setRows] = React.useState(3)
-  const [columns, setColumns] = React.useState(3)
-  const [spacing, setSpacing] = React.useState(1.2)
-  const [modelId, setModelId] = React.useState('male')
-  const clampInt = (v: number) => Math.max(1, Math.min(12, Math.round(v) || 1))
-  return (
-    <div style={{ minWidth: 208, padding: '4px 6px' }}>
-      <div style={{ fontSize: 12, color: '#9ca3af', padding: '2px 4px 8px' }}>群演阵列（同组可统一姿势/颜色/整体挪动）</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 8px', fontSize: 12.5, color: '#cdd3dc' }}>
-        <input type="number" min={1} max={12} value={rows} onChange={(e) => setRows(clampInt(Number(e.target.value)))} style={numInput} />
-        行 ×
-        <input type="number" min={1} max={12} value={columns} onChange={(e) => setColumns(clampInt(Number(e.target.value)))} style={numInput} />
-        列
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 4px 8px', fontSize: 12.5, color: '#cdd3dc' }}>
-        间距
-        <input type="range" min={0.6} max={3} step={0.1} value={spacing} onChange={(e) => setSpacing(Number(e.target.value))} style={{ flex: 1 }} />
-        {spacing.toFixed(1)}m
-      </div>
-      <div style={{ padding: '0 4px 10px' }}>
-        <select value={modelId} onChange={(e) => setModelId(e.target.value)}
-          style={{ width: '100%', background: '#0d0f13', border: '1px solid #2a2f3a', borderRadius: 6, color: '#e5e7eb', padding: '5px 6px', fontSize: 12.5, cursor: 'pointer' }}>
-          {BODY_TYPES.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-      </div>
-      <button
-        style={{ display: 'block', width: '100%', padding: '7px 0', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}
-        onClick={() => { onAdd({ modelId, rows, columns, spacing }); close() }}>
-        铺 {rows}×{columns} 群演
-      </button>
-    </div>
-  )
-}
-
-export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
+export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null)
+  const gaussianRef = React.useRef<HTMLInputElement>(null)
   const skyRef = React.useRef<HTMLInputElement>(null)
   return (
     <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 12px', pointerEvents: 'none' }}>
       <input ref={fileRef} type="file" accept=".glb,.gltf,model/gltf-binary" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadModel(f); e.currentTarget.value = '' }} />
+      <input ref={gaussianRef} type="file" accept=".splat,application/octet-stream" style={{ display: 'none' }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadGaussian(f); e.currentTarget.value = '' }} />
       <input ref={skyRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSetSkybox(f); e.currentTarget.value = '' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(30,30,30,0.94)', borderRadius: 16, padding: 8, border: '0.5px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 10px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
-        {/* 撤销/重做（Cmd/Ctrl+Z · Shift+Cmd/Ctrl+Z） */}
-        <button style={canUndo ? btn : btnDisabled} title="撤销 (Cmd/Ctrl+Z)" disabled={!canUndo} onClick={onUndo}><IconArrowBackUp size={20} /></button>
-        <button style={canRedo ? btn : btnDisabled} title="重做 (Shift+Cmd/Ctrl+Z)" disabled={!canRedo} onClick={onRedo}><IconArrowForwardUp size={20} /></button>
-        <div style={{ width: 1, height: 24, background: '#2a2f3a', margin: '0 4px' }} />
-        {/* 变换模式：移动/旋转/缩放 */}
-        <button style={gizmoMode === 'translate' ? btnOn : btn} title="移动 (V)" onClick={() => onSetGizmoMode('translate')}><IconArrowsMove size={20} /></button>
-        <button style={gizmoMode === 'rotate' ? btnOn : btn} title="旋转 (R)" onClick={() => onSetGizmoMode('rotate')}><IconRotate size={20} /></button>
-        <button style={gizmoMode === 'scale' ? btnOn : btn} title="缩放 (S)" onClick={() => onSetGizmoMode('scale')}><IconResize size={20} /></button>
+        <button style={gizmoMode === 'translate' ? btnOn : btn} title="移动" onClick={() => onSetGizmoMode('translate')}><IconArrowsMove size={20} /></button>
         <div style={{ width: 1, height: 24, background: '#2a2f3a', margin: '0 4px' }} />
         <Pop icon={<IconUserPlus size={20} />} title="添加角色">
           {(close) => (
             <>
-              <button style={item} onClick={() => { fileRef.current?.click(); close() }}>本地上传…</button>
+              <button style={item} onClick={() => { fileRef.current?.click(); close() }}>本地上传</button>
+              <button style={item} onClick={() => { gaussianRef.current?.click(); close() }}>高斯泼溅</button>
               <div style={sep} />
               {BODY_TYPES.map((m) => (
                 <button key={m.id} style={item} onClick={() => { onAddCharacter(m.id); close() }}>{m.name}</button>
               ))}
-              <div style={sep} />
-              <div style={{ fontSize: 11, color: '#6b7280', padding: '4px 10px' }}>家具道具</div>
-              {FURNITURE_TYPES.map((m) => (
-                <button key={m.id} style={item} onClick={() => { onAddCharacter(m.id); close() }}>{m.name}</button>
-              ))}
+              <button style={item} onClick={() => { onAddCharacter('empty-object'); close() }}>空对象</button>
+              <button style={item} onClick={() => { onAddCrowd({ modelId: 'male', rows: 3, columns: 3, spacing: 1.2 }); close() }}>人群 3×3</button>
               <div style={sep} />
               <div style={{ fontSize: 11, color: '#6b7280', padding: '4px 10px' }}>几何模型</div>
-              {PROP_TYPES.map((m) => (
+              <button style={item} onClick={() => { fileRef.current?.click(); close() }}>上传文件</button>
+              {PROP_TYPES.filter((model) => model.id !== 'prop-plane').map((m) => (
                 <button key={m.id} style={item} onClick={() => { onAddCharacter(m.id); close() }}>{m.name}</button>
               ))}
             </>
           )}
-        </Pop>
-        <Pop icon={<IconUsers size={20} />} title="群演阵列">
-          {(close) => <CrowdForm onAdd={onAddCrowd} close={close} />}
         </Pop>
         <Pop icon={<IconPhoto size={20} />} title="全景背景">
           {(close) => (
@@ -144,7 +99,9 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
                 {panoConnected ? '✓ 已连接全景图（来自连入的图片节点）' : '把图片节点连到导演台左侧输入口即可作为全景背景'}
               </div>
               <div style={sep} />
-              <button style={item} onClick={() => { skyRef.current?.click(); close() }}>或本地上传全景图…</button>
+              <button style={item} onClick={() => { skyRef.current?.click(); close() }}>本地上传</button>
+              <button style={item}>历史</button>
+              <button style={item}>AI 生成</button>
               {hasSkybox ? <button style={{ ...item, color: '#d98080' }} onClick={() => { onSetSkybox(null); close() }}>清除上传的全景图</button> : null}
               {(hasSkybox || panoConnected) ? (
                 <>
@@ -171,11 +128,9 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
             </div>
           )}
         </Pop>
-        <button style={showThirds ? btnOn : btn} title={showThirds ? '关闭九宫格辅助线' : '开启九宫格辅助线'} onClick={onToggleThirds}><IconGrid3x3 size={20} /></button>
         <button style={{ ...btn, opacity: busy ? 0.5 : 1 }} title="截图" disabled={busy} onClick={onCapture}><IconCamera size={20} /></button>
-        {onDeleteSelected ? (
-          <button style={{ ...btn, color: '#d98080' }} title="删除选中" onClick={onDeleteSelected}><IconTrash size={20} /></button>
-        ) : null}
+        <button style={btn} title="AI 图片识别导入"><IconScan size={20} /></button>
+        <button style={btn} title="全屏" onClick={() => { const root = document.querySelector('[data-testid=director-console-modal]') as HTMLElement | null; if (!document.fullscreenElement) void root?.requestFullscreen?.(); else void document.exitFullscreen?.() }}><IconMaximize size={20} /></button>
         <div style={{ width: 1, height: 24, background: '#525252', margin: '0 4px' }} />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, padding: 2, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }}>
           <button
