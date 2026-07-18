@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -113,7 +114,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 	upstreamTaskID := sResp.TaskID()
-	if sResp.Code != 200 || upstreamTaskID == "" {
+	if !sResp.Accepted() || upstreamTaskID == "" {
 		msg := sResp.ErrorMessage()
 		if msg == "" {
 			msg = fmt.Sprintf("apimart submit non-200: %d", sResp.Code)
@@ -138,6 +139,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 	uri := baseUrl + PollPath(taskID)
+	if strings.Contains(strings.ToLower(baseUrl), "toapis.com") {
+		uri = baseUrl + FlatVideoPollPath(taskID)
+	}
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
@@ -163,18 +167,18 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	info := &relaycommon.TaskInfo{Code: dResp.Code}
-	if dResp.Code != 200 || dResp.Data == nil {
+	if !dResp.Ready() {
 		info.Status = model.TaskStatusFailure
 		info.Reason = dResp.FailureReason()
 		info.Progress = taskcommon.ProgressComplete
 		return info, nil
 	}
 
-	info.Progress = clampProgress(dResp.Data.Progress)
-	switch dResp.Data.Status {
-	case StatusPending:
+	info.Progress = clampProgress(dResp.EffectiveProgress())
+	switch dResp.EffectiveStatus() {
+	case StatusPending, StatusQueued:
 		info.Status = model.TaskStatusQueued
-	case StatusProcessing:
+	case StatusProcessing, StatusInProgress:
 		info.Status = model.TaskStatusInProgress
 	case StatusCompleted:
 		info.Status = model.TaskStatusSuccess

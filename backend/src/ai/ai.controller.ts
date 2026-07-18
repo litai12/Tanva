@@ -1197,6 +1197,10 @@ export class AiController {
       ...this.buildRequestPromptAndImageParams(dto.prompt, dto.referenceImages),
     };
 
+    if (dto.channelTier === 'default' || dto.channelTier === 'vip') {
+      params.channelTier = dto.channelTier;
+    }
+
     const preferredVendorKey =
       typeof dto.vendorKey === 'string' && dto.vendorKey.trim().length > 0
         ? dto.vendorKey.trim()
@@ -5452,6 +5456,38 @@ export class AiController {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
     this.normalizeSeed2LegacyLiteAlias(effectiveDto);
+    // Vidu 统一节点可在 Q2/Q3 间切换，历史节点可能残留另一家族的 managedModelKey。
+    // 实际上游模型以 viduModelVariant/viduModel 为准；在计费和路由前同步托管 key，
+    // 避免 managedModelKey=vidu-q3 + viduModel=q2 导致预估/实扣与请求模型串台。
+    if (effectiveDto.provider === 'vidu' || effectiveDto.provider === 'viduq3-pro') {
+      const viduVariant = String(
+        effectiveDto.viduModelVariant || effectiveDto.viduModel || '',
+      )
+        .trim()
+        .toLowerCase();
+      if (viduVariant.startsWith('q2')) {
+        effectiveDto.managedModelKey = 'vidu-q2';
+      } else if (viduVariant.startsWith('q3')) {
+        effectiveDto.managedModelKey = 'vidu-q3';
+      }
+    }
+    // channelTier 是用户本次明确选择，优先级高于旧节点残留的 vendor/platform。
+    // 同时归一请求本身，确保计费上下文与实际执行入口一致。
+    if (effectiveDto.channelTier === 'vip') {
+      effectiveDto.vendorKey = 'tencent_vod';
+      effectiveDto.platformKey = 'tencent_vod';
+    } else if (effectiveDto.channelTier === 'default') {
+      if (effectiveDto.provider === 'vidu' || effectiveDto.provider === 'viduq3-pro') {
+        effectiveDto.vendorKey = 'vidu_api';
+        effectiveDto.platformKey = 'vidu_api';
+      } else if (
+        effectiveDto.vendorKey === 'tencent_vod' ||
+        effectiveDto.platformKey === 'tencent_vod'
+      ) {
+        effectiveDto.vendorKey = undefined;
+        effectiveDto.platformKey = undefined;
+      }
+    }
     await this.assertSeedance2Entitlement(userId, effectiveDto, req);
 
     // Whitelist/admin users can skip watermark for doubao provider.

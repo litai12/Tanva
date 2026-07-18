@@ -84,6 +84,8 @@ type Props = {
     managedModelKey?: string;
     vendorKey?: string;
     platformKey?: string;
+    channelTier?: "default" | "vip";
+    channelSelectionExplicit?: boolean;
     provider: VideoProvider;
     clipDuration?: number;
     aspectRatio?: string;
@@ -522,15 +524,18 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
       ? (data.nodeConfigMetadata as Record<string, any>)
       : {};
-  // Strip the Tencent (tencent_vod) route so vidu/kling follow the token and let
-  // new-api pick the upstream per route — never pin the channel to Tencent here.
+  // 保留用户选择的普通/尊享通道；后端据此选择对应的 new-api 令牌。
   const nodeConfigMetadata = React.useMemo(
     () => sanitizeVideoManagedRoutes(rawNodeConfigMetadata),
     [rawNodeConfigMetadata]
   );
   const sanitizedVendorKey = React.useMemo(
-    () => sanitizeVideoVendorKey(data.vendorKey),
-    [data.vendorKey]
+    () =>
+      data.channelSelectionExplicit === true &&
+      (data.channelTier === "vip" || data.channelTier === "default")
+        ? sanitizeVideoVendorKey(data.vendorKey)
+        : undefined,
+    [data.channelSelectionExplicit, data.channelTier, data.vendorKey]
   );
   const managedRoutesMetadata = React.useMemo(
     () => getManagedRoutesMetadata(nodeConfigMetadata),
@@ -1474,6 +1479,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     ]
   );
   const viduModelFamily = normalizeViduModelForApi(viduModel);
+  const effectiveManagedModelKey =
+    provider === "vidu" || provider === "viduq3-pro"
+      ? viduModelFamily === "q3"
+        ? "vidu-q3"
+        : "vidu-q2"
+      : managedRoutesMetadata?.modelKey;
   const isViduQ2FamilyModel = viduModelFamily === "q2";
   const isViduQ2ProMode = viduModel === "q2-pro";
   const isCurrentViduQ3FamilyModel = viduModelFamily === "q3";
@@ -1598,19 +1609,23 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
   }, [shouldShowAspectSelector]);
 
-  // Sync node data to the resolved (Tencent-free) route. selectedManagedRoute is
-  // resolved against the sanitized metadata + sanitized vendorKey, so this also
-  // self-heals stale nodes whose data still carries a tencent_vod vendor.
+  // 将解析后的通道同步到节点，保证预估、保存和实际请求使用同一通道。
   React.useEffect(() => {
     if (!managedRoutesMetadata || managedRoutesMetadata.vendors.length === 0) return;
     if (!selectedManagedRoute) return;
     const desiredVendor = selectedManagedRoute.vendorKey;
     const desiredPlatform =
       selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey;
+    const desiredChannelTier: "default" | "vip" =
+      desiredVendor === "tencent_vod" || desiredVendor === "tengxun"
+        ? "vip"
+        : "default";
     if (
       data.vendorKey === desiredVendor &&
       data.platformKey === desiredPlatform &&
-      data.managedModelKey === managedRoutesMetadata.modelKey
+      data.managedModelKey === effectiveManagedModelKey &&
+      data.channelTier === desiredChannelTier &&
+      typeof data.channelSelectionExplicit === "boolean"
     ) {
       return;
     }
@@ -1620,9 +1635,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         detail: {
           id,
           patch: {
-            managedModelKey: managedRoutesMetadata.modelKey,
+            managedModelKey: effectiveManagedModelKey,
             vendorKey: desiredVendor,
             platformKey: desiredPlatform,
+            channelTier: desiredChannelTier,
+            channelSelectionExplicit: data.channelSelectionExplicit === true,
             creditsPerCall:
               typeof selectedManagedRoute.creditsPerCall === "number"
                 ? selectedManagedRoute.creditsPerCall
@@ -1638,6 +1655,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.vendorKey,
     data.platformKey,
     data.managedModelKey,
+    data.channelTier,
+    data.channelSelectionExplicit,
+    effectiveManagedModelKey,
   ]);
 
   React.useEffect(() => {
@@ -1968,15 +1988,29 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     (vendorKey: string) => {
       const target = getManagedRouteOption(nodeConfigMetadata, vendorKey);
       if (!target) return;
-      if (target.vendorKey === (data.vendorKey || "").trim()) return;
+      const targetPlatform = target.platformKey || target.vendorKey;
+      const targetTier: "default" | "vip" =
+        target.vendorKey === "tencent_vod" || target.vendorKey === "tengxun"
+          ? "vip"
+          : "default";
+      if (
+        target.vendorKey === (data.vendorKey || "").trim() &&
+        targetPlatform === (data.platformKey || "").trim() &&
+        targetTier === data.channelTier &&
+        effectiveManagedModelKey === data.managedModelKey
+      ) {
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: {
             id,
             patch: {
-              managedModelKey: managedRoutesMetadata?.modelKey,
+              managedModelKey: effectiveManagedModelKey,
               vendorKey: target.vendorKey,
-              platformKey: target.platformKey || target.vendorKey,
+              platformKey: targetPlatform,
+              channelTier: targetTier,
+              channelSelectionExplicit: true,
               creditsPerCall:
                 typeof target.creditsPerCall === "number"
                   ? target.creditsPerCall
@@ -1986,7 +2020,16 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         })
       );
     },
-    [data.vendorKey, id, managedRoutesMetadata?.modelKey, nodeConfigMetadata]
+    [
+      data.channelTier,
+      data.channelSelectionExplicit,
+      data.managedModelKey,
+      data.platformKey,
+      data.vendorKey,
+      effectiveManagedModelKey,
+      id,
+      nodeConfigMetadata,
+    ]
   );
 
   React.useEffect(() => {
@@ -2846,6 +2889,52 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               {vodConfig.notes[0]}
             </div>
           ) : null}
+        </div>
+      )}
+
+      {managedRoutesMetadata && managedRoutesMetadata.vendors.length > 1 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+            {lt("通道", "Channel")}
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${managedRoutesMetadata.vendors.length}, minmax(0, 1fr))`,
+              gap: 6,
+            }}
+          >
+            {managedRoutesMetadata.vendors.map((routeOption) => {
+              const active = selectedManagedRoute?.vendorKey === routeOption.vendorKey;
+              const premium =
+                routeOption.vendorKey === "tencent_vod" ||
+                routeOption.vendorKey === "tengxun";
+              return (
+                <button
+                  key={routeOption.vendorKey}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleManagedRouteChange(routeOption.vendorKey);
+                  }}
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: active ? "1px solid #2563eb" : "1px solid #e5e7eb",
+                    background: active ? "#eff6ff" : "#fff",
+                    color: active ? "#1d4ed8" : "#4b5563",
+                    fontSize: 11,
+                    fontWeight: active ? 600 : 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {premium
+                    ? lt("尊享", "Premium")
+                    : lt("普通（Default）", "Default")}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 

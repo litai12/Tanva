@@ -32,6 +32,7 @@ export interface VideoGenerationRequest {
   managedModelKey?: string;
   vendorKey?: string;
   platformKey?: string;
+  channelTier?: "default" | "vip";
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;
@@ -217,4 +218,3 @@ export async function markVideoTaskSuccess(
 
   return response.json();
 }
-

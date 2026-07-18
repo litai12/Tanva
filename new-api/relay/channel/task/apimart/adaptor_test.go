@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -27,6 +28,9 @@ func TestSubmitResponseEnvelopes(t *testing.T) {
 		}
 		if got := FlatPollPath(s.TaskID()); got != "/v1/images/generations/tsk_img_01KT12" {
 			t.Errorf("FlatPollPath=%q", got)
+		}
+		if got := FlatVideoPollPath(s.TaskID()); got != "/v1/videos/generations/tsk_img_01KT12" {
+			t.Errorf("FlatVideoPollPath=%q", got)
 		}
 	})
 	t.Run("apimart wrapped accepted", func(t *testing.T) {
@@ -53,6 +57,20 @@ func TestSubmitResponseEnvelopes(t *testing.T) {
 			t.Error("expected Accepted=false for an error envelope")
 		}
 	})
+}
+
+func TestTaskAdaptorParsesToAPIsVideoResult(t *testing.T) {
+	a := &TaskAdaptor{}
+	info, err := a.ParseTaskResult([]byte(`{"id":"tsk_vid_1","object":"generation.task","status":"completed","progress":100,"result":{"type":"video","data":[{"url":"https://files/video.mp4"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Status != model.TaskStatusSuccess {
+		t.Fatalf("status=%v", info.Status)
+	}
+	if info.Url != "https://files/video.mp4" {
+		t.Fatalf("url=%q", info.Url)
+	}
 }
 
 // DetailResponse must parse both envelopes for status, terminal detection,

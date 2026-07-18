@@ -195,4 +195,9 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsString()
   platformKey?: string;
+
+  @ApiProperty({ description: 'Explicit video channel tier', required: false, enum: ['default', 'vip'] })
+  @IsOptional()
+  @IsEnum(['default', 'vip'])
+  channelTier?: 'default' | 'vip';
 }

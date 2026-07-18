@@ -18,9 +18,13 @@ package apimart
 // flatPollPathPrefix is the toapis task-status GET path prefix. (APIMart uses
 // pollPathPrefix = /v1/tasks/.)
 const flatPollPathPrefix = "/v1/images/generations/"
+const flatVideoPollPathPrefix = "/v1/videos/generations/"
 
 // FlatPollPath returns the toapis GET status path for a task id.
 func FlatPollPath(taskID string) string { return flatPollPathPrefix + taskID }
+
+// FlatVideoPollPath returns the ToAPIs video task-status path.
+func FlatVideoPollPath(taskID string) string { return flatVideoPollPathPrefix + taskID }
 
 // IsFlat reports whether the submit response is the toapis flat form (task id
 // at the top level, no `code`/`data` wrapper).

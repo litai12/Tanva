@@ -155,9 +155,28 @@ export const sanitizeVideoVendorKey = (
 export const sanitizeVideoManagedRoutes = <T extends Record<string, any> | null | undefined>(
   metadata: T
 ): T => {
-  // 尊享(tencent_vod)线路已恢复：保留后端下发的全部 managed routes（含腾讯 VOD vendor），
-  // 不再过滤腾讯线路或改写 defaultVendor，让用户可在节点上选择普通(kapon)/尊享(腾讯)。
-  return metadata;
+  // 保留腾讯尊享为可选项，但视频节点的产品默认必须是非腾讯普通通道。
+  // 后台 defaultVendor 仍可能为 tencent_vod（供旧管理配置/其他消费者使用），不能让它
+  // 在新建 Flow 节点时静默把 channelTier 初始化成 vip。
+  const root = asObject(metadata);
+  const managedRoutes = asObject(root?.managedRoutes);
+  if (!root || !managedRoutes || !Array.isArray(managedRoutes.vendors)) return metadata;
+  const normalVendor = managedRoutes.vendors.find((item) => {
+    const vendor = asObject(item);
+    return vendor && !isTencentVendorKey(
+      typeof vendor.vendorKey === "string" ? vendor.vendorKey : undefined
+    );
+  });
+  const normalVendorKey = asObject(normalVendor)?.vendorKey;
+  if (typeof normalVendorKey !== "string" || !normalVendorKey.trim()) return metadata;
+  if (managedRoutes.defaultVendor === normalVendorKey.trim()) return metadata;
+  return {
+    ...root,
+    managedRoutes: {
+      ...managedRoutes,
+      defaultVendor: normalVendorKey.trim(),
+    },
+  } as unknown as T;
 };
 
 export const getManagedRoutesMetadata = (

@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- new-api/ToAPIs 补齐文档索引中的 30 个视频生成 model IDs，修复 flat `generation.task` 提交响应、视频专用轮询路径和状态/结果解析，并登记 Kling v3 Omni 的 Omni 引用及音视频互斥约束。
+- Flow 视频通道现在按已部署网关能力选择正确入口与令牌：普通经 new-api `/v1/videos` 使用 `NEW_API_KEY`，尊享经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。
+- Flow Vidu 节点恢复可操作的普通/尊享通道按钮，并在 Q2/Q3 切换时同步托管模型键；后端会纠正历史节点中 Vidu 家族与 `managedModelKey` 不一致的请求，避免 VIP 渠道误查 Q2 或计费串台。
+- Flow 视频通道新增显式 `channelTier=default|vip` 端到端字段，后端优先采用该值，避免旧节点残留的 `tencent_vod` 把用户选择的 Default 误判成 VIP。
+- Flow 视频生成不再跨多次手动运行永久复用节点级幂等键，切换通道或模型后会创建新的请求记录。
+- Flow 新建 Vidu/Kling 视频节点强制以普通通道初始化，不再继承后台 `defaultVendor=tencent_vod` 成为 VIP；尊享仍保留为显式可选通道。
+- Flow 为视频通道增加显式选择标记并迁移历史自动 VIP 节点；未被用户明确选择过的通道在节点配置、画布水合和运行请求三层均强制回到 Default。
 - Library Panel: the toolbar entry now displays as `素材库`; the former global-history tab is now a real `团队库` backed by `material-library` team assets/folders, with personal-workspace team selection and current-team locking in team workspaces. `项目库` remains on project-filtered Global History.
 - Canvas/Flow: dragging Flow nodes while a drawing tool is active now bypasses the Paper canvas drawing event bus, so nodes can move directly without the drawing tool treating the action as a click and switching back to marquee/select mode.
 - Membership/Pricing: yearly membership cards now calculate and label estimated earned credits by year, using the matching monthly plan's immediate credits multiplied by 12 plus 365 daily check-ins and 52 seven-day streak bonuses; monthly cards continue to use the monthly 30-day/4-streak calculation.

@@ -99,6 +99,7 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
   getManagedRouteOption,
+  getManagedRoutesMetadata,
   resolveManagedRoutePricing,
   resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
@@ -11322,18 +11323,20 @@ function FlowInner() {
         ...(paletteDefaultData || {}),
         ...(paletteConfig
           ? (() => {
-              // Strip the Tencent route so new video nodes are never seeded with
-              // tencent_vod — they follow the token and new-api picks the upstream.
+              // 保留尊享为可选项，但新建节点固定从普通通道初始化。
               const metadata = sanitizeVideoManagedRoutes(
                 paletteConfig.metadata && typeof paletteConfig.metadata === "object"
                   ? (paletteConfig.metadata as Record<string, any>)
                   : undefined
               );
+              const managedRoutes = getManagedRoutesMetadata(metadata);
+              const normalManagedRoute = managedRoutes?.vendors.find(
+                (vendor) =>
+                  vendor.vendorKey !== "tencent_vod" && vendor.vendorKey !== "tengxun"
+              );
               const selectedManagedRoute = getManagedRouteOption(
                 metadata,
-                sanitizeVideoVendorKey(
-                  (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
-                )
+                normalManagedRoute?.vendorKey
               );
               if (!selectedManagedRoute) {
                 // No surviving (non-Tencent) route — make sure the new node never
@@ -11349,6 +11352,8 @@ function FlowInner() {
                 vendorKey: selectedManagedRoute.vendorKey,
                 platformKey:
                   selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
+                channelTier: "default",
+                channelSelectionExplicit: false,
                 creditsPerCall: resolveNodeConfigCreditsPerCall(paletteConfig),
               };
             })()
@@ -17486,7 +17491,7 @@ function FlowInner() {
             // 视频编辑模式：new-api wan2.7-videoedit，支持画幅比例。
             const providerResult = await generateVideoByProvider({
               // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
-              idempotencyKey: `vnode-${nodeId}`,
+              idempotencyKey: `vnode-${nodeId}-${Date.now()}`,
               provider: "wan2.7",
               // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
               // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
@@ -20928,18 +20933,35 @@ function FlowInner() {
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
-          // Tencent route removed: never send tencent_vod for vidu/kling — the
-          // request follows the token and new-api picks the upstream per route.
-          // The Tencent-only kling-o3 分镜/storyboard feature is dropped; legacy
-          // storyboard fields on old nodes are ignored and not sent.
+          // 通道只作为后端路由提示：普通通道经 /v1/videos 使用 NEW_API_KEY，
+          // 腾讯 VOD/尊享通道经既有 proxy 链路使用 NEW_API_KEY_VIP；令牌不下发前端。
           const managedRoutePayload = {
             managedModelKey:
               typeof rawNodeData.managedModelKey === "string" &&
               rawNodeData.managedModelKey.trim().length > 0
                 ? rawNodeData.managedModelKey.trim()
                 : undefined,
-            vendorKey: sanitizeVideoVendorKey(rawNodeData.vendorKey),
-            platformKey: sanitizeVideoVendorKey(rawNodeData.platformKey),
+            vendorKey:
+              rawNodeData.channelSelectionExplicit === true
+                ? sanitizeVideoVendorKey(rawNodeData.vendorKey)
+                : provider === "vidu" || provider === "viduq3-pro"
+                ? "vidu_api"
+                : sanitizeVideoVendorKey(rawNodeData.vendorKey) === "tencent_vod"
+                ? undefined
+                : sanitizeVideoVendorKey(rawNodeData.vendorKey),
+            platformKey:
+              rawNodeData.channelSelectionExplicit === true
+                ? sanitizeVideoVendorKey(rawNodeData.platformKey)
+                : provider === "vidu" || provider === "viduq3-pro"
+                ? "vidu_api"
+                : sanitizeVideoVendorKey(rawNodeData.platformKey) === "tencent_vod"
+                ? undefined
+                : sanitizeVideoVendorKey(rawNodeData.platformKey),
+            channelTier:
+              rawNodeData.channelSelectionExplicit === true &&
+              (rawNodeData.channelTier === "default" || rawNodeData.channelTier === "vip")
+                ? rawNodeData.channelTier
+                : "default",
           };
           const normalizedKlingSound =
             rawNodeData.sound === undefined || rawNodeData.sound === null
@@ -21038,6 +21060,7 @@ function FlowInner() {
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
                   ...managedRoutePayload,
+                  managedModelKey: viduModelForApi === "q3" ? "vidu-q3" : "vidu-q2",
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
@@ -21146,7 +21169,7 @@ function FlowInner() {
           const createResult = await generateVideoByProvider({
             ...requestPayload,
             // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
-            idempotencyKey: `vnode-${nodeId}`,
+            idempotencyKey: `vnode-${nodeId}-${Date.now()}`,
           });
 
           console.log("✅ [Flow] Video task created", {

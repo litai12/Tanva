@@ -213,7 +213,7 @@ export class VideoProviderService {
   private readonly managedV2TaskPrefix = "managedv2:";
   private readonly newApiTaskPrefix = "newapi:";
   private readonly newApiBaseUrl = (process.env.NEW_API_BASE_URL || "http://localhost:4458").replace(/\/+$/, "");
-  private readonly newApiKey = process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "";
+  private readonly newApiKey = (process.env.NEW_API_KEY || process.env.NEW_API_TOKEN || "").trim();
 
   constructor(
     private readonly oss: OssService,
@@ -772,99 +772,14 @@ export class VideoProviderService {
   async generateVideo(
     options: VideoProviderRequestDto
   ): Promise<VideoGenerationResult> {
-    // 尊享路由：托管分组配置把该模型主路由解析为 tencent_vod 时，走腾讯 VOD 转换链路
-    //（generateManaged* → generateXxxViaTencent → TencentVodAigcService → new-api /proxy/tencent/vod）。
-    // 其余模型走 new-api。是否走腾讯由托管分组配置决定，这里不硬编码模型清单。
-    if (await this.shouldRouteVideoToManagedTencent(options)) {
+    // 普通通道经 new-api /v1/videos 使用 NEW_API_KEY；尊享通道沿用已部署的
+    // Tencent VOD proxy 链路，其中 TencentVodAigcService 使用 NEW_API_KEY_VIP。
+    // 当前 new-api distributor 没有 type=67 的 tencent-vod 视频 channel，不能把
+    // 尊享请求直接塞进 /v1/videos，否则 vip 分组会报告 No available channel。
+    if (this.isTencentPremiumRoute(options)) {
       return this.generateVideoLegacy(options);
     }
     return this.createNewApiVideoTask(options);
-  }
-
-  // Video models that have proper new-api channels (apimart / ark / tencent-vod).
-  // These ALWAYS go through new-api /v1/videos so new-api's distributor decides
-  // the upstream (apimart vs ark vs the tencent-vod channel) — the backend no
-  // longer makes the vod-vs-apimart choice, and every request is logged/billed
-  // in new-api. The legacy /proxy/tencent/vod passthrough is reached only via
-  // the new-api tencent-vod channel proxying back to /internal/tencent-vod.
-  private static readonly NEW_API_VIDEO_MODEL_KEYS = new Set<string>([
-    "vidu-q2",
-    "vidu-q3",
-    "kling-2.6",
-    "kling-3.0",
-    "kling-o3",
-    "omni-flash-ext",
-    "seedance-1.5",
-    "seedance-2.0",
-  ]);
-
-  /** 依据托管分组配置判断该视频请求是否应走腾讯 VOD（尊享）路由。 */
-  private async shouldRouteVideoToManagedTencent(
-    options: VideoProviderRequestDto
-  ): Promise<boolean> {
-    const modelKey = this.resolveManagedVideoModelKey(options);
-    if (!modelKey) return false;
-    // 尊享线路：用户显式选了腾讯 VOD（前端 vendorKey=tencent_vod）。直接走后端腾讯 VOD
-    // 路径(generateVideoLegacy → /proxy/tencent/vod，计费&被 new-api 记录、轮询用 queryTask)。
-    // 不走 /v1/videos 的 tencent-vod 渠道——其 new-api task 轮询有 task_id 映射 bug(任务卡
-    // NOT_START)。普通线路(下方)仍走 new-api /v1/videos → kapon。
-    if (this.isTencentPremiumRoute(options)) {
-      return true;
-    }
-    // 普通：有 new-api 渠道的视频模型走 /v1/videos，由 new-api 选上游(kapon/apimart)。
-    if (VideoProviderService.NEW_API_VIDEO_MODEL_KEYS.has(modelKey)) {
-      return false;
-    }
-    try {
-      const candidates = await this.modelRoutingService.resolveVideoModelCandidates(
-        modelKey,
-        options.vendorKey
-      );
-      return candidates[0]?.route === "tencent_vod";
-    } catch (error) {
-      this.logger.warn(
-        `resolveVideoModelCandidates failed for ${modelKey}: ${this.summarizeError(error)}`
-      );
-      return false;
-    }
-  }
-
-  /** 把请求映射到托管模型 key；无对应托管模型时返回 null（走 new-api）。 */
-  private resolveManagedVideoModelKey(
-    options: VideoProviderRequestDto
-  ): string | null {
-    if (String(options.managedModelKey || "").trim().toLowerCase() === "omni-flash-ext") {
-      return "omni-flash-ext";
-    }
-    const provider = options.provider;
-    if (
-      (provider === "kling" || provider === "kling-2.6") &&
-      options.klingModel === "kling-v3-0"
-    ) {
-      return "kling-3.0";
-    }
-    if (
-      (provider === "kling" || provider === "kling-2.6") &&
-      options.klingModel === "kling-v2-6"
-    ) {
-      return "kling-2.6";
-    }
-    if (provider === "kling-o3") return "kling-o3";
-    if (provider === "vidu" || provider === "viduq3-pro") {
-      try {
-        return this.resolveManagedViduModel(options).modelKey;
-      } catch {
-        return null;
-      }
-    }
-    if (provider === "doubao") {
-      try {
-        return this.resolveManagedSeedanceModel(options).modelKey;
-      } catch {
-        return null;
-      }
-    }
-    return null;
   }
 
   private async generateVideoLegacy(
@@ -1394,7 +1309,6 @@ export class VideoProviderService {
     if (!this.newApiKey) {
       throw new ServiceUnavailableException("NEW_API_KEY 未配置");
     }
-
     const rawTaskId = taskId.slice(this.newApiTaskPrefix.length);
     const result = await this.requestNewApiJson(
       `/v1/videos/${encodeURIComponent(rawTaskId)}?t=${Date.now()}`,
@@ -1434,8 +1348,10 @@ export class VideoProviderService {
     return { status, videoUrl, thumbnailUrl };
   }
 
-  /** 该请求是否尊享线路（前端 vendorKey/platformKey = tencent_vod/tengxun）。 */
+  /** 显式 channelTier 优先；vendorKey/platformKey 仅兼容尚未保存 tier 的旧节点。 */
   private isTencentPremiumRoute(options: VideoProviderRequestDto): boolean {
+    if (options.channelTier === "default") return false;
+    if (options.channelTier === "vip") return true;
     const keys = [
       (options as any).vendorKey,
       (options as any).platformKey,
@@ -1926,7 +1842,10 @@ export class VideoProviderService {
     });
   }
 
-  private async requestNewApiJson(path: string, init: RequestInit): Promise<any> {
+  private async requestNewApiJson(
+    path: string,
+    init: RequestInit,
+  ): Promise<any> {
     const response = await fetch(`${this.newApiBaseUrl}${path}`, {
       ...init,
       headers: {

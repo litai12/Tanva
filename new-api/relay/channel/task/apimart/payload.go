@@ -177,6 +177,7 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 		Model:      req.Model,
 		Prompt:     req.Prompt,
 		Size:       req.Size,
+		AspectRatio: aspectRatioToken(req),
 		Duration:   req.Duration,
 		Resolution: req.Resolution,
 	}
