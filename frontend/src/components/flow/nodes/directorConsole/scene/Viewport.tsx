@@ -456,8 +456,16 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
     const g = groupsRef.current.get(selectedChar.id)
     if (!g) return
     const s = selectedChar.uniformScale || 1
+    const snap = scene.gridSnap ?? false
+    const snapStep = 0.5
+    const position: Vec3 = [
+      snap ? Math.round(g.position.x / snapStep) * snapStep : g.position.x,
+      g.position.y,
+      snap ? Math.round(g.position.z / snapStep) * snapStep : g.position.z,
+    ]
+    if (snap) g.position.set(position[0], position[1], position[2])
     onPatchCharacter(selectedChar.id, {
-      position: [g.position.x, g.position.y, g.position.z],
+      position,
       rotation: [g.rotation.x, g.rotation.y, g.rotation.z],
       scale: [g.scale.x / s, g.scale.y / s, g.scale.z / s],
     })
@@ -466,7 +474,11 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
   const commitCam = () => {
     const m = anchorRef.current
     if (!m || !selectedCam) return
-    onPatchCamera(selectedCam.id, { position: [m.position.x, m.position.y, m.position.z] })
+    const snap = scene.gridSnap ?? false
+    const step = 0.5
+    const position: Vec3 = [snap ? Math.round(m.position.x / step) * step : m.position.x, m.position.y, snap ? Math.round(m.position.z / step) * step : m.position.z]
+    if (snap) m.position.set(position[0], position[1], position[2])
+    onPatchCamera(selectedCam.id, { position })
   }
 
   // 骨骼 gizmo 松手：从骨骼当前局部四元数反解规范系欧拉角，合并回写 pose（所见即所得）
@@ -505,20 +517,24 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
       <directionalLight position={[5, 10, 7]} intensity={1.4} />
       <directionalLight position={[-6, 4, -4]} intensity={0.5} />
       {(scene.groundVisible ?? true) ? (
-        <Grid
-          args={[40, 40]}
-          cellColor="#1d3a5f"
-          sectionColor="#626872"
-          infiniteGrid
-          fadeDistance={60}
-          position={[0, scene.groundHeight ?? 0, 0]}
-          cellThickness={0.6}
-          sectionThickness={1}
-          cellSize={1}
-          sectionSize={5}
-          fadeStrength={Math.max(0.01, scene.groundOpacity ?? 0.4)}
-          onUpdate={(self) => { self.userData.directorHelper = true }}
-        />
+        <group position={[0, scene.groundHeight ?? 0, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={-10}>
+            <planeGeometry args={[120, 120]} />
+            <meshBasicMaterial color="#111820" transparent opacity={Math.max(0, Math.min(1, scene.groundOpacity ?? 0.4))} depthWrite={false} />
+          </mesh>
+          <Grid
+            args={[40, 40]}
+            cellColor="#1d3a5f"
+            sectionColor="#626872"
+            infiniteGrid
+            fadeDistance={60}
+            cellThickness={0.6}
+            sectionThickness={1}
+            cellSize={1}
+            sectionSize={5}
+            fadeStrength={1}
+          />
+        </group>
       ) : null}
 
       {viewpoint === 'director' && pathDraw ? (
@@ -874,6 +890,7 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
           camera={{ position: [6, 4.5, 13], fov: 45 }}
           onCreated={({ gl, scene }) => { glRef.current = gl; sceneRef.current = scene; gl.setClearColor('#0a0b0d') }}
           style={{ width: '100%', height: '100%' }}
+          onPointerMissed={() => props.onSelect(undefined)}
         >
           <RefSync glRef={glRef} sceneRef={sceneRef} controlsRef={controlsRef} cameraRef={cameraRef} />
           <React.Suspense fallback={null}>

@@ -816,6 +816,11 @@ const FloatingHeader: React.FC = () => {
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
+  useEffect(() => {
+    const openHistory = () => setIsGlobalHistoryOpen(true);
+    window.addEventListener('tanva:open-global-history', openHistory);
+    return () => window.removeEventListener('tanva:open-global-history', openHistory);
+  }, []);
   // 监听网格大小变化
   useEffect(() => {
     setGridSizeInput(String(gridSize));

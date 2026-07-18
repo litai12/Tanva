@@ -2,19 +2,10 @@
 import React from 'react'
 import type { Node } from '@xyflow/react'
 import { fetchWithAuth } from '@/services/authFetch'
-import { Viewport, type ViewportHandle, type ClipFrame } from './scene/Viewport'
+import { Viewport, type ViewportHandle } from './scene/Viewport'
 import { aspectRatio } from './state/aspect'
 import type { AspectKey, CharacterObj, DirectorScene, Vec3 } from './types'
-import { uploadCanvasVideoBlob } from './uploadCanvasVideoBlob'
-import { sendShotsToCanvas, sendClipsToCanvas } from './sendToCanvas'
-import { sampleAnimationAt, frameTimestamps, type ClipAnimation, type CameraOrbit } from './scene/clipAnimation'
-import { buildShotClip } from './state/previewClip'
-import {
-  createWebCodecsEncoder,
-  encodeBitmapsWithFfmpeg,
-  isWebCodecsMp4Supported,
-  type Mp4ClipEncoder,
-} from '../../../../utils/clipEncode'
+import { sendShotsToCanvas } from './sendToCanvas'
 
 // Tanva 后端 director-capture 租约（薄）：claim 原子认领 + report 记结果。前端建输出节点，后端不建。
 function getApiBase(): string {
@@ -46,16 +37,11 @@ async function reportDirectorCapture(input: {
   }).catch(() => {})
 }
 
-type CaptureMode = 'image' | 'clip'
 type PendingCapture = {
   captureId: string
   scene: unknown
   aspect?: string
   status: 'queued'
-  /** 缺省 'image'（向后兼容旧调用）；'clip' 走灰模动画样片渲染。 */
-  mode?: CaptureMode
-  /** clip 模式的关键帧动画；image 模式忽略。 */
-  animation?: ClipAnimation
 }
 
 type CaptureJob = {
@@ -63,8 +49,6 @@ type CaptureJob = {
   nodeId: string
   leaseToken: string
   scene: Record<string, unknown>
-  /** 导演台节点的画布坐标，用于把输出 video 节点落在其右侧。 */
-  directorFlowPos: { x: number; y: number } | null
 }
 
 function readPending(data: unknown): PendingCapture | null {
@@ -120,7 +104,7 @@ export function DirectorCaptureRunner({ nodes, onlyNodeId }: { nodes: Node<any>[
             return
           }
           const scene = asRecord(claimed.scene ?? pending.scene)
-          setJob({ pending, nodeId, leaseToken: claimed.leaseToken, scene, directorFlowPos: (n as any).position ?? null })
+          setJob({ pending, nodeId, leaseToken: claimed.leaseToken, scene })
         } catch {
           busyRef.current = false
         }
@@ -134,16 +118,12 @@ export function DirectorCaptureRunner({ nodes, onlyNodeId }: { nodes: Node<any>[
     setJob(null)
     busyRef.current = false
   }
-  if (job.pending.mode === 'clip') {
-    return <OffscreenClipRender job={job} onDone={onDone} />
-  }
   return <OffscreenCapture job={job} onDone={onDone} />
 }
 
 /**
  * 从 capture job 派生离屏渲染用的 DirectorScene（角色 + 单个 capture-cam）。
- * image / clip 两个离屏组件共用，避免重复 40 行场景重建逻辑。
- * clip 模式下 capture-cam 的 position/lookAt/fov 由动画逐帧覆盖，此处初值无所谓。
+ * 截图任务只构造角色与单个 capture-cam；导演台不再执行视频渲染。
  */
 function useRenderSceneFromJob(job: CaptureJob, camId: string): DirectorScene {
   return React.useMemo(() => {
@@ -241,146 +221,6 @@ function OffscreenCapture({ job, onDone }: { job: CaptureJob; onDone: () => void
       }
     })()
   }, [job, onDone])
-
-  return (
-    <div
-      style={{ position: 'fixed', left: -10000, top: 0, width: w, height: h, visibility: 'hidden', pointerEvents: 'none' }}
-      aria-hidden
-    >
-      <Viewport
-        ref={ref}
-        scene={renderScene}
-        viewpoint="camera"
-        onSceneReady={onReady}
-        onSelect={() => {}}
-        onPatchCharacter={() => {}}
-        onPatchCamera={() => {}}
-      />
-    </div>
-  )
-}
-
-/** anim 是否可直接喂采样器：cameras/characters 必须是对象（否则 sampleAnimationAt 会 Object.entries(null) 崩）。 */
-function isUsableClipAnim(a: unknown): a is ClipAnimation {
-  if (!a || typeof a !== 'object') return false
-  const o = a as Record<string, unknown>
-  return typeof o.fps === 'number'
-    && !!o.cameras && typeof o.cameras === 'object'
-    && !!o.characters && typeof o.characters === 'object'
-}
-
-/** clip 缺/坏 animation 时，从场景机位合成默认 360° 环绕 clip（满足「镜头环绕」诉求，且 cameras={} 不崩）。 */
-function synthOrbitClip(scene: DirectorScene, durationSeconds: number): ClipAnimation {
-  const cam0 = scene.cameras[0]
-  const p = cam0?.position
-  const orbit: CameraOrbit = {
-    center: [0, 0, 0],
-    radius: p ? Math.max(2, Math.hypot(p[0], p[2])) : 6,
-    height: p ? p[1] : 1.6,
-    degrees: 360,
-    lookAtHeight: cam0?.lookAt ? cam0.lookAt[1] : 1.3,
-    fovDeg: cam0?.fovDeg ?? 40,
-  }
-  return buildShotClip(scene, { id: 'auto-orbit', name: 'auto', durationSeconds: Math.max(0.5, durationSeconds), cameraMove: { kind: 'orbit', orbit } }, 24)
-}
-
-/**
- * clip 模式离屏执行器：把 pending.animation 用确定性采样器逐帧展开 → Viewport.captureClipFrames
- * 离屏渲一段 clay 灰模动画 → WebCodecs 硬编 mp4（不支持则优雅报错，无 ffmpeg 兜底）→ 上传 OSS →
- * 【前端】建纯 video 节点（VideoNode，data.videoUrl，连 seedance video 输入即 v2v）→ report 仅记租约。
- */
-function OffscreenClipRender({ job, onDone }: { job: CaptureJob; onDone: () => void }) {
-  const ref = React.useRef<ViewportHandle | null>(null)
-  const firedRef = React.useRef(false)
-  const camId = 'capture-cam'
-  const anim = job.pending.animation
-  const renderScene = useRenderSceneFromJob(job, camId)
-
-  // 看门狗：样片渲染 + 编码耗时长（数十帧逐帧 readback + 编码），watchdog 设 220s。
-  // 必须 < 服务端 clip 渲染窗口（240s），让浏览器有机会先自报失败、服务端再据此收尾，
-  // 而非服务端先超时把任务判死还堵住下一次 claim（长 clip 帧多务必配合降帧率，见下方提示）。
-  React.useEffect(() => {
-    const watchdog = window.setTimeout(() => {
-      if (firedRef.current) return
-      firedRef.current = true
-      void reportDirectorCapture({
-        captureId: job.pending.captureId,
-        leaseToken: job.leaseToken,
-        status: 'failed',
-        error: '离屏渲染超时（样片渲染/编码未完成）',
-      }).catch(() => {}).then(() => onDone())
-    }, 220_000)
-    return () => window.clearTimeout(watchdog)
-  }, [job, onDone])
-
-  const onReady = React.useCallback(() => {
-    if (firedRef.current) return
-    firedRef.current = true
-    // 缺/坏 animation（小T 常给不出合法逐帧轨道、或 cameras=null）→ 从场景机位合成默认 360° 环绕 clip，
-    // 而非崩在 Object.entries(null) 或直接判失败。所见即所得地满足「镜头环绕」。
-    const animDur = typeof anim?.durationSeconds === 'number' ? anim.durationSeconds : 4
-    const effectiveAnim: ClipAnimation = isUsableClipAnim(anim) ? anim : synthOrbitClip(renderScene, animDur)
-    void (async () => {
-      try {
-        // 采成每帧 camera/character transform（camId 命名容错：取 capture-cam，缺则取第一个相机轨道）
-        const frames: ClipFrame[] = frameTimestamps(effectiveAnim).map((t) => {
-          const s = sampleAnimationAt(effectiveAnim, t)
-          const cam = s.cameras[camId] ?? Object.values(s.cameras)[0]
-          return {
-            position: cam?.position ?? [6, 4.5, 13],
-            lookAt: cam?.lookAt ?? [0, 1, 0],
-            fovDeg: cam?.fovDeg ?? 45,
-            characters: s.characters,
-          }
-        })
-        const useWebCodecs = isWebCodecsMp4Supported()
-        // holder 对象：编码器在 onFrame 闭包内惰性创建（需首帧尺寸），用对象属性避免闭包内 let 重赋值丢失类型收窄
-        const encHolder: { enc: Mp4ClipEncoder | null } = { enc: null }
-        const fallback: ImageBitmap[] = []
-        await ref.current!.captureClipFrames({
-          frames,
-          clay: true,
-          onFrame: async (bmp, i) => {
-            if (useWebCodecs) {
-              if (!encHolder.enc) encHolder.enc = createWebCodecsEncoder({ width: bmp.width, height: bmp.height, fps: effectiveAnim.fps })
-              encHolder.enc.addBitmap(bmp, i)
-            } else {
-              // Viewport 回调返回后会 close 原 bitmap，兜底路径需 clone 留存到编码时
-              fallback.push(await createImageBitmap(bmp))
-            }
-          },
-        })
-        const mp4 = encHolder.enc ? await encHolder.enc.finish() : await encodeBitmapsWithFfmpeg(fallback, effectiveAnim.fps)
-        const hosted = await uploadCanvasVideoBlob({
-          blob: mp4,
-          label: '导演台灰模样片',
-          filePrefix: 'director-clip',
-          ownerNodeId: job.nodeId,
-        })
-        // 前端建纯 video 节点（VideoNode，data.videoUrl），落导演台右侧；用户连到 seedance 的 video 输入即可 v2v。
-        await sendClipsToCanvas(job.nodeId, job.directorFlowPos, [{ url: hosted.url, name: '导演台灰模样片' }])
-        await reportDirectorCapture({
-          captureId: job.pending.captureId,
-          leaseToken: job.leaseToken,
-          status: 'succeeded',
-          videoUrl: hosted.url,
-        })
-      } catch (e) {
-        await reportDirectorCapture({
-          captureId: job.pending.captureId,
-          leaseToken: job.leaseToken,
-          status: 'failed',
-          error: String((e as Error)?.message ?? e),
-        }).catch(() => {})
-      } finally {
-        onDone()
-      }
-    })()
-  }, [job, onDone, anim])
-
-  const ratio = aspectRatio(renderScene.aspect, 16 / 9) || 16 / 9
-  const w = 1280
-  const h = Math.round(w / ratio)
 
   return (
     <div

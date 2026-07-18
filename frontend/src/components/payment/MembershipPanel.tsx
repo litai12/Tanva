@@ -193,7 +193,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(300);
+  const [countdown, setCountdown] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
@@ -202,6 +202,16 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   const [sevenDayRewardMultiplier, setSevenDayRewardMultiplier] = useState(DEFAULT_7_DAY_REWARD_MULTIPLIER);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const orderExpiresAtRef = useRef<number | null>(null);
+  const applyOrderExpiry = useCallback((expiredAt: string) => {
+    const expiresAtMs = Date.parse(expiredAt);
+    orderExpiresAtRef.current = Number.isFinite(expiresAtMs) ? expiresAtMs : null;
+    const seconds = orderExpiresAtRef.current
+      ? Math.max(0, Math.ceil((orderExpiresAtRef.current - Date.now()) / 1000))
+      : 0;
+    setCountdown(seconds);
+    setIsExpired(seconds <= 0);
+  }, []);
   const hasYearlyPlans = useMemo(() => (plans || []).some((plan) => plan.billingCycle === "yearly"), [plans]);
 
   const filteredPlans = useMemo(() => {
@@ -310,13 +320,11 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
   useEffect(() => {
     void loadData();
     countdownRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          setIsExpired(true);
-          return 0;
-        }
-        return prev - 1;
-      });
+      const expiresAtMs = orderExpiresAtRef.current;
+      if (!expiresAtMs) return;
+      const seconds = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000));
+      setCountdown(seconds);
+      setIsExpired(seconds <= 0);
     }, 1000);
 
     return () => {
@@ -371,7 +379,8 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
-    setCountdown(300);
+    orderExpiresAtRef.current = null;
+    setCountdown(0);
     try {
       const order = await createMembershipOrder({
         planCode,
@@ -379,6 +388,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
       });
       setQrCodeUrl(order.qrCodeUrl);
       setCurrentOrderNo(order.orderNo);
+      applyOrderExpiry(order.expiredAt);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "创建会员订单失败";
       setOrderError(message);
@@ -386,7 +396,7 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [applyOrderExpiry]);
 
   useEffect(() => {
     if (!selectedPlanCode || !userConfirmedPlan) return;
@@ -1034,6 +1044,18 @@ const MembershipPanel: React.FC<MembershipPanelProps> = ({ onBack, onPaymentSucc
                             <div className="flex w-full items-center justify-center py-12">
                               <Loader2 className={cn("h-7 w-7 animate-spin", isWhite ? "text-slate-400" : "text-zinc-500")} />
                             </div>
+                          ) : qrCodeUrl && isExpired ? (
+                            <button
+                              type="button"
+                              onClick={() => selectedPlanCode && void createOrderForPlan(selectedPlanCode, paymentMethod)}
+                              className={cn(
+                                "flex w-full flex-col items-center justify-center gap-2 py-12 text-sm",
+                                isWhite ? "text-orange-600" : "text-amber-400",
+                              )}
+                            >
+                              <RefreshCw className="h-6 w-6" />
+                              <span>付款码已过期，点击刷新</span>
+                            </button>
                           ) : qrCodeUrl ? (
                             <div className="flex flex-col items-center gap-4 xl:flex-row xl:items-start xl:justify-center">
                               <img

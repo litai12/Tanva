@@ -7,6 +7,7 @@ export type LibraryItem =
   | { id: string; name: string; kind: 'prop'; shape: PropShape; defaultColor?: string }
   | { id: string; name: string; kind: 'empty' }
   | { id: string; name: string; kind: 'gaussian'; url: string }
+  | { id: string; name: string; kind: 'reference'; url: string }
 
 // 自托管素体 GLB（标准 Mixamo 骨骼 X Bot，T-pose 绑定，见 public/director/ATTRIBUTION.md），可用环境变量覆盖为自有模型。
 // 姿势系统按人形骨骼校准（pose.ts）：Mixamo 命名精确映射，其它命名走模糊匹配。
@@ -56,6 +57,9 @@ export const LIBRARY: LibraryItem[] = [...BODY_TYPES, EMPTY_OBJECT, ...FURNITURE
 export function getLibraryItem(modelId: string): LibraryItem | undefined {
   const found = LIBRARY.find((m) => m.id === modelId)
   if (found) return found
+  if (modelId.startsWith('reference-image:')) {
+    return { id: modelId, name: '站位参考', kind: 'reference', url: modelId.slice('reference-image:'.length) }
+  }
   // 本地上传：modelId 直接是 blob/http URL
   if (/^(https?:|projects\/|uploads\/)/.test(modelId) && /\.splat(?:[?#]|$)/i.test(modelId)) {
     return { id: modelId, name: '高斯泼溅', kind: 'gaussian', url: modelId }

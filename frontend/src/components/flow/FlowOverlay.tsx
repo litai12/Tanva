@@ -15402,6 +15402,10 @@ function FlowInner() {
         sourceNodeId?: string;
         sourceHandle?: string;
         targetHandle?: string;
+        connectAsSourceToNodeId?: string;
+        connectAsSourceHandle?: string;
+        connectAsTargetHandle?: string;
+        replaceIncomingForTarget?: boolean;
         done?: (createdId: string | null) => void;
       };
       const imageUrlForNode =
@@ -15467,6 +15471,21 @@ function FlowInner() {
           targetHandle: detail.targetHandle || "img",
           type: "default",
         } as any]));
+      }
+      if (detail.connectAsSourceToNodeId) {
+        setEdges((current) => {
+          const base = detail.replaceIncomingForTarget
+            ? current.filter((edge) => !(edge.target === detail.connectAsSourceToNodeId && edge.targetHandle === (detail.connectAsTargetHandle || "target")))
+            : current;
+          return base.concat([{
+          id: `edge_${id}_${detail.connectAsSourceToNodeId}_${Date.now()}`,
+          source: id,
+          target: detail.connectAsSourceToNodeId,
+          sourceHandle: detail.connectAsSourceHandle || "img",
+          targetHandle: detail.connectAsTargetHandle || "target",
+          type: "default",
+          } as any]);
+        });
       }
       try { detail.done?.(id); } catch {}
 

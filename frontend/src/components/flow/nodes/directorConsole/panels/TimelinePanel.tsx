@@ -1,36 +1,17 @@
 import React from 'react'
-import type { SceneTimeline, Shot } from '../state/timeline'
-import { timelineDuration } from '../state/timeline'
 import { trackId, type PropertyName, type PropertyTimeline } from '../state/propertyTimeline'
 
-type CamOpt = { id: string; name: string; hasPath?: boolean }
-type CharTrack = { id: string; name: string; label: string; durationSeconds: number }
+type ObjectOption = { id: string; name: string }
 
 export type TimelinePanelProps = {
-  timeline: SceneTimeline
-  cameras: CamOpt[]
+  cameras: ObjectOption[]
   defaultCameraId?: string
-  characters: CharTrack[]
+  characters: ObjectOption[]
   playhead: number
   playing: boolean
-  speed: number
-  selectedShotId?: string
   onPlayToggle: () => void
-  onReset: () => void
   onSeek: (time: number) => void
-  onSpeed: (speed: number) => void
-  onAddShot: () => void
-  onSelectShot: (id: string | undefined) => void
-  onPatchShot: (id: string, patch: Partial<Shot>) => void
-  onRemoveShot: (id: string) => void
-  onMoveShot: (id: string, toIndex: number) => void
-  onCaptureShot?: () => void
-  onPatchCharDuration: (id: string, seconds: number) => void
-  onRemoveChar: (id: string) => void
   onSelectCharacter: (id: string) => void
-  onComposeVideo?: () => void
-  busy?: boolean
-  thumbs?: Record<string, string[]>
   propertyTimeline: PropertyTimeline
   onSetPropertyKeyframe: (objectKind: 'character' | 'camera', objectId: string, property: PropertyName) => void
   onRemovePropertyKeyframe: (objectId: string, property: PropertyName) => void
@@ -50,7 +31,7 @@ const PX_PER_SEC = 72
 
 /** LibTV property-keyframe timeline shell. Legacy shot data is read only as a main-camera track; no shot editor/video composer is exposed. */
 export function TimelinePanel(props: TimelinePanelProps) {
-  const total = Math.max(0.01, props.propertyTimeline.duration, timelineDuration(props.timeline), ...props.characters.map((item) => item.durationSeconds))
+  const total = Math.max(0.01, props.propertyTimeline.duration)
   const [milliseconds, setMilliseconds] = React.useState(false)
   const [zoom, setZoom] = React.useState(1)
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({})

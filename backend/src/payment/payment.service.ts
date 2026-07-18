@@ -28,6 +28,9 @@ const QRCode = require('qrcode');
 // --- 微信支付 SDK ---
 const WeChatPay = require('wechatpay-node-v3');
 
+const PAYMENT_ORDER_TTL_MINUTES = 30;
+const PAYMENT_RECONCILE_LOOKBACK_HOURS = 72;
+
 @Injectable()
 export class PaymentService implements OnModuleInit {
   private alipaySdk: any;
@@ -428,13 +431,16 @@ export class PaymentService implements OnModuleInit {
     });
 
     const orderNo = this.generateOrderNo();
-    const expiredAt = new Date(Date.now() + 5 * 60 * 1000);
+    // The local deadline must match the deadline sent to both gateways.  A
+    // shorter local TTL leaves a still-payable gateway QR attached to an
+    // expired/cancelled order and is a common source of late-payment misses.
+    const expiredAt = new Date(Date.now() + PAYMENT_ORDER_TTL_MINUTES * 60 * 1000);
 
     let qrCodeUrl: string | null = null;
     if (paymentMethod === PaymentMethod.ALIPAY) {
       qrCodeUrl = await this.generateAlipayQrCode(orderNo, orderAmount);
     } else if (paymentMethod === PaymentMethod.WECHAT) {
-      qrCodeUrl = await this.generateWechatQrCode(orderNo, orderAmount);
+      qrCodeUrl = await this.generateWechatQrCode(orderNo, orderAmount, expiredAt);
     }
 
     const order = await this.prisma.paymentOrder.create({
@@ -483,7 +489,7 @@ export class PaymentService implements OnModuleInit {
           out_trade_no: orderNo,
           total_amount: amountStr,
           subject: `积分充值 - ${amountStr}元`,
-          timeout_express: '30m',
+          timeout_express: `${PAYMENT_ORDER_TTL_MINUTES}m`,
         },
       });
 
@@ -514,7 +520,11 @@ export class PaymentService implements OnModuleInit {
    * 生成微信支付二维码
    * 使用 Native 支付模式：统一下单获取 code_url，然后生成二维码
    */
-  private async generateWechatQrCode(orderNo: string, amount: number): Promise<string> {
+  private async generateWechatQrCode(
+    orderNo: string,
+    amount: number,
+    expiredAt: Date,
+  ): Promise<string> {
     if (!this.wechatPay) {
       throw new BadRequestException('微信支付SDK未初始化');
     }
@@ -526,6 +536,7 @@ export class PaymentService implements OnModuleInit {
         description: `积分充值 - ${amount}元`,
         out_trade_no: orderNo,
         notify_url: process.env.WECHAT_NOTIFY_URL || 'https://www.tanvas.cn/api/payment/wechat-notify',
+        time_expire: expiredAt.toISOString(),
         amount: {
           total: Math.round(amount * 100), // 金额单位：分
           currency: 'CNY',
@@ -930,8 +941,17 @@ export class PaymentService implements OnModuleInit {
     const pendingOrders = await this.prisma.paymentOrder.findMany({
       where: {
         userId,
-        status: PaymentStatus.PENDING,
-        expiredAt: { gt: new Date() },
+        status: {
+          in: [
+            PaymentStatus.PENDING,
+            PaymentStatus.EXPIRED,
+            PaymentStatus.CANCELLED,
+            PaymentStatus.FAILED,
+          ],
+        },
+        createdAt: {
+          gte: new Date(Date.now() - PAYMENT_RECONCILE_LOOKBACK_HOURS * 60 * 60 * 1000),
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: safeLimit,
@@ -1166,8 +1186,9 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  // 每 10 分钟扫描近 2 小时内的 expired 订单，向网关主动核查，补救因回调丢失导致的漏单
-  @Cron('0 */10 * * * *')
+  // 每 5 分钟核查近期所有未入账订单。cancelled 必须包含在内：用户刷新二维码后，
+  // 旧网关订单仍可能在截止时间前完成支付，不能只补 expired 订单。
+  @Cron('0 */5 * * * *')
   async reconcileExpiredOrdersJob() {
     try {
       const rescued = await this.reconcileExpiredOrders();
@@ -1183,16 +1204,24 @@ export class PaymentService implements OnModuleInit {
   }
 
   async reconcileExpiredOrders(): Promise<number> {
-    const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const expiredOrders = await this.prisma.paymentOrder.findMany({
+    const since = new Date(Date.now() - PAYMENT_RECONCILE_LOOKBACK_HOURS * 60 * 60 * 1000);
+    const unsettledOrders = await this.prisma.paymentOrder.findMany({
       where: {
-        status: PaymentStatus.EXPIRED,
+        status: {
+          in: [
+            PaymentStatus.PENDING,
+            PaymentStatus.EXPIRED,
+            PaymentStatus.CANCELLED,
+            PaymentStatus.FAILED,
+          ],
+        },
         createdAt: { gte: since },
       },
+      orderBy: { createdAt: 'asc' },
     });
 
     let rescued = 0;
-    for (const order of expiredOrders) {
+    for (const order of unsettledOrders) {
       try {
         let paid = false;
         let tradeNo: string | null = null;

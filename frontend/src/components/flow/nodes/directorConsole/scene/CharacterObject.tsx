@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useGLTF, Html, Splat } from '@react-three/drei'
+import { useGLTF, Html, Splat, Image as DreiImage } from '@react-three/drei'
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import type { CharacterObj } from '../types'
@@ -470,6 +470,8 @@ export function CharacterObject({ character, selected, showLabel = true, customM
     body = null
   } else if (item?.kind === 'gaussian') {
     body = <Splat src={item.url} />
+  } else if (item?.kind === 'reference') {
+    body = <DreiImage url={item.url} scale={[3.2, 1.8]} position={[0, 0.9, 0]} transparent />
   } else if (item?.kind === 'prop') {
     body = <PropObject shape={item.shape} colorHex={character.colorHex} />
   } else if (item?.kind === 'body' && item.url) {

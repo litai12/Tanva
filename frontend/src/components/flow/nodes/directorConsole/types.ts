@@ -148,13 +148,16 @@ export function createDefaultDirectorConsoleData(_legacyPanoramaUrl?: string): D
       skyRadius: 60,
       showCharacterLabels: true,
       gridSnap: false,
-      gaussianGroundSnap: false,
+      gaussianGroundSnap: true,
       groundVisible: true,
       groundOpacity: 0.4,
       groundHeight: 0,
     },
     activeViewpoint: 'director',
-    selectedObjectId: 'default-character-1',
+    // LibTV opens the inspector on the environment itself. Object selection is
+    // transient editing state; leaving it empty exposes the 3D scene/ground
+    // controls immediately instead of hiding them behind the default actor.
+    selectedObjectId: undefined,
     status: 'idle',
   }
 }

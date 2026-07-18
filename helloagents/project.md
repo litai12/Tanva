@@ -71,6 +71,10 @@
 - 后端使用 `.env`（见 `backend/src/app.module.ts` 的 `envFilePath` 配置：优先 `backend/.env`，其次 `../.env`）
 - 不要提交密钥/凭据（`.gitignore` 已包含 `backend/.env` 等）
 
+### 支付与补单
+- 微信、支付宝和本地支付订单统一使用 30 分钟有效期；前端倒计时以接口返回的 `expiredAt` 为准，过期后不得继续展示旧二维码。
+- 支付成功统一通过幂等的 `processPaymentSuccess` 入账；自动对账每 5 分钟核查最近 72 小时内的 `pending/expired/cancelled/failed` 订单，详细约定见 `helloagents/wiki/payment-reconciliation.md`。
+
 ## AI Metadata 同步
 - 修改代码或文档后，在仓库根目录运行：
   - `node "${CODEX_HOME:-$HOME/.codex}/Skills/ai-metadata-sync/scripts/sync-repo.mjs"`

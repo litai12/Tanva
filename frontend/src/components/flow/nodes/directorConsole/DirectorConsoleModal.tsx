@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from '@xyflow/react'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
-import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
+import type { DirectorConsoleData, CameraShot } from './types'
 import { createDefaultDirectorConsoleData } from './types'
 import {
   addCharacter, addCamera, selectObject, removeObject,
@@ -12,35 +12,26 @@ import {
 } from './state/scene'
 import { createHistory, pushHistory, undoHistory, redoHistory, snapshotOf, type HistorySnapshot } from './state/history'
 import { copySelection, pasteClipboard, type DirectorClipboard } from './state/clipboard'
-import { addCrowdCharacters, patchCrowdMembers, removeCrowd, crowdMembers, CROWD_BROADCAST_KEYS, type CrowdBroadcastPatch, type CrowdInput } from './state/crowd'
+import { addCrowdCharacters, patchCrowdMembers, removeCrowd, type CrowdInput } from './state/crowd'
 import { aspectFrameRect } from './state/aspect'
 import { AspectFrameOverlay } from './panels/AspectFrameOverlay'
-import { Viewport, type ViewportHandle, type GizmoMode, type ClipFrame } from './scene/Viewport'
+import { Viewport, type ViewportHandle, type GizmoMode } from './scene/Viewport'
 import { SceneTreePanel } from './panels/SceneTreePanel'
 import { ScenePropertiesPanel } from './panels/ScenePropertiesPanel'
 import { CharacterPropertiesPanel } from './panels/CharacterPropertiesPanel'
-import type { ClipSettings } from './panels/CameraPropertiesPanel'
 import { LibTvCameraPropertiesPanel } from './panels/LibTvCameraPropertiesPanel'
 import { Toolbar } from './panels/Toolbar'
 import { uploadCanvasImageBlob, dataUrlToBlob } from './uploadCanvasImageBlob'
-import { uploadCanvasVideoBlob } from './uploadCanvasVideoBlob'
-import { sendShotsToCanvas, sendClipsToCanvas, sendClipChainToCanvas, type HostedClip } from './sendToCanvas'
-import { sampleAnimationAt, frameTimestamps, type ClipAnimation } from './scene/clipAnimation'
-import { buildRecordedCamera, type FlySample, type RecordedCamera } from './state/cameraRecording'
-import { createWebCodecsEncoder, encodeBitmapsWithFfmpeg, isWebCodecsMp4Supported, type Mp4ClipEncoder } from '../../../../utils/clipEncode'
-import { addWaypoint, moveWaypoint } from './state/motionEdit'
+import { sendShotsToCanvas } from './sendToCanvas'
 import { TimelinePanel } from './panels/TimelinePanel'
-import { ensureTimeline, timelineDuration, activeShotAt, sampleShotCamera, addShot as tlAddShot, patchShot as tlPatchShot, removeShot as tlRemoveShot, moveShot as tlMoveShot, type Shot, type SceneTimeline } from './state/timeline'
-import { buildShotClip } from './state/previewClip'
-import { concatMotionPresets } from './state/motionPresets'
-import { shotCameraPathPoints } from './state/cameraPath'
 import { advancePlayhead } from './state/playback'
-import { buildTimelineFrames, buildTimelineFramesRange, timelineFrameAt } from './state/timelineRender'
-import { addCamWaypoint, moveCamWaypoint, setCamPathMode, setCamPathHeight, setCamPathLookAt, clearCamPath } from './state/cameraPathEdit'
 import { useConnectedPanorama } from './useConnectedPanorama'
 import { addObjectTracks, ensurePropertyTimeline, removeKeyframe, removeObjectTracks, samplePropertyTimeline, setKeyframe, type PropertyName } from './state/propertyTimeline'
 import { model3DUploadService } from '@/services/model3DUploadService'
 import { uploadToOSS } from '@/services/ossUploadService'
+import { generateImageViaAPI } from '@/services/aiBackendAPI'
+import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource'
+import { AiSceneImportDialog, type AiSceneImportMode } from './panels/AiSceneImportDialog'
 
 let uidCounter = 0
 const uid = (p: string) => `${p}-${Date.now()}-${uidCounter++}`
@@ -74,22 +65,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const [shots, setShots] = React.useState<Record<string, CameraShot[]>>({})
   // 右栏 摄像机 面板 tab（受控：截图后自动切到「摄像机截图」）
   const [cameraTab, setCameraTab] = React.useState<'props' | 'shots'>('props')
-  // 灰模样片渲染设置（人工）
-  const [clipSettings, setClipSettings] = React.useState<ClipSettings>({ durationSeconds: 4, fps: 24, orbitDegrees: 360, orbitRadius: 6 })
-  // 相机运镜预览（机位视角下当场按 orbit 或录制轨迹播放）
-  const [previewOrbit, setPreviewOrbit] = React.useState(false)
-  // 飞行录制 + 录得的运镜轨迹
-  const [flyMode, setFlyMode] = React.useState(false)
-  const [flyRecording, setFlyRecording] = React.useState(false)
-  const [flySpeed, setFlySpeed] = React.useState(8)
-  const [recordedCam, setRecordedCam] = React.useState<RecordedCamera | null>(null)
-  const flySamplesRef = React.useRef<FlySample[]>([])
-  const flyModeRef = React.useRef(flyMode)
-  flyModeRef.current = flyMode
-
-  const [drawPathActive, setDrawPathActive] = React.useState(false)
-  const [drawCamPathActive, setDrawCamPathActive] = React.useState(false)
-  const [selWp, setSelWp] = React.useState<number | undefined>(undefined)
+  const [aiImportOpen, setAiImportOpen] = React.useState(false)
+  const [aiImportSourceUrl, setAiImportSourceUrl] = React.useState<string>()
   // 导演台内吐司（modal 在画布之上，全局 toast 会被盖住）
   const [modalToast, setModalToast] = React.useState<{ msg: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null)
   const toastTimerRef = React.useRef<number | null>(null)
@@ -101,28 +78,20 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   // 全局时间线播放：playhead(全局秒)/playing/倍速/选中镜头
   const [playhead, setPlayhead] = React.useState(0)
   const [playing, setPlaying] = React.useState(false)
-  const [playSpeed, setPlaySpeed] = React.useState(1)
-  const [selectedShotId, setSelectedShotId] = React.useState<string | undefined>(undefined)
   // 对齐导演工作区：场景编辑与动画时间轴是互斥工作模式，时间轴不再永久占据视口高度。
   const [editorMode, setEditorMode] = React.useState<'scene' | 'timeline'>('scene')
   const [autoKeyframe, setAutoKeyframe] = React.useState(false)
   const [timelineLoop, setTimelineLoop] = React.useState(false)
-  // 时间轴镜头片段缩略图胶片条（每镜头沿时长 ~每秒一帧，看相机运动）；scene 变更后防抖重渲
-  const [shotThumbs, setShotThumbs] = React.useState<Record<string, string[]>>({})
   // 接管本节点的 capture 认领：打开导演台时由 Modal 内挂的 scoped runner 负责（鲜活、不会被全局 runner 的 busyRef 卡死），
   // 全局 runner 跳过本节点。这样「在导演台里让小T 出图/出片」不再出现「无浏览器认领」。
   React.useEffect(() => {
     openDirectorModalNodes.add(nodeId)
     return () => { openDirectorModalNodes.delete(nodeId) }
   }, [nodeId])
-  // 时间线长片拆分提示：合成时若超出单段上限(15s)，弹确认对话框（对话内补充每段时长后确认拆分 / 直接输出整段）
-  const [splitPrompt, setSplitPrompt] = React.useState<{ totalSec: number } | null>(null)
-  const [splitSeconds, setSplitSeconds] = React.useState(15)
 
   // 变换模式快捷键 V/R/S（工具条按钮 title 中已标注）
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (flyModeRef.current) return // 飞行录制中 WSAD/R/F 归飞行控制器
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
@@ -201,7 +170,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (flyModeRef.current) return
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
@@ -225,7 +193,16 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   // Delete/Backspace 删除（锁定对象不响应）。↑ 的方向取当前相机朝向在地面上的投影并吸附到最近世界轴，保证按键方向与屏幕直觉一致。
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (flyModeRef.current) return // 飞行录制中方向键归飞行控制器
+      if (e.key === 'Escape') {
+        const t = e.target as HTMLElement | null
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+        if (!data.selectedObjectId) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        apply(selectObject(data, undefined))
+        return
+      }
       const isArrow = e.key.startsWith('Arrow')
       const isDelete = e.key === 'Delete' || e.key === 'Backspace'
       if (!isArrow && !isDelete) return
@@ -239,6 +216,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
       const obj = ch ?? cam
       if (!obj || obj.locked) return
       e.preventDefault()
+      // Director modal owns object editing while open. Capture + immediate stop prevents the
+      // underlying Flow canvas Delete handler from deleting the Director node itself.
+      e.stopPropagation()
+      e.stopImmediatePropagation()
       if (isDelete) {
         apply(removeObject(data, id))
         return
@@ -267,8 +248,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
       const pos: Vec3 = [r3(obj.position[0] + dx), r3(obj.position[1] + dy), r3(obj.position[2] + dz)]
       apply(ch ? patchCharacter(data, id, { position: pos }) : patchCamera(data, id, { position: pos }))
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [data, apply])
 
   // 全景背景：读取连入导演台左侧输入口的图片节点 URL（对齐 liblib：连线喂入）
@@ -278,11 +259,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const selectedId = data.selectedObjectId
   const selectedCamera = scene?.cameras.find((c) => c.id === selectedId)
   const selectedCharacter = scene?.characters.find((c) => c.id === selectedId)
-
-  // 选中对象变化时重置路径绘制和路点选中
-  React.useEffect(() => { setDrawPathActive(false); setDrawCamPathActive(false); setSelWp(undefined) }, [selectedId])
-
-  // ── 全局时间线（动画化 blocking 的编排/播放层） ──────────────────────────────
 
   // 实时同步：小T(或其它外部 flow_patch)改了本节点 scene → 灌进模态。
   // 判源靠 scene 引用：自己 apply 后 store.scene === 本地 scene（同引用，不回灌）；外部改 = 新引用 → 同步。
@@ -297,54 +273,13 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeData])
-  const timeline = React.useMemo(() => ensureTimeline(scene?.timeline), [scene?.timeline])
   const propertyTimeline = React.useMemo(() => ensurePropertyTimeline(scene?.propertyTimeline), [scene?.propertyTimeline])
-  // 全局时间线总长 = max(各镜头时长之和, 各角色动作时长) —— 让 ▶播放/播放头也覆盖角色（即便镜头较短/没镜头）
-  const maxCharDur = (scene?.characters ?? []).reduce((m, c) => Math.max(m, c.motion?.durationSeconds ?? 0), 0)
-  const totalDuration = Math.max(propertyTimeline.duration, timelineDuration(timeline), maxCharDur)
+  const totalDuration = propertyTimeline.duration
   const displayedScene = React.useMemo(() => scene && editorMode === 'timeline' ? samplePropertyTimeline(scene, playhead) : scene, [scene, editorMode, playhead])
-  const active = React.useMemo(() => activeShotAt(timeline, playhead), [timeline, playhead])
-  const selectedShot = timeline.shots.find((s) => s.id === selectedShotId)
-  // 播放中聚焦当前镜头；停时聚焦选中镜头（无则当前镜头）
-  const focusShot: Shot | undefined = playing ? active?.shot : (selectedShot ?? active?.shot)
-  // 时间线镜头 → 既有预览/渲染管线吃的 ClipAnimation；有镜头时优先于旧 previewOrbit 流
-  const timelineClip = React.useMemo(
-    () => (scene && focusShot ? buildShotClip(scene, focusShot, clipSettings.fps) : null),
-    [scene, focusShot, clipSettings.fps],
-  )
-  // 始终把 POV 采样钉在【时间轴播放头】：播放=跟着走，暂停=冻结在当前帧（不再自循环空转）。
-  // 时间轴是唯一时间源——拖动播放头即 scrub 所有相机。
-  const timelinePreviewTime = active ? active.localT : null
-  const cameraPath = React.useMemo(() => {
-    // 绘制相机路径时，直接画该机位的路径（不依赖时间线）
-    if (drawCamPathActive && selectedCamera?.path && (selectedCamera.path.waypoints?.length ?? 0) >= 2 && scene) {
-      return shotCameraPathPoints(scene, { id: '_draw', name: '_', durationSeconds: 4, cameraId: selectedCamera.id, cameraMove: { kind: 'path' } })
-    }
-    return scene && focusShot ? shotCameraPathPoints(scene, focusShot) : undefined
-  }, [drawCamPathActive, selectedCamera, scene, focusShot])
-  // 相机图标沿运镜路径滑行 —— 同样钉在播放头（暂停冻结、scrub 跟随），与 POV 一致。
-  const liveCamera = React.useMemo(() => {
-    if (!active || !scene) return null
-    const { cameraId, camera } = sampleShotCamera(scene, active.shot, active.localT)
-    if (!cameraId || !camera) return null
-    return { id: cameraId, position: camera.position, lookAt: camera.lookAt, fovDeg: camera.fovDeg }
-  }, [active, scene])
 
-  // 人物动画与全局时间线同步：有镜头时全体角色由播放头驱动（暂停冻结、scrub 跟随、和相机同一个时钟）；
-  // 无镜头时退回旧的单角色自播预览（MotionPanel 的预览开关）。
-  // 有镜头或有角色动作 → 全体由全局播放头驱动（暂停冻结、scrub 跟随）；都没有则静态
-  const timelineDrive = timeline.shots.length > 0 || (scene?.characters ?? []).some((c) => c.motion || c.motionClip || (c.motionSequence?.length ?? 0) > 0)
-  const motionDriveTime = timelineDrive ? playhead : null
-  const motionPreviewObj = { playing: timelineDrive, characterId: undefined as string | undefined }
-
-  const withTimeline = React.useCallback((fn: (tl: SceneTimeline) => SceneTimeline): DirectorConsoleData => {
-    const d = dataRef.current
-    return { ...d, scene: { ...d.scene, timeline: fn(ensureTimeline(d.scene?.timeline)) } }
-  }, [])
-
-  // rAF 播放循环：playing 时按 dt*倍速 推进 playhead（回绕循环）
-  const playRefs = React.useRef({ playSpeed, playhead, total: totalDuration, loop: timelineLoop })
-  playRefs.current = { playSpeed, playhead, total: totalDuration, loop: timelineLoop }
+  // LibTV 属性时间线是导演台唯一的播放时钟。
+  const playRefs = React.useRef({ playhead, total: totalDuration, loop: timelineLoop })
+  playRefs.current = { playhead, total: totalDuration, loop: timelineLoop }
   React.useEffect(() => {
     if (!playing) return
     let raf = 0
@@ -352,7 +287,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     const tick = (now: number) => {
       const dt = (now - last) / 1000; last = now
       const r = playRefs.current
-      const step = advancePlayhead(r.playhead, dt, r.playSpeed, r.total, r.loop)
+      const step = advancePlayhead(r.playhead, dt, 1, r.total, r.loop)
       r.playhead = step.t
       setPlayhead(step.t)
       if (step.ended) { setPlaying(false); return }
@@ -362,14 +297,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     return () => cancelAnimationFrame(raf)
   }, [playing])
 
-  // 播放中跨镜头切机位（让主视口 POV 切到当前镜头的机位）
-  React.useEffect(() => {
-    if (!playing) return
-    const camId = active?.shot.cameraId
-    const d = dataRef.current
-    if (camId && d.scene?.activeCameraId !== camId) apply(setActiveCamera(d, camId))
-  }, [playing, active?.shot.id, apply])
-
   const onPlayToggle = React.useCallback(() => {
     setPlaying((p) => {
       const next = !p
@@ -378,52 +305,11 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           playRefs.current.playhead = 0
           setPlayhead(0)
         }
-        // 起播：确保有机位即可。主视口保持导演视角（看场景+角色+相机路径动），
-        // 右侧「当前镜头机位」小窗负责实时 POV（对齐参考视频的同屏布局）。
-        const d = dataRef.current
-        if (!(d.scene?.cameras?.length)) apply(addCamera(d, { id: uid('cam'), position: [0, 1.6, 6], lookAt: [0, 1.3, 0], fovDeg: 40 }))
       }
       return next
     })
-  }, [apply])
-  const onResetPlayhead = React.useCallback(() => { setPlayhead(0); playRefs.current.playhead = 0 }, [])
+  }, [])
   const onSeek = React.useCallback((t: number) => { setPlayhead(t); playRefs.current.playhead = t }, [])
-  const onAddShot = React.useCallback(() => {
-    const d = dataRef.current
-    const camId = d.scene?.activeCameraId ?? d.scene?.cameras?.[0]?.id
-    apply(withTimeline((tl) => tlAddShot(tl, { cameraId: camId, durationSeconds: clipSettings.durationSeconds })))
-  }, [apply, withTimeline, clipSettings.durationSeconds])
-  const onPatchShot = React.useCallback((id: string, patch: Partial<Shot>) => apply(withTimeline((tl) => tlPatchShot(tl, id, patch))), [apply, withTimeline])
-  const onRemoveShot = React.useCallback((id: string) => {
-    apply(withTimeline((tl) => tlRemoveShot(tl, id)))
-    setSelectedShotId((s) => (s === id ? undefined : s))
-  }, [apply, withTimeline])
-  const onSelectShot = React.useCallback((id: string | undefined) => {
-    setSelectedShotId(id)
-    if (!id) return
-    // 定位 playhead 到该镜头起点
-    const tl = ensureTimeline(dataRef.current.scene?.timeline)
-    let acc = 0
-    for (const s of tl.shots) { if (s.id === id) break; acc += Math.max(0, s.durationSeconds || 0) }
-    onSeek(acc)
-  }, [onSeek])
-  const onMoveShot = React.useCallback((id: string, toIndex: number) => apply(withTimeline((tl) => tlMoveShot(tl, id, toIndex))), [apply, withTimeline])
-  const onCaptureShot = React.useCallback(() => {
-    const d = dataRef.current
-    const camId = d.scene?.activeCameraId ?? d.scene?.cameras?.[0]?.id
-    const cs = d.scene?.characters ?? []
-    let move: Shot['cameraMove']
-    let dur = clipSettings.durationSeconds
-    if (recordedCam) {
-      move = { kind: 'recorded', tracks: recordedCam.tracks }; dur = recordedCam.durationSeconds
-    } else {
-      const cx = cs.length ? cs.reduce((a, c) => a + c.position[0], 0) / cs.length : 0
-      const cz = cs.length ? cs.reduce((a, c) => a + c.position[2], 0) / cs.length : 0
-      move = { kind: 'orbit', orbit: { center: [cx, 0, cz], radius: clipSettings.orbitRadius, degrees: clipSettings.orbitDegrees, height: 1.6, lookAtHeight: 1.3, fovDeg: 40 } }
-    }
-    apply(withTimeline((tl) => tlAddShot(tl, { cameraId: camId, durationSeconds: dur, cameraMove: move })))
-    showToast('已把当前运镜加入时间线', 'success')
-  }, [recordedCam, clipSettings, apply, withTimeline])
 
   // 截图（对齐 liblib）：在当前视角新建一个机位 + 给它拍 1 张图（一机位一图）
   // 画幅框可见时按 框高/视口高 收窄 FOV → 截图只含框内内容（所见即所得）
@@ -478,180 +364,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     if (s) uploadAndSend([s])
   }, [shots, uploadAndSend])
 
-  // 人工渲染灰模样片：相机环绕 + 角色 motionClip → 离屏逐帧 clay 渲染 → mp4 → 落 video 节点
-  // 相机运镜来源：优先「录制轨迹」(recordedCam),否则环绕(orbit,中心=角色质心)。供渲染与预览共用。
-  const cameraSourceFor = React.useCallback((fallbackDuration: number): { durationSeconds: number; cameras: ClipAnimation['cameras']; cameraOrbit?: ClipAnimation['cameraOrbit'] } => {
-    if (recordedCam) return { durationSeconds: recordedCam.durationSeconds, cameras: { 'capture-cam': recordedCam.tracks } }
-    const cs = data.scene?.characters ?? []
-    if (cs.length === 0) return { durationSeconds: fallbackDuration, cameras: {} }
-    const cx = cs.reduce((a, c) => a + c.position[0], 0) / cs.length
-    const cz = cs.reduce((a, c) => a + c.position[2], 0) / cs.length
-    return { durationSeconds: fallbackDuration, cameras: {}, cameraOrbit: { center: [cx, 0, cz], radius: clipSettings.orbitRadius, degrees: clipSettings.orbitDegrees, height: 1.6, lookAtHeight: 1.3, fovDeg: 40 } }
-  }, [recordedCam, data, clipSettings])
-
-  const onRenderClip = React.useCallback(() => {
-    const sc = data.scene
-    if (!sc || sc.characters.length === 0) { showToast('场景里先放一个角色', 'warning'); return }
-    setBusy(true)
-    void (async () => {
-      try {
-        const cs = sc.characters
-        const characters: ClipAnimation['characters'] = {}
-        for (const c of cs) {
-          const mc = c.motionSequence?.length ? concatMotionPresets(c.motionSequence)?.id : c.motionClip
-          if (mc) characters[c.id] = { motionClip: mc }
-        }
-        // 相机:录制轨迹优先,否则环绕。时长随之(录制=轨迹时长,环绕=设置时长)
-        const camSrc = cameraSourceFor(clipSettings.durationSeconds)
-        const anim: ClipAnimation = {
-          durationSeconds: camSrc.durationSeconds,
-          fps: clipSettings.fps,
-          cameras: camSrc.cameras,
-          characters,
-          ...(camSrc.cameraOrbit ? { cameraOrbit: camSrc.cameraOrbit } : {}),
-        }
-        const frames: ClipFrame[] = frameTimestamps(anim).map((t) => {
-          const s = sampleAnimationAt(anim, t)
-          const cam = s.cameras['capture-cam'] ?? Object.values(s.cameras)[0]
-          return {
-            position: cam?.position ?? [0, 1.6, clipSettings.orbitRadius],
-            lookAt: cam?.lookAt ?? [0, 1.3, 0],
-            fovDeg: cam?.fovDeg ?? 40,
-            characters: s.characters,
-          }
-        })
-        const useWebCodecs = isWebCodecsMp4Supported()
-        const encHolder: { enc: Mp4ClipEncoder | null } = { enc: null }
-        const fallback: ImageBitmap[] = []
-        await viewportRef.current!.captureClipFrames({
-          frames,
-          clay: true,
-          onFrame: async (bmp, i) => {
-            if (useWebCodecs) {
-              if (!encHolder.enc) encHolder.enc = createWebCodecsEncoder({ width: bmp.width, height: bmp.height, fps: anim.fps })
-              encHolder.enc.addBitmap(bmp, i)
-            } else {
-              fallback.push(await createImageBitmap(bmp))
-            }
-          },
-        })
-        const mp4 = encHolder.enc ? await encHolder.enc.finish() : await encodeBitmapsWithFfmpeg(fallback, anim.fps)
-        const hosted = await uploadCanvasVideoBlob({ blob: mp4, label: '导演台灰模样片', filePrefix: 'director-clip', ownerNodeId: nodeId })
-        await sendClipsToCanvas(nodeId, rf.getNode(nodeId)?.position ?? null, [{ url: hosted.url, name: '导演台灰模样片' }])
-        showToast('已渲染灰模样片并发送到画布', 'success')
-      } catch (e: any) {
-        showToast(e?.message || '渲染样片失败，请重试', 'error')
-      } finally {
-        setBusy(false)
-      }
-    })()
-  }, [data, clipSettings, nodeId, cameraSourceFor])
-
-  // 单段出片上限（秒）：超过则提示拆分。时间线本身可任意长（规划层），仅出片时受此约束。
-  const SEGMENT_LIMIT = 15
-
-  // 一组帧 → mp4（WebCodecs 优先，否则 ffmpeg 兜底）。供整段/分段渲染共用。
-  const encodeFrames = React.useCallback(async (frames: ClipFrame[], fps: number): Promise<Blob> => {
-    const useWebCodecs = isWebCodecsMp4Supported()
-    const encHolder: { enc: Mp4ClipEncoder | null } = { enc: null }
-    const fallback: ImageBitmap[] = []
-    await viewportRef.current!.captureClipFrames({
-      frames,
-      onFrame: async (bmp, i) => {
-        if (useWebCodecs) {
-          if (!encHolder.enc) encHolder.enc = createWebCodecsEncoder({ width: bmp.width, height: bmp.height, fps })
-          encHolder.enc.addBitmap(bmp, i)
-        } else {
-          fallback.push(await createImageBitmap(bmp))
-        }
-      },
-    })
-    return encHolder.enc ? await encHolder.enc.finish() : await encodeBitmapsWithFfmpeg(fallback, fps)
-  }, [])
-
-  // 按【整条时间线】合成视频：多镜头硬切 + 角色走位（钳到片段长），离屏逐帧渲染 → mp4 → 落画布 video 节点。
-  // segmentSeconds 给定且总长超过它时 → 均分成 ceil(total/segmentSeconds) 段（每段等长 ≤ segmentSeconds），
-  // 各自出片后竖向排布、按序连接；否则整段出一条。
-  const runComposeTimeline = React.useCallback((segmentSeconds?: number) => {
-    const sc = data.scene
-    const tl = ensureTimeline(sc?.timeline)
-    if (!sc || tl.shots.length === 0) { showToast('先在时间线上加镜头', 'warning'); return }
-    const total = timelineDuration(tl)
-    setBusy(true)
-    void (async () => {
-      try {
-        const fps = clipSettings.fps
-        if (segmentSeconds && total > segmentSeconds) {
-          const segCount = Math.max(1, Math.ceil(total / segmentSeconds))
-          const segDur = total / segCount // 均分：每段等长且 ≤ segmentSeconds
-          const clips: HostedClip[] = []
-          for (let k = 0; k < segCount; k++) {
-            const frames = buildTimelineFramesRange(sc, tl, fps, k * segDur, (k + 1) * segDur) as ClipFrame[]
-            if (!frames.length) continue
-            showToast(`渲染第 ${k + 1}/${segCount} 段…`, 'info')
-            const mp4 = await encodeFrames(frames, fps)
-            const hosted = await uploadCanvasVideoBlob({ blob: mp4, label: `导演台时间线 第${k + 1}段`, filePrefix: 'director-timeline', ownerNodeId: nodeId })
-            clips.push({ url: hosted.url, assetId: hosted.assetId, name: `时间线成片 ${k + 1}/${segCount}` })
-          }
-          if (!clips.length) { showToast('时间线为空', 'warning'); return }
-          await sendClipChainToCanvas(nodeId, rf.getNode(nodeId)?.position ?? null, clips)
-          showToast(`已拆成 ${clips.length} 段（每段 ${segDur.toFixed(1)}s）并按序发送到画布`, 'success')
-        } else {
-          const frames = buildTimelineFrames(sc, tl, fps) as ClipFrame[]
-          if (!frames.length) { showToast('时间线为空', 'warning'); return }
-          const mp4 = await encodeFrames(frames, fps)
-          const hosted = await uploadCanvasVideoBlob({ blob: mp4, label: '导演台时间线成片', filePrefix: 'director-timeline', ownerNodeId: nodeId })
-          await sendClipsToCanvas(nodeId, rf.getNode(nodeId)?.position ?? null, [{ url: hosted.url, name: '导演台时间线成片' }])
-          showToast('已按时间线合成视频并发送到画布', 'success')
-        }
-      } catch (e: any) {
-        showToast(e?.message || '合成失败，请重试', 'error')
-      } finally {
-        setBusy(false)
-      }
-    })()
-  }, [data, clipSettings, nodeId, rf, encodeFrames])
-
-  // 合成入口：总长超过单段上限 → 先弹拆分对话框；否则直接整段出片。
-  const onComposeTimeline = React.useCallback(() => {
-    const total = timelineDuration(ensureTimeline(data.scene?.timeline))
-    if (total > SEGMENT_LIMIT) {
-      setSplitSeconds(SEGMENT_LIMIT)
-      setSplitPrompt({ totalSec: total })
-      return
-    }
-    runComposeTimeline()
-  }, [data, runComposeTimeline])
-
-  // 时间轴片段缩略图：scene 变更后（防抖）为每个镜头在其起点离屏渲染该机位视角的小图
-  React.useEffect(() => {
-    const tl = ensureTimeline(scene?.timeline)
-    if (!scene || tl.shots.length === 0) { setShotThumbs({}); return }
-    let cancelled = false
-    const id = window.setTimeout(() => {
-      const vp = viewportRef.current
-      if (!vp || cancelled) return
-      const next: Record<string, string[]> = {}
-      let acc = 0
-      for (const shot of tl.shots) {
-        const dur = Math.max(0.5, shot.durationSeconds || 0.5)
-        const count = Math.min(16, Math.max(1, Math.round(dur))) // ~每秒一帧，封顶 16
-        const urls: string[] = []
-        for (let k = 0; k < count; k++) {
-          try {
-            const tt = acc + ((k + 0.5) / count) * dur // 每格取中点时刻
-            const frame = timelineFrameAt(scene, tl, tt) as ClipFrame
-            urls.push(vp.captureFrameAt(frame, 120, 68) || '')
-          } catch { urls.push('') }
-        }
-        next[shot.id] = urls
-        acc += dur
-      }
-      if (!cancelled) setShotThumbs(next)
-    }, 400)
-    return () => { cancelled = true; window.clearTimeout(id) }
-  }, [scene])
-
   // 摄像机截图画廊：汇总所有机位的截图，按机位分组（对齐 liblib）
   const shotGroups = (scene?.cameras ?? [])
     .map((c) => ({ cameraId: c.id, cameraName: c.name, shots: shots[c.id] ?? [] }))
@@ -664,31 +376,14 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     showToast(`已铺 ${res.memberIds.length} 个群演（${res.data.scene.characters.find((c) => c.crowdId === res.crowdId)?.crowdLabel ?? ''}）`, 'success')
   }, [apply, showToast])
 
-  // 群演成员属性修改路由：广播开关开启时，白名单键（姿势/动作/颜色/缩放/朝向/显隐/锁定）广播全组，其余（位置/名称）只落本人
-  const [crowdBroadcast, setCrowdBroadcast] = React.useState(true)
   const onCharacterPatch = React.useCallback((id: string, patch: Partial<import('./types').CharacterObj>) => {
     const d = dataRef.current
-    const ch = d.scene?.characters.find((c) => c.id === id)
-    if (ch?.crowdId && crowdBroadcast) {
-      const broadcastKeys = CROWD_BROADCAST_KEYS.filter((k) => k in patch)
-      if (broadcastKeys.length) {
-        let next = patchCrowdMembers(d, ch.crowdId, patch as CrowdBroadcastPatch)
-        const solo: Record<string, unknown> = { ...patch }
-        for (const k of broadcastKeys) delete solo[k]
-        if (Object.keys(solo).length) next = patchCharacter(next, id, solo as Partial<import('./types').CharacterObj>)
-        if (autoKeyframe && editorMode === 'timeline') {
-          for (const property of ['position', 'rotation', 'scale', 'uniformScale', 'pose'] as PropertyName[]) if (property in patch) next = { ...next, scene: { ...next.scene, propertyTimeline: setKeyframe(next.scene.propertyTimeline, next.scene, 'character', id, property, playRefs.current.playhead) } }
-        }
-        apply(next)
-        return
-      }
-    }
     let next = patchCharacter(d, id, patch)
     if (autoKeyframe && editorMode === 'timeline') {
       for (const property of ['position', 'rotation', 'scale', 'uniformScale', 'pose'] as PropertyName[]) if (property in patch) next = { ...next, scene: { ...next.scene, propertyTimeline: setKeyframe(next.scene.propertyTimeline, next.scene, 'character', id, property, playRefs.current.playhead) } }
     }
     apply(next)
-  }, [apply, crowdBroadcast, autoKeyframe, editorMode])
+  }, [apply, autoKeyframe, editorMode])
 
   const onCameraPatch = React.useCallback((id: string, patch: Partial<import('./types').CameraObj>) => {
     let next = patchCamera(dataRef.current, id, patch)
@@ -726,6 +421,102 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     }).catch((error) => showToast(error?.message || '全景图上传失败', 'error')).finally(() => setBusy(false))
   }, [apply, nodeId, showToast])
 
+  const onGeneratePanorama = React.useCallback(async (prompt: string) => {
+    if (!prompt.trim()) return
+    setBusy(true)
+    try {
+      const result = await generateImageViaAPI({
+        prompt: `${prompt.trim()}。生成完整无缝的 360° 等距柱状全景环境图，严格 2:1 比例，左右边缘可无缝衔接，不要画框，不要文字。`,
+        aspectRatio: '2:1',
+        imageSize: '2K',
+        imageOnly: true,
+      })
+      if (!result.success || !result.data) throw new Error(result.error?.message || '全景图生成失败')
+      const candidate = (result.data.imageUrl || result.data.imageData || '').trim()
+      if (!candidate) throw new Error('全景图生成结果为空')
+      let remoteUrl = isPersistableImageRef(candidate) ? candidate : ''
+      if (!remoteUrl) {
+        const blob = await resolveImageToBlob(candidate, { preferProxy: true })
+        if (!blob) throw new Error('读取全景图生成结果失败')
+        remoteUrl = (await uploadCanvasImageBlob({ blob, label: 'AI 全景图', filePrefix: 'director-panorama-ai', ownerNodeId: nodeId })).url
+      }
+      if (!isPersistableImageRef(remoteUrl)) throw new Error('全景图未获得可持久化远程地址')
+      apply(setSkybox(dataRef.current, remoteUrl))
+      showToast('AI 全景图已生成并应用', 'success')
+    } catch (error: any) {
+      showToast(error?.message || '全景图生成失败', 'error')
+      throw error
+    } finally {
+      setBusy(false)
+    }
+  }, [apply, nodeId, showToast])
+
+  const createConnectedImageNode = React.useCallback((imageUrl: string, label: string) => new Promise<string>((resolve, reject) => {
+    let settled = false
+    const done = (id: string | null) => {
+      if (settled) return
+      settled = true
+      if (id) resolve(id); else reject(new Error(`${label}图片节点创建失败`))
+    }
+    window.dispatchEvent(new CustomEvent('flow:createImageNode', { detail: {
+      imageUrl, label, imageName: label,
+      worldPosition: rf.getNode(nodeId)?.position ? { x: (rf.getNode(nodeId)?.position.x ?? 0) - 420, y: rf.getNode(nodeId)?.position.y ?? 0 } : undefined,
+      connectAsSourceToNodeId: nodeId,
+      connectAsSourceHandle: 'img',
+      connectAsTargetHandle: 'target',
+      replaceIncomingForTarget: true,
+      done,
+    } }))
+    window.setTimeout(() => done(null), 3000)
+  }), [nodeId, rf])
+
+  const onAiImportUpload = React.useCallback(async (file: File) => {
+    setBusy(true)
+    try {
+      const hosted = await uploadCanvasImageBlob({ blob: file, label: '识图来源', filePrefix: 'director-ai-source', ownerNodeId: nodeId })
+      if (!isPersistableImageRef(hosted.url)) throw new Error('识图来源未获得远程地址')
+      await createConnectedImageNode(hosted.url, 'AI识图来源')
+      setAiImportSourceUrl(hosted.url)
+      showToast('识图来源已上传并连接导演台', 'success')
+    } catch (error: any) {
+      showToast(error?.message || '识图来源上传失败', 'error')
+    } finally { setBusy(false) }
+  }, [createConnectedImageNode, nodeId, showToast])
+
+  const onGeneratePlacementReference = React.useCallback(async (mode: AiSceneImportMode) => {
+    const sourceUrl = aiImportSourceUrl
+    if (!sourceUrl) return
+    setBusy(true)
+    try {
+      const result = await generateImageViaAPI({
+        prompt: '根据参考图生成影视 3D 导演台站位参考图：保留人物数量、相对站位、朝向、动作、主要道具和摄像机构图；转换成中性灰色 3D blocking 素体与简洁空间，透视准确，无文字，无边框。',
+        imageUrls: [sourceUrl], aspectRatio: '16:9', imageSize: '2K', imageOnly: true,
+      })
+      if (!result.success || !result.data) throw new Error(result.error?.message || '站位参考生成失败')
+      const candidate = (result.data.imageUrl || result.data.imageData || '').trim()
+      if (!candidate) throw new Error('站位参考生成结果为空')
+      let remoteUrl = isPersistableImageRef(candidate) ? candidate : ''
+      if (!remoteUrl) {
+        const blob = await resolveImageToBlob(candidate, { preferProxy: true })
+        if (!blob) throw new Error('读取站位参考失败')
+        remoteUrl = (await uploadCanvasImageBlob({ blob, label: '站位参考', filePrefix: 'director-placement-reference', ownerNodeId: nodeId })).url
+      }
+      await createConnectedImageNode(remoteUrl, '导演台站位参考')
+      const current = dataRef.current
+      if (mode === 'overwrite') {
+        const defaults = createDefaultDirectorConsoleData()
+        const reference = addCharacter({ ...current, scene: { ...current.scene, characters: [], cameras: defaults.scene.cameras, activeCameraId: defaults.scene.activeCameraId, skybox: undefined } }, { id: uid('reference'), modelId: `reference-image:${remoteUrl}`, name: '站位参考层', position: [0, 0, 0] })
+        apply(reference)
+      } else {
+        apply(addCharacter(current, { id: uid('reference'), modelId: `reference-image:${remoteUrl}`, name: '站位参考层', position: [0, 0, -1] }))
+      }
+      setAiImportOpen(false)
+      showToast('站位参考已生成并导入导演台', 'success')
+    } catch (error: any) {
+      showToast(error?.message || '站位参考生成失败', 'error')
+    } finally { setBusy(false) }
+  }, [aiImportSourceUrl, apply, createConnectedImageNode, nodeId, showToast])
+
   // ── 画幅取景框：跟踪视口尺寸 → 非 auto 画幅时内切居中框（框外遮罩），截图按框收窄 FOV 所见即所得 ──
   const viewportBoxRef = React.useRef<HTMLDivElement | null>(null)
   const [viewportSize, setViewportSize] = React.useState({ w: 0, h: 0 })
@@ -744,45 +535,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     [scene, viewportSize],
   )
   const [showThirds, setShowThirds] = React.useState(false)
-
-  // 预览动画(机位视角回放):开预览时按运镜来源构建,角色动作另由 CharacterObject 实时驱动
-  const previewAnim = React.useMemo<ClipAnimation | null>(() => {
-    if (!previewOrbit) return null
-    if (!recordedCam && (scene?.characters?.length ?? 0) === 0) return null
-    const src = cameraSourceFor(clipSettings.durationSeconds)
-    return { durationSeconds: src.durationSeconds, fps: clipSettings.fps, characters: {}, cameras: src.cameras, ...(src.cameraOrbit ? { cameraOrbit: src.cameraOrbit } : {}) }
-  }, [previewOrbit, recordedCam, scene, clipSettings, cameraSourceFor])
-
-  // 开运镜回放预览:自动建机位(若无)+切机位视角
-  const onTogglePreviewOrbit = React.useCallback(() => {
-    const next = !previewOrbit
-    setPreviewOrbit(next)
-    if (next) {
-      let d = data
-      if (!(d.scene?.cameras?.length)) d = addCamera(d, { id: uid('cam'), position: [0, 1.6, 6], lookAt: [0, 1.3, 0], fovDeg: 40 })
-      if (d.activeViewpoint !== 'camera') d = setViewpoint(d, 'camera')
-      if (d !== data) apply(d)
-    }
-  }, [previewOrbit, data, apply])
-
-  // 飞行录制:进穿梭机视角开始采样
-  const onStartFlyRecord = React.useCallback(() => {
-    flySamplesRef.current = []
-    setPreviewOrbit(false)
-    setFlyMode(true)
-    setFlyRecording(true)
-  }, [])
-  const onFlyFrame = React.useCallback((s: { position: Vec3; lookAt: Vec3; fovDeg: number }) => {
-    flySamplesRef.current.push({ t: performance.now() / 1000, ...s })
-  }, [])
-  const onStopFlyRecord = React.useCallback(() => {
-    setFlyRecording(false)
-    setFlyMode(false)
-    const rec = buildRecordedCamera(flySamplesRef.current)
-    if (rec) { setRecordedCam(rec); showToast(`运镜已录制(${rec.durationSeconds.toFixed(1)}s)`, 'success') }
-    else showToast('录制太短,再飞久一点', 'warning')
-  }, [])
-  const onClearRecordedCam = React.useCallback(() => { setRecordedCam(null); setPreviewOrbit(false) }, [])
 
   if (!scene) return null
 
@@ -838,55 +590,13 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             onSelect={(id) => apply(selectObject(data, id))}
             onPatchCharacter={onCharacterPatch}
             onPatchCamera={onCameraPatch}
-            previewAnim={timelineClip ?? previewAnim}
-            previewTime={timelinePreviewTime}
-            cameraPath={cameraPath}
-            liveCamera={editorMode === 'timeline' && propertyTimeline.tracks.length > 0 ? undefined : liveCamera}
-            flyMode={flyMode}
-            flySpeed={flySpeed}
-            flyRecording={flyRecording}
-            onFlyFrame={onFlyFrame}
-            trajectory={recordedCam?.points}
-            pathDraw={drawCamPathActive && selectedCamera ? {
-              active: true,
-              waypoints: selectedCamera.path?.waypoints ?? [],
-              mode: selectedCamera.path?.mode ?? 'linear',
-              onAddWaypoint: (xz) => apply(patchCamera(data, selectedCamera.id, { path: addCamWaypoint(selectedCamera.path, xz) })),
-              onMoveWaypoint: (i, xz) => apply(patchCamera(data, selectedCamera.id, { path: moveCamWaypoint(selectedCamera.path, i, xz) })),
-              selectedIndex: selWp,
-              onSelectWaypoint: setSelWp,
-            } : selectedCharacter ? {
-              active: drawPathActive,
-              waypoints: selectedCharacter.motion?.locomotion?.path?.waypoints ?? [],
-              mode: selectedCharacter.motion?.locomotion?.path?.mode ?? 'linear',
-              onAddWaypoint: (xz) => apply(patchCharacter(data, selectedCharacter.id, { motion: addWaypoint(selectedCharacter.motion, xz) })),
-              onMoveWaypoint: (i, xz) => apply(patchCharacter(data, selectedCharacter.id, { motion: moveWaypoint(selectedCharacter.motion, i, xz) })),
-              selectedIndex: selWp,
-              onSelectWaypoint: setSelWp,
-            } : undefined}
-            motionPreview={motionPreviewObj}
-            motionDriveTime={motionDriveTime}
           />
           {/* 画幅取景框 + 九宫格（框外遮罩；截图=框内所见） */}
           <AspectFrameOverlay frame={frameRect} showThirds={showThirds} />
-          {!flyMode ? (
-            <button
-              onClick={() => viewportRef.current?.resetView()}
-              style={{ position: 'absolute', top: 16, right: 16, padding: '6px 12px', borderRadius: 8, background: 'rgba(22,24,29,0.9)', color: '#cdd3dc', border: '1px solid #2a2f3a', cursor: 'pointer', fontSize: 12, zIndex: 6 }}
-            >重置视角</button>
-          ) : null}
-          {flyMode ? (
-            <div style={{ position: 'absolute', left: '50%', bottom: 24, transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', borderRadius: 12, background: 'rgba(10,11,13,0.92)', border: '1px solid #3b82f6', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', zIndex: 6 }}>
-              <span style={{ color: '#f87171', fontSize: 13, fontWeight: 600 }}>⏺ 录制运镜中</span>
-              <span style={{ color: '#9ca3af', fontSize: 12 }}>WASD/方向键移动 · R/F 升降 · 鼠标拖拽转视角</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#cdd3dc', fontSize: 12 }}>
-                速度
-                <input type="range" min={2} max={30} step={1} value={flySpeed} onChange={(e) => setFlySpeed(Number(e.target.value))} style={{ width: 90 }} />
-                {flySpeed}
-              </span>
-              <button onClick={onStopFlyRecord} style={{ padding: '7px 16px', borderRadius: 8, background: '#fff', color: '#111', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>⏹ 停止并保存</button>
-            </div>
-          ) : null}
+          <button
+            onClick={() => viewportRef.current?.resetView()}
+            style={{ position: 'absolute', top: 16, right: 16, padding: '6px 12px', borderRadius: 8, background: 'rgba(22,24,29,0.9)', color: '#cdd3dc', border: '1px solid #2a2f3a', cursor: 'pointer', fontSize: 12, zIndex: 6 }}
+          >重置视角</button>
         </div>
         <div style={{ width: 320, borderLeft: '1px solid #1c1f26', overflowY: 'auto', background: '#151515' }}>
           {selectedCamera ? (
@@ -914,43 +624,21 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           ) : (
             <ScenePropertiesPanel
               scene={scene}
-              panoramaConnected={!!connectedPanoUrl}
+              panoramaConnected={!!(connectedPanoUrl || scene.skybox)}
               onPatch={(patch) => apply({ ...data, scene: { ...scene, ...patch } })}
             />
           )}
         </div>
       </div>
-      {/* 全局多镜头时间线（对齐参考视频底部时间线） */}
+      {/* LibTV 属性关键帧时间线。旧 shot/video 时间线不再参与运行。 */}
       {editorMode === 'timeline' ? <TimelinePanel
-        timeline={timeline}
-        cameras={(scene?.cameras ?? []).map((c) => ({ id: c.id, name: c.name, hasPath: (c.path?.waypoints?.length ?? 0) >= 2 }))}
+        cameras={(scene?.cameras ?? []).map((c) => ({ id: c.id, name: c.name }))}
         defaultCameraId={scene?.activeCameraId ?? scene?.cameras?.[0]?.id}
-        characters={(scene?.characters ?? []).filter((c) => c.motion || c.motionClip || (c.motionSequence?.length ?? 0) > 0).map((c) => {
-          const seqClip = c.motionSequence?.length ? concatMotionPresets(c.motionSequence) : null
-          return {
-            id: c.id,
-            name: c.name,
-            label: `${c.name} · ${c.motion?.locomotion?.clip === 'run' ? '跑步' : c.motion?.locomotion?.clip === 'walk' ? '走路' : (seqClip?.name || c.motionClip || '动作')}`,
-            durationSeconds: c.motion?.durationSeconds ?? seqClip?.durationSeconds ?? 4,
-          }
-        })}
+        characters={(scene?.characters ?? []).map((c) => ({ id: c.id, name: c.name }))}
         playhead={playhead}
         playing={playing}
-        speed={playSpeed}
-        selectedShotId={selectedShotId}
         onPlayToggle={onPlayToggle}
-        onReset={onResetPlayhead}
         onSeek={onSeek}
-        onSpeed={setPlaySpeed}
-        onAddShot={onAddShot}
-        onSelectShot={onSelectShot}
-        onPatchShot={onPatchShot}
-        onRemoveShot={onRemoveShot}
-        onMoveShot={onMoveShot}
-        onCaptureShot={onCaptureShot}
-        onComposeVideo={onComposeTimeline}
-        busy={busy}
-        thumbs={shotThumbs}
         propertyTimeline={propertyTimeline}
         onSetPropertyKeyframe={(objectKind, objectId, property) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: setKeyframe(dataRef.current.scene.propertyTimeline, dataRef.current.scene, objectKind, objectId, property, playRefs.current.playhead) } })}
         onRemovePropertyKeyframe={(objectId, property) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: removeKeyframe(dataRef.current.scene.propertyTimeline, objectId, property, playRefs.current.playhead) } })}
@@ -971,11 +659,6 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           if (!object) return
           apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: removeObjectTracks(dataRef.current.scene.propertyTimeline, object.id) } })
         }}
-        onPatchCharDuration={(id, sec) => {
-          const ch = dataRef.current.scene?.characters.find((c) => c.id === id)
-          if (ch?.motion) apply(patchCharacter(dataRef.current, id, { motion: { ...ch.motion, durationSeconds: sec } }))
-        }}
-        onRemoveChar={(id) => apply(patchCharacter(dataRef.current, id, { motion: undefined, motionClip: undefined, motionSequence: undefined }))}
         onSelectCharacter={(id) => apply(selectObject(dataRef.current, id))}
       /> : null}
       {/* 底部工具条 */}
@@ -993,11 +676,13 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         panoConnected={!!connectedPanoUrl}
         skyboxYaw={scene.skyboxYaw ?? 0}
         onSetSkyboxYaw={(deg) => apply(setSkyboxYaw(data, deg))}
+        onGeneratePanorama={onGeneratePanorama}
         onAddCamera={() => apply(addCamera(data, { id: uid('cam') }))}
         onSetAspect={(a) => apply(setAspect(data, a))}
         showThirds={showThirds}
         onToggleThirds={() => setShowThirds((v) => !v)}
         onCapture={onCapture}
+        onAiSceneImport={() => setAiImportOpen(true)}
         onDeleteSelected={selectedId ? () => apply(removeObject(data, selectedId)) : undefined}
         onUndo={onUndo}
         onRedo={onRedo}
@@ -1006,43 +691,16 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         editorMode={editorMode}
         onEditorModeChange={setEditorMode}
       />
+      {aiImportOpen ? <AiSceneImportDialog
+        busy={busy}
+        sourceUrl={aiImportSourceUrl}
+        onClose={() => setAiImportOpen(false)}
+        onUpload={onAiImportUpload}
+        onOpenHistory={() => window.dispatchEvent(new Event('tanva:open-global-history'))}
+        onGenerate={onGeneratePlacementReference}
+      /> : null}
       {/* 本节点的 capture 认领器：Modal 打开期间由它负责（离屏渲染机位 POV/样片），全局 runner 让位 */}
       <DirectorCaptureRunner nodes={scopedRunnerNodes} onlyNodeId={nodeId} />
-      {/* 长片拆分确认对话框：合成时总长超出单段上限弹出，对话内补充每段时长 → 确认拆分 / 输出整段 */}
-      {splitPrompt ? (() => {
-        const seg = Math.max(1, Math.min(SEGMENT_LIMIT, splitSeconds))
-        const segCount = Math.max(1, Math.ceil(splitPrompt.totalSec / seg))
-        const segDur = splitPrompt.totalSec / segCount
-        return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 4300, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onClick={() => setSplitPrompt(null)}>
-            <div onClick={(e) => e.stopPropagation()}
-              style={{ width: 420, background: '#16181d', border: '1px solid #2a2f3a', borderRadius: 12, padding: 20, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#e5e7eb', marginBottom: 8 }}>当前视频超出 15s，是否拆分？</div>
-              <div style={{ fontSize: 12.5, color: '#9ca3af', lineHeight: 1.7, marginBottom: 14 }}>
-                时间线总长 <b style={{ color: '#cdd3dc' }}>{splitPrompt.totalSec.toFixed(1)}s</b>，超过单段出片上限 {SEGMENT_LIMIT}s。
-                拆分将均分成等时长片段，竖向排布、按序连接。
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <span style={{ fontSize: 12, color: '#cdd3dc' }}>每段时长</span>
-                <input type="number" min={1} max={SEGMENT_LIMIT} step={1} value={splitSeconds}
-                  onChange={(e) => setSplitSeconds(Math.max(1, Math.min(SEGMENT_LIMIT, Math.round(Number(e.target.value) || SEGMENT_LIMIT))))}
-                  style={{ width: 64, background: '#0d0f13', color: '#e5e7eb', border: '1px solid #2a2f3a', borderRadius: 6, fontSize: 13, padding: '4px 6px' }} />
-                <span style={{ fontSize: 12, color: '#6b7280' }}>s（最多 {SEGMENT_LIMIT}s）</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#86efac' }}>→ {segCount} 段 × {segDur.toFixed(1)}s</span>
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button onClick={() => setSplitPrompt(null)}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #2a2f3a', background: '#1a1d24', color: '#9ca3af', cursor: 'pointer', fontSize: 12.5 }}>取消</button>
-                <button onClick={() => { setSplitPrompt(null); runComposeTimeline() }}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #2a2f3a', background: '#1a1d24', color: '#cdd3dc', cursor: 'pointer', fontSize: 12.5 }}>输出整段</button>
-                <button onClick={() => { setSplitPrompt(null); runComposeTimeline(seg) }}
-                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>确认拆分</button>
-              </div>
-            </div>
-          </div>
-        )
-      })() : null}
       {/* 导演台内吐司：固定底部居中、在导演台之上（不被画布盖住） */}
       {modalToast ? (
         <div style={{ position: 'fixed', left: '50%', bottom: 88, transform: 'translateX(-50%)', zIndex: 4200,

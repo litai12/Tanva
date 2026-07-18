@@ -7,6 +7,7 @@ import { createDefaultDirectorConsoleData } from '@/components/flow/nodes/direct
 import { Button } from '@/components/ui/button'
 import { samplePropertyTimeline, setKeyframe } from '@/components/flow/nodes/directorConsole/state/propertyTimeline'
 import { dataUrlToBlob, uploadCanvasImageBlob } from '@/components/flow/nodes/directorConsole/uploadCanvasImageBlob'
+import { AiSceneImportDialog } from '@/components/flow/nodes/directorConsole/panels/AiSceneImportDialog'
 
 function initial(): DirectorConsoleData {
   let d = createDefaultDirectorConsoleData()
@@ -20,6 +21,7 @@ export default function DirectorHarnessPage() {
   const ref = React.useRef<ViewportHandle | null>(null)
   const [shot, setShot] = React.useState<string>('')
   const [hostedShot, setHostedShot] = React.useState<string>('')
+  const [aiImportOpen, setAiImportOpen] = React.useState(false)
   const [log, setLog] = React.useState<string>('ready')
   const [timelineTime, setTimelineTime] = React.useState(0)
   const selectedCharacterId = React.useMemo(() => {
@@ -116,6 +118,7 @@ export default function DirectorHarnessPage() {
           </label>
           <Button onClick={capture}>截图</Button>
           <Button onClick={() => void uploadShot()} disabled={!shot}>上传截图为远程图片</Button>
+          <Button onClick={() => setAiImportOpen(true)}>打开 AI 识图导入</Button>
           <div className="text-xs text-slate-400">状态：{log}</div>
           <div className="text-xs text-slate-400">
             机位数 {data.scene.cameras.length} / 角色数 {data.scene.characters.length} / 选中 {data.selectedObjectId || '无'}
@@ -127,6 +130,7 @@ export default function DirectorHarnessPage() {
           {hostedShot ? <a href={hostedShot} target="_blank" rel="noreferrer" className="text-xs text-blue-300 break-all">远程截图：{hostedShot}</a> : null}
         </div>
       </div>
+      {aiImportOpen ? <AiSceneImportDialog busy={false} sourceUrl={hostedShot || undefined} onClose={() => setAiImportOpen(false)} onUpload={async () => setLog('harness upload selected')} onOpenHistory={() => setLog('harness history opened')} onGenerate={async (mode) => setLog(`harness generate ${mode}`)} /> : null}
     </div>
   )
 }

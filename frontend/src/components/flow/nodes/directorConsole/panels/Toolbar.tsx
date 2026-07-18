@@ -20,11 +20,13 @@ type Props = {
   panoConnected: boolean
   skyboxYaw: number
   onSetSkyboxYaw: (deg: number) => void
+  onGeneratePanorama: (prompt: string) => Promise<void>
   onAddCamera: () => void
   onSetAspect: (a: AspectKey) => void
   showThirds: boolean
   onToggleThirds: () => void
   onCapture: () => void
+  onAiSceneImport: () => void
   onDeleteSelected?: () => void
   onUndo: () => void
   onRedo: () => void
@@ -57,10 +59,21 @@ function Pop({ icon, title, children }: { icon: React.ReactNode; title: string; 
   )
 }
 
-export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
+function PanoramaAiForm({ busy, onGenerate, close }: { busy: boolean; onGenerate: (prompt: string) => Promise<void>; close: () => void }) {
+  const [prompt, setPrompt] = React.useState('')
+  return <div style={{ width: 260, padding: 6 }}>
+    <div style={{ color: '#e5e5e5', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>AI 生成全景图</div>
+    <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述需要的 360° 场景环境" rows={4} style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box', border: '1px solid #3a3a3a', borderRadius: 7, background: '#202020', color: '#eee', padding: 8, fontSize: 12 }} />
+    <div style={{ color: '#737373', fontSize: 10.5, lineHeight: 1.5, margin: '7px 0' }}>生成 2:1 等距柱状全景图，完成后自动设为当前导演台背景。</div>
+    <button disabled={busy || !prompt.trim()} onClick={() => void onGenerate(prompt.trim()).then(close)} style={{ width: '100%', height: 32, border: 0, borderRadius: 7, background: '#f5f5f5', color: '#111', opacity: busy || !prompt.trim() ? 0.5 : 1, cursor: busy || !prompt.trim() ? 'default' : 'pointer', fontSize: 12 }}>{busy ? '生成中…' : '生成全景图'}</button>
+  </div>
+}
+
+export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onGeneratePanorama, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onAiSceneImport, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null)
   const gaussianRef = React.useRef<HTMLInputElement>(null)
   const skyRef = React.useRef<HTMLInputElement>(null)
+  const [panoramaAiOpen, setPanoramaAiOpen] = React.useState(false)
   return (
     <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 12px', pointerEvents: 'none' }}>
       <input ref={fileRef} type="file" accept=".glb,.gltf,model/gltf-binary" style={{ display: 'none' }}
@@ -94,14 +107,14 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
         </Pop>
         <Pop icon={<IconPhoto size={20} />} title="全景背景">
           {(close) => (
-            <div style={{ minWidth: 230 }}>
+            panoramaAiOpen ? <PanoramaAiForm busy={busy} onGenerate={onGeneratePanorama} close={() => { setPanoramaAiOpen(false); close() }} /> : <div style={{ minWidth: 230 }}>
               <div style={{ fontSize: 12, padding: '6px 10px', color: panoConnected ? '#7fd18b' : '#8b93a1', lineHeight: 1.5 }}>
                 {panoConnected ? '✓ 已连接全景图（来自连入的图片节点）' : '把图片节点连到导演台左侧输入口即可作为全景背景'}
               </div>
               <div style={sep} />
               <button style={item} onClick={() => { skyRef.current?.click(); close() }}>本地上传</button>
-              <button style={item}>历史</button>
-              <button style={item}>AI 生成</button>
+              <button style={item} onClick={() => { window.dispatchEvent(new Event('tanva:open-global-history')); close() }}>历史记录</button>
+              <button style={item} onClick={() => setPanoramaAiOpen(true)}>AI生成</button>
               {hasSkybox ? <button style={{ ...item, color: '#d98080' }} onClick={() => { onSetSkybox(null); close() }}>清除上传的全景图</button> : null}
               {(hasSkybox || panoConnected) ? (
                 <>
@@ -129,7 +142,7 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
           )}
         </Pop>
         <button style={{ ...btn, opacity: busy ? 0.5 : 1 }} title="截图" disabled={busy} onClick={onCapture}><IconCamera size={20} /></button>
-        <button style={btn} title="AI 图片识别导入"><IconScan size={20} /></button>
+        <button style={btn} title="AI 图片识别导入" onClick={onAiSceneImport}><IconScan size={20} /></button>
         <button style={btn} title="全屏" onClick={() => { const root = document.querySelector('[data-testid=director-console-modal]') as HTMLElement | null; if (!document.fullscreenElement) void root?.requestFullscreen?.(); else void document.exitFullscreen?.() }}><IconMaximize size={20} /></button>
         <div style={{ width: 1, height: 24, background: '#525252', margin: '0 4px' }} />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, padding: 2, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }}>

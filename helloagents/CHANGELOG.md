@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-07-18：微信/支付宝扫码支付有效期统一为 30 分钟，前端按服务端 `expiredAt` 倒计时并在到期后隐藏旧码；自动对账扩大到最近 72 小时内全部 `pending/expired/cancelled/failed` 订单并提升为每 5 分钟执行，订单列表也会主动补查，修复刷新旧码后晚付款可能不入账的问题。
+- 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
+- 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
+
 All notable changes to this knowledge base will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
@@ -20,6 +24,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow/3D Director Toolbar：底栏收敛到 LibTV 顺序的移动、添加角色、全景、添加机位、画幅、截图、AI 图片识别导入、全屏、场景编辑/动画时间轴；移除可见的撤销/重做、独立旋转/缩放、九宫格、删除选中和自定义群演阵列表单。BrowserSkill 已在真实本地项目中验证打开导演台无白屏、20 个姿势与属性轨道文本可见，且旧“添加镜头/合成视频/灰模”文本不再出现。
 - Flow/3D Director Objects：添加角色菜单中的“空对象”改为真正无网格对象，不再伪装成平面；几何模型补齐圆环和棱锥并按 LibTV 隐藏旧平面入口。高斯泼溅使用独立 `.splat` 文件选择、远程上传和 Drei Splat 渲染链路。
 - Flow/3D Director Uploads：本地 GLB/GLTF 与全景图不再把短命 `blob:` object URL 写入导演台 scene；模型先上传 `director-models/`、全景先上传 `director-shots/` 后才以远程 URL 添加对象/背景，高斯文件同样先上传 `director-gaussians/`，刷新和保存后资源引用可继续解析。
+- Flow/3D Director Output：截图发送现在校验上传结果必须是可持久化远程引用，并要求每张截图都实际返回新建 Flow 图片节点 ID；监听器缺失、节点创建超时或批量数量不一致时明确失败，不再错误提示“发送成功”，发送期间会锁定按钮防止重复节点。
+- Flow/3D Director Runtime：修复导演台模态打开时 Delete/Backspace 事件穿透到底层 Flow 画布、同时删除选中机位和导演台节点的问题；对象快捷键现在在捕获阶段独占事件。真实浏览器验证已证明截图产生约 45KB JPEG dataURL、上传为可 HTTP 200 访问的 TOS 远程 JPEG，并在 Flow 中创建 `image` 节点及 Director→Image 边。
+- Flow/3D Director Environment：补齐 LibTV `3D场景` 环境控制器的真实访问和地面渲染语义：点击视口空白会取消对象选择并显示场景面板；地面开关控制半透明地面板与网格，透明度/高度进入 WebGL 和摄像机截图；网格不再被截图辅助物过滤；角色/机位 gizmo 松手时在启用网格吸附后按 0.5 场景单位吸附 X/Z。BrowserSkill 在线确认 LibTV 默认角色标签=true、网格吸附=false、高斯地面吸附=true、地面=true，Tanva 默认值已同步。
+- Flow/3D Director Panorama：全景“历史记录”不再是空按钮，现通过跨组件事件打开现有全局历史面板；“AI生成”提供真实 prompt 表单，调用后端生成严格 2:1 无缝等距全景，非远程结果先上传再写 `scene.skybox`，成功后自动应用。新增完整 LibTV Director 功能矩阵 `helloagents/wiki/director-console-libtv-parity.md`，明确所有已完成、近似和缺失项。
+- Flow/3D Director AI Import：`AI 识图导入` 不再是空按钮，新增与 LibTV 同结构的本地上传/历史、拖拽区、插入/覆盖和生成站位参考弹窗。来源图片先上传远程并创建 Flow image 节点，图片 `img` 会替换连接 Director `target`；站位参考使用参考生图生成、必要时上传远程、创建新图片节点，并以可编辑的 `站位参考层` 3D 图片平面插入场景。覆盖模式会清理当前全景/角色/机位后恢复默认机位并加入参考层。
 - new-api/ToAPIs 补齐文档索引中的 30 个视频生成 model IDs，修复 flat `generation.task` 提交响应、视频专用轮询路径和状态/结果解析，并登记 Kling v3 Omni 的 Omni 引用及音视频互斥约束。
 - Flow 视频通道现在按已部署网关能力选择正确入口与令牌：普通经 new-api `/v1/videos` 使用 `NEW_API_KEY`，尊享经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。
 - Flow Vidu 节点恢复可操作的普通/尊享通道按钮，并在 Q2/Q3 切换时同步托管模型键；后端会纠正历史节点中 Vidu 家族与 `managedModelKey` 不一致的请求，避免 VIP 渠道误查 Q2 或计费串台。

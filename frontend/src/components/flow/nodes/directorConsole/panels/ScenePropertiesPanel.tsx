@@ -49,7 +49,7 @@ export function ScenePropertiesPanel({ scene, panoramaConnected, onPatch }: Prop
       </Section>
       <Toggle label="角色标签" checked={scene.showCharacterLabels ?? true} onChange={(value) => onPatch({ showCharacterLabels: value })} />
       <Toggle label="网格吸附" checked={scene.gridSnap ?? false} onChange={(value) => onPatch({ gridSnap: value })} />
-      <Toggle label="高斯地面吸附" checked={scene.gaussianGroundSnap ?? false} onChange={(value) => onPatch({ gaussianGroundSnap: value })} />
+      <Toggle label="高斯地面吸附" checked={scene.gaussianGroundSnap ?? true} onChange={(value) => onPatch({ gaussianGroundSnap: value })} />
       <Toggle label="地面" checked={scene.groundVisible ?? true} onChange={(value) => onPatch({ groundVisible: value })} />
       <Section title="透明度"><SliderField value={scene.groundOpacity ?? 0.4} min={0} max={1} step={0.01} onChange={(value) => onPatch({ groundOpacity: value })} /></Section>
       <Section title="高度"><SliderField value={scene.groundHeight ?? 0} min={-10} max={10} step={0.1} onChange={(value) => onPatch({ groundHeight: value })} /></Section>
