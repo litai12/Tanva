@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Integration
+- Flow/3D Director Console：按 Liblib 当前导演工作区对齐编辑态信息架构。顶部恢复导演/机位视角切换并加入帮助入口；底部工具条改为悬浮深色胶囊，场景编辑与动画时间轴改为互斥模式；移除右侧重复 POV 预览，新建导演台默认包含机位1与角色A，旧 scene/timeline 数据继续原样兼容。
 - new-api/ToAPIs 补齐文档索引中的 30 个视频生成 model IDs，修复 flat `generation.task` 提交响应、视频专用轮询路径和状态/结果解析，并登记 Kling v3 Omni 的 Omni 引用及音视频互斥约束。
 - Flow 视频通道现在按已部署网关能力选择正确入口与令牌：普通经 new-api `/v1/videos` 使用 `NEW_API_KEY`，尊享经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。
 - Flow Vidu 节点恢复可操作的普通/尊享通道按钮，并在 Q2/Q3 切换时同步托管模型键；后端会纠正历史节点中 Vidu 家族与 `managedModelKey` 不一致的请求，避免 VIP 渠道误查 Q2 或计费串台。

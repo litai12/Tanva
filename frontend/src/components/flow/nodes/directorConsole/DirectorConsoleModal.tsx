@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { IconX } from '@tabler/icons-react'
+import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from 'reactflow'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
@@ -17,6 +17,7 @@ import { aspectFrameRect } from './state/aspect'
 import { AspectFrameOverlay } from './panels/AspectFrameOverlay'
 import { Viewport, type ViewportHandle, type GizmoMode, type ClipFrame } from './scene/Viewport'
 import { SceneTreePanel } from './panels/SceneTreePanel'
+import { ScenePropertiesPanel } from './panels/ScenePropertiesPanel'
 import { CharacterPropertiesPanel } from './panels/CharacterPropertiesPanel'
 import { CameraPropertiesPanel, type ClipSettings } from './panels/CameraPropertiesPanel'
 import { Toolbar } from './panels/Toolbar'
@@ -97,8 +98,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const [playing, setPlaying] = React.useState(false)
   const [playSpeed, setPlaySpeed] = React.useState(1)
   const [selectedShotId, setSelectedShotId] = React.useState<string | undefined>(undefined)
-  // 「当前镜头机位」POV 小窗（对齐参考视频右上预览）；默认开，性能吃紧可关
-  const [showPov, setShowPov] = React.useState(true)
+  // 对齐导演工作区：场景编辑与动画时间轴是互斥工作模式，时间轴不再永久占据视口高度。
+  const [editorMode, setEditorMode] = React.useState<'scene' | 'timeline'>('scene')
   // 时间轴镜头片段缩略图胶片条（每镜头沿时长 ~每秒一帧，看相机运动）；scene 变更后防抖重渲
   const [shotThumbs, setShotThumbs] = React.useState<Record<string, string[]>>({})
   // 接管本节点的 capture 认领：打开导演台时由 Modal 内挂的 scoped runner 负责（鲜活、不会被全局 runner 的 busyRef 卡死），
@@ -742,14 +743,25 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   if (!scene) return null
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#0a0b0d', display: 'flex', flexDirection: 'column', color: '#e5e7eb' }}>
+    <div data-testid="director-console-modal" style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#111', display: 'flex', flexDirection: 'column', color: '#e5e7eb' }}>
       {/* 顶部栏 */}
-      <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid #1c1f26' }}>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>3D导演台</div>
-        {/* 机位视角已由右侧「当前镜头机位」实时预览窗替代，顶栏不再需要视角切换 */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#5b6470' }} title="3D 素体模型许可证">素体 © Adobe Mixamo（X Bot）</span>
-          <IconX size={20} color="#9ca3af" style={{ cursor: 'pointer' }} onClick={onClose} />
+      <div style={{ height: 48, flex: '0 0 48px', display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(17,17,17,0.96)', backdropFilter: 'blur(12px)' }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#f7f7f7' }}>3D导演台</div>
+        <div role="group" aria-label="视角切换" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 3, borderRadius: 10, background: 'rgba(255,255,255,0.06)' }}>
+          <button type="button" onClick={() => apply(setViewpoint(data, 'director'))}
+            style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, color: data.activeViewpoint === 'director' ? '#fff' : '#9ca3af', background: data.activeViewpoint === 'director' ? '#2b2b2b' : 'transparent', boxShadow: data.activeViewpoint === 'director' ? '0 2px 8px rgba(0,0,0,.28)' : 'none' }}>
+            导演视角
+          </button>
+          <button type="button" onClick={() => apply(setViewpoint(data, 'camera'))}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, color: data.activeViewpoint === 'camera' ? '#fff' : '#9ca3af', background: data.activeViewpoint === 'camera' ? '#2b2b2b' : 'transparent', boxShadow: data.activeViewpoint === 'camera' ? '0 2px 8px rgba(0,0,0,.28)' : 'none' }}>
+            <IconVideo size={14} />机位视角
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'flex-end' }}>
+          <button type="button" title="帮助" aria-label="帮助" onClick={() => showToast('选择角色或机位后，在右侧编辑属性；使用底部工具条添加对象、截图或切换动画时间轴。')}
+            style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'grid', placeItems: 'center' }}><IconHelpCircle size={18} /></button>
+          <button type="button" title="关闭" aria-label="关闭" onClick={onClose}
+            style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'grid', placeItems: 'center' }}><IconX size={20} /></button>
         </div>
       </div>
       {/* 主体三栏 */}
@@ -775,7 +787,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           <Viewport
             ref={viewportRef}
             scene={scene}
-            viewpoint="director"
+            viewpoint={data.activeViewpoint}
             selectedId={selectedId}
             gizmoMode={gizmoMode}
             skyboxUrl={connectedPanoUrl ?? scene.skybox}
@@ -832,37 +844,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             </div>
           ) : null}
         </div>
-        <div style={{ width: 320, borderLeft: '1px solid #1c1f26', overflowY: 'auto' }}>
-          {/* 「当前镜头机位」POV 实时预览（对齐参考视频）：复用 Viewport 机位视角 + 与播放头同步 */}
-          <div style={{ borderBottom: '1px solid #1c1f26', padding: '8px 10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600 }}>当前镜头机位{playing ? ' · 播放中' : ''}</span>
-              <button onClick={() => setShowPov((v) => !v)} title={showPov ? '隐藏预览（省性能）' : '显示预览'}
-                style={{ padding: '2px 8px', borderRadius: 6, border: '1px solid #2a2f3a', background: '#16181d', color: '#8b93a1', cursor: 'pointer', fontSize: 11 }}>
-                {showPov ? '隐藏' : '显示'}
-              </button>
-            </div>
-            {showPov ? (
-              (scene?.cameras?.length ?? 0) > 0 ? (
-                <div style={{ position: 'relative', width: '100%', height: 168, borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid #2a2f3a' }}>
-                  <Viewport
-                    scene={scene}
-                    viewpoint="camera"
-                    skyboxUrl={connectedPanoUrl ?? scene.skybox}
-                    previewAnim={timelineClip ?? previewAnim}
-                    previewTime={timelinePreviewTime}
-                    motionPreview={motionPreviewObj}
-                    motionDriveTime={motionDriveTime}
-                    onSelect={() => {}}
-                    onPatchCharacter={() => {}}
-                    onPatchCamera={() => {}}
-                  />
-                </div>
-              ) : (
-                <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: 12, border: '1px dashed #2a2f3a', borderRadius: 8 }}>放一个机位后这里实时预览</div>
-              )
-            ) : null}
-          </div>
+        <div style={{ width: 320, borderLeft: '1px solid #1c1f26', overflowY: 'auto', background: '#151515' }}>
           {selectedCamera ? (
             <CameraPropertiesPanel
               camera={selectedCamera}
@@ -926,12 +908,16 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               }}
             />
           ) : (
-            <div style={{ padding: 16, color: '#6b7280', fontSize: 13 }}>选中机位或角色以编辑属性</div>
+            <ScenePropertiesPanel
+              scene={scene}
+              panoramaConnected={!!connectedPanoUrl}
+              onPatch={(patch) => apply({ ...data, scene: { ...scene, ...patch } })}
+            />
           )}
         </div>
       </div>
       {/* 全局多镜头时间线（对齐参考视频底部时间线） */}
-      <TimelinePanel
+      {editorMode === 'timeline' ? <TimelinePanel
         timeline={timeline}
         cameras={(scene?.cameras ?? []).map((c) => ({ id: c.id, name: c.name, hasPath: (c.path?.waypoints?.length ?? 0) >= 2 }))}
         defaultCameraId={scene?.activeCameraId ?? scene?.cameras?.[0]?.id}
@@ -967,7 +953,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         }}
         onRemoveChar={(id) => apply(patchCharacter(dataRef.current, id, { motion: undefined, motionClip: undefined, motionSequence: undefined }))}
         onSelectCharacter={(id) => apply(selectObject(dataRef.current, id))}
-      />
+      /> : null}
       {/* 底部工具条 */}
       <Toolbar
         busy={busy}
@@ -992,6 +978,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         onRedo={onRedo}
         canUndo={histCounts.undo > 0}
         canRedo={histCounts.redo > 0}
+        editorMode={editorMode}
+        onEditorModeChange={setEditorMode}
       />
       {/* 本节点的 capture 认领器：Modal 打开期间由它负责（离屏渲染机位 POV/样片），全局 runner 让位 */}
       <DirectorCaptureRunner nodes={scopedRunnerNodes} onlyNodeId={nodeId} />

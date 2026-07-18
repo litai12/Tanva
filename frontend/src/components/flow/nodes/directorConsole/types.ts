@@ -83,6 +83,18 @@ export type DirectorScene = {
   skybox?: string
   /** 全景背景水平旋转(度, 0..360)：转动背景取景而不动机位；~2:1 走 equirect offset，非 2:1 转 backdrop 穹顶 */
   skyboxYaw?: number
+  /** LibTV 导演台的全局场景设置。旧节点缺失时按面板默认值解释。 */
+  sceneScale?: number
+  scenePosition?: Vec3
+  sceneRotation?: Vec3
+  skyColor?: string
+  skyRadius?: number
+  showCharacterLabels?: boolean
+  gridSnap?: boolean
+  gaussianGroundSnap?: boolean
+  groundVisible?: boolean
+  groundOpacity?: number
+  groundHeight?: number
   /** 自定义动作库（小T 生成 / 人工保存），character.motionClip 可引用其 id；与内置 clip 并存 */
   customMotions?: PoseClip[]
   /** 全局多镜头时间线（动画化 blocking 的编排层）；缺省视为空时间线。定义见 state/timeline.ts */
@@ -104,8 +116,41 @@ export function createDefaultDirectorConsoleData(_legacyPanoramaUrl?: string): D
   return {
     kind: 'directorConsole',
     label: '导演台',
-    scene: { characters: [], cameras: [], aspect: 'auto' },
+    scene: {
+      characters: [{
+        id: 'default-character-1',
+        name: '角色A',
+        modelId: 'male',
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        uniformScale: 1,
+        colorHex: '#4B8BFF',
+      }],
+      cameras: [{
+        id: 'default-camera-1',
+        name: '机位1',
+        position: [0, 2.2, 10],
+        lookAtMode: 'manual',
+        lookAt: [0, 1.2, 0],
+        fovDeg: 50,
+      }],
+      activeCameraId: 'default-camera-1',
+      aspect: 'auto',
+      sceneScale: 3,
+      scenePosition: [0, 0, 0],
+      sceneRotation: [0, 0, 0],
+      skyColor: '#060608',
+      skyRadius: 60,
+      showCharacterLabels: true,
+      gridSnap: false,
+      gaussianGroundSnap: false,
+      groundVisible: true,
+      groundOpacity: 0.4,
+      groundHeight: 0,
+    },
     activeViewpoint: 'director',
+    selectedObjectId: 'default-character-1',
     status: 'idle',
   }
 }

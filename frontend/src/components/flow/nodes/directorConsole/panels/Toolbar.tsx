@@ -1,5 +1,5 @@
 import React from 'react'
-import { IconUserPlus, IconVideoPlus, IconAspectRatio, IconCamera, IconTrash, IconArrowsMove, IconRotate, IconResize, IconPhoto, IconUsers, IconArrowBackUp, IconArrowForwardUp, IconGrid3x3 } from '@tabler/icons-react'
+import { IconUserPlus, IconVideoPlus, IconAspectRatio, IconCamera, IconTrash, IconArrowsMove, IconRotate, IconResize, IconPhoto, IconUsers, IconArrowBackUp, IconArrowForwardUp, IconGrid3x3, IconPointer, IconClock } from '@tabler/icons-react'
 import type { AspectKey } from '../types'
 import { BODY_TYPES, FURNITURE_TYPES, PROP_TYPES } from '../assets'
 import type { CrowdInput } from '../state/crowd'
@@ -29,6 +29,8 @@ type Props = {
   onRedo: () => void
   canUndo: boolean
   canRedo: boolean
+  editorMode: 'scene' | 'timeline'
+  onEditorModeChange: (mode: 'scene' | 'timeline') => void
 }
 
 const ASPECTS: AspectKey[] = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
@@ -92,16 +94,16 @@ function CrowdForm({ onAdd, close }: { onAdd: (input: CrowdInput) => void; close
   )
 }
 
-export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onDeleteSelected, onUndo, onRedo, canUndo, canRedo }: Props) {
+export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null)
   const skyRef = React.useRef<HTMLInputElement>(null)
   return (
-    <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderTop: '1px solid #1c1f26' }}>
+    <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 12px', pointerEvents: 'none' }}>
       <input ref={fileRef} type="file" accept=".glb,.gltf,model/gltf-binary" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadModel(f); e.currentTarget.value = '' }} />
       <input ref={skyRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSetSkybox(f); e.currentTarget.value = '' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#101216', borderRadius: 14, padding: 6, border: '1px solid #1c1f26' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(30,30,30,0.94)', borderRadius: 16, padding: 8, border: '0.5px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 10px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
         {/* 撤销/重做（Cmd/Ctrl+Z · Shift+Cmd/Ctrl+Z） */}
         <button style={canUndo ? btn : btnDisabled} title="撤销 (Cmd/Ctrl+Z)" disabled={!canUndo} onClick={onUndo}><IconArrowBackUp size={20} /></button>
         <button style={canRedo ? btn : btnDisabled} title="重做 (Shift+Cmd/Ctrl+Z)" disabled={!canRedo} onClick={onRedo}><IconArrowForwardUp size={20} /></button>
@@ -174,6 +176,25 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
         {onDeleteSelected ? (
           <button style={{ ...btn, color: '#d98080' }} title="删除选中" onClick={onDeleteSelected}><IconTrash size={20} /></button>
         ) : null}
+        <div style={{ width: 1, height: 24, background: '#525252', margin: '0 4px' }} />
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, padding: 2, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }}>
+          <button
+            type="button"
+            aria-label="场景编辑"
+            aria-pressed={editorMode === 'scene'}
+            title="场景编辑"
+            onClick={() => onEditorModeChange('scene')}
+            style={{ ...btn, width: 32, height: 32, padding: 6, justifyContent: 'center', background: editorMode === 'scene' ? '#141414' : 'transparent', boxShadow: editorMode === 'scene' ? '0 4px 10px rgba(0,0,0,0.2)' : 'none' }}
+          ><IconPointer size={17} /></button>
+          <button
+            type="button"
+            aria-label="动画时间轴"
+            aria-pressed={editorMode === 'timeline'}
+            title="动画时间轴"
+            onClick={() => onEditorModeChange('timeline')}
+            style={{ ...btn, width: 32, height: 32, padding: 6, justifyContent: 'center', background: editorMode === 'timeline' ? '#141414' : 'transparent', boxShadow: editorMode === 'timeline' ? '0 4px 10px rgba(0,0,0,0.2)' : 'none' }}
+          ><IconClock size={17} /></button>
+        </div>
       </div>
     </div>
   )

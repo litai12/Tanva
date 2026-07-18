@@ -64,7 +64,7 @@ export function SceneTreePanel({ scene, selectedId, onSelect, onToggleHidden, on
     <div>
       <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>场景</div>
       <div style={{ padding: '0 16px 8px' }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="请输入搜索内容"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索场景对象" aria-label="搜索场景对象"
           style={{ width: '100%', background: '#1c1f26', border: '1px solid #2a2f3a', borderRadius: 8, color: '#e5e7eb', padding: '7px 10px', fontSize: 13, boxSizing: 'border-box' }} />
       </div>
       <div>

@@ -10,7 +10,7 @@ export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleData>
   return (
     <div style={{ width: 320, background: '#16181d', borderRadius: 12, border: '1px solid #262a33', overflow: 'hidden' }}>
       <Handle
-        id="in-image"
+        id="target"
         className="tc-handle"
         type="target"
         position={Position.Left}
@@ -20,7 +20,7 @@ export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleData>
         aria-label="输入：全景背景图"
       />
       <Handle
-        id="out-image"
+        id="source"
         className="tc-handle"
         type="source"
         position={Position.Right}

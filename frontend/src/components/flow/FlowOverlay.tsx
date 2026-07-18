@@ -2346,7 +2346,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   volcEnhanceVideo: ["video"],
   videoFrameExtract: ["images", "image", "images-range"],
   videoCompose: ["video"],
-  directorConsole: ["out-image"],
+  directorConsole: ["source"],
   audioUpload: ["audio"],
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
@@ -2401,7 +2401,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
   videoCompose: ["video", "audio"],
-  directorConsole: ["in-image"],
+  directorConsole: ["target"],
   audioUpload: ["audio"],
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
@@ -12304,7 +12304,7 @@ function FlowInner() {
 
       if (targetNode.type === "directorConsole") {
         // 全景背景图输入：接受任意图片源
-        if (targetHandle === "in-image") {
+        if (targetHandle === "target") {
           return isImageSource(sourceNode, sourceHandle);
         }
         return false;
