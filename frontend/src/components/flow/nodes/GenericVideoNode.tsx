@@ -13,7 +13,7 @@ function getStableVideoTimestamp(url: string, version: number): number {
   }
   return ts;
 }
-import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "reactflow";
+import { Handle, Position, useReactFlow, useStore, useUpdateNodeInternals } from "@xyflow/react";
 import { AlertTriangle, Video, Share2, Download, HelpCircle, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";

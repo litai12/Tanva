@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useStore } from "reactflow";
+import { Handle, Position, useStore } from "@xyflow/react";
 import { Video, Download, Share2, AlertTriangle, Square } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";

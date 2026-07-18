@@ -24,7 +24,7 @@ import {
   fetchTemplates,
 } from "@/services/publicTemplateService";
 import { useTranslation } from "react-i18next";
-// import { useReactFlow } from 'reactflow'; // 暂时注释，因为FloatingHeader不在ReactFlow上下文中
+// import { useReactFlow } from '@xyflow/react'; // 暂时注释，因为FloatingHeader不在ReactFlow上下文中
 
 type LocaleTextGetter = (zh: string, en: string) => string;
 

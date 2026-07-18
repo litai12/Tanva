@@ -10,7 +10,8 @@ import {
   clearPaperEraserTrails,
 } from "@/utils/paperEraserTrail";
 import paper from "paper";
-import ReactFlow, {
+import {
+  ReactFlow,
   MiniMap,
   Background,
   BackgroundVariant,
@@ -25,12 +26,12 @@ import ReactFlow, {
   EdgeLabelRenderer,
   getBezierPath,
   type EdgeProps,
-} from "reactflow";
-import { ReactFlowProvider } from "reactflow";
+} from "@xyflow/react";
+import { ReactFlowProvider } from "@xyflow/react";
 import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/stores";
 import { useToolStore } from "@/stores";
-import "reactflow/dist/style.css";
+import "@xyflow/react/dist/style.css";
 import "./flow.css";
 import type {
   FlowTemplate,
@@ -1098,7 +1099,7 @@ const rawNodeTypes = {
 };
 
 // nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
-// "幽灵节点"——这些 type 不在注册表里，reactflow 会回退成内置默认节点(一个空白小方框，
+// "幽灵节点"——这些 type 不在注册表里，@xyflow/react 会回退成内置默认节点(一个空白小方框，
 // 即用户看到的"未知节点")。协作局部补丁/历史脏数据是其来源。
 const NODE_TYPE_KEYS = new Set(Object.keys(rawNodeTypes));
 
@@ -7246,7 +7247,7 @@ function FlowInner() {
 
   const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
     // 水合时丢弃历史脏数据里无法渲染(无 type/"default"/未知 type)的"幽灵节点"，
-    // 否则它们会以 reactflow 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
+    // 否则它们会以 @xyflow/react 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
     // 且每次刷新都复现。来源为旧版协作局部补丁误建后被持久化。
     const before = ns.length;
     ns = ns.filter((n: any) => isRenderableFlowNodeType(n?.type));

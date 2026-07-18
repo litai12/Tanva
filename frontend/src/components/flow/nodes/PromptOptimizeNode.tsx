@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow } from '@xyflow/react';
 import { Check } from 'lucide-react';
 // no Button/Textarea components needed here
 import { LoadingSpinner } from '@/components/ui/loading-spinner';

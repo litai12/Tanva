@@ -1,4 +1,4 @@
-import type { Node, Edge } from 'reactflow';
+import type { Node, Edge } from '@xyflow/react';
 
 export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit' | 'imageSplit' | 'imageCompress' | 'audioUpload' | 'minimaxSpeech' | 'tencentSpeech' | 'minimaxMusic' | 'audioStudio';
 

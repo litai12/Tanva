@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from 'react'
-import type { Node } from 'reactflow'
+import type { Node } from '@xyflow/react'
 import { fetchWithAuth } from '@/services/authFetch'
 import { Viewport, type ViewportHandle, type ClipFrame } from './scene/Viewport'
 import { aspectRatio } from './state/aspect'

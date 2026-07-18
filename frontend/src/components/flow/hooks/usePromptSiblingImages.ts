@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStore, type ReactFlowState, type Node as FlowNode } from 'reactflow';
+import { useStore, type ReactFlowState, type Node as FlowNode } from '@xyflow/react';
 
 export type SiblingImage = {
   index: number;   // 1-based: @图1 = index 1
@@ -118,7 +118,7 @@ export function usePromptSiblingImages(nodeId: string): SiblingImage[] {
         const hasNodeLookup = nodeLookup && typeof nodeLookup.get === 'function';
         const fallbackNodes = hasNodeLookup
           ? null
-          : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes || state.getNodes());
+          : (state as ReactFlowState & { nodes?: FlowNode[] }).nodes;
         const fallbackById = fallbackNodes
           ? new Map(fallbackNodes.map((n) => [n.id, n]))
           : null;

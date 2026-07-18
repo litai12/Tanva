@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useStore } from "reactflow";
+import { Handle, Position, useStore } from "@xyflow/react";
 import { Send as SendIcon, HelpCircle } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";

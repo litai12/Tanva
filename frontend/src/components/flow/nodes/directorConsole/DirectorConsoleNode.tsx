@@ -1,11 +1,13 @@
 import React from 'react'
-import { Handle, Position, type NodeProps } from 'reactflow'
+import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import { IconStack2 } from '@tabler/icons-react'
 import type { DirectorConsoleData } from './types'
 
 const DirectorConsoleModal = React.lazy(() => import('./DirectorConsoleModal'))
 
-export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleData>) {
+type DirectorConsoleFlowNode = Node<DirectorConsoleData, 'directorConsole'>
+
+export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleFlowNode>) {
   const [open, setOpen] = React.useState(false)
   return (
     <div style={{ width: 320, background: '#16181d', borderRadius: 12, border: '1px solid #262a33', overflow: 'hidden' }}>

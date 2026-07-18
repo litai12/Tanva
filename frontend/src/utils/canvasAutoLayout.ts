@@ -1,4 +1,4 @@
-import type { Node } from "reactflow";
+import type { Node } from "@xyflow/react";
 
 // 「一键整理」触发事件：FloatingHeader 里的按钮 dispatch，FlowOverlay 里监听执行。
 export const FLOW_AUTO_LAYOUT_EVENT = "flow:auto-layout";

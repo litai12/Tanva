@@ -1,4 +1,4 @@
-import type { Edge, Node } from "reactflow";
+import type { Edge, Node } from "@xyflow/react";
 import type { ComposeVideoSource } from "./useVideoCompose";
 import type { ComposeAudioTrack } from "./composeVideosCore";
 

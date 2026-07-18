@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "reactflow";
+import { Handle, Position, useStore, type Node as FlowNode, type ReactFlowState } from "@xyflow/react";
 import { Send as SendIcon, Check, Square } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -542,7 +542,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
         if (edgeWithOrder.length === 0) return [] as ConnectedInputImage[];
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((node) => [node.id, node]));
         const out: ConnectedInputImage[] = [];
 

@@ -7,7 +7,7 @@ import {
   type Node as RFNode,
   type Node as FlowNode,
   type ReactFlowState,
-} from "reactflow";
+} from "@xyflow/react";
 import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon, Check, Square } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
@@ -273,7 +273,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         const fallbackNodes = hasNodeLookup
           ? null
           : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes ||
-            state.getNodes());
+            state.nodes);
         const fallbackNodeById = fallbackNodes
           ? new Map(fallbackNodes.map((node) => [node.id, node]))
           : null;

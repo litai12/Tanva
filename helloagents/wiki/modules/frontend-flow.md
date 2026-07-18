@@ -1,3 +1,8 @@
+## 2026-07-18 React Flow 12 Engine Upgrade
+- Flow canvas engine migrated from the frozen `reactflow@11.11.4` package to the current `@xyflow/react@12.11.2` package; `@reactflow/node-resizer` was removed because `NodeResizer` and `NodeResizeControl` are exported by the main v12 package.
+- All Flow imports and the base stylesheet now use `@xyflow/react`. Store selectors use the public `state.nodes` collection instead of the removed `state.getNodes()`, while Director Console internal lookups use v12 `nodeLookup` instead of `nodeInternals`.
+- Tanva's custom grouping model still persists membership through `nodeGroup.data.childNodeIds`; legacy `parentNode` values are read only for migration and cleared before nodes enter the v12 renderer.
+
 ## 2026-06-17 Omni Flash Ext APIMart
 - `omniFlashExtVideo` uses dedicated `text`, `image`, and `video` input handles. The `video` handle accepts video outputs only and is limited to one reference video.
 - Runtime validation follows APIMart `omni-flash-ext`: prompt required; single-image mode accepts 1 image, reference mode accepts 1-3 images, and more than 3 images are rejected.

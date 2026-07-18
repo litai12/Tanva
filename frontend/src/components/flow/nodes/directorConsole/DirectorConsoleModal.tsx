@@ -2,7 +2,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
-import { useReactFlow, useStore, useNodes } from 'reactflow'
+import { useReactFlow, useStore, useNodes } from '@xyflow/react'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import { createDefaultDirectorConsoleData } from './types'
@@ -51,8 +51,8 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     },
     [],
   )
-  // 读节点 data：订阅 reactflow store（rf11 用 nodeInternals Map），外部/小T 改 scene 会实时反映到这里。
-  const storeData = useStore((s: any) => (s.nodeInternals as Map<string, any>)?.get(nodeId)?.data) as DirectorConsoleData | undefined
+  // 读节点 data：订阅 React Flow 12 的 nodeLookup，外部/小T 改 scene 会实时反映到这里。
+  const storeData = useStore((s: any) => (s.nodeLookup as Map<string, any>)?.get(nodeId)?.data) as DirectorConsoleData | undefined
   // 供 Modal 内挂的 scoped runner 反应式读取节点（认领本节点的 pendingCapture）。runner 内部按 onlyNodeId 过滤。
   const scopedRunnerNodes = useNodes()
   // 新建的导演台节点 data 里没有 scene（createNodeAtWorldCenter 未 seed 场景），
@@ -269,7 +269,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     const edges: any[] = s.edges ?? []
     const inc = edges.find((e) => e.target === nodeId)
     if (!inc) return undefined
-    const src = (s.nodeInternals as Map<string, any>)?.get(inc.source)
+    const src = (s.nodeLookup as Map<string, any>)?.get(inc.source)
     const d = src?.data as any
     if (!d) return undefined
     if (typeof d.imageUrl === 'string' && d.imageUrl.trim()) return d.imageUrl.trim()

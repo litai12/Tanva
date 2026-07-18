@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow } from '@xyflow/react';
 import { useLocaleText } from '@/utils/localeText';
 
 type Props = {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from '@xyflow/react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';
 import { usePromptSiblingImages, type SiblingImage } from '../hooks/usePromptSiblingImages';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow, useStore, type Node as RFNode, type Node as FlowNode, type ReactFlowState } from 'reactflow';
+import { Handle, Position, useReactFlow, useStore, type Node as RFNode, type Node as FlowNode, type ReactFlowState } from '@xyflow/react';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Check, Globe, Square } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
@@ -761,7 +761,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
         const fallbackNodes = hasNodeLookup
           ? null
           : ((state as ReactFlowState & { nodes?: FlowNode[] }).nodes ||
-            state.getNodes());
+            state.nodes);
         const fallbackNodeById = fallbackNodes
           ? new Map(fallbackNodes.map((node) => [node.id, node]))
           : null;

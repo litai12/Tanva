@@ -1,6 +1,6 @@
 import React from 'react';
 import { Check } from 'lucide-react';
-import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edge, type Node } from 'reactflow';
+import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edge, type Node } from '@xyflow/react';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
@@ -419,7 +419,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           .sort((a, b) => a.index - b.index);
         if (edgeWithOrder.length === 0) return [];
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
         const normalize = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 

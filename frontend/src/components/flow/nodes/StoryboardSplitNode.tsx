@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from '@xyflow/react';
 import { useLocaleText } from '@/utils/localeText';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import {

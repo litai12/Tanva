@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useUpdateNodeInternals } from "reactflow";
+import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import { Video, Share2, Download, Plus, Minus, Square } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";

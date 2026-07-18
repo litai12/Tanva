@@ -1,8 +1,8 @@
 // @ts-nocheck
 // Flow Image 节点交互与预览逻辑。
 import React from "react";
-import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
-import { NodeResizeControl } from "@reactflow/node-resizer";
+import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "@xyflow/react";
+import { NodeResizeControl } from "@xyflow/react";
 import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import ImageAnnotationModal, {
@@ -249,7 +249,7 @@ const buildNodeByIdMap = (state: ReactFlowState): Map<string, FlowNodeLike> => {
   }
 
   const stateNodes = (state as ReactFlowState & { nodes?: FlowNodeLike[] }).nodes;
-  const nodes = Array.isArray(stateNodes) ? stateNodes : (state.getNodes() as FlowNodeLike[]);
+  const nodes = Array.isArray(stateNodes) ? stateNodes : (state.nodes as FlowNodeLike[]);
   return new Map(nodes.map((node) => [node.id, node]));
 };
 

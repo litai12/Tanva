@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position } from "@xyflow/react";
 import { AlertTriangle, UserRound, Square } from "lucide-react";
 import { useLocaleText } from "@/utils/localeText";
 import RunCreditBadge from "./RunCreditBadge";
