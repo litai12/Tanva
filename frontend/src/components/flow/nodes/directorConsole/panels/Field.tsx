@@ -46,11 +46,11 @@ export function Vec3Row({ value, onChange }: { value: Vec3; onChange: (v: Vec3) 
   )
 }
 
-export function SliderField({ value, min, max, step, onChange }: { value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+export function SliderField({ value, min, max, step, onChange, displayDigits }: { value: number; min: number; max: number; step: number; onChange: (v: number) => void; displayDigits?: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={{ flex: 1 }} />
-      <input type="number" min={min} max={max} step={step} value={value} onChange={(e) => { const v = parseFloat(e.target.value); onChange(Number.isFinite(v) ? v : min) }}
+      <input type="number" min={min} max={max} step={step} value={displayDigits == null ? value : value.toFixed(displayDigits)} onChange={(e) => { const v = parseFloat(e.target.value); onChange(Number.isFinite(v) ? v : min) }}
         style={{ ...inputStyle, width: 56, flex: 'none' }} />
     </div>
   )

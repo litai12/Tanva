@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from '@xyflow/react'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
-import type { DirectorConsoleData, CameraShot } from './types'
+import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
 import { createDefaultDirectorConsoleData } from './types'
 import {
   addCharacter, addCamera, selectObject, removeObject,
@@ -32,6 +32,7 @@ import { uploadToOSS } from '@/services/ossUploadService'
 import { generateImageViaAPI } from '@/services/aiBackendAPI'
 import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource'
 import { AiSceneImportDialog, type AiSceneImportMode } from './panels/AiSceneImportDialog'
+import { snapPositionToGround } from './state/gaussianGround'
 
 let uidCounter = 0
 const uid = (p: string) => `${p}-${Date.now()}-${uidCounter++}`
@@ -245,7 +246,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         else if (e.key === 'ArrowLeft') { dx = -rx * step; dz = -rz * step }
       }
       const r3 = (v: number) => Math.round(v * 1000) / 1000 // 消浮点累加噪声（0.6000000000000001）
-      const pos: Vec3 = [r3(obj.position[0] + dx), r3(obj.position[1] + dy), r3(obj.position[2] + dz)]
+      const rawPos: Vec3 = [r3(obj.position[0] + dx), r3(obj.position[1] + dy), r3(obj.position[2] + dz)]
+      const pos = ch && !e.altKey && (data.scene.gaussianGroundSnap ?? true)
+        ? snapPositionToGround(rawPos, data.scene.groundHeight ?? 0, true)
+        : rawPos
       apply(ch ? patchCharacter(data, id, { position: pos }) : patchCamera(data, id, { position: pos }))
     }
     window.addEventListener('keydown', onKey, true)

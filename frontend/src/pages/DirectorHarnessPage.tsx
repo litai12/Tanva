@@ -9,6 +9,7 @@ import { samplePropertyTimeline, setKeyframe } from '@/components/flow/nodes/dir
 import { dataUrlToBlob, uploadCanvasImageBlob } from '@/components/flow/nodes/directorConsole/uploadCanvasImageBlob'
 import { AiSceneImportDialog } from '@/components/flow/nodes/directorConsole/panels/AiSceneImportDialog'
 import { BODY_TYPES } from '@/components/flow/nodes/directorConsole/assets'
+import { registerGaussianGroundBuffer, sampleGaussianGroundHeight } from '@/components/flow/nodes/directorConsole/state/gaussianGround'
 
 function initial(): DirectorConsoleData {
   let d = createDefaultDirectorConsoleData()
@@ -94,6 +95,24 @@ export default function DirectorHarnessPage() {
     }))
     setLog('showing eight independent body rigs')
   }
+  const testGaussianGround = () => {
+    const gaussian = {
+      id: 'gaussian-fixture', name: '坡面点云', modelId: 'fixture.splat', position: [0, 0, 0] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], uniformScale: 1, colorHex: '#fff',
+    }
+    const points: Array<[number, number, number]> = []
+    for (let x = -2; x <= 2; x += .2) for (let z = -2; z <= 2; z += .2) points.push([x, 1 + x * .5, z])
+    const buffer = new ArrayBuffer(points.length * 32)
+    const view = new DataView(buffer)
+    points.forEach(([x, y, z], index) => {
+      view.setFloat32(index * 32, x, true); view.setFloat32(index * 32 + 4, y, true); view.setFloat32(index * 32 + 8, z, true)
+    })
+    registerGaussianGroundBuffer(gaussian, buffer, 'slope-fixture')
+    const left = sampleGaussianGroundHeight(-1, 0, 1)
+    const center = sampleGaussianGroundHeight(0, 0, 1)
+    const right = sampleGaussianGroundHeight(1, 0, 1)
+    setLog(`gaussian slope heights: ${left?.toFixed(2)} / ${center?.toFixed(2)} / ${right?.toFixed(2)}`)
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0b0d] text-white">
@@ -121,6 +140,7 @@ export default function DirectorHarnessPage() {
             加女性
           </Button>
           <Button onClick={showAllBodies}>显示八套独立素体</Button>
+          <Button onClick={testGaussianGround}>验证高斯坡面高度索引</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'empty-' + d.scene.characters.length, modelId: 'empty-object' }))}>加空对象</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'torus-' + d.scene.characters.length, modelId: 'prop-torus' }))}>加圆环</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'pyramid-' + d.scene.characters.length, modelId: 'prop-pyramid' }))}>加棱锥</Button>

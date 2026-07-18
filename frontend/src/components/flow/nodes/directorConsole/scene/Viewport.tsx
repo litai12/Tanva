@@ -12,6 +12,8 @@ import { isPanoramaRatio, panoramaCanvasSize, adaptPanoramaPixels } from './pano
 import { sampleAnimationAt, type ClipAnimation } from './clipAnimation'
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
 import { samplePathAt } from '../state/groundPath'
+import { snapPositionToGround } from '../state/gaussianGround'
+import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
 
 async function fetchProxiedImageBlob(url: string): Promise<Blob> {
   const proxied = proxifyRemoteAssetUrl(url, { forceProxy: true })
@@ -220,15 +222,6 @@ type SceneContentsProps = Props & {
   mixersRef: React.MutableRefObject<Map<string, CharacterMixerEntry>>
 }
 
-/** 求机位注视点：手动坐标或锁定的角色位置（抬到胸高） */
-function resolveLookAt(cam: CameraObj, scene: DirectorScene): Vec3 {
-  if (cam.lookAtMode !== 'manual') {
-    const target = scene.characters.find((c) => c.id === cam.lookAtMode)
-    if (target) return [target.position[0], target.position[1] + 1.2, target.position[2]]
-  }
-  return cam.lookAt
-}
-
 /**
  * 给跨域取图加独立 cache-buster query：R2 源站本身允许 CORS（带 Origin 必返 ACAO），
  * 但同一张图常被 ManagedImage 用无 crossorigin 的 <img>（不带 Origin）先加载过，
@@ -353,7 +346,7 @@ function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: stri
 
 /** 机位视角下设为默认相机并持续注视目标；荷兰角 roll 在 lookAt 后绕视轴施加。
  * previewAnim 给定时改为实时按该动画的 capture-cam 轨道循环预览运镜（orbit 或录制的关键帧路径统一走 sampleAnimationAt）。 */
-function ActiveCameraView({ cam, lookAt, previewAnim, previewTime }: { cam: CameraObj; lookAt: Vec3; previewAnim?: ClipAnimation | null; previewTime?: number | null }) {
+function ActiveCameraView({ cam, scene, previewAnim, previewTime }: { cam: CameraObj; scene: DirectorScene; previewAnim?: ClipAnimation | null; previewTime?: number | null }) {
   const ref = React.useRef<THREE.PerspectiveCamera>(null)
   const elapsedRef = React.useRef(0)
   useFrame((_, delta) => {
@@ -379,10 +372,10 @@ function ActiveCameraView({ cam, lookAt, previewAnim, previewTime }: { cam: Came
       }
       return
     }
-    c.lookAt(lookAt[0], lookAt[1], lookAt[2])
-    if (cam.roll) c.rotateZ(cam.roll * (Math.PI / 180))
+    applyResolvedCameraPose(c, resolveCameraPose(cam, scene))
   })
-  return <PerspectiveCamera ref={ref} makeDefault position={cam.position} fov={cam.fovDeg} near={0.1} far={1000} />
+  const pose = resolveCameraPose(cam, scene)
+  return <PerspectiveCamera ref={ref} makeDefault position={pose.position} fov={pose.fovDeg} near={0.1} far={1000} />
 }
 
 /** Suspense 边界内的就绪探针：模型已 resolve 才会挂载，挂载后下一帧回调一次。
@@ -458,12 +451,16 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
     const s = selectedChar.uniformScale || 1
     const snap = scene.gridSnap ?? false
     const snapStep = 0.5
-    const position: Vec3 = [
+    const rawPosition: Vec3 = [
       snap ? Math.round(g.position.x / snapStep) * snapStep : g.position.x,
       g.position.y,
       snap ? Math.round(g.position.z / snapStep) * snapStep : g.position.z,
     ]
+    const position = (scene.gaussianGroundSnap ?? true)
+      ? snapPositionToGround(rawPosition, scene.groundHeight ?? 0, true)
+      : rawPosition
     if (snap) g.position.set(position[0], position[1], position[2])
+    else if (position[1] !== g.position.y) g.position.y = position[1]
     onPatchCharacter(selectedChar.id, {
       position,
       rotation: [g.rotation.x, g.rotation.y, g.rotation.z],
@@ -501,7 +498,7 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
       ) : viewpoint === 'director' ? (
         <OrbitControls makeDefault enableDamping enabled={orbitOn} target={DIRECTOR_TARGET} />
       ) : activeCam ? (
-        <ActiveCameraView cam={activeCam} lookAt={resolveLookAt(activeCam, scene)} previewAnim={previewAnim} previewTime={previewTime} />
+        <ActiveCameraView cam={activeCam} scene={scene} previewAnim={previewAnim} previewTime={previewTime} />
       ) : null}
       {trajectory && trajectory.length >= 2 ? (
         <Line points={trajectory} color="#3b82f6" lineWidth={2} onUpdate={(self) => { self.userData.directorHelper = true }} />

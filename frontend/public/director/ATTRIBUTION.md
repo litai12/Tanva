@@ -2,13 +2,17 @@
 
 本目录下的 3D 角色素体模型用于导演台（directorConsole）3D blocking。
 
-导演台菜单中的男性、女性、宽厚、健壮、纤细、少年、儿童与二头身八套默认素体，现由 Tanva 在运行时以独立参数化网格和统一关节骨架生成，不再基于本目录的 X Bot 缩放派生；这八套程序化素体是项目自有实现，不涉及第三方模型文件授权。
+导演台菜单不再基于同一个 X Bot 做八种整体缩放。男性、女性已使用下表所列 CC0 开源模型；宽厚、健壮、纤细、少年、儿童与二头身在找到对应授权模型前，仍由 Tanva 运行时以独立参数化网格和统一关节骨架生成，属于临时回退。
+
+其中男性、女性默认素体已优先替换为 Quaternius「Universal Base Characters」免费 Standard 包的 Superhero Male/Female 模型；原程序化男女素体不再进入这两个菜单项。其余类型在取得对应开源模型前仍使用项目自有程序化回退。
 
 | 文件 | 来源 | 许可证 |
 |---|---|---|
 | `xbot.glb` | Adobe Mixamo「X Bot」（经 three.js 官方示例仓库分发；标准 Mixamo 骨骼、T-pose 绑定，保留用于上传模型/骨骼兼容回归） | Mixamo 使用条款（项目内免版税使用） |
 | `cesium-man.glb` | Cesium（glTF 官方示例模型 CesiumMan，已不默认使用，保留回退） | CC-BY 4.0 |
 | `rigged-figure.glb` | Cesium（glTF 官方示例模型 RiggedFigure，已不默认使用，保留回退） | CC-BY 4.0 |
+| `open-source/quaternius-universal-base/Superhero_Male_FullBody.gltf` 及依赖 | Quaternius「Universal Base Characters」Standard | CC0 1.0 Universal |
+| `open-source/quaternius-universal-base/Superhero_Female_FullBody.gltf` 及依赖 | Quaternius「Universal Base Characters」Standard | CC0 1.0 Universal |
 
 - 许可证全文：https://creativecommons.org/licenses/by/4.0/
 - 模型由 Cesium 捐赠给 Khronos glTF 项目用于测试：https://github.com/KhronosGroup/glTF-Sample-Models

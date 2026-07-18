@@ -30,8 +30,8 @@ export type LibraryItem =
 // 自建的八套独立 blocking 素体。每套有不同的头身比、肩髋比、躯干截面、
 // 四肢长度与粗细，并共享可姿势化的关节命名；不再复用 XBot 做整体缩放。
 export const BODY_TYPES: LibraryItem[] = [
-  { id: 'male', name: '男性素体', kind: 'body', heightM: 1.78, profile: { height: 1.78, headRadius: .115, shoulderWidth: .46, hipWidth: .30, torsoLength: .53, torsoRadiusTop: .205, torsoRadiusBottom: .145, upperArm: .31, forearm: .28, armRadius: .062, thigh: .43, shin: .43, legRadius: .082 } },
-  { id: 'female', name: '女性素体', kind: 'body', heightM: 1.66, profile: { height: 1.66, headRadius: .112, shoulderWidth: .38, hipWidth: .33, torsoLength: .49, torsoRadiusTop: .17, torsoRadiusBottom: .155, upperArm: .285, forearm: .255, armRadius: .052, thigh: .40, shin: .39, legRadius: .07 } },
+  { id: 'male', name: '男性素体', kind: 'body', heightM: 1.78, url: '/director/open-source/quaternius-universal-base/Superhero_Male_FullBody.gltf' },
+  { id: 'female', name: '女性素体', kind: 'body', heightM: 1.66, url: '/director/open-source/quaternius-universal-base/Superhero_Female_FullBody.gltf' },
   { id: 'broad', name: '宽厚素体', kind: 'body', heightM: 1.74, profile: { height: 1.74, headRadius: .122, shoulderWidth: .56, hipWidth: .40, torsoLength: .50, torsoRadiusTop: .255, torsoRadiusBottom: .205, upperArm: .29, forearm: .265, armRadius: .085, thigh: .40, shin: .39, legRadius: .105 } },
   { id: 'muscular', name: '健壮素体', kind: 'body', heightM: 1.82, profile: { height: 1.82, headRadius: .116, shoulderWidth: .54, hipWidth: .32, torsoLength: .55, torsoRadiusTop: .245, torsoRadiusBottom: .155, upperArm: .32, forearm: .29, armRadius: .082, thigh: .45, shin: .43, legRadius: .10 } },
   { id: 'slim', name: '纤细素体', kind: 'body', heightM: 1.72, profile: { height: 1.72, headRadius: .108, shoulderWidth: .36, hipWidth: .27, torsoLength: .54, torsoRadiusTop: .15, torsoRadiusBottom: .125, upperArm: .32, forearm: .29, armRadius: .043, thigh: .43, shin: .43, legRadius: .058 } },

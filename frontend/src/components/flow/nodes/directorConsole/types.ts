@@ -58,9 +58,11 @@ export type CameraObj = {
   position: Vec3
   rotation?: Vec3
   followTargetId?: string
+  /** Offset captured when follow is enabled, so target motion moves the camera without collapsing it onto the actor. */
+  followOffset?: Vec3
   /** 绘制的相机运动路径；镜头 cameraMove 设为 'path' 时相机沿它飞（绘制见导演台相机面板）。 */
   path?: CameraPath
-  /** 'manual' 表示用 lookAt 坐标，否则为某个 characterId（锁定该角色） */
+  /** manual=坐标注视；rotation=欧拉角；其它字符串=角色注视。 */
   lookAtMode: 'manual' | string
   lookAt: Vec3
   fovDeg: number
@@ -135,6 +137,7 @@ export function createDefaultDirectorConsoleData(_legacyPanoramaUrl?: string): D
         id: 'default-camera-1',
         name: '机位1',
         position: [0, 2.2, 10],
+        rotation: [5.71, 180, 0],
         lookAtMode: 'manual',
         lookAt: [0, 1.2, 0],
         fovDeg: 50,

@@ -4,6 +4,8 @@
 - 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
 - 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
 - 2026-07-18：导演台八套默认素体不再复用 X Bot 整体缩放，改为项目自建的八套独立参数化网格与统一关节骨架；已同屏验证八种轮廓、地面落脚和男性招手姿势驱动。
+- 2026-07-18：导演台“高斯地面吸附”从空开关升级为真实 `.splat` XYZ 解析、对象变换、XZ 高度空间索引与角色/道具移动提交吸附；确定性坡面点云浏览器回归得到 0.60/1.10/1.60 的递增高度。
+- 2026-07-19：导演台男性/女性素体替换为 Quaternius Universal Base Characters Standard 的 CC0 开源蒙皮模型，精简未使用纹理为纯色 blocking PBR 材质，并补充 Unreal Humanoid 骨名映射；真实截图验证男女同屏、落地与男性招手。其余六体仍为程序化回退，未宣称八套素材完成。
 
 All notable changes to this knowledge base will be documented in this file.
 

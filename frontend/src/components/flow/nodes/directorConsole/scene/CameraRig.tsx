@@ -4,19 +4,12 @@ import { useThree, useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { CameraObj, DirectorScene, Vec3 } from '../types'
+import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
 
 type Props = {
   camera: CameraObj; scene: DirectorScene; active: boolean; selected: boolean; onSelect: () => void
   /** 播放时给定的实时采样机位（沿运镜路径滑行）；缺省用 camera 的静态位姿。 */
   override?: { position: Vec3; lookAt: Vec3; fovDeg: number } | null
-}
-
-function resolveLookAt(cam: CameraObj, scene: DirectorScene): Vec3 {
-  if (cam.lookAtMode !== 'manual') {
-    const target = scene.characters.find((c) => c.id === cam.lookAtMode)
-    if (target) return [target.position[0], target.position[1] + 1.2, target.position[2]]
-  }
-  return cam.lookAt
 }
 
 /** 用一台离屏透视相机生成视锥 helper，仅在导演视角可见 */
@@ -45,18 +38,14 @@ export function CameraRig({ camera, scene, active, selected, onSelect, override 
     const cam = camRef.current
     if (!cam) return
     // 播放时用实时采样位姿（沿运镜路径滑行）；否则用机位静态位姿
-    const pos = override?.position ?? camera.position
-    const la = override?.lookAt ?? resolveLookAt(camera, scene)
-    cam.fov = override?.fovDeg ?? camera.fovDeg
-    cam.position.set(pos[0], pos[1], pos[2])
-    cam.lookAt(la[0], la[1], la[2])
-    if (camera.roll && !override) cam.rotateZ(camera.roll * (Math.PI / 180)) // 荷兰角：视锥 helper 跟着倾（采样位姿已含朝向，不重复施加）
-    cam.updateProjectionMatrix()
-    cam.updateMatrixWorld(true)
+    const pose = override
+      ? { position: override.position, lookAt: override.lookAt, rotation: camera.rotation ?? [5.71, 180, 0], fovDeg: override.fovDeg }
+      : resolveCameraPose(camera, scene)
+    applyResolvedCameraPose(cam, pose)
     helperRef.current?.update()
     if (helperRef.current) (helperRef.current.material as THREE.LineBasicMaterial).color.set(override ? '#f59e0b' : selected ? '#52c41a' : '#626872')
     // 相机图标 + 标签实时跟到采样位置
-    if (groupRef.current) groupRef.current.position.set(pos[0], pos[1], pos[2])
+    if (groupRef.current) groupRef.current.position.set(...pose.position)
   })
 
   if (!active) return null

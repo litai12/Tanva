@@ -16,16 +16,16 @@ export const toDeg = (r: number): number => Math.round((r / DEG) * 10) / 10
 // —— 骨骼映射 ——
 // 优先：Mixamo 标准命名精确映射（默认素体 xbot.glb）；兜底：region+side 模糊匹配（上传模型）。
 const MIXAMO_ROLE_NAMES: Record<JointRole, string[]> = {
-  spine: ['spine1', 'spine'],
-  neck: ['neck'],
-  shoulderL: ['leftarm'],
-  elbowL: ['leftforearm'],
-  shoulderR: ['rightarm'],
-  elbowR: ['rightforearm'],
-  hipL: ['leftupleg'],
-  kneeL: ['leftleg'],
-  hipR: ['rightupleg'],
-  kneeR: ['rightleg'],
+  spine: ['spine1', 'spine', 'spine02', 'spine01'],
+  neck: ['neck', 'neck01'],
+  shoulderL: ['leftarm', 'upperarml'],
+  elbowL: ['leftforearm', 'lowerarml'],
+  shoulderR: ['rightarm', 'upperarmr'],
+  elbowR: ['rightforearm', 'lowerarmr'],
+  hipL: ['leftupleg', 'thighl'],
+  kneeL: ['leftleg', 'calfl'],
+  hipR: ['rightupleg', 'thighr'],
+  kneeR: ['rightleg', 'calfr'],
 }
 
 function normName(name: string): string {

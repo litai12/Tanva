@@ -52,6 +52,7 @@ export function addCamera(
     id: init.id,
     name,
     position: init.position ?? [0, 2.2, 10],
+    rotation: [5.71, 180, 0],
     lookAtMode: 'manual',
     lookAt: init.lookAt ?? [0, 1.2, 0],
     fovDeg: init.fovDeg ?? 50,
@@ -105,5 +106,6 @@ export function setViewpoint(d: DirectorConsoleData, vp: 'director' | 'camera'):
 }
 
 export function setActiveCamera(d: DirectorConsoleData, id: string): DirectorConsoleData {
-  return { ...d, scene: { ...d.scene, activeCameraId: id } }
+  if (!d.scene.cameras.some((camera) => camera.id === id)) return d
+  return { ...d, selectedObjectId: id, scene: { ...d.scene, activeCameraId: id } }
 }

@@ -12,6 +12,7 @@ import { samplePoseClipAt, type PoseClip } from '../state/poseClip'
 import { findCustomMotion } from '../state/motionLibrary'
 import { findMotionPreset, concatMotionPresets } from '../state/motionPresets'
 import { sampleCharacterMotionAt, type CharacterMotion } from '../state/characterMotion'
+import { registerGaussianGround, unregisterGaussianGround } from '../state/gaussianGround'
 
 export type CharacterMixerEntry = {
   mixer: THREE.AnimationMixer
@@ -353,6 +354,14 @@ function ProceduralBody({ profile, colorHex, pose, jointEditing, selectedJointRo
   return <><primitive object={body} />{jointEditing ? <JointMarkers rig={rig} selectedRole={selectedJointRole} /> : null}</>
 }
 
+function GaussianObject({ character, url }: { character: CharacterObj; url: string }) {
+  React.useEffect(() => {
+    void registerGaussianGround(character, url).catch(() => {})
+    return () => unregisterGaussianGround(character.id)
+  }, [character.id, character.position, character.rotation, character.scale, character.uniformScale, url])
+  return <Splat src={url} />
+}
+
 /** 几何/家具道具：程序化组合几何体（blocking 占位风格，真实米制尺寸、底面落地 y=0），主色 + 暗部辅色区分结构 */
 function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string }) {
   const darkHex = React.useMemo(() => `#${new THREE.Color(colorHex).multiplyScalar(0.7).getHexString()}`, [colorHex])
@@ -545,7 +554,7 @@ export function CharacterObject({ character, selected, showLabel = true, customM
   if (item?.kind === 'empty') {
     body = null
   } else if (item?.kind === 'gaussian') {
-    body = <Splat src={item.url} />
+    body = <GaussianObject character={character} url={item.url} />
   } else if (item?.kind === 'reference') {
     body = <DreiImage url={item.url} scale={[3.2, 1.8]} position={[0, 0.9, 0]} transparent />
   } else if (item?.kind === 'prop') {

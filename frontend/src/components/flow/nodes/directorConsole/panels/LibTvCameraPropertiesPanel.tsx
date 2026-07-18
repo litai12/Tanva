@@ -28,7 +28,7 @@ const selectStyle: React.CSSProperties = {
 export function LibTvCameraPropertiesPanel(props: Props) {
   const { camera, scene, tab, shotGroups, busy } = props
   const total = shotGroups.reduce((count, group) => count + group.shots.length, 0)
-  const rotation = camera.rotation ?? [0, 180, 0]
+  const rotation = camera.rotation ?? [5.71, 180, 0]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600 }}>摄像机</div>
@@ -48,9 +48,22 @@ export function LibTvCameraPropertiesPanel(props: Props) {
               {scene.cameras.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </Section>
-          <Section title="位置"><Vec3Row value={camera.position} onChange={(position) => props.onPatch({ position })} /></Section>
+          <Section title="位置"><Vec3Row value={camera.position} onChange={(position) => {
+            const target = scene.characters.find((item) => item.id === camera.followTargetId)
+            props.onPatch({
+              position,
+              followOffset: target ? [position[0] - target.position[0], position[1] - target.position[1], position[2] - target.position[2]] : camera.followOffset,
+            })
+          }} /></Section>
           <Section title="跟随目标">
-            <select value={camera.followTargetId ?? ''} onChange={(event) => props.onPatch({ followTargetId: event.target.value || undefined })} style={selectStyle}>
+            <select value={camera.followTargetId ?? ''} onChange={(event) => {
+              const followTargetId = event.target.value || undefined
+              const target = scene.characters.find((item) => item.id === followTargetId)
+              props.onPatch({
+                followTargetId,
+                followOffset: target ? [camera.position[0] - target.position[0], camera.position[1] - target.position[1], camera.position[2] - target.position[2]] : undefined,
+              })
+            }} style={selectStyle}>
               <option value="">不跟随</option>
               {scene.characters.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
@@ -65,8 +78,9 @@ export function LibTvCameraPropertiesPanel(props: Props) {
           </Section>
           {camera.lookAtMode === 'manual' ? <Section title="注视坐标"><Vec3Row value={camera.lookAt} onChange={(lookAt) => props.onPatch({ lookAt })} /></Section> : null}
           <Section title="视野角度 (FOV)">
-            <div style={{ color: '#858585', fontSize: 11, lineHeight: 1.5, marginBottom: 6 }}>控制镜头视野范围。数值越小画面越近，数值越大能看到更多环境。</div>
-            <SliderField value={camera.fovDeg} min={10} max={120} step={0.1} onChange={(fovDeg) => props.onPatch({ fovDeg })} />
+            <span title="视野角度说明" aria-label="视野角度说明" style={{ float: 'right', marginTop: -25, color: '#777', cursor: 'help' }}>?</span>
+            <div style={{ color: '#858585', fontSize: 11, lineHeight: 1.5, marginBottom: 6 }}>控制镜头视野范围。数值越小，画面越近、越聚焦；数值越大，画面越广、能看到更多环境。</div>
+            <SliderField value={camera.fovDeg} min={10} max={120} step={0.1} displayDigits={1} onChange={(fovDeg) => props.onPatch({ fovDeg })} />
           </Section>
           <div style={{ padding: '0 16px 16px', color: '#8a8a8a', fontSize: 12 }}>相机截图</div>
         </div>
