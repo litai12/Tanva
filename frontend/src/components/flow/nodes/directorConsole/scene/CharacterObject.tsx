@@ -5,7 +5,7 @@ import { useGLTF, Html, Splat, Image as DreiImage } from '@react-three/drei'
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import type { CharacterObj } from '../types'
-import { getLibraryItem, type PropShape } from '../assets'
+import { getLibraryItem, type BodyProfile, type PropShape } from '../assets'
 import { calibrateRig, applyPoseToRig, applyPosePartialToRig, POSE_PRESETS, type RigState, type PoseMap, type JointRole } from '../state/pose'
 import { buildWaveClip } from './waveClip'
 import { samplePoseClipAt, type PoseClip } from '../state/poseClip'
@@ -277,6 +277,82 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
   )
 }
 
+function makeSegment(material: THREE.Material, radius: number, length: number, axis: 'x-' | 'x+' | 'y-'): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 6, 14), material)
+  if (axis === 'y-') mesh.position.y = -length / 2
+  else {
+    mesh.rotation.z = Math.PI / 2
+    mesh.position.x = axis === 'x-' ? -length / 2 : length / 2
+  }
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  return mesh
+}
+
+/** 项目自建的独立关节素体：刚性分段网格挂在统一骨架上，可直接复用 LibTV 姿势与关节 gizmo。 */
+function buildProceduralBody(profile: BodyProfile, colorHex: string): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'TanvaProceduralBody'
+  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex), roughness: .72, metalness: .02 })
+  const hipY = profile.shin + profile.thigh
+  const derivedHeight = hipY + profile.torsoLength + profile.headRadius * 2.25
+  const k = profile.height / derivedHeight
+  root.scale.setScalar(k)
+
+  const hips = new THREE.Bone(); hips.name = 'mixamorigHips'; hips.position.y = hipY; root.add(hips)
+  const spine = new THREE.Bone(); spine.name = 'mixamorigSpine'; hips.add(spine)
+  const neck = new THREE.Bone(); neck.name = 'mixamorigNeck'; neck.position.y = profile.torsoLength; spine.add(neck)
+
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(profile.torsoRadiusTop, profile.torsoRadiusBottom, profile.torsoLength, 20), mat)
+  torso.position.y = profile.torsoLength / 2; spine.add(torso)
+  const pelvis = new THREE.Mesh(new THREE.CapsuleGeometry(profile.hipWidth * .34, Math.max(.02, profile.hipWidth * .34), 6, 16), mat)
+  pelvis.rotation.z = Math.PI / 2; hips.add(pelvis)
+  const head = new THREE.Mesh(new THREE.SphereGeometry(profile.headRadius, 24, 20), mat)
+  head.scale.set(0.88, 1.08, 0.92); head.position.y = profile.headRadius * 1.15; neck.add(head)
+
+  const arm = (left: boolean) => {
+    const sign = left ? -1 : 1
+    const shoulder = new THREE.Bone(); shoulder.name = left ? 'mixamorigLeftArm' : 'mixamorigRightArm'
+    shoulder.position.set(sign * profile.shoulderWidth / 2, profile.torsoLength * .82, 0); spine.add(shoulder)
+    shoulder.add(makeSegment(mat, profile.armRadius, profile.upperArm, left ? 'x-' : 'x+'))
+    const elbow = new THREE.Bone(); elbow.name = left ? 'mixamorigLeftForeArm' : 'mixamorigRightForeArm'
+    elbow.position.x = sign * profile.upperArm; shoulder.add(elbow)
+    elbow.add(makeSegment(mat, profile.armRadius * .86, profile.forearm, left ? 'x-' : 'x+'))
+    const hand = new THREE.Bone(); hand.name = left ? 'mixamorigLeftHand' : 'mixamorigRightHand'
+    hand.position.x = sign * profile.forearm; elbow.add(hand)
+    const handMesh = new THREE.Mesh(new THREE.SphereGeometry(profile.armRadius * 1.08, 14, 12), mat); hand.add(handMesh)
+  }
+  arm(true); arm(false)
+
+  const leg = (left: boolean) => {
+    const sign = left ? -1 : 1
+    const hip = new THREE.Bone(); hip.name = left ? 'mixamorigLeftUpLeg' : 'mixamorigRightUpLeg'
+    hip.position.x = sign * profile.hipWidth * .27; hips.add(hip)
+    hip.add(makeSegment(mat, profile.legRadius, profile.thigh, 'y-'))
+    const knee = new THREE.Bone(); knee.name = left ? 'mixamorigLeftLeg' : 'mixamorigRightLeg'
+    knee.position.y = -profile.thigh; hip.add(knee)
+    knee.add(makeSegment(mat, profile.legRadius * .82, profile.shin, 'y-'))
+    const ankle = new THREE.Bone(); ankle.name = left ? 'mixamorigLeftFoot' : 'mixamorigRightFoot'
+    ankle.position.y = -profile.shin; knee.add(ankle)
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(profile.legRadius * 1.55, profile.legRadius * .75, profile.legRadius * 2.5), mat)
+    foot.position.set(0, profile.legRadius * .2, profile.legRadius * .55); ankle.add(foot)
+  }
+  leg(true); leg(false)
+  root.updateMatrixWorld(true)
+  return root
+}
+
+function ProceduralBody({ profile, colorHex, pose, jointEditing, selectedJointRole, onRigChange, onMixerChange }: {
+  profile: BodyProfile; colorHex: string; pose?: PoseMap; jointEditing?: boolean; selectedJointRole?: JointRole | null
+  onRigChange?: (rig: RigState | null) => void; onMixerChange?: (entry: CharacterMixerEntry | null) => void
+}) {
+  const body = React.useMemo(() => buildProceduralBody(profile, colorHex), [profile, colorHex])
+  const rig = React.useMemo(() => calibrateRig(body), [body])
+  React.useEffect(() => { applyPoseToRig(body, rig, pose) }, [body, rig, pose])
+  React.useEffect(() => { onRigChange?.(rig); onMixerChange?.(null); return () => onRigChange?.(null) }, [rig, onRigChange, onMixerChange])
+  return <><primitive object={body} />{jointEditing ? <JointMarkers rig={rig} selectedRole={selectedJointRole} /> : null}</>
+}
+
 /** 几何/家具道具：程序化组合几何体（blocking 占位风格，真实米制尺寸、底面落地 y=0），主色 + 暗部辅色区分结构 */
 function PropObject({ shape, colorHex }: { shape: PropShape; colorHex: string }) {
   const darkHex = React.useMemo(() => `#${new THREE.Color(colorHex).multiplyScalar(0.7).getHexString()}`, [colorHex])
@@ -474,6 +550,8 @@ export function CharacterObject({ character, selected, showLabel = true, customM
     body = <DreiImage url={item.url} scale={[3.2, 1.8]} position={[0, 0.9, 0]} transparent />
   } else if (item?.kind === 'prop') {
     body = <PropObject shape={item.shape} colorHex={character.colorHex} />
+  } else if (item?.kind === 'body' && item.profile) {
+    body = <ProceduralBody profile={item.profile} colorHex={character.colorHex} pose={resolveCharacterPose(character)} jointEditing={jointEditing} selectedJointRole={selectedJointRole} onRigChange={onRigChange} onMixerChange={onMixerChange} />
   } else if (item?.kind === 'body' && item.url) {
     body = (
       <React.Suspense fallback={<PlaceholderBody colorHex={character.colorHex} />}>

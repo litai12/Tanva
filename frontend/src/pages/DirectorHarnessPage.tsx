@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { samplePropertyTimeline, setKeyframe } from '@/components/flow/nodes/directorConsole/state/propertyTimeline'
 import { dataUrlToBlob, uploadCanvasImageBlob } from '@/components/flow/nodes/directorConsole/uploadCanvasImageBlob'
 import { AiSceneImportDialog } from '@/components/flow/nodes/directorConsole/panels/AiSceneImportDialog'
+import { BODY_TYPES } from '@/components/flow/nodes/directorConsole/assets'
 
 function initial(): DirectorConsoleData {
   let d = createDefaultDirectorConsoleData()
@@ -73,6 +74,26 @@ export default function DirectorHarnessPage() {
     setTimelineTime(time)
     setLog(`position key ${time.toFixed(1)}s = ${x}`)
   }
+  const showAllBodies = () => {
+    setData((current) => ({
+      ...current,
+      selectedObjectId: undefined,
+      scene: {
+        ...current.scene,
+        characters: BODY_TYPES.map((body, index) => ({
+          id: `body-${body.id}`,
+          name: body.name,
+          modelId: body.id,
+          position: [((index % 4) - 1.5) * 1.55, 0, Math.floor(index / 4) * 1.65 - .8],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+          uniformScale: 1,
+          colorHex: ['#7fa6d9', '#d9a7b8', '#b08a70', '#a97862', '#8ca7a0', '#d0b17d', '#e3bd92', '#d4a5c7'][index],
+        })),
+      },
+    }))
+    setLog('showing eight independent body rigs')
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0b0d] text-white">
@@ -99,6 +120,7 @@ export default function DirectorHarnessPage() {
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'c' + (d.scene.characters.length + 1), modelId: 'female' }))}>
             加女性
           </Button>
+          <Button onClick={showAllBodies}>显示八套独立素体</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'empty-' + d.scene.characters.length, modelId: 'empty-object' }))}>加空对象</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'torus-' + d.scene.characters.length, modelId: 'prop-torus' }))}>加圆环</Button>
           <Button onClick={() => setData((d) => addCharacter(d, { id: 'pyramid-' + d.scene.characters.length, modelId: 'prop-pyramid' }))}>加棱锥</Button>

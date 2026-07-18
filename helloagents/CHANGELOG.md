@@ -3,6 +3,7 @@
 - 2026-07-18：微信/支付宝扫码支付有效期统一为 30 分钟，前端按服务端 `expiredAt` 倒计时并在到期后隐藏旧码；自动对账扩大到最近 72 小时内全部 `pending/expired/cancelled/failed` 订单并提升为每 5 分钟执行，订单列表也会主动补查，修复刷新旧码后晚付款可能不入账的问题。
 - 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
 - 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
+- 2026-07-18：导演台八套默认素体不再复用 X Bot 整体缩放，改为项目自建的八套独立参数化网格与统一关节骨架；已同屏验证八种轮廓、地面落脚和男性招手姿势驱动。
 
 All notable changes to this knowledge base will be documented in this file.
 
