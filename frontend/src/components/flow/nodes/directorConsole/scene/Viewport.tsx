@@ -10,12 +10,18 @@ import { poseEulerFromRig, type JointRole, type RigState } from '../state/pose'
 import { aspectRatio, captureSize } from '../state/aspect'
 import { isPanoramaRatio, panoramaCanvasSize, adaptPanoramaPixels } from './panoramaAdapt'
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
+import { resolveImageToBlob } from '@/utils/imageSource'
 import { pathLength, samplePathAt } from '../state/groundPath'
 import { snapPositionToGround } from '../state/gaussianGround'
 import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
 import { resolveTrajectoryGait, resolveTrajectoryMotion } from '../state/trajectoryMotion'
 
 async function fetchProxiedImageBlob(url: string): Promise<Blob> {
+  // Director 全景既可能是完整 OSS URL，也可能是 OSS key、历史 proxy
+  // 包装或外部模型返回地址。统一解析器会依次尝试公开地址、同源代理和
+  // 直连，避免 key 被误当成前端相对路径后静默显示黑色。
+  const blob = await resolveImageToBlob(url, { preferProxy: true })
+  if (blob) return blob
   const proxied = proxifyRemoteAssetUrl(url, { forceProxy: true })
   const res = await fetch(proxied)
   if (!res.ok) throw new Error(`fetch skybox failed: HTTP ${res.status}`)
@@ -166,10 +172,6 @@ type SceneContentsProps = Props & {
  * Cloudflare/浏览器缓存了一份无 ACAO 的响应；后续 fetch(CORS) 命中脏缓存 → 被 CORS 拦。
  * 加一个仅本路径用到的 query key → 必经 CORS 请求填充 → 必带 ACAO，且与 <img> 缓存隔离。
  */
-function corsSafeImageUrl(url: string): string {
-  return url + (url.includes('?') ? '&' : '?') + 'tc-cors=1'
-}
-
 function loadImageElement(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -211,46 +213,78 @@ function buildBackdropTexture(img: HTMLImageElement): THREE.Texture | null {
   return tex
 }
 
-type SkyboxState = { mode: 'equirect' | 'backdrop'; texture: THREE.Texture } | null
+type SkyboxState = { url: string; mode: 'equirect' | 'backdrop'; texture: THREE.Texture; width: number; height: number; luminance: number } | null
+
+function measureImageLuminance(img: HTMLImageElement): number {
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 16
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return -1
+  try {
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    let total = 0
+    for (let i = 0; i < pixels.length; i += 4) total += pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722
+    return Math.round((total / (pixels.length / 4)) * 10) / 10
+  } catch {
+    return -1
+  }
+}
 
 /** 全景背景：~2:1 等距图设为天空盒；非 2:1 普通图自适应处理后贴 BackSide 穹顶（裸 equirect 会严重拉伸）。
  * yawDeg 水平旋转背景取景；清除/失败时恢复纯色。 */
 function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: string; yawDeg?: number; skyColor?: string; radius?: number }) {
-  const { scene, invalidate } = useThree()
+  const { scene, invalidate, camera } = useThree()
   const [state, setState] = React.useState<SkyboxState>(null)
+  const sphereRef = React.useRef<THREE.Mesh>(null)
+  // 天空球始终以当前视点为球心。否则用户缩放导演视角、把球半径调到
+  // 10，或机位运动到球外后，BackSide 材质会从外侧完全不可见，只剩黑屏。
+  useFrame(() => { sphereRef.current?.position.copy(camera.position) })
 
   React.useEffect(() => {
     if (!url) { setState(null); return }
+    window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'loading' } }))
     let disposed = false
     let objUrl: string | null = null
     let created: THREE.Texture | null = null
     void (async () => {
       try {
         let loadUrl = url
-        if (/^https?:\/\//i.test(url)) {
-          const blob = await fetchProxiedImageBlob(corsSafeImageUrl(url))
+        if (!/^blob:/i.test(url)) {
+          const blob = await fetchProxiedImageBlob(url)
           if (disposed) return
           objUrl = URL.createObjectURL(blob)
           loadUrl = objUrl
         }
         const img = await loadImageElement(loadUrl)
         if (disposed) return
+        const metrics = { width: img.naturalWidth, height: img.naturalHeight, luminance: measureImageLuminance(img) }
         if (isPanoramaRatio(img.naturalWidth, img.naturalHeight)) {
           const tex = new THREE.Texture(img)
-          tex.mapping = THREE.EquirectangularReflectionMapping
+          // 使用真实 BackSide 球体的 UV，而不是只依赖 scene.background。
+          // 这样主视口、机位预览和离屏截图消费同一张可见球面贴图。
+          tex.mapping = THREE.UVMapping
           tex.colorSpace = THREE.SRGBColorSpace
-          tex.wrapS = THREE.RepeatWrapping // yaw 用 offset.x 环绕平移，任意 three 版本可用
+          tex.wrapS = THREE.RepeatWrapping
+          tex.wrapT = THREE.ClampToEdgeWrapping
+          tex.repeat.set(-1, 1)
+          tex.offset.set(1, 0)
           tex.needsUpdate = true
           created = tex
-          setState({ mode: 'equirect', texture: tex })
+          setState({ url, mode: 'equirect', texture: tex, ...metrics })
         } else {
           const tex = buildBackdropTexture(img)
           created = tex
-          setState(tex ? { mode: 'backdrop', texture: tex } : null)
+          setState(tex ? { url, mode: 'backdrop', texture: tex, ...metrics } : null)
         }
         invalidate?.()
-      } catch {
-        if (!disposed) setState(null) // 拉取失败：保持纯色背景，不留半成品
+      } catch (error) {
+        if (!disposed) {
+          setState(null)
+          console.error('[Director panorama] 全景纹理加载失败', { url, error })
+          window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'error', message: error instanceof Error ? error.message : String(error) } }))
+        }
       }
     })()
     return () => {
@@ -263,19 +297,15 @@ function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: stri
 
   const yawRad = (((yawDeg ?? 0) % 360) * Math.PI) / 180
   React.useEffect(() => {
-    if (state?.mode === 'equirect') {
-      state.texture.offset.x = (((yawDeg ?? 0) % 360) + 360) % 360 / 360
-      scene.background = state.texture
-    } else {
-      scene.background = new THREE.Color(skyColor)
-    }
+    scene.background = new THREE.Color(skyColor)
+    if (state?.url === url) window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'ready', mode: state.mode, width: state.width, height: state.height, luminance: state.luminance } }))
     invalidate?.()
     return () => { scene.background = new THREE.Color(skyColor) }
-  }, [state, yawDeg, skyColor, scene, invalidate])
+  }, [state, url, yawDeg, skyColor, scene, invalidate])
 
-  // 穹顶不参与拾取（raycast 置空），否则点空处永远命中背景球
-  return state?.mode === 'backdrop' ? (
-    <mesh frustumCulled={false} renderOrder={-1000} rotation={[0, yawRad, 0]} raycast={() => null}>
+  // 所有全景都渲染成真实内视球体。穹顶不参与拾取，否则点空处永远命中背景球。
+  return state?.url === url ? (
+    <mesh ref={sphereRef} frustumCulled={false} renderOrder={-1000} rotation={[0, yawRad, 0]} raycast={() => null}>
       <sphereGeometry args={[Math.max(1, radius), 96, 64]} />
       <meshBasicMaterial map={state.texture} side={THREE.BackSide} depthWrite={false} toneMapped={false} />
     </mesh>

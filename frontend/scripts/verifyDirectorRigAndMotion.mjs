@@ -8,7 +8,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const assetRoot = resolve(root, 'public/director/open-source')
+const assetRoot = (process.env.DIRECTOR_ASSET_PUBLIC_BASE_URL
+  || 'https://tanvas-ai.tos-cn-guangzhou.volces.com/director-assets/v1')
+  .replace(/\/+$/, '')
 const models = [
   ['quaternius-universal-base/Superhero_Male_FullBody.gltf', ['thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r']],
   ['quaternius-universal-base/Superhero_Female_FullBody.gltf', ['thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r']],
@@ -19,7 +21,9 @@ const models = [
 ]
 
 for (const [relative, required] of models) {
-  const gltf = JSON.parse(await readFile(resolve(assetRoot, relative), 'utf8'))
+  const response = await fetch(`${assetRoot}/open-source/${relative}`)
+  assert.equal(response.ok, true, `${relative} remote asset returned HTTP ${response.status}`)
+  const gltf = await response.json()
   const names = new Set((gltf.nodes ?? []).map((node) => node.name))
   for (const bone of required) assert.ok(names.has(bone), `${relative} missing required IK bone ${bone}`)
 }
@@ -62,4 +66,4 @@ try {
   await rm(temporary, { recursive: true, force: true })
 }
 
-console.log(`Director rig/motion verification passed: ${models.length} rigs, gait thresholds/rates, absolute-time IK, defaults and foot-lock hysteresis`)
+console.log(`Director rig/motion verification passed: ${models.length} remote TOS rigs, gait thresholds/rates, absolute-time IK, defaults and foot-lock hysteresis`)

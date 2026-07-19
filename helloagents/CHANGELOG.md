@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-19：导演台 32 个模型、纹理、glTF bin、Gaussian 地形及许可证文件完整迁移至广州 TOS `director-assets/v1/`，50,103,802 bytes 经逐文件回读 SHA-256 校验一致；运行时与 X Bot 骨骼回归页改为远程资源，移除 `frontend/public/director` 本地副本，将 `frontend/public` 从约 65 MB 降至约 17 MB。上传脚本改为只接受仓库外的显式 staging 目录，避免素材再次进入前端包。
 - 2026-07-19：导演台相机新增 `verify:director-camera` 永久门禁，纯解析和真实 WebGL 六模式覆盖手动坐标/手动旋转/角色注视/跟随/FOV25/FOV90；修复机位视角截图读取旧 OrbitControls target 导致新机位注视点偏离所见画面，并修复轨迹红色朝向调试箭头进入机位预览和 MediaRecorder 导出，现相机/导出门禁均要求红色 helper 像素为 0。
 - 2026-07-19：导演台新增 `verify:director-persistence-io` 完整浏览器门禁：角色名称/位置/姿势与时间线时长写回后刷新逐值恢复；远程图片当前裁剪通过 `img→target` 输入边在刷新后继续作为全景运行时渲染；WebGL 截图上传远程后只保存 URL，通过 `source→img` 建图连边，刷新后截图画廊重新水合并可再次发送；真实 32-byte `.splat` 完成文件选择、presign 上传、远程入库、X 轴 pointer drag 和刷新精确恢复。所有阶段递归阻止 data:/blob:/flow-asset:/裸 base64 进入设计数据。
 - 2026-07-19：导演台动画导出新增完整浏览器永久门禁 `verify:director-export`：0.70s 轨迹导出期间证明 MediaRecorder 录制的就是实时预览 WebGL canvas，画面真实前进；Blob 经后端视频上传与资产可读性检查后派发远程视频插入，完成后播放头、编辑模式、导演视角和导出前像素帧完全恢复。
@@ -944,3 +945,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Removed the legacy `widthScale` and procedural-body fallback from Director Console body rendering, so all eight LibTV body choices are now represented exclusively by their independent licensed meshes.
 - Fixed Agent/headless Director capture using the obsolete two-argument canvas-output call and reporting success before the image node existed. The runner now awaits the three-argument output API, rejects a missing node, and is covered by `npm run verify:director-output` for the remote payload, `source → img` handles, placement, and completion ordering.
 - 2026-07-19：修复导演台 AI 全景图“提示生成成功但画面不变化”：此前上游图片连线始终覆盖 `scene.skybox`，现在上传、AI 生成或历史选择代表用户明确选定的当前全景并优先渲染，清除后再回退上游连线。新增 `verify:director-panorama` 浏览器门禁，覆盖连线图→AI 新图即时应用、远程 URL 持久化以及刷新后不被旧连线反向覆盖。
+- 2026-07-19：继续修复导演台全景加入后“看不到球体、乌漆嘛黑”：2:1 等距图不再只依赖 Three.js `scene.background`，与普通图片统一渲染真实 BackSide 内视球；OSS URL、OSS key 与历史 proxy 包装复用统一图片解析链，加载错误不再静默吞掉；纹理状态绑定来源 URL，消除切换时把旧纹理误报为新图 ready 的竞态。全景浏览器门禁升级为读取 WebGL 实际像素，确认贴图真正可见而非仅状态成功。
+- 2026-07-19：修复全景球的另一条真实黑屏路径：右栏允许半径缩到 10，而默认导演相机距世界原点约 15，固定在原点的 BackSide 球会在相机位于球外时完全不可见。天空球现逐帧跟随当前导演/机位相机保持同心；新增“半径 10、相机在原球外仍有贴图像素”门禁。全景加载失败与源图片接近纯黑也会直接在导演台显示具体提示，不再只留下黑视口。
+- 2026-07-19：修复图片节点手动连接导演台会被静默拒绝：`isValidConnection` 虽允许图片来源进入 `directorConsole/target`，但 `canAcceptConnection` 遗漏导演台分支并最终返回 false；现补齐单全景入口容量规则。导演台节点同时支持 `?directorNodeId=<id>` 项目深链自动打开，便于协作验收。已将全景可见性验收截图上传 TOS，并在项目 `580085f6-0948-4ac6-8890-0a3a644f4a8a` 最新导演台左侧添加图片节点及 `img → target` 边。

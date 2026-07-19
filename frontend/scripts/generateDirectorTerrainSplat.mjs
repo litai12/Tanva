@@ -1,11 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 // Deterministic, project-authored CC0 terrain for Director Console regression.
 // antimatter15/Drei .splat layout: xyz f32, scale f32, rgba u8, quaternion u8.
-const here = dirname(fileURLToPath(import.meta.url))
-const output = resolve(here, '../public/director/open-source/cc0-terrain/rolling-ground.splat')
+const sourceDirectory = process.env.DIRECTOR_ASSET_SOURCE_DIR?.trim()
+if (!sourceDirectory) {
+  throw new Error('Set DIRECTOR_ASSET_SOURCE_DIR to an external staging directory')
+}
+const output = resolve(process.cwd(), sourceDirectory, 'open-source/cc0-terrain/rolling-ground.splat')
 const side = 65
 const spacing = 0.125
 const count = side * side

@@ -12746,6 +12746,11 @@ function FlowInner() {
       if (targetNode?.type === "viewAngle") {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
       }
+      if (targetNode?.type === "directorConsole") {
+        // 单一全景输入；onConnect 会以新线替换同一 target 句柄的旧线。
+        // isValidConnection 已负责限制来源必须是图片。
+        if (params.targetHandle === "target") return true;
+      }
       if (targetNode?.type === "promptOptimize") {
         if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
       }

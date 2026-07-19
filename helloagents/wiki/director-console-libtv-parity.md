@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 节点标题/说明 | 导演台；3D 搭景、多视角截图 | 已对齐主要文案 | 本地 snapshot |
 | 资产管理 | 节点内与“打开导演台”并列 | 已补齐并真实打开 Tanva 统一素材资产面板（个人/团队资产及画布元素），不是空按钮 | 构建通过；真实画布点击/选材回归待补 |
-| 输入句柄 | `target`，图片作为全景输入 | 已实现并将 handle 类型从宽泛 `any` 收紧为 `image`，阻止不支持的视频/音频连入；永久门禁 `verify:director-persistence-io` 在真实 ReactFlow store 建立 `image/img → director/target` 边并验证刷新后仍解析为已连接全景 | 已闭环 |
+| 输入句柄 | `target`，图片作为全景输入 | 已实现并将 handle 类型从宽泛 `any` 收紧为 `image`；修复 `isValidConnection` 允许但 `canAcceptConnection` 漏掉 `directorConsole`、导致手动画线最终静默拒绝的问题。单一 `target` 接受图片并由新线替换旧线；永久门禁在真实 ReactFlow store 建立 `image/img → director/target` 边并验证刷新后仍解析为已连接全景 | 已闭环 |
 | 输出句柄 | `source`，输出摄像机截图 | 永久门禁同时检查浏览器请求及纯协议：`director/source → image/img`，并要求图片节点 `done(id)` 成功后发送流程才完成 | 已闭环 |
 | 当前裁剪输入 | 使用图片节点当前渲染/裁剪结果 | 已在真实浏览器连接带 crop/sourceWidth/sourceHeight 的远程 Image：显示阶段生成短命 object URL，保存及刷新后的设计数据仍只含远程源图和裁剪参数，无 blob/data/base64 | ImageSplit 独立多输出手柄仍保留静态解析覆盖 |
 | 截图输出 | 远程图片节点并自动连边 | 手动画廊真实执行 WebGL 截图→后端图片上传→资产可读性检查→只保存远程 URL→`flow:createImageNode`→创建 image 节点与 `source→img` 边；Agent 离屏截图只有节点真实创建成功后才上报成功 | 永久门禁 `verify:director-output` + `verify:director-persistence-io` |
@@ -42,7 +42,7 @@
 |---|---|---|
 | 本地 GLB/GLTF | GLB 继续单文件远程上传；GLTF 改为多文件模型包选择，解析 `buffers[].uri`/`images[].uri`，拒绝缺失或越出目录的依赖，把 `.bin`/纹理按声明的相对目录上传到独立远程包目录，最后上传入口 GLTF 并仅持久化远程入口 URL。永久浏览器门禁已选择真实 `gltf + buffers/model.bin` 两文件、走 presign/backend relay、远程重新读取并刷新确认场景对象恢复 | 已闭环 |
 | `.splat` 高斯泼溅 | 上传与 Drei Splat 渲染已接通；真实文件选择、presign 上传、资产可读性、远程 URL 入库、拖动和刷新重载已由 `verify:director-persistence-io` 闭环；地面求交由真实 CC0 4225 点及八体确定性坡地门禁覆盖 | 已闭环 |
-| 八套素体 | 八项均已使用独立 Quaternius CC0 蒙皮模型：Universal Base 的 Superhero Male/Female，加 Ultimate Animated Character Pack 的 Viking、Knight、Ninja、Elf、Goblin Male/Female，分别映射宽厚、健壮、纤细、少年、儿童、二头身近似；类型与渲染器已物理删除 `widthScale` 和程序化素体回退，只允许独立网格表达体型差异 | 六个新增 glTF 均已验证 1 skin/23 joints/17 animations、10 个必需人体关节齐全，HTTP 200 可加载且构建通过；当前自动化 Chrome WebGL 读回为黑帧，尚缺六体真实可视截图与 LibTV 视觉并排证据 |
+| 八套素体 | 八项均已使用独立 Quaternius CC0 蒙皮模型：Universal Base 的 Superhero Male/Female，加 Ultimate Animated Character Pack 的 Viking、Knight、Ninja、Elf、Goblin Male/Female，分别映射宽厚、健壮、纤细、少年、儿童、二头身近似；类型与渲染器已物理删除 `widthScale` 和程序化素体回退，只允许独立网格表达体型差异。全部模型、纹理、bin 与地形只从 TOS `director-assets/v1/` 加载，`frontend/public` 不保留副本 | 六个新增 glTF 均已验证 1 skin/23 joints/17 animations、10 个必需人体关节齐全；TOS 全目录 32 文件/50,103,802 bytes 已逐文件回读并通过 SHA-256 对比，构建通过；当前自动化 Chrome WebGL 读回为黑帧，尚缺六体真实可视截图与 LibTV 视觉并排证据 |
 | 空对象 | 已实现无网格实体 | LibTV 辅助图标/轴心像素对比 |
 | 人群 3×3 | 已实现固定阵列入口 | 默认间距、命名、层级需与 LibTV 实测 |
 | 几何模型 | 立方体、球、圆柱、圆环、圆锥、棱锥已实现 | 默认尺寸/材质/朝向逐项对比 |
@@ -77,7 +77,7 @@
 | 添加角色菜单 | 一级菜单对齐本地上传、高斯泼溅、八套素体、添加空对象、群众 (3x3)、几何模型；几何模型改为二级入口，不再把 Tanva 几何清单直接铺在一级菜单 | 文案与层级按 LibTV `director-add-character` 快照修正；生产构建通过，仍需二级菜单线上逐项快照 |
 | 全景本地上传 | 已远程持久化 | 历史条目记录/选择回归 |
 | 全景历史记录 | 已实现带 requestId/purpose 的图片选择模式；选中历史图片后关闭历史页、回到导演台并把远程 URL 写入 `scene.skybox` | 真实项目已验证“全景背景→历史记录→机位截图图片”后显示“已连接全景图/已应用历史全景图”；仍需刷新重载验证 |
-| 全景 AI 生成 | 已接真实 2:1 生图、远程化和应用；修复存在上游全景连线时 `connectedPanoUrl` 永久覆盖新生成 `scene.skybox`、导致“提示成功但画面没变”的优先级错误。场景内明确上传/生成/历史选择的全景现优先于默认连线输入，清除后自动回退连线图；`verify:director-panorama` 模拟真实生成响应并验证即时切换、远程 URL 落库及刷新后仍使用生成图 | 浏览器功能闭环；真实付费模型仍需线上凭据抽验 |
+| 全景 AI 生成 | 已接真实 2:1 生图、远程化和应用；修复上游连线覆盖新生成 `scene.skybox`、2:1 图片只赋 `scene.background`、资源解析失败被静默吞掉，以及相机距离大于全景半径时从 BackSide 球外观察导致纯黑的问题。OSS URL/key/历史 proxy 走统一解析链；所有全景渲染真实内视球且球心逐帧跟随当前导演/机位相机，纹理状态绑定来源 URL，失败或原图近黑会在导演台明确提示。`verify:director-panorama` 验证即时切换、落库、刷新、ready 来源、16 点 WebGL 贴图像素，并覆盖“半径 10、相机距原点约 15”仍可见 | 浏览器功能闭环；真实付费模型仍需线上凭据抽验 |
 | AI 识图导入 | 已实现本地上传、历史选择回填、插入/覆盖、参考生图、远程图片节点与 `img→target` 替换连边、3D 站位参考层 | 真实项目已验证历史页选择图片后回到对话框、显示“识图来源/已选择历史图片”；尚未实际付费生成验证 |
 
 ## 动画时间线

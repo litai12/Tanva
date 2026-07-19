@@ -5,13 +5,20 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { OssService } from '../src/oss/oss.service';
 
-const ASSET_SOURCE_DIR = path.resolve(__dirname, '../../frontend/public/director/open-source');
-const REMOTE_PREFIX = 'director-assets/v1/open-source';
+const sourceDirectory = process.env.DIRECTOR_ASSET_SOURCE_DIR?.trim();
+const ASSET_SOURCE_DIR = sourceDirectory
+  ? path.resolve(process.cwd(), sourceDirectory)
+  : '';
+const REMOTE_PREFIX = (process.env.DIRECTOR_ASSET_REMOTE_PREFIX || 'director-assets/v1')
+  .trim()
+  .replace(/^\/+|\/+$/g, '');
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.bin': 'application/octet-stream',
+  '.glb': 'model/gltf-binary',
   '.gltf': 'model/gltf+json',
+  '.md': 'text/markdown; charset=utf-8',
   '.png': 'image/png',
   '.splat': 'application/octet-stream',
   '.txt': 'text/plain; charset=utf-8',
@@ -28,6 +35,10 @@ async function listFiles(directory: string): Promise<string[]> {
 
 async function main() {
   dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+  if (!ASSET_SOURCE_DIR) {
+    throw new Error('Set DIRECTOR_ASSET_SOURCE_DIR to the staged director asset directory');
+  }
 
   const oss = new OssService(new ConfigService(process.env));
   if (!oss.isEnabled()) throw new Error('OSS/TOS is not configured');

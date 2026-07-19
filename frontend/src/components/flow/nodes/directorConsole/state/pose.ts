@@ -14,7 +14,7 @@ export const deg = (d: number): number => d * DEG
 export const toDeg = (r: number): number => Math.round((r / DEG) * 10) / 10
 
 // —— 骨骼映射 ——
-// 优先：Mixamo 标准命名精确映射（默认素体 xbot.glb）；兜底：region+side 模糊匹配（上传模型）。
+// 优先：内置 Quaternius 与 Mixamo 标准命名精确映射；兜底：region+side 模糊匹配（上传模型）。
 const MIXAMO_ROLE_NAMES: Record<JointRole, string[]> = {
   body: ['spine', 'spine01', 'abdomen', 'hips'],
   spine: ['spine1', 'spine02', 'torso'],
@@ -281,7 +281,7 @@ export const JOINT_SLIDERS: JointSlider[] = [
   { role: 'kneeR', axis: 0, label: '右膝弯曲（+弯）', min: -5, max: 140, part: '右腿' },
 ]
 
-// 姿势预设（弧度，规范坐标系，见上方注释）。基于标准 Mixamo T-pose 骨架（xbot.glb）校准。
+// 姿势预设（弧度，规范坐标系，见上方注释）。基于标准人形 T-pose 骨架校准。
 // 镜像规则：左右对称姿势 R = L 的 y、z 取反，x 同号。
 export type PosePreset = { id: string; name: string; category: string; pose: PoseMap }
 export const POSE_PRESETS: PosePreset[] = [

@@ -9,7 +9,11 @@ const DirectorConsoleModal = React.lazy(() => import('./DirectorConsoleModal'))
 type DirectorConsoleFlowNode = Node<DirectorConsoleData, 'directorConsole'>
 
 export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleFlowNode>) {
-  const [open, setOpen] = React.useState(false)
+  // 支持从项目链接直接定位并打开指定导演台，便于验收/协作，不影响普通入口。
+  const [open, setOpen] = React.useState(() => {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).get('directorNodeId') === id
+  })
   const setShowMaterialLibraryPanel = useUIStore((state) => state.setShowMaterialLibraryPanel)
   return (
     <div style={{ width: 320, background: '#16181d', borderRadius: 12, border: '1px solid #262a33', overflow: 'hidden' }}>

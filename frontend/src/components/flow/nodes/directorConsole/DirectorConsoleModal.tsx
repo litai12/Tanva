@@ -293,6 +293,19 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   // 全景背景：连线图片是默认输入；上传、AI 生成或历史选择写入 scene.skybox 后，
   // 它代表用户在导演台内明确选择的当前背景，必须优先渲染。否则会出现“生成成功但画面没变”。
   const connectedPanoUrl = useConnectedPanorama(nodeId)
+  React.useEffect(() => {
+    const onPanoramaStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ url?: string; status?: string; message?: string; width?: number; height?: number; luminance?: number }>).detail
+      if (!detail?.url || detail.url !== (dataRef.current.scene.skybox ?? connectedPanoUrl)) return
+      if (detail.status === 'error') {
+        showToast(`全景纹理加载失败：${detail.message || '资源无法读取或不是有效图片'}`, 'error')
+      } else if (detail.status === 'ready' && Number.isFinite(detail.luminance) && (detail.luminance ?? 255) < 4) {
+        showToast(`全景图片已加载（${detail.width}×${detail.height}），但图片内容接近纯黑，请检查生成原图`, 'warning')
+      }
+    }
+    window.addEventListener('director:panorama-status', onPanoramaStatus)
+    return () => window.removeEventListener('director:panorama-status', onPanoramaStatus)
+  }, [connectedPanoUrl, showToast])
 
   const scene = data.scene
   const effectiveSkyboxUrl = scene.skybox ?? connectedPanoUrl
