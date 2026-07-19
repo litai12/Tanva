@@ -298,13 +298,13 @@ function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: stri
   const yawRad = (((yawDeg ?? 0) % 360) * Math.PI) / 180
   React.useEffect(() => {
     scene.background = new THREE.Color(skyColor)
-    if (state?.url === url) window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'ready', mode: state.mode, width: state.width, height: state.height, luminance: state.luminance } }))
+    if (state && state.url === url) window.dispatchEvent(new CustomEvent('director:panorama-status', { detail: { url, status: 'ready', mode: state.mode, width: state.width, height: state.height, luminance: state.luminance } }))
     invalidate?.()
     return () => { scene.background = new THREE.Color(skyColor) }
   }, [state, url, yawDeg, skyColor, scene, invalidate])
 
   // 所有全景都渲染成真实内视球体。穹顶不参与拾取，否则点空处永远命中背景球。
-  return state?.url === url ? (
+  return state && state.url === url ? (
     <mesh ref={sphereRef} frustumCulled={false} renderOrder={-1000} rotation={[0, yawRad, 0]} raycast={() => null}>
       <sphereGeometry args={[Math.max(1, radius), 96, 64]} />
       <meshBasicMaterial map={state.texture} side={THREE.BackSide} depthWrite={false} toneMapped={false} />

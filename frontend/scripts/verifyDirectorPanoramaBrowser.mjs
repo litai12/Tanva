@@ -13,6 +13,8 @@ const browser = await chromium.launch({
 
 try {
   const page = await browser.newPage({ viewport: { width: 1470, height: 900 }, deviceScaleFactor: 1 })
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.addInitScript(() => {
     window.__directorPanoramaStatuses = []
     window.addEventListener('director:panorama-status', (event) => window.__directorPanoramaStatuses.push(event.detail))
@@ -33,8 +35,14 @@ try {
   })
   await page.route('https://acceptance.invalid/**', (route) => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg('#dc2626') }))
 
-  await page.goto(`${baseUrl}/director-harness?full=1&io=1`, { waitUntil: 'networkidle' })
   const modal = page.getByTestId('director-console-modal')
+  await page.goto(`${baseUrl}/director-harness?full=1`, { waitUntil: 'networkidle' })
+  await modal.waitFor()
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  if (pageErrors.length) throw new Error(`Director without a panorama crashed: ${pageErrors.join(' | ')}`)
+  if (await modal.getAttribute('data-skybox-url')) throw new Error('Director without a panorama unexpectedly resolved a skybox URL')
+
+  await page.goto(`${baseUrl}/director-harness?full=1&io=1`, { waitUntil: 'networkidle' })
   await modal.waitFor()
   await page.waitForFunction(() => document.querySelector('[data-testid="director-console-modal"]')?.getAttribute('data-skybox-url')?.includes('panorama.jpg'))
 
@@ -95,6 +103,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
+    emptyPanoramaStateRendered: true,
     connectedInputInitiallyRendered: true,
     generatedPanoramaApplied: true,
     generatedPanoramaPersisted: true,
