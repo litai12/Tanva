@@ -1,5 +1,6 @@
 import { dataUrlToBlob, uploadCanvasImageBlob } from './uploadCanvasImageBlob'
 import { isPersistableImageRef } from '@/utils/imageSource'
+import { buildDirectorImageNodeRequest } from './outputProtocol'
 
 // LibTV 导演台只向画布输出摄像机截图图片，不生成视频节点。
 
@@ -32,15 +33,12 @@ export async function sendShotsToCanvas(
       }
       window.dispatchEvent(new CustomEvent('flow:createImageNode', {
         detail: {
-          imageUrl: remoteUrl,
-          label: shot.name || '导演台截图',
-          imageName: shot.name || '导演台截图',
-          worldPosition: directorFlowPos
-            ? { x: directorFlowPos.x + 520, y: directorFlowPos.y + i * 280 }
-            : undefined,
-          sourceNodeId: directorNodeId,
-          sourceHandle: 'source',
-          targetHandle: 'img',
+          ...buildDirectorImageNodeRequest(
+            directorNodeId,
+            directorFlowPos,
+            { name: shot.name || '导演台截图', imageUrl: remoteUrl },
+            i,
+          ),
           done,
         },
       }))

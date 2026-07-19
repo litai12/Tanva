@@ -4,7 +4,7 @@ import * as THREE from 'three'
 export type JointRole =
   | 'body' | 'spine' | 'neck'
   | 'shoulderL' | 'elbowL' | 'shoulderR' | 'elbowR'
-  | 'hipL' | 'kneeL' | 'hipR' | 'kneeR'
+  | 'hipL' | 'kneeL' | 'footL' | 'hipR' | 'kneeR' | 'footR'
 
 export type Euler3 = [number, number, number] // 弧度
 export type PoseMap = Partial<Record<JointRole, Euler3>>
@@ -25,8 +25,10 @@ const MIXAMO_ROLE_NAMES: Record<JointRole, string[]> = {
   elbowR: ['rightforearm', 'lowerarmr'],
   hipL: ['leftupleg', 'thighl', 'upperlegl'],
   kneeL: ['leftleg', 'calfl', 'lowerlegl'],
+  footL: ['leftfoot', 'footl'],
   hipR: ['rightupleg', 'thighr', 'upperlegr'],
   kneeR: ['rightleg', 'calfr', 'lowerlegr'],
+  footR: ['rightfoot', 'footr'],
 }
 
 function normName(name: string): string {
@@ -376,7 +378,7 @@ export function getPoseIcon(preset: { id: string; category: string }): string {
 /** 全部可控关节（顺序固定，供整身动画/遍历）。 */
 export const ALL_JOINT_ROLES: JointRole[] = [
   'body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR',
-  'hipL', 'kneeL', 'hipR', 'kneeR',
+  'hipL', 'kneeL', 'footL', 'hipR', 'kneeR', 'footR',
 ]
 /** 上半身关节（混合动画默认蒙版：姿势关键帧只盖这些，腿留给 baked 位移）。 */
 export const UPPER_BODY_ROLES: JointRole[] = ['body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR']

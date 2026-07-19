@@ -1,6 +1,7 @@
 import type { CameraObj, CharacterObj, DirectorScene, Vec3 } from '../types'
 import type { GroundPath } from './groundPath'
 import { pathLength, samplePathAt } from './groundPath'
+import { snapPositionToGround } from './gaussianGround'
 
 export type PropertyName = 'position' | 'rotation' | 'scale' | 'uniformScale' | 'pose' | 'fovDeg' | 'lookAt'
 export type PoseValue = Record<string, Vec3>
@@ -112,12 +113,25 @@ export function setPositionTrajectory(
   const timeline = ensurePropertyTimeline(timelineValue)
   const id = trackId(objectId, 'position')
   const positionIds = new Set([id, trackId(objectId, 'position', 0), trackId(objectId, 'position', 1), trackId(objectId, 'position', 2)])
+  const headingId = trackId(objectId, 'rotation', 1)
   const trajectories = { ...(timeline.trajectories ?? {}) }
   if (!path.waypoints.length) {
     delete trajectories[objectId]
-    return { ...timeline, trajectories, tracks: timeline.tracks.filter((track) => track.id !== id) }
+    return {
+      ...timeline,
+      trajectories,
+      tracks: timeline.tracks.filter((track) => !positionIds.has(track.id) && !(objectKind === 'character' && track.id === headingId)),
+    }
   }
-  trajectories[objectId] = { waypoints: path.waypoints.map((point) => [point[0], point[1]]), mode: path.mode, closed: path.closed }
+  trajectories[objectId] = {
+    waypoints: path.waypoints.map((point) => [point[0], point[1]]),
+    mode: path.mode,
+    closed: path.closed,
+    autoFace: objectKind === 'character',
+    facingMode: path.facingMode ?? (objectKind === 'character' ? 'follow' : 'fixed'),
+    facingOffset: path.facingOffset ?? 0,
+    fixedHeading: path.fixedHeading,
+  }
   const totalLength = pathLength(path)
   let samples: Array<{ ratio: number; x: number; z: number }>
   if (path.mode === 'curve' && path.waypoints.length >= 3) {
@@ -139,7 +153,26 @@ export function setPositionTrajectory(
     value: [sample.x, yAt(sample.x, sample.z), sample.z],
   }))
   const track: PropertyTrack = { id, objectId, objectKind, property: 'position', keyframes }
-  return { ...timeline, trajectories, tracks: [...timeline.tracks.filter((item) => !positionIds.has(item.id)), track] }
+  const tracksToReplace = new Set(positionIds)
+  const additions: PropertyTrack[] = [track]
+  if (objectKind === 'character') tracksToReplace.add(headingId)
+  if (objectKind === 'character' && path.waypoints.length >= 2) {
+    additions.push({
+      id: headingId,
+      objectId,
+      objectKind,
+      property: 'rotation',
+      component: 1,
+      keyframes: samples.map((sample) => {
+        const tangent = samplePathAt(path, sample.ratio).tangent
+        return {
+          time: sample.ratio * timeline.duration,
+          value: Math.atan2(tangent[0], tangent[1]),
+        }
+      }),
+    })
+  }
+  return { ...timeline, trajectories, tracks: [...timeline.tracks.filter((item) => !tracksToReplace.has(item.id)), ...additions] }
 }
 
 const mixValue = (a: KeyframeValue, b: KeyframeValue, amount: number): KeyframeValue => {
@@ -210,9 +243,56 @@ export function samplePropertyTimeline(scene: DirectorScene, time: number): Dire
       target.set(track.objectId, { ...currentPatch, [track.property]: currentVector })
     } else target.set(track.objectId, { ...currentPatch, [track.property]: value, ...(track.property === 'pose' ? { posePresetId: undefined } : {}) })
   }
-  return {
+  const sampledScene: DirectorScene = {
     ...scene,
     characters: scene.characters.map((item) => ({ ...item, ...(characterPatches.get(item.id) ?? {}) })),
     cameras: scene.cameras.map((item) => ({ ...item, ...(cameraPatches.get(item.id) ?? {}) })),
   }
+  const ratio = Math.max(0, Math.min(1, time / timeline.duration))
+  for (const [objectId, path] of Object.entries(timeline.trajectories ?? {})) {
+    if (path.waypoints.length < 2) continue
+    const sampled = samplePathAt(path, ratio)
+    const characterIndex = sampledScene.characters.findIndex((item) => item.id === objectId)
+    if (characterIndex >= 0) {
+      const character = sampledScene.characters[characterIndex]
+      const groundY = snapPositionToGround(
+        [sampled.pos[0], character.position[1], sampled.pos[1]],
+        sampledScene.groundHeight ?? 0,
+        sampledScene.gaussianGroundSnap ?? true,
+      )[1]
+      const facingMode = path.facingMode ?? (path.autoFace === false ? 'fixed' : 'follow')
+      let heading = character.rotation[1]
+      if (facingMode !== 'fixed') {
+        heading = Math.atan2(sampled.tangent[0], sampled.tangent[1])
+          + (facingMode === 'reverse' ? Math.PI : 0)
+          + (path.facingOffset ?? 0)
+      } else if (typeof path.fixedHeading === 'number') heading = path.fixedHeading + (path.facingOffset ?? 0)
+      let pitch = character.rotation[0]
+      let roll = character.rotation[2]
+      if (sampledScene.gaussianGroundSnap ?? true) {
+        const epsilon = 0.08
+        const heightAt = (x: number, z: number) => snapPositionToGround(
+          [x, groundY, z], sampledScene.groundHeight ?? 0, true,
+        )[1]
+        const gradientX = (heightAt(sampled.pos[0] + epsilon, sampled.pos[1]) - heightAt(sampled.pos[0] - epsilon, sampled.pos[1])) / (2 * epsilon)
+        const gradientZ = (heightAt(sampled.pos[0], sampled.pos[1] + epsilon) - heightAt(sampled.pos[0], sampled.pos[1] - epsilon)) / (2 * epsilon)
+        const forwardSlope = gradientX * Math.sin(heading) + gradientZ * Math.cos(heading)
+        const rightSlope = gradientX * Math.cos(heading) - gradientZ * Math.sin(heading)
+        pitch += Math.atan(forwardSlope)
+        roll -= Math.atan(rightSlope)
+      }
+      sampledScene.characters[characterIndex] = {
+        ...character,
+        position: [sampled.pos[0], groundY, sampled.pos[1]],
+        rotation: [pitch, heading, roll],
+      }
+      continue
+    }
+    const cameraIndex = sampledScene.cameras.findIndex((item) => item.id === objectId)
+    if (cameraIndex >= 0) {
+      const camera = sampledScene.cameras[cameraIndex]
+      sampledScene.cameras[cameraIndex] = { ...camera, position: [sampled.pos[0], camera.position[1], sampled.pos[1]] }
+    }
+  }
+  return sampledScene
 }

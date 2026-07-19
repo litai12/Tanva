@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
-    "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts"
+    "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
+    "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
   },
   "dependencies": {
     "@alicloud/sms-sdk": "^1.1.6",

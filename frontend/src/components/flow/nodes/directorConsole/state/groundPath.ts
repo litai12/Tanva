@@ -4,6 +4,11 @@ export type GroundPath = {
   waypoints: Vec2[]
   mode: 'linear' | 'curve'  // 折线 / Catmull-Rom 平滑曲线
   closed?: boolean
+  /** Character trajectory faces its +Z forward axis along the sampled path tangent. */
+  autoFace?: boolean
+  facingMode?: 'follow' | 'reverse' | 'fixed'
+  facingOffset?: number
+  fixedHeading?: number
 }
 export type PathSample = { pos: Vec2; tangent: Vec2 } // tangent 已归一
 
@@ -11,13 +16,16 @@ const CURVE_SUBDIV = 16 // 每曲线段细分步数
 
 /** 把 path 展开成稠密折线点（linear 直接用路点；curve 经 Catmull-Rom 细分）。 */
 function densePolyline(path: GroundPath): Vec2[] {
-  const pts = path.closed && path.waypoints.length > 1
-    ? [...path.waypoints, path.waypoints[0]]
-    : path.waypoints
+  const pts = path.closed && path.waypoints.length > 1 ? [...path.waypoints, path.waypoints[0]] : path.waypoints
   if (pts.length <= 2 || path.mode === 'linear') return pts.map((p) => [p[0], p[1]] as Vec2)
   // Catmull-Rom：每相邻段用 4 控制点（端点夹紧复制）插值
   const out: Vec2[] = []
-  const get = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))]
+  const get = (i: number) => {
+    if (!path.closed) return pts[Math.max(0, Math.min(pts.length - 1, i))]
+    const count = path.waypoints.length
+    const wrapped = ((i % count) + count) % count
+    return path.waypoints[wrapped]
+  }
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2)
     const steps = CURVE_SUBDIV

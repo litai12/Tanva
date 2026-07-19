@@ -10,7 +10,7 @@ import { poseEulerFromRig, type JointRole, type RigState } from '../state/pose'
 import { aspectRatio, captureSize } from '../state/aspect'
 import { isPanoramaRatio, panoramaCanvasSize, adaptPanoramaPixels } from './panoramaAdapt'
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
-import { samplePathAt } from '../state/groundPath'
+import { pathLength, samplePathAt } from '../state/groundPath'
 import { snapPositionToGround } from '../state/gaussianGround'
 import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
 
@@ -47,18 +47,23 @@ type Props = {
   /** 路径绘制：active 时视口出现地面落点平面 + 路点把手 + 路径线（仅 director 视角） */
   pathDraw?: {
     active: boolean
+    objectKind: 'character' | 'camera'
     waypoints: [number, number][]   // XZ
     mode: 'linear' | 'curve'
     groundY?: number
+    gaussianGroundSnap?: boolean
     onAddWaypoint: (xz: [number, number]) => void
     onMoveWaypoint: (i: number, xz: [number, number]) => void
     selectedIndex?: number
     onSelectWaypoint?: (i: number) => void
   }
+  /** Absolute property-timeline playhead; drives skeletal mixers deterministically. */
+  animationTime?: number
 }
 
-function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
+function PathDrawLayer({ pd, scene, onDragStart, onDragEnd }: {
   pd: NonNullable<Props['pathDraw']>
+  scene: DirectorScene
   onDragStart: () => void
   onDragEnd: () => void
 }) {
@@ -66,25 +71,49 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
   const raycaster = useThree((s) => s.raycaster)
   const pointer = useThree((s) => s.pointer)
   const draggingRef = React.useRef<number | null>(null)
-  const plane = React.useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -(pd.groundY ?? 0)), [pd.groundY])
-  const lineY = (pd.groundY ?? 0) + 0.02
+  const pathTransform = React.useMemo(() => {
+    if (pd.objectKind === 'camera') return new THREE.Matrix4()
+    const position = new THREE.Vector3(...(scene.scenePosition ?? [0, 0, 0]))
+    const rotation = scene.sceneRotation ?? [0, 0, 0]
+    const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      THREE.MathUtils.degToRad(rotation[0]),
+      THREE.MathUtils.degToRad(rotation[1]),
+      THREE.MathUtils.degToRad(rotation[2]),
+    ))
+    const scale = Math.max(0.01, scene.sceneScale ?? 3)
+    return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(scale, scale, scale))
+  }, [pd.objectKind, scene.scenePosition, scene.sceneRotation, scene.sceneScale])
+  const inversePathTransform = React.useMemo(() => pathTransform.clone().invert(), [pathTransform])
+  const plane = React.useMemo(() => (
+    new THREE.Plane(new THREE.Vector3(0, 1, 0), -(pd.groundY ?? 0)).applyMatrix4(pathTransform)
+  ), [pd.groundY, pathTransform])
+  const pointY = React.useCallback((x: number, z: number) => {
+    if (pd.objectKind !== 'character' || !pd.gaussianGroundSnap) return pd.groundY ?? 0
+    return snapPositionToGround([x, pd.groundY ?? 0, z], pd.groundY ?? 0, true)[1]
+  }, [pd.objectKind, pd.gaussianGroundSnap, pd.groundY])
   const hitGround = React.useCallback((): [number, number] | null => {
     raycaster.setFromCamera(pointer, camera)
     const p = new THREE.Vector3()
-    return raycaster.ray.intersectPlane(plane, p) ? [p.x, p.z] : null
-  }, [raycaster, pointer, camera, plane])
+    if (!raycaster.ray.intersectPlane(plane, p)) return null
+    p.applyMatrix4(inversePathTransform)
+    return [p.x, p.z]
+  }, [raycaster, pointer, camera, plane, inversePathTransform])
 
   const linePts = React.useMemo<[number, number, number][]>(() => {
-    if (pd.waypoints.length < 2 || pd.mode === 'linear') return pd.waypoints.map((w) => [w[0], lineY, w[1]])
+    if (pd.waypoints.length < 2 || pd.mode === 'linear') return pd.waypoints.map((w) => [w[0], pointY(w[0], w[1]) + 0.02, w[1]])
     const path = { waypoints: pd.waypoints, mode: 'curve' as const }
     const N = 64
     const out: [number, number, number][] = []
-    for (let i = 0; i <= N; i++) { const s = samplePathAt(path, i / N); out.push([s.pos[0], lineY, s.pos[1]]) }
+    for (let i = 0; i <= N; i++) { const s = samplePathAt(path, i / N); out.push([s.pos[0], pointY(s.pos[0], s.pos[1]) + 0.02, s.pos[1]]) }
     return out
-  }, [pd.waypoints, pd.mode, lineY])
+  }, [pd.waypoints, pd.mode, pointY])
 
   return (
-    <group userData={{ directorHelper: true }}>
+    <group
+      matrix={pathTransform}
+      matrixAutoUpdate={false}
+      userData={{ directorHelper: true }}
+    >
       {pd.active ? (
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
@@ -99,7 +128,7 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
       {pd.waypoints.map((w, i) => (
         <mesh
           key={i}
-          position={[w[0], (pd.groundY ?? 0) + 0.12, w[1]]}
+          position={[w[0], pointY(w[0], w[1]) + 0.12, w[1]]}
           onPointerDown={(e) => { e.stopPropagation(); draggingRef.current = i; onDragStart(); pd.onSelectWaypoint?.(i); const t = e.target as { setPointerCapture?: (id: number) => void }; t.setPointerCapture?.(e.pointerId) }}
           onPointerMove={(e) => { if (draggingRef.current !== i) return; e.stopPropagation(); const xz = hitGround(); if (xz) pd.onMoveWaypoint(i, xz) }}
           onPointerUp={(e) => { if (draggingRef.current === i) { draggingRef.current = null; onDragEnd(); const t = e.target as { releasePointerCapture?: (id: number) => void }; t.releasePointerCapture?.(e.pointerId) } }}
@@ -279,7 +308,7 @@ function ReadySignal({ onReady }: { onReady?: () => void }) {
   return null
 }
 
-function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, pathDraw, onSelect, onPatchCharacter, onPatchCamera, groupsRef }: SceneContentsProps) {
+function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, pathDraw, animationTime, onSelect, onPatchCharacter, onPatchCamera, groupsRef }: SceneContentsProps) {
   const activeCam = scene.cameras.find((c) => c.id === scene.activeCameraId)
   const selectedChar = scene.characters.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
@@ -386,14 +415,25 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
       ) : null}
 
       {viewpoint === 'director' && pathDraw ? (
-        <PathDrawLayer pd={pathDraw} onDragStart={() => setOrbitOn(false)} onDragEnd={() => setOrbitOn(true)} />
+        <PathDrawLayer pd={pathDraw} scene={scene} onDragStart={() => setOrbitOn(false)} onDragEnd={() => setOrbitOn(true)} />
       ) : null}
 
       <group position={scenePosition} rotation={sceneRotationRad} scale={sceneScale}>
-        {scene.characters.filter((c) => !c.hidden).map((c) => (
+        {scene.characters.filter((c) => !c.hidden).map((c) => {
+          const trajectory = scene.propertyTimeline?.trajectories?.[c.id]
+          const motionConfig = c.trajectoryMotion ?? {}
+          const duration = Math.max(0.01, scene.propertyTimeline?.duration ?? 10)
+          const speedMps = trajectory && trajectory.waypoints.length >= 2 ? pathLength(trajectory) / duration : 0
+          const inferredClip = motionConfig.autoGait === false || speedMps < 0.05 ? undefined : speedMps > (motionConfig.runThreshold ?? 2.2) ? 'run' : 'walk'
+          const nominalSpeed = inferredClip === 'run' ? (motionConfig.runSpeed ?? 3.2) : (motionConfig.walkSpeed ?? 1.4)
+          const gaitRate = inferredClip ? Math.max(motionConfig.minPlaybackRate ?? 0.25, Math.min(motionConfig.maxPlaybackRate ?? 3, speedMps / nominalSpeed)) : 1
+          const renderedCharacter = animationTime != null && inferredClip && !c.motionClip && !c.motion
+            ? { ...c, motionClip: inferredClip }
+            : c
+          return (
           <CharacterObject
           key={c.id}
-          character={c}
+          character={renderedCharacter}
           customMotions={scene.customMotions}
           selected={c.id === selectedId}
           showLabel={scene.showCharacterLabels ?? true}
@@ -407,8 +447,21 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
             if (g) groupsRef.current.set(c.id, g); else groupsRef.current.delete(c.id)
             bumpRefs() // 注册表变化驱动重渲染，确保选中时 gizmo 能拿到 group
           }}
+          motionPreviewPlaying={animationTime != null}
+          motionDriveTime={animationTime != null ? animationTime * gaitRate : undefined}
+          footGrounding={animationTime != null && motionConfig.ikEnabled !== false ? {
+            groundHeight: scene.groundHeight ?? 0,
+            gaussianEnabled: scene.gaussianGroundSnap ?? true,
+            weight: motionConfig.ikWeight ?? 1,
+            lockEnabled: motionConfig.footLockEnabled ?? true,
+            lockDistance: motionConfig.footLockDistance ?? 0.055,
+            releaseDistance: motionConfig.footReleaseDistance ?? 0.14,
+            soleOffset: motionConfig.soleOffset ?? 0.01,
+            slopeWeight: motionConfig.footSlopeWeight ?? 1,
+          } : undefined}
           />
-        ))}
+          )
+        })}
       </group>
       {scene.cameras.filter((c) => !c.hidden).map((c) => (
         <CameraRig key={c.id} camera={c} scene={scene} active={viewpoint === 'director'} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />

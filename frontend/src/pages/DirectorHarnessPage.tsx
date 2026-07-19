@@ -12,6 +12,7 @@ import { AiSceneImportDialog } from '@/components/flow/nodes/directorConsole/pan
 import { BODY_TYPES } from '@/components/flow/nodes/directorConsole/assets'
 import { registerGaussianGroundBuffer, sampleGaussianGroundHeight } from '@/components/flow/nodes/directorConsole/state/gaussianGround'
 import { LIBTV_POSES } from '@/components/flow/nodes/directorConsole/panels/CharacterPropertiesPanel'
+import { directorOpenSourceAssetUrl } from '@/components/flow/nodes/directorConsole/directorAssetUrl'
 
 const DirectorConsoleModal = React.lazy(() => import('@/components/flow/nodes/directorConsole/DirectorConsoleModal'))
 const FULL_HARNESS_NODE_ID = 'director-full-harness'
@@ -182,7 +183,7 @@ function ViewportDirectorHarnessPage() {
     setLog(`gaussian slope heights: ${left?.toFixed(2)} / ${center?.toFixed(2)} / ${right?.toFixed(2)}`)
   }
   const loadCc0SplatGround = () => {
-    const modelId = '/director/open-source/cc0-terrain/rolling-ground.splat'
+    const modelId = directorOpenSourceAssetUrl('cc0-terrain/rolling-ground.splat')
     setData((current) => {
       if (current.scene.characters.some((character) => character.modelId === modelId)) return current
       return addCharacter(current, { id: 'cc0-splat-ground', modelId, name: 'CC0 起伏地面', position: [0, 0, 0] })

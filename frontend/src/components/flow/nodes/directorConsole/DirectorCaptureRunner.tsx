@@ -203,7 +203,12 @@ function OffscreenCapture({ job, onDone }: { job: CaptureJob; onDone: () => void
         const dataUrl = ref.current?.captureView()
         if (!dataUrl) throw new Error('captureView 返回空')
         // 前端建纯 image 节点：Tanva quick-upload 内部上传 OSS + 落 image 节点（锚定导演台下方）。
-        sendShotsToCanvas(job.nodeId, [{ name: '导演台出图', imageUrl: dataUrl }])
+        const createdIds = await sendShotsToCanvas(
+          job.nodeId,
+          null,
+          [{ name: '导演台出图', imageUrl: dataUrl }],
+        )
+        if (createdIds.length !== 1) throw new Error('导演台离屏截图未创建图片节点')
         await reportDirectorCapture({
           captureId: job.pending.captureId,
           leaseToken: job.leaseToken,

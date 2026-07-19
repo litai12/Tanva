@@ -917,3 +917,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 加固逐轴轨兼容优先级：重新建轨会替换同属性旧整向量轨，采样时先应用旧整向量基值、再由 component 轨覆盖对应轴，避免轨道数组顺序导致结果漂移；三轴输入改为可收缩布局，新增菱形按钮后仍保持在 320px 检查器内。
 - 真实打包 `propertyTimeline.ts` 执行确定性断言时发现并修复分量 rotation 仍走标量线性插值的问题。回归现证明：仅 X 位置打帧时中点 `[5,2,3]`（Y/Z 不漂移）、摄像机 Y 轴 350°→10° 中点为 360°、旧整向量 `[1,2,3]` 与新 X=7 共存时结果为 `[7,2,3]`。
 - 新增永久属性时间线回归门禁 `npm run verify:director-timeline`，直接打包并执行真实 `propertyTimeline.ts`，严格校验 X/Y/Z 建轨、新轨为空、单轴动画不污染其他轴、350°→10° 最短弧和旧整向量/新分量轨优先级；该门禁、前端生产构建及 `git diff --check` 均已通过。
+## [Director Open-source Assets on OSS/TOS - 2026-07-19]
+
+### Changed
+- Director Console bundled CC0 glTF, texture and Gaussian Splat assets now resolve through the configured public OSS/TOS base at `director-assets/v1/open-source/`, bypassing frontend-server bandwidth while retaining a local fallback when no public base is configured.
+- Added a repeatable backend upload command that preserves glTF-relative paths and writes immutable cache metadata plus a source SHA-256 object metadata value.
+
+### Fixed
+- Character trajectory curves, waypoint handles and pointer hit-testing now use the same scene position/rotation/scale transform as rendered characters; Gaussian-snapped curve heights use the same terrain sampler as position keyframes. Camera trajectories remain in world space at the camera's own Y level. This fixes XYZ motion drifting away from the drawn curve, including the default 3× scene scale.
+- Character trajectory commits now generate a paired `rotation.y` track from the exact same normalized path samples as the position track. The established +Z model-forward convention follows Catmull-Rom/linear tangents with shortest-arc interpolation, so the face direction stays locked to travel direction through bends.
+- Timeline playback now directly samples persisted trajectories every frame for exact curve position/tangent heading and current-XZ Gaussian height; closed Catmull-Rom paths use cyclic neighbors. Character trajectory UI adds follow/reverse/fixed facing plus degree offset controls, and legacy trajectories dynamically follow without manual migration.
+- Auto-key now has an unmistakable red recording state and explanatory toast/tooltip. During playback, inspector keyframe diamonds stop evaluating the moving ±20ms window, preventing the right property panel from flashing while the viewport continues sampling animation every frame.
+- Timeline trajectories now drive skeletal mixers from the absolute playhead. Path arc-length speed automatically selects walk/run for characters without an explicit motion and scales gait playback against 1.4 m/s walk / 3.2 m/s run reference speeds; Gaussian finite-difference gradients add heading-relative root pitch/roll on slopes.
+- Director rigs now map `footL/footR` across both bundled skeleton families (`Foot.L/R`, `foot_l/r`, Mixamo aliases). After each absolute-time Mixer sample, a four-pass CCD solve applies hip→knee→foot contact at independently sampled terrain heights and aligns each sole up-axis to the local Gaussian normal; unsupported uploaded rigs safely skip the solver.
+- Removed the legacy `widthScale` and procedural-body fallback from Director Console body rendering, so all eight LibTV body choices are now represented exclusively by their independent licensed meshes.
+- Fixed Agent/headless Director capture using the obsolete two-argument canvas-output call and reporting success before the image node existed. The runner now awaits the three-argument output API, rejects a missing node, and is covered by `npm run verify:director-output` for the remote payload, `source → img` handles, placement, and completion ordering.

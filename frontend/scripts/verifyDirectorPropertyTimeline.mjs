@@ -15,6 +15,7 @@ try {
     bundle: true,
     platform: 'node',
     format: 'esm',
+    alias: { '@': resolve(root, 'src') },
     outfile: output,
     logLevel: 'silent',
   })
@@ -53,7 +54,31 @@ try {
   sampled = timelineModule.samplePropertyTimeline({ ...scene, propertyTimeline: mixedTimeline }, 0)
   assert.deepEqual(sampled.characters[0].position, [7, 2, 3], 'component track must override only its legacy vector axis')
 
-  console.log('Director property timeline verification passed: components, empty-track creation, axis isolation, shortest arc, legacy precedence')
+  const path = { waypoints: [[0, 0], [0, 4], [4, 4]], mode: 'curve' }
+  const trajectoryTimeline = timelineModule.setPositionTrajectory(undefined, 'character', 'character', path, () => 2)
+  const positionTrack = trajectoryTimeline.tracks.find((track) => track.id === 'character:position')
+  const headingTrack = trajectoryTimeline.tracks.find((track) => track.id === 'character:rotation:1')
+  assert.ok(positionTrack?.keyframes.length > 2, 'character trajectory must compile position samples')
+  assert.equal(headingTrack?.keyframes.length, positionTrack.keyframes.length, 'position and face heading must use the same path ratios')
+  assert.deepEqual(headingTrack.keyframes.map((keyframe) => keyframe.time), positionTrack.keyframes.map((keyframe) => keyframe.time), 'position and face heading keyframes must remain time-locked through bends')
+  const straightZ = timelineModule.setPositionTrajectory(undefined, 'character', 'character', { waypoints: [[0, 0], [0, 4]], mode: 'linear' }, () => 2)
+  assert.equal(straightZ.tracks.find((track) => track.id === 'character:rotation:1')?.keyframes[0].value, 0, 'a +Z path must face the model forward axis along +Z')
+  const straightX = timelineModule.setPositionTrajectory(undefined, 'character', 'character', { waypoints: [[0, 0], [4, 0]], mode: 'linear' }, () => 2)
+  const straightXHeading = straightX.tracks.find((track) => track.id === 'character:rotation:1')?.keyframes.at(-1)?.value
+  assert.ok(Math.abs(straightXHeading - Math.PI / 2) < 1e-9, 'a +X path must face +X')
+  sampled = timelineModule.samplePropertyTimeline({ ...scene, propertyTimeline: trajectoryTimeline }, 10)
+  assert.equal(sampled.characters[0].rotation[1], headingTrack.keyframes.at(-1).value, 'timeline playback must apply the compiled path heading')
+
+  const reverseTimeline = timelineModule.setPositionTrajectory(undefined, 'character', 'character', { waypoints: [[0, 0], [0, 4]], mode: 'linear', facingMode: 'reverse' }, () => 2)
+  sampled = timelineModule.samplePropertyTimeline({ ...scene, propertyTimeline: reverseTimeline }, 5)
+  assert.deepEqual(sampled.characters[0].position, [0, 0, 2], 'runtime trajectory sampling must place the root exactly on the original path at the current ratio')
+  assert.ok(Math.abs(sampled.characters[0].rotation[1] - Math.PI) < 1e-9, 'reverse facing must look opposite the exact runtime tangent')
+
+  const fixedTimeline = timelineModule.setPositionTrajectory(undefined, 'character', 'character', { waypoints: [[0, 0], [4, 0]], mode: 'linear', facingMode: 'fixed', fixedHeading: 0.75, facingOffset: 0.25 }, () => 2)
+  sampled = timelineModule.samplePropertyTimeline({ ...scene, propertyTimeline: fixedTimeline }, 5)
+  assert.equal(sampled.characters[0].rotation[1], 1, 'fixed facing must preserve its captured heading plus explicit offset')
+
+  console.log('Director property timeline verification passed: components, axis isolation, shortest arc, legacy precedence, trajectory position/heading lock')
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

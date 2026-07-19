@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React from 'react'
+import * as THREE from 'three'
 import { createPortal } from 'react-dom'
 import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from '@xyflow/react'
@@ -313,6 +314,9 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   const propertyTimeline = React.useMemo(() => ensurePropertyTimeline(scene?.propertyTimeline), [scene?.propertyTimeline])
   const totalDuration = propertyTimeline.duration
   const displayedScene = React.useMemo(() => scene && editorMode === 'timeline' ? samplePropertyTimeline(scene, playhead) : scene, [scene, editorMode, playhead])
+  // Playback advances every RAF. Keep inspector key diamonds stable instead of
+  // flashing as the playhead repeatedly crosses their ±20ms hit window.
+  const inspectorKeyframeTime = playing ? null : playhead
 
   const commitTrajectory = React.useCallback((draft: NonNullable<typeof trajectoryDraft>) => {
     const current = dataRef.current
@@ -351,14 +355,15 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     if (!object) return
     const saved = ensurePropertyTimeline(current.scene.propertyTimeline).trajectories?.[objectId]
     const path: GroundPath = saved
-      ? { ...saved, waypoints: saved.waypoints.map((point) => [point[0], point[1]]) }
-      : { waypoints: [[object.position[0], object.position[2]]], mode: 'linear' }
+      ? { ...saved, waypoints: saved.waypoints.map((point) => [point[0], point[1]]), facingMode: saved.facingMode ?? (objectKind === 'character' ? 'follow' : 'fixed'), fixedHeading: saved.fixedHeading ?? object.rotation?.[1] ?? 0 }
+      : { waypoints: [[object.position[0], object.position[2]]], mode: 'linear', facingMode: objectKind === 'character' ? 'follow' : 'fixed', facingOffset: 0, fixedHeading: object.rotation?.[1] ?? 0 }
     setPlaying(false)
     const draft = { objectKind, objectId, path }
     trajectoryDraftRef.current = draft
     setTrajectoryDraft(draft)
-    apply(setViewpoint(selectObject(current, objectId), 'director'))
-  }, [apply, trajectoryDraft?.objectId])
+    commitTrajectory(draft)
+    apply(setViewpoint(selectObject(dataRef.current, objectId), 'director'))
+  }, [apply, commitTrajectory, trajectoryDraft?.objectId])
 
   // LibTV 属性时间线是导演台唯一的播放时钟。
   const playRefs = React.useRef({ playhead, total: totalDuration, loop: timelineLoop })
@@ -765,6 +770,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         <div style={{ width: 240, borderRight: '1px solid #1c1f26', overflowY: 'auto' }}>
           <SceneTreePanel
             scene={displayedScene ?? scene}
+            animationTime={editorMode === 'timeline' ? playhead : undefined}
             selectedId={selectedId}
             onSelect={(id) => apply(selectObject(data, id))}
             onToggleHidden={(id, hidden) => {
@@ -788,7 +794,11 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             gizmoMode={gizmoMode}
             pathDraw={trajectoryDraft ? {
               active: true,
-              groundY: scene.groundHeight ?? 0,
+              objectKind: trajectoryDraft.objectKind,
+              groundY: trajectoryDraft.objectKind === 'camera'
+                ? scene.cameras.find((camera) => camera.id === trajectoryDraft.objectId)?.position[1] ?? 0
+                : scene.groundHeight ?? 0,
+              gaussianGroundSnap: trajectoryDraft.objectKind === 'character' && (scene.gaussianGroundSnap ?? true),
               waypoints: trajectoryDraft.path.waypoints,
               mode: trajectoryDraft.path.mode,
               selectedIndex: trajectoryDraft.selectedIndex,
@@ -806,6 +816,26 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
           {trajectoryDraft ? <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 7, width: 220, padding: 10, border: '1px solid #333', borderRadius: 9, background: 'rgba(20,20,20,.94)', boxShadow: '0 8px 24px rgba(0,0,0,.45)', fontSize: 12 }}>
             <div style={{ color: '#eee', fontWeight: 600, marginBottom: 7 }}>绘制轨迹</div>
             <div style={{ color: '#8b8b8b', lineHeight: 1.5, marginBottom: 8 }}>点击地面创建路径点，拖动控制点调整轨迹。</div>
+            {trajectoryDraft.objectKind === 'character' ? <div style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 6, marginBottom: 6 }}>
+              <select
+                aria-label="轨迹朝向"
+                value={trajectoryDraft.path.facingMode ?? 'follow'}
+                onChange={(event) => updateTrajectory((draft) => ({ ...draft, path: { ...draft.path, facingMode: event.target.value as 'follow' | 'reverse' | 'fixed' } }))}
+                style={{ height: 28, border: '1px solid #3a3a3a', borderRadius: 6, background: '#242424', color: '#ddd', padding: '0 6px' }}
+              >
+                <option value="follow">面朝前进</option>
+                <option value="reverse">背朝前进</option>
+                <option value="fixed">保持朝向</option>
+              </select>
+              <input
+                aria-label="朝向偏移角度"
+                title="朝向偏移角度"
+                type="number"
+                value={Math.round(THREE.MathUtils.radToDeg(trajectoryDraft.path.facingOffset ?? 0) * 10) / 10}
+                onChange={(event) => updateTrajectory((draft) => ({ ...draft, path: { ...draft.path, facingOffset: THREE.MathUtils.degToRad(Number(event.target.value) || 0) } }))}
+                style={{ width: '100%', height: 28, border: '1px solid #3a3a3a', borderRadius: 6, background: '#242424', color: '#ddd', padding: '0 6px' }}
+              />
+            </div> : null}
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => updateTrajectory((draft) => ({ ...draft, path: { ...draft.path, mode: draft.path.mode === 'linear' ? 'curve' : 'linear' } }))} style={{ flex: 1, height: 28, border: '1px solid #3a3a3a', borderRadius: 6, background: '#242424', color: '#ddd', cursor: 'pointer' }}>{trajectoryDraft.path.mode === 'linear' ? '折线' : '曲线'}</button>
               <button disabled={trajectoryDraft.selectedIndex == null} onClick={() => updateTrajectory((draft) => {
@@ -841,7 +871,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               onSendShot={onSendShot}
               onDeleteShot={onDeleteShot}
               timelineKeyframes={editorMode === 'timeline' ? {
-                isKeyed: (property, component) => hasKeyframeAt(propertyTimeline, selectedCamera.id, property, playhead, component),
+                isKeyed: (property, component) => inspectorKeyframeTime != null && hasKeyframeAt(propertyTimeline, selectedCamera.id, property, inspectorKeyframeTime, component),
                 toggle: (property, component) => toggleInspectorKeyframe('camera', selectedCamera.id, property, component),
               } : undefined}
             />
@@ -851,7 +881,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               onPatch={(patch) => onCharacterPatch(selectedCharacter.id, patch)}
               timelineMode={editorMode === 'timeline'}
               timelineKeyframes={editorMode === 'timeline' ? {
-                isKeyed: (property, component) => hasKeyframeAt(propertyTimeline, selectedCharacter.id, property, playhead, component),
+                isKeyed: (property, component) => inspectorKeyframeTime != null && hasKeyframeAt(propertyTimeline, selectedCharacter.id, property, inspectorKeyframeTime, component),
                 toggle: (property, component) => toggleInspectorKeyframe('character', selectedCharacter.id, property, component),
               } : undefined}
             />
@@ -878,7 +908,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         onRemovePropertyKeyframe={(objectId, property) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: removeKeyframe(dataRef.current.scene.propertyTimeline, objectId, property, playRefs.current.playhead) } })}
         onDurationChange={(duration) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: { ...ensurePropertyTimeline(dataRef.current.scene.propertyTimeline), duration } } })}
         autoKeyframe={autoKeyframe}
-        onAutoKeyframeChange={setAutoKeyframe}
+        onAutoKeyframeChange={(enabled) => {
+          setAutoKeyframe(enabled)
+          showToast(enabled ? '自动帧已开启：修改属性会在当前播放头打关键帧' : '自动帧已关闭', 'success')
+        }}
         loop={timelineLoop}
         onLoopChange={setTimelineLoop}
         canManageSelectedTracks={!!(selectedCharacter || selectedCamera)}

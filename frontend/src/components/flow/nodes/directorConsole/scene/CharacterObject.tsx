@@ -5,14 +5,14 @@ import { useGLTF, Html, Splat, Image as DreiImage } from '@react-three/drei'
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import type { CharacterObj } from '../types'
-import { getLibraryItem, type BodyProfile, type PropShape } from '../assets'
+import { getLibraryItem, type PropShape } from '../assets'
 import { calibrateRig, applyPoseToRig, applyPosePartialToRig, POSE_PRESETS, type RigState, type PoseMap, type JointRole } from '../state/pose'
 import { buildWaveClip } from './waveClip'
 import { samplePoseClipAt, type PoseClip } from '../state/poseClip'
 import { findCustomMotion } from '../state/motionLibrary'
 import { findMotionPreset, concatMotionPresets } from '../state/motionPresets'
 import { sampleCharacterMotionAt, type CharacterMotion } from '../state/characterMotion'
-import { registerGaussianGround, unregisterGaussianGround } from '../state/gaussianGround'
+import { registerGaussianGround, sampleGaussianGroundHeight, unregisterGaussianGround } from '../state/gaussianGround'
 
 export type CharacterMixerEntry = {
   mixer: THREE.AnimationMixer
@@ -111,12 +111,80 @@ function JointMarkers({ rig, selectedRole }: { rig: RigState; selectedRole?: Joi
   )
 }
 
-/** 有 GLB 时加载素体（SkeletonUtils 安全克隆骨骼，染成素体色，按 heightM 归一化身高+落地+居中，widthScale 控体宽） */
-function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, customMotions, characterMotion, motionDriveTime, jointEditing, selectedJointRole, onRigChange, onMixerChange }: {
-  url: string; colorHex: string; heightM: number; widthScale: number; pose?: PoseMap; motionClip?: string; customMotions?: PoseClip[]
+/** 加载独立蒙皮素体（SkeletonUtils 安全克隆骨骼，染成素体色，按 heightM 统一量纲并落地居中）。 */
+type FootGroundingConfig = { groundHeight: number; gaussianEnabled: boolean; weight: number; lockEnabled: boolean; lockDistance: number; releaseDistance: number; soleOffset: number; slopeWeight: number }
+type FootContactState = Record<'L' | 'R', { locked: boolean; targetScene: THREE.Vector3 }>
+
+function solveFootGrounding(cloned: THREE.Object3D, rig: RigState, config: FootGroundingConfig, contacts: FootContactState) {
+  const characterGroup = cloned.parent
+  const sceneGroup = characterGroup?.parent
+  if (!characterGroup || !sceneGroup) return
+  sceneGroup.updateWorldMatrix(true, true)
+  const heightAt = (x: number, z: number, fallbackY: number) => config.gaussianEnabled
+    ? sampleGaussianGroundHeight(x, z, fallbackY) ?? config.groundHeight
+    : config.groundHeight
+  const solveLeg = (side: 'L' | 'R') => {
+    const hip = rig.roles[`hip${side}` as 'hipL' | 'hipR']
+    const knee = rig.roles[`knee${side}` as 'kneeL' | 'kneeR']
+    const foot = rig.roles[`foot${side}` as 'footL' | 'footR']
+    if (!hip || !knee || !foot) return
+    cloned.updateWorldMatrix(true, true)
+    const footWorld = foot.getWorldPosition(new THREE.Vector3())
+    const footScene = sceneGroup.worldToLocal(footWorld.clone())
+    const rawGroundY = heightAt(footScene.x, footScene.z, footScene.y) + config.soleOffset
+    const contact = contacts[side]
+    const footDistance = Math.abs(footScene.y - rawGroundY)
+    if (config.lockEnabled) {
+      if (!contact.locked && footDistance <= config.lockDistance) {
+        contact.locked = true
+        contact.targetScene.set(footScene.x, rawGroundY, footScene.z)
+      } else if (contact.locked && footDistance >= config.releaseDistance) contact.locked = false
+    } else contact.locked = false
+    const targetScene = contact.locked
+      ? contact.targetScene.clone().setY(heightAt(contact.targetScene.x, contact.targetScene.z, contact.targetScene.y) + config.soleOffset)
+      : new THREE.Vector3(footScene.x, rawGroundY, footScene.z)
+    const targetWorld = sceneGroup.localToWorld(targetScene.clone())
+    // CCD on the known hip→knee→foot chain. Four passes converge for the
+    // small terrain corrections while retaining the mixer's planted X/Z.
+    for (let pass = 0; pass < 4; pass++) {
+      for (const joint of [knee, hip]) {
+        cloned.updateWorldMatrix(true, true)
+        const jointWorld = joint.getWorldPosition(new THREE.Vector3())
+        const effectorWorld = foot.getWorldPosition(new THREE.Vector3())
+        const toEffector = effectorWorld.sub(jointWorld).normalize()
+        const toTarget = targetWorld.clone().sub(jointWorld).normalize()
+        if (!Number.isFinite(toEffector.x) || !Number.isFinite(toTarget.x)) continue
+        const deltaWorld = new THREE.Quaternion().setFromUnitVectors(toEffector, toTarget)
+        deltaWorld.slerp(new THREE.Quaternion(), 1 - Math.max(0, Math.min(1, config.weight)))
+        const parentWorld = joint.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+        const deltaLocal = parentWorld.clone().invert().multiply(deltaWorld).multiply(parentWorld)
+        joint.quaternion.premultiply(deltaLocal).normalize()
+      }
+    }
+    // Align the sole's up axis to the local terrain normal after the leg has
+    // reached the contact point; preserve the animated forward/twist axes.
+    cloned.updateWorldMatrix(true, true)
+    const e = 0.06
+    const hx = heightAt(footScene.x + e, footScene.z, targetScene.y) - heightAt(footScene.x - e, footScene.z, targetScene.y)
+    const hz = heightAt(footScene.x, footScene.z + e, targetScene.y) - heightAt(footScene.x, footScene.z - e, targetScene.y)
+    const normalScene = new THREE.Vector3(-hx / (2 * e), 1, -hz / (2 * e)).normalize()
+    const normalWorld = normalScene.transformDirection(sceneGroup.matrixWorld)
+    const footUpWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(foot.getWorldQuaternion(new THREE.Quaternion())).normalize()
+    const soleDeltaWorld = new THREE.Quaternion().setFromUnitVectors(footUpWorld, normalWorld)
+    soleDeltaWorld.slerp(new THREE.Quaternion(), 1 - Math.max(0, Math.min(1, config.slopeWeight)))
+    const parentWorld = foot.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+    foot.quaternion.premultiply(parentWorld.clone().invert().multiply(soleDeltaWorld).multiply(parentWorld)).normalize()
+  }
+  solveLeg('L')
+  solveLeg('R')
+}
+
+function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, characterMotion, motionDriveTime, footGrounding, jointEditing, selectedJointRole, onRigChange, onMixerChange }: {
+  url: string; colorHex: string; heightM: number; pose?: PoseMap; motionClip?: string; customMotions?: PoseClip[]
   characterMotion?: CharacterMotion
   /** 给定(≥0)时按此【绝对时间】采样动画（与全局播放头同步），否则内部自循环。 */
   motionDriveTime?: number | null
+  footGrounding?: FootGroundingConfig
   jointEditing?: boolean; selectedJointRole?: JointRole | null; onRigChange?: (rig: RigState | null) => void
   onMixerChange?: (entry: CharacterMixerEntry | null) => void
 }) {
@@ -135,7 +203,7 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
     const box = new THREE.Box3().setFromObject(c)
     const size = new THREE.Vector3(); box.getSize(size)
     const k = size.y > 0.0001 ? heightM / size.y : 1
-    c.scale.set(k * widthScale, k, k * widthScale)
+    c.scale.setScalar(k)
     // 缩放后重新量，脚落到 y=0、水平居中
     c.updateMatrixWorld(true)
     const box2 = new THREE.Box3().setFromObject(c)
@@ -144,7 +212,7 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
     c.position.z -= center.z
     c.position.y -= box2.min.y
     return c
-  }, [scene, colorHex, heightM, widthScale])
+  }, [scene, colorHex, heightM])
 
   // 标定骨架（关节映射 + 绑定姿态 + 解剖学规范坐标系，pose.ts）必须在【已提交】的 cloned 上做：
   // React StrictMode 双调 useMemo 工厂，在工厂内写 ref 会让 rig 指向被丢弃的那份克隆 →
@@ -233,6 +301,10 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
   const characterMotionRef = React.useRef(characterMotion); characterMotionRef.current = characterMotion
   const driveTimeRef = React.useRef(motionDriveTime); driveTimeRef.current = motionDriveTime
   const previewElapsedRef = React.useRef(0)
+  const footContactsRef = React.useRef<FootContactState>({
+    L: { locked: false, targetScene: new THREE.Vector3() },
+    R: { locked: false, targetScene: new THREE.Vector3() },
+  })
   useFrame((_, delta) => {
     if (characterMotionRef.current) {
       const dt = driveTimeRef.current
@@ -240,14 +312,21 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
         // 与全局播放头同步：按绝对时间采样，并【钳到本片段时长】——超出轨道长度冻结在末帧，不再循环
         const dur = Math.max(0.5, characterMotionRef.current.durationSeconds)
         applyComposedMotion(characterMotionRef.current, Math.min(dt, dur))
+        if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
         return
       }
       previewElapsedRef.current += delta
       applyComposedMotion(characterMotionRef.current, previewElapsedRef.current)
+      if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
       return
     }
     const mc = motionRef.current
     if (!mc) { elapsedRef.current = 0; return }
+    const drivenTime = driveTimeRef.current
+    if (drivenTime != null && drivenTime >= 0) {
+      applyMotion(mc, drivenTime)
+      return
+    }
     elapsedRef.current += delta
     // 【面板预览统一循环·补动】一次性预设(loop=false)播完会冻结成静态(看着像"站立不动")。
     // 预览里把 elapsed 折回 [0, dur+hold]：动作播完、末帧停 hold 秒、再重播——浏览预设时个个都在动。
@@ -258,6 +337,7 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
     })()
     const tPlay = previewDur > 0 ? elapsedRef.current % (previewDur + PREVIEW_LOOP_HOLD_SEC) : elapsedRef.current
     applyMotion(mc, tPlay)
+    if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
   })
 
   // 上报 rig 给 Viewport（骨骼 gizmo 挂载点）；回调身份用 ref 解耦，只随模型重建触发
@@ -276,82 +356,6 @@ function GltfBody({ url, colorHex, heightM, widthScale, pose, motionClip, custom
       ) : null}
     </>
   )
-}
-
-function makeSegment(material: THREE.Material, radius: number, length: number, axis: 'x-' | 'x+' | 'y-'): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 2), 6, 14), material)
-  if (axis === 'y-') mesh.position.y = -length / 2
-  else {
-    mesh.rotation.z = Math.PI / 2
-    mesh.position.x = axis === 'x-' ? -length / 2 : length / 2
-  }
-  mesh.castShadow = true
-  mesh.receiveShadow = true
-  return mesh
-}
-
-/** 项目自建的独立关节素体：刚性分段网格挂在统一骨架上，可直接复用 LibTV 姿势与关节 gizmo。 */
-function buildProceduralBody(profile: BodyProfile, colorHex: string): THREE.Group {
-  const root = new THREE.Group()
-  root.name = 'TanvaProceduralBody'
-  const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex), roughness: .72, metalness: .02 })
-  const hipY = profile.shin + profile.thigh
-  const derivedHeight = hipY + profile.torsoLength + profile.headRadius * 2.25
-  const k = profile.height / derivedHeight
-  root.scale.setScalar(k)
-
-  const hips = new THREE.Bone(); hips.name = 'mixamorigHips'; hips.position.y = hipY; root.add(hips)
-  const spine = new THREE.Bone(); spine.name = 'mixamorigSpine'; hips.add(spine)
-  const neck = new THREE.Bone(); neck.name = 'mixamorigNeck'; neck.position.y = profile.torsoLength; spine.add(neck)
-
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(profile.torsoRadiusTop, profile.torsoRadiusBottom, profile.torsoLength, 20), mat)
-  torso.position.y = profile.torsoLength / 2; spine.add(torso)
-  const pelvis = new THREE.Mesh(new THREE.CapsuleGeometry(profile.hipWidth * .34, Math.max(.02, profile.hipWidth * .34), 6, 16), mat)
-  pelvis.rotation.z = Math.PI / 2; hips.add(pelvis)
-  const head = new THREE.Mesh(new THREE.SphereGeometry(profile.headRadius, 24, 20), mat)
-  head.scale.set(0.88, 1.08, 0.92); head.position.y = profile.headRadius * 1.15; neck.add(head)
-
-  const arm = (left: boolean) => {
-    const sign = left ? -1 : 1
-    const shoulder = new THREE.Bone(); shoulder.name = left ? 'mixamorigLeftArm' : 'mixamorigRightArm'
-    shoulder.position.set(sign * profile.shoulderWidth / 2, profile.torsoLength * .82, 0); spine.add(shoulder)
-    shoulder.add(makeSegment(mat, profile.armRadius, profile.upperArm, left ? 'x-' : 'x+'))
-    const elbow = new THREE.Bone(); elbow.name = left ? 'mixamorigLeftForeArm' : 'mixamorigRightForeArm'
-    elbow.position.x = sign * profile.upperArm; shoulder.add(elbow)
-    elbow.add(makeSegment(mat, profile.armRadius * .86, profile.forearm, left ? 'x-' : 'x+'))
-    const hand = new THREE.Bone(); hand.name = left ? 'mixamorigLeftHand' : 'mixamorigRightHand'
-    hand.position.x = sign * profile.forearm; elbow.add(hand)
-    const handMesh = new THREE.Mesh(new THREE.SphereGeometry(profile.armRadius * 1.08, 14, 12), mat); hand.add(handMesh)
-  }
-  arm(true); arm(false)
-
-  const leg = (left: boolean) => {
-    const sign = left ? -1 : 1
-    const hip = new THREE.Bone(); hip.name = left ? 'mixamorigLeftUpLeg' : 'mixamorigRightUpLeg'
-    hip.position.x = sign * profile.hipWidth * .27; hips.add(hip)
-    hip.add(makeSegment(mat, profile.legRadius, profile.thigh, 'y-'))
-    const knee = new THREE.Bone(); knee.name = left ? 'mixamorigLeftLeg' : 'mixamorigRightLeg'
-    knee.position.y = -profile.thigh; hip.add(knee)
-    knee.add(makeSegment(mat, profile.legRadius * .82, profile.shin, 'y-'))
-    const ankle = new THREE.Bone(); ankle.name = left ? 'mixamorigLeftFoot' : 'mixamorigRightFoot'
-    ankle.position.y = -profile.shin; knee.add(ankle)
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(profile.legRadius * 1.55, profile.legRadius * .75, profile.legRadius * 2.5), mat)
-    foot.position.set(0, profile.legRadius * .2, profile.legRadius * .55); ankle.add(foot)
-  }
-  leg(true); leg(false)
-  root.updateMatrixWorld(true)
-  return root
-}
-
-function ProceduralBody({ profile, colorHex, pose, jointEditing, selectedJointRole, onRigChange, onMixerChange }: {
-  profile: BodyProfile; colorHex: string; pose?: PoseMap; jointEditing?: boolean; selectedJointRole?: JointRole | null
-  onRigChange?: (rig: RigState | null) => void; onMixerChange?: (entry: CharacterMixerEntry | null) => void
-}) {
-  const body = React.useMemo(() => buildProceduralBody(profile, colorHex), [profile, colorHex])
-  const rig = React.useMemo(() => calibrateRig(body), [body])
-  React.useEffect(() => { applyPoseToRig(body, rig, pose) }, [body, rig, pose])
-  React.useEffect(() => { onRigChange?.(rig); onMixerChange?.(null); return () => onRigChange?.(null) }, [rig, onRigChange, onMixerChange])
-  return <><primitive object={body} />{jointEditing ? <JointMarkers rig={rig} selectedRole={selectedJointRole} /> : null}</>
 }
 
 function GaussianObject({ character, url }: { character: CharacterObj; url: string }) {
@@ -500,7 +504,7 @@ function PlaceholderBody({ colorHex }: { colorHex: string }) {
   )
 }
 
-export function CharacterObject({ character, selected, showLabel = true, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, motionPreviewPlaying, motionDriveTime }: Props) {
+export function CharacterObject({ character, selected, showLabel = true, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, motionPreviewPlaying, motionDriveTime, footGrounding }: Props & { footGrounding?: FootGroundingConfig }) {
   const item = getLibraryItem(character.modelId)
   const s = character.uniformScale
   // 稳定 ref 回调（inline 箭头会让 React 每次渲染都 detach/attach，上游 bump 会死循环）
@@ -559,13 +563,11 @@ export function CharacterObject({ character, selected, showLabel = true, customM
     body = <DreiImage url={item.url} scale={[3.2, 1.8]} position={[0, 0.9, 0]} transparent />
   } else if (item?.kind === 'prop') {
     body = <PropObject shape={item.shape} colorHex={character.colorHex} />
-  } else if (item?.kind === 'body' && item.profile) {
-    body = <ProceduralBody profile={item.profile} colorHex={character.colorHex} pose={resolveCharacterPose(character)} jointEditing={jointEditing} selectedJointRole={selectedJointRole} onRigChange={onRigChange} onMixerChange={onMixerChange} />
-  } else if (item?.kind === 'body' && item.url) {
+  } else if (item?.kind === 'body') {
     body = (
       <React.Suspense fallback={<PlaceholderBody colorHex={character.colorHex} />}>
         <GltfBody
-          url={item.url} colorHex={character.colorHex} heightM={item.heightM} widthScale={item.widthScale ?? 1} pose={resolveCharacterPose(character)} motionClip={effectiveMotionClip} customMotions={effectiveCustomMotions} characterMotion={motionPreviewPlaying ? character.motion : undefined} motionDriveTime={motionDriveTime}
+          url={item.url} colorHex={character.colorHex} heightM={item.heightM} pose={resolveCharacterPose(character)} motionClip={effectiveMotionClip} customMotions={effectiveCustomMotions} characterMotion={motionPreviewPlaying ? character.motion : undefined} motionDriveTime={motionDriveTime} footGrounding={footGrounding}
           jointEditing={jointEditing} selectedJointRole={selectedJointRole} onRigChange={onRigChange} onMixerChange={onMixerChange}
         />
       </React.Suspense>

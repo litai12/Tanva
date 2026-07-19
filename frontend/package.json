@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "build:staging": "tsc -b && vite build --mode staging",
     "verify:director-timeline": "node scripts/verifyDirectorPropertyTimeline.mjs",
+    "verify:director-output": "node scripts/verifyDirectorOutputProtocol.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs"

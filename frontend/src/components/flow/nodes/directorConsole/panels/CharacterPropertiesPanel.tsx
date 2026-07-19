@@ -92,6 +92,8 @@ export function CharacterPropertiesPanel({ character, onPatch, timelineMode = fa
   const isProp = getLibraryItem(character.modelId)?.kind !== 'body'
   const [tab, setTab] = React.useState<'props' | 'pose' | 'trajectory'>('props')
   const effectiveTab = isProp || (!timelineMode && tab === 'trajectory') ? 'props' : tab
+  const trajectoryMotion = character.trajectoryMotion ?? {}
+  const patchTrajectoryMotion = (patch: Partial<NonNullable<CharacterObj['trajectoryMotion']>>) => onPatch({ trajectoryMotion: { ...trajectoryMotion, ...patch } })
   const pose = (character.pose ?? {}) as Record<string, [number, number, number]>
   const rotationDegrees = character.rotation.map((value) => toDeg(value)) as [number, number, number]
 
@@ -150,7 +152,20 @@ export function CharacterPropertiesPanel({ character, onPatch, timelineMode = fa
             </React.Fragment>)}
           </div>
         </Section>)}
-      </> : <div style={{ padding: 16, color: '#8c8c8c', fontSize: 12, lineHeight: 1.6 }}>在下方时间轴中选择角色轨道，并使用“绘制轨迹”设置角色运动路径。</div>}
+      </> : <>
+        <div style={{ padding: '12px 16px', color: '#8c8c8c', fontSize: 12, lineHeight: 1.6 }}>在下方时间轴中使用“绘制轨迹”设置路径；这里控制步态、地面接触与 IK 精度。</div>
+        <Section title="自动步态"><button aria-pressed={trajectoryMotion.autoGait !== false} onClick={() => patchTrajectoryMotion({ autoGait: trajectoryMotion.autoGait === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.autoGait !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.autoGait !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="跑步阈值 m/s"><SliderField value={trajectoryMotion.runThreshold ?? 2.2} min={0.5} max={6} step={0.1} displayDigits={1} onChange={(runThreshold) => patchTrajectoryMotion({ runThreshold })} /></Section>
+        <Section title="行走标定 m/s"><SliderField value={trajectoryMotion.walkSpeed ?? 1.4} min={0.2} max={3} step={0.05} displayDigits={2} onChange={(walkSpeed) => patchTrajectoryMotion({ walkSpeed })} /></Section>
+        <Section title="跑步标定 m/s"><SliderField value={trajectoryMotion.runSpeed ?? 3.2} min={1} max={8} step={0.1} displayDigits={1} onChange={(runSpeed) => patchTrajectoryMotion({ runSpeed })} /></Section>
+        <Section title="脚底 IK"><button aria-pressed={trajectoryMotion.ikEnabled !== false} onClick={() => patchTrajectoryMotion({ ikEnabled: trajectoryMotion.ikEnabled === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.ikEnabled !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.ikEnabled !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="IK 强度"><SliderField value={trajectoryMotion.ikWeight ?? 1} min={0} max={1} step={0.05} displayDigits={2} onChange={(ikWeight) => patchTrajectoryMotion({ ikWeight })} /></Section>
+        <Section title="脚底锁定"><button aria-pressed={trajectoryMotion.footLockEnabled !== false} onClick={() => patchTrajectoryMotion({ footLockEnabled: trajectoryMotion.footLockEnabled === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.footLockEnabled !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.footLockEnabled !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="接触阈值 m"><SliderField value={trajectoryMotion.footLockDistance ?? 0.055} min={0.01} max={0.2} step={0.005} displayDigits={3} onChange={(footLockDistance) => patchTrajectoryMotion({ footLockDistance })} /></Section>
+        <Section title="释放阈值 m"><SliderField value={trajectoryMotion.footReleaseDistance ?? 0.14} min={0.03} max={0.4} step={0.01} displayDigits={2} onChange={(footReleaseDistance) => patchTrajectoryMotion({ footReleaseDistance })} /></Section>
+        <Section title="脚底偏移 m"><SliderField value={trajectoryMotion.soleOffset ?? 0.01} min={-0.1} max={0.15} step={0.005} displayDigits={3} onChange={(soleOffset) => patchTrajectoryMotion({ soleOffset })} /></Section>
+        <Section title="脚掌坡面权重"><SliderField value={trajectoryMotion.footSlopeWeight ?? 1} min={0} max={1} step={0.05} displayDigits={2} onChange={(footSlopeWeight) => patchTrajectoryMotion({ footSlopeWeight })} /></Section>
+      </>}
     </div>
   )
 }

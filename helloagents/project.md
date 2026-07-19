@@ -30,6 +30,7 @@
 ### 资源访问
 - 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL
 - 如需重新启用代理：设置 `VITE_PROXY_ASSETS=true`
+- 导演台内置开源模型与地形发布到 `director-assets/v1/open-source/`，运行时通过 `VITE_ASSET_PUBLIC_BASE_URL` 直连；未配置公共资源基址时回退到 `frontend/public/director/open-source/`。上传使用 `cd backend && npm run upload:director-assets`，必须保持 glTF 依赖的相对目录结构。
 
 ### API 前缀与文档
 - 后端全局前缀：`/api`

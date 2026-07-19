@@ -573,6 +573,39 @@ export class OssService {
     return { key, url: this.publicUrl(key) };
   }
 
+  async putBufferWithHeaders(
+    key: string,
+    buffer: Buffer,
+    contentType: string,
+    headers: Record<string, string>,
+  ): Promise<{ key: string; url: string }> {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      return { key, url: '' };
+    }
+
+    if (this.isTosHost(this.resolveObjectHost())) {
+      await this.withTosSecretCandidates(async (client) => {
+        await client.putObject({
+          key,
+          body: buffer,
+          contentType,
+          cacheControl: headers['Cache-Control'],
+          meta: headers['x-tanva-sha256']
+            ? { 'tanva-sha256': headers['x-tanva-sha256'] }
+            : undefined,
+        });
+      });
+      return { key, url: this.publicUrl(key) };
+    }
+
+    const client = this.client();
+    await client.put(key, buffer, {
+      headers: { 'Content-Type': contentType, ...headers },
+    });
+    return { key, url: this.publicUrl(key) };
+  }
+
   async putJSON(
     key: string,
     data: unknown,

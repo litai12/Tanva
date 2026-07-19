@@ -55,7 +55,12 @@ export function TimelinePanel(props: TimelinePanelProps) {
   return <div data-testid="timeline-panel" data-minimized={minimized ? 'true' : 'false'} style={{ position: 'relative', height: minimized ? 42 : 250, borderTop: '1px solid #262626', background: '#151515', color: '#d4d4d4', userSelect: 'none' }}>
     <div style={{ height: 42, display: 'flex', alignItems: 'center', gap: 7, padding: '0 12px', borderBottom: '1px solid #262626' }}>
       <button style={button} aria-label={props.playing ? '暂停' : '播放'} onClick={props.onPlayToggle}>{props.playing ? 'Ⅱ' : '▶'}</button>
-      <button style={{ ...button, background: props.autoKeyframe ? '#343434' : '#242424', color: props.autoKeyframe ? '#fff' : '#bfbfbf' }} aria-pressed={props.autoKeyframe} onClick={() => props.onAutoKeyframeChange(!props.autoKeyframe)}>自动帧</button>
+      <button
+        style={{ ...button, background: props.autoKeyframe ? '#7f1d1d' : '#242424', borderColor: props.autoKeyframe ? '#ef4444' : '#333', color: props.autoKeyframe ? '#fff' : '#bfbfbf' }}
+        aria-pressed={props.autoKeyframe}
+        title={props.autoKeyframe ? '自动帧已开启：修改属性会在当前播放头自动打帧' : '开启后，修改角色或机位属性会在当前播放头自动打帧'}
+        onClick={() => props.onAutoKeyframeChange(!props.autoKeyframe)}
+      >{props.autoKeyframe ? '● 自动帧' : '自动帧'}</button>
       <button style={{ ...button, background: props.loop ? '#343434' : '#242424', color: props.loop ? '#fff' : '#bfbfbf' }} aria-pressed={props.loop} onClick={() => props.onLoopChange(!props.loop)}>循环播放</button>
       <input aria-label="播放头位置" type="text" inputMode="decimal" value={milliseconds ? Math.round(props.playhead * 1000) : props.playhead.toFixed(2)} onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) props.onSeek(value / (milliseconds ? 1000 : 1)) }} style={{ width: 72, height: 24, border: '1px solid #333', borderRadius: 4, background: '#202020', color: '#d4d4d4', padding: '0 6px', fontSize: 11 }} />
       <span style={{ fontSize: 11, color: '#737373' }}>/</span>

@@ -1,43 +1,27 @@
+import { directorOpenSourceAssetUrl } from './directorAssetUrl'
+
 export type PropShape =
   | 'box' | 'sphere' | 'cylinder' | 'torus' | 'cone' | 'pyramid' | 'plane'
   | 'table' | 'low-table' | 'chair' | 'stool' | 'sofa' | 'bed' | 'cabinet' | 'sideboard' | 'shelf' | 'lamp'
 
-export type BodyProfile = {
-  height: number
-  headRadius: number
-  shoulderWidth: number
-  hipWidth: number
-  torsoLength: number
-  torsoRadiusTop: number
-  torsoRadiusBottom: number
-  upperArm: number
-  forearm: number
-  armRadius: number
-  thigh: number
-  shin: number
-  legRadius: number
-}
-
 export type LibraryItem =
-  | { id: string; name: string; kind: 'body'; url?: string; heightM: number; widthScale?: number; profile?: BodyProfile }
+  | { id: string; name: string; kind: 'body'; url: string; heightM: number }
   | { id: string; name: string; kind: 'prop'; shape: PropShape; defaultColor?: string }
   | { id: string; name: string; kind: 'empty' }
   | { id: string; name: string; kind: 'gaussian'; url: string }
   | { id: string; name: string; kind: 'reference'; url: string }
 
-// 自托管素体 GLB（标准 Mixamo 骨骼 X Bot，T-pose 绑定，见 public/director/ATTRIBUTION.md），可用环境变量覆盖为自有模型。
-// 姿势系统按人形骨骼校准（pose.ts）：Mixamo 命名精确映射，其它命名走模糊匹配。
-// 自建的八套独立 blocking 素体。每套有不同的头身比、肩髋比、躯干截面、
-// 四肢长度与粗细，并共享可姿势化的关节命名；不再复用 XBot 做整体缩放。
+// 八套许可兼容的独立蒙皮模型。姿势系统按人形骨骼校准（pose.ts）：
+// Mixamo/Universal Base/Ultimate Animated 的已知命名精确映射，其它上传模型走模糊匹配。
 export const BODY_TYPES: LibraryItem[] = [
-  { id: 'male', name: '男性素体', kind: 'body', heightM: 1.78, url: '/director/open-source/quaternius-universal-base/Superhero_Male_FullBody.gltf' },
-  { id: 'female', name: '女性素体', kind: 'body', heightM: 1.66, url: '/director/open-source/quaternius-universal-base/Superhero_Female_FullBody.gltf' },
-  { id: 'broad', name: '宽厚素体', kind: 'body', heightM: 1.74, url: '/director/open-source/quaternius-ultimate-animated/Viking_Male.gltf' },
-  { id: 'muscular', name: '健壮素体', kind: 'body', heightM: 1.82, url: '/director/open-source/quaternius-ultimate-animated/Knight_Male.gltf' },
-  { id: 'slim', name: '纤细素体', kind: 'body', heightM: 1.72, url: '/director/open-source/quaternius-ultimate-animated/Ninja_Female.gltf' },
-  { id: 'teen', name: '少年素体', kind: 'body', heightM: 1.50, url: '/director/open-source/quaternius-ultimate-animated/Elf.gltf' },
-  { id: 'child', name: '儿童素体', kind: 'body', heightM: 1.20, url: '/director/open-source/quaternius-ultimate-animated/Goblin_Male.gltf' },
-  { id: 'chibi', name: '二头身', kind: 'body', heightM: 1.00, url: '/director/open-source/quaternius-ultimate-animated/Goblin_Female.gltf' },
+  { id: 'male', name: '男性素体', kind: 'body', heightM: 1.78, url: directorOpenSourceAssetUrl('quaternius-universal-base/Superhero_Male_FullBody.gltf') },
+  { id: 'female', name: '女性素体', kind: 'body', heightM: 1.66, url: directorOpenSourceAssetUrl('quaternius-universal-base/Superhero_Female_FullBody.gltf') },
+  { id: 'broad', name: '宽厚素体', kind: 'body', heightM: 1.74, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Viking_Male.gltf') },
+  { id: 'muscular', name: '健壮素体', kind: 'body', heightM: 1.82, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Knight_Male.gltf') },
+  { id: 'slim', name: '纤细素体', kind: 'body', heightM: 1.72, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Ninja_Female.gltf') },
+  { id: 'teen', name: '少年素体', kind: 'body', heightM: 1.50, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Elf.gltf') },
+  { id: 'child', name: '儿童素体', kind: 'body', heightM: 1.20, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Goblin_Male.gltf') },
+  { id: 'chibi', name: '二头身', kind: 'body', heightM: 1.00, url: directorOpenSourceAssetUrl('quaternius-ultimate-animated/Goblin_Female.gltf') },
 ]
 
 export const PROP_TYPES: LibraryItem[] = [

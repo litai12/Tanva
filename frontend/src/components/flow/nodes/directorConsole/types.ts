@@ -40,6 +40,22 @@ export type CharacterObj = {
   /** 轻量动画：混合分层动作（上半身姿势关键帧 + 下半身 baked 位移 + 2D 路径根行进）。
    *  设了则优先于 motionClip/pose；定义见 state/characterMotion.ts。 */
   motion?: import('./state/characterMotion').CharacterMotion
+  trajectoryMotion?: {
+    autoGait?: boolean
+    walkSpeed?: number
+    runSpeed?: number
+    runThreshold?: number
+    minPlaybackRate?: number
+    maxPlaybackRate?: number
+    ikEnabled?: boolean
+    ikWeight?: number
+    footLockEnabled?: boolean
+    footLockDistance?: number
+    footReleaseDistance?: number
+    soleOffset?: number
+    rootSlopeWeight?: number
+    footSlopeWeight?: number
+  }
 }
 
 export type CameraObj = {
