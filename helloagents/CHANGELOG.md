@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-19：小T大脑从 Claude 4.8/4.7/4.6 迁移到 GPT 5.6 Sol/Terra/Luna，默认 Sol；前后端白名单与选择器同步更新，preferences v2 自动清理历史 Claude 偏好，new-api 小T渠道以专属门面名和 `model_mapping` 送达 TapCanvas facade，避免裸 GPT 名绕过小T智能体链路。
 - 2026-07-19：修复导演台无全景、清空全景或全景切换瞬间 `Skybox` 把两个空 URL 误判为同一纹理，继而读取空 `state.texture/state.mode` 导致 WebGL 视口崩溃；`verify:director-panorama` 新增无全景首屏门禁，并继续覆盖图片连入、AI 生成、持久化刷新和小半径天空球渲染。
 - 2026-07-19：导演台 32 个模型、纹理、glTF bin、Gaussian 地形及许可证文件完整迁移至广州 TOS `director-assets/v1/`，50,103,802 bytes 经逐文件回读 SHA-256 校验一致；运行时与 X Bot 骨骼回归页改为远程资源，移除 `frontend/public/director` 本地副本，将 `frontend/public` 从约 65 MB 降至约 17 MB。上传脚本改为只接受仓库外的显式 staging 目录，避免素材再次进入前端包。
 - 2026-07-19：导演台相机新增 `verify:director-camera` 永久门禁，纯解析和真实 WebGL 六模式覆盖手动坐标/手动旋转/角色注视/跟随/FOV25/FOV90；修复机位视角截图读取旧 OrbitControls target 导致新机位注视点偏离所见画面，并修复轨迹红色朝向调试箭头进入机位预览和 MediaRecorder 导出，现相机/导出门禁均要求红色 helper 像素为 0。

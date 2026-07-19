@@ -11,9 +11,9 @@ const API_BASE_URL =
 // 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
 // （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。
 export const XIAOT_CHAT_MODELS = [
-  "xiaot-agent-claude-4-8",
-  "xiaot-agent-claude-4-7",
-  "xiaot-agent-claude-4-6",
+  "xiaot-agent-gpt-5-6-sol",
+  "xiaot-agent-gpt-5-6-terra",
+  "xiaot-agent-gpt-5-6-luna",
 ] as const;
 export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
 

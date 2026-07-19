@@ -19,10 +19,11 @@ type ToolCallAccumulator = { id: string; name: string; args: string };
 
 /** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
 export const XIAOT_CHAT_MODELS = [
-  'xiaot-agent-claude-4-8',
-  'xiaot-agent-claude-4-7',
-  'xiaot-agent-claude-4-6',
+  'xiaot-agent-gpt-5-6-sol',
+  'xiaot-agent-gpt-5-6-terra',
+  'xiaot-agent-gpt-5-6-luna',
 ] as const;
+const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
 
 @Injectable()
 export class XiaotAgentService {
@@ -49,7 +50,9 @@ export class XiaotAgentService {
   }
 
   private get model(): string {
-    return this.config.get<string>('XIAOT_AGENT_MODEL') || 'xiaot-agent';
+    return (
+      this.config.get<string>('XIAOT_AGENT_MODEL') || DEFAULT_XIAOT_CHAT_MODEL
+    );
   }
 
   /**

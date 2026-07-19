@@ -25,6 +25,7 @@ import {
 import {
   createAgentRunViaAPI,
   streamAgentRunEvents,
+  XIAOT_CHAT_MODELS,
   type AgentRunEvent,
   type AgentToolName,
   type XiaotChatModel,
@@ -129,7 +130,8 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 1;
+const AI_CHAT_PREFERENCES_VERSION = 2;
+const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-sol";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
 
@@ -3640,7 +3642,7 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
         xiaotMode: false, // 小T画布智能体模式默认关闭
-        xiaotModel: "xiaot-agent-claude-4-8", // 小T大脑默认 Claude 4.8
+        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.6 Sol
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
         xiaotStyleAnchor: null, // 小T风格锚定默认无
@@ -10089,6 +10091,7 @@ export const useAIChatStore = create<AIChatState>()(
         const validVideoRatios = ["16:9", "9:16"];
         const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
         const validBananaImageRoutes = ["normal", "stable", "ultra"];
+        const validXiaotModels = XIAOT_CHAT_MODELS as readonly string[];
 
         return {
           ...state,
@@ -10125,6 +10128,11 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
+          // v2: 小T大脑从 Claude 三档迁到 GPT 5.6。旧值或未知值统一回落 Sol，
+          // 避免持久化偏好继续覆盖新的产品默认模型。
+          xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
+            ? (state.xiaotModel as XiaotChatModel)
+            : DEFAULT_XIAOT_CHAT_MODEL,
         };
       },
       partialize: (state) => ({
