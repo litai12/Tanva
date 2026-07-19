@@ -50,9 +50,11 @@ export class XiaotAgentService {
   }
 
   private get model(): string {
-    return (
-      this.config.get<string>('XIAOT_AGENT_MODEL') || DEFAULT_XIAOT_CHAT_MODEL
-    );
+    const configured = this.config.get<string>('XIAOT_AGENT_MODEL')?.trim();
+    return configured &&
+      (XIAOT_CHAT_MODELS as readonly string[]).includes(configured)
+      ? configured
+      : DEFAULT_XIAOT_CHAT_MODEL;
   }
 
   /**
