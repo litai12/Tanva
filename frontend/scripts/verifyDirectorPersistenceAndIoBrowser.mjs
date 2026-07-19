@@ -148,6 +148,20 @@ try {
   // node through the real source→img protocol and await the done callback.
   await page.getByTitle('截图').click()
   await page.getByText('相机截图已保存', { exact: true }).waitFor({ timeout: 10000 })
+  const afterFirstShot = await page.evaluate(() => JSON.parse(localStorage.getItem('tanva:director-full-harness:v1') || 'null'))
+  const cameraCountAfterFirstShot = afterFirstShot.scene.cameras.length
+  const selectedShotCameraId = Object.keys(afterFirstShot.scene.cameraShots || {}).find((id) => afterFirstShot.scene.cameraShots[id]?.length === 1)
+  const selectedShotCamera = afterFirstShot.scene.cameras.find((camera) => camera.id === selectedShotCameraId)
+  if (!selectedShotCamera) throw new Error(`First screenshot camera missing: ${selectedShotCameraId}`)
+  await modal.getByRole('button', { name: `${selectedShotCamera.name} 隐藏 锁定`, exact: true }).click()
+  await modal.getByRole('button', { name: '属性', exact: true }).click()
+  await page.getByTestId('selected-camera-preview').locator('canvas').waitFor()
+  await page.waitForTimeout(350)
+  await page.getByTitle('截图').click()
+  await page.waitForFunction(({ cameraId, cameraCount }) => {
+    const saved = JSON.parse(localStorage.getItem('tanva:director-full-harness:v1') || 'null')
+    return saved.scene.cameras.length === cameraCount && (saved.scene.cameraShots?.[cameraId]?.length ?? 0) === 2
+  }, { cameraId: selectedShotCameraId, cameraCount: cameraCountAfterFirstShot })
   const sendButton = page.getByRole('button', { name: /^发送.*到画布$/ }).first()
   await sendButton.click()
   await page.getByTestId('director-harness-images').filter({ hasText: 'created images: 1' }).waitFor({ timeout: 10000 })
@@ -265,6 +279,7 @@ try {
     connectedCropInput: true,
     remoteSourceToImageOutput: true,
     cameraShotSaveReload: true,
+    selectedCameraPreviewShotAppend: true,
     gaussianUploadDragSaveReload: true,
     gltfPackageUploadSaveReload: true,
     deletionCleanupSaveReload: true,

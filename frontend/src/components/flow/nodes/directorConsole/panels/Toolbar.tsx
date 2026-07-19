@@ -32,10 +32,10 @@ type Props = {
 
 const ASPECTS: AspectKey[] = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 
-const btn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex', color: '#cdd3dc' }
+const btn: React.CSSProperties = { width: 32, height: 30, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, borderRadius: 7, display: 'grid', placeItems: 'center', color: '#cdd3dc' }
 const btnOn: React.CSSProperties = { ...btn, background: '#2c313c', color: '#fff' }
-const toolWrap: React.CSSProperties = { position: 'relative', minWidth: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }
-const toolLabel: React.CSSProperties = { color: '#a3a3a3', fontSize: 10, lineHeight: '12px', whiteSpace: 'nowrap', userSelect: 'none' }
+const toolWrap: React.CSSProperties = { position: 'relative', width: 64, minWidth: 64, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }
+const toolLabel: React.CSSProperties = { maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', color: '#a3a3a3', fontSize: 10, lineHeight: '12px', whiteSpace: 'nowrap', userSelect: 'none' }
 const menu: React.CSSProperties = { position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', background: '#16181d', border: '1px solid #2a2f3a', borderRadius: 10, padding: 6, minWidth: 150, maxHeight: '62vh', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }
 const item: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#cdd3dc', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
 const sep: React.CSSProperties = { height: 1, background: '#2a2f3a', margin: '4px 2px' }
@@ -108,14 +108,14 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
   const skyRef = React.useRef<HTMLInputElement>(null)
   const [panoramaAiOpen, setPanoramaAiOpen] = React.useState(false)
   return (
-    <nav aria-label="导演台工具栏" style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 10px', pointerEvents: 'none' }}>
+    <nav aria-label="导演台工具栏" style={{ position: 'absolute', zIndex: 20, left: 240, right: 320, bottom: editorMode === 'timeline' ? 258 : 8, height: 54, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pointerEvents: 'none' }}>
       <input ref={fileRef} type="file" multiple accept=".glb,.gltf,.bin,image/png,image/jpeg,image/webp,image/ktx2,model/gltf-binary,model/gltf+json,application/octet-stream" style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files ?? []); if (files.length) onUploadModel(files); e.currentTarget.value = '' }} />
       <input ref={gaussianRef} type="file" accept=".splat,application/octet-stream" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadGaussian(f); e.currentTarget.value = '' }} />
       <input ref={skyRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSetSkybox(f); e.currentTarget.value = '' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(30,30,30,0.94)', borderRadius: 16, padding: '6px 8px', border: '0.5px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 10px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(27,27,27,0.96)', borderRadius: 13, padding: '6px 7px', border: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 6px 18px rgba(0,0,0,0.42)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
         <ToolButton icon={<IconArrowsMove size={20} />} title="移动" label="移动 (V)" active={gizmoMode === 'translate'} onClick={() => onSetGizmoMode('translate')} />
         <div style={{ width: 1, height: 24, background: '#2a2f3a', margin: '0 4px' }} />
         <Pop icon={<IconUserPlus size={20} />} title="添加角色">

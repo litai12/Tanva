@@ -2,7 +2,7 @@
 import React from 'react'
 import * as THREE from 'three'
 import { createPortal } from 'react-dom'
-import { IconHelpCircle, IconVideo, IconX } from '@tabler/icons-react'
+import { IconHelpCircle, IconX } from '@tabler/icons-react'
 import { useReactFlow, useStore, useNodes } from '@xyflow/react'
 import { DirectorCaptureRunner, openDirectorModalNodes } from './DirectorCaptureRunner'
 import type { DirectorConsoleData, CameraShot, Vec3 } from './types'
@@ -62,6 +62,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   )
   const dataRef = React.useRef(data); dataRef.current = data
   const viewportRef = React.useRef<ViewportHandle | null>(null)
+  const cameraPreviewRef = React.useRef<ViewportHandle | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [exporting, setExporting] = React.useState(false)
   const [gizmoMode, setGizmoMode] = React.useState<GizmoMode>('translate')
@@ -289,10 +290,12 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [data, apply])
 
-  // 全景背景：读取连入导演台左侧输入口的图片节点 URL（对齐 liblib：连线喂入）
+  // 全景背景：连线图片是默认输入；上传、AI 生成或历史选择写入 scene.skybox 后，
+  // 它代表用户在导演台内明确选择的当前背景，必须优先渲染。否则会出现“生成成功但画面没变”。
   const connectedPanoUrl = useConnectedPanorama(nodeId)
 
   const scene = data.scene
+  const effectiveSkyboxUrl = scene.skybox ?? connectedPanoUrl
   const selectedId = data.selectedObjectId
   const selectedCamera = scene?.cameras.find((c) => c.id === selectedId)
   const selectedCharacter = scene?.characters.find((c) => c.id === selectedId)
@@ -494,37 +497,42 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     }
   }, [apply, data, editorMode, exporting, nodeId, playhead, propertyTimeline.duration, scene.activeCameraId, showToast])
 
-  // 截图（对齐 liblib）：在当前视角新建一个机位 + 给它拍 1 张图（一机位一图）
+  // 选中机位时直接截右侧实时机位预览并归入该机位；未选机位时才从导演视角创建新机位。
   // 画幅框可见时按 框高/视口高 收窄 FOV → 截图只含框内内容（所见即所得）
   const onCapture = React.useCallback(async () => {
     const current = dataRef.current
     const currentScene = current.scene
-    const view = viewportRef.current?.getCurrentCamera()
+    const selectedCamera = currentScene.cameras.find((camera) => camera.id === current.selectedObjectId)
+    if (selectedCamera && !cameraPreviewRef.current) setCameraTab('props')
+    if (selectedCamera) await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    const captureViewport = selectedCamera ? cameraPreviewRef.current : viewportRef.current
+    const view = captureViewport?.getCurrentCamera()
     const box = viewportBoxRef.current
     const frame = box ? aspectFrameRect(currentScene.aspect, box.clientWidth, box.clientHeight) : null
     const fovScale = frame && box && box.clientHeight > 0 ? frame.height / box.clientHeight : undefined
-    const dataUrl = viewportRef.current?.captureView(fovScale ? { fovScale } : undefined)
+    const dataUrl = captureViewport?.captureView(selectedCamera ? undefined : (fovScale ? { fovScale } : undefined))
     if (!view || !dataUrl) { showToast('截图失败，请重试', 'error'); return }
-    const newCamId = uid('cam')
-    const next = addCamera(current, { id: newCamId, position: view.position, lookAt: view.lookAt, fovDeg: view.fovDeg })
-    apply(next) // 持久化新机位 + 设为激活/选中
-    const camName = next.scene.cameras.find((c) => c.id === newCamId)?.name ?? '机位'
-    const shot: CameraShot = { id: uid('shot'), name: `${camName}-截图01`, imageUrl: dataUrl, aspect: currentScene.aspect, createdAt: Date.now() }
-    setShots((prev) => ({ ...prev, [newCamId]: [shot] }))
+    const cameraId = selectedCamera?.id ?? uid('cam')
+    const next = selectedCamera ? current : addCamera(current, { id: cameraId, position: view.position, lookAt: view.lookAt, fovDeg: view.fovDeg })
+    if (!selectedCamera) apply(next)
+    const camName = next.scene.cameras.find((c) => c.id === cameraId)?.name ?? '机位'
+    const shotIndex = (next.scene.cameraShots?.[cameraId]?.length ?? shots[cameraId]?.length ?? 0) + 1
+    const shot: CameraShot = { id: uid('shot'), name: `${camName}-截图${String(shotIndex).padStart(2, '0')}`, imageUrl: dataUrl, aspect: currentScene.aspect, createdAt: Date.now() }
+    setShots((prev) => ({ ...prev, [cameraId]: [...(prev[cameraId] ?? []), shot] }))
     setCameraTab('shots') // 截图后自动切到「摄像机截图」，立刻看到结果——对齐 liblib
     try {
       const blob = await dataUrlToBlob(dataUrl)
       const hosted = await uploadCanvasImageBlob({ blob, label: shot.name, filePrefix: 'director-shot', ownerNodeId: nodeId })
       if (!isPersistableImageRef(hosted.url)) throw new Error('截图未获得可持久化远程地址')
       const persistedShot = { ...shot, imageUrl: hosted.url }
-      setShots((current) => ({ ...current, [newCamId]: [persistedShot] }))
+      setShots((current) => ({ ...current, [cameraId]: (current[cameraId] ?? []).map((item) => item.id === shot.id ? persistedShot : item) }))
       const current = dataRef.current
-      apply({ ...current, scene: { ...current.scene, cameraShots: { ...(current.scene.cameraShots ?? {}), [newCamId]: [persistedShot] } } })
+      apply({ ...current, scene: { ...current.scene, cameraShots: { ...(current.scene.cameraShots ?? {}), [cameraId]: [...(current.scene.cameraShots?.[cameraId] ?? []), persistedShot] } } })
       showToast('相机截图已保存', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : '相机截图保存失败', 'error')
     }
-  }, [apply, nodeId, showToast])
+  }, [apply, nodeId, shots, showToast])
 
   const onClearAll = React.useCallback(() => {
     setShots({})
@@ -794,20 +802,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
   if (!scene) return null
 
   return createPortal(
-    <div data-testid="director-console-modal" style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#111', display: 'flex', flexDirection: 'column', color: '#e5e7eb' }}>
+    <div data-testid="director-console-modal" data-skybox-url={effectiveSkyboxUrl ?? ''} style={{ position: 'fixed', inset: 0, zIndex: 4000, background: '#111', display: 'flex', flexDirection: 'column', color: '#e5e7eb' }}>
       {/* 顶部栏 */}
-      <div style={{ height: 48, flex: '0 0 48px', display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(17,17,17,0.96)', backdropFilter: 'blur(12px)' }}>
+      <div data-testid="director-header" style={{ height: 48, flex: '0 0 48px', display: 'grid', gridTemplateColumns: '1fr 1fr', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(17,17,17,0.96)', backdropFilter: 'blur(12px)' }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: '#f7f7f7' }}>3D导演台</div>
-        <div role="group" aria-label="视角切换" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 3, borderRadius: 10, background: 'rgba(255,255,255,0.06)' }}>
-          <button type="button" onClick={() => apply(setViewpoint(data, 'director'))}
-            style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, color: data.activeViewpoint === 'director' ? '#fff' : '#9ca3af', background: data.activeViewpoint === 'director' ? '#2b2b2b' : 'transparent', boxShadow: data.activeViewpoint === 'director' ? '0 2px 8px rgba(0,0,0,.28)' : 'none' }}>
-            导演视角
-          </button>
-          <button type="button" onClick={() => apply(setViewpoint(data, 'camera'))}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, color: data.activeViewpoint === 'camera' ? '#fff' : '#9ca3af', background: data.activeViewpoint === 'camera' ? '#2b2b2b' : 'transparent', boxShadow: data.activeViewpoint === 'camera' ? '0 2px 8px rgba(0,0,0,.28)' : 'none' }}>
-            <IconVideo size={14} />机位视角
-          </button>
-        </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'flex-end' }}>
           {editorMode === 'timeline' ? (
             <button type="button" disabled={exporting} onClick={onExportTimelineToCanvas}
@@ -822,13 +820,13 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         </div>
       </div>
       {/* 主体三栏 */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={{ width: 240, borderRight: '1px solid #1c1f26', overflowY: 'auto' }}>
+      <div data-testid="director-workspace" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div data-testid="director-scene-sidebar" style={{ width: 240, borderRight: '1px solid #1c1f26', overflowY: 'auto' }}>
           <SceneTreePanel
             scene={displayedScene ?? scene}
             animationTime={editorMode === 'timeline' ? playhead : undefined}
             selectedId={selectedId}
-            onSelect={(id) => apply(selectObject(data, id))}
+            onSelect={(id) => apply(scene.cameras.some((camera) => camera.id === id) ? setActiveCamera(data, id) : selectObject(data, id))}
             onToggleHidden={(id, hidden) => {
               const isCam = scene.cameras.some((c) => c.id === id)
               apply(isCam ? patchCamera(data, id, { hidden }) : patchCharacter(data, id, { hidden }))
@@ -841,11 +839,11 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             onRemoveCrowd={(crowdId) => apply(removeCrowd(data, crowdId))}
           />
         </div>
-        <div ref={viewportBoxRef} style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+        <div ref={viewportBoxRef} data-testid="director-main-viewport" style={{ flex: 1, position: 'relative', minWidth: 0 }}>
           <Viewport
             ref={viewportRef}
             scene={displayedScene ?? scene}
-            viewpoint={data.activeViewpoint}
+            viewpoint={exporting ? 'camera' : 'director'}
             selectedId={selectedId}
             gizmoMode={gizmoMode}
             pathDraw={trajectoryDraft ? {
@@ -862,7 +860,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               onMoveWaypoint: (index, xz) => updateTrajectory((draft) => ({ ...draft, path: { ...draft.path, waypoints: draft.path.waypoints.map((point, pointIndex) => pointIndex === index ? xz : point) } })),
               onSelectWaypoint: (index) => setTrajectoryDraft((draft) => draft ? { ...draft, selectedIndex: index } : draft),
             } : undefined}
-            skyboxUrl={connectedPanoUrl ?? scene.skybox}
+            skyboxUrl={effectiveSkyboxUrl}
             onSelect={(id) => apply(selectObject(data, id))}
             onPatchCharacter={onCharacterPatch}
             onPatchCamera={onCameraPatch}
@@ -910,7 +908,7 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
             style={{ position: 'absolute', top: 16, right: 16, padding: '6px 12px', borderRadius: 8, background: 'rgba(22,24,29,0.9)', color: '#cdd3dc', border: '1px solid #2a2f3a', cursor: 'pointer', fontSize: 12, zIndex: 6 }}
           >重置视角</button>
         </div>
-        <div style={{ width: 320, borderLeft: '1px solid #1c1f26', overflowY: 'auto', background: '#151515' }}>
+        <div data-testid="director-inspector-sidebar" style={{ width: 320, borderLeft: '1px solid #1c1f26', overflowY: 'auto', background: '#151515' }}>
           {selectedCamera ? (
             <LibTvCameraPropertiesPanel
               camera={selectedCamera}
@@ -921,7 +919,18 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
               busy={busy}
               onPatch={(patch) => onCameraPatch(selectedCamera.id, patch)}
               onSwitchCamera={(id) => apply(setActiveCamera(data, id))}
-              onUseCameraView={() => apply(setViewpoint(data, 'camera'))}
+              cameraPreview={<div data-testid="selected-camera-preview" style={{ position: 'absolute', inset: 0 }}>
+                <Viewport
+                  ref={cameraPreviewRef}
+                  scene={{ ...(displayedScene ?? scene), activeCameraId: selectedCamera.id }}
+                  viewpoint="camera"
+                  skyboxUrl={effectiveSkyboxUrl}
+                  onSelect={() => {}}
+                  onPatchCharacter={() => {}}
+                  onPatchCamera={() => {}}
+                  animationTime={editorMode === 'timeline' ? playhead : undefined}
+                />
+              </div>}
               onClearAll={onClearAll}
               onSendAll={onSendAll}
               onSendShot={onSendShot}

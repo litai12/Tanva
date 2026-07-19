@@ -13,6 +13,10 @@ import { BODY_TYPES } from '@/components/flow/nodes/directorConsole/assets'
 import { registerGaussianGroundBuffer, sampleGaussianGroundHeight } from '@/components/flow/nodes/directorConsole/state/gaussianGround'
 import { LIBTV_POSES } from '@/components/flow/nodes/directorConsole/panels/CharacterPropertiesPanel'
 import { directorOpenSourceAssetUrl } from '@/components/flow/nodes/directorConsole/directorAssetUrl'
+import PaperCanvasManager from '@/components/canvas/PaperCanvasManager'
+import DrawingController from '@/components/canvas/DrawingController'
+import { createEmptyProjectContent, type VideoAssetSnapshot } from '@/types/project'
+import { useProjectContentStore } from '@/stores/projectContentStore'
 
 const DirectorConsoleModal = React.lazy(() => import('@/components/flow/nodes/directorConsole/DirectorConsoleModal'))
 const FULL_HARNESS_NODE_ID = 'director-full-harness'
@@ -110,6 +114,39 @@ function FullDirectorHarness() {
   const inputNode: Node = { id: 'director-input-image', type: 'image', position: { x: -420, y: 0 }, data: { imageUrl: 'https://acceptance.invalid/panorama.jpg', crop: { x: 16, y: 8, width: 64, height: 32, sourceWidth: 96, sourceHeight: 48 } } }
   const initialEdges = withInput ? [{ id: 'director-input-edge', source: inputNode.id, sourceHandle: 'img', target: initialNode.id, targetHandle: 'target' }] : []
   return <ReactFlowProvider initialNodes={withInput ? [initialNode, inputNode] : [initialNode]} initialEdges={initialEdges}><FullDirectorHarnessHost /></ReactFlowProvider>
+}
+
+const VIDEO_HARNESS_STORAGE = 'tanva:director-video-harness:v1'
+
+function DirectorVideoCanvasHarness() {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
+  const [paperReady, setPaperReady] = React.useState(false)
+  const hydrate = useProjectContentStore((state) => state.hydrate)
+  const setProject = useProjectContentStore((state) => state.setProject)
+  React.useEffect(() => {
+    setProject('director-video-acceptance')
+    let videos: VideoAssetSnapshot[] = []
+    try { videos = JSON.parse(localStorage.getItem(VIDEO_HARNESS_STORAGE) || '[]') } catch { /* empty */ }
+    const content = createEmptyProjectContent()
+    content.assets = { images: content.assets?.images ?? [], models: content.assets?.models ?? [], texts: content.assets?.texts ?? [], videos }
+    hydrate(content, 1)
+  }, [hydrate, setProject])
+
+  const insert = () => {
+    const url = new URLSearchParams(location.search).get('videoUrl') || 'https://acceptance.invalid/director-animation.webm'
+    const asset = { id: 'director-video-acceptance', url, sourceUrl: url, fileName: 'director-animation.webm', contentType: 'video/webm', width: 320, height: 180, metadata: { source: 'directorConsole' } }
+    const snapshot: VideoAssetSnapshot = { ...asset, bounds: { x: 240, y: 180, width: 320, height: 180 }, layerId: 'drawingLayer' }
+    localStorage.setItem(VIDEO_HARNESS_STORAGE, JSON.stringify([snapshot]))
+    window.dispatchEvent(new CustomEvent('canvas:insert-video', { detail: { asset, position: { x: 400, y: 270 } } }))
+  }
+
+  return <div style={{ position: 'fixed', inset: 0, background: '#111' }}>
+    <canvas ref={canvasRef} data-testid="video-canvas" style={{ position: 'absolute', inset: 0, width: '800px', height: '540px', background: '#fff' }} />
+    <PaperCanvasManager canvasRef={canvasRef} onInitialized={() => setPaperReady(true)} />
+    {paperReady ? <DrawingController canvasRef={canvasRef} /> : null}
+    {paperReady ? <span data-testid="canvas-drawing-ready" style={{ display: 'none' }} /> : null}
+    <button data-testid="insert-director-video" onClick={insert} style={{ position: 'fixed', right: 20, top: 20, zIndex: 20 }}>插入导演视频</button>
+  </div>
 }
 
 function initial(): DirectorConsoleData {
@@ -359,6 +396,7 @@ function ViewportDirectorHarnessPage() {
 }
 
 export default function DirectorHarnessPage() {
+  if (new URLSearchParams(location.search).get('videoCanvas') === '1') return <DirectorVideoCanvasHarness />
   return new URLSearchParams(location.search).get('full') === '1'
     ? <FullDirectorHarness />
     : <ViewportDirectorHarnessPage />

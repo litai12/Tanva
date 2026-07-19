@@ -14,7 +14,7 @@ type Props = {
   onTab: (tab: 'props' | 'shots') => void
   onPatch: (patch: Partial<CameraObj>) => void
   onSwitchCamera: (id: string) => void
-  onUseCameraView: () => void
+  cameraPreview: React.ReactNode
   onClearAll: () => void
   onSendAll: () => void
   onSendShot: (cameraId: string, shotId: string) => void
@@ -52,9 +52,11 @@ export function LibTvCameraPropertiesPanel(props: Props) {
       </div>
       {tab === 'props' ? (
         <div style={{ overflowY: 'auto' }}>
-          <div style={{ padding: '12px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, color: '#a3a3a3' }}>FOV <b style={{ color: '#f5f5f5' }}>{Math.round(camera.fovDeg)}°</b></span>
-            <button onClick={props.onUseCameraView} style={{ border: '1px solid #363636', borderRadius: 7, background: '#232323', color: '#ddd', padding: '5px 9px', fontSize: 11, cursor: 'pointer' }}>切换到机位视角</button>
+          <div style={{ padding: '12px 16px 0' }}>
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', border: '1px solid #303030', borderRadius: 7, background: '#050505' }}>
+              {props.cameraPreview}
+              <span style={{ position: 'absolute', left: 7, bottom: 6, padding: '2px 5px', borderRadius: 4, background: 'rgba(0,0,0,.58)', color: '#ddd', fontSize: 10, pointerEvents: 'none' }}>{camera.name} · FOV {Math.round(camera.fovDeg)}°</span>
+            </div>
           </div>
           <Section title="名称"><TextField value={camera.name} onChange={(name) => props.onPatch({ name })} /></Section>
           <Section title="切换机位">

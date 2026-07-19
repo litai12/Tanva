@@ -74,6 +74,8 @@ function PathDrawLayer({ pd, scene, onDragStart, onDragEnd }: {
   const raycaster = useThree((s) => s.raycaster)
   const pointer = useThree((s) => s.pointer)
   const draggingRef = React.useRef<number | null>(null)
+  const gl = useThree((state) => state.gl)
+  const size = useThree((state) => state.size)
   const pathTransform = React.useMemo(() => {
     if (pd.objectKind === 'camera') return new THREE.Matrix4()
     const position = new THREE.Vector3(...(scene.scenePosition ?? [0, 0, 0]))
@@ -110,6 +112,16 @@ function PathDrawLayer({ pd, scene, onDragStart, onDragEnd }: {
     for (let i = 0; i <= N; i++) { const s = samplePathAt(path, i / N); out.push([s.pos[0], pointY(s.pos[0], s.pos[1]) + 0.02, s.pos[1]]) }
     return out
   }, [pd.waypoints, pd.mode, pointY])
+
+  useFrame(() => {
+    if (!pd.active) return
+    const handles = pd.waypoints.map((waypoint, index) => {
+      const world = new THREE.Vector3(waypoint[0], pointY(waypoint[0], waypoint[1]) + 0.12, waypoint[1]).applyMatrix4(pathTransform)
+      const projected = world.project(camera)
+      return { index, waypoint, x: (projected.x + 1) * size.width / 2, y: (1 - projected.y) * size.height / 2, visible: projected.z >= -1 && projected.z <= 1 }
+    })
+    window.dispatchEvent(new CustomEvent('director:trajectory-handles', { detail: { canvas: gl.domElement, handles } }))
+  })
 
   return (
     <group

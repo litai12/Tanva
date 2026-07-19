@@ -664,6 +664,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
   const [isGlobalFlowRunning, setIsGlobalFlowRunning] = useState(false);
+  const [playbackVideo, setPlaybackVideo] = useState<StoredVideoAsset | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
   const canvasToChatSyncTokenRef = useRef(0);
   const lastPathCollabSentAtRef = useRef(0);
@@ -4161,7 +4162,49 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const videoInstancesRef = useRef(videoTool.videoInstances);
   useEffect(() => {
     videoInstancesRef.current = videoTool.videoInstances;
+    const detail = videoTool.videoInstances.map((video) => {
+      const center = new paper.Point(video.bounds.x + video.bounds.width / 2, video.bounds.y + video.bounds.height / 2);
+      const viewCenter = paper?.view ? paper.view.projectToView(center) : center;
+      return { id: video.id, url: video.videoData.url, bounds: video.bounds, viewCenter: { x: viewCenter.x, y: viewCenter.y } };
+    });
+    window.dispatchEvent(new CustomEvent('canvas:video-instances-changed', { detail }));
   }, [videoTool.videoInstances]);
+
+  // Paper stores videos as selectable scene items, while playback uses the
+  // persisted remote asset. Double-clicking any child of a video group opens
+  // the same player before and after project snapshot hydration.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onDoubleClick = (event: MouseEvent) => {
+      if (!paper?.project || !paper.view) return;
+      const rect = canvas.getBoundingClientRect();
+      const viewPoint = new paper.Point(event.clientX - rect.left, event.clientY - rect.top);
+      const projectPoint = paper.view.viewToProject(viewPoint);
+      const hit = paper.project.hitTest(projectPoint, { fill: true, stroke: true, segments: true, tolerance: 8 });
+      let item: paper.Item | null = hit?.item ?? null;
+      let videoId: string | undefined;
+      while (item) {
+        if (typeof item.data?.videoId === 'string') { videoId = item.data.videoId; break; }
+        item = item.parent;
+      }
+      if (!videoId) return;
+      const asset = videoInstancesRef.current.find((video) => video.id === videoId)?.videoData;
+      if (!asset?.url) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPlaybackVideo(asset);
+    };
+    canvas.addEventListener('dblclick', onDoubleClick);
+    return () => canvas.removeEventListener('dblclick', onDoubleClick);
+  }, [canvasRef]);
+
+  useEffect(() => {
+    if (!playbackVideo) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPlaybackVideo(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [playbackVideo]);
 
   // ========== 初始化选择工具Hook ==========
   const selectionTool = useSelectionTool({
@@ -9502,6 +9545,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUpdateContent={simpleTextTool.updateTextContent}
         onStopEdit={simpleTextTool.stopEditText}
       />
+
+      {playbackVideo ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`播放视频 ${playbackVideo.fileName || playbackVideo.id || ''}`.trim()}
+          data-testid="canvas-video-player"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setPlaybackVideo(null); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 10050, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.82)', padding: 32 }}
+        >
+          <div style={{ position: 'relative', width: 'min(1080px, 92vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <button
+              type="button"
+              aria-label="关闭视频播放"
+              onClick={() => setPlaybackVideo(null)}
+              style={{ position: 'absolute', right: 8, top: 8, zIndex: 2, width: 34, height: 34, borderRadius: 17, border: '1px solid rgba(255,255,255,.25)', background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: 22, cursor: 'pointer' }}
+            >×</button>
+            <video
+              key={playbackVideo.url}
+              data-testid="canvas-video-element"
+              src={playbackVideo.url}
+              controls
+              autoPlay
+              muted
+              playsInline
+              preload="auto"
+              style={{ display: 'block', width: '100%', maxHeight: 'calc(90vh - 40px)', background: '#000', borderRadius: 10 }}
+            />
+            <div style={{ color: '#d4d4d4', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{playbackVideo.fileName || '视频素材'}</div>
+          </div>
+        </div>
+      ) : null}
 
       {contextMenuState && contextMenuItems.length > 0 && (
         <ContextMenu
