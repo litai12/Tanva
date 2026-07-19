@@ -44,7 +44,8 @@ export function SceneTreePanel({ scene, selectedId, onSelect, onToggleHidden, on
   const renderRow = (r: Row, indent = 0) => {
     const active = r.id === selectedId
     return (
-      <div key={r.id} onClick={() => onSelect(r.id)}
+      <div key={r.id} role="button" tabIndex={0} aria-label={`${r.name} 隐藏 锁定`} onClick={() => onSelect(r.id)}
+        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(r.id) } }}
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `8px 16px 8px ${16 + indent}px`, cursor: 'pointer', background: active ? '#1c2230' : 'transparent' }}>
         {r.kind === 'camera' ? <IconVideo size={16} color="#9ca3af" /> : <IconUser size={16} color="#9ca3af" />}
         <span style={{ flex: 1, fontSize: 13, color: r.hidden ? '#5b6470' : '#cdd3dc' }}>{r.name}</span>
@@ -64,6 +65,7 @@ export function SceneTreePanel({ scene, selectedId, onSelect, onToggleHidden, on
     <div>
       <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>场景</div>
       <div style={{ padding: '0 16px 8px' }}>
+        <div style={{ marginBottom: 6, color: '#737373', fontSize: 11 }}>搜索场景对象</div>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索场景对象" aria-label="搜索场景对象"
           style={{ width: '100%', background: '#1c1f26', border: '1px solid #2a2f3a', borderRadius: 8, color: '#e5e7eb', padding: '7px 10px', fontSize: 13, boxSizing: 'border-box' }} />
       </div>

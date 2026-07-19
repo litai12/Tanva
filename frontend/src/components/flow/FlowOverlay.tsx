@@ -96,6 +96,7 @@ import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
+import { createDefaultDirectorConsoleData } from "./nodes/directorConsole/types";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
@@ -11315,6 +11316,12 @@ function FlowInner() {
               mode: "std" as const,
               klingStoryboardMode: "single" as const,
               provider: "kling-o3",
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "directorConsole"
+          ? {
+              ...createDefaultDirectorConsoleData(),
               boxW: size.w,
               boxH: size.h,
             }

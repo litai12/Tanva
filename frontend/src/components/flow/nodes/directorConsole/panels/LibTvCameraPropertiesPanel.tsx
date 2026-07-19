@@ -1,6 +1,7 @@
 import React from 'react'
 import type { CameraObj, CameraShot, DirectorScene } from '../types'
-import { Section, SliderField, TextField, Vec3Row } from './Field'
+import { KeyframeButton, Section, SliderField, TextField, Vec3Row } from './Field'
+import type { PropertyName } from '../state/propertyTimeline'
 
 export type LibTvShotGroup = { cameraId: string; cameraName: string; shots: CameraShot[] }
 
@@ -18,6 +19,10 @@ type Props = {
   onSendAll: () => void
   onSendShot: (cameraId: string, shotId: string) => void
   onDeleteShot: (cameraId: string, shotId: string) => void
+  timelineKeyframes?: {
+    isKeyed: (property: PropertyName, component?: 0 | 1 | 2) => boolean
+    toggle: (property: PropertyName, component?: 0 | 1 | 2) => void
+  }
 }
 
 const selectStyle: React.CSSProperties = {
@@ -27,8 +32,17 @@ const selectStyle: React.CSSProperties = {
 
 export function LibTvCameraPropertiesPanel(props: Props) {
   const { camera, scene, tab, shotGroups, busy } = props
+  const [fullscreenShot, setFullscreenShot] = React.useState<CameraShot | null>(null)
   const total = shotGroups.reduce((count, group) => count + group.shots.length, 0)
   const rotation = camera.rotation ?? [5.71, 180, 0]
+  React.useEffect(() => {
+    if (!fullscreenShot) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFullscreenShot(null)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [fullscreenShot])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
       <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600 }}>摄像机</div>
@@ -48,7 +62,7 @@ export function LibTvCameraPropertiesPanel(props: Props) {
               {scene.cameras.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </Section>
-          <Section title="位置"><Vec3Row value={camera.position} onChange={(position) => {
+          <Section title="位置"><Vec3Row value={camera.position} renderAxisAction={props.timelineKeyframes ? (component) => <KeyframeButton keyed={props.timelineKeyframes!.isKeyed('position', component)} onClick={() => props.timelineKeyframes!.toggle('position', component)} /> : undefined} onChange={(position) => {
             const target = scene.characters.find((item) => item.id === camera.followTargetId)
             props.onPatch({
               position,
@@ -68,7 +82,7 @@ export function LibTvCameraPropertiesPanel(props: Props) {
               {scene.characters.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </Section>
-          <Section title="旋转"><Vec3Row value={rotation} onChange={(value) => props.onPatch({ rotation: value })} /></Section>
+          <Section title="旋转"><Vec3Row value={rotation} onChange={(value) => props.onPatch({ rotation: value })} renderAxisAction={props.timelineKeyframes ? (component) => <KeyframeButton keyed={props.timelineKeyframes!.isKeyed('rotation', component)} onClick={() => props.timelineKeyframes!.toggle('rotation', component)} /> : undefined} /></Section>
           <Section title="注视目标">
             <select value={camera.lookAtMode} onChange={(event) => props.onPatch({ lookAtMode: event.target.value })} style={selectStyle}>
               <option value="manual">手动坐标</option>
@@ -76,11 +90,11 @@ export function LibTvCameraPropertiesPanel(props: Props) {
               {scene.characters.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </Section>
-          {camera.lookAtMode === 'manual' ? <Section title="注视坐标"><Vec3Row value={camera.lookAt} onChange={(lookAt) => props.onPatch({ lookAt })} /></Section> : null}
+          {camera.lookAtMode === 'manual' ? <Section title="注视坐标"><Vec3Row value={camera.lookAt} onChange={(lookAt) => props.onPatch({ lookAt })} renderAxisAction={props.timelineKeyframes ? (component) => <KeyframeButton keyed={props.timelineKeyframes!.isKeyed('lookAt', component)} onClick={() => props.timelineKeyframes!.toggle('lookAt', component)} /> : undefined} /></Section> : null}
           <Section title="视野角度 (FOV)">
             <span title="视野角度说明" aria-label="视野角度说明" style={{ float: 'right', marginTop: -25, color: '#777', cursor: 'help' }}>?</span>
             <div style={{ color: '#858585', fontSize: 11, lineHeight: 1.5, marginBottom: 6 }}>控制镜头视野范围。数值越小，画面越近、越聚焦；数值越大，画面越广、能看到更多环境。</div>
-            <SliderField value={camera.fovDeg} min={10} max={120} step={0.1} displayDigits={1} onChange={(fovDeg) => props.onPatch({ fovDeg })} />
+            <SliderField value={camera.fovDeg} min={10} max={120} step={0.1} displayDigits={1} onChange={(fovDeg) => props.onPatch({ fovDeg })} action={props.timelineKeyframes ? <KeyframeButton keyed={props.timelineKeyframes.isKeyed('fovDeg')} onClick={() => props.timelineKeyframes!.toggle('fovDeg')} /> : undefined} />
           </Section>
           <div style={{ padding: '0 16px 16px', color: '#8a8a8a', fontSize: 12 }}>相机截图</div>
         </div>
@@ -98,7 +112,7 @@ export function LibTvCameraPropertiesPanel(props: Props) {
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 4, padding: 4 }}>
                           <button aria-label={`删除${shot.name}`} onClick={() => props.onDeleteShot(group.cameraId, shot.id)} style={shotAction}>×</button>
                           <button aria-label={`发送${shot.name}到画布`} onClick={() => props.onSendShot(group.cameraId, shot.id)} style={shotAction}>↗</button>
-                          <button aria-label={`全屏查看${shot.name}`} onClick={() => window.open(shot.imageUrl, '_blank', 'noopener,noreferrer')} style={shotAction}>⛶</button>
+                          <button aria-label={`全屏查看${shot.name}`} onClick={() => setFullscreenShot(shot)} style={shotAction}>⛶</button>
                         </div>
                       </div>
                       <div style={{ color: '#a3a3a3', fontSize: 11, marginTop: 4 }}>{shot.name}</div>
@@ -114,6 +128,21 @@ export function LibTvCameraPropertiesPanel(props: Props) {
           </div>
         </div>
       )}
+      {fullscreenShot ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`全屏查看${fullscreenShot.name}`}
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setFullscreenShot(null) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 4300, display: 'grid', placeItems: 'center', padding: 40, background: 'rgba(0,0,0,.88)', backdropFilter: 'blur(8px)' }}
+        >
+          <button type="button" aria-label="关闭全屏截图" onClick={() => setFullscreenShot(null)} style={{ position: 'absolute', top: 18, right: 22, width: 36, height: 36, border: '1px solid rgba(255,255,255,.18)', borderRadius: 8, background: 'rgba(18,18,18,.76)', color: '#fff', fontSize: 24, cursor: 'pointer' }}>×</button>
+          <figure style={{ margin: 0, maxWidth: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <img src={fullscreenShot.imageUrl} alt={fullscreenShot.name} style={{ display: 'block', maxWidth: 'calc(100vw - 80px)', maxHeight: 'calc(100vh - 110px)', objectFit: 'contain', boxShadow: '0 16px 60px rgba(0,0,0,.55)' }} />
+            <figcaption style={{ color: '#d4d4d4', fontSize: 13 }}>{fullscreenShot.name}</figcaption>
+          </figure>
+        </div>
+      ) : null}
     </div>
   )
 }

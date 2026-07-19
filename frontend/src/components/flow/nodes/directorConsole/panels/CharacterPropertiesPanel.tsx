@@ -1,6 +1,7 @@
 import React from 'react'
 import type { CharacterObj } from '../types'
-import { Section, TextField, Vec3Row, SliderField } from './Field'
+import { HexColorField, KeyframeButton, Section, TextField, Vec3Row, SliderField } from './Field'
+import type { PropertyName } from '../state/propertyTimeline'
 import { POSE_PRESETS, deg, toDeg, type JointRole, type PosePreset } from '../state/pose'
 import { getLibraryItem } from '../assets'
 
@@ -8,12 +9,16 @@ type Props = {
   character: CharacterObj
   onPatch: (patch: Partial<CharacterObj>) => void
   timelineMode?: boolean
+  timelineKeyframes?: {
+    isKeyed: (property: PropertyName, component?: 0 | 1 | 2) => boolean
+    toggle: (property: PropertyName, component?: 0 | 1 | 2) => void
+  }
 }
 
 type PoseEntry = { label: string; sourceId: string }
 
 // LibTV Director Console exposes this fixed set and order; Tanva's larger pose library is intentionally not surfaced.
-const LIBTV_POSES: PoseEntry[] = [
+export const LIBTV_POSES: PoseEntry[] = [
   { label: '站立', sourceId: 'arms-down' },
   { label: 'T型', sourceId: 'tpose' },
   { label: '行走', sourceId: 'walk' },
@@ -36,17 +41,17 @@ const LIBTV_POSES: PoseEntry[] = [
   { label: '看手机', sourceId: 'phone' },
 ]
 
-type Adjustment = { label: string; role: JointRole; axis: 0 | 1 | 2; min: number; max: number }
+type Adjustment = { label: string; role: JointRole; axis: 0 | 1 | 2; min: number; max: number; side?: '左' | '右' }
 type AdjustmentGroup = { title: string; items: Adjustment[] }
 
 const GROUPS: AdjustmentGroup[] = [
   { title: '身体', items: [
-    { label: '前后倾', role: 'spine', axis: 0, min: -45, max: 45 },
-    { label: '转身', role: 'spine', axis: 1, min: -60, max: 60 },
-    { label: '侧倾', role: 'spine', axis: 2, min: -40, max: 40 },
+    { label: '前倾', role: 'body', axis: 0, min: -45, max: 45 },
+    { label: '转身', role: 'body', axis: 1, min: -60, max: 60 },
+    { label: '侧倾', role: 'body', axis: 2, min: -40, max: 40 },
   ] },
   { title: '躯干', items: [
-    { label: '前后倾', role: 'spine', axis: 0, min: -45, max: 45 },
+    { label: '前倾', role: 'spine', axis: 0, min: -45, max: 45 },
     { label: '扭转', role: 'spine', axis: 1, min: -60, max: 60 },
     { label: '侧倾', role: 'spine', axis: 2, min: -40, max: 40 },
   ] },
@@ -55,39 +60,40 @@ const GROUPS: AdjustmentGroup[] = [
     { label: '转头', role: 'neck', axis: 1, min: -60, max: 60 },
     { label: '歪头', role: 'neck', axis: 2, min: -35, max: 35 },
   ] },
-  { title: '肩部', items: [
-    { label: '左肩前举', role: 'shoulderL', axis: 0, min: -120, max: 60 },
-    { label: '左肩外展', role: 'shoulderL', axis: 2, min: -100, max: 140 },
-    { label: '左肩旋转', role: 'shoulderL', axis: 1, min: -90, max: 90 },
-    { label: '右肩前举', role: 'shoulderR', axis: 0, min: -120, max: 60 },
-    { label: '右肩外展', role: 'shoulderR', axis: 2, min: -140, max: 100 },
-    { label: '右肩旋转', role: 'shoulderR', axis: 1, min: -90, max: 90 },
+  { title: '手臂 — 肩', items: [
+    { side: '左', label: '前举', role: 'shoulderL', axis: 0, min: -120, max: 60 },
+    { side: '左', label: '外展', role: 'shoulderL', axis: 2, min: -100, max: 140 },
+    { side: '左', label: '扭转', role: 'shoulderL', axis: 1, min: -90, max: 90 },
+    { side: '右', label: '前举', role: 'shoulderR', axis: 0, min: -120, max: 60 },
+    { side: '右', label: '外展', role: 'shoulderR', axis: 2, min: -140, max: 100 },
+    { side: '右', label: '扭转', role: 'shoulderR', axis: 1, min: -90, max: 90 },
   ] },
   { title: '肘部', items: [
-    { label: '左肘弯曲', role: 'elbowL', axis: 1, min: -140, max: 5 },
-    { label: '右肘弯曲', role: 'elbowR', axis: 1, min: -5, max: 140 },
+    { side: '左', label: '弯曲', role: 'elbowL', axis: 1, min: -140, max: 5 },
+    { side: '右', label: '弯曲', role: 'elbowR', axis: 1, min: -5, max: 140 },
   ] },
-  { title: '髋部', items: [
-    { label: '左髋前举', role: 'hipL', axis: 0, min: -110, max: 60 },
-    { label: '左髋外展', role: 'hipL', axis: 2, min: -70, max: 70 },
-    { label: '左髋旋转', role: 'hipL', axis: 1, min: -70, max: 70 },
-    { label: '右髋前举', role: 'hipR', axis: 0, min: -110, max: 60 },
-    { label: '右髋外展', role: 'hipR', axis: 2, min: -70, max: 70 },
-    { label: '右髋旋转', role: 'hipR', axis: 1, min: -70, max: 70 },
+  { title: '腿部 — 髋', items: [
+    { side: '左', label: '前抬', role: 'hipL', axis: 0, min: -110, max: 60 },
+    { side: '左', label: '外展', role: 'hipL', axis: 2, min: -70, max: 70 },
+    { side: '左', label: '扭转', role: 'hipL', axis: 1, min: -70, max: 70 },
+    { side: '右', label: '前抬', role: 'hipR', axis: 0, min: -110, max: 60 },
+    { side: '右', label: '外展', role: 'hipR', axis: 2, min: -70, max: 70 },
+    { side: '右', label: '扭转', role: 'hipR', axis: 1, min: -70, max: 70 },
   ] },
   { title: '膝部', items: [
-    { label: '左膝弯曲', role: 'kneeL', axis: 0, min: -5, max: 140 },
-    { label: '右膝弯曲', role: 'kneeR', axis: 0, min: -5, max: 140 },
+    { side: '左', label: '弯曲', role: 'kneeL', axis: 0, min: -5, max: 140 },
+    { side: '右', label: '弯曲', role: 'kneeR', axis: 0, min: -5, max: 140 },
   ] },
 ]
 
 const presetById = new Map(POSE_PRESETS.map((preset) => [preset.id, preset]))
 
-export function CharacterPropertiesPanel({ character, onPatch, timelineMode = false }: Props) {
+export function CharacterPropertiesPanel({ character, onPatch, timelineMode = false, timelineKeyframes }: Props) {
   const isProp = getLibraryItem(character.modelId)?.kind !== 'body'
   const [tab, setTab] = React.useState<'props' | 'pose' | 'trajectory'>('props')
   const effectiveTab = isProp || (!timelineMode && tab === 'trajectory') ? 'props' : tab
   const pose = (character.pose ?? {}) as Record<string, [number, number, number]>
+  const rotationDegrees = character.rotation.map((value) => toDeg(value)) as [number, number, number]
 
   const applyPreset = (entry: PoseEntry) => {
     const preset = presetById.get(entry.sourceId) as PosePreset | undefined
@@ -118,11 +124,11 @@ export function CharacterPropertiesPanel({ character, onPatch, timelineMode = fa
 
       {effectiveTab === 'props' ? <>
         <Section title="名称"><TextField value={character.name} onChange={(value) => onPatch({ name: value })} /></Section>
-        <Section title="位置"><Vec3Row value={character.position} onChange={(value) => onPatch({ position: value })} /></Section>
-        <Section title="旋转"><Vec3Row value={character.rotation} onChange={(value) => onPatch({ rotation: value })} /></Section>
-        <Section title="缩放"><Vec3Row value={character.scale} onChange={(value) => onPatch({ scale: value })} /></Section>
-        <Section title="统一缩放"><SliderField value={character.uniformScale} min={0.2} max={3} step={0.01} onChange={(value) => onPatch({ uniformScale: value })} /></Section>
-        <Section title="颜色"><input type="color" value={character.colorHex} onChange={(event) => onPatch({ colorHex: event.target.value })} style={{ width: 52, height: 30, border: '1px solid #333', borderRadius: 6, background: 'transparent' }} /></Section>
+        <Section title="位置"><Vec3Row value={character.position} onChange={(value) => onPatch({ position: value })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('position', component)} onClick={() => timelineKeyframes.toggle('position', component)} /> : undefined} /></Section>
+        <Section title="旋转"><Vec3Row value={rotationDegrees} onChange={(value) => onPatch({ rotation: value.map((angle) => deg(angle)) as [number, number, number] })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('rotation', component)} onClick={() => timelineKeyframes.toggle('rotation', component)} /> : undefined} /></Section>
+        <Section title="缩放"><Vec3Row value={character.scale} onChange={(value) => onPatch({ scale: value })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('scale', component)} onClick={() => timelineKeyframes.toggle('scale', component)} /> : undefined} /></Section>
+        <Section title="统一缩放"><SliderField value={character.uniformScale} min={0.2} max={3} step={0.01} displayDigits={1} onChange={(value) => onPatch({ uniformScale: value })} /></Section>
+        <Section title="颜色"><HexColorField value={character.colorHex} onChange={(colorHex) => onPatch({ colorHex })} /></Section>
       </> : effectiveTab === 'pose' ? <>
         <Section title="姿势预设">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
@@ -132,15 +138,18 @@ export function CharacterPropertiesPanel({ character, onPatch, timelineMode = fa
             })}
           </div>
         </Section>
+        <div style={{ padding: '12px 16px 4px', color: '#8b93a1', fontSize: 12 }}>姿势调节</div>
         {GROUPS.map((group) => <Section key={group.title} title={group.title}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {group.items.map((item) => <div key={item.label}>
+            {group.items.map((item, index) => <React.Fragment key={`${item.side ?? ''}-${item.label}-${item.role}`}>
+              {item.side && (index === 0 || group.items[index - 1]?.side !== item.side) ? <div style={{ color: '#d4d4d4', fontSize: 11, fontWeight: 600 }}>{item.side}</div> : null}
+              <div>
               <div style={{ marginBottom: 3, color: '#a3a3a3', fontSize: 11 }}>{item.label}</div>
-              <SliderField value={toDeg(pose[item.role]?.[item.axis] ?? 0)} min={item.min} max={item.max} step={1} onChange={(value) => setJoint(item, value)} />
-            </div>)}
+              <SliderField value={toDeg(pose[item.role]?.[item.axis] ?? 0)} min={item.min} max={item.max} step={1} inputLabel={`${item.label}角度`} onChange={(value) => setJoint(item, value)} />
+              </div>
+            </React.Fragment>)}
           </div>
         </Section>)}
-        <div style={{ padding: '8px 16px' }}><button onClick={() => onPatch({ pose: undefined, posePresetId: undefined, motion: undefined, motionClip: undefined, motionSequence: undefined })} style={{ width: '100%', padding: '8px 0', borderRadius: 6, border: '1px solid #333', background: '#242424', color: '#bfbfbf', cursor: 'pointer' }}>重置姿势</button></div>
       </> : <div style={{ padding: 16, color: '#8c8c8c', fontSize: 12, lineHeight: 1.6 }}>在下方时间轴中选择角色轨道，并使用“绘制轨迹”设置角色运动路径。</div>}
     </div>
   )

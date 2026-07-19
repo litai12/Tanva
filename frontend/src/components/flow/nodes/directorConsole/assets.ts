@@ -32,12 +32,12 @@ export type LibraryItem =
 export const BODY_TYPES: LibraryItem[] = [
   { id: 'male', name: '男性素体', kind: 'body', heightM: 1.78, url: '/director/open-source/quaternius-universal-base/Superhero_Male_FullBody.gltf' },
   { id: 'female', name: '女性素体', kind: 'body', heightM: 1.66, url: '/director/open-source/quaternius-universal-base/Superhero_Female_FullBody.gltf' },
-  { id: 'broad', name: '宽厚素体', kind: 'body', heightM: 1.74, profile: { height: 1.74, headRadius: .122, shoulderWidth: .56, hipWidth: .40, torsoLength: .50, torsoRadiusTop: .255, torsoRadiusBottom: .205, upperArm: .29, forearm: .265, armRadius: .085, thigh: .40, shin: .39, legRadius: .105 } },
-  { id: 'muscular', name: '健壮素体', kind: 'body', heightM: 1.82, profile: { height: 1.82, headRadius: .116, shoulderWidth: .54, hipWidth: .32, torsoLength: .55, torsoRadiusTop: .245, torsoRadiusBottom: .155, upperArm: .32, forearm: .29, armRadius: .082, thigh: .45, shin: .43, legRadius: .10 } },
-  { id: 'slim', name: '纤细素体', kind: 'body', heightM: 1.72, profile: { height: 1.72, headRadius: .108, shoulderWidth: .36, hipWidth: .27, torsoLength: .54, torsoRadiusTop: .15, torsoRadiusBottom: .125, upperArm: .32, forearm: .29, armRadius: .043, thigh: .43, shin: .43, legRadius: .058 } },
-  { id: 'teen', name: '少年素体', kind: 'body', heightM: 1.50, profile: { height: 1.50, headRadius: .118, shoulderWidth: .34, hipWidth: .27, torsoLength: .42, torsoRadiusTop: .145, torsoRadiusBottom: .125, upperArm: .255, forearm: .235, armRadius: .045, thigh: .35, shin: .35, legRadius: .06 } },
-  { id: 'child', name: '儿童素体', kind: 'body', heightM: 1.20, profile: { height: 1.20, headRadius: .13, shoulderWidth: .27, hipWidth: .23, torsoLength: .31, torsoRadiusTop: .125, torsoRadiusBottom: .115, upperArm: .19, forearm: .175, armRadius: .04, thigh: .255, shin: .245, legRadius: .052 } },
-  { id: 'chibi', name: '二头身', kind: 'body', heightM: 1.00, profile: { height: 1.00, headRadius: .23, shoulderWidth: .30, hipWidth: .25, torsoLength: .25, torsoRadiusTop: .145, torsoRadiusBottom: .135, upperArm: .15, forearm: .13, armRadius: .048, thigh: .18, shin: .17, legRadius: .06 } },
+  { id: 'broad', name: '宽厚素体', kind: 'body', heightM: 1.74, url: '/director/open-source/quaternius-ultimate-animated/Viking_Male.gltf' },
+  { id: 'muscular', name: '健壮素体', kind: 'body', heightM: 1.82, url: '/director/open-source/quaternius-ultimate-animated/Knight_Male.gltf' },
+  { id: 'slim', name: '纤细素体', kind: 'body', heightM: 1.72, url: '/director/open-source/quaternius-ultimate-animated/Ninja_Female.gltf' },
+  { id: 'teen', name: '少年素体', kind: 'body', heightM: 1.50, url: '/director/open-source/quaternius-ultimate-animated/Elf.gltf' },
+  { id: 'child', name: '儿童素体', kind: 'body', heightM: 1.20, url: '/director/open-source/quaternius-ultimate-animated/Goblin_Male.gltf' },
+  { id: 'chibi', name: '二头身', kind: 'body', heightM: 1.00, url: '/director/open-source/quaternius-ultimate-animated/Goblin_Female.gltf' },
 ]
 
 export const PROP_TYPES: LibraryItem[] = [
@@ -75,7 +75,7 @@ export function getLibraryItem(modelId: string): LibraryItem | undefined {
     return { id: modelId, name: '站位参考', kind: 'reference', url: modelId.slice('reference-image:'.length) }
   }
   // 本地上传：modelId 直接是 blob/http URL
-  if (/^(https?:|projects\/|uploads\/)/.test(modelId) && /\.splat(?:[?#]|$)/i.test(modelId)) {
+  if (/^(https?:|\/|projects\/|uploads\/)/.test(modelId) && /\.splat(?:[?#]|$)/i.test(modelId)) {
     return { id: modelId, name: '高斯泼溅', kind: 'gaussian', url: modelId }
   }
   if (/^(blob:|https?:|projects\/|uploads\/)/.test(modelId)) {

@@ -22,9 +22,9 @@ export function AiSceneImportDialog({ busy, sourceUrl, onClose, onUpload, onOpen
   const [dragging, setDragging] = React.useState(false)
   const accept = (file?: File) => { if (file?.type.startsWith('image/')) void onUpload(file) }
 
-  return <div style={{ position: 'fixed', inset: 0, zIndex: 4300, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.58)' }} onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+  return <div style={{ position: 'fixed', inset: 0, zIndex: 4300, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,.58)' }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div role="dialog" aria-label="AI 识图导入" style={{ width: 520, maxHeight: '88vh', overflowY: 'auto', borderRadius: 14, border: '1px solid #383838', background: '#191919', boxShadow: '0 24px 80px rgba(0,0,0,.55)', color: '#eee' }}>
-      <div style={{ height: 48, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #2b2b2b', fontWeight: 600 }}><span>AI 识图导入</span><button aria-label="关闭" disabled={busy} onClick={onClose} style={{ border: 0, background: 'transparent', color: '#aaa', cursor: 'pointer', fontSize: 20 }}>×</button></div>
+      <div style={{ height: 48, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #2b2b2b', fontWeight: 600 }}><span>AI 识图导入</span><button aria-label="关闭" onClick={onClose} style={{ border: 0, background: 'transparent', color: '#aaa', cursor: 'pointer', fontSize: 20 }}>×</button></div>
       <div style={{ padding: 16 }}>
         <input ref={inputRef} type="file" accept="image/*" hidden onChange={(event) => { accept(event.target.files?.[0]); event.currentTarget.value = '' }} />
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}><button onClick={() => inputRef.current?.click()} style={{ flex: 1, height: 34, border: '1px solid #3a3a3a', borderRadius: 7, background: '#242424', color: '#ddd', cursor: 'pointer' }}>本地上传</button><button onClick={onOpenHistory} style={{ flex: 1, height: 34, border: '1px solid #3a3a3a', borderRadius: 7, background: '#242424', color: '#ddd', cursor: 'pointer' }}>历史记录</button></div>

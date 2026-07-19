@@ -70,9 +70,6 @@ export function pasteClipboard(
     position: offsetPos(src.position, offset),
     lookAt: offsetPos(src.lookAt, offset),
     locked: false,
-    ...(src.path
-      ? { path: { ...src.path, waypoints: src.path.waypoints.map(([x, z]) => [r3(x + offset), r3(z + offset)] as [number, number]) } }
-      : {}),
   }
   return {
     ...d,

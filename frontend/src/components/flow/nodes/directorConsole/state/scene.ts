@@ -35,7 +35,7 @@ export function addCharacter(
     rotation: [0, 0, 0],
     scale: [1, 1, 1],
     uniformScale: 1,
-    colorHex: (item?.kind === 'prop' && item.defaultColor) || '#4B8BFF',
+    colorHex: (item?.kind === 'prop' && item.defaultColor) || '#4F8EF7',
   }
   next.scene.characters.push(ch)
   next.selectedObjectId = init.id
@@ -81,8 +81,23 @@ export function patchCamera(d: DirectorConsoleData, id: string, patch: Partial<C
 
 export function removeObject(d: DirectorConsoleData, id: string): DirectorConsoleData {
   const next = clone(d)
+  const removingCamera = next.scene.cameras.some((camera) => camera.id === id)
   next.scene.characters = next.scene.characters.filter((c) => c.id !== id)
   next.scene.cameras = next.scene.cameras.filter((c) => c.id !== id)
+  if (removingCamera && next.scene.cameraShots?.[id]) {
+    const cameraShots = { ...next.scene.cameraShots }
+    delete cameraShots[id]
+    next.scene.cameraShots = cameraShots
+  }
+  if (next.scene.propertyTimeline) {
+    const trajectories = { ...(next.scene.propertyTimeline.trajectories ?? {}) }
+    delete trajectories[id]
+    next.scene.propertyTimeline = {
+      ...next.scene.propertyTimeline,
+      tracks: next.scene.propertyTimeline.tracks.filter((track) => track.objectId !== id),
+      trajectories,
+    }
+  }
   if (next.selectedObjectId === id) next.selectedObjectId = undefined
   if (next.scene.activeCameraId === id) next.scene.activeCameraId = next.scene.cameras[0]?.id
   return next

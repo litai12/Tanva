@@ -3,17 +3,16 @@ import React from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
-import type { CameraObj, DirectorScene, Vec3 } from '../types'
+import type { CameraObj, DirectorScene } from '../types'
 import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
+import { aspectRatio } from '../state/aspect'
 
 type Props = {
   camera: CameraObj; scene: DirectorScene; active: boolean; selected: boolean; onSelect: () => void
-  /** 播放时给定的实时采样机位（沿运镜路径滑行）；缺省用 camera 的静态位姿。 */
-  override?: { position: Vec3; lookAt: Vec3; fovDeg: number } | null
 }
 
 /** 用一台离屏透视相机生成视锥 helper，仅在导演视角可见 */
-export function CameraRig({ camera, scene, active, selected, onSelect, override }: Props) {
+export function CameraRig({ camera, scene, active, selected, onSelect }: Props) {
   const { scene: rootScene } = useThree()
   const helperRef = React.useRef<THREE.CameraHelper | null>(null)
   const camRef = React.useRef<THREE.PerspectiveCamera | null>(null)
@@ -21,7 +20,7 @@ export function CameraRig({ camera, scene, active, selected, onSelect, override 
 
   React.useEffect(() => {
     if (!active) return
-    const cam = new THREE.PerspectiveCamera(camera.fovDeg, 16 / 9, 0.3, 8)
+    const cam = new THREE.PerspectiveCamera(camera.fovDeg, aspectRatio(scene.aspect, 16 / 9), 0.3, 8)
     camRef.current = cam
     const helper = new THREE.CameraHelper(cam)
     helperRef.current = helper
@@ -32,20 +31,21 @@ export function CameraRig({ camera, scene, active, selected, onSelect, override 
       helperRef.current = null
       camRef.current = null
     }
-  }, [active, rootScene, camera.fovDeg])
+  }, [active, rootScene, camera.fovDeg, scene.aspect])
 
   useFrame(() => {
     const cam = camRef.current
     if (!cam) return
-    // 播放时用实时采样位姿（沿运镜路径滑行）；否则用机位静态位姿
-    const pose = override
-      ? { position: override.position, lookAt: override.lookAt, rotation: camera.rotation ?? [5.71, 180, 0], fovDeg: override.fovDeg }
-      : resolveCameraPose(camera, scene)
+    const pose = resolveCameraPose(camera, scene)
     applyResolvedCameraPose(cam, pose)
     helperRef.current?.update()
-    if (helperRef.current) (helperRef.current.material as THREE.LineBasicMaterial).color.set(override ? '#f59e0b' : selected ? '#52c41a' : '#626872')
-    // 相机图标 + 标签实时跟到采样位置
-    if (groupRef.current) groupRef.current.position.set(...pose.position)
+    if (helperRef.current) (helperRef.current.material as THREE.LineBasicMaterial).color.set(selected ? '#52c41a' : '#626872')
+    // 相机图标 + 标签必须和最终取景姿态完全一致；仅更新位置会让
+    // 导演视角里的相机模型与视锥/机位预览朝向互相矛盾。
+    if (groupRef.current) {
+      groupRef.current.position.copy(cam.position)
+      groupRef.current.quaternion.copy(cam.quaternion)
+    }
   })
 
   if (!active) return null

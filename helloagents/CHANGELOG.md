@@ -874,3 +874,46 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Project-level research search now ranks per-project web results instead of dropping results that do not exactly match the Chinese project title; known architect seeds are used only as search-entry fallbacks and still require real web sources before display.
 - Research case image lookup now remains tied to the extracted case list; when real search is disabled, fails, or returns no matching cases, the backend returns an explicit no-result summary instead of unrelated static architecture cases.
 - AI Chat research-only responses now render the bottom text from the same `research_result` payload used by the case cards, including no-result summaries.
+## [Director Console LibTV Camera Pose Unification - 2026-07-19]
+### Fixed
+- Director Console camera helper, active-camera preview and screenshot rendering now share one camera-pose resolver.
+- LibTV-style manual-coordinate, manual-rotation and character-look-at modes are mutually exclusive; manual rotation is no longer overwritten by `lookAt()`.
+- Camera follow now preserves an explicit character-relative offset, updates the rendered camera when its target moves, and recalculates the offset when position is edited.
+- Switching the camera from the inspector now also selects that camera; new/default camera rotation and FOV copy/format match the observed LibTV controls more closely.
+- Camera screenshot fullscreen now opens an in-console modal lightbox with close-button, backdrop and Escape dismissal instead of navigating to a new browser tab.
+
+### Added
+- Restored LibTV's top-level `导出到画布` as a narrowly scoped property-timeline export: it records the active camera WebGL canvas in real time, uploads a remote MP4/WebM asset, and inserts it through the existing canvas video-asset event.
+- Timeline playback now feeds the sampled `displayedScene` into the main viewport, fixing previously static preview and exported footage.
+- Global History now supports request-scoped image-picking mode. Director panorama history selection writes the selected remote image into `scene.skybox`; AI scene import history selection returns the same remote image into the dialog source preview without sending it to the canvas.
+- LibTV-style trajectory drawing now works for both characters and the main camera. Viewport control points support add/move/delete/clear plus linear/curve modes; paths persist with the property timeline and compile into arc-length-timed position keyframes, including character ground/Gaussian height resolution.
+- Replaced the six remaining procedural Director body fallbacks with independent CC0 skinned glTF assets from Quaternius Ultimate Animated Character Pack: Viking, Knight, Ninja, Elf and two Goblins. Extended pose mapping for the pack's `.L/.R` upper/lower-leg bone names and recorded the bundled CC0 license.
+- Split LibTV's body and torso controls into distinct calibrated joints: lower body/abdomen uses `body`, while upper torso/chest remains `spine`, with exact aliases across Mixamo, Universal Base and Quaternius 23-joint rigs.
+- Added an eight-body pose audit harness and completed a 20-pose batch render (160 body/pose combinations) in an independent SwiftShader WebGL browser with zero application console errors.
+- Director camera screenshots now remoteize immediately and persist as remote-only `scene.cameraShots`; reopening the console hydrates the gallery, while send-to-canvas reuses an existing remote URL instead of uploading it twice.
+- The property timeline minimize control is now functional, collapsing the 250px editor to its 42px transport bar and restoring it with an accessible expand control.
+
+### Removed
+- Physically removed the obsolete Director viewport clip-frame renderer, thumbnail renderer, free-flight recorder, legacy camera animation preview, recorded/path helper overlays and live-camera override.
+- Deleted the unused legacy shot timeline, preview-clip, clip-animation, camera-path editor, lens and shot-preset modules, along with focal-length, aperture, focus-distance, roll and legacy path fields from the Director camera contract.
+## 2026-07-19 — LibTV 导演台相机预览姿态与画幅修正
+
+- 导演视角中的机位模型现在同步共享相机解析器计算出的最终位置和四元数，跟随、手动旋转、坐标注视和角色注视不再出现“视锥正确但机位模型朝向错误”。
+- 相机视锥使用导演台当前画幅比例，不再固定为 16:9；机位预览、视锥和截图继续共享同一套相机姿态/FOV 语义。
+- 导演台 scene 写入在 React commit 前同步更新内部权威引用，修复连续相机编辑、截图新建机位与异步上传回写之间可能由旧 scene 覆盖新 scene 的竞态；外部 scene 重载时同步水合摄像机截图画廊。
+- 新增项目自有 CC0 标准 Gaussian Splat 起伏地面回归资产（4225 splats，135200 bytes）及确定性生成脚本；独立 Chromium/SwiftShader 实测 HTTP 加载、Drei 渲染零错误，XYZ 地面索引在 X=-2/0/2 返回 0.098/0.296/0.472。
+- Director Harness 新增完整 React Flow + Director Modal 持久化宿主，可记录 `flow:updateNodeData`、卸载并刷新重开；浏览器回归证明相机位置/注视模式与远程截图分组恢复，序列化数据不含 `data:`/`blob:`。场景树对象行补齐 LibTV 同等 button 语义与键盘 Enter/Space 选择。
+- 顶栏“导出到画布”改为只在动画时间轴模式显示，场景编辑模式隐藏；完整 Modal 浏览器快照已分别验证两种状态，匹配 LibTV 默认导演台/时间线快照。
+- 底部工具栏从仅 hover title 的图标条改为 LibTV 同构的“图标 + 常驻文字”，补齐 `移动 (V)`、`全景图`、`AI 识图导入` 等精确文案和 navigation 语义；添加角色一级菜单同步改为 `添加空对象`、`群众 (3x3)`，几何模型收进独立二级入口。移除 Toolbar 遗留但不可见的九宫格/删除/撤销参数接口。
+- 场景属性数值显示对齐 LibTV：缩放 `300%`、全景旋转 `0°`、透明度 `0.40`、高度 `0.0` 使用带格式文本提交，天空颜色使用 `#` + 六位 hex；XYZ 轴标签升级为可左右拖动调整的按钮。场景树补回 LibTV 快照中的常驻“搜索场景对象”标签。
+- 角色属性颜色从原生 color picker 改为 LibTV 的 hex 文本，统一缩放固定一位小数，新角色默认色对齐 `#4F8EF7`。姿势调节分组/文案重排为“手臂 — 肩”“腿部 — 髋”及独立左右小节，补齐角度文本框 aria 语义，并移除 LibTV 快照不存在的额外“重置姿势”按钮。
+- 属性时间线控件对齐 LibTV：自动帧/循环播放改为按钮，播放头和总时长使用同名文本输入，时间单位为 `s`/`ms` 单按钮，缩放改为 range；增删轨收敛为上下文“新建轨道/移除轨道”。未建轨角色不再预先列出，主轨改名“主机位”，展开属性与常驻“绘制轨迹”分离。
+- 导演台 Flow 节点补齐 LibTV 的“资产管理”按钮，复用现有 `MaterialLibraryPanel` 状态入口，真实打开个人/团队素材与画布元素管理面板；与“打开导演台”并列显示，不提供空壳交互。
+- 修复导演台默认场景仅存在于 Modal 内存兜底的问题：Flow 新建节点现在直接 seed 完整 `createDefaultDirectorConsoleData()`；历史缺 scene 节点首次打开时立即通过节点数据事件自愈写回，用户不编辑直接关闭也能保存看到的默认角色、机位、环境和地面设置。
+- 导演台输入句柄由 `any` 收紧为 `image`。对象删除现在原子清理对应属性轨/运动轨迹，删除机位额外清理其持久化截图并回落 activeCamera；“全部发送”只消费当前有效机位分组，修复已删除机位的隐藏截图仍可能被输出的问题。
+- 修复角色旋转单位与 LibTV/场景/摄像机面板不一致：角色属性输入和轴拖动现在显示/编辑角度，写入时再转换成 Three.js 弧度，保留既有 gizmo、关键帧与渲染内部单位。AI 识图生成期间关闭按钮与背景关闭不再被 busy 禁用，真正兑现“关闭不会中断识图任务”。
+- 时间线旋转插值改为最短弧：角色根旋转和姿势关节按 2π 弧度周期，摄像机按 360° 周期，修复 350°→10°、170°→-170° 等关键帧跨界时反向绕长路的问题；位置/缩放/FOV 等仍保持线性插值。
+- 属性时间线从整 Vec3 关键帧扩展为逐轴 component 轨：角色位置/旋转/缩放与机位位置/旋转/注视点可分别给 X/Y/Z 打帧，FOV 保持标量轨；时间线模式右侧面板补齐 LibTV 的“当前帧有/无关键帧”菱形按钮。旧整向量轨仍可采样并在轴按钮删除时安全清理，轨迹 position 轨会排除冲突的分量轨。
+- 加固逐轴轨兼容优先级：重新建轨会替换同属性旧整向量轨，采样时先应用旧整向量基值、再由 component 轨覆盖对应轴，避免轨道数组顺序导致结果漂移；三轴输入改为可收缩布局，新增菱形按钮后仍保持在 320px 检查器内。
+- 真实打包 `propertyTimeline.ts` 执行确定性断言时发现并修复分量 rotation 仍走标量线性插值的问题。回归现证明：仅 X 位置打帧时中点 `[5,2,3]`（Y/Z 不漂移）、摄像机 Y 轴 350°→10° 中点为 360°、旧整向量 `[1,2,3]` 与新 X=7 共存时结果为 `[7,2,3]`。
+- 新增永久属性时间线回归门禁 `npm run verify:director-timeline`，直接打包并执行真实 `propertyTimeline.ts`，严格校验 X/Y/Z 建轨、新轨为空、单轴动画不污染其他轴、350°→10° 最短弧和旧整向量/新分量轨优先级；该门禁、前端生产构建及 `git diff --check` 均已通过。

@@ -83,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore, refreshTeams } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
+import { getGlobalHistoryDownloadFileName, getGlobalHistoryMediaUrl } from "@/components/global-history/historyMedia";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
 import WorkflowHistoryButton from "@/components/workflow-history/WorkflowHistoryButton";
@@ -816,8 +817,13 @@ const FloatingHeader: React.FC = () => {
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
+  const [globalHistorySelectionRequest, setGlobalHistorySelectionRequest] = useState<{ requestId: string; purpose?: string } | null>(null);
   useEffect(() => {
-    const openHistory = () => setIsGlobalHistoryOpen(true);
+    const openHistory = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string; purpose?: string }>).detail;
+      setGlobalHistorySelectionRequest(detail?.requestId ? { requestId: detail.requestId, purpose: detail.purpose } : null);
+      setIsGlobalHistoryOpen(true);
+    };
     window.addEventListener('tanva:open-global-history', openHistory);
     return () => window.removeEventListener('tanva:open-global-history', openHistory);
   }, []);
@@ -3412,7 +3418,24 @@ const FloatingHeader: React.FC = () => {
         {/* 全局图片历史页面 */}
         <GlobalImageHistoryPage
           isOpen={isGlobalHistoryOpen}
-          onClose={() => setIsGlobalHistoryOpen(false)}
+          selectionRequest={globalHistorySelectionRequest}
+          onSelectImage={(item) => {
+            if (!globalHistorySelectionRequest) return;
+            const url = getGlobalHistoryMediaUrl(item);
+            if (!url) return;
+            window.dispatchEvent(new CustomEvent('tanva:global-history-selected', {
+              detail: {
+                requestId: globalHistorySelectionRequest.requestId,
+                purpose: globalHistorySelectionRequest.purpose,
+                itemId: item.id,
+                url,
+                name: getGlobalHistoryDownloadFileName(item),
+              },
+            }));
+            setIsGlobalHistoryOpen(false);
+            setGlobalHistorySelectionRequest(null);
+          }}
+          onClose={() => { setIsGlobalHistoryOpen(false); setGlobalHistorySelectionRequest(null); }}
         />
 
         <PricingCatalogModal

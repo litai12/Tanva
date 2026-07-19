@@ -21,34 +21,38 @@ type Props = {
   skyboxYaw: number
   onSetSkyboxYaw: (deg: number) => void
   onGeneratePanorama: (prompt: string) => Promise<void>
+  onOpenPanoramaHistory: () => void
   onAddCamera: () => void
   onSetAspect: (a: AspectKey) => void
-  showThirds: boolean
-  onToggleThirds: () => void
   onCapture: () => void
   onAiSceneImport: () => void
-  onDeleteSelected?: () => void
-  onUndo: () => void
-  onRedo: () => void
-  canUndo: boolean
-  canRedo: boolean
   editorMode: 'scene' | 'timeline'
   onEditorModeChange: (mode: 'scene' | 'timeline') => void
 }
 
 const ASPECTS: AspectKey[] = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
 
-const btn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', color: '#cdd3dc' }
+const btn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex', color: '#cdd3dc' }
 const btnOn: React.CSSProperties = { ...btn, background: '#2c313c', color: '#fff' }
+const toolWrap: React.CSSProperties = { position: 'relative', minWidth: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }
+const toolLabel: React.CSSProperties = { color: '#a3a3a3', fontSize: 10, lineHeight: '12px', whiteSpace: 'nowrap', userSelect: 'none' }
 const menu: React.CSSProperties = { position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', background: '#16181d', border: '1px solid #2a2f3a', borderRadius: 10, padding: 6, minWidth: 150, maxHeight: '62vh', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }
 const item: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#cdd3dc', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
 const sep: React.CSSProperties = { height: 1, background: '#2a2f3a', margin: '4px 2px' }
 
-function Pop({ icon, title, children }: { icon: React.ReactNode; title: string; children: (close: () => void) => React.ReactNode }) {
+function ToolButton({ icon, title, label = title, active, disabled, onClick }: { icon: React.ReactNode; title: string; label?: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
+  return <div style={toolWrap}>
+    <button style={{ ...(active ? btnOn : btn), opacity: disabled ? 0.5 : 1 }} title={title} disabled={disabled} onClick={onClick}>{icon}</button>
+    <span style={toolLabel}>{label}</span>
+  </div>
+}
+
+function Pop({ icon, title, label = title, children }: { icon: React.ReactNode; title: string; label?: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = React.useState(false)
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={toolWrap}>
       <button style={btn} title={title} onClick={() => setOpen((v) => !v)}>{icon}</button>
+      <span style={toolLabel}>{label}</span>
       {open ? (
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 1 }} onClick={() => setOpen(false)} />
@@ -69,43 +73,61 @@ function PanoramaAiForm({ busy, onGenerate, close }: { busy: boolean; onGenerate
   </div>
 }
 
-export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onGeneratePanorama, onAddCamera, onSetAspect, showThirds, onToggleThirds, onCapture, onAiSceneImport, onDeleteSelected, onUndo, onRedo, canUndo, canRedo, editorMode, onEditorModeChange }: Props) {
+function CharacterMenu({ close, onLocalUpload, onGaussianUpload, onAddCharacter, onAddCrowd }: {
+  close: () => void
+  onLocalUpload: () => void
+  onGaussianUpload: () => void
+  onAddCharacter: (modelId: string) => void
+  onAddCrowd: () => void
+}) {
+  const [page, setPage] = React.useState<'main' | 'geometry'>('main')
+  if (page === 'geometry') return <>
+    <button style={item} onClick={() => setPage('main')}>← 返回</button>
+    <div style={sep} />
+    <button style={item} onClick={() => { onLocalUpload(); close() }}>上传文件</button>
+    {PROP_TYPES.filter((model) => model.id !== 'prop-plane').map((model) => (
+      <button key={model.id} style={item} onClick={() => { onAddCharacter(model.id); close() }}>{model.name}</button>
+    ))}
+  </>
+  return <>
+    <button style={item} onClick={() => { onLocalUpload(); close() }}>本地上传</button>
+    <button style={item} onClick={() => { onGaussianUpload(); close() }}>高斯泼溅</button>
+    <div style={sep} />
+    {BODY_TYPES.map((model) => (
+      <button key={model.id} style={item} onClick={() => { onAddCharacter(model.id); close() }}>{model.name}</button>
+    ))}
+    <button style={item} onClick={() => { onAddCharacter('empty-object'); close() }}>添加空对象</button>
+    <button style={item} onClick={() => { onAddCrowd(); close() }}>群众 (3x3)</button>
+    <button style={item} onClick={() => setPage('geometry')}>几何模型</button>
+  </>
+}
+
+export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacter, onAddCrowd, onUploadModel, onUploadGaussian, onSetSkybox, hasSkybox, panoConnected, skyboxYaw, onSetSkyboxYaw, onGeneratePanorama, onOpenPanoramaHistory, onAddCamera, onSetAspect, onCapture, onAiSceneImport, editorMode, onEditorModeChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null)
   const gaussianRef = React.useRef<HTMLInputElement>(null)
   const skyRef = React.useRef<HTMLInputElement>(null)
   const [panoramaAiOpen, setPanoramaAiOpen] = React.useState(false)
   return (
-    <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 12px', pointerEvents: 'none' }}>
+    <nav aria-label="导演台工具栏" style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 10px', pointerEvents: 'none' }}>
       <input ref={fileRef} type="file" accept=".glb,.gltf,model/gltf-binary" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadModel(f); e.currentTarget.value = '' }} />
       <input ref={gaussianRef} type="file" accept=".splat,application/octet-stream" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadGaussian(f); e.currentTarget.value = '' }} />
       <input ref={skyRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onSetSkybox(f); e.currentTarget.value = '' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(30,30,30,0.94)', borderRadius: 16, padding: 8, border: '0.5px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 10px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
-        <button style={gizmoMode === 'translate' ? btnOn : btn} title="移动" onClick={() => onSetGizmoMode('translate')}><IconArrowsMove size={20} /></button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(30,30,30,0.94)', borderRadius: 16, padding: '6px 8px', border: '0.5px solid rgba(255,255,255,0.12)', boxShadow: '0 4px 10px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
+        <ToolButton icon={<IconArrowsMove size={20} />} title="移动" label="移动 (V)" active={gizmoMode === 'translate'} onClick={() => onSetGizmoMode('translate')} />
         <div style={{ width: 1, height: 24, background: '#2a2f3a', margin: '0 4px' }} />
         <Pop icon={<IconUserPlus size={20} />} title="添加角色">
-          {(close) => (
-            <>
-              <button style={item} onClick={() => { fileRef.current?.click(); close() }}>本地上传</button>
-              <button style={item} onClick={() => { gaussianRef.current?.click(); close() }}>高斯泼溅</button>
-              <div style={sep} />
-              {BODY_TYPES.map((m) => (
-                <button key={m.id} style={item} onClick={() => { onAddCharacter(m.id); close() }}>{m.name}</button>
-              ))}
-              <button style={item} onClick={() => { onAddCharacter('empty-object'); close() }}>空对象</button>
-              <button style={item} onClick={() => { onAddCrowd({ modelId: 'male', rows: 3, columns: 3, spacing: 1.2 }); close() }}>人群 3×3</button>
-              <div style={sep} />
-              <div style={{ fontSize: 11, color: '#6b7280', padding: '4px 10px' }}>几何模型</div>
-              <button style={item} onClick={() => { fileRef.current?.click(); close() }}>上传文件</button>
-              {PROP_TYPES.filter((model) => model.id !== 'prop-plane').map((m) => (
-                <button key={m.id} style={item} onClick={() => { onAddCharacter(m.id); close() }}>{m.name}</button>
-              ))}
-            </>
-          )}
+          {(close) => <CharacterMenu
+            close={close}
+            onLocalUpload={() => fileRef.current?.click()}
+            onGaussianUpload={() => gaussianRef.current?.click()}
+            onAddCharacter={onAddCharacter}
+            onAddCrowd={() => onAddCrowd({ modelId: 'male', rows: 3, columns: 3, spacing: 1.2 })}
+          />}
         </Pop>
-        <Pop icon={<IconPhoto size={20} />} title="全景背景">
+        <Pop icon={<IconPhoto size={20} />} title="全景背景" label="全景图">
           {(close) => (
             panoramaAiOpen ? <PanoramaAiForm busy={busy} onGenerate={onGeneratePanorama} close={() => { setPanoramaAiOpen(false); close() }} /> : <div style={{ minWidth: 230 }}>
               <div style={{ fontSize: 12, padding: '6px 10px', color: panoConnected ? '#7fd18b' : '#8b93a1', lineHeight: 1.5 }}>
@@ -113,7 +135,7 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
               </div>
               <div style={sep} />
               <button style={item} onClick={() => { skyRef.current?.click(); close() }}>本地上传</button>
-              <button style={item} onClick={() => { window.dispatchEvent(new Event('tanva:open-global-history')); close() }}>历史记录</button>
+              <button style={item} onClick={() => { onOpenPanoramaHistory(); close() }}>历史记录</button>
               <button style={item} onClick={() => setPanoramaAiOpen(true)}>AI生成</button>
               {hasSkybox ? <button style={{ ...item, color: '#d98080' }} onClick={() => { onSetSkybox(null); close() }}>清除上传的全景图</button> : null}
               {(hasSkybox || panoConnected) ? (
@@ -131,7 +153,7 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
             </div>
           )}
         </Pop>
-        <button style={btn} title="添加机位" onClick={onAddCamera}><IconVideoPlus size={20} /></button>
+        <ToolButton icon={<IconVideoPlus size={20} />} title="添加机位" onClick={onAddCamera} />
         <Pop icon={<IconAspectRatio size={20} />} title="选择画幅比例">
           {(close) => (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
@@ -141,29 +163,15 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
             </div>
           )}
         </Pop>
-        <button style={{ ...btn, opacity: busy ? 0.5 : 1 }} title="截图" disabled={busy} onClick={onCapture}><IconCamera size={20} /></button>
-        <button style={btn} title="AI 图片识别导入" onClick={onAiSceneImport}><IconScan size={20} /></button>
-        <button style={btn} title="全屏" onClick={() => { const root = document.querySelector('[data-testid=director-console-modal]') as HTMLElement | null; if (!document.fullscreenElement) void root?.requestFullscreen?.(); else void document.exitFullscreen?.() }}><IconMaximize size={20} /></button>
+        <ToolButton icon={<IconCamera size={20} />} title="截图" disabled={busy} onClick={onCapture} />
+        <ToolButton icon={<IconScan size={20} />} title="AI 图片识别导入" label="AI 识图导入" onClick={onAiSceneImport} />
+        <ToolButton icon={<IconMaximize size={20} />} title="全屏" onClick={() => { const root = document.querySelector('[data-testid=director-console-modal]') as HTMLElement | null; if (!document.fullscreenElement) void root?.requestFullscreen?.(); else void document.exitFullscreen?.() }} />
         <div style={{ width: 1, height: 24, background: '#525252', margin: '0 4px' }} />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, padding: 2, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }}>
-          <button
-            type="button"
-            aria-label="场景编辑"
-            aria-pressed={editorMode === 'scene'}
-            title="场景编辑"
-            onClick={() => onEditorModeChange('scene')}
-            style={{ ...btn, width: 32, height: 32, padding: 6, justifyContent: 'center', background: editorMode === 'scene' ? '#141414' : 'transparent', boxShadow: editorMode === 'scene' ? '0 4px 10px rgba(0,0,0,0.2)' : 'none' }}
-          ><IconPointer size={17} /></button>
-          <button
-            type="button"
-            aria-label="动画时间轴"
-            aria-pressed={editorMode === 'timeline'}
-            title="动画时间轴"
-            onClick={() => onEditorModeChange('timeline')}
-            style={{ ...btn, width: 32, height: 32, padding: 6, justifyContent: 'center', background: editorMode === 'timeline' ? '#141414' : 'transparent', boxShadow: editorMode === 'timeline' ? '0 4px 10px rgba(0,0,0,0.2)' : 'none' }}
-          ><IconClock size={17} /></button>
+          <ToolButton icon={<IconPointer size={17} />} title="场景编辑" active={editorMode === 'scene'} onClick={() => onEditorModeChange('scene')} />
+          <ToolButton icon={<IconClock size={17} />} title="动画时间轴" active={editorMode === 'timeline'} onClick={() => onEditorModeChange('timeline')} />
         </div>
       </div>
-    </div>
+    </nav>
   )
 }

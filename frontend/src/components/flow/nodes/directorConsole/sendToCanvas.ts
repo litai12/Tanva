@@ -6,7 +6,7 @@ import { isPersistableImageRef } from '@/utils/imageSource'
 /**
  * 纯 image 节点：复用 Tanva 既有 `triggerQuickImageUpload`（与 ThreeNode/Seed3DNode 一致），
  * 由 FlowOverlay/DrawingController 上传 OSS + 生成 image 节点 + 锚定到导演台节点下方。
- * shots[].imageUrl 为截图 dataURL。多张时按下标纵向错开锚点，避免叠放。
+ * shots[].imageUrl may be a runtime dataURL or an already-persisted remote URL.
  */
 export async function sendShotsToCanvas(
   directorNodeId: string,
@@ -16,14 +16,13 @@ export async function sendShotsToCanvas(
   const createdIds: string[] = []
   for (let i = 0; i < shots.length; i++) {
     const shot = shots[i]
-    const blob = await dataUrlToBlob(shot.imageUrl)
-    const hosted = await uploadCanvasImageBlob({
-      blob,
-      label: shot.name || '导演台截图',
-      filePrefix: 'director-shot',
-      ownerNodeId: directorNodeId,
-    })
-    if (!isPersistableImageRef(hosted.url)) throw new Error(`${shot.name || '导演台截图'}未获得可持久化远程地址`)
+    let remoteUrl = shot.imageUrl
+    if (!isPersistableImageRef(remoteUrl)) {
+      const blob = await dataUrlToBlob(shot.imageUrl)
+      const hosted = await uploadCanvasImageBlob({ blob, label: shot.name || '导演台截图', filePrefix: 'director-shot', ownerNodeId: directorNodeId })
+      remoteUrl = hosted.url
+    }
+    if (!isPersistableImageRef(remoteUrl)) throw new Error(`${shot.name || '导演台截图'}未获得可持久化远程地址`)
     const createdId = await new Promise<string | null>((resolve) => {
       let settled = false
       const done = (id: string | null) => {
@@ -33,7 +32,7 @@ export async function sendShotsToCanvas(
       }
       window.dispatchEvent(new CustomEvent('flow:createImageNode', {
         detail: {
-          imageUrl: hosted.url,
+          imageUrl: remoteUrl,
           label: shot.name || '导演台截图',
           imageName: shot.name || '导演台截图',
           worldPosition: directorFlowPos

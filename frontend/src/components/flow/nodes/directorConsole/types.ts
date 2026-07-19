@@ -42,16 +42,6 @@ export type CharacterObj = {
   motion?: import('./state/characterMotion').CharacterMotion
 }
 
-/** 相机运动路径：在地面画 XZ 控制点，相机在 height 高度沿样条飞行，注视目标。 */
-export type CameraPath = {
-  waypoints: Vec2[]              // XZ 地面控制点
-  mode: 'linear' | 'curve'      // 折线 / Catmull-Rom 曲线
-  height?: number               // 飞行高度(米)，默认 1.6
-  lookAtCharacterId?: string    // 注视角色；缺省注视场景中心
-  lookAt?: Vec3                 // 显式注视点（优先于 character/center）
-  closed?: boolean
-}
-
 export type CameraObj = {
   id: string
   name: string
@@ -60,20 +50,10 @@ export type CameraObj = {
   followTargetId?: string
   /** Offset captured when follow is enabled, so target motion moves the camera without collapsing it onto the actor. */
   followOffset?: Vec3
-  /** 绘制的相机运动路径；镜头 cameraMove 设为 'path' 时相机沿它飞（绘制见导演台相机面板）。 */
-  path?: CameraPath
   /** manual=坐标注视；rotation=欧拉角；其它字符串=角色注视。 */
   lookAtMode: 'manual' | string
   lookAt: Vec3
   fovDeg: number
-  /** 焦距(mm，全画幅 36×24)。与 fovDeg 联动，编辑时两者同步写入；缺省时由 fovDeg 反算 */
-  focalLengthMm?: number
-  /** 光圈 f 值（电影感元数据，喂下游；不在 3D 视口做真实虚化） */
-  apertureF?: number
-  /** 对焦距离(m)，景深元数据 */
-  focusDistance?: number
-  /** 荷兰角：绕视轴的滚转(度)，真实施加到机位相机 */
-  roll?: number
   hidden?: boolean
   locked?: boolean
 }
@@ -83,6 +63,8 @@ export type DirectorScene = {
   cameras: CameraObj[]
   aspect: AspectKey
   activeCameraId?: string
+  /** Remote-only LibTV camera screenshot gallery; runtime data URLs are never persisted here. */
+  cameraShots?: Record<string, CameraShot[]>
   /** 等距全景图 URL，作为 3D 场景天空盒背景 */
   skybox?: string
   /** 全景背景水平旋转(度, 0..360)：转动背景取景而不动机位；~2:1 走 equirect offset，非 2:1 转 backdrop 穹顶 */
@@ -101,8 +83,6 @@ export type DirectorScene = {
   groundHeight?: number
   /** 自定义动作库（小T 生成 / 人工保存），character.motionClip 可引用其 id；与内置 clip 并存 */
   customMotions?: PoseClip[]
-  /** 全局多镜头时间线（动画化 blocking 的编排层）；缺省视为空时间线。定义见 state/timeline.ts */
-  timeline?: import('./state/timeline').SceneTimeline
   /** LibTV-style per-property keyframe tracks. Legacy shot timeline is read-only compatibility data. */
   propertyTimeline?: import('./state/propertyTimeline').PropertyTimeline
 }
@@ -131,7 +111,7 @@ export function createDefaultDirectorConsoleData(_legacyPanoramaUrl?: string): D
         rotation: [0, 0, 0],
         scale: [1, 1, 1],
         uniformScale: 1,
-        colorHex: '#4B8BFF',
+        colorHex: '#4F8EF7',
       }],
       cameras: [{
         id: 'default-camera-1',

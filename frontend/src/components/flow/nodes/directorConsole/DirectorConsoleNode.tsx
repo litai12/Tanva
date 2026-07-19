@@ -2,6 +2,7 @@ import React from 'react'
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
 import { IconStack2 } from '@tabler/icons-react'
 import type { DirectorConsoleData } from './types'
+import { useUIStore } from '@/stores/uiStore'
 
 const DirectorConsoleModal = React.lazy(() => import('./DirectorConsoleModal'))
 
@@ -9,6 +10,7 @@ type DirectorConsoleFlowNode = Node<DirectorConsoleData, 'directorConsole'>
 
 export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleFlowNode>) {
   const [open, setOpen] = React.useState(false)
+  const setShowMaterialLibraryPanel = useUIStore((state) => state.setShowMaterialLibraryPanel)
   return (
     <div style={{ width: 320, background: '#16181d', borderRadius: 12, border: '1px solid #262a33', overflow: 'hidden' }}>
       <Handle
@@ -16,7 +18,7 @@ export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleFlowN
         className="tc-handle"
         type="target"
         position={Position.Left}
-        data-handle-type="any"
+        data-handle-type="image"
         data-handle-position="left"
         title="输入：全景背景图（连接图片节点）"
         aria-label="输入：全景背景图"
@@ -37,7 +39,10 @@ export function DirectorConsoleNode({ id, data }: NodeProps<DirectorConsoleFlowN
       <div className="nodrag" style={{ margin: 12, padding: 24, borderRadius: 10, background: '#1c1f26', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
         <IconStack2 size={32} color="#6b7280" />
         <p style={{ color: '#8b93a1', fontSize: 12, textAlign: 'center', margin: 0 }}>在3D空间中搭建场景并进行多视角截图</p>
-        <button className="nodrag" onClick={() => setOpen(true)} style={{ padding: '6px 16px', borderRadius: 8, background: '#3a3f4b', color: '#fff', border: 'none', cursor: 'pointer' }}>打开导演台</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="nodrag" onClick={() => setOpen(true)} style={{ padding: '6px 14px', borderRadius: 8, background: '#3a3f4b', color: '#fff', border: 'none', cursor: 'pointer' }}>打开导演台</button>
+          <button className="nodrag" onClick={() => setShowMaterialLibraryPanel(true)} style={{ padding: '6px 14px', borderRadius: 8, background: 'transparent', color: '#cdd3dc', border: '1px solid #343944', cursor: 'pointer' }}>资产管理</button>
+        </div>
       </div>
       {open ? (
         <React.Suspense fallback={null}>

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 // 关节角色（覆盖 liblib「逐关节调节」的主要可控关节）
 export type JointRole =
-  | 'spine' | 'neck'
+  | 'body' | 'spine' | 'neck'
   | 'shoulderL' | 'elbowL' | 'shoulderR' | 'elbowR'
   | 'hipL' | 'kneeL' | 'hipR' | 'kneeR'
 
@@ -16,16 +16,17 @@ export const toDeg = (r: number): number => Math.round((r / DEG) * 10) / 10
 // —— 骨骼映射 ——
 // 优先：Mixamo 标准命名精确映射（默认素体 xbot.glb）；兜底：region+side 模糊匹配（上传模型）。
 const MIXAMO_ROLE_NAMES: Record<JointRole, string[]> = {
-  spine: ['spine1', 'spine', 'spine02', 'spine01'],
+  body: ['spine', 'spine01', 'abdomen', 'hips'],
+  spine: ['spine1', 'spine02', 'torso'],
   neck: ['neck', 'neck01'],
   shoulderL: ['leftarm', 'upperarml'],
   elbowL: ['leftforearm', 'lowerarml'],
   shoulderR: ['rightarm', 'upperarmr'],
   elbowR: ['rightforearm', 'lowerarmr'],
-  hipL: ['leftupleg', 'thighl'],
-  kneeL: ['leftleg', 'calfl'],
-  hipR: ['rightupleg', 'thighr'],
-  kneeR: ['rightleg', 'calfr'],
+  hipL: ['leftupleg', 'thighl', 'upperlegl'],
+  kneeL: ['leftleg', 'calfl', 'lowerlegl'],
+  hipR: ['rightupleg', 'thighr', 'upperlegr'],
+  kneeR: ['rightleg', 'calfr', 'lowerlegr'],
 }
 
 function normName(name: string): string {
@@ -84,7 +85,8 @@ export function mapBones(root: THREE.Object3D): Partial<Record<JointRole, THREE.
   if (armR[0]) map.shoulderR = armR[0]; if (armR[1]) map.elbowR = armR[1]
   if (legL[0]) map.hipL = legL[0]; if (legL[1]) map.kneeL = legL[1]
   if (legR[0]) map.hipR = legR[0]; if (legR[1]) map.kneeR = legR[1]
-  if (torso[Math.floor(torso.length / 2)]) map.spine = torso[Math.floor(torso.length / 2)]
+  if (torso[0]) map.body = torso[0]
+  if (torso[Math.max(0, torso.length - 1)]) map.spine = torso[Math.max(0, torso.length - 1)]
   if (neck[0]) map.neck = neck[0]
   return { ...map, ...exact }
 }
@@ -373,8 +375,8 @@ export function getPoseIcon(preset: { id: string; category: string }): string {
 // —— 关节集合（轻量动画分层用）——
 /** 全部可控关节（顺序固定，供整身动画/遍历）。 */
 export const ALL_JOINT_ROLES: JointRole[] = [
-  'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR',
+  'body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR',
   'hipL', 'kneeL', 'hipR', 'kneeR',
 ]
 /** 上半身关节（混合动画默认蒙版：姿势关键帧只盖这些，腿留给 baked 位移）。 */
-export const UPPER_BODY_ROLES: JointRole[] = ['spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR']
+export const UPPER_BODY_ROLES: JointRole[] = ['body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR']

@@ -1,15 +1,14 @@
 // @ts-nocheck
 import React from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
-import { OrbitControls, Line, Grid, GizmoHelper, GizmoViewport, PerspectiveCamera, TransformControls, useProgress } from '@react-three/drei'
+import { OrbitControls, Line, Grid, GizmoHelper, GizmoViewport, PerspectiveCamera, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DirectorScene, CharacterObj, CameraObj, Vec3 } from '../types'
-import { CharacterObject, resolveCharacterPose, type CharacterMixerEntry } from './CharacterObject'
+import { CharacterObject, resolveCharacterPose } from './CharacterObject'
 import { CameraRig } from './CameraRig'
 import { poseEulerFromRig, type JointRole, type RigState } from '../state/pose'
 import { aspectRatio, captureSize } from '../state/aspect'
 import { isPanoramaRatio, panoramaCanvasSize, adaptPanoramaPixels } from './panoramaAdapt'
-import { sampleAnimationAt, type ClipAnimation } from './clipAnimation'
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
 import { samplePathAt } from '../state/groundPath'
 import { snapPositionToGround } from '../state/gaussianGround'
@@ -23,19 +22,9 @@ async function fetchProxiedImageBlob(url: string): Promise<Blob> {
 }
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
-export type ClipFrame = { position: Vec3; lookAt: Vec3; fovDeg: number; characters?: Record<string, { position?: Vec3; rotation?: Vec3; motionClip?: string; motionTimeSec?: number; motion?: import('../state/characterMotion').CharacterMotion; motionAbsTime?: number }> }
-export type ClipFrameRequest = {
-  frames: ClipFrame[]
-  clay?: boolean
-  /** 流式消费每帧（避免囤积全分辨率位图爆内存）；onFrame 返回后 Viewport 会 close 该 bitmap */
-  onFrame: (bitmap: ImageBitmap, index: number) => Promise<void> | void
-}
 export type ViewportHandle = {
   /** fovScale：画幅取景框可见时传 框高/视口高，垂直 FOV 收窄到框内 → 截图=框中所见（缺省 1 保持原行为） */
   captureView: (opts?: { fovScale?: number }) => string | null
-  captureClipFrames: (req: ClipFrameRequest) => Promise<{ width: number; height: number }>
-  /** 离屏渲染单帧（给定相机机位 + 角色帧）→ 小尺寸 JPEG dataURL，用于时间轴片段缩略图。 */
-  captureFrameAt: (frame: ClipFrame, w: number, h: number) => string | null
   getCurrentCamera: () => { position: Vec3; lookAt: Vec3; fovDeg: number } | null
   resetView: () => void
 }
@@ -55,114 +44,19 @@ type Props = {
   onPatchCamera: (id: string, patch: Partial<CameraObj>) => void
   /** 离屏截图用：所有 useGLTF 模型加载完成（Suspense resolve）后触发一次 */
   onSceneReady?: () => void
-  /** 机位视角下：给定时让当前机位按该动画 capture-cam 轨道实时循环预览运镜（orbit/录制路径），null/缺省=静态机位 */
-  previewAnim?: ClipAnimation | null
-  /** 给定（≥0）时，previewAnim 按此【绝对时间】采样（与全局播放头同步），而非内部自循环时钟。 */
-  previewTime?: number | null
-  /** 导演视角里画出的相机运动路径折线（对齐参考视频的相机 spline 可视化）；截图时随 helper 隐藏。 */
-  cameraPath?: Vec3[]
-  /** 播放时给定的实时采样机位 → 让对应 CameraRig 图标/视锥沿路径滑行。 */
-  liveCamera?: { id: string; position: Vec3; lookAt: Vec3; fovDeg: number } | null
-  /** 自由飞行录制模式：换 FlyControls（WASD/方向键移动+拖拽转视角+可调速），用于录制自定义运镜 */
-  flyMode?: boolean
-  flySpeed?: number
-  flyRecording?: boolean
-  /** 飞行录制中每帧上报当前相机（position/lookAt/fovDeg），供模态采样成运镜轨道 */
-  onFlyFrame?: (s: { position: Vec3; lookAt: Vec3; fovDeg: number }) => void
-  /** 已录制的相机轨迹点，在 3D 场景画出蓝色轨迹线（截图时随 helper 隐藏） */
-  trajectory?: Vec3[]
   /** 路径绘制：active 时视口出现地面落点平面 + 路点把手 + 路径线（仅 director 视角） */
   pathDraw?: {
     active: boolean
     waypoints: [number, number][]   // XZ
     mode: 'linear' | 'curve'
+    groundY?: number
     onAddWaypoint: (xz: [number, number]) => void
     onMoveWaypoint: (i: number, xz: [number, number]) => void
     selectedIndex?: number
     onSelectWaypoint?: (i: number) => void
   }
-  /** 动画预览：playing 时对应角色展示腿/上半身动画 + 路径行进（仅编辑器预览；不影响离屏渲染） */
-  motionPreview?: { playing: boolean; characterId?: string }
-  /** 给定(≥0)时角色动画按此绝对时间采样（与全局时间线播放头同步）；否则自循环。 */
-  motionDriveTime?: number | null
 }
 
-/**
- * 穿梭机控制器：**拖拽** delta 转视角(yaw/pitch，跟 OrbitControls 手感一致，松手即停)+ WASD/方向键平移
- * + R/F 升降，speed 可调。录制时每帧上报相机。不用 three FlyControls(其转视角是光标位置驱动、持续乱转)。
- */
-function FlyDragControls({ speed, recording, onFlyFrame }: { speed: number; recording?: boolean; onFlyFrame?: (s: { position: Vec3; lookAt: Vec3; fovDeg: number }) => void }) {
-  const camera = useThree((s) => s.camera)
-  const gl = useThree((s) => s.gl)
-  const keys = React.useRef<Set<string>>(new Set())
-  const drag = React.useRef<{ x: number; y: number } | null>(null)
-  const euler = React.useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
-  const fwd = React.useMemo(() => new THREE.Vector3(), [])
-  const move = React.useMemo(() => new THREE.Vector3(), [])
-
-  React.useEffect(() => {
-    euler.current.setFromQuaternion(camera.quaternion)
-    const el = gl.domElement
-    const onDown = (e: PointerEvent) => { drag.current = { x: e.clientX, y: e.clientY } }
-    const onUp = () => { drag.current = null }
-    const onMove = (e: PointerEvent) => {
-      if (!drag.current) return
-      const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y
-      drag.current = { x: e.clientX, y: e.clientY }
-      const sens = 0.0028
-      euler.current.y -= dx * sens
-      euler.current.x -= dy * sens
-      const lim = Math.PI / 2 - 0.02
-      euler.current.x = Math.max(-lim, Math.min(lim, euler.current.x))
-      camera.quaternion.setFromEuler(euler.current)
-    }
-    const norm = (k: string) => k.length === 1 ? k.toLowerCase() : k.toLowerCase()
-    const onKeyDown = (e: KeyboardEvent) => {
-      const k = norm(e.key)
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault()
-      keys.current.add(k)
-    }
-    const onKeyUp = (e: KeyboardEvent) => { keys.current.delete(norm(e.key)) }
-    el.addEventListener('pointerdown', onDown)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    el.style.cursor = 'grab'
-    return () => {
-      el.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-      el.style.cursor = ''
-      keys.current.clear()
-    }
-  }, [camera, gl])
-
-  useFrame((_, delta) => {
-    const k = keys.current
-    move.set(0, 0, 0)
-    if (k.has('w') || k.has('arrowup')) move.z -= 1
-    if (k.has('s') || k.has('arrowdown')) move.z += 1
-    if (k.has('a') || k.has('arrowleft')) move.x -= 1
-    if (k.has('d') || k.has('arrowright')) move.x += 1
-    let dy = 0
-    if (k.has('r')) dy += 1
-    if (k.has('f')) dy -= 1
-    if (move.lengthSq() > 0 || dy !== 0) {
-      const d = speed * delta
-      if (move.lengthSq() > 0) { move.normalize().multiplyScalar(d).applyQuaternion(camera.quaternion); camera.position.add(move) }
-      camera.position.y += dy * d
-    }
-    if (recording && onFlyFrame) {
-      camera.getWorldDirection(fwd)
-      const p = camera.position
-      onFlyFrame({ position: [p.x, p.y, p.z], lookAt: [p.x + fwd.x * 5, p.y + fwd.y * 5, p.z + fwd.z * 5], fovDeg: (camera as THREE.PerspectiveCamera).isPerspectiveCamera ? (camera as THREE.PerspectiveCamera).fov : 45 })
-    }
-  })
-  return null
-}
 function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
   pd: NonNullable<Props['pathDraw']>
   onDragStart: () => void
@@ -172,7 +66,8 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
   const raycaster = useThree((s) => s.raycaster)
   const pointer = useThree((s) => s.pointer)
   const draggingRef = React.useRef<number | null>(null)
-  const plane = React.useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
+  const plane = React.useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -(pd.groundY ?? 0)), [pd.groundY])
+  const lineY = (pd.groundY ?? 0) + 0.02
   const hitGround = React.useCallback((): [number, number] | null => {
     raycaster.setFromCamera(pointer, camera)
     const p = new THREE.Vector3()
@@ -180,20 +75,20 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
   }, [raycaster, pointer, camera, plane])
 
   const linePts = React.useMemo<[number, number, number][]>(() => {
-    if (pd.waypoints.length < 2 || pd.mode === 'linear') return pd.waypoints.map((w) => [w[0], 0.02, w[1]])
+    if (pd.waypoints.length < 2 || pd.mode === 'linear') return pd.waypoints.map((w) => [w[0], lineY, w[1]])
     const path = { waypoints: pd.waypoints, mode: 'curve' as const }
     const N = 64
     const out: [number, number, number][] = []
-    for (let i = 0; i <= N; i++) { const s = samplePathAt(path, i / N); out.push([s.pos[0], 0.02, s.pos[1]]) }
+    for (let i = 0; i <= N; i++) { const s = samplePathAt(path, i / N); out.push([s.pos[0], lineY, s.pos[1]]) }
     return out
-  }, [pd.waypoints, pd.mode])
+  }, [pd.waypoints, pd.mode, lineY])
 
   return (
     <group userData={{ directorHelper: true }}>
       {pd.active ? (
         <mesh
           rotation={[-Math.PI / 2, 0, 0]}
-          position={[0, 0, 0]}
+          position={[0, pd.groundY ?? 0, 0]}
           onPointerDown={(e) => { e.stopPropagation(); if (draggingRef.current != null) return; const xz = hitGround(); if (xz) pd.onAddWaypoint(xz) }}
         >
           <planeGeometry args={[200, 200]} />
@@ -204,7 +99,7 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
       {pd.waypoints.map((w, i) => (
         <mesh
           key={i}
-          position={[w[0], 0.12, w[1]]}
+          position={[w[0], (pd.groundY ?? 0) + 0.12, w[1]]}
           onPointerDown={(e) => { e.stopPropagation(); draggingRef.current = i; onDragStart(); pd.onSelectWaypoint?.(i); const t = e.target as { setPointerCapture?: (id: number) => void }; t.setPointerCapture?.(e.pointerId) }}
           onPointerMove={(e) => { if (draggingRef.current !== i) return; e.stopPropagation(); const xz = hitGround(); if (xz) pd.onMoveWaypoint(i, xz) }}
           onPointerUp={(e) => { if (draggingRef.current === i) { draggingRef.current = null; onDragEnd(); const t = e.target as { releasePointerCapture?: (id: number) => void }; t.releasePointerCapture?.(e.pointerId) } }}
@@ -219,7 +114,6 @@ function PathDrawLayer({ pd, onDragStart, onDragEnd }: {
 
 type SceneContentsProps = Props & {
   groupsRef: React.MutableRefObject<Map<string, THREE.Group>>
-  mixersRef: React.MutableRefObject<Map<string, CharacterMixerEntry>>
 }
 
 /**
@@ -344,34 +238,12 @@ function Skybox({ url, yawDeg, skyColor = '#060608', radius = 60 }: { url?: stri
   ) : null
 }
 
-/** 机位视角下设为默认相机并持续注视目标；荷兰角 roll 在 lookAt 后绕视轴施加。
- * previewAnim 给定时改为实时按该动画的 capture-cam 轨道循环预览运镜（orbit 或录制的关键帧路径统一走 sampleAnimationAt）。 */
-function ActiveCameraView({ cam, scene, previewAnim, previewTime }: { cam: CameraObj; scene: DirectorScene; previewAnim?: ClipAnimation | null; previewTime?: number | null }) {
+/** 机位视角始终消费与视锥、截图相同的 LibTV 相机姿态。 */
+function ActiveCameraView({ cam, scene }: { cam: CameraObj; scene: DirectorScene }) {
   const ref = React.useRef<THREE.PerspectiveCamera>(null)
-  const elapsedRef = React.useRef(0)
-  useFrame((_, delta) => {
+  useFrame(() => {
     const c = ref.current
     if (!c) return
-    if (previewAnim) {
-      const period = Math.max(0.5, previewAnim.durationSeconds)
-      // previewTime 给定 → 与全局播放头同步采样；否则内部自循环（保持旧行为）
-      let t: number
-      if (previewTime != null && previewTime >= 0) {
-        t = Math.min(period, previewTime)
-      } else {
-        elapsedRef.current = (elapsedRef.current + delta) % period
-        t = elapsedRef.current
-      }
-      const s = sampleAnimationAt(previewAnim, t)
-      const sc = s.cameras['capture-cam'] ?? Object.values(s.cameras)[0]
-      if (sc) {
-        c.position.set(sc.position[0], sc.position[1], sc.position[2])
-        c.fov = sc.fovDeg
-        c.lookAt(sc.lookAt[0], sc.lookAt[1], sc.lookAt[2])
-        c.updateProjectionMatrix()
-      }
-      return
-    }
     applyResolvedCameraPose(c, resolveCameraPose(cam, scene))
   })
   const pose = resolveCameraPose(cam, scene)
@@ -383,43 +255,31 @@ function ActiveCameraView({ cam, scene, previewAnim, previewTime }: { cam: Camer
  * 故与 setTimeout 兜底竞速：前台 rAF 先到行为不变，后台靠定时器兜底（截图走手动 gl.render，不依赖绘制帧）。 */
 function ReadySignal({ onReady }: { onReady?: () => void }) {
   const { invalidate } = useThree()
-  // 关键：角色 GLB 在 CharacterObject 的【内层】Suspense 里加载（fallback=占位素体），
-  // 外层 Suspense 立刻 resolve——本组件若只等固定 500ms 就宣布就绪，离屏截图会在
-  // GLB 仍在加载时按快门，拍到一画面的胶囊占位人（实测踩过）。改用 drei useProgress
-  // 跟踪全局 LoadingManager：必须「无在途加载」才算就绪；纯占位场景（无任何 GLB）
-  // active 恒为 false，走 600ms 兜底计时器，行为不退化。
-  const { active } = useProgress()
-  const [settled, setSettled] = React.useState(false)
   React.useEffect(() => {
-    if (active) { setSettled(false); return }
-    // 加载清零后再等一拍，让 resolve 的 GLB 完成 commit/首帧
-    const timer = window.setTimeout(() => setSettled(true), 600)
-    return () => window.clearTimeout(timer)
-  }, [active])
-  React.useEffect(() => {
-    if (!onReady || !settled) return
+    if (!onReady) return
     let fired = false
     const fire = () => {
       if (fired) return
       fired = true
       onReady()
     }
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      invalidate()
-      raf2 = requestAnimationFrame(fire)
-    })
-    // 后台标签页 rAF 被冻结时的兜底：定时器仍会触发，避免看门狗误报"场景未就绪"。
+    // GLTFs are local static assets and resolve inside CharacterObject's own
+    // Suspense boundary. Waiting for a stable window avoids subscribing to
+    // drei's global progress store, which can update ReadySignal while a
+    // GltfBody is rendering under React 19.
     const timer = window.setTimeout(() => {
       invalidate()
-      fire()
-    }, 800)
-    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); window.clearTimeout(timer) }
-  }, [onReady, settled, invalidate])
+      requestAnimationFrame(() => requestAnimationFrame(fire))
+    }, 2500)
+    // Background tabs freeze rAF; the watchdog-safe fallback fires after the
+    // stable loading window even when no paint callbacks are scheduled.
+    const fallback = window.setTimeout(fire, 3200)
+    return () => { window.clearTimeout(timer); window.clearTimeout(fallback) }
+  }, [onReady, invalidate])
   return null
 }
 
-function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, previewAnim, previewTime, cameraPath, liveCamera, flyMode, flySpeed, flyRecording, onFlyFrame, trajectory, pathDraw, motionPreview, motionDriveTime, onSelect, onPatchCharacter, onPatchCamera, groupsRef, mixersRef }: SceneContentsProps) {
+function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, pathDraw, onSelect, onPatchCharacter, onPatchCamera, groupsRef }: SceneContentsProps) {
   const activeCam = scene.cameras.find((c) => c.id === scene.activeCameraId)
   const selectedChar = scene.characters.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
@@ -493,19 +353,10 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
 
   return (
     <>
-      {flyMode ? (
-        <FlyDragControls speed={flySpeed ?? 8} recording={flyRecording} onFlyFrame={onFlyFrame} />
-      ) : viewpoint === 'director' ? (
+      {viewpoint === 'director' ? (
         <OrbitControls makeDefault enableDamping enabled={orbitOn} target={DIRECTOR_TARGET} />
       ) : activeCam ? (
-        <ActiveCameraView cam={activeCam} scene={scene} previewAnim={previewAnim} previewTime={previewTime} />
-      ) : null}
-      {trajectory && trajectory.length >= 2 ? (
-        <Line points={trajectory} color="#3b82f6" lineWidth={2} onUpdate={(self) => { self.userData.directorHelper = true }} />
-      ) : null}
-      {/* 相机运动路径（导演视角下的 spline 可视化，对齐参考视频） */}
-      {viewpoint === 'director' && cameraPath && cameraPath.length >= 2 ? (
-        <Line points={cameraPath} color="#f59e0b" lineWidth={2} dashed dashSize={0.25} gapSize={0.12} onUpdate={(self) => { self.userData.directorHelper = true }} />
+        <ActiveCameraView cam={activeCam} scene={scene} />
       ) : null}
 
       <Skybox url={skyboxUrl ?? scene.skybox} yawDeg={scene.skyboxYaw} skyColor={scene.skyColor ?? '#060608'} radius={scene.skyRadius ?? 60} />
@@ -556,14 +407,11 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
             if (g) groupsRef.current.set(c.id, g); else groupsRef.current.delete(c.id)
             bumpRefs() // 注册表变化驱动重渲染，确保选中时 gizmo 能拿到 group
           }}
-          onMixerChange={(entry) => { if (entry) mixersRef.current.set(c.id, entry); else mixersRef.current.delete(c.id) }}
-          motionPreviewPlaying={!!motionPreview?.playing && (motionPreview.characterId === undefined || motionPreview.characterId === c.id)}
-          motionDriveTime={motionDriveTime}
           />
         ))}
       </group>
       {scene.cameras.filter((c) => !c.hidden).map((c) => (
-        <CameraRig key={c.id} camera={c} scene={scene} active={viewpoint === 'director'} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} override={liveCamera && liveCamera.id === c.id ? liveCamera : undefined} />
+        <CameraRig key={c.id} camera={c} scene={scene} active={viewpoint === 'director'} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />
       ))}
 
       {viewpoint === 'director' && selectedChar && jointRole && jointBone ? (
@@ -610,7 +458,6 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
   const controlsRef = React.useRef<any>(null)
   const cameraRef = React.useRef<THREE.Camera | null>(null)
   const groupsRef = React.useRef(new Map<string, THREE.Group>())
-  const mixersRef = React.useRef(new Map<string, CharacterMixerEntry>())
   const propsRef = React.useRef(props)
   propsRef.current = props
 
@@ -715,136 +562,6 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
 
       return canvas.toDataURL('image/jpeg', 0.92)
     },
-    captureClipFrames: async (req) => {
-      const gl = glRef.current, scene = sceneRef.current
-      const p = propsRef.current
-      const groups = groupsRef.current // Map<string, THREE.Group>
-      const mixers = mixersRef.current
-      if (!gl || !scene) return { width: 0, height: 0 }
-      const baseW = gl.domElement.width || 1280
-      const raw = captureSize(p.scene.aspect, baseW / (gl.domElement.height || 720))
-      const width = raw.width - (raw.width % 2)   // H.264 要求偶数宽高
-      const height = raw.height - (raw.height % 2)
-      const clayMat = new THREE.MeshStandardMaterial({ color: '#9aa3ad', roughness: 0.85, metalness: 0 })
-      const tmp = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000)
-      // 隐藏 helper（含已打标的 Grid）
-      const hidden: THREE.Object3D[] = []
-      scene.traverse((o) => {
-        const any = o as any
-        if (o.visible && (o.type === 'CameraHelper' || any.isTransformControls || any.isTransformControlsRoot || any.isTransformControlsGizmo || o.userData?.directorHelper)) {
-          o.visible = false; hidden.push(o)
-        }
-      })
-      const savedTransforms: Array<{ g: THREE.Group; pos: THREE.Vector3; rot: THREE.Euler }> = []
-      groups.forEach((g) => savedTransforms.push({ g, pos: g.position.clone(), rot: g.rotation.clone() }))
-      const prevOverride = scene.overrideMaterial
-      const prevClear = gl.getClearColor(new THREE.Color()).clone()
-      try {
-        for (let fi = 0; fi < req.frames.length; fi++) {
-          const fr = req.frames[fi]
-          // 应用每帧角色 transform
-          if (fr.characters) {
-            for (const [cid, t] of Object.entries(fr.characters)) {
-              const g = groups.get(cid)
-              if (!g) continue
-              if (t.position) g.position.set(t.position[0], t.position[1], t.position[2])
-              if (t.rotation) g.rotation.set(t.rotation[0], t.rotation[1], t.rotation[2])
-            }
-          }
-          // 骨骼动画驱动：优先合成分层动作(motion)，否则走内置/自定义 clip(motionClip)
-          if (fr.characters) {
-            for (const [cid, t] of Object.entries(fr.characters)) {
-              if (t.motion) { mixers.get(cid)?.applyComposedMotion(t.motion, t.motionAbsTime ?? 0); continue }
-              if (!t.motionClip) continue
-              mixers.get(cid)?.applyMotion(t.motionClip, t.motionTimeSec ?? 0)
-            }
-          }
-          // 应用相机
-          tmp.position.set(fr.position[0], fr.position[1], fr.position[2])
-          tmp.fov = fr.fovDeg
-          tmp.lookAt(new THREE.Vector3(fr.lookAt[0], fr.lookAt[1], fr.lookAt[2]))
-          tmp.updateProjectionMatrix(); tmp.updateMatrixWorld(true)
-          if (req.clay) scene.overrideMaterial = clayMat
-          const rt = new THREE.WebGLRenderTarget(width, height)
-          rt.texture.colorSpace = THREE.SRGBColorSpace
-          gl.setRenderTarget(rt)
-          gl.setClearColor('#0a0b0d', 1); gl.clear()
-          gl.render(scene, tmp)
-          gl.setRenderTarget(null)
-          const buf = new Uint8Array(width * height * 4)
-          gl.readRenderTargetPixels(rt, 0, 0, width, height, buf)
-          rt.dispose()
-          // 翻转 + 转 ImageBitmap（无角色标注：v2v 灰模不写字）
-          const canvas = document.createElement('canvas')
-          canvas.width = width; canvas.height = height
-          const ctx = canvas.getContext('2d'); if (!ctx) continue
-          const img = ctx.createImageData(width, height)
-          for (let y = 0; y < height; y++) {
-            const sy = height - 1 - y
-            for (let x = 0; x < width; x++) {
-              const si = (sy * width + x) * 4, di = (y * width + x) * 4
-              img.data[di] = buf[si]; img.data[di + 1] = buf[si + 1]; img.data[di + 2] = buf[si + 2]; img.data[di + 3] = buf[si + 3]
-            }
-          }
-          ctx.putImageData(img, 0, 0)
-          const bitmap = await createImageBitmap(canvas)
-          await req.onFrame(bitmap, fi)
-          bitmap.close()
-        }
-      } finally {
-        scene.overrideMaterial = prevOverride
-        gl.setClearColor(prevClear, 1)
-        savedTransforms.forEach(({ g, pos, rot }) => { g.position.copy(pos); g.rotation.copy(rot) })
-        hidden.forEach((o) => { o.visible = true })
-        mixers.forEach((entry) => entry.applyMotion(undefined, 0))
-        clayMat.dispose()
-      }
-      return { width, height }
-    },
-    // 时间轴片段缩略图：给定相机机位 + 角色帧，离屏渲染一张小图 → JPEG dataURL（隐藏 helper，含真材质）
-    captureFrameAt: (frame, w, h) => {
-      const gl = glRef.current, scene = sceneRef.current
-      if (!gl || !scene) return null
-      const groups = groupsRef.current, mixers = mixersRef.current
-      const width = Math.max(2, w - (w % 2)), height = Math.max(2, h - (h % 2))
-      const tmp = new THREE.PerspectiveCamera(frame.fovDeg || 40, width / height, 0.1, 2000)
-      const hidden: THREE.Object3D[] = []
-      scene.traverse((o) => {
-        const any = o as any
-        if (o.visible && (o.type === 'CameraHelper' || any.isTransformControls || any.isTransformControlsRoot || any.isTransformControlsGizmo || o.userData?.directorHelper)) { o.visible = false; hidden.push(o) }
-      })
-      const saved: Array<{ g: THREE.Group; pos: THREE.Vector3; rot: THREE.Euler }> = []
-      groups.forEach((g) => saved.push({ g, pos: g.position.clone(), rot: g.rotation.clone() }))
-      const prevClear = gl.getClearColor(new THREE.Color()).clone()
-      try {
-        if (frame.characters) {
-          for (const [cid, t] of Object.entries(frame.characters)) {
-            const g = groups.get(cid)
-            if (g) { if (t.position) g.position.set(t.position[0], t.position[1], t.position[2]); if (t.rotation) g.rotation.set(t.rotation[0], t.rotation[1], t.rotation[2]) }
-            if (t.motion) mixers.get(cid)?.applyComposedMotion(t.motion, t.motionAbsTime ?? 0)
-            else if (t.motionClip) mixers.get(cid)?.applyMotion(t.motionClip, t.motionTimeSec ?? 0)
-          }
-        }
-        tmp.position.set(frame.position[0], frame.position[1], frame.position[2])
-        tmp.lookAt(new THREE.Vector3(frame.lookAt[0], frame.lookAt[1], frame.lookAt[2]))
-        tmp.updateProjectionMatrix(); tmp.updateMatrixWorld(true)
-        const rt = new THREE.WebGLRenderTarget(width, height)
-        rt.texture.colorSpace = THREE.SRGBColorSpace
-        gl.setRenderTarget(rt); gl.setClearColor('#0a0b0d', 1); gl.clear(); gl.render(scene, tmp); gl.setRenderTarget(null); gl.setClearColor(prevClear, 1)
-        const buf = new Uint8Array(width * height * 4)
-        gl.readRenderTargetPixels(rt, 0, 0, width, height, buf); rt.dispose()
-        const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
-        const ctx = canvas.getContext('2d'); if (!ctx) return null
-        const img = ctx.createImageData(width, height)
-        for (let y = 0; y < height; y++) { const sy = height - 1 - y; for (let x = 0; x < width; x++) { const si = (sy * width + x) * 4, di = (y * width + x) * 4; img.data[di] = buf[si]; img.data[di + 1] = buf[si + 1]; img.data[di + 2] = buf[si + 2]; img.data[di + 3] = buf[si + 3] } }
-        ctx.putImageData(img, 0, 0)
-        return canvas.toDataURL('image/jpeg', 0.55)
-      } finally {
-        saved.forEach(({ g, pos, rot }) => { g.position.copy(pos); g.rotation.copy(rot) })
-        hidden.forEach((o) => { o.visible = true })
-        mixers.forEach((e) => e.applyMotion(undefined, 0))
-      }
-    },
     // 当前视角相机参数：位置 + 注视点(优先 OrbitControls target，否则相机前方) + FOV
     getCurrentCamera: () => {
       const live = cameraRef.current as THREE.PerspectiveCamera | null
@@ -891,7 +608,7 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
         >
           <RefSync glRef={glRef} sceneRef={sceneRef} controlsRef={controlsRef} cameraRef={cameraRef} />
           <React.Suspense fallback={null}>
-            <SceneContents {...props} groupsRef={groupsRef} mixersRef={mixersRef} />
+            <SceneContents {...props} groupsRef={groupsRef} />
             <ReadySignal onReady={props.onSceneReady} />
           </React.Suspense>
         </Canvas>
