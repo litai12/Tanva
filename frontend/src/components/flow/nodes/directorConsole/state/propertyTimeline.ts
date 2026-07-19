@@ -2,6 +2,7 @@ import type { CameraObj, CharacterObj, DirectorScene, Vec3 } from '../types'
 import type { GroundPath } from './groundPath'
 import { pathLength, samplePathAt } from './groundPath'
 import { snapPositionToGround } from './gaussianGround'
+import { resolveTrajectoryMotion } from './trajectoryMotion'
 
 export type PropertyName = 'position' | 'rotation' | 'scale' | 'uniformScale' | 'pose' | 'fovDeg' | 'lookAt'
 export type PoseValue = Record<string, Vec3>
@@ -269,7 +270,9 @@ export function samplePropertyTimeline(scene: DirectorScene, time: number): Dire
       } else if (typeof path.fixedHeading === 'number') heading = path.fixedHeading + (path.facingOffset ?? 0)
       let pitch = character.rotation[0]
       let roll = character.rotation[2]
+      let rootGroundOffset = 0
       if (sampledScene.gaussianGroundSnap ?? true) {
+        const rootSlopeWeight = resolveTrajectoryMotion(character.trajectoryMotion).rootSlopeWeight
         const epsilon = 0.08
         const heightAt = (x: number, z: number) => snapPositionToGround(
           [x, groundY, z], sampledScene.groundHeight ?? 0, true,
@@ -278,12 +281,18 @@ export function samplePropertyTimeline(scene: DirectorScene, time: number): Dire
         const gradientZ = (heightAt(sampled.pos[0], sampled.pos[1] + epsilon) - heightAt(sampled.pos[0], sampled.pos[1] - epsilon)) / (2 * epsilon)
         const forwardSlope = gradientX * Math.sin(heading) + gradientZ * Math.cos(heading)
         const rightSlope = gradientX * Math.cos(heading) - gradientZ * Math.sin(heading)
-        pitch += Math.atan(forwardSlope)
-        roll -= Math.atan(rightSlope)
+        pitch += Math.atan(forwardSlope) * rootSlopeWeight
+        roll -= Math.atan(rightSlope) * rootSlopeWeight
+        // Tilting a character around its ground-level root raises the
+        // downhill fully-extended leg. Reserve pelvis reach proportional to
+        // the terrain gradient and a representative half stance width so IK
+        // can keep both soles planted instead of leaving the downhill foot in
+        // the air. Zero slope/zero rootSlopeWeight remains bit-identical.
+        rootGroundOffset = -Math.hypot(gradientX, gradientZ) * 0.25 * rootSlopeWeight
       }
       sampledScene.characters[characterIndex] = {
         ...character,
-        position: [sampled.pos[0], groundY, sampled.pos[1]],
+        position: [sampled.pos[0], groundY + rootGroundOffset, sampled.pos[1]],
         rotation: [pitch, heading, roll],
       }
       continue

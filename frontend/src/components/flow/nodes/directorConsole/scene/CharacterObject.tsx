@@ -23,6 +23,17 @@ export type CharacterMixerEntry = {
   applyComposedMotion: (motion: CharacterMotion, tAbs: number) => void
 }
 
+export type FootGroundingDiagnostic = {
+  side: 'L' | 'R'
+  locked: boolean
+  verticalError: number
+  signedVerticalError: number
+  horizontalError: number
+  lockHorizontalError: number
+  normalAngleErrorDeg: number
+  finite: boolean
+}
+
 /**
  * 退化 pose clip 阈值：Mixamo「单帧 pose」(如 sad_pose/sneak_pose) 导出成 2 关键帧 bind→pose、
  * 时长 ~0.07s。这类是静态姿势，不能当连续动画 LoopRepeat 播(会在 bind↔pose 间高频闪烁)。
@@ -56,6 +67,8 @@ type Props = {
   onGroupChange?: (group: THREE.Group | null) => void
   /** 上报骨骼动画 mixer/actions，供 capture 离屏逐帧 setTime 驱动 */
   onMixerChange?: (entry: CharacterMixerEntry | null) => void
+  onFootGroundingDiagnostic?: (diagnostic: FootGroundingDiagnostic) => void
+  showMotionDirectionHelper?: boolean
   /** 播放动画预览：true → GltfBody 驱动腿+上半身 + 外层 group 沿路径行进；false → 静态 */
   motionPreviewPlaying?: boolean
   /** 给定(≥0)时按此【绝对时间】采样动画与根行进（与全局时间线播放头同步）；否则内部自循环。 */
@@ -113,9 +126,66 @@ function JointMarkers({ rig, selectedRole }: { rig: RigState; selectedRole?: Joi
 
 /** 加载独立蒙皮素体（SkeletonUtils 安全克隆骨骼，染成素体色，按 heightM 统一量纲并落地居中）。 */
 type FootGroundingConfig = { groundHeight: number; gaussianEnabled: boolean; weight: number; lockEnabled: boolean; lockDistance: number; releaseDistance: number; soleOffset: number; slopeWeight: number }
-type FootContactState = Record<'L' | 'R', { locked: boolean; targetScene: THREE.Vector3 }>
+type FootContactState = Record<'L' | 'R', { locked: boolean; targetScene: THREE.Vector3; plantGroundY: number }>
+type WeightedFootVertices = Array<{ mesh: THREE.SkinnedMesh; indices: number[] }>
+const footVertexCache = new WeakMap<THREE.Object3D, Record<'L' | 'R', WeightedFootVertices>>()
 
-function solveFootGrounding(cloned: THREE.Object3D, rig: RigState, config: FootGroundingConfig, contacts: FootContactState) {
+function collectWeightedFootVertices(cloned: THREE.Object3D, rig: RigState): Record<'L' | 'R', WeightedFootVertices> {
+  const cached = footVertexCache.get(cloned)
+  if (cached) return cached
+  const result: Record<'L' | 'R', WeightedFootVertices> = { L: [], R: [] }
+  for (const side of ['L', 'R'] as const) {
+    const foot = rig.roles[`foot${side}` as 'footL' | 'footR']
+    if (!foot) continue
+    cloned.traverse((object) => {
+      const mesh = object as THREE.SkinnedMesh
+      if (!mesh.isSkinnedMesh || !mesh.skeleton) return
+      const controlledBones = new Set<number>()
+      mesh.skeleton.bones.forEach((bone, index) => {
+        let cursor: THREE.Object3D | null = bone
+        while (cursor) {
+          if (cursor === foot) { controlledBones.add(index); break }
+          cursor = cursor.parent
+        }
+      })
+      if (!controlledBones.size) return
+      const skinIndex = mesh.geometry.getAttribute('skinIndex')
+      const skinWeight = mesh.geometry.getAttribute('skinWeight')
+      const position = mesh.geometry.getAttribute('position')
+      if (!skinIndex || !skinWeight || !position) return
+      const indices: number[] = []
+      for (let index = 0; index < position.count; index++) {
+        let controlledWeight = 0
+        for (let component = 0; component < 4; component++) {
+          const boneIndex = skinIndex.getComponent(index, component)
+          if (controlledBones.has(boneIndex)) controlledWeight += skinWeight.getComponent(index, component)
+        }
+        // Exclude boundary vertices mainly owned by calf/shin bones while
+        // retaining toes and shoe geometry parented below the foot joint.
+        if (controlledWeight >= 0.5) indices.push(index)
+      }
+      if (indices.length) result[side].push({ mesh, indices })
+    })
+  }
+  footVertexCache.set(cloned, result)
+  return result
+}
+
+const _soleVertex = new THREE.Vector3()
+function sampleFootSoleSceneY(entries: WeightedFootVertices, sceneGroup: THREE.Object3D, fallback: number): number {
+  let minimum = Infinity
+  for (const { mesh, indices } of entries) {
+    for (const index of indices) {
+      mesh.getVertexPosition(index, _soleVertex)
+      mesh.localToWorld(_soleVertex)
+      sceneGroup.worldToLocal(_soleVertex)
+      if (_soleVertex.y < minimum) minimum = _soleVertex.y
+    }
+  }
+  return Number.isFinite(minimum) ? minimum : fallback
+}
+
+function solveFootGrounding(cloned: THREE.Object3D, rig: RigState, config: FootGroundingConfig, contacts: FootContactState, onDiagnostic?: (diagnostic: FootGroundingDiagnostic) => void) {
   const characterGroup = cloned.parent
   const sceneGroup = characterGroup?.parent
   if (!characterGroup || !sceneGroup) return
@@ -132,33 +202,67 @@ function solveFootGrounding(cloned: THREE.Object3D, rig: RigState, config: FootG
     const footWorld = foot.getWorldPosition(new THREE.Vector3())
     const footScene = sceneGroup.worldToLocal(footWorld.clone())
     const rawGroundY = heightAt(footScene.x, footScene.z, footScene.y) + config.soleOffset
+    const weightedVertices = collectWeightedFootVertices(cloned, rig)[side]
+    const soleSceneY = sampleFootSoleSceneY(weightedVertices, sceneGroup, footScene.y)
+    // The foot-bone pivot differs by up to several centimetres between the
+    // eight source rigs. Move that pivot by the measured mesh-sole error,
+    // instead of incorrectly forcing the pivot itself onto the ground.
+    const desiredFootBoneY = footScene.y + rawGroundY - soleSceneY
     const contact = contacts[side]
-    const footDistance = Math.abs(footScene.y - rawGroundY)
+    const footDistance = Math.abs(soleSceneY - rawGroundY)
     if (config.lockEnabled) {
       if (!contact.locked && footDistance <= config.lockDistance) {
         contact.locked = true
-        contact.targetScene.set(footScene.x, rawGroundY, footScene.z)
-      } else if (contact.locked && footDistance >= config.releaseDistance) contact.locked = false
+        contact.targetScene.set(footScene.x, desiredFootBoneY, footScene.z)
+        contact.plantGroundY = rawGroundY
+      } else if (contact.locked) {
+        // Release against the cached planted point in full 3D. Checking only
+        // vertical distance lets a moving character drag a support foot metres
+        // behind while it remains at roughly the same ground height.
+        const lockedGroundY = heightAt(contact.targetScene.x, contact.targetScene.z, contact.plantGroundY) + config.soleOffset
+        const lockedBoneY = contact.targetScene.y + lockedGroundY - contact.plantGroundY
+        const distanceFromPlant = footScene.distanceTo(new THREE.Vector3(contact.targetScene.x, lockedBoneY, contact.targetScene.z))
+        if (distanceFromPlant >= config.releaseDistance) contact.locked = false
+      }
     } else contact.locked = false
-    const targetScene = contact.locked
-      ? contact.targetScene.clone().setY(heightAt(contact.targetScene.x, contact.targetScene.z, contact.targetScene.y) + config.soleOffset)
-      : new THREE.Vector3(footScene.x, rawGroundY, footScene.z)
-    const targetWorld = sceneGroup.localToWorld(targetScene.clone())
+    let targetScene = contact.locked
+      ? contact.targetScene.clone().setY(contact.targetScene.y + heightAt(contact.targetScene.x, contact.targetScene.z, contact.plantGroundY) + config.soleOffset - contact.plantGroundY)
+      : new THREE.Vector3(footScene.x, desiredFootBoneY, footScene.z)
+    let targetWorld = sceneGroup.localToWorld(targetScene.clone())
     // CCD on the known hip→knee→foot chain. Four passes converge for the
     // small terrain corrections while retaining the mixer's planted X/Z.
-    for (let pass = 0; pass < 4; pass++) {
-      for (const joint of [knee, hip]) {
-        cloned.updateWorldMatrix(true, true)
-        const jointWorld = joint.getWorldPosition(new THREE.Vector3())
-        const effectorWorld = foot.getWorldPosition(new THREE.Vector3())
-        const toEffector = effectorWorld.sub(jointWorld).normalize()
-        const toTarget = targetWorld.clone().sub(jointWorld).normalize()
-        if (!Number.isFinite(toEffector.x) || !Number.isFinite(toTarget.x)) continue
-        const deltaWorld = new THREE.Quaternion().setFromUnitVectors(toEffector, toTarget)
-        deltaWorld.slerp(new THREE.Quaternion(), 1 - Math.max(0, Math.min(1, config.weight)))
-        const parentWorld = joint.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
-        const deltaLocal = parentWorld.clone().invert().multiply(deltaWorld).multiply(parentWorld)
-        joint.quaternion.premultiply(deltaLocal).normalize()
+    const solveToTarget = () => {
+      for (let pass = 0; pass < 8; pass++) {
+        for (const joint of [knee, hip]) {
+          cloned.updateWorldMatrix(true, true)
+          const jointWorld = joint.getWorldPosition(new THREE.Vector3())
+          const effectorWorld = foot.getWorldPosition(new THREE.Vector3())
+          const toEffector = effectorWorld.sub(jointWorld).normalize()
+          const toTarget = targetWorld.clone().sub(jointWorld).normalize()
+          if (!Number.isFinite(toEffector.x) || !Number.isFinite(toTarget.x)) continue
+          const deltaWorld = new THREE.Quaternion().setFromUnitVectors(toEffector, toTarget)
+          deltaWorld.slerp(new THREE.Quaternion(), 1 - Math.max(0, Math.min(1, config.weight)))
+          const parentWorld = joint.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+          const deltaLocal = parentWorld.clone().invert().multiply(deltaWorld).multiply(parentWorld)
+          joint.quaternion.premultiply(deltaLocal).normalize()
+        }
+      }
+    }
+    solveToTarget()
+    if (contact.locked) {
+      cloned.updateWorldMatrix(true, true)
+      const preliminaryFoot = sceneGroup.worldToLocal(foot.getWorldPosition(new THREE.Vector3()))
+      const preliminaryHorizontalError = Math.hypot(preliminaryFoot.x - targetScene.x, preliminaryFoot.z - targetScene.z)
+      if (preliminaryHorizontalError > config.lockDistance * 0.5) {
+        // The planted point is outside the leg's reachable set after root
+        // slope compensation. Release rather than stretching the leg toward
+        // an impossible stale contact, then solve a fresh vertical contact.
+        contact.locked = false
+        const preliminarySoleY = sampleFootSoleSceneY(weightedVertices, sceneGroup, preliminaryFoot.y)
+        const freshGroundY = heightAt(preliminaryFoot.x, preliminaryFoot.z, preliminarySoleY) + config.soleOffset
+        targetScene = new THREE.Vector3(preliminaryFoot.x, preliminaryFoot.y + freshGroundY - preliminarySoleY, preliminaryFoot.z)
+        targetWorld = sceneGroup.localToWorld(targetScene.clone())
+        solveToTarget()
       }
     }
     // Align the sole's up axis to the local terrain normal after the leg has
@@ -174,12 +278,29 @@ function solveFootGrounding(cloned: THREE.Object3D, rig: RigState, config: FootG
     soleDeltaWorld.slerp(new THREE.Quaternion(), 1 - Math.max(0, Math.min(1, config.slopeWeight)))
     const parentWorld = foot.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
     foot.quaternion.premultiply(parentWorld.clone().invert().multiply(soleDeltaWorld).multiply(parentWorld)).normalize()
+    cloned.updateWorldMatrix(true, true)
+    const solvedScene = sceneGroup.worldToLocal(foot.getWorldPosition(new THREE.Vector3()))
+    const solvedSoleY = sampleFootSoleSceneY(weightedVertices, sceneGroup, solvedScene.y)
+    const solvedGroundY = heightAt(solvedScene.x, solvedScene.z, solvedSoleY) + config.soleOffset
+    const solvedFootUp = new THREE.Vector3(0, 1, 0).applyQuaternion(foot.getWorldQuaternion(new THREE.Quaternion())).normalize()
+    const dx = solvedScene.x - targetScene.x
+    const dz = solvedScene.z - targetScene.z
+    onDiagnostic?.({
+      side,
+      locked: contact.locked,
+      verticalError: Math.abs(solvedSoleY - solvedGroundY),
+      signedVerticalError: solvedSoleY - solvedGroundY,
+      horizontalError: Math.hypot(dx, dz),
+      lockHorizontalError: contact.locked ? Math.hypot(dx, dz) : 0,
+      normalAngleErrorDeg: THREE.MathUtils.radToDeg(solvedFootUp.angleTo(normalWorld)),
+      finite: [...solvedScene.toArray(), ...hip.quaternion.toArray(), ...knee.quaternion.toArray(), ...foot.quaternion.toArray()].every(Number.isFinite),
+    })
   }
   solveLeg('L')
   solveLeg('R')
 }
 
-function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, characterMotion, motionDriveTime, footGrounding, jointEditing, selectedJointRole, onRigChange, onMixerChange }: {
+function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, characterMotion, motionDriveTime, footGrounding, jointEditing, selectedJointRole, onRigChange, onMixerChange, onFootGroundingDiagnostic }: {
   url: string; colorHex: string; heightM: number; pose?: PoseMap; motionClip?: string; customMotions?: PoseClip[]
   characterMotion?: CharacterMotion
   /** 给定(≥0)时按此【绝对时间】采样动画（与全局播放头同步），否则内部自循环。 */
@@ -187,6 +308,7 @@ function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, cha
   footGrounding?: FootGroundingConfig
   jointEditing?: boolean; selectedJointRole?: JointRole | null; onRigChange?: (rig: RigState | null) => void
   onMixerChange?: (entry: CharacterMixerEntry | null) => void
+  onFootGroundingDiagnostic?: (diagnostic: FootGroundingDiagnostic) => void
 }) {
   const { scene, animations } = useGLTF(url)
   const rigState = React.useRef<RigState | null>(null)
@@ -302,8 +424,8 @@ function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, cha
   const driveTimeRef = React.useRef(motionDriveTime); driveTimeRef.current = motionDriveTime
   const previewElapsedRef = React.useRef(0)
   const footContactsRef = React.useRef<FootContactState>({
-    L: { locked: false, targetScene: new THREE.Vector3() },
-    R: { locked: false, targetScene: new THREE.Vector3() },
+    L: { locked: false, targetScene: new THREE.Vector3(), plantGroundY: 0 },
+    R: { locked: false, targetScene: new THREE.Vector3(), plantGroundY: 0 },
   })
   useFrame((_, delta) => {
     if (characterMotionRef.current) {
@@ -312,12 +434,12 @@ function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, cha
         // 与全局播放头同步：按绝对时间采样，并【钳到本片段时长】——超出轨道长度冻结在末帧，不再循环
         const dur = Math.max(0.5, characterMotionRef.current.durationSeconds)
         applyComposedMotion(characterMotionRef.current, Math.min(dt, dur))
-        if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
+        if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current, onFootGroundingDiagnostic)
         return
       }
       previewElapsedRef.current += delta
       applyComposedMotion(characterMotionRef.current, previewElapsedRef.current)
-      if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
+      if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current, onFootGroundingDiagnostic)
       return
     }
     const mc = motionRef.current
@@ -325,6 +447,10 @@ function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, cha
     const drivenTime = driveTimeRef.current
     if (drivenTime != null && drivenTime >= 0) {
       applyMotion(mc, drivenTime)
+      // 时间线/轨迹预览走绝对时间驱动时同样必须执行贴地求解。
+      // 之前这里直接 return，导致最常用的自动 walk/run 路径只播骨骼动画，
+      // 却绕过了 Gaussian 高度、锁脚与坡面脚掌对齐。
+      if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current, onFootGroundingDiagnostic)
       return
     }
     elapsedRef.current += delta
@@ -337,7 +463,7 @@ function GltfBody({ url, colorHex, heightM, pose, motionClip, customMotions, cha
     })()
     const tPlay = previewDur > 0 ? elapsedRef.current % (previewDur + PREVIEW_LOOP_HOLD_SEC) : elapsedRef.current
     applyMotion(mc, tPlay)
-    if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current)
+    if (rigState.current && footGrounding) solveFootGrounding(cloned, rigState.current, footGrounding, footContactsRef.current, onFootGroundingDiagnostic)
   })
 
   // 上报 rig 给 Viewport（骨骼 gizmo 挂载点）；回调身份用 ref 解耦，只随模型重建触发
@@ -504,7 +630,7 @@ function PlaceholderBody({ colorHex }: { colorHex: string }) {
   )
 }
 
-export function CharacterObject({ character, selected, showLabel = true, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, motionPreviewPlaying, motionDriveTime, footGrounding }: Props & { footGrounding?: FootGroundingConfig }) {
+export function CharacterObject({ character, selected, showLabel = true, customMotions, onSelect, jointEditing, selectedJointRole, onPickJoint, onRigChange, onGroupChange, onMixerChange, onFootGroundingDiagnostic, showMotionDirectionHelper = true, motionPreviewPlaying, motionDriveTime, footGrounding }: Props & { footGrounding?: FootGroundingConfig }) {
   const item = getLibraryItem(character.modelId)
   const s = character.uniformScale
   // 稳定 ref 回调（inline 箭头会让 React 每次渲染都 detach/attach，上游 bump 会死循环）
@@ -568,7 +694,7 @@ export function CharacterObject({ character, selected, showLabel = true, customM
       <React.Suspense fallback={<PlaceholderBody colorHex={character.colorHex} />}>
         <GltfBody
           url={item.url} colorHex={character.colorHex} heightM={item.heightM} pose={resolveCharacterPose(character)} motionClip={effectiveMotionClip} customMotions={effectiveCustomMotions} characterMotion={motionPreviewPlaying ? character.motion : undefined} motionDriveTime={motionDriveTime} footGrounding={footGrounding}
-          jointEditing={jointEditing} selectedJointRole={selectedJointRole} onRigChange={onRigChange} onMixerChange={onMixerChange}
+          jointEditing={jointEditing} selectedJointRole={selectedJointRole} onRigChange={onRigChange} onMixerChange={onMixerChange} onFootGroundingDiagnostic={onFootGroundingDiagnostic}
         />
       </React.Suspense>
     )
@@ -597,7 +723,7 @@ export function CharacterObject({ character, selected, showLabel = true, customM
       }}
     >
       {body}
-      {motionPreviewPlaying ? (
+      {motionPreviewPlaying && showMotionDirectionHelper ? (
         // 朝向调试箭头：红锥指素体局部正前(+Z)，作为 group 子级随 heading 旋转 → 直观对照「身体朝向 vs 路径方向」。
         // userData.directorHelper 标记 → 渲染样片/截图时与其它 helper 一并隐藏，不进出图。
         <mesh position={[0, 1.0, 0.55]} rotation={[Math.PI / 2, 0, 0]} userData={{ directorHelper: true }} renderOrder={998}>

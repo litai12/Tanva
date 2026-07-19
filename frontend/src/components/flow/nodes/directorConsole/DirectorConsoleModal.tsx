@@ -594,13 +594,69 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
     apply(next)
   }, [apply, autoKeyframe, editorMode])
 
-  const onUploadModel = React.useCallback((file: File) => {
+  const onUploadModel = React.useCallback(async (files: File[]) => {
+    const entries = files.map((file) => ({
+      file,
+      path: ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/^\/+/, ''),
+    }))
+    const roots = entries.filter(({ path }) => /\.(?:glb|gltf)$/i.test(path))
+    if (roots.length !== 1) { showToast('请选择一个 GLB，或一个 GLTF 入口及其全部 .bin/纹理依赖', 'warning'); return }
+    const root = roots[0]
     setBusy(true)
-    void model3DUploadService.uploadModelFile(file, { dir: 'director-models/' }).then((result) => {
-      if (!result.success || !result.asset?.url) throw new Error(result.error || '模型上传失败')
-      apply(addCharacter(dataRef.current, { id: uid('char'), modelId: result.asset.url }))
-      showToast('模型已上传并添加', 'success')
-    }).catch((error) => showToast(error?.message || '模型上传失败', 'error')).finally(() => setBusy(false))
+    try {
+      if (/\.glb$/i.test(root.path)) {
+        const result = await model3DUploadService.uploadModelFile(root.file, { dir: 'director-models/' })
+        if (!result.success || !result.asset?.url) throw new Error(result.error || '模型上传失败')
+        apply(addCharacter(dataRef.current, { id: uid('char'), modelId: result.asset.url }))
+        showToast('模型已上传并添加', 'success')
+        return
+      }
+      const json = JSON.parse(await root.file.text()) as { buffers?: Array<{ uri?: string }>; images?: Array<{ uri?: string }> }
+      const rootDirectory = root.path.includes('/') ? root.path.slice(0, root.path.lastIndexOf('/') + 1) : ''
+      const normalize = (value: string) => {
+        const decoded = decodeURIComponent(value.split(/[?#]/)[0]).replace(/\\/g, '/')
+        const segments: string[] = []
+        for (const segment of `${rootDirectory}${decoded}`.split('/')) {
+          if (!segment || segment === '.') continue
+          if (segment === '..') { if (!segments.pop()) throw new Error(`GLTF 依赖越出所选目录：${value}`); continue }
+          segments.push(segment)
+        }
+        return segments.join('/')
+      }
+      const externalUris = [...(json.buffers ?? []), ...(json.images ?? [])]
+        .map((item) => item.uri?.trim())
+        .filter((uri): uri is string => !!uri && !/^(?:data:|https?:|blob:)/i.test(uri))
+      const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+      const dependencies = [...new Set(externalUris.map(normalize))]
+      const findEntry = (path: string) => {
+        const relative = path.startsWith(rootDirectory) ? path.slice(rootDirectory.length) : path
+        const exact = byPath.get(path) ?? byPath.get(relative)
+        if (exact) return exact
+        const basename = relative.slice(relative.lastIndexOf('/') + 1)
+        const matches = entries.filter((entry) => entry.path.slice(entry.path.lastIndexOf('/') + 1) === basename)
+        return matches.length === 1 ? matches[0] : undefined
+      }
+      const missing = dependencies.filter((path) => !findEntry(path))
+      if (missing.length) throw new Error(`GLTF 缺少依赖：${missing.join('、')}`)
+      const packageDir = `director-models/gltf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/`
+      const uploadEntry = async (entry: typeof root, targetPath?: string) => {
+        const relativePath = targetPath ?? (entry.path.startsWith(rootDirectory) ? entry.path.slice(rootDirectory.length) : entry.path)
+        const slash = relativePath.lastIndexOf('/')
+        const dir = `${packageDir}${slash >= 0 ? relativePath.slice(0, slash + 1) : ''}`
+        const fileName = slash >= 0 ? relativePath.slice(slash + 1) : relativePath
+        const uploaded = await uploadToOSS(entry.file, { dir, fileName, contentType: entry.file.type || undefined, maxSize: 200 * 1024 * 1024 })
+        if (!uploaded.success || !uploaded.url) throw new Error(uploaded.error || `上传失败：${relativePath}`)
+        return uploaded.url
+      }
+      for (const path of dependencies) await uploadEntry(findEntry(path)!, path.startsWith(rootDirectory) ? path.slice(rootDirectory.length) : path)
+      const modelUrl = await uploadEntry(root)
+      apply(addCharacter(dataRef.current, { id: uid('char'), modelId: modelUrl }))
+      showToast(`GLTF 模型包已上传并添加（${dependencies.length} 个依赖）`, 'success')
+    } catch (error: any) {
+      showToast(error?.message || '模型上传失败', 'error')
+    } finally {
+      setBusy(false)
+    }
   }, [apply, showToast])
 
   const onUploadGaussian = React.useCallback((file: File) => {
@@ -906,7 +962,10 @@ export default function DirectorConsoleModal({ nodeId, onClose }: Props) {
         propertyTimeline={propertyTimeline}
         onSetPropertyKeyframe={(objectKind, objectId, property) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: setPropertyKeyframes(dataRef.current.scene.propertyTimeline, dataRef.current.scene, objectKind, objectId, property, playRefs.current.playhead) } })}
         onRemovePropertyKeyframe={(objectId, property) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: removeKeyframe(dataRef.current.scene.propertyTimeline, objectId, property, playRefs.current.playhead) } })}
-        onDurationChange={(duration) => apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: { ...ensurePropertyTimeline(dataRef.current.scene.propertyTimeline), duration } } })}
+        onDurationChange={(duration) => {
+          onSeek(Math.min(playRefs.current.playhead, duration))
+          apply({ ...dataRef.current, scene: { ...dataRef.current.scene, propertyTimeline: { ...ensurePropertyTimeline(dataRef.current.scene.propertyTimeline), duration } } })
+        }}
         autoKeyframe={autoKeyframe}
         onAutoKeyframeChange={(enabled) => {
           setAutoKeyframe(enabled)

@@ -13,7 +13,7 @@ type Props = {
   onSetGizmoMode: (m: GizmoMode) => void
   onAddCharacter: (modelId: string) => void
   onAddCrowd: (input: CrowdInput) => void
-  onUploadModel: (file: File) => void
+  onUploadModel: (files: File[]) => void
   onUploadGaussian: (file: File) => void
   onSetSkybox: (file: File | null) => void
   hasSkybox: boolean
@@ -109,8 +109,8 @@ export function Toolbar({ busy, aspect, gizmoMode, onSetGizmoMode, onAddCharacte
   const [panoramaAiOpen, setPanoramaAiOpen] = React.useState(false)
   return (
     <nav aria-label="导演台工具栏" style={{ height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px 10px', pointerEvents: 'none' }}>
-      <input ref={fileRef} type="file" accept=".glb,.gltf,model/gltf-binary" style={{ display: 'none' }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadModel(f); e.currentTarget.value = '' }} />
+      <input ref={fileRef} type="file" multiple accept=".glb,.gltf,.bin,image/png,image/jpeg,image/webp,image/ktx2,model/gltf-binary,model/gltf+json,application/octet-stream" style={{ display: 'none' }}
+        onChange={(e) => { const files = Array.from(e.target.files ?? []); if (files.length) onUploadModel(files); e.currentTarget.value = '' }} />
       <input ref={gaussianRef} type="file" accept=".splat,application/octet-stream" style={{ display: 'none' }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadGaussian(f); e.currentTarget.value = '' }} />
       <input ref={skyRef} type="file" accept="image/*" style={{ display: 'none' }}

@@ -4,7 +4,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, Line, Grid, GizmoHelper, GizmoViewport, PerspectiveCamera, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DirectorScene, CharacterObj, CameraObj, Vec3 } from '../types'
-import { CharacterObject, resolveCharacterPose } from './CharacterObject'
+import { CharacterObject, resolveCharacterPose, type FootGroundingDiagnostic } from './CharacterObject'
 import { CameraRig } from './CameraRig'
 import { poseEulerFromRig, type JointRole, type RigState } from '../state/pose'
 import { aspectRatio, captureSize } from '../state/aspect'
@@ -13,6 +13,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy'
 import { pathLength, samplePathAt } from '../state/groundPath'
 import { snapPositionToGround } from '../state/gaussianGround'
 import { applyResolvedCameraPose, resolveCameraPose } from '../state/cameraPose'
+import { resolveTrajectoryGait, resolveTrajectoryMotion } from '../state/trajectoryMotion'
 
 async function fetchProxiedImageBlob(url: string): Promise<Blob> {
   const proxied = proxifyRemoteAssetUrl(url, { forceProxy: true })
@@ -59,6 +60,8 @@ type Props = {
   }
   /** Absolute property-timeline playhead; drives skeletal mixers deterministically. */
   animationTime?: number
+  /** Acceptance/telemetry hook for the post-IK foot result. */
+  onFootGroundingDiagnostic?: (characterId: string, diagnostic: FootGroundingDiagnostic) => void
 }
 
 function PathDrawLayer({ pd, scene, onDragStart, onDragEnd }: {
@@ -308,7 +311,7 @@ function ReadySignal({ onReady }: { onReady?: () => void }) {
   return null
 }
 
-function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, pathDraw, animationTime, onSelect, onPatchCharacter, onPatchCamera, groupsRef }: SceneContentsProps) {
+function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', skyboxUrl, pathDraw, animationTime, onSelect, onPatchCharacter, onPatchCamera, onFootGroundingDiagnostic, groupsRef }: SceneContentsProps) {
   const activeCam = scene.cameras.find((c) => c.id === scene.activeCameraId)
   const selectedChar = scene.characters.find((c) => c.id === selectedId && !c.locked && !c.hidden)
   const selectedCam = scene.cameras.find((c) => c.id === selectedId && !c.locked && !c.hidden)
@@ -421,12 +424,12 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
       <group position={scenePosition} rotation={sceneRotationRad} scale={sceneScale}>
         {scene.characters.filter((c) => !c.hidden).map((c) => {
           const trajectory = scene.propertyTimeline?.trajectories?.[c.id]
-          const motionConfig = c.trajectoryMotion ?? {}
+          const motionConfig = resolveTrajectoryMotion(c.trajectoryMotion)
           const duration = Math.max(0.01, scene.propertyTimeline?.duration ?? 10)
           const speedMps = trajectory && trajectory.waypoints.length >= 2 ? pathLength(trajectory) / duration : 0
-          const inferredClip = motionConfig.autoGait === false || speedMps < 0.05 ? undefined : speedMps > (motionConfig.runThreshold ?? 2.2) ? 'run' : 'walk'
-          const nominalSpeed = inferredClip === 'run' ? (motionConfig.runSpeed ?? 3.2) : (motionConfig.walkSpeed ?? 1.4)
-          const gaitRate = inferredClip ? Math.max(motionConfig.minPlaybackRate ?? 0.25, Math.min(motionConfig.maxPlaybackRate ?? 3, speedMps / nominalSpeed)) : 1
+          const gait = resolveTrajectoryGait(speedMps, c.trajectoryMotion)
+          const inferredClip = gait.clip
+          const gaitRate = gait.playbackRate
           const renderedCharacter = animationTime != null && inferredClip && !c.motionClip && !c.motion
             ? { ...c, motionClip: inferredClip }
             : c
@@ -449,15 +452,17 @@ function SceneContents({ scene, viewpoint, selectedId, gizmoMode = 'translate', 
           }}
           motionPreviewPlaying={animationTime != null}
           motionDriveTime={animationTime != null ? animationTime * gaitRate : undefined}
-          footGrounding={animationTime != null && motionConfig.ikEnabled !== false ? {
+          onFootGroundingDiagnostic={(diagnostic) => onFootGroundingDiagnostic?.(c.id, diagnostic)}
+          showMotionDirectionHelper={viewpoint === 'director'}
+          footGrounding={animationTime != null && motionConfig.ikEnabled ? {
             groundHeight: scene.groundHeight ?? 0,
             gaussianEnabled: scene.gaussianGroundSnap ?? true,
-            weight: motionConfig.ikWeight ?? 1,
-            lockEnabled: motionConfig.footLockEnabled ?? true,
-            lockDistance: motionConfig.footLockDistance ?? 0.055,
-            releaseDistance: motionConfig.footReleaseDistance ?? 0.14,
-            soleOffset: motionConfig.soleOffset ?? 0.01,
-            slopeWeight: motionConfig.footSlopeWeight ?? 1,
+            weight: motionConfig.ikWeight,
+            lockEnabled: motionConfig.footLockEnabled,
+            lockDistance: motionConfig.footLockDistance,
+            releaseDistance: motionConfig.footReleaseDistance,
+            soleOffset: motionConfig.soleOffset,
+            slopeWeight: motionConfig.footSlopeWeight,
           } : undefined}
           />
           )
@@ -622,7 +627,11 @@ export const Viewport = React.forwardRef<ViewportHandle, Props>(function Viewpor
       const pos: Vec3 = [live.position.x, live.position.y, live.position.z]
       const c = controlsRef.current
       let lookAt: Vec3
-      if (c?.target) {
+      // OrbitControls may remain in the ref briefly after switching from the
+      // director view. Its target is valid only for that view; consuming the
+      // stale target in camera view makes “capture current view” create a new
+      // camera looking somewhere different from the pixels being captured.
+      if (propsRef.current.viewpoint === 'director' && c?.target) {
         lookAt = [c.target.x, c.target.y, c.target.z]
       } else {
         const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(live.quaternion).multiplyScalar(10).add(live.position)

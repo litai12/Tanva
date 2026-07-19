@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-07-19：导演台相机新增 `verify:director-camera` 永久门禁，纯解析和真实 WebGL 六模式覆盖手动坐标/手动旋转/角色注视/跟随/FOV25/FOV90；修复机位视角截图读取旧 OrbitControls target 导致新机位注视点偏离所见画面，并修复轨迹红色朝向调试箭头进入机位预览和 MediaRecorder 导出，现相机/导出门禁均要求红色 helper 像素为 0。
+- 2026-07-19：导演台新增 `verify:director-persistence-io` 完整浏览器门禁：角色名称/位置/姿势与时间线时长写回后刷新逐值恢复；远程图片当前裁剪通过 `img→target` 输入边在刷新后继续作为全景运行时渲染；WebGL 截图上传远程后只保存 URL，通过 `source→img` 建图连边，刷新后截图画廊重新水合并可再次发送；真实 32-byte `.splat` 完成文件选择、presign 上传、远程入库、X 轴 pointer drag 和刷新精确恢复。所有阶段递归阻止 data:/blob:/flow-asset:/裸 base64 进入设计数据。
+- 2026-07-19：导演台动画导出新增完整浏览器永久门禁 `verify:director-export`：0.70s 轨迹导出期间证明 MediaRecorder 录制的就是实时预览 WebGL canvas，画面真实前进；Blob 经后端视频上传与资产可读性检查后派发远程视频插入，完成后播放头、编辑模式、导演视角和导出前像素帧完全恢复。
+- 2026-07-19：导演台八套素体轨迹新增真实 Chrome 平地/Gaussian 10% 坡面多时间点与回环确定性验收；修复绝对播放头 walk/run 绕过足部 IK，以及锁脚仅按垂直距离释放导致支撑脚可拖后 1.88m 的问题。锁脚改用三维距离并在求解后释放不可达缓存点；按蒙皮权重自动提取八体真实鞋底，坡地消费 `rootSlopeWeight` 并加入骨盆可达补偿。坡地最大锁脚水平/鞋底垂直/法线误差为 0.0134m/0.0492m/<0.0001°，分别受 0.02m/0.05m/1° 永久门禁约束。
 - 2026-07-18：微信/支付宝扫码支付有效期统一为 30 分钟，前端按服务端 `expiredAt` 倒计时并在到期后隐藏旧码；自动对账扩大到最近 72 小时内全部 `pending/expired/cancelled/failed` 订单并提升为每 5 分钟执行，订单列表也会主动补查，修复刷新旧码后晚付款可能不入账的问题。
 - 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
 - 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
@@ -924,6 +928,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added a repeatable backend upload command that preserves glTF-relative paths and writes immutable cache metadata plus a source SHA-256 object metadata value.
 
 ### Fixed
+- Director local model import now accepts a complete GLTF package instead of silently uploading only the first selected file. It parses external buffer/image URIs, rejects missing/path-escaping dependencies, preserves declared relative directories in an isolated remote package, uploads dependencies before the GLTF entry, and persists only the remote entry URL; the full-Modal browser gate verifies upload and reload with an external `buffers/model.bin` resource.
+- Director timeline playhead/duration fields now preserve incomplete editing drafts, commit on Enter/blur, cancel on Escape, convert seconds/milliseconds consistently, clamp playhead boundaries, and pull an out-of-range playhead back when duration shrinks. The permanent full-Modal browser verifier covers all of these cases.
+- Director full-Modal persistence acceptance now enters/exits the real Fullscreen API and deletes an active camera carrying a persisted screenshot, property track and trajectory, proving dependent cleanup, active-camera fallback and non-reappearance after reload.
 - Character trajectory curves, waypoint handles and pointer hit-testing now use the same scene position/rotation/scale transform as rendered characters; Gaussian-snapped curve heights use the same terrain sampler as position keyframes. Camera trajectories remain in world space at the camera's own Y level. This fixes XYZ motion drifting away from the drawn curve, including the default 3× scene scale.
 - Character trajectory commits now generate a paired `rotation.y` track from the exact same normalized path samples as the position track. The established +Z model-forward convention follows Catmull-Rom/linear tangents with shortest-arc interpolation, so the face direction stays locked to travel direction through bends.
 - Timeline playback now directly samples persisted trajectories every frame for exact curve position/tangent heading and current-XZ Gaussian height; closed Catmull-Rom paths use cyclic neighbors. Character trajectory UI adds follow/reverse/fixed facing plus degree offset controls, and legacy trajectories dynamically follow without manual migration.
