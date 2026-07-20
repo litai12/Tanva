@@ -199,7 +199,7 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.chat(
       {
-        model: request.model || 'gemini-3.1-pro',
+        model: request.model || 'gemini-3.1-pro-preview',
         messages: [{ role: 'user', content }],
       },
       request.providerOptions,
@@ -237,7 +237,7 @@ export class NewApiProvider implements IAIProvider {
         : request.prompt;
 
     const payload = {
-      model: request.model || 'gemini-3.1-pro',
+      model: request.model || 'gemini-3.1-pro-preview',
       messages: [{ role: 'user', content }],
       ...(request.thinkingLevel ? { thinking_level: request.thinkingLevel } : {}),
     };
@@ -285,7 +285,7 @@ export class NewApiProvider implements IAIProvider {
 
     const result = await this.generateText({
       prompt,
-      model: request.model || 'gemini-3.1-pro',
+      model: request.model || 'gemini-3.1-pro-preview',
       providerOptions: request.providerOptions,
     });
 
@@ -324,7 +324,7 @@ export class NewApiProvider implements IAIProvider {
   ): Promise<AIProviderResponse<PaperJSResult>> {
     const result = await this.generateText({
       prompt: request.prompt,
-      model: request.model || 'gemini-3.1-pro',
+      model: request.model || 'gemini-3.1-pro-preview',
       thinkingLevel: request.thinkingLevel,
     });
 
@@ -374,7 +374,7 @@ export class NewApiProvider implements IAIProvider {
       .join('\n');
 
     const result = await this.chat({
-      model: request.model || 'gemini-3.1-pro',
+      model: request.model || 'gemini-3.1-pro-preview',
       messages: [
         {
           role: 'user',

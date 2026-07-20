@@ -346,6 +346,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` �?`手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖�?发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题�?
 
 ### Changed
+- AI Gemini 3.1 routing: backend text/analyze defaults now use `gemini-3.1-pro-preview`; the legacy `gemini-3.1-pro` APIMart facade is mapped to the preview upstream ID by `new-api/patches/2026-07-20/001-map-gemini-31-pro-to-preview.sql`, preventing the facade name from producing repeated upstream 503 errors.
 - Membership/Payment UI: `MembershipPanel` 的积分充值入口从“仅月卡会员”调整为“任�?active 会员（含年卡）或白名单用户（`noWatermark`）可见”，并同步更新充值区提示文案（`frontend/src/components/payment/MembershipPanel.tsx`）�?
 - AI Text Model Routing: Fast/Pro/Ultra 文本模型映射更新�?`banana-2.5 -> gemini-2.5-flash`、`banana -> gemini-3-pro-preview`、`banana-3.1/nano2 -> gemini-3.1-pro-preview`；前�?`auto` 工具选择请求现在显式携带文本模型，且 Banana Ultra �?147 �?Apimart 通道统一使用 `gemini-3.1-pro-preview`�?
 - Flow/Performance: workflow 画布在大节点量场景下启用自适应性能策略：`onlyRenderVisibleElements` 默认改为开启，并在节点数较大时自动强制“仅渲染可见元素”；同时大图模式会自动关闭节点吸附对齐，减少拖拽时的全图对齐计算开销（`frontend/src/stores/flowStore.ts`, `frontend/src/components/flow/FlowOverlay.tsx`）�?

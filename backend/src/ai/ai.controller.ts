@@ -158,30 +158,30 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro',
-    'gemini-pro': 'gemini-3.1-pro',
+    gemini: 'gemini-3.1-pro-preview',
+    'gemini-pro': 'gemini-3.1-pro-preview',
     banana: 'gemini-3.5-flash', // Pro 对话档改用 gemini-3.5-flash（仅对话能力）
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro-preview',
     'deepseek-v4-flash': 'deepseek-v4-flash-260425',
     'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro',
-    midjourney: 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro-preview',
+    midjourney: 'gemini-3.1-pro-preview',
     nano2: 'gemini-3.1-pro-preview',
-    seedream5: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro-preview',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro',
-    'gemini-pro': 'gemini-3.1-pro',
+    gemini: 'gemini-3.1-pro-preview',
+    'gemini-pro': 'gemini-3.1-pro-preview',
     banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     'deepseek-v4-flash': 'deepseek-v4-flash-260425',
     'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro',
-    midjourney: 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro-preview',
+    midjourney: 'gemini-3.1-pro-preview',
     nano2: 'gemini-3.1-flash-image-preview',
-    seedream5: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro-preview',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -2089,7 +2089,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro';
+      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro-preview';
     }
     return this.providerDefaultAnalyzeModels.gemini;
   }
@@ -3341,7 +3341,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro';
+      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro-preview';
     }
     return this.providerDefaultTextModels.gemini;
   }
