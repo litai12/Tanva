@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/project';
+import { restoreProjectHistoryState } from './projectContentHistoryState';
 
 type UpdateOptions = {
   markDirty?: boolean;
@@ -75,13 +76,14 @@ type ProjectContentState = {
   setStaleContent: (stale: boolean, reason?: StaleReason | null) => void;
   setProjectViewReady: (ready: boolean) => void;
   markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
+  restoreHistorySnapshot: (content: ProjectContentSnapshot) => void;
   setError: (error: string | null) => void;
   setWarning: (warning: string | null) => void;
   reset: () => void;
 };
 
 const createInitialState = (): Omit<ProjectContentState,
-  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'setCacheValidationPending' | 'setStaleContent' | 'setProjectViewReady' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
+  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'setCacheValidationPending' | 'setStaleContent' | 'setProjectViewReady' | 'markSaved' | 'restoreHistorySnapshot' | 'setError' | 'setWarning' | 'reset'> => ({
   projectId: null,
   content: null,
   version: 1,
@@ -199,6 +201,9 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
         lastSavedAt: savedAt ?? new Date().toISOString(),
       };
     });
+  },
+  restoreHistorySnapshot: (content) => {
+    set((state) => restoreProjectHistoryState(state, content));
   },
   setError: (error) => set((state) => ({
     lastError: error,

@@ -43,6 +43,7 @@
 ### Flow / AI 运行约定
 - AI Chat 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免切换/新建项目时把旧本地历史串入当前项目。
 - 项目内容本地缓存使用 `frontend/src/services/projectCacheStore.ts` 的 IndexedDB（`tanva_project_cache`）：打开项目可先用账号隔离缓存水合，再后台校验远端 `contentVersion/updatedAt`；校验中自动/手动保存需暂停，保存成功写入与云端一致的 sanitized 内容，避免本地运行时字段或旧缓存覆盖远端。切换项目的体感性能还受 Paper `importJSON`、Raster 重建和 Flow hydrate 影响；下拉快速切换应先关闭菜单并延后一拍触发 `projectStore.open()`，Paper 项目切换路径在已提前清空时可跳过导入前的重复 `project.clear()`。
+- 同项目 Undo/Redo 只恢复内容快照并标记为未保存修改，不得恢复历史快照携带的 `contentVersion`/`lastSavedAt`，也不得重置 `dirtyCounter`、保存锁、缓存校验或 stale 保护状态；`Project.contentVersion` 是云端乐观锁基线，在同一项目会话内只能随成功保存前进。
 - AI Chat 普通文本请求默认只发送当前输入；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接会话历史。迭代计数与上下文依赖检测是两条独立判定；Auto-mode Agent trace 在上下文依赖命中时也会接收同一份上下文并展示上下文读取步骤。Flow Text Chat 节点不继承这条 AI Chat 上下文注入策略。
 - AI Chat Auto/Generate 图片输出数量：底部 `1/2/4/8` 倍数是默认值；当用户输入明确包含“画/生成/做/出 + 两张/3张/多张”等输出数量时，本次请求会用语言解析出的数量覆盖默认倍数，并同步给 Agent trace 展示。不要把“用两张参考图/把两张图融合”误判为输出数量。
 - AI Chat 图片生成等待上限为前端任务轮询 15 分钟；消息错误态必须派发 `predictImagePlaceholder/remove`，画布侧 AI 预测占位框也必须带 `createdAt/expiresAt` 并由 `useQuickImageUpload` 定时扫描清理，避免 Paper.js 孤儿占位框长期停在 95%。

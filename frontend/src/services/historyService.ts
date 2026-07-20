@@ -373,24 +373,9 @@ async function restoreSnapshot(to: Snapshot, opts?: { from?: Snapshot | null; op
   const st = getOrInitState(pid);
   st.restoring = true;
   try {
-    // 恢复 store 内容
-    useProjectContentStore.getState().hydrate(
-      to.content,
-      to.version,
-      to.savedAt ?? undefined,
-      { preserveProjectViewReady: true }
-    );
-
-    // 撤销/重做属于“未保存变更”，不应因为 hydrate 被标记为 clean
-    try {
-      const now = Date.now();
-      useProjectContentStore.setState((state) => ({
-        ...state,
-        dirty: true,
-        dirtySince: state.dirtySince ?? now,
-        dirtyCounter: state.dirtyCounter + 1,
-      }));
-    } catch {}
+    // Undo/Redo 只恢复内容历史。Project.contentVersion 是云端乐观锁基线，
+    // 在同一项目内只能随成功保存前进，绝不能回退到快照创建时的旧版本。
+    useProjectContentStore.getState().restoreHistorySnapshot(to.content);
 
     // ✅ 快速路径：仅回放图片 bounds，避免全量 importJSON 导致全图闪烁/重载
     if (shouldFastRestoreImages(opts?.from, to)) {

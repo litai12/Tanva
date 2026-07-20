@@ -17,6 +17,7 @@
     "verify:director-persistence-io": "node scripts/verifyDirectorPersistenceAndIoBrowser.mjs",
     "verify:director-camera": "node scripts/verifyDirectorCamera.mjs",
     "verify:director-output": "node scripts/verifyDirectorOutputProtocol.mjs",
+    "test:project-history": "node --test src/stores/projectContentHistoryState.test.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "sync:tencent-voices": "node scripts/syncTencentSystemVoices.mjs"
