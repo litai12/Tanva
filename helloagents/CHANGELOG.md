@@ -952,3 +952,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 2026-07-19：继续修复导演台全景加入后“看不到球体、乌漆嘛黑”：2:1 等距图不再只依赖 Three.js `scene.background`，与普通图片统一渲染真实 BackSide 内视球；OSS URL、OSS key 与历史 proxy 包装复用统一图片解析链，加载错误不再静默吞掉；纹理状态绑定来源 URL，消除切换时把旧纹理误报为新图 ready 的竞态。全景浏览器门禁升级为读取 WebGL 实际像素，确认贴图真正可见而非仅状态成功。
 - 2026-07-19：修复全景球的另一条真实黑屏路径：右栏允许半径缩到 10，而默认导演相机距世界原点约 15，固定在原点的 BackSide 球会在相机位于球外时完全不可见。天空球现逐帧跟随当前导演/机位相机保持同心；新增“半径 10、相机在原球外仍有贴图像素”门禁。全景加载失败与源图片接近纯黑也会直接在导演台显示具体提示，不再只留下黑视口。
 - 2026-07-19：修复图片节点手动连接导演台会被静默拒绝：`isValidConnection` 虽允许图片来源进入 `directorConsole/target`，但 `canAcceptConnection` 遗漏导演台分支并最终返回 false；现补齐单全景入口容量规则。导演台节点同时支持 `?directorNodeId=<id>` 项目深链自动打开，便于协作验收。已将全景可见性验收截图上传 TOS，并在项目 `580085f6-0948-4ac6-8890-0a3a644f4a8a` 最新导演台左侧添加图片节点及 `img → target` 边。
+
+## [Annual Membership Cycle Guard - 2026-07-20]
+
+### Fixed
+- Paid membership upgrades no longer trust `PaymentOrder.metadata.membershipCycleSwitch` as the only cycle-reset signal. A real current/target billing-cycle mismatch always reopens the target cycle from `paidAt`, so a monthly subscription upgraded to yearly cannot retain the old monthly expiry even when the order marker is absent or false.
+- Membership upgrade activation now re-reads and validates the subscription, entitlement snapshot, newly granted credit lot and carried credit-lot expiries before the payment transaction can commit. Any mismatch rolls the whole transaction back; the guard never compensates or grants credits outside the original paid-order amount.
+
+### Added
+- Added an hourly read-only audit for paid annual upgrades from the previous 48 hours. It reports subscription, entitlement and credit-lot period violations without automatically changing membership data or credit balances.
+- Added `npm run verify:membership-cycle`, covering missing/false order markers, explicit cycle resets, retained same-cycle periods and invalid cycle durations.

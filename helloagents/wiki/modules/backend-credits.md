@@ -139,7 +139,9 @@
   - 免费用户一次性额度过期后会清零剩余额度并同步扣减账户余额，记录 `free_monthly_quota_expire` 流水；不会再按 30 天周期续发，定时清理任务仅兜底扫描过期额度。
 - `MembershipService.issueDailyMembershipGiftCredits()` 保留为历史兼容入口，但当前产品策略已停用自动每日赠送；会员套餐中的 `dailyGiftCredits` 现用于“每日签到基础积分”，而不是定时直接入账。
   - `MembershipService.decayDailyGiftCredits()` 会在 `pauseGiftDecay=false` 时，对 `sourceType=gift` + `validityType=permanent` 的 lot 执行每日衰减，并记录 `gift_decay` 流水；衰减值改为读取 `SystemSetting[membership_credit_policy].dailyGiftDecayCredits`。
-  - `MembershipService.refreshYearlySubscriptionQuotaLots()` 会为 `periodType=yearly` 的活跃订阅补发按配置窗口计算的月度额度，并记录 `membership_refresh` 流水；窗口天数来自 `membershipRefreshCycleDays`。
+  - 年卡额度在购买时一次性发放，`MembershipService.refreshYearlySubscriptionQuotaLots()` 保留兼容入口但固定空转，不再按月重复补发年卡额度。
+  - 会员升级订单会记录 `membershipCycleSwitch`；支付入账同时根据当前订阅与目标套餐的真实周期推断，月卡→年卡即使订单标记缺失也会从支付时刻重开完整年周期。事务提交前会复读订阅、权益快照与新积分 lot，任一周期不一致则整体回滚。
+  - `MembershipSchedulerService` 每小时只读巡检最近 48 小时的已支付年卡升级，检查订阅、权益快照和积分 lot 周期；异常只写错误日志，不自动修复或补积分。
 - `MembershipSchedulerService` 新增每日 2 点免费用户一次性额度补发任务、每日 2 点赠送衰减任务、每日 4 点年费会员月度额度刷新任务；原每日 5 点会员自动赠送任务已停用。签到业务日切点单独按 `3AM` 计算，形成“先衰减、再开放新一天签到”的顺序。
 - 会员读接口：
   - 新增 `GET /api/membership/current`：返回当前活跃订阅、当前套餐摘要和权益快照。

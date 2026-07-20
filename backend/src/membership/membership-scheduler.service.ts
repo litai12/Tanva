@@ -11,6 +11,7 @@ export class MembershipSchedulerService {
   private giftDecayJobRunning = false;
   private yearlyRefreshJobRunning = false;
   private scheduledChangeJobRunning = false;
+  private annualUpgradeAuditJobRunning = false;
 
   constructor(
     private readonly membershipService: MembershipService,
@@ -55,6 +56,28 @@ export class MembershipSchedulerService {
       this.logger.error('会员到期扫描失败:', error);
     } finally {
       this.expiryJobRunning = false;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleAnnualUpgradeInvariantAudit() {
+    if (this.annualUpgradeAuditJobRunning) {
+      this.logger.warn('跳过年卡升级一致性巡检：上一次任务尚未完成');
+      return;
+    }
+
+    this.annualUpgradeAuditJobRunning = true;
+    try {
+      const result = await this.membershipService.auditRecentPaidAnnualUpgradeInvariants();
+      if (result.violations.length > 0) {
+        this.logger.error(
+          `年卡升级一致性巡检发现异常（仅报警，未自动修复或补积分）: checked=${result.checkedOrders}, violations=${JSON.stringify(result.violations)}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error('年卡升级一致性巡检失败:', error);
+    } finally {
+      this.annualUpgradeAuditJobRunning = false;
     }
   }
 

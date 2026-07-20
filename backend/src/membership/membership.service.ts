@@ -1,10 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
 import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
 import type {
   ActivatePaidMembershipOrderParams,
   ActivatePaidMembershipOrderResult,
@@ -1394,6 +1400,155 @@ export class MembershipService {
     };
   }
 
+  async auditRecentPaidAnnualUpgradeInvariants(now = new Date(), lookbackHours = 48) {
+    const lookbackStart = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
+    const orders = await this.prisma.paymentOrder.findMany({
+      where: {
+        status: 'paid',
+        orderType: 'membership',
+        paidAt: { gte: lookbackStart, lte: now },
+      },
+      select: {
+        id: true,
+        userId: true,
+        membershipPlanId: true,
+        subscriptionId: true,
+        paidAt: true,
+        planSnapshot: true,
+        metadata: true,
+      },
+      orderBy: { paidAt: 'asc' },
+      take: 500,
+    });
+
+    const annualUpgrades = orders.filter((order) => {
+      const planSnapshot = this.asJsonObject(order.planSnapshot);
+      const metadata = this.asJsonObject(order.metadata);
+      return (
+        planSnapshot?.billingCycle === 'yearly' &&
+        metadata?.membershipTransitionType === 'upgrade'
+      );
+    });
+    if (annualUpgrades.length === 0) {
+      return { checkedOrders: 0, violations: [] };
+    }
+
+    const subscriptionIds = annualUpgrades
+      .map((order) => order.subscriptionId)
+      .filter((id): id is string => typeof id === 'string');
+    const userIds = [...new Set(annualUpgrades.map((order) => order.userId))];
+    const orderIds = annualUpgrades.map((order) => order.id);
+    const [subscriptions, entitlements, lots, policy] = await Promise.all([
+      this.prisma.userMembershipSubscription.findMany({
+        where: { id: { in: subscriptionIds } },
+      }),
+      this.prisma.membershipEntitlementSnapshot.findMany({
+        where: { userId: { in: userIds } },
+      }),
+      this.prisma.creditLot.findMany({
+        where: { orderId: { in: orderIds } },
+        select: {
+          id: true,
+          orderId: true,
+          subscriptionId: true,
+          expiresAt: true,
+        },
+      }),
+      this.businessPolicyService.getMembershipCreditPolicy(),
+    ]);
+    const subscriptionMap = new Map(subscriptions.map((item) => [item.id, item]));
+    const entitlementMap = new Map(entitlements.map((item) => [item.userId, item]));
+    const lotsByOrder = new Map<string, typeof lots>();
+    for (const lot of lots) {
+      if (!lot.orderId) continue;
+      const orderLots = lotsByOrder.get(lot.orderId) ?? [];
+      orderLots.push(lot);
+      lotsByOrder.set(lot.orderId, orderLots);
+    }
+
+    const yearlyCycleDays = this.resolveCycleDays(
+      'yearly',
+      policy.membershipRefreshCycleDays,
+    );
+    const violations: Array<{
+      orderId: string;
+      userId: string;
+      subscriptionId: string | null;
+      reasons: string[];
+    }> = [];
+
+    for (const order of annualUpgrades) {
+      const reasons: string[] = [];
+      const orderMetadata = this.asJsonObject(order.metadata);
+      const planSnapshot = this.asJsonObject(order.planSnapshot);
+      const expectedGrantAmount = Math.max(
+        0,
+        this.toInt(orderMetadata?.immediateCreditDelta, 0),
+      );
+      const subscription = order.subscriptionId
+        ? subscriptionMap.get(order.subscriptionId)
+        : undefined;
+      if (!subscription) {
+        reasons.push('subscription_missing');
+      } else if (subscription.lastOrderId === order.id) {
+        const expectedStartAt = order.paidAt;
+        const expectedEndAt = expectedStartAt
+          ? this.addDays(expectedStartAt, yearlyCycleDays)
+          : null;
+        if (subscription.membershipPlanId !== order.membershipPlanId) {
+          reasons.push('subscription_plan_mismatch');
+        }
+        if (subscription.status !== 'active') reasons.push('subscription_not_active');
+        if (subscription.periodType !== 'yearly') reasons.push('subscription_not_yearly');
+        if (!expectedStartAt || !this.sameDate(subscription.currentPeriodStartAt, expectedStartAt)) {
+          reasons.push('subscription_start_mismatch');
+        }
+        if (!expectedEndAt || !this.sameDate(subscription.currentPeriodEndAt, expectedEndAt)) {
+          reasons.push('subscription_end_mismatch');
+        }
+
+        const entitlement = entitlementMap.get(order.userId);
+        if (
+          !entitlement ||
+          entitlement.currentPlanCode !== planSnapshot?.code ||
+          entitlement.membershipStatus !== 'active' ||
+          !expectedStartAt ||
+          !expectedEndAt ||
+          !this.sameDate(entitlement.currentPeriodStartAt, expectedStartAt) ||
+          !this.sameDate(entitlement.currentPeriodEndAt, expectedEndAt)
+        ) {
+          reasons.push('entitlement_period_mismatch');
+        }
+
+        const orderLots = lotsByOrder.get(order.id) ?? [];
+        if (expectedGrantAmount > 0 && orderLots.length === 0) {
+          reasons.push('credit_lot_missing');
+        } else if (
+          orderLots.length > 0 &&
+          (!expectedEndAt ||
+            orderLots.some(
+              (lot) =>
+                lot.subscriptionId !== order.subscriptionId ||
+                !this.sameDate(lot.expiresAt, expectedEndAt),
+            ))
+        ) {
+          reasons.push('credit_lot_expiry_mismatch');
+        }
+      }
+
+      if (reasons.length > 0) {
+        violations.push({
+          orderId: order.id,
+          userId: order.userId,
+          subscriptionId: order.subscriptionId,
+          reasons,
+        });
+      }
+    }
+
+    return { checkedOrders: annualUpgrades.length, violations };
+  }
+
   async issueDailyMembershipGiftCredits(now = new Date()) {
     const dailyGiftEnabled = false;
     if (!dailyGiftEnabled) {
@@ -1770,18 +1925,26 @@ export class MembershipService {
       0,
       this.toInt(orderMetadata?.immediateCreditDelta, 0),
     );
-    // 升级（cycleSwitch）：周期自支付时刻重开为完整目标周期，periodType 同步切换。
-    const cycleSwitch = orderMetadata?.membershipCycleSwitch === true;
-    let periodStartAt = activeSubscription.currentPeriodStartAt;
-    let periodEndAt = activeSubscription.currentPeriodEndAt;
-    if (cycleSwitch) {
-      const policy = await this.businessPolicyService.getMembershipCreditPolicy();
-      periodStartAt = params.paidAt;
-      periodEndAt = this.addDays(
-        params.paidAt,
-        this.resolveCycleDays(snapshot.billingCycle, policy.membershipRefreshCycleDays),
-      );
-    }
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const resolvedPeriod = resolvePaidUpgradePeriod({
+      orderCycleSwitch: orderMetadata?.membershipCycleSwitch,
+      currentPeriodType: activeSubscription.periodType,
+      targetBillingCycle: snapshot.billingCycle,
+      currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
+      currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+      paidAt: params.paidAt,
+      targetCycleDays: this.resolveCycleDays(
+        snapshot.billingCycle,
+        policy.membershipRefreshCycleDays,
+      ),
+    });
+    const {
+      cycleSwitch,
+      cycleSwitchSource,
+      periodType,
+      periodStartAt,
+      periodEndAt,
+    } = resolvedPeriod;
 
     await params.tx.membershipSubscriptionChange.updateMany({
       where: { userId: params.userId, status: 'scheduled' },
@@ -1799,13 +1962,9 @@ export class MembershipService {
         membershipPlanId: persistedPlan.id,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
         lastOrderId: order.id,
-        ...(cycleSwitch
-          ? {
-              periodType: snapshot.billingCycle,
-              currentPeriodStartAt: periodStartAt,
-              currentPeriodEndAt: periodEndAt,
-            }
-          : {}),
+        periodType,
+        currentPeriodStartAt: periodStartAt,
+        currentPeriodEndAt: periodEndAt,
       },
     });
 
@@ -1835,6 +1994,7 @@ export class MembershipService {
       data: { expiresAt: periodEndAt },
     });
 
+    let createdLotId: string | null = null;
     if (immediateCreditDelta > 0) {
       const lot = await params.tx.creditLot.create({
         data: buildMembershipCreditLotData({
@@ -1854,6 +2014,7 @@ export class MembershipService {
           },
         }),
       });
+      createdLotId = lot.id;
 
       const balanceAfter = account.balance + immediateCreditDelta;
       await params.tx.creditAccount.update({
@@ -1931,9 +2092,25 @@ export class MembershipService {
         metadata: {
           immediateCreditDelta,
           cycleSwitch,
+          cycleSwitchSource,
           carriedOverLots: carriedOverLots.count,
         },
       },
+    });
+
+    await this.assertPaidUpgradeActivationInvariant(params.tx, {
+      userId: params.userId,
+      orderId: order.id,
+      subscriptionId: activeSubscription.id,
+      membershipPlanId: persistedPlan.id,
+      planCode: snapshot.code,
+      periodType,
+      periodStartAt,
+      periodEndAt,
+      accountId: account.id,
+      paidAt: params.paidAt,
+      createdLotId,
+      expectedCreatedLotAmount: immediateCreditDelta,
     });
 
     return {
@@ -2308,6 +2485,90 @@ export class MembershipService {
 
   private normalizeBillingCycle(value: string): MembershipBillingCycle {
     return value === 'yearly' ? 'yearly' : 'monthly';
+  }
+
+  private sameDate(left: Date | null, right: Date | null): boolean {
+    return left instanceof Date && right instanceof Date && left.getTime() === right.getTime();
+  }
+
+  private async assertPaidUpgradeActivationInvariant(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      orderId: string;
+      subscriptionId: string;
+      membershipPlanId: string;
+      planCode: string;
+      periodType: MembershipBillingCycle;
+      periodStartAt: Date;
+      periodEndAt: Date;
+      accountId: string;
+      paidAt: Date;
+      createdLotId: string | null;
+      expectedCreatedLotAmount: number;
+    },
+  ): Promise<void> {
+    const [subscription, entitlement, createdLot, staleCarriedLots] = await Promise.all([
+      tx.userMembershipSubscription.findUnique({
+        where: { id: params.subscriptionId },
+      }),
+      tx.membershipEntitlementSnapshot.findUnique({
+        where: { userId: params.userId },
+      }),
+      params.createdLotId
+        ? tx.creditLot.findUnique({ where: { id: params.createdLotId } })
+        : Promise.resolve(null),
+      tx.creditLot.count({
+        where: {
+          accountId: params.accountId,
+          validityType: 'membership_bound',
+          status: 'active',
+          remainingAmount: { gt: 0 },
+          expiresAt: { gt: params.paidAt, lt: params.periodEndAt },
+        },
+      }),
+    ]);
+    const failures: string[] = [];
+
+    if (
+      !subscription ||
+      subscription.status !== 'active' ||
+      subscription.membershipPlanId !== params.membershipPlanId ||
+      subscription.lastOrderId !== params.orderId ||
+      subscription.periodType !== params.periodType ||
+      !this.sameDate(subscription.currentPeriodStartAt, params.periodStartAt) ||
+      !this.sameDate(subscription.currentPeriodEndAt, params.periodEndAt)
+    ) {
+      failures.push('subscription');
+    }
+    if (
+      !entitlement ||
+      entitlement.currentPlanCode !== params.planCode ||
+      entitlement.membershipStatus !== 'active' ||
+      !this.sameDate(entitlement.currentPeriodStartAt, params.periodStartAt) ||
+      !this.sameDate(entitlement.currentPeriodEndAt, params.periodEndAt)
+    ) {
+      failures.push('entitlement');
+    }
+    if (
+      params.createdLotId &&
+      (!createdLot ||
+        createdLot.orderId !== params.orderId ||
+        createdLot.subscriptionId !== params.subscriptionId ||
+        createdLot.status !== 'active' ||
+        createdLot.totalAmount !== params.expectedCreatedLotAmount ||
+        createdLot.remainingAmount !== params.expectedCreatedLotAmount ||
+        !this.sameDate(createdLot.expiresAt, params.periodEndAt))
+    ) {
+      failures.push('created_credit_lot');
+    }
+    if (staleCarriedLots > 0) failures.push('carried_credit_lots');
+
+    if (failures.length > 0) {
+      throw new InternalServerErrorException(
+        `会员升级入账一致性校验失败: ${failures.join(',')}`,
+      );
+    }
   }
 
   private comparePlanRank(
