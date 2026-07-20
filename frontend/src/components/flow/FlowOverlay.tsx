@@ -16006,11 +16006,13 @@ function FlowInner() {
   // 因此增量水合出来的 running 节点也会被各自恢复一次。
   // 非图像任务（视频等）的 /image-task 会 404 → 跳过、保持原状，避免被误判为失败。
   const recoveredTaskIdsRef = React.useRef<Set<string>>(new Set());
+  const recoveredVideoTaskIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
     const pending = nodes.filter((n) => {
       const d = n.data as any;
       return (
         d?.status === "running" &&
+        !d?.videoTaskProvider &&
         typeof d?.taskId === "string" &&
         d.taskId.trim().length > 0 &&
         !recoveredTaskIdsRef.current.has(d.taskId.trim())
@@ -16089,6 +16091,160 @@ function FlowInner() {
     }
   }, [nodes, setNodes]);
 
+  // 视频任务身份会随节点持久化。页面刷新后只查询原任务，不重新提交生成请求。
+  React.useEffect(() => {
+    const pending = nodes.filter((node) => {
+      const data = (node.data as any) || {};
+      return (
+        data.status === "running" &&
+        typeof data.taskId === "string" &&
+        data.taskId.trim().length > 0 &&
+        typeof data.videoTaskProvider === "string" &&
+        data.videoTaskProvider.trim().length > 0 &&
+        !recoveredVideoTaskIdsRef.current.has(data.taskId.trim())
+      );
+    });
+
+    for (const node of pending) {
+      const data = (node.data as any) || {};
+      const taskId = data.taskId.trim();
+      const provider = data.videoTaskProvider.trim() as VideoProvider;
+      const apiUsageId =
+        typeof data.apiUsageId === "string" && data.apiUsageId.trim()
+          ? data.apiUsageId.trim()
+          : undefined;
+      const startedAt =
+        typeof data.videoTaskStartedAt === "number" && data.videoTaskStartedAt > 0
+          ? data.videoTaskStartedAt
+          : Date.now();
+      recoveredVideoTaskIdsRef.current.add(taskId);
+
+      void (async () => {
+        let consecutiveErrors = 0;
+        for (let attempt = 0; attempt < 360; attempt += 1) {
+          const latestNode = rf.getNode(node.id);
+          const latestData = (latestNode?.data as any) || {};
+          if (latestData.status !== "running" || latestData.taskId !== taskId) return;
+
+          try {
+            const result = await queryVideoTask(provider, taskId);
+            consecutiveErrors = 0;
+            const status = String(result.status || "").toLowerCase();
+            if (status === "succeeded" || status === "success") {
+              if (apiUsageId) {
+                void markVideoTaskSuccess(
+                  apiUsageId,
+                  Math.max(0, Date.now() - startedAt),
+                  {
+                    inputTokens: result.inputTokens,
+                    outputTokens: result.outputTokens,
+                  },
+                ).catch((error) => {
+                  console.warn("[Flow] Failed to settle recovered video task", error);
+                });
+              }
+              const historyEntry = {
+                id: `video-history-${Date.now()}`,
+                videoUrl: result.videoUrl,
+                thumbnail: result.thumbnailUrl,
+                prompt:
+                  typeof latestData.pendingVideoPrompt === "string"
+                    ? latestData.pendingVideoPrompt
+                    : "",
+                createdAt: new Date().toISOString(),
+                elapsedSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+              };
+              recordFlowVideoHistory(node.id, node.type || "video", historyEntry, {
+                provider,
+                taskId,
+                apiUsageId,
+              });
+              setNodes((current) =>
+                current.map((item) => {
+                  if (item.id !== node.id || (item.data as any)?.taskId !== taskId) return item;
+                  const previousData = (item.data as any) || {};
+                  return {
+                    ...item,
+                    data: {
+                      ...previousData,
+                      status: "succeeded",
+                      videoUrl: result.videoUrl,
+                      thumbnail: result.thumbnailUrl,
+                      error: undefined,
+                      videoVersion: Number(previousData.videoVersion || 0) + 1,
+                      history: appendVideoHistory(previousData.history, historyEntry),
+                      taskId: undefined,
+                      apiUsageId: undefined,
+                      videoTaskProvider: undefined,
+                      videoTaskStartedAt: undefined,
+                      pendingVideoPrompt: undefined,
+                    },
+                  };
+                }),
+              );
+              return;
+            }
+
+            if (status === "failed" || status === "error") {
+              if (apiUsageId) {
+                void refundVideoTask(apiUsageId).catch((error) => {
+                  console.warn("[Flow] Failed to refund recovered video task", error);
+                });
+              }
+              setNodes((current) =>
+                current.map((item) =>
+                  item.id === node.id && (item.data as any)?.taskId === taskId
+                    ? {
+                        ...item,
+                        data: {
+                          ...item.data,
+                          status: "failed",
+                          error: result.error || "视频生成任务失败",
+                          taskId: undefined,
+                          apiUsageId: undefined,
+                          videoTaskProvider: undefined,
+                          videoTaskStartedAt: undefined,
+                          pendingVideoPrompt: undefined,
+                        },
+                      }
+                    : item,
+                ),
+              );
+              return;
+            }
+          } catch (error) {
+            consecutiveErrors += 1;
+            console.warn("[Flow] Recovered video task query failed", {
+              nodeId: node.id,
+              taskId,
+              consecutiveErrors,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (consecutiveErrors >= 6) {
+              // 保留任务身份和 running 状态；刷新后可继续恢复，不能因查询失败退款。
+              setNodes((current) =>
+                current.map((item) =>
+                  item.id === node.id && (item.data as any)?.taskId === taskId
+                    ? {
+                        ...item,
+                        data: {
+                          ...item.data,
+                          error: "任务仍在生成，状态查询暂时中断，刷新后将继续恢复",
+                        },
+                      }
+                    : item,
+                ),
+              );
+              return;
+            }
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        }
+      })();
+    }
+  }, [appendVideoHistory, nodes, recordFlowVideoHistory, rf, setNodes]);
+
   // 图像任务阶段同步：轮询池广播 queued/processing 时写到 node.data.taskPhase，
   // 节点据此显示「排队中（可取消，未扣积分）/生成中」；终态清除。
   React.useEffect(() => {
@@ -16132,6 +16288,11 @@ function FlowInner() {
         console.log("[runNode] 节点正在运行，忽略重复触发");
         return;
       }
+      const clientProjectId = useProjectContentStore.getState().projectId || undefined;
+      const clientRunId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       console.log('[runNode] 节点类型:', node.type);
 
       const currentEdges = rf.getEdges();
@@ -17543,8 +17704,11 @@ function FlowInner() {
           if (useNewApiVideoEdit) {
             // 视频编辑模式：new-api wan2.7-videoedit，支持画幅比例。
             const providerResult = await generateVideoByProvider({
-              // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
-              idempotencyKey: `vnode-${nodeId}-${Date.now()}`,
+              idempotencyKey: `vnode-${nodeId}-${clientRunId}`,
+              clientProjectId,
+              clientNodeId: nodeId,
+              clientRunId,
+              runSource: "flow-node",
               provider: "wan2.7",
               // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
               // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
@@ -17563,6 +17727,26 @@ function FlowInner() {
                 ? providerResult.apiUsageId.trim()
                 : undefined;
             videoUrl = providerResult.videoUrl;
+            recoveredVideoTaskIdsRef.current.add(providerResult.taskId);
+            setNodes((current) =>
+              current.map((item) =>
+                item.id === nodeId
+                  ? {
+                      ...item,
+                      data: {
+                        ...item.data,
+                        status: "running",
+                        taskId: providerResult.taskId,
+                        apiUsageId: wanApiUsageId,
+                        videoTaskProvider: providerResult.provider || "wan2.7",
+                        videoTaskStartedAt: generationStartedAt,
+                        pendingVideoPrompt: promptTextForRequest || promptText,
+                        error: undefined,
+                      },
+                    }
+                  : item,
+              ),
+            );
             pollWanTask = async (id) => {
               const q = await queryVideoTask("wan2.7", id);
               return {
@@ -17698,6 +17882,11 @@ function FlowInner() {
                         videoUrl,
                         thumbnail: undefined,
                         error: undefined,
+                        taskId: undefined,
+                        apiUsageId: undefined,
+                        videoTaskProvider: undefined,
+                        videoTaskStartedAt: undefined,
+                        pendingVideoPrompt: undefined,
                         videoVersion: Number(previousData.videoVersion || 0) + 1,
                         history: appendVideoHistory(
                           previousData.history as Array<Record<string, any>> | undefined,
@@ -17716,7 +17905,16 @@ function FlowInner() {
               n.id === nodeId
                 ? {
                     ...n,
-                    data: { ...n.data, status: "failed", error: msg },
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: msg,
+                      taskId: undefined,
+                      apiUsageId: undefined,
+                      videoTaskProvider: undefined,
+                      videoTaskStartedAt: undefined,
+                      pendingVideoPrompt: undefined,
+                    },
                   }
                 : n
             )
@@ -21221,9 +21419,33 @@ function FlowInner() {
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
             ...requestPayload,
-            // 节点级幂等键：同节点短窗内的重复创建在服务端被吸收，避免重复预扣。
-            idempotencyKey: `vnode-${nodeId}-${Date.now()}`,
+            idempotencyKey: `vnode-${nodeId}-${clientRunId}`,
+            clientProjectId,
+            clientNodeId: nodeId,
+            clientRunId,
+            runSource: "flow-node",
           });
+          const videoTaskProvider = (createResult.provider || provider) as VideoProvider;
+          recoveredVideoTaskIdsRef.current.add(createResult.taskId);
+          setNodes((current) =>
+            current.map((item) =>
+              item.id === nodeId
+                ? {
+                    ...item,
+                    data: {
+                      ...item.data,
+                      status: "running",
+                      taskId: createResult.taskId,
+                      apiUsageId: createResult.apiUsageId,
+                      videoTaskProvider,
+                      videoTaskStartedAt: generationStartMs,
+                      pendingVideoPrompt: promptText,
+                      error: undefined,
+                    },
+                  }
+                : item,
+            ),
+          );
 
           console.log("✅ [Flow] Video task created", {
             nodeId,
@@ -21263,29 +21485,6 @@ function FlowInner() {
             try {
               if (attempts > maxAttempts) {
                 stopPolling();
-                // 超时也尝试退还积分
-                if (createResult.apiUsageId) {
-                  try {
-                    await refundVideoTask(createResult.apiUsageId);
-                    console.log("✅ [Flow] Video task credits refunded (timeout)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                    });
-                  } catch (refundError) {
-                    console.warn("❌ [Flow] Failed to refund credits (timeout)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                      error: refundError instanceof Error ? refundError.message : String(refundError),
-                    });
-                  }
-                }
-                const failureMessage = formatVideoProviderError("任务查询超时", {
-                  language,
-                  fallbackZh: "视频生成任务查询超时，请稍后重试。",
-                  fallbackEn: "Video generation query timed out. Please try again later.",
-                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -21293,8 +21492,8 @@ function FlowInner() {
                           ...n,
                           data: {
                             ...n.data,
-                            status: "failed",
-                            error: failureMessage,
+                            status: "running",
+                            error: "任务仍在生成，刷新页面后将继续查询",
                           },
                         }
                       : n
@@ -21304,7 +21503,7 @@ function FlowInner() {
               }
 
               const queryResult = await queryVideoTask(
-                provider as VideoProvider,
+                (createResult.provider || provider) as VideoProvider,
                 createResult.taskId
               );
               consecutiveQueryErrors = 0;
@@ -21364,6 +21563,11 @@ function FlowInner() {
                         videoUrl: queryResult.videoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
+                        taskId: undefined,
+                        apiUsageId: undefined,
+                        videoTaskProvider: undefined,
+                        videoTaskStartedAt: undefined,
+                        pendingVideoPrompt: undefined,
                         videoVersion:
                           Number(previousData.videoVersion || 0) + 1,
                         history: appendVideoHistory(
@@ -21412,6 +21616,11 @@ function FlowInner() {
                             ...n.data,
                             status: "failed",
                             error: failureMessage,
+                            taskId: undefined,
+                            apiUsageId: undefined,
+                            videoTaskProvider: undefined,
+                            videoTaskStartedAt: undefined,
+                            pendingVideoPrompt: undefined,
                           },
                       }
                     : n
@@ -21431,29 +21640,6 @@ function FlowInner() {
               });
               if (consecutiveQueryErrors >= maxConsecutiveQueryErrors) {
                 stopPolling();
-                // 连续查询失败时也尝试退还积分
-                if (createResult.apiUsageId) {
-                  try {
-                    await refundVideoTask(createResult.apiUsageId);
-                    console.log("✅ [Flow] Video task credits refunded (query failed)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                    });
-                  } catch (refundError) {
-                    console.warn("❌ [Flow] Failed to refund credits (query failed)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                      error: refundError instanceof Error ? refundError.message : String(refundError),
-                    });
-                  }
-                }
-                const failureMessage = formatVideoProviderError("任务状态查询失败，请重试", {
-                  language,
-                  fallbackZh: "任务状态查询失败，请重试。",
-                  fallbackEn: "Task status query failed. Please retry.",
-                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -21461,8 +21647,8 @@ function FlowInner() {
                           ...n,
                           data: {
                             ...n.data,
-                            status: "failed",
-                            error: failureMessage,
+                            status: "running",
+                            error: "任务仍在生成，状态查询暂时中断，刷新后将继续恢复",
                           },
                         }
                       : n

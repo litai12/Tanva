@@ -44,7 +44,10 @@ import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { UsersService } from '../users/users.service';
-import { CreditsService } from '../credits/credits.service';
+import {
+  CreditsService,
+  LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
+} from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
@@ -1196,6 +1199,19 @@ export class AiController {
       aiProvider: dto.provider,
       ...this.buildRequestPromptAndImageParams(dto.prompt, dto.referenceImages),
     };
+
+    for (const key of [
+      'clientProjectId',
+      'clientNodeId',
+      'clientRunId',
+      'runSource',
+      'clientTabId',
+    ] as const) {
+      const value = dto[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        params[key] = value.trim();
+      }
+    }
 
     if (dto.channelTier === 'default' || dto.channelTier === 'vip') {
       params.channelTier = dto.channelTier;
@@ -5517,6 +5533,14 @@ export class AiController {
         ? { idempotencyKey: (effectiveDto as any).idempotencyKey }
         : {}),
     });
+    if (!requestParams.clientNodeId && idempotencyKey) {
+      const legacyFlowKey = /^vnode-(.+)-(\d{13})$/.exec(idempotencyKey);
+      if (legacyFlowKey?.[1]) {
+        requestParams.clientProjectId = LEGACY_FLOW_VIDEO_PROJECT_SCOPE;
+        requestParams.clientNodeId = legacyFlowKey[1].slice(0, 200);
+        requestParams.runSource = 'flow-node-legacy';
+      }
+    }
     const billingModel =
       effectiveDto.klingModel ||
       effectiveDto.viduModelVariant ||
@@ -5540,6 +5564,29 @@ export class AiController {
     });
 
     const apiUsageId = chargeHandle.apiUsageId;
+    if (chargeHandle.duplicate) {
+      const existingTask = await this.creditsService.getVideoTaskUsageForUser(
+        userId,
+        apiUsageId,
+      );
+      const taskId = existingTask?.taskId || `usage:${apiUsageId}`;
+      this.logger.warn(
+        `Video provider request deduplicated: reason=${chargeHandle.duplicateReason}, user=${userId}, apiUsageId=${apiUsageId}, taskId=${taskId}`,
+      );
+      return {
+        taskId,
+        status:
+          existingTask?.responseStatus === ApiResponseStatus.SUCCESS
+            ? 'succeeded'
+            : existingTask?.responseStatus === ApiResponseStatus.FAILED
+              ? 'failed'
+              : 'processing',
+        apiUsageId,
+        provider: existingTask?.provider || effectiveDto.provider,
+        deduplicated: true,
+      };
+    }
+
     this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
 
     this.emitVideoProviderGenerationTaskLog({
@@ -5839,7 +5886,30 @@ export class AiController {
   async queryVideoTask(
     @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
     @Param('taskId') taskId: string,
+    @Req() req: any,
   ) {
+    if (taskId.startsWith('usage:')) {
+      const userId = this.getUserId(req);
+      if (!userId) {
+        throw new BadRequestException('需要用户认证');
+      }
+      const apiUsageId = taskId.slice('usage:'.length).trim();
+      const usage = await this.creditsService.getVideoTaskUsageForUser(userId, apiUsageId);
+      if (!usage) {
+        throw new BadRequestException('视频任务不存在或无权访问');
+      }
+      if (usage.responseStatus === ApiResponseStatus.FAILED) {
+        return { status: 'failed', error: usage.errorMessage || '视频生成任务失败' };
+      }
+      if (!usage.taskId) {
+        return {
+          status:
+            usage.responseStatus === ApiResponseStatus.SUCCESS ? 'succeeded' : 'queued',
+        };
+      }
+      provider = (usage.provider || provider) as typeof provider;
+      taskId = usage.taskId;
+    }
     return this.normalizeVideoTaskResponse(
       await this.videoProviderService.queryTask(provider, taskId),
     );

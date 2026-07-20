@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-20：根治 Flow 同一视频节点并发重复建任务：前端显式下发项目/节点/运行/标签页身份，后端借助积分账户行锁实施 30 分钟 PENDING 单任务闸门；命中重复后复用原 taskId，任务创建中的短暂空窗返回可轮询的 apiUsage 别名而非前端报错，并跳过个人扣费、团队预留和上游调用。视频节点立即持久化任务身份，刷新自动恢复原任务；查询中断/超时不再误退款或丢弃仍在生成的任务。
 - 2026-07-20：修复 Prompt 节点缩放后连接端点丢失；`TextPromptNode` 改用 React Flow 12 的 `onResize` 几何更新路径，保留 RAF 预览与协作节流，缩放期间持续同步 handle bounds，并移除会裁剪边缘句柄的 `paint` containment。
 - 2026-07-19：小T大脑从 Claude 4.8/4.7/4.6 迁移到 GPT 5.6 Sol/Terra/Luna，默认 Sol；前后端白名单与选择器同步更新，preferences v2 自动清理历史 Claude 偏好，new-api 小T渠道以专属门面名和 `model_mapping` 送达 TapCanvas facade，避免裸 GPT 名绕过小T智能体链路。
 - 2026-07-19：修复导演台无全景、清空全景或全景切换瞬间 `Skybox` 把两个空 URL 误判为同一纹理，继而读取空 `state.texture/state.mode` 导致 WebGL 视口崩溃；`verify:director-panorama` 新增无全景首屏门禁，并继续覆盖图片连入、AI 生成、持久化刷新和小半径天空球渲染。

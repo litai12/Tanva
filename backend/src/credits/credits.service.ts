@@ -65,6 +65,8 @@ const FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT = '2026-04-15T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS = 15_000;
 const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
+const ACTIVE_NODE_VIDEO_GATE_WINDOW_MS = 30 * 60 * 1000;
+export const LEGACY_FLOW_VIDEO_PROJECT_SCOPE = '__legacy_flow_project__';
 const PRE_DEDUCT_TRANSACTION_TIMEOUT_MS = 30_000;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
@@ -172,6 +174,8 @@ export interface DeductCreditsResult {
   transactionId: string;
   apiUsageId: string;
   creditsToDeduct: number;
+  duplicate: boolean;
+  duplicateReason?: 'idempotency' | 'fingerprint' | 'active-node';
 }
 
 export interface AddCreditsResult {
@@ -3866,7 +3870,10 @@ export class CreditsService {
       if (
         key === 'idempotencyKey' ||
         key === 'requestFingerprint' ||
-        key === 'idempotencyWindowMs'
+        key === 'idempotencyWindowMs' ||
+        key === 'clientRunId' ||
+        key === 'clientTabId' ||
+        key === 'runSource'
       ) {
         continue;
       }
@@ -3945,12 +3952,17 @@ export class CreditsService {
       requestFingerprint: string | null;
       windowStartAt: Date;
     },
-  ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
+  ): Promise<{
+    apiUsageId: string;
+    transactionId: string | null;
+    reason: 'idempotency' | 'fingerprint';
+  } | null> {
     const statusFilter = {
       in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS],
     };
 
     let duplicate = null as { id: string } | null;
+    let reason: 'idempotency' | 'fingerprint' = 'idempotency';
     if (params.idempotencyKey) {
       duplicate = await tx.apiUsageRecord.findFirst({
         where: {
@@ -3970,6 +3982,7 @@ export class CreditsService {
     }
 
     if (!duplicate && !params.idempotencyKey && params.requestFingerprint) {
+      reason = 'fingerprint';
       duplicate = await tx.apiUsageRecord.findFirst({
         where: {
           userId: params.userId,
@@ -3998,6 +4011,88 @@ export class CreditsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    return {
+      apiUsageId: duplicate.id,
+      transactionId: spendTransaction?.id ?? null,
+      reason,
+    };
+  }
+
+  private normalizeActiveNodeVideoScope(
+    requestParams: unknown,
+  ): { clientProjectId: string; clientNodeId: string } | null {
+    if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
+      return null;
+    }
+    const params = requestParams as Record<string, unknown>;
+    const clientProjectId =
+      typeof params.clientProjectId === 'string' ? params.clientProjectId.trim() : '';
+    const clientNodeId =
+      typeof params.clientNodeId === 'string' ? params.clientNodeId.trim() : '';
+    if (!clientProjectId || !clientNodeId) return null;
+    return {
+      clientProjectId: clientProjectId.slice(0, 128),
+      clientNodeId: clientNodeId.slice(0, 200),
+    };
+  }
+
+  private async findActiveNodeVideoUsage(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      clientProjectId: string;
+      clientNodeId: string;
+      windowStartAt: Date;
+    },
+  ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
+    const duplicate = await tx.apiUsageRecord.findFirst({
+      where: {
+        userId: params.userId,
+        serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
+        responseStatus: ApiResponseStatus.PENDING,
+        createdAt: { gte: params.windowStartAt },
+        AND: [
+          {
+            requestParams: {
+              path: ['clientNodeId'],
+              equals: params.clientNodeId,
+            },
+          },
+          ...(params.clientProjectId === LEGACY_FLOW_VIDEO_PROJECT_SCOPE
+            ? []
+            : [
+                {
+                  OR: [
+                    {
+                      requestParams: {
+                        path: ['clientProjectId'],
+                        equals: params.clientProjectId,
+                      },
+                    },
+                    {
+                      requestParams: {
+                        path: ['clientProjectId'],
+                        equals: LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
+                      },
+                    },
+                  ],
+                },
+              ]),
+        ],
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!duplicate) return null;
+
+    const spendTransaction = await tx.creditTransaction.findFirst({
+      where: {
+        apiUsageId: duplicate.id,
+        type: TransactionType.SPEND,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
     return {
       apiUsageId: duplicate.id,
       transactionId: spendTransaction?.id ?? null,
@@ -4062,6 +4157,31 @@ export class CreditsService {
         throw new NotFoundException('用户积分账户不存在');
       }
 
+      const activeNodeScope = FREE_USER_VIDEO_LIMITED_SERVICES.includes(serviceType)
+        ? this.normalizeActiveNodeVideoScope(apiUsageRequestParams)
+        : null;
+      if (activeNodeScope) {
+        const activeUsage = await this.findActiveNodeVideoUsage(tx, {
+          userId,
+          ...activeNodeScope,
+          windowStartAt: new Date(Date.now() - ACTIVE_NODE_VIDEO_GATE_WINDOW_MS),
+        });
+        if (activeUsage) {
+          this.logger.warn(
+            `[Credits] Active video node blocked user=${userId} project=${activeNodeScope.clientProjectId} node=${activeNodeScope.clientNodeId} apiUsageId=${activeUsage.apiUsageId}`,
+          );
+          return {
+            success: true,
+            newBalance: account.balance,
+            transactionId: activeUsage.transactionId || `duplicate:${activeUsage.apiUsageId}`,
+            apiUsageId: activeUsage.apiUsageId,
+            creditsToDeduct,
+            duplicate: true,
+            duplicateReason: 'active-node',
+          };
+        }
+      }
+
       if (normalizedIdempotencyKey || requestFingerprint) {
         const duplicateUsage = await this.findDuplicateApiUsageInWindow(tx, {
           userId,
@@ -4084,6 +4204,8 @@ export class CreditsService {
               duplicateUsage.transactionId || `duplicate:${duplicateUsage.apiUsageId}`,
             apiUsageId: duplicateUsage.apiUsageId,
             creditsToDeduct,
+            duplicate: true,
+            duplicateReason: duplicateUsage.reason,
           };
         }
       }
@@ -4138,6 +4260,7 @@ export class CreditsService {
           transactionId: `team:${apiUsage.id}`,
           apiUsageId: apiUsage.id,
           creditsToDeduct,
+          duplicate: false,
         };
       }
 
@@ -4285,6 +4408,7 @@ export class CreditsService {
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
         creditsToDeduct,
+        duplicate: false,
       };
     }, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
@@ -4679,6 +4803,46 @@ export class CreditsService {
         },
       },
     });
+  }
+
+  async getVideoTaskUsageForUser(
+    userId: string,
+    apiUsageId: string,
+  ): Promise<{
+    apiUsageId: string;
+    responseStatus: string;
+    taskId?: string;
+    provider?: string;
+    errorMessage?: string;
+  } | null> {
+    const usage = await this.prisma.apiUsageRecord.findFirst({
+      where: { id: apiUsageId, userId },
+      select: {
+        id: true,
+        provider: true,
+        responseStatus: true,
+        errorMessage: true,
+        requestParams: true,
+      },
+    });
+    if (!usage) return null;
+
+    const requestParams = this.asJsonObject(usage.requestParams) || {};
+    const taskId =
+      typeof requestParams.taskId === 'string' && requestParams.taskId.trim().length > 0
+        ? requestParams.taskId.trim()
+        : undefined;
+    const requestedProvider =
+      typeof requestParams.aiProvider === 'string' && requestParams.aiProvider.trim().length > 0
+        ? requestParams.aiProvider.trim()
+        : undefined;
+    return {
+      apiUsageId: usage.id,
+      responseStatus: usage.responseStatus,
+      taskId,
+      provider: requestedProvider || usage.provider || undefined,
+      errorMessage: usage.errorMessage || undefined,
+    };
   }
 
   async settleSeed2TokenCreditsForUser(
