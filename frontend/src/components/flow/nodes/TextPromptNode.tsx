@@ -301,8 +301,6 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
   const [resizePreview, setResizePreview] = React.useState<{
     width: number;
     height: number;
-    offsetX: number;
-    offsetY: number;
   } | null>(null);
   const edgesRef = React.useRef<Edge[]>(edges);
   const borderColor = selected ? '#2563eb' : isFlowDark ? '#333333' : '#e5e7eb';
@@ -629,8 +627,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     return { startIndex: atIdx, query: afterAt };
   }, []);
 
-  const resizeStartRef = React.useRef<{ width: number; height: number; x: number; y: number } | null>(null);
-  const resizePendingRef = React.useRef<{ width: number; height: number; offsetX: number; offsetY: number } | null>(null);
+  const resizePendingRef = React.useRef<{ width: number; height: number } | null>(null);
   const resizePreviewRafRef = React.useRef<number | null>(null);
   // collab: 拖拽缩放期间实时广播尺寸的节流时间戳
   const liveResizeSentRef = React.useRef(0);
@@ -1178,25 +1175,19 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
     inner.style.transform = `translate(${-textarea.scrollLeft}px, ${-textarea.scrollTop}px)`;
   }, [shouldRenderMentionOverlay, value]);
 
-  const commitResize = React.useCallback((width: number, height: number, x: number, y: number) => {
+  const commitResize = React.useCallback((width: number, height: number) => {
     const nextWidth = Math.max(MIN_NODE_WIDTH, Math.round(width));
     const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.round(height));
-    const nextX = Math.round(x);
-    const nextY = Math.round(y);
     const current = rf.getNode(id);
     if (!current) return;
     const curData = current.data || {};
     const sizeChanged = curData.boxW !== nextWidth || curData.boxH !== nextHeight;
-    const dx = nextX - Math.round(current.position.x);
-    const dy = nextY - Math.round(current.position.y);
-    const positionChanged = dx !== 0 || dy !== 0;
-    if (!sizeChanged && !positionChanged) return;
+    if (!sizeChanged) return;
 
     // collab: 走 flow:updateNodeData 提交尺寸(存于 data.boxW/boxH)，
-    // 该路径会同时更新本地状态并广播给协作者(与文本编辑同一通道，已验证可同步)。
-    // 直接 rf.setNodes 不会广播，这正是此前缩放不同步的原因。
+    // 该路径会同时更新本地状态并广播给协作者。位置由 React Flow
+    // v12 的 dimensions/position changes 维护，FlowOverlay 会广播位置变更。
     const patch: Record<string, unknown> = { boxW: nextWidth, boxH: nextHeight };
-    if (positionChanged) patch._positionOffset = { x: dx, y: dy };
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id, patch } }));
   }, [id, rf]);
 
@@ -1207,41 +1198,29 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         resizePreviewRafRef.current = null;
       }
       resizePendingRef.current = null;
-      resizeStartRef.current = null;
     };
   }, []);
 
-  const handleResizeStart = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
-    resizeStartRef.current = {
-      width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
-      height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
-      x: Math.round(params.x),
-      y: Math.round(params.y),
-    };
+  const handleResizeStart = React.useCallback(() => {
     resizePendingRef.current = null;
     setResizePreview(null);
     setIsResizing(true);
   }, []);
 
-  const shouldResize = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
-    const start = resizeStartRef.current;
-    if (!start) return false;
-
+  const handleResize = React.useCallback((_: unknown, params: { width: number; height: number }) => {
     resizePendingRef.current = {
       width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
       height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
-      offsetX: Math.round(params.x - start.x),
-      offsetY: Math.round(params.y - start.y),
     };
 
-    if (resizePreviewRafRef.current !== null) return false;
+    if (resizePreviewRafRef.current !== null) return;
     resizePreviewRafRef.current = window.requestAnimationFrame(() => {
       resizePreviewRafRef.current = null;
       const p = resizePendingRef.current;
       setResizePreview(p);
       // collab: 拖拽缩放过程中实时广播尺寸(节流~80ms),协作者实时看到缩放。
-      // 只广播 boxW/boxH(不带 _positionOffset:它是相对起点的累计量,逐帧重复
-      // 施加会让对端位置漂移);最终位置在 handleResizeEnd 的 commitResize 一次性提交。
+      // 尺寸继续走 data 通道；从左/上侧缩放产生的位置变更由 React Flow
+      // dimensions/position changes 及 FlowOverlay 的协作广播统一处理。
       if (p) {
         const now = Date.now();
         if (now - liveResizeSentRef.current >= 80) {
@@ -1252,50 +1231,34 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         }
       }
     });
-    return false;
   }, [id]);
 
-  const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number; x: number; y: number }) => {
+  const handleResizeEnd = React.useCallback((_: unknown, params: { width: number; height: number }) => {
     setIsResizing(false);
     if (resizePreviewRafRef.current !== null) {
       window.cancelAnimationFrame(resizePreviewRafRef.current);
       resizePreviewRafRef.current = null;
     }
 
-    const start = resizeStartRef.current;
     const pending = resizePendingRef.current;
-    resizeStartRef.current = null;
     resizePendingRef.current = null;
     setResizePreview(null);
 
-    const finalPreview = pending || {
+    const finalSize = pending || {
       width: Math.max(MIN_NODE_WIDTH, Math.round(params.width)),
       height: Math.max(MIN_NODE_HEIGHT, Math.round(params.height)),
-      offsetX: start ? Math.round(params.x - start.x) : 0,
-      offsetY: start ? Math.round(params.y - start.y) : 0,
     };
-
-    const baseX = start?.x ?? Math.round(params.x);
-    const baseY = start?.y ?? Math.round(params.y);
-    commitResize(
-      finalPreview.width,
-      finalPreview.height,
-      baseX + finalPreview.offsetX,
-      baseY + finalPreview.offsetY
-    );
+    commitResize(finalSize.width, finalSize.height);
   }, [commitResize]);
 
   useNodeInternalsSync(
     id,
     nodeRootRef,
-    [data.boxW, data.boxH, isEditingTitle, isPromptEditable],
-    { disabled: isResizing }
+    [data.boxW, data.boxH, isEditingTitle, isPromptEditable]
   );
 
   const renderedBoxW = isResizing && resizePreview ? resizePreview.width : (data.boxW || 240);
   const renderedBoxH = isResizing && resizePreview ? resizePreview.height : (data.boxH || 180);
-  const renderedOffsetX = isResizing && resizePreview ? resizePreview.offsetX : 0;
-  const renderedOffsetY = isResizing && resizePreview ? resizePreview.offsetY : 0;
   const activeMentionLoading =
     activeMentionTab === 'project-library'
       ? projectLibraryLoading
@@ -1316,9 +1279,8 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
       boxShadow,
       color: promptTextColor,
       transition: isResizing ? 'none' : 'border-color 0.15s ease, box-shadow 0.15s ease',
-      transform: isResizing ? `translate(${renderedOffsetX}px, ${renderedOffsetY}px)` : undefined,
-      willChange: isResizing ? 'transform, width, height' : undefined,
-      contain: isResizing ? 'layout paint' : undefined,
+      willChange: isResizing ? 'width, height' : undefined,
+      contain: isResizing ? 'layout' : undefined,
       display: 'flex',
       flexDirection: 'column',
       position: 'relative',
@@ -1332,7 +1294,7 @@ function TextPromptNodeInner({ id, data, selected }: Props) {
         lineStyle={{ display: 'none' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
         onResizeStart={handleResizeStart}
-        shouldResize={shouldResize}
+        onResize={handleResize}
         onResizeEnd={handleResizeEnd}
       />
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

@@ -1,3 +1,7 @@
+## 2026-07-20 Prompt Resize Endpoint Stability
+- `TextPromptNode` must let React Flow 12 process resize frames through `onResize`; returning `false` from `shouldResize` suppresses both the geometry change and `onResizeEnd`, leaving local resize state stuck.
+- Prompt content previews remain RAF-batched, but `useNodeInternalsSync` stays active during resize so handle bounds and connected edge endpoints follow the node dimensions. Do not apply `paint` containment to the Prompt resize root because connection handles intentionally overflow the node boundary.
+
 ## 2026-07-18 React Flow 12 Engine Upgrade
 - Flow canvas engine migrated from the frozen `reactflow@11.11.4` package to the current `@xyflow/react@12.11.2` package; `@reactflow/node-resizer` was removed because `NodeResizer` and `NodeResizeControl` are exported by the main v12 package.
 - All Flow imports and the base stylesheet now use `@xyflow/react`. Store selectors use the public `state.nodes` collection instead of the removed `state.getNodes()`, while Director Console internal lookups use v12 `nodeLookup` instead of `nodeInternals`.
