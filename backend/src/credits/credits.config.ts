@@ -106,22 +106,22 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Nano banana-2.5 融合',
   },
   'gemini-image-analyze': {
-    serviceName: 'Gemini 图像分析',
-    provider: 'gemini',
+    serviceName: 'GPT-5.6 图像分析',
+    provider: 'tc-api',
     creditsPerCall: 10,
-    description: '使用 Nano banana Pro 模型分析图像内容',
+    description: '使用 GPT-5.6 分析图像内容',
   },
   'gemini-3.1-image-analyze': {
-    serviceName: 'Nano banana 2 图像分析',
-    provider: 'gemini',
+    serviceName: 'GPT-5.6 图像分析',
+    provider: 'tc-api',
     creditsPerCall: 10,
-    description: '使用 Nano banana 2 模型分析图像内容',
+    description: '使用 GPT-5.6 分析图像内容',
   },
   'gemini-2.5-image-analyze': {
-    serviceName: 'Nano banana 图像分析',
-    provider: 'gemini',
+    serviceName: 'GPT-5.6 图像分析',
+    provider: 'tc-api',
     creditsPerCall: 10,
-    description: '使用 Nano banana 模型分析图像内容',
+    description: '使用 GPT-5.6 分析图像内容',
   },
 
   // ── 极速通道（beqlee 官方代理，官方价 ×1.1）────────────────────────────────
@@ -178,38 +178,38 @@ export const CREDIT_PRICING_CONFIG = {
 
   // Gemini 文字服务
   'gemini-text': {
-    serviceName: 'Gemini 文字对话',
-    provider: 'gemini',
+    serviceName: 'GPT-5.4 文字对话',
+    provider: 'tc-api',
     creditsPerCall: 5,
-    description: '使用 Gemini 进行文字对话',
+    description: '通过 tc-api 使用 GPT-5.4 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-prompt-optimize': {
-    serviceName: 'Gemini 提示词优化',
-    provider: 'gemini',
+    serviceName: 'GPT-5.4 提示词优化',
+    provider: 'tc-api',
     creditsPerCall: 5,
-    description: '使用 Gemini 进行提示词优化',
+    description: '通过 tc-api 使用 GPT-5.4 优化提示词',
     maxInputTokens: 8000,
     maxContextLength: 32000,
   },
   'gemini-tool-selection': {
-    serviceName: 'Gemini 工具选择',
-    provider: 'gemini',
+    serviceName: 'GPT-5.4 工具选择',
+    provider: 'tc-api',
     creditsPerCall: 0,
-    description: '使用 Gemini 进行智能工具选择',
+    description: '通过 tc-api 使用 GPT-5.4 进行智能工具选择',
   },
   'gemini-paperjs': {
-    serviceName: 'Gemini Paper.js 生成',
-    provider: 'gemini',
+    serviceName: 'GPT-5.6 Paper.js 生成',
+    provider: 'tc-api',
     creditsPerCall: 10,
-    description: '使用 Gemini 生成 Paper.js 矢量代码',
+    description: '通过 tc-api 使用 GPT-5.6 生成 Paper.js 矢量代码',
   },
   'gemini-img2vector': {
-    serviceName: 'Gemini 图像转矢量',
-    provider: 'gemini',
+    serviceName: 'GPT-5.6 图像转矢量',
+    provider: 'tc-api',
     creditsPerCall: 16,
-    description: '使用 Gemini 将图像转换为 Paper.js 矢量代码',
+    description: '通过 tc-api 使用 GPT-5.6 将图像转换为 Paper.js 矢量代码',
   },
   'gemini-video-analyze': {
     serviceName: '视频分析',
@@ -428,4 +428,3 @@ export const DAILY_LOGIN_REWARD_CREDITS = 50;
 
 // 连续签到7天额外奖励积分
 export const CONSECUTIVE_7_DAY_BONUS_CREDITS = 150;
-

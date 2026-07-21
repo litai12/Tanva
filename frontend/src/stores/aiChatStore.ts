@@ -995,13 +995,9 @@ const withBananaRouteProviderOptions = (
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
-const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
-// banana(Pro)对话档文本模型改用 gemini-3.5-flash（仅对话能力）。界面展示不变。
-const BANANA_PRO_TEXT_MODEL = "gemini-3.5-flash";
+const STANDARD_TEXT_MODEL = "gpt-5.4";
+const ADVANCED_TEXT_MODEL = "gpt-5.6";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
-const BANANA_31_TEXT_MODEL = "gemini-3.1-pro-preview";
 const BANANA_31_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash-260425";
 const DEEPSEEK_V4_PRO_MODEL = "deepseek-v4-pro-260425";
@@ -1518,30 +1514,35 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
 };
 
 export const getAnalyzeModelForProvider = (
+  _provider: AIProviderType
+): string => {
+  return ADVANCED_TEXT_MODEL;
+};
+
+export const getTextModelForProvider = (_provider: AIProviderType): string => {
+  return STANDARD_TEXT_MODEL;
+};
+
+export const getAdvancedTextModelForProvider = (
+  _provider: AIProviderType
+): string => {
+  return ADVANCED_TEXT_MODEL;
+};
+
+export const getPdfAnalyzeModelForProvider = (
+  _provider: AIProviderType
+): string => {
+  return STANDARD_TEXT_MODEL;
+};
+
+export const getVideoAnalyzeModelForProvider = (
   provider: AIProviderType
 ): string => {
-  if (provider === "banana-2.5") return BANANA_25_IMAGE_MODEL;
-  if (provider === "banana-3.1" || provider === "nano2") return BANANA_31_IMAGE_MODEL;
-  if (provider === "banana") return GEMINI_PRO_IMAGE_MODEL;
-  return getImageModelForProvider(provider);
-};
-
-const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
-  gemini: DEFAULT_TEXT_MODEL,
-  "gemini-pro": GEMINI_PRO_TEXT_MODEL,
-  banana: BANANA_PRO_TEXT_MODEL,
-  "banana-2.5": BANANA_25_TEXT_MODEL,
-  "banana-3.1": BANANA_31_TEXT_MODEL,
-  "deepseek-v4-flash": DEEPSEEK_V4_FLASH_MODEL,
-  "deepseek-v4-pro": DEEPSEEK_V4_PRO_MODEL,
-  runninghub: DEFAULT_TEXT_MODEL,
-  midjourney: DEFAULT_TEXT_MODEL,
-  nano2: BANANA_31_TEXT_MODEL,
-  seedream5: DEFAULT_TEXT_MODEL,
-};
-
-export const getTextModelForProvider = (provider: AIProviderType): string => {
-  return TEXT_MODEL_BY_PROVIDER[provider] || DEFAULT_TEXT_MODEL;
+  if (provider === "banana-2.5") return "gemini-2.5-flash";
+  if (provider === "banana-3.1" || provider === "nano2") {
+    return "gemini-3.1-pro-preview";
+  }
+  return "gemini-3-flash-preview";
 };
 
 type RunningHubStageUpdater = (stage: string, progress?: number) => void;
@@ -6852,7 +6853,7 @@ export const useAIChatStore = create<AIChatState>()(
             }, 1000);
 
             // 调用后端API分析 PDF（复用 analyzeImage 接口）
-            const modelToUse = getAnalyzeModelForProvider(state.aiProvider);
+            const modelToUse = getPdfAnalyzeModelForProvider(state.aiProvider);
 
             const result = await analyzeImageViaAPI({
               prompt: prompt || "请详细分析这个 PDF 文件的内容",
@@ -7575,7 +7576,7 @@ export const useAIChatStore = create<AIChatState>()(
               prompt,
               aiProvider: state.aiProvider,
               // 根据 provider 选择正确的模型
-              model: getTextModelForProvider(state.aiProvider),
+              model: getAdvancedTextModelForProvider(state.aiProvider),
               thinkingLevel: state.thinkingLevel ?? undefined,
               canvasWidth: 1920,
               canvasHeight: 1080,
@@ -7768,7 +7769,7 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImage,
               prompt,
               aiProvider: state.aiProvider,
-              model: getTextModelForProvider(state.aiProvider),
+              model: getAdvancedTextModelForProvider(state.aiProvider),
               thinkingLevel: state.thinkingLevel ?? undefined,
               canvasWidth: 1920,
               canvasHeight: 1080,
@@ -9228,7 +9229,9 @@ export const useAIChatStore = create<AIChatState>()(
               try {
                 const projectId =
                   useProjectContentStore.getState().projectId || undefined;
-                const agentTextModel = getTextModelForProvider(state.aiProvider);
+                const agentTextModel = getAdvancedTextModelForProvider(
+                  state.aiProvider
+                );
                 const agentProviderOptions = withBananaRouteProviderOptions(
                   state.aiProvider,
                   undefined,

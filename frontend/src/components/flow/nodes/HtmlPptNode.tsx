@@ -28,7 +28,7 @@ import type {
 import { aiImageService } from "@/services/aiImageService";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
-  getTextModelForProvider,
+  getAdvancedTextModelForProvider,
   useAIChatStore,
 } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -1144,7 +1144,7 @@ function HtmlPptNodeInner({ id, data, selected }: Props) {
     [data.modelProvider]
   );
   const textModel = React.useMemo(
-    () => getTextModelForProvider(effectiveProvider),
+    () => getAdvancedTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
   const { credits: backendCredits } = useBackendCreditsPreview({

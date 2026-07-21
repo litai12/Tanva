@@ -1,7 +1,7 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState } from '@xyflow/react';
 import { fetchWithAuth } from '@/services/authFetch';
-import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { useAIChatStore, getVideoAnalyzeModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
 import { useLocaleText } from '@/utils/localeText';
 import RunCreditBadge from './RunCreditBadge';
@@ -49,7 +49,10 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const analyzeBananaImageRoute: "normal" | "stable" =
     bananaImageRoute === "stable" ? "stable" : "normal";
-  const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
+  const textModel = React.useMemo(
+    () => getVideoAnalyzeModelForProvider(aiProvider),
+    [aiProvider],
+  );
 
   const { status, error } = data;
   const hasRunCredits = typeof data.creditsPerCall === 'number' && data.creditsPerCall > 0;
