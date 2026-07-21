@@ -20,6 +20,36 @@ const SUPPORTED_VIDEO_TYPES = [
 
 const SUPPORTED_EXTENSIONS = ".mp4,.mov,.avi,.mpeg,.mpg,.3gp,.flv";
 
+const normalizeVideoDuration = (value: unknown): number | undefined => {
+  const duration = Number(value);
+  return Number.isFinite(duration) && duration > 0
+    ? Number(duration.toFixed(3))
+    : undefined;
+};
+
+const readVideoFileDuration = (file: File): Promise<number | undefined> =>
+  new Promise((resolve) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    let settled = false;
+
+    const finish = (duration?: number) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+      resolve(normalizeVideoDuration(duration));
+    };
+
+    const timeoutId = window.setTimeout(() => finish(), 10_000);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => finish(video.duration);
+    video.onerror = () => finish();
+    video.src = objectUrl;
+  });
+
 type Props = {
   id: string;
   data: {
@@ -48,6 +78,7 @@ const VideoContent = React.memo(({
   onDoubleClick,
   status,
   error,
+  onDurationChange,
   lt,
 }: {
   videoUrl?: string;
@@ -56,6 +87,7 @@ const VideoContent = React.memo(({
   onDoubleClick: () => void;
   status?: string;
   error?: string;
+  onDurationChange: (duration: number) => void;
   lt: (zhText: string, enText: string) => string;
 }) => (
   <div
@@ -98,6 +130,10 @@ const VideoContent = React.memo(({
         }}
         controls
         preload="metadata"
+        onLoadedMetadata={(event) => {
+          const duration = normalizeVideoDuration(event.currentTarget.duration);
+          if (duration !== undefined) onDurationChange(duration);
+        }}
         onPointerDownCapture={stopMediaInteraction}
         onMouseDownCapture={stopMediaInteraction}
         onTouchStartCapture={stopMediaInteraction}
@@ -142,6 +178,16 @@ function VideoNodeInner({ id, data, selected }: Props) {
     }));
   }, [id]);
 
+  const handleDurationChange = React.useCallback((duration: number) => {
+    const normalizedDuration = normalizeVideoDuration(duration);
+    if (normalizedDuration === undefined) return;
+    const currentDuration = normalizeVideoDuration(data.duration);
+    if (currentDuration !== undefined && Math.abs(currentDuration - normalizedDuration) < 0.001) {
+      return;
+    }
+    updateNodeData({ duration: normalizedDuration });
+  }, [data.duration, updateNodeData]);
+
   // 上传视频到 OSS
   const uploadVideoToOSS = React.useCallback(async (file: File): Promise<string> => {
     const { ossUploadService } = await import("@/services/ossUploadService");
@@ -181,16 +227,21 @@ function VideoNodeInner({ id, data, selected }: Props) {
       status: 'uploading',
       videoName,
       mimeType: file.type,
+      duration: undefined,
       error: undefined,
     });
 
     try {
-      const videoUrl = await uploadVideoToOSS(file);
+      const [videoUrl, duration] = await Promise.all([
+        uploadVideoToOSS(file),
+        readVideoFileDuration(file),
+      ]);
 
       updateNodeData({
         videoUrl,
         videoName,
         mimeType: file.type,
+        duration,
         status: 'ready',
         error: undefined,
       });
@@ -311,6 +362,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
         onDoubleClick={handleDoubleClick}
         status={data.status}
         error={data.error}
+        onDurationChange={handleDurationChange}
         lt={lt}
       />
 

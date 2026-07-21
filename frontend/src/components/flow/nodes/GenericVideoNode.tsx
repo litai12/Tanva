@@ -32,11 +32,8 @@ import {
   type ViduModelValue,
 } from "@/services/videoProviderParams";
 import {
-  getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
-  resolveManagedRoutePricing,
-  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
@@ -135,7 +132,8 @@ type ConnectionStats = {
   hasImage2Input: boolean;
   hasVideoInput: boolean;
   videoInputCount: number;
-  inputVideoDurationSec: number;
+  inputVideoDurationHintSec: number;
+  videoInputDurationProbeKey: string;
   audioInputCount: number;
 };
 
@@ -145,7 +143,8 @@ const EMPTY_CONNECTION_STATS: ConnectionStats = {
   hasImage2Input: false,
   hasVideoInput: false,
   videoInputCount: 0,
-  inputVideoDurationSec: 0,
+  inputVideoDurationHintSec: 0,
+  videoInputDurationProbeKey: "[]",
   audioInputCount: 0,
 };
 
@@ -158,8 +157,50 @@ const areConnectionStatsEqual = (
   a.hasImage2Input === b.hasImage2Input &&
   a.hasVideoInput === b.hasVideoInput &&
   a.videoInputCount === b.videoInputCount &&
-  a.inputVideoDurationSec === b.inputVideoDurationSec &&
+  a.inputVideoDurationHintSec === b.inputVideoDurationHintSec &&
+  a.videoInputDurationProbeKey === b.videoInputDurationProbeKey &&
   a.audioInputCount === b.audioInputCount;
+
+type ConnectedVideoDurationInput = {
+  key: string;
+  url?: string;
+  hintDurationSec?: number;
+  version?: string | number;
+};
+
+const probeRemoteVideoDuration = (
+  rawUrl: string,
+  signal: AbortSignal
+): Promise<number | undefined> =>
+  new Promise((resolve) => {
+    const video = document.createElement("video");
+    let settled = false;
+
+    const finish = (value?: unknown) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      signal.removeEventListener("abort", handleAbort);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
+      const duration = Number(value);
+      resolve(
+        Number.isFinite(duration) && duration > 0
+          ? Number(duration.toFixed(3))
+          : undefined
+      );
+    };
+
+    const handleAbort = () => finish();
+    const timeoutId = window.setTimeout(() => finish(), 8_000);
+    signal.addEventListener("abort", handleAbort, { once: true });
+    video.preload = "metadata";
+    video.onloadedmetadata = () => finish(video.duration);
+    video.onerror = () => finish();
+    video.src = proxifyRemoteAssetUrl(rawUrl);
+  });
 
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
   kling: { name: "Kling", zh: "Kling" },
@@ -471,6 +512,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const projectId = useProjectContentStore((state) => state.projectId);
   const [showHistory, setShowHistory] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
+  const shouldProbeConnectedVideoDuration =
+    (data.provider || "kling") === "doubao" &&
+    isSeedance20ModelValue(data.seedanceModel);
 
   const {
     hasImageInput,
@@ -478,7 +522,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     hasImage2Input,
     hasVideoInput,
     videoInputCount,
-    inputVideoDurationSec,
+    inputVideoDurationHintSec,
+    videoInputDurationProbeKey,
     audioInputCount,
   } = useStore(
     React.useCallback((state): ConnectionStats => {
@@ -491,6 +536,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       let nextInputVideoDurationSec = 0;
       let nextAudioInputCount = 0;
       const seenVideoInputs = new Set<string>();
+      const connectedVideoInputs: ConnectedVideoDurationInput[] = [];
       const nodes = Array.isArray(state?.nodes) ? state.nodes : [];
 
       for (let i = 0; i < edges.length; i += 1) {
@@ -527,6 +573,19 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           if (Number.isFinite(duration) && duration > 0) {
             nextInputVideoDurationSec += duration;
           }
+          connectedVideoInputs.push({
+            key: dedupeKey,
+            ...(typeof rawUrl === "string" && rawUrl.trim()
+              ? { url: rawUrl.trim() }
+              : {}),
+            ...(Number.isFinite(duration) && duration > 0
+              ? { hintDurationSec: Number(duration.toFixed(3)) }
+              : {}),
+            ...(typeof sourceData.videoVersion === "number" ||
+              typeof sourceData.videoVersion === "string"
+              ? { version: sourceData.videoVersion }
+              : {}),
+          });
           continue;
         }
         if (targetHandle === "audio") {
@@ -549,12 +608,60 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         hasImage2Input: nextHasImage2Input,
         hasVideoInput: nextVideoInputCount > 0,
         videoInputCount: nextVideoInputCount,
-        inputVideoDurationSec: Number(nextInputVideoDurationSec.toFixed(3)),
+        inputVideoDurationHintSec: Number(nextInputVideoDurationSec.toFixed(3)),
+        videoInputDurationProbeKey: JSON.stringify(connectedVideoInputs),
         audioInputCount: nextAudioInputCount,
       };
     }, [id]),
     areConnectionStatsEqual
   );
+  const [probedVideoDuration, setProbedVideoDuration] = React.useState<{
+    key: string;
+    totalDurationSec: number;
+  }>({ key: "[]", totalDurationSec: 0 });
+  React.useEffect(() => {
+    let inputs: ConnectedVideoDurationInput[] = [];
+    try {
+      const parsed = JSON.parse(videoInputDurationProbeKey);
+      if (Array.isArray(parsed)) inputs = parsed;
+    } catch {
+      inputs = [];
+    }
+
+    if (!shouldProbeConnectedVideoDuration || inputs.length === 0) {
+      setProbedVideoDuration({
+        key: videoInputDurationProbeKey,
+        totalDurationSec: inputVideoDurationHintSec,
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    void Promise.all(
+      inputs.map(async (input) => {
+        if (input.url) {
+          const probed = await probeRemoteVideoDuration(input.url, controller.signal);
+          if (probed !== undefined) return probed;
+        }
+        const hint = Number(input.hintDurationSec);
+        return Number.isFinite(hint) && hint > 0 ? hint : 0;
+      })
+    ).then((durations) => {
+      if (controller.signal.aborted) return;
+      setProbedVideoDuration({
+        key: videoInputDurationProbeKey,
+        totalDurationSec: Number(
+          durations.reduce((total, duration) => total + duration, 0).toFixed(3)
+        ),
+      });
+    });
+
+    return () => controller.abort();
+  }, [inputVideoDurationHintSec, shouldProbeConnectedVideoDuration, videoInputDurationProbeKey]);
+  const inputVideoDurationSec =
+    probedVideoDuration.key === videoInputDurationProbeKey
+      ? probedVideoDuration.totalDurationSec
+      : inputVideoDurationHintSec;
   const provider = data.provider || "kling";
   const rawNodeConfigMetadata =
     data.nodeConfigMetadata && typeof data.nodeConfigMetadata === "object"
@@ -897,14 +1004,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     klingSoundEnabled,
     (data as any).mode,
   ]);
-  const resolvedManagedPricing = React.useMemo(
-    () => resolveManagedRoutePricing(nodeConfigMetadata, sanitizedVendorKey, pricingContext),
-    [sanitizedVendorKey, nodeConfigMetadata, pricingContext]
-  );
-  const seedance20DiscountCredits = React.useMemo(
-    () => resolveSeedance20DiscountCredits(pricingContext),
-    [pricingContext]
-  );
   const previewRequestParams = React.useMemo(
     () => ({
       ...pricingContext,
@@ -974,16 +1073,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     requestParams: previewRequestParams,
     enabled: true,
   });
-  const selectedCredits =
-    typeof seedance20DiscountCredits === "number"
-      ? seedance20DiscountCredits
-      : typeof backendCredits === "number"
-      ? backendCredits
-      : typeof resolvedManagedPricing?.credits === "number"
-      ? resolvedManagedPricing.credits
-      : typeof data.creditsPerCall === "number" && !managedRoutesMetadata
-      ? data.creditsPerCall
-      : getManagedRouteCredits(nodeConfigMetadata, sanitizedVendorKey);
+  // The backend preview uses the same quote resolver as the actual deduction.
+  // Keep the badge empty on preview failure instead of showing stale node/config prices.
+  const selectedCredits = backendCredits;
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const showRunCredits = hasRunCredits;
   const vodAspectOptions = React.useMemo(() => {
@@ -1682,10 +1774,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             platformKey: desiredPlatform,
             channelTier: desiredChannelTier,
             channelSelectionExplicit: data.channelSelectionExplicit === true,
-            creditsPerCall:
-              typeof selectedManagedRoute.creditsPerCall === "number"
-                ? selectedManagedRoute.creditsPerCall
-                : undefined,
           },
         },
       })
@@ -2053,10 +2141,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               platformKey: targetPlatform,
               channelTier: targetTier,
               channelSelectionExplicit: true,
-              creditsPerCall:
-                typeof target.creditsPerCall === "number"
-                  ? target.creditsPerCall
-                  : undefined,
             },
           },
         })

@@ -45,6 +45,7 @@
 - The billing context records `outputDurationSec`, `inputVideoDurationSec`, and `billingDurationSec`. Managed pricing evaluates the total duration while the upstream generation request keeps the requested output duration.
 - The node preview sums durations from unique connected video sources for immediate feedback. Before actual deduction, `ReferenceVideoDurationService` independently downloads each unique public HTTP(S) reference, rejects local/private targets and oversized files, then runs `ffprobe` against a temporary file. Any unreadable reference aborts before credit deduction and provider submission.
 - At 720P, a 5-second input plus a 5-second output currently previews/deducts 1500 credits for Seedance 2.0 and 1208 credits for Fast or Mini. Requests without video input continue to bill only the output duration. Seedance 1.5 and non-Seedance video models are unchanged.
+- `calculateSeedance20BillingDuration` is the backend SSOT for combining the explicit output duration with all probed reference-video durations. `generate-video-provider` calls it after `ReferenceVideoDurationService` probing and before `CreditChargeService.begin`, so insufficient balance is rejected before any upstream task is created. Run `npm run verify:seedance-billing` to guard the formula and millisecond precision.
 
 ## Agent Runtime
 - `backend/src/agent/*` provides the first-stage Agent Runtime skeleton outside `/api/ai`: `POST /api/agent/runs` creates an authenticated in-memory run, and `GET /api/agent/runs/:runId/events` streams run/step/plan/tool events over SSE.

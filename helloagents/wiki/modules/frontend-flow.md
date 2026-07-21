@@ -1,3 +1,11 @@
+## 2026-07-21 Backend-only Video Credit Display
+- Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.
+- The frontend still assembles model, resolution, output duration, and connected input-video duration as quote parameters; all price rules and the final credit amount remain backend-owned and share the actual deduction resolver.
+
+## 2026-07-21 Video Creation Failure State
+- Video creation responses are validated before Flow registers polling: HTTP errors, explicit failure payloads, and responses without a valid `taskId` immediately end in `failed` and show the specific backend error.
+- Starting a new video submission clears any previous task identity. Creation failure also clears `taskId`, usage/provider/start metadata, pending prompt, and task phase atomically, preventing refresh recovery or an old poller from restoring a false `running` state.
+
 ## 2026-07-20 Prompt Resize Endpoint Stability
 - `TextPromptNode` must let React Flow 12 process resize frames through `onResize`; returning `false` from `shouldResize` suppresses both the geometry change and `onResizeEnd`, leaving local resize state stuck.
 - Prompt content previews remain RAF-batched, but `useNodeInternalsSync` stays active during resize so handle bounds and connected edge endpoints follow the node dimensions. Do not apply `paint` containment to the Prompt resize root because connection handles intentionally overflow the node boundary.
@@ -99,7 +107,7 @@
 - Group nodes bypass the generic `nodesWithHandlers` cache so `groupRunning/groupStopping` and injected callbacks stay current while preserving the cache for normal nodes.
 - Global History has a shared `historyMedia.ts` helper for image/video detection, labels, media URLs, video thumbnails, and download names. The history page and detail modal now render video records with thumbnails/playback; AI Chat Seedance video success records remote video URL metadata through `recordVideoHistoryEntry`.
 - Image Split downstream parsing now uses the shared `imageSplitHandles` helper in Generate/Agent/ImageCompress/ImageGrid/ViewAngle paths, preserving `imageN/imgN` compatibility for crop-based inputs.
-- `VideoToGifNode` shows the run credit badge, and `VideoNode` isolates native video controls with `nodrag/nopan/nowheel` plus event capture guards.
+- `VideoToGifNode` shows the run credit badge, and `VideoNode` isolates native video controls with `nodrag/nopan/nowheel` plus event capture guards. `VideoNode` also persists the media's real `duration` from the local upload and rehydrates/corrects it from remote video metadata. A connected Seedance 2.0/Fast/Mini node probes every remote video input, including generated and composed Flow videos, and uses a source node's requested duration only if browser metadata probing fails; the backend still probes every unique remote file before deduction.
 - Workspace header has a quick Nano Banana/Gemini/GPT-Image-2 route switch that updates the existing `bananaImageRoute` setting and displays today's normal/stable route success rates.
 - GPT-Image-2 resolution selection supports `1K/2K/4K` on both normal and stable routes; normal route no longer hides or downgrades `2K/4K` to `1K` at run time.
 - Canvas drawing tools include an `arrow` mode exposed in the toolbar; the drawing hook creates a filled Paper path tagged with `data.tool = "arrow"`, and the layer panel maps it to an Arrow layer type/icon.

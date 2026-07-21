@@ -1,6 +1,8 @@
 # Changelog
 
-- 2026-07-21：`feature/multi-business` 合入 `main` 最新代码；冲突合并同时保留租户入口/支付配置隔离与主线 Seedance 计费、30 分钟支付订单、72 小时补单等规则。会员到期、lot 清扫和年卡升级巡检统一逐租户执行，API 用量 rollup 与去重统计补齐租户过滤，raw SQL 租户审查覆盖 Prisma 的 `tenantId` 命名。
+- 2026-07-21：修复 Flow 视频输入节点上传/加载视频后未持久化真实 `duration`，导致连接 Seedance 2.0/Fast/Mini 时试算始终只按输出时长显示固定积分的问题。视频输入节点现在在本地上传阶段读取媒体时长，并在已有远程视频元数据加载后自动补齐或校正；Seedance 下游还会直接探测所有已连接远程成片（包括画布内生成与合成视频）的实际媒体时长，节点请求时长只作探测失败兜底。试算随总输入时长重新请求，实际生成前仍由后端 `ffprobe` 复核；后端实际预扣链路复用可测试的总时长函数，并新增 `npm run verify:seedance-billing` 门禁。
+- 2026-07-21：Flow 通用视频节点的 Run 积分展示改为只消费后端 `/api/credits/preview` 试算结果；删除前端 Seedance 2.0/Fast/Mini 硬编码单价和节点配置静态兜底。模型、分辨率、输出时长及输入视频总时长仍由前端作为试算参数提交，但价格规则、最终积分和实际预扣统一由后端同一报价解析器负责；接口未返回时不展示可能过期的积分数。
+- 2026-07-21：修复 Seedance 2.0 等 Flow 视频节点在提示词过长、上游同步 4xx、创建响应明确失败或缺少有效 `taskId` 时仍显示 `running` 的历史问题。前端现在先校验创建响应再注册轮询，保留并展示后端具体错误，并将英文 prompt-length 错误明确显示为“提示词过长”；提交开始及失败时原子清理旧任务、积分记录、供应商和恢复轮询字段，避免旧轮询覆盖失败态。后端既有创建失败回滚逻辑不变，未成功创建的任务不扣积分。
 - 2026-07-21：ToAPIs 与 Flow 画布同步上调 Seedance 2 标准版、Fast、Mini 价格：网关倍率由进价 `x1.2` 调到 `x1.5`（`ModelRatio 37.5 -> 46.875`），画布现有单价按 `1.5/1.2` 同比例调整。两条链路均按“显式输出时长 + 所有唯一输入参考视频的真实时长”计费，例如输入 `5s`、输出 `5s` 按 `10s`；网关和画布后端都在预扣前安全探测 MP4，失败时不扣分、不提交上游。画布节点预览、个人积分和团队积分使用同一总时长口径，并补齐 Mini 的按秒价格规则（本次未操作生产数据）。
 - 2026-07-20：根治 Flow 同一视频节点并发重复建任务：前端显式下发项目/节点/运行/标签页身份，后端借助积分账户行锁实施 30 分钟 PENDING 单任务闸门；命中重复后复用原 taskId，任务创建中的短暂空窗返回可轮询的 apiUsage 别名而非前端报错，并跳过个人扣费、团队预留和上游调用。视频节点立即持久化任务身份，刷新自动恢复原任务；查询中断/超时不再误退款或丢弃仍在生成的任务。
 - 2026-07-20：修复 Prompt 节点缩放后连接端点丢失；`TextPromptNode` 改用 React Flow 12 的 `onResize` 几何更新路径，保留 RAF 预览与协作节流，缩放期间持续同步 handle bounds，并移除会裁剪边缘句柄的 `paint` containment。
@@ -875,7 +877,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## 2026-05-12 Seedance Update
 - Flow/Seedance Video: removed Seedance 2.0 Fast from model selector and added Seed 2.0 Lite (doubao-seed-2-0-lite-260428), with legacy 2.0-fast compatibility parsing.
-- Flow/Seedance Video: added mode inputs eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
+- Flow/Seedance Video: added mode inputs 
+eference_images / irst_frame / start_end / smart_frames and aligned ideo_mode passthrough + validation.
 - Flow/Seedance Video: added online limit hints in node UI (Enterprise 600 RPM, Individual 80 RPM, Enterprise concurrency 10).
 
 ## [AI Chat Canvas Placeholder Timeout - 2026-06-08]

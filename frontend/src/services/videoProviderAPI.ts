@@ -4,6 +4,7 @@
  */
 import { fetchWithAuth } from "./authFetch";
 import { getApiBaseUrl } from "../utils/assetProxy";
+import { validateVideoGenerationResponse } from "./videoProviderResponse";
 
 export type VideoProvider = "kling" | "kling-2.6" | "kling-o3" | "vidu" | "viduq3-pro" | "doubao" | "wan2.7";
 
@@ -146,12 +147,17 @@ export async function generateVideoByProvider(
     }
   );
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `HTTP ${response.status}`);
+  const responseText = await response.text();
+  let responsePayload: unknown = {};
+  if (responseText) {
+    try {
+      responsePayload = JSON.parse(responseText);
+    } catch {
+      responsePayload = responseText;
+    }
   }
 
-  return response.json();
+  return validateVideoGenerationResponse(responsePayload, response) as unknown as VideoGenerationResult;
 }
 
 /**
