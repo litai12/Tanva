@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 
-// 关节角色（主要可控关节）
+// 关节角色（覆盖 liblib「逐关节调节」的主要可控关节）
 export type JointRole =
-  | 'spine' | 'neck'
+  | 'body' | 'spine' | 'neck'
   | 'shoulderL' | 'elbowL' | 'shoulderR' | 'elbowR'
-  | 'hipL' | 'kneeL' | 'hipR' | 'kneeR'
+  | 'hipL' | 'kneeL' | 'footL' | 'hipR' | 'kneeR' | 'footR'
 
 export type Euler3 = [number, number, number] // 弧度
 export type PoseMap = Partial<Record<JointRole, Euler3>>
@@ -14,18 +14,21 @@ export const deg = (d: number): number => d * DEG
 export const toDeg = (r: number): number => Math.round((r / DEG) * 10) / 10
 
 // —— 骨骼映射 ——
-// 优先：Mixamo 标准命名精确映射（默认素体 xbot.glb）；兜底：region+side 模糊匹配（上传模型）。
+// 优先：内置 Quaternius 与 Mixamo 标准命名精确映射；兜底：region+side 模糊匹配（上传模型）。
 const MIXAMO_ROLE_NAMES: Record<JointRole, string[]> = {
-  spine: ['spine1', 'spine'],
-  neck: ['neck'],
-  shoulderL: ['leftarm'],
-  elbowL: ['leftforearm'],
-  shoulderR: ['rightarm'],
-  elbowR: ['rightforearm'],
-  hipL: ['leftupleg'],
-  kneeL: ['leftleg'],
-  hipR: ['rightupleg'],
-  kneeR: ['rightleg'],
+  body: ['spine', 'spine01', 'abdomen', 'hips'],
+  spine: ['spine1', 'spine02', 'torso'],
+  neck: ['neck', 'neck01'],
+  shoulderL: ['leftarm', 'upperarml'],
+  elbowL: ['leftforearm', 'lowerarml'],
+  shoulderR: ['rightarm', 'upperarmr'],
+  elbowR: ['rightforearm', 'lowerarmr'],
+  hipL: ['leftupleg', 'thighl', 'upperlegl'],
+  kneeL: ['leftleg', 'calfl', 'lowerlegl'],
+  footL: ['leftfoot', 'footl'],
+  hipR: ['rightupleg', 'thighr', 'upperlegr'],
+  kneeR: ['rightleg', 'calfr', 'lowerlegr'],
+  footR: ['rightfoot', 'footr'],
 }
 
 function normName(name: string): string {
@@ -84,7 +87,8 @@ export function mapBones(root: THREE.Object3D): Partial<Record<JointRole, THREE.
   if (armR[0]) map.shoulderR = armR[0]; if (armR[1]) map.elbowR = armR[1]
   if (legL[0]) map.hipL = legL[0]; if (legL[1]) map.kneeL = legL[1]
   if (legR[0]) map.hipR = legR[0]; if (legR[1]) map.kneeR = legR[1]
-  if (torso[Math.floor(torso.length / 2)]) map.spine = torso[Math.floor(torso.length / 2)]
+  if (torso[0]) map.body = torso[0]
+  if (torso[Math.max(0, torso.length - 1)]) map.spine = torso[Math.max(0, torso.length - 1)]
   if (neck[0]) map.neck = neck[0]
   return { ...map, ...exact }
 }
@@ -192,6 +196,50 @@ export function applyPoseToRig(root: THREE.Object3D, rig: RigState, pose: PoseMa
 }
 
 /**
+ * applyPoseToRig 的蒙版变体（轻量动画分层用）：
+ * - 只复位/写 `roles` 内的关节；roles 外关节**保持调用前的值**（让 baked mixer 驱动的腿不被覆盖）。
+ * - opts.autoLand 默认 false：有 locomotion 时地面归位交给 baked + 根路径，跳过逐帧脚高扫描避免打架。
+ * roles=ALL_JOINT_ROLES + autoLand:true 时与 applyPoseToRig 逐骨等价。
+ */
+export function applyPosePartialToRig(
+  root: THREE.Object3D,
+  rig: RigState,
+  pose: PoseMap | undefined,
+  roles: JointRole[],
+  opts?: { autoLand?: boolean },
+): void {
+  const roleSet = new Set(roles)
+  // 1) 只复位蒙版内关节到绑定姿态
+  for (const role of roles) {
+    const j = rig.joints[role]
+    if (j) j.bone.quaternion.copy(j.baseQuat)
+  }
+  // 2) 叠加蒙版内、且 pose 提供了的关节
+  if (pose) {
+    for (const [role, eul] of Object.entries(pose) as [JointRole, [number, number, number]][]) {
+      if (!roleSet.has(role)) continue
+      const j = rig.joints[role]
+      if (!j || !eul) continue
+      _c.setFromEuler(_e.set(eul[0], eul[1], eul[2], 'XYZ'))
+      _q.copy(j.parentBindInv).multiply(rig.basis).multiply(_c).multiply(rig.basisInv).multiply(j.parentBind)
+      j.bone.quaternion.copy(_q.multiply(j.baseQuat))
+    }
+  }
+  // 3) 自动落地（可选）：与 applyPoseToRig 一致
+  if (opts?.autoLand) {
+    root.position.y = rig.bindPosY
+    root.updateMatrixWorld(true)
+    const rootInv = _m.copy(root.matrixWorld).invert()
+    let minY = Infinity
+    for (const b of rig.allBones) {
+      _v.setFromMatrixPosition(b.matrixWorld).applyMatrix4(rootInv)
+      if (_v.y < minY) minY = _v.y
+    }
+    if (Number.isFinite(minY)) root.position.y = rig.bindPosY + (rig.bindMinY - minY) * rig.scaleY
+  }
+}
+
+/**
  * 从骨骼当前局部四元数反解规范系欧拉角（applyPoseToRig 的精确逆），供视口直接拖拽
  * 骨骼的 rotate gizmo 在松手时回写 pose：
  *   local = P⁻¹·B·C·B⁻¹·P·local0  →  C = B⁻¹·P·local·local0⁻¹·P⁻¹·B
@@ -211,26 +259,29 @@ export function poseEulerFromRig(rig: RigState, role: JointRole): Euler3 | null 
 }
 
 // 逐关节滑块定义（UI 用，单位度，控制单一旋转轴）
-export type JointSlider = { role: JointRole; axis: 0 | 1 | 2; label: string; min: number; max: number }
+// part：分部位 tab 分组（对齐竞品「头部/躯干/左臂/右臂/左腿/右腿」）
+export type PartKey = '头部' | '躯干' | '左臂' | '右臂' | '左腿' | '右腿'
+export const JOINT_PARTS: PartKey[] = ['头部', '躯干', '左臂', '右臂', '左腿', '右腿']
+export type JointSlider = { role: JointRole; axis: 0 | 1 | 2; label: string; min: number; max: number; part: PartKey }
 export const JOINT_SLIDERS: JointSlider[] = [
-  { role: 'spine', axis: 0, label: '躯干前倾', min: -45, max: 45 },
-  { role: 'spine', axis: 1, label: '躯干转身', min: -60, max: 60 },
-  { role: 'spine', axis: 2, label: '躯干侧倾', min: -30, max: 30 },
-  { role: 'neck', axis: 0, label: '头部俯仰', min: -40, max: 40 },
-  { role: 'neck', axis: 1, label: '头部转动', min: -60, max: 60 },
-  { role: 'shoulderL', axis: 2, label: '左肩抬降（+抬）', min: -90, max: 135 },
-  { role: 'shoulderL', axis: 0, label: '左臂前后（-前）', min: -120, max: 45 },
-  { role: 'elbowL', axis: 1, label: '左肘弯曲（-弯）', min: -140, max: 5 },
-  { role: 'shoulderR', axis: 2, label: '右肩抬降（-抬）', min: -135, max: 90 },
-  { role: 'shoulderR', axis: 0, label: '右臂前后（-前）', min: -120, max: 45 },
-  { role: 'elbowR', axis: 1, label: '右肘弯曲（+弯）', min: -5, max: 140 },
-  { role: 'hipL', axis: 0, label: '左髋抬腿（-前）', min: -100, max: 45 },
-  { role: 'kneeL', axis: 0, label: '左膝弯曲（+弯）', min: -5, max: 140 },
-  { role: 'hipR', axis: 0, label: '右髋抬腿（-前）', min: -100, max: 45 },
-  { role: 'kneeR', axis: 0, label: '右膝弯曲（+弯）', min: -5, max: 140 },
+  { role: 'spine', axis: 0, label: '躯干前倾', min: -45, max: 45, part: '躯干' },
+  { role: 'spine', axis: 1, label: '躯干转身', min: -60, max: 60, part: '躯干' },
+  { role: 'spine', axis: 2, label: '躯干侧倾', min: -30, max: 30, part: '躯干' },
+  { role: 'neck', axis: 0, label: '头部俯仰', min: -40, max: 40, part: '头部' },
+  { role: 'neck', axis: 1, label: '头部转动', min: -60, max: 60, part: '头部' },
+  { role: 'shoulderL', axis: 2, label: '左肩抬降（+抬）', min: -90, max: 135, part: '左臂' },
+  { role: 'shoulderL', axis: 0, label: '左臂前后（-前）', min: -120, max: 45, part: '左臂' },
+  { role: 'elbowL', axis: 1, label: '左肘弯曲（-弯）', min: -140, max: 5, part: '左臂' },
+  { role: 'shoulderR', axis: 2, label: '右肩抬降（-抬）', min: -135, max: 90, part: '右臂' },
+  { role: 'shoulderR', axis: 0, label: '右臂前后（-前）', min: -120, max: 45, part: '右臂' },
+  { role: 'elbowR', axis: 1, label: '右肘弯曲（+弯）', min: -5, max: 140, part: '右臂' },
+  { role: 'hipL', axis: 0, label: '左髋抬腿（-前）', min: -100, max: 45, part: '左腿' },
+  { role: 'kneeL', axis: 0, label: '左膝弯曲（+弯）', min: -5, max: 140, part: '左腿' },
+  { role: 'hipR', axis: 0, label: '右髋抬腿（-前）', min: -100, max: 45, part: '右腿' },
+  { role: 'kneeR', axis: 0, label: '右膝弯曲（+弯）', min: -5, max: 140, part: '右腿' },
 ]
 
-// 姿势预设（弧度，规范坐标系，见上方注释）。基于标准 Mixamo T-pose 骨架（xbot.glb）校准。
+// 姿势预设（弧度，规范坐标系，见上方注释）。基于标准人形 T-pose 骨架校准。
 // 镜像规则：左右对称姿势 R = L 的 y、z 取反，x 同号。
 export type PosePreset = { id: string; name: string; category: string; pose: PoseMap }
 export const POSE_PRESETS: PosePreset[] = [
@@ -297,3 +348,37 @@ export const POSE_PRESETS: PosePreset[] = [
   { id: 'listen', name: '侧耳倾听', category: '情绪', pose: { neck: [deg(2), deg(25), deg(8)], spine: [deg(2), deg(15), 0], shoulderR: [deg(-10), 0, deg(55)], elbowR: [0, deg(130), 0], shoulderL: [0, 0, deg(-72)] } },
   { id: 'shield-eyes', name: '手搭凉棚', category: '情绪', pose: { shoulderR: [deg(-40), 0, deg(18)], elbowR: [0, deg(135), 0], neck: [deg(-12), 0, 0], spine: [deg(-4), 0, 0], shoulderL: [0, 0, deg(-72)], elbowL: [0, deg(-5), 0] } },
 ]
+
+// 预设分类的顺序与文案（chip 行用；'收藏'/'自定义' 为动态类）
+export const POSE_CATEGORIES = ['基础', '坐跪', '行动', '武戏', '交流', '情绪'] as const
+
+// 每个预设的 emoji 图标（对齐竞品的图标网格）。缺省按 category 兜底。
+const CATEGORY_ICON: Record<string, string> = {
+  基础: '🧍', 坐跪: '🧎', 行动: '🏃', 武戏: '⚔️', 交流: '💬', 情绪: '🎭', 自定义: '⭐', 收藏: '⭐',
+}
+export const POSE_ICONS: Record<string, string> = {
+  // 基础
+  stand: '🧍', tpose: '➕', 'arms-down': '🧍', akimbo: '💁', crossed: '🙅', 'hands-behind': '🕴️', pockets: '🧥',
+  // 坐跪
+  sit: '🪑', squat: '🧎', kneel: '🧎', seiza: '🙇', 'cross-legged': '🧘', beg: '🙏',
+  // 行动
+  walk: '🚶', run: '🏃', jump: '🤸', sprint: '🏃', push: '🫷', carry: '📦', climb: '🧗', stretch: '🙆', dance: '💃',
+  // 武戏
+  'salute-fist': '🙇', punch: '👊', block: '🛡️', kick: '🦵', 'horse-stance': '🐴', lunge: '🤺', sword: '⚔️', aim: '🔫', archery: '🏹', throw: '🤾', taichi: '☯️',
+  // 交流
+  wave: '👋', reach: '🫳', point: '👉', bow: '🙇', assist: '🤝', clap: '👏', cheer: '🙌', pray: '🙏', salute: '🫡', phone: '📞', offer: '🤲', hug: '🫂',
+  // 情绪
+  think: '🤔', roar: '😤', 'clutch-belly': '🤕', stagger: '😵', 'cover-head': '🫣', dejected: '😔', 'look-up': '👀', 'cover-face': '😭', shocked: '😱', listen: '👂', 'shield-eyes': '🔭',
+}
+export function getPoseIcon(preset: { id: string; category: string }): string {
+  return POSE_ICONS[preset.id] ?? CATEGORY_ICON[preset.category] ?? '🧍'
+}
+
+// —— 关节集合（轻量动画分层用）——
+/** 全部可控关节（顺序固定，供整身动画/遍历）。 */
+export const ALL_JOINT_ROLES: JointRole[] = [
+  'body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR',
+  'hipL', 'kneeL', 'footL', 'hipR', 'kneeR', 'footR',
+]
+/** 上半身关节（混合动画默认蒙版：姿势关键帧只盖这些，腿留给 baked 位移）。 */
+export const UPPER_BODY_ROLES: JointRole[] = ['body', 'spine', 'neck', 'shoulderL', 'elbowL', 'shoulderR', 'elbowR']

@@ -25,9 +25,36 @@ import {
 import {
   createAgentRunViaAPI,
   streamAgentRunEvents,
+  XIAOT_CHAT_MODELS,
   type AgentRunEvent,
   type AgentToolName,
+  type XiaotChatModel,
 } from "@/services/agentBackendAPI";
+import {
+  TANVA_CAPABILITY_MANIFEST,
+  XIAOT_PREFERRED_IMAGE_MODELS,
+  XIAOT_PREFERRED_VIDEO_MODELS,
+  VIDEO_TYPES_REQUIRE_IMAGE,
+  VIDEO_NODE_TYPES,
+  VIDEO_MAX_DURATION,
+  videoDurationField,
+  detectRequestedVideoModel,
+  detectRequestedImageModel,
+  detectVideoDuration,
+  getVideoModelLabel,
+  externalizeInlinePrompt,
+  parseAgentFlowPatch,
+  rewritePatchForPreferredVideo,
+  rewritePatchToImageType,
+  type XiaotPreferredImageModel,
+  type XiaotPreferredVideoModel,
+} from "@/services/agentCanvasProtocol";
+import {
+  applyAgentPatch,
+  ensureAgentPatchSession,
+  flushAgentPatchQueue,
+  resolveAgentNodeId,
+} from "@/services/agentPatchApplier";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
@@ -103,7 +130,8 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 1;
+const AI_CHAT_PREFERENCES_VERSION = 2;
+const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-sol";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
 
@@ -144,8 +172,8 @@ async function runImageGenerationTask(
         },
     };
   }
-  // pollImageTaskResult 默认 15min 超时；失败/超时返回的 error.message 已含
-  // “积分将自动返还”提示，与后端退款语义一致。
+  // pollImageTaskResult 的 15min 时限只约束生成（processing）阶段，排队等待不计入；
+  // 失败/超时返回的 error.message 已含“积分将自动返还”提示，与后端退款语义一致。
   return pollImageTaskResult(
     createResult.data.taskId,
     undefined,
@@ -855,6 +883,9 @@ let hasHydratedSessions = false;
 let isHydratingNow = false;
 let refreshSessionsTimeout: NodeJS.Timeout | null = null;
 let legacyMigrationInProgress = false;
+// 小T 流式会话的中断句柄（模块级、非响应式、不持久化）：runXiaotAgent
+// 开始时置入，stopXiaotAgent 调 abort() 中断当前流，finally 清理。
+let xiaotAbortController: AbortController | null = null;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
 export type SendShortcut = "enter" | "mod-enter";
@@ -2797,7 +2828,18 @@ const shouldDropMessageOnHydrate = (
     return true;
   }
   if (message.type === "ai" && message.generationStatus?.error && !hasMedia) {
-    return true;
+    // 只丢占位/失败空壳；有实际正文的回复保留（如小T长任务被看门狗
+    // 误标“任务已停止”），error 由 hydrateMessageGenerationState 清掉
+    const content = (message.content || "").trim();
+    if (!content) return true;
+    if (
+      content === "小T正在思考..." ||
+      content === "正在准备处理您的请求..." ||
+      content.startsWith("处理失败")
+    ) {
+      return true;
+    }
+    return false;
   }
   return false;
 };
@@ -2956,6 +2998,13 @@ const sessionsEqual = (
   b: SerializedConversationContext[]
 ): boolean => JSON.stringify(a ?? []) === JSON.stringify(b);
 
+// 小T风格锚定：风格参考图 + 风格描述（会话级，不进 persist）
+export interface XiaotStyleAnchor {
+  imageUrl?: string;
+  assetName?: string;
+  description: string;
+}
+
 interface AIChatState {
   // 对话框状态
   isVisible: boolean;
@@ -3020,11 +3069,22 @@ interface AIChatState {
   imageInputTarget: ImageInputTarget;
   expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
   chatTheme: ChatTheme; // AI 对话框与工作区主题色（白/黑）
+  xiaotMode: boolean; // 小T画布智能体模式开关
+  xiaotModel: XiaotChatModel; // 小T大脑（模型）选择
+  xiaotPreferredImage: XiaotPreferredImageModel; // 小T优选图片模型
+  xiaotPreferredVideo: XiaotPreferredVideoModel; // 小T优选视频模型
+  xiaotStyleAnchor: XiaotStyleAnchor | null; // 小T风格锚定（会话级，不进 persist）
 
   // 操作方法
   showDialog: () => void;
   hideDialog: () => void;
   toggleDialog: () => void;
+  toggleXiaotMode: () => void;
+  setXiaotModel: (model: XiaotChatModel) => void;
+  setXiaotPreferredImage: (value: XiaotPreferredImageModel) => void;
+  setXiaotPreferredVideo: (value: XiaotPreferredVideoModel) => void;
+  setXiaotStyleAnchor: (anchor: XiaotStyleAnchor | null) => void;
+  clearXiaotStyleAnchor: () => void;
   setIsMaximized: (value: boolean) => void; // 设置最大化状态
 
   // 输入管理
@@ -3135,6 +3195,13 @@ interface AIChatState {
 
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
+
+  // 小T画布智能体链路（快照上送 + delta 渲染 + flow_patch 落画布）
+  runXiaotAgent: (input: string) => Promise<void>;
+  // 小T 是否正在流式运行（发送按钮据此在「发送/停止」间切换）
+  xiaotRunning: boolean;
+  // 中断当前小T流式会话：abort 网络流 + 把占位消息标记为「已停止」
+  stopXiaotAgent: () => void;
 
   // 核心处理流程
   executeProcessFlow: (
@@ -3574,6 +3641,12 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: "canvas",
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
+        xiaotMode: false, // 小T画布智能体模式默认关闭
+        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.6 Sol
+        xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
+        xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
+        xiaotStyleAnchor: null, // 小T风格锚定默认无
+        xiaotRunning: false, // 小T是否正在流式运行（运行时发送按钮变「停止」）
 
         // 对话框控制
         showDialog: () => {
@@ -3582,6 +3655,15 @@ export const useAIChatStore = create<AIChatState>()(
         },
         hideDialog: () => set({ isVisible: false }),
         toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
+        toggleXiaotMode: () =>
+          set((state) => ({ xiaotMode: !state.xiaotMode })),
+        setXiaotModel: (model) => set({ xiaotModel: model }),
+        setXiaotPreferredImage: (value) =>
+          set({ xiaotPreferredImage: value }),
+        setXiaotPreferredVideo: (value) =>
+          set({ xiaotPreferredVideo: value }),
+        setXiaotStyleAnchor: (anchor) => set({ xiaotStyleAnchor: anchor }),
+        clearXiaotStyleAnchor: () => set({ xiaotStyleAnchor: null }),
         setIsMaximized: (value) => set({ isMaximized: value }),
 
         // 输入管理
@@ -7121,6 +7203,8 @@ export const useAIChatStore = create<AIChatState>()(
               referenceImageUrls.length > 0 ? "reference_images" : "text";
 
             const createResult = await generateVideoByProvider({
+              // 消息级幂等键：同一条 AI 消息短窗内重复创建在服务端被吸收，避免重复预扣。
+              idempotencyKey: `chatvid-${aiMessageId}`,
               prompt,
               referenceImages: referenceImageUrls.length
                 ? referenceImageUrls
@@ -8360,6 +8444,633 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "executeProcessFlow done");
         },
 
+        // 🤖 小T画布智能体：采集画布快照 → createAgentRun(mode: canvasAgent) → SSE 增量渲染 + flow_patch 落画布
+        runXiaotAgent: async (input: string) => {
+          const state = get();
+
+          // 中断句柄：本轮开始即置入模块级 controller，并标记运行中
+          //（发送按钮据 xiaotRunning 在「发送 ↔ 停止」间切换）。
+          const controller = new AbortController();
+          xiaotAbortController = controller;
+          set({ xiaotRunning: true });
+
+          // 会话保障（processUserInput 已做过完整同步，这里仅兜底）
+          let sessionId =
+            state.currentSessionId || contextManager.getCurrentSessionId();
+          if (!sessionId) {
+            sessionId = contextManager.createSession();
+            set({ currentSessionId: sessionId });
+          }
+
+          // 1️⃣ 采集画布快照：请求 FlowOverlay 重播 flow:nodes-snapshot，800ms 超时给空快照兜底
+          const snapshot = await new Promise<{
+            nodes: Array<Record<string, unknown>>;
+            edges: Array<Record<string, unknown>>;
+          }>((resolve) => {
+            if (typeof window === "undefined") {
+              resolve({ nodes: [], edges: [] });
+              return;
+            }
+            let settled = false;
+            const onSnapshot = (event: Event) => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timer);
+              window.removeEventListener("flow:nodes-snapshot", onSnapshot);
+              const detail = (event as CustomEvent).detail as
+                | {
+                    nodes?: Array<Record<string, unknown>>;
+                    edges?: Array<Record<string, unknown>>;
+                  }
+                | undefined;
+              resolve({
+                nodes: detail?.nodes ?? [],
+                edges: detail?.edges ?? [],
+              });
+            };
+            const timer = window.setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              window.removeEventListener("flow:nodes-snapshot", onSnapshot);
+              resolve({ nodes: [], edges: [] });
+            }, 800);
+            window.addEventListener("flow:nodes-snapshot", onSnapshot);
+            window.dispatchEvent(
+              new CustomEvent("flow:request-nodes-snapshot")
+            );
+          });
+
+          // 2️⃣ 用户消息 + 占位 AI 消息（复用 processUserInput 的消息创建方式）
+          get().addMessage({
+            type: "user",
+            content: input,
+          });
+          const aiMessage = get().addMessage({
+            type: "ai",
+            content: "小T正在思考...",
+            generationStatus: {
+              isGenerating: true,
+              progress: 5,
+              error: null,
+              stage: "小T思考中",
+            },
+            provider: state.aiProvider,
+          });
+
+          // 3️⃣ patch 会话跟随聊天会话：同会话保留 agent 节点 id 映射
+          //（小T下轮可继续引用上轮自造 id），仅聊天会话切换时才重置
+          ensureAgentPatchSession(sessionId);
+
+          let assembled = "";
+          let patchCount = 0;
+          let streamErrored = false;
+          let videoRewriteToasted = false;
+          let imageRewriteToasted = false;
+          // 打字机流式渲染：小T facade 常把整段回复一次性大块下发（assistant_delta
+          // 不是逐 token），直接写 content 会「唰」地整段冒出、毫无流式感。这里把
+          // 「真值文本 typeTarget」与「已显示字符数 typeShown」解耦，用 rAF 每帧按
+          // 剩余量自适应步进揭示（参照 TapCanvas animateAssistantReply：远则快、近则
+          // 慢），无论上游一次给多少字都平滑吐出。content 只由打字机泵写。
+          let typeTarget = "";
+          let typeShown = 0;
+          let typePumping = false;
+          const writeTypedContent = () => {
+            get().updateMessage(aiMessage.id, (msg) => ({
+              ...msg,
+              content: typeTarget.slice(0, typeShown),
+            }));
+          };
+          const pumpTypewriter = () => {
+            if (typePumping) return;
+            typePumping = true;
+            const tick = () => {
+              if (controller.signal.aborted) {
+                typePumping = false;
+                return;
+              }
+              const remaining = typeTarget.length - typeShown;
+              if (remaining <= 0) {
+                typePumping = false;
+                return;
+              }
+              const step =
+                remaining > 160 ? 20 : remaining > 80 ? 10 : remaining > 32 ? 6 : 3;
+              typeShown = Math.min(typeTarget.length, typeShown + step);
+              writeTypedContent();
+              if (typeShown < typeTarget.length) {
+                requestAnimationFrame(tick);
+              } else {
+                typePumping = false;
+              }
+            };
+            requestAnimationFrame(tick);
+          };
+          // 等打字机把已收到的文本吐完（收尾前调用，让最后一段也走完流式）
+          const drainTypewriter = () =>
+            new Promise<void>((resolve) => {
+              const check = () => {
+                if (
+                  controller.signal.aborted ||
+                  typeShown >= typeTarget.length
+                ) {
+                  resolve();
+                  return;
+                }
+                pumpTypewriter();
+                requestAnimationFrame(check);
+              };
+              check();
+            });
+          // 缺图对账：本轮新建的「纯图生」视频节点 + 已连入图边的目标节点
+          const addedImageVideoNodes = new Map<
+            string,
+            { type: string; label: string }
+          >();
+          const imageEdgeTargets = new Set<string>();
+
+          try {
+            const projectId =
+              useProjectContentStore.getState().projectId || undefined;
+            // 用户优选模型 → 每请求动态附加 note（优先级最高，压过画布惯性）。
+            // 浅拷贝构造，不改 TANVA_CAPABILITY_MANIFEST 模块常量；
+            // notes 上限 32 条/每条 1000 字符，当前 10+1 条，安全。
+            const preferredImage =
+              XIAOT_PREFERRED_IMAGE_MODELS.find(
+                (option) => option.value === state.xiaotPreferredImage
+              ) ?? XIAOT_PREFERRED_IMAGE_MODELS[1];
+            const preferredVideo =
+              XIAOT_PREFERRED_VIDEO_MODELS.find(
+                (option) => option.value === state.xiaotPreferredVideo
+              ) ?? XIAOT_PREFERRED_VIDEO_MODELS[0];
+            const capabilityManifest = {
+              ...TANVA_CAPABILITY_MANIFEST,
+              notes: [
+                ...TANVA_CAPABILITY_MANIFEST.notes,
+                `【用户优选·必须遵守】未明确要求其他模型时：图片生成一律用 ${preferredImage.nodeType}${
+                  preferredImage.extra
+                    ? `（modelProvider=${preferredImage.extra}）`
+                    : ""
+                }；视频生成优先用 ${preferredVideo.nodeType}（默认 resolution 720P、aspectRatio 16:9），但纯文本→视频若该模型仅支持图生，请改用支持文生的模型（见 notes 视频两路径）。即使画布上已存在其他类型的生成节点，也不要跟随，以本条为准。`,
+              ],
+            };
+            // 视频节点改写目标解析（用户明确选择 = 强制对齐，高于小T自选）：
+            // ① 用户消息当轮点名具体模型 → 对齐到它（最高）
+            // ② 否则 → 用户在优选选择器里选的视频模型（强制，不再 textFallback
+            //    降级；用户既然设了优选就是要用它，即便是图生模型 SD2 也不偷换成
+            //    文生模型——缺图由缺图对账 toast 提示，属正确行为）
+            const requestedVideoType = detectRequestedVideoModel(input);
+            const rewriteTargetType: string =
+              requestedVideoType ?? preferredVideo.nodeType;
+            const rewriteTargetLabel: string = requestedVideoType
+              ? getVideoModelLabel(requestedVideoType)
+              : preferredVideo.label;
+            // 图片节点改写目标解析（对称视频）：点名 > 优选，强制对齐
+            const requestedImageType = detectRequestedImageModel(input);
+            const imgTargetType: string =
+              requestedImageType ?? preferredImage.nodeType;
+            // 仅当目标是优选本身时带上 banana 档位（modelProvider）；点名场景
+            // 走目标节点默认档位
+            const imgTargetProvider =
+              !requestedImageType && preferredImage.extra
+                ? preferredImage.extra
+                : undefined;
+            const imgTargetLabel: string = requestedImageType
+              ? requestedImageType
+              : preferredImage.label;
+            // 用户消息里的视频时长（如 15s）→ 建视频节点时确定性注入
+            const detectedDuration = detectVideoDuration(input);
+            // 风格锚定 → generation_contract（facade 认该段）+ 风格参考图 URL
+            const styleAnchor = state.xiaotStyleAnchor;
+            let generationContract:
+              | {
+                  version: "v1";
+                  lockedAnchors: string[];
+                  editableVariable: string | null;
+                  forbiddenChanges: string[];
+                  approvedKeyframeId: string | null;
+                }
+              | undefined;
+            let styleReferenceUrl: string | undefined;
+            if (styleAnchor) {
+              const lockedAnchors = [
+                styleAnchor.description,
+                styleAnchor.imageUrl ? "风格参考图见输入" : "",
+              ]
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+                .slice(0, 12)
+                .map((s) => s.slice(0, 240));
+              if (lockedAnchors.length > 0 || styleAnchor.imageUrl) {
+                generationContract = {
+                  version: "v1",
+                  lockedAnchors,
+                  editableVariable: null,
+                  forbiddenChanges: [],
+                  approvedKeyframeId: null,
+                };
+              }
+              if (styleAnchor.imageUrl) {
+                styleReferenceUrl = styleAnchor.imageUrl;
+              }
+            }
+            const run = await createAgentRunViaAPI({
+              prompt: input,
+              mode: "canvasAgent",
+              model: state.xiaotModel,
+              sessionId,
+              projectId,
+              canvasContext: {
+                nodes: snapshot.nodes,
+                edges: snapshot.edges,
+              },
+              capabilityManifest:
+                capabilityManifest as unknown as Record<string, unknown>,
+              ...(generationContract ? { generationContract } : {}),
+              ...(styleReferenceUrl ? { styleReferenceUrl } : {}),
+            });
+
+            await streamAgentRunEvents(run.id, (event) => {
+              if (event.type === "assistant_delta") {
+                const delta =
+                  typeof event.data?.delta === "string" ? event.data.delta : "";
+                if (!delta) return;
+                assembled += delta;
+                // content 交给打字机泵平滑揭示（大块也逐字吐）；这里只喂真值 +
+                // 抬进度。progress 停在初始 5 会被 AIChatDialog 的 45s 早期卡住
+                // 看门狗判为“任务已停止”（多轮 agent 常超 45s）。
+                typeTarget = assembled;
+                pumpTypewriter();
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  generationStatus: {
+                    ...(msg.generationStatus || {}),
+                    isGenerating: true,
+                    progress: Math.max(msg.generationStatus?.progress ?? 0, 30),
+                    error: null,
+                    stage: "小T执行中",
+                  },
+                }));
+              } else if (event.type === "flow_patch") {
+                // 确定性改写：用户明确选择（消息点名/优选选择器）= 强制指令，
+                // 高于小T自选。视频/图片对称——addNode 落画布前把生成节点类型
+                // 强制对齐到目标（视频=优选视频/点名，图片=优选图片/点名）。
+                // 只改本地不回传小T（idMap 以 agent id 为键，type 改写不影响 id）。
+                let patch: unknown = event.data?.patch;
+                const parsedForRewrite = parseAgentFlowPatch(patch);
+                if (parsedForRewrite) {
+                  // 视频节点强制对齐
+                  const vRewritten = rewritePatchForPreferredVideo(
+                    parsedForRewrite,
+                    rewriteTargetType
+                  );
+                  if (vRewritten !== parsedForRewrite) {
+                    console.info(
+                      "[xiaot] 视频节点强制对齐 →",
+                      rewriteTargetType
+                    );
+                    patch = vRewritten;
+                    if (!videoRewriteToasted) {
+                      videoRewriteToasted = true;
+                      try {
+                        window.dispatchEvent(
+                          new CustomEvent("toast", {
+                            detail: {
+                              message: `已用你选的 ${rewriteTargetLabel}`,
+                              type: "success",
+                            },
+                          })
+                        );
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  } else {
+                    // 图片节点强制对齐（与视频互斥：一个 addNode 只可能是其一）
+                    const iRewritten = rewritePatchToImageType(
+                      parsedForRewrite,
+                      imgTargetType,
+                      imgTargetProvider
+                    );
+                    if (iRewritten !== parsedForRewrite) {
+                      console.info(
+                        "[xiaot] 图片节点强制对齐 →",
+                        imgTargetType
+                      );
+                      patch = iRewritten;
+                      if (!imageRewriteToasted) {
+                        imageRewriteToasted = true;
+                        try {
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message: `已用你选的 ${imgTargetLabel}`,
+                                type: "success",
+                              },
+                            })
+                          );
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }
+                  }
+                }
+                // 视频时长确定性注入（用户显式时长 > 小T给的 > 节点默认）：
+                // 用最终 type 定字段名与上限，clamp 到模型上限。放在 rewrite 后、
+                // 对账前，直接写进 patch.node.data（clipDuration/duration 已在
+                // rewrite 白名单，不会被剥离；applier forced/defaults 不含时长键，
+                // 注入值得以保留）。
+                if (detectedDuration != null) {
+                  const dp = parseAgentFlowPatch(patch);
+                  if (
+                    dp?.op === "addNode" &&
+                    dp.node &&
+                    VIDEO_NODE_TYPES.has(dp.node.type)
+                  ) {
+                    const field = videoDurationField(dp.node.type);
+                    const cap = VIDEO_MAX_DURATION[dp.node.type] ?? 15;
+                    const clamped = Math.min(detectedDuration, cap);
+                    if (detectedDuration > cap) {
+                      console.info(
+                        `[xiaot] ${detectedDuration}s 超 ${dp.node.type} 上限${cap}，clamp`
+                      );
+                    }
+                    const baseData =
+                      dp.node.data && typeof dp.node.data === "object"
+                        ? (dp.node.data as Record<string, unknown>)
+                        : {};
+                    patch = {
+                      ...dp,
+                      node: {
+                        ...dp.node,
+                        data: { ...baseData, [field]: clamped },
+                      },
+                    };
+                  }
+                }
+                // 提示词强制外置（确定性根治）：生成节点 data 里的内联提示词
+                // 一律抽出，展开为 textPrompt 节点 + 连线承载。必须放在优选
+                // 改写之后——改写目标（如 gptImage2）不消费 data.prompts，
+                // 不外置会静默丢提示词报「缺少提示词输入」。
+                const finalParsed = parseAgentFlowPatch(patch);
+                const expandedPatches: unknown[] = finalParsed
+                  ? externalizeInlinePrompt(finalParsed)
+                  : [patch];
+                if (expandedPatches.length > 1) {
+                  console.info(
+                    "[xiaot] 内联提示词已外置为 textPrompt 节点:",
+                    finalParsed?.node?.id
+                  );
+                }
+                for (const onePatch of expandedPatches) {
+                  // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标
+                  const oneParsed = parseAgentFlowPatch(onePatch);
+                  if (
+                    oneParsed?.op === "addNode" &&
+                    oneParsed.node &&
+                    VIDEO_TYPES_REQUIRE_IMAGE.has(oneParsed.node.type)
+                  ) {
+                    const nodeData = (oneParsed.node.data || {}) as Record<
+                      string,
+                      unknown
+                    >;
+                    const label =
+                      (typeof nodeData.label === "string" && nodeData.label) ||
+                      oneParsed.node.type;
+                    addedImageVideoNodes.set(oneParsed.node.id, {
+                      type: oneParsed.node.type,
+                      label,
+                    });
+                  }
+                  if (oneParsed?.op === "connectEdge" && oneParsed.target) {
+                    const th = (oneParsed.targetHandle || "").toLowerCase();
+                    if (th.includes("image") || th.includes("img")) {
+                      imageEdgeTargets.add(oneParsed.target);
+                    }
+                  }
+                  if (applyAgentPatch(onePatch)) {
+                    patchCount += 1;
+                    get().updateMessage(aiMessage.id, (msg) => ({
+                      ...msg,
+                      metadata: {
+                        ...(msg.metadata || {}),
+                        agentPatchCount: patchCount,
+                      },
+                      generationStatus: {
+                        ...(msg.generationStatus || {}),
+                        isGenerating: true,
+                        progress: Math.max(
+                          msg.generationStatus?.progress ?? 0,
+                          60
+                        ),
+                        error: null,
+                        stage: "小T执行中",
+                      },
+                    }));
+                  }
+                }
+              } else if (event.type === "host_ui") {
+                // 小T交互卡片：choices/media 追加进 xiaotCards；
+                // suggestions 覆盖式写 xiaotSuggestions（始终显示最新一批）
+                const kind =
+                  typeof event.data?.kind === "string" ? event.data.kind : "";
+                const payload = event.data?.payload;
+                if (kind && payload) {
+                  if (kind === "suggestions") {
+                    const rawItems = (payload as { items?: unknown }).items;
+                    const items = Array.isArray(rawItems)
+                      ? rawItems.filter(
+                          (s): s is string =>
+                            typeof s === "string" && s.trim().length > 0
+                        )
+                      : [];
+                    get().updateMessage(aiMessage.id, (msg) => ({
+                      ...msg,
+                      metadata: {
+                        ...(msg.metadata || {}),
+                        xiaotSuggestions: items,
+                      },
+                    }));
+                  } else {
+                    get().updateMessage(aiMessage.id, (msg) => {
+                      const prevCards = Array.isArray(msg.metadata?.xiaotCards)
+                        ? (msg.metadata!.xiaotCards as Array<{
+                            kind: string;
+                            payload: unknown;
+                          }>)
+                        : [];
+                      return {
+                        ...msg,
+                        metadata: {
+                          ...(msg.metadata || {}),
+                          xiaotCards: [...prevCards, { kind, payload }],
+                        },
+                      };
+                    });
+                  }
+                }
+              } else if (event.type === "final") {
+                if (
+                  typeof event.message === "string" &&
+                  event.message.trim()
+                ) {
+                  // 终帧权威文本（可能≠累计 delta）→ 喂打字机，收尾前的
+                  // drain 让它平滑吐完；若比已显示短则夹取避免回退。
+                  assembled = event.message;
+                  typeTarget = assembled;
+                  if (typeShown > typeTarget.length) {
+                    typeShown = typeTarget.length;
+                  }
+                  pumpTypewriter();
+                }
+              } else if (event.type === "error") {
+                streamErrored = true;
+                const errText = event.message || "小T处理失败";
+                get().updateMessage(aiMessage.id, (msg) => ({
+                  ...msg,
+                  content: assembled || `处理失败: ${errText}`,
+                  generationStatus: {
+                    ...(msg.generationStatus || {
+                      isGenerating: true,
+                      progress: 0,
+                      error: null,
+                    }),
+                    isGenerating: false,
+                    progress: 0,
+                    error: errText,
+                    stage: "已终止",
+                  },
+                }));
+              }
+            }, { signal: controller.signal });
+
+            // 缺图对账（确定性）：本轮新建的纯图生视频节点若无图边连入，
+            // 说明小T选了图生模式却没给图（会报错）。这些类型无纯文生模式，
+            // 无法切模式，只能提示用户连图/让小T先出图。队列 drain 后对账，
+            // 确保 addNode/connectEdge 都已落地。
+            if (!streamErrored && addedImageVideoNodes.size > 0) {
+              try {
+                await flushAgentPatchQueue();
+                for (const [agentId, info] of addedImageVideoNodes) {
+                  if (imageEdgeTargets.has(agentId)) continue;
+                  const realNodeId = resolveAgentNodeId(agentId);
+                  console.warn(
+                    "[xiaot] 图生视频节点缺参考图:",
+                    info.type,
+                    realNodeId
+                  );
+                  try {
+                    window.dispatchEvent(
+                      new CustomEvent("toast", {
+                        detail: {
+                          message: `「${info.label}」是图生视频需要参考图：请连入一张图，或让小T先生成参考图`,
+                          type: "warning",
+                        },
+                      })
+                    );
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              } catch (reconcileError) {
+                console.warn("[xiaot] 缺图对账失败:", reconcileError);
+              }
+            }
+
+            if (!streamErrored) {
+              // 收尾前让打字机把最后一段吐完，再落定完整文本，避免「已完成」
+              // 却截断在打字中途。
+              typeTarget = assembled || typeTarget;
+              await drainTypewriter();
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || msg.content,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 100,
+                  error: null,
+                  stage: "已完成",
+                },
+              }));
+            }
+          } catch (error) {
+            // 用户主动中断（stopXiaotAgent → controller.abort()）：不当作错误，
+            // 保留已生成的部分内容，标记「已停止」（error 置空，不显红）。
+            const wasAborted =
+              controller.signal.aborted ||
+              (error instanceof DOMException && error.name === "AbortError") ||
+              (error instanceof Error && error.name === "AbortError");
+            if (wasAborted) {
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || msg.content,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 100,
+                  error: null,
+                  stage: "已停止",
+                },
+              }));
+            } else {
+              const errorMessage =
+                error instanceof Error ? error.message : "小T处理失败";
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: assembled || `处理失败: ${errorMessage}`,
+                generationStatus: {
+                  ...(msg.generationStatus || {
+                    isGenerating: true,
+                    progress: 0,
+                    error: null,
+                  }),
+                  isGenerating: false,
+                  progress: 0,
+                  error: errorMessage,
+                  stage: "已终止",
+                },
+              }));
+            }
+          } finally {
+            // 仅在仍是本轮 controller 时清理（防并发轮次误清后一轮）
+            if (xiaotAbortController === controller) {
+              xiaotAbortController = null;
+            }
+            set({ xiaotRunning: false });
+            try {
+              await get().refreshSessions({ immediate: true });
+            } catch (persistError) {
+              console.warn("⚠️ runXiaotAgent 持久化会话失败:", persistError);
+            }
+          }
+        },
+
+        // 中断当前小T流式会话：abort 网络流；消息态与运行标记的收尾由
+        // runXiaotAgent 的 catch（标记「已停止」）+ finally（xiaotRunning=false）
+        // 统一处理。此处只做即时反馈：立刻翻转 xiaotRunning 让按钮回到「发送」。
+        stopXiaotAgent: () => {
+          const controller = xiaotAbortController;
+          if (!controller) {
+            if (get().xiaotRunning) set({ xiaotRunning: false });
+            return;
+          }
+          try {
+            controller.abort();
+          } catch {
+            /* ignore */
+          }
+          set({ xiaotRunning: false });
+        },
+
         // 智能工具选择功能 - 统一入口（支持并行生成）
         processUserInput: async (input: string) => {
           const state = get();
@@ -8382,6 +9093,18 @@ export const useAIChatStore = create<AIChatState>()(
           }
 
           get().refreshSessions();
+
+          // 🤖 小T画布智能体模式：v1 只处理纯文本输入；带图片/PDF 附件不拦截，走原链路
+          if (
+            state.xiaotMode &&
+            state.sourceImagesForBlending.length === 0 &&
+            !state.sourceImageForEditing &&
+            !state.sourceImageForAnalysis &&
+            !state.sourcePdfForAnalysis
+          ) {
+            await get().runXiaotAgent(input);
+            return;
+          }
 
           // 🧠 检测迭代意图（processUserInput 为统一入口，这里只计一次）
           const isIterative = contextManager.detectIterativeIntent(input);
@@ -9368,6 +10091,7 @@ export const useAIChatStore = create<AIChatState>()(
         const validVideoRatios = ["16:9", "9:16"];
         const validVideoDurations = AI_CHAT_VIDEO_DURATION_OPTIONS.map(String);
         const validBananaImageRoutes = ["normal", "stable", "ultra"];
+        const validXiaotModels = XIAOT_CHAT_MODELS as readonly string[];
 
         return {
           ...state,
@@ -9404,6 +10128,11 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
+          // v2: 小T大脑从 Claude 三档迁到 GPT 5.6。旧值或未知值统一回落 Sol，
+          // 避免持久化偏好继续覆盖新的产品默认模型。
+          xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
+            ? (state.xiaotModel as XiaotChatModel)
+            : DEFAULT_XIAOT_CHAT_MODEL,
         };
       },
       partialize: (state) => ({
@@ -9422,6 +10151,9 @@ export const useAIChatStore = create<AIChatState>()(
         imageInputTarget: state.imageInputTarget,
         expandedPanelStyle: state.expandedPanelStyle,
         chatTheme: state.chatTheme,
+        xiaotModel: state.xiaotModel,
+        xiaotPreferredImage: state.xiaotPreferredImage,
+        xiaotPreferredVideo: state.xiaotPreferredVideo,
       }),
       // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
       merge: (persistedState, currentState) => ({

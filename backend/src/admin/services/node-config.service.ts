@@ -352,7 +352,10 @@ export class NodeConfigService {
           .filter(
             (vendor) =>
               vendor &&
-              vendor.enabled !== false &&
+              (vendor.enabled !== false ||
+                (model.taskType === 'video' &&
+                  vendor.vendorKey !== 'tencent_vod' &&
+                  vendor.vendorKey !== 'tengxun')) &&
               typeof vendor.vendorKey === 'string' &&
               vendor.vendorKey.trim(),
           )
@@ -472,7 +475,15 @@ export class NodeConfigService {
         nextMetadata.managedModelKey = targetManagedModelKey;
         nextMetadata.managedRoutes = managedRoutes;
 
+        // 视频节点的新建默认固定走普通通道；模型路由 defaultVendor 只属管理配置，
+        // 不能静默把 Flow 节点初始化成腾讯尊享。
         const selectedVendor =
+          (managedModel?.taskType === 'video'
+            ? managedRoutes.vendors.find(
+                (vendor) =>
+                  vendor.vendorKey !== 'tencent_vod' && vendor.vendorKey !== 'tengxun',
+              )
+            : undefined) ||
           managedRoutes.vendors.find((vendor) => vendor.vendorKey === managedRoutes.defaultVendor) ||
           managedRoutes.vendors[0];
 
@@ -486,6 +497,9 @@ export class NodeConfigService {
               managedModelKey: targetManagedModelKey,
               vendorKey: selectedVendor.vendorKey,
               platformKey: selectedVendor.platformKey || selectedVendor.vendorKey,
+              ...(managedModel?.taskType === 'video'
+                ? { channelTier: 'default', channelSelectionExplicit: false }
+                : {}),
               creditsPerCall:
                 typeof selectedVendor.creditsPerCall === 'number'
                   ? selectedVendor.creditsPerCall

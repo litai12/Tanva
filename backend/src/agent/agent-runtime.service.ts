@@ -16,6 +16,7 @@ import {
   AgentToolName,
 } from './agent.types';
 import { VolcResearchSearchService, VolcResearchSearchPayload } from './volc-research-search.service';
+import { XiaotAgentService } from './xiaot-agent.service';
 
 type AgentEventSubscriber = (event: AgentRunEvent) => void;
 
@@ -44,15 +45,15 @@ type ResearchKeywordExtractionSource = 'hybrid' | 'ai' | 'rule' | 'rule_fallback
 
 const RUN_TTL_MS = 60 * 60 * 1000;
 const PROVIDER_DEFAULT_TEXT_MODELS: Record<string, string> = {
-  gemini: 'gemini-3.1-pro',
-  'gemini-pro': 'gemini-3.1-pro',
+  gemini: 'gemini-3.1-pro-preview',
+  'gemini-pro': 'gemini-3.1-pro-preview',
   banana: 'gemini-3.5-flash',
   'banana-2.5': 'gemini-2.5-flash',
   'banana-3.1': 'gemini-3.1-pro-preview',
-  runninghub: 'gemini-3.1-pro',
-  midjourney: 'gemini-3.1-pro',
+  runninghub: 'gemini-3.1-pro-preview',
+  midjourney: 'gemini-3.1-pro-preview',
   nano2: 'gemini-3.1-pro-preview',
-  seedream5: 'gemini-3.1-pro',
+  seedream5: 'gemini-3.1-pro-preview',
 };
 
 @Injectable()
@@ -65,10 +66,54 @@ export class AgentRuntimeService {
     private readonly volcResearchSearch: VolcResearchSearchService,
     private readonly providerFactory: AIProviderFactory,
     private readonly config: ConfigService,
+    private readonly xiaotAgent: XiaotAgentService,
   ) {}
 
-  createRun(dto: CreateAgentRunDto, userId: string): AgentRunSummary {
+  createRun(
+    dto: CreateAgentRunDto,
+    userId: string,
+    teamId?: string,
+  ): AgentRunSummary {
     this.cleanupExpiredRuns();
+
+    // canvasAgent 模式：绕过本地 intent/plan 流程，直接经 new-api 流式调用小T。
+    if (dto.mode === 'canvasAgent') {
+      const now = new Date();
+      const run: AgentRunRecord = {
+        id: randomUUID(),
+        userId,
+        prompt: dto.prompt,
+        status: 'queued',
+        intent: 'text_chat',
+        selectedTool: 'chatResponse',
+        workflow: 'canvas_agent',
+        createdAt: now,
+        updatedAt: now,
+        events: [],
+      };
+      this.runs.set(run.id, run);
+      setTimeout(() => {
+        run.status = 'running';
+        run.updatedAt = new Date();
+        this.xiaotAgent
+          .run(dto, userId, (type, payload) => this.emit(run, type, payload), teamId)
+          .then(() => {
+            run.status = 'completed';
+            run.completedAt = new Date();
+            run.updatedAt = new Date();
+          })
+          .catch((error: unknown) => {
+            run.status = 'failed';
+            run.updatedAt = new Date();
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Xiaot canvasAgent run failed: ${run.id} ${message}`);
+            this.emit(run, 'error', { title: '小T执行失败', message });
+            this.emit(run, 'done', { title: '完成', message: 'Agent trace failed.' });
+          });
+      }, 0);
+      return this.toSummary(run);
+    }
 
     const decision = this.withOutputCountAwareness(
       dto,
@@ -643,7 +688,7 @@ export class AgentRuntimeService {
     const model = requestedModel?.trim();
     if (model?.length) return model;
     if (providerName) {
-      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gemini-3.1-pro';
+      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gemini-3.1-pro-preview';
     }
     return PROVIDER_DEFAULT_TEXT_MODELS.gemini;
   }

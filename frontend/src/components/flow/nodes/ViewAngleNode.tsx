@@ -7,7 +7,7 @@ import {
   useStore,
   type ReactFlowState,
   type Node,
-} from "reactflow";
+} from "@xyflow/react";
 import * as THREE from "three";
 import { Send as SendIcon, Copy, Check, RotateCcw } from "lucide-react";
 import SmartImage from "../../ui/SmartImage";
@@ -386,7 +386,7 @@ function ViewAngleNodeInner({ id, data, selected }: Props) {
           (item) => item.target === id && item.targetHandle === "img"
         );
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((node: Node<any>) => node.id === edge.source);
+        const sourceNode = state.nodes.find((node: Node<any>) => node.id === edge.source);
         if (!sourceNode) return undefined;
 
         const sourceData = (sourceNode.data || {}) as Record<string, any>;

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from "react";
-import { Handle, Position, useReactFlow, useStore } from "reactflow";
+import { Handle, Position, useReactFlow, useStore } from "@xyflow/react";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useLocaleText } from "@/utils/localeText";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -29,12 +29,9 @@ type Props = {
   selected?: boolean;
 };
 
-/** reactflow v11/v12 兼容地从 store 取节点数组。 */
+/** 从 React Flow 12 store 取节点数组。 */
 function getNodesFromState(state: any): any[] {
   if (Array.isArray(state?.nodes)) return state.nodes;
-  if (state?.nodeInternals && typeof state.nodeInternals.values === "function") {
-    return Array.from(state.nodeInternals.values());
-  }
   if (state?.nodeLookup && typeof state.nodeLookup.values === "function") {
     return Array.from(state.nodeLookup.values());
   }

@@ -20,6 +20,7 @@ import {
   type TeamSeatCycle,
 } from './dto/payment.dto';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { ReferralService } from '../referral/referral.service';
 import { buildRechargeCreditLotData } from '../credits/credit-lot-grants';
 import { MembershipService } from '../membership/membership.service';
@@ -29,6 +30,9 @@ import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.serv
 // --- 🛡️ 兼容引用 ---
 // 支付 SDK（AlipaySdk / WeChatPay）的构建已下沉到 TenantPaymentResolver（支持租户级商户）。
 const QRCode = require('qrcode');
+
+const PAYMENT_ORDER_TTL_MINUTES = 30;
+const PAYMENT_RECONCILE_LOOKBACK_HOURS = 72;
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -292,7 +296,7 @@ export class PaymentService implements OnModuleInit {
     });
     if (!plan) throw new NotFoundException('会员套餐不存在');
     if (preview.actionType === 'downgrade') {
-      throw new BadRequestException('降级套餐请走下周期生效，不创建支付订单');
+      throw new BadRequestException('会员套餐不支持降级');
     }
 
     return this.createOrder(userId, {
@@ -305,6 +309,8 @@ export class PaymentService implements OnModuleInit {
         membershipTransitionType: preview.actionType,
         membershipEffectiveMode: preview.effectiveMode,
         immediateCreditDelta: preview.immediateCreditDelta,
+        // 跨周期升级（月卡→年卡）：激活时重开完整目标周期
+        membershipCycleSwitch: preview.cycleSwitch === true,
         remainingRatio: preview.remainingRatio,
         currentPlanCode: preview.currentPlan?.code ?? null,
         targetPlanCode: preview.targetPlan.code,
@@ -390,13 +396,16 @@ export class PaymentService implements OnModuleInit {
     });
 
     const orderNo = this.generateOrderNo();
-    const expiredAt = new Date(Date.now() + 5 * 60 * 1000);
+    // The local deadline must match the deadline sent to both gateways.  A
+    // shorter local TTL leaves a still-payable gateway QR attached to an
+    // expired/cancelled order and is a common source of late-payment misses.
+    const expiredAt = new Date(Date.now() + PAYMENT_ORDER_TTL_MINUTES * 60 * 1000);
 
     let qrCodeUrl: string | null = null;
     if (paymentMethod === PaymentMethod.ALIPAY) {
       qrCodeUrl = await this.generateAlipayQrCode(orderNo, orderAmount);
     } else if (paymentMethod === PaymentMethod.WECHAT) {
-      qrCodeUrl = await this.generateWechatQrCode(orderNo, orderAmount);
+      qrCodeUrl = await this.generateWechatQrCode(orderNo, orderAmount, expiredAt);
     }
 
     const order = await this.prisma.paymentOrder.create({
@@ -454,7 +463,7 @@ export class PaymentService implements OnModuleInit {
           out_trade_no: orderNo,
           total_amount: amountStr,
           subject: `积分充值 - ${amountStr}元`,
-          timeout_express: '30m',
+          timeout_express: `${PAYMENT_ORDER_TTL_MINUTES}m`,
         },
       });
 
@@ -485,8 +494,13 @@ export class PaymentService implements OnModuleInit {
    * 生成微信支付二维码
    * 使用 Native 支付模式：统一下单获取 code_url，然后生成二维码
    */
-  private async generateWechatQrCode(orderNo: string, amount: number): Promise<string> {
-    const { wechatPay, wechatAppId, wechatMchId } = await this.paymentResolver.resolve();
+  private async generateWechatQrCode(
+    orderNo: string,
+    amount: number,
+    expiredAt: Date,
+  ): Promise<string> {
+    const { wechatPay, wechatAppId, wechatMchId } =
+      await this.paymentResolver.resolve();
     if (!wechatPay) {
       throw new BadRequestException('微信支付SDK未初始化');
     }
@@ -502,6 +516,7 @@ export class PaymentService implements OnModuleInit {
           process.env.WECHAT_NOTIFY_URL,
           'https://www.tanvas.cn/api/payment/wechat-notify',
         ),
+        time_expire: expiredAt.toISOString(),
         amount: {
           total: Math.round(amount * 100), // 金额单位：分
           currency: 'CNY',
@@ -896,7 +911,7 @@ export class PaymentService implements OnModuleInit {
         topupRef.value = { teamId, delta: credits, taskId: `topup_${orderId}` };
         return;
       }
-      let account = await tx.creditAccount.findUnique({ where: { userId } });
+      let account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) account = await tx.creditAccount.create({ data: { userId, balance: 0, totalEarned: 0 } });
       const newBalance = account.balance + credits;
       await tx.creditAccount.update({ where: { id: account.id }, data: { balance: newBalance, totalEarned: account.totalEarned + credits } });
@@ -958,8 +973,17 @@ export class PaymentService implements OnModuleInit {
     const pendingOrders = await this.prisma.paymentOrder.findMany({
       where: {
         userId,
-        status: PaymentStatus.PENDING,
-        expiredAt: { gt: new Date() },
+        status: {
+          in: [
+            PaymentStatus.PENDING,
+            PaymentStatus.EXPIRED,
+            PaymentStatus.CANCELLED,
+            PaymentStatus.FAILED,
+          ],
+        },
+        createdAt: {
+          gte: new Date(Date.now() - PAYMENT_RECONCILE_LOOKBACK_HOURS * 60 * 60 * 1000),
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: safeLimit,
@@ -1197,8 +1221,9 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  // 每 10 分钟扫描近 2 小时内的 expired 订单，向网关主动核查，补救因回调丢失导致的漏单
-  @Cron('0 */10 * * * *')
+  // 每 5 分钟核查近期所有未入账订单。cancelled 必须包含在内：用户刷新二维码后，
+  // 旧网关订单仍可能在截止时间前完成支付，不能只补 expired 订单。
+  @Cron('0 */5 * * * *')
   async reconcileExpiredOrdersJob() {
     try {
       const rescued = await this.reconcileExpiredOrders();
@@ -1214,19 +1239,29 @@ export class PaymentService implements OnModuleInit {
   }
 
   async reconcileExpiredOrders(): Promise<number> {
-    const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    // cron 无 CLS 上下文（默认会落主站）：平台态跨租户扫描，逐单由 processPaymentSuccess 切回各自租户
-    const expiredOrders = await this.tenantContext.runAsPlatform(() =>
+    const since = new Date(
+      Date.now() - PAYMENT_RECONCILE_LOOKBACK_HOURS * 60 * 60 * 1000,
+    );
+    // cron 无 CLS 上下文：平台态跨租户扫描，逐单由 processPaymentSuccess 切回各自租户。
+    const unsettledOrders = await this.tenantContext.runAsPlatform(() =>
       this.prisma.paymentOrder.findMany({
         where: {
-          status: PaymentStatus.EXPIRED,
+          status: {
+            in: [
+              PaymentStatus.PENDING,
+              PaymentStatus.EXPIRED,
+              PaymentStatus.CANCELLED,
+              PaymentStatus.FAILED,
+            ],
+          },
           createdAt: { gte: since },
         },
+        orderBy: { createdAt: 'asc' },
       }),
     );
 
     let rescued = 0;
-    for (const order of expiredOrders) {
+    for (const order of unsettledOrders) {
       try {
         let paid = false;
         let tradeNo: string | null = null;

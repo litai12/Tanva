@@ -74,4 +74,32 @@ export class CreateAgentRunDto {
   @IsOptional()
   @IsObject()
   context?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsIn(['research', 'canvasAgent'])
+  mode?: 'research' | 'canvasAgent';
+
+  @IsOptional()
+  @IsObject()
+  canvasContext?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  capabilityManifest?: Record<string, unknown>;
+
+  // 风格锚定：生成契约（facade 认 <generation_contract> 段）
+  @IsOptional()
+  @IsObject()
+  generationContract?: {
+    version: 'v1';
+    lockedAnchors: string[];
+    editableVariable: string | null;
+    forbiddenChanges: string[];
+    approvedKeyframeId: string | null;
+  };
+
+  // 风格参考图原始 URL（小T把它接入生成节点 img 输入作为风格参考）
+  @IsOptional()
+  @IsString()
+  styleReferenceUrl?: string;
 }

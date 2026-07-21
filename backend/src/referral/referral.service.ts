@@ -459,9 +459,20 @@ export class ReferralService {
       throw new BadRequestException('邀请码不能为空');
     }
 
-    return this.prisma.$transaction(async (tx) =>
+    const redemption = await this.prisma.$transaction(async (tx) =>
       this.applyInviteCodeWithTx(tx, inviteeUserId, normalizedCode),
     );
+
+    // 绑定成功后立即触发初始积分发放（仅填写邀请码的用户可获得），失败不影响绑定结果
+    try {
+      await this.creditsService.getOrCreateAccount(inviteeUserId);
+    } catch (e) {
+      console.warn(
+        `[Referral] 邀请码绑定后发放初始积分失败: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+
+    return redemption;
   }
 
   /**

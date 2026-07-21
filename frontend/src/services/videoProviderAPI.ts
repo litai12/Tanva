@@ -18,6 +18,29 @@ const buildIdempotencyKey = (scope: string): string => {
   return `${scope}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
+let cachedClientTabId: string | undefined;
+
+const getClientTabId = (): string => {
+  if (cachedClientTabId) return cachedClientTabId;
+  const storageKey = "tanva_video_client_tab_id";
+  try {
+    const existing = sessionStorage.getItem(storageKey)?.trim();
+    if (existing) {
+      cachedClientTabId = existing.slice(0, 128);
+      return cachedClientTabId;
+    }
+  } catch {
+    // Session storage may be disabled; the in-memory value still identifies this tab lifetime.
+  }
+  cachedClientTabId = buildIdempotencyKey("tab").slice(0, 128);
+  try {
+    sessionStorage.setItem(storageKey, cachedClientTabId);
+  } catch {
+    // noop
+  }
+  return cachedClientTabId;
+};
+
 export interface VideoGenerationRequest {
   prompt?: string;
   negativePrompt?: string;
@@ -32,6 +55,7 @@ export interface VideoGenerationRequest {
   managedModelKey?: string;
   vendorKey?: string;
   platformKey?: string;
+  channelTier?: "default" | "vip";
   duration?: number;
   aspectRatio?: string;
   provider: VideoProvider;
@@ -64,6 +88,11 @@ export interface VideoGenerationRequest {
   keepOriginalSound?: "yes" | "no";
   generateAudio?: boolean;
   idempotencyKey?: string;
+  clientProjectId?: string;
+  clientNodeId?: string;
+  clientRunId?: string;
+  runSource?: string;
+  clientTabId?: string;
 }
 
 export interface VideoGenerationResult {
@@ -73,6 +102,8 @@ export interface VideoGenerationResult {
   status: string;
   error?: string;
   apiUsageId?: string; // 用于失败时退款
+  provider?: VideoProvider;
+  deduplicated?: boolean;
 }
 
 export interface VideoTaskQueryResult {
@@ -95,7 +126,14 @@ export async function generateVideoByProvider(
     typeof request.idempotencyKey === "string" && request.idempotencyKey.trim().length > 0
       ? request.idempotencyKey.trim().slice(0, 128)
       : buildIdempotencyKey("video-provider");
-  const { idempotencyKey: _idempotencyKey, ...payload } = request;
+  const { idempotencyKey: _idempotencyKey, ...requestPayload } = request;
+  const payload =
+    requestPayload.clientProjectId && requestPayload.clientNodeId
+      ? {
+          ...requestPayload,
+          clientTabId: requestPayload.clientTabId || getClientTabId(),
+        }
+      : requestPayload;
   const response = await fetchWithAuth(
     `${apiBaseUrl}/api/ai/generate-video-provider`,
     {
@@ -125,7 +163,7 @@ export async function queryVideoTask(
 ): Promise<VideoTaskQueryResult> {
   const apiBaseUrl = getApiBaseUrl();
   const response = await fetchWithAuth(
-    `${apiBaseUrl}/api/ai/video-task/${provider}/${taskId}`
+    `${apiBaseUrl}/api/ai/video-task/${encodeURIComponent(provider)}/${encodeURIComponent(taskId)}`
   );
 
   if (!response.ok) {
@@ -217,4 +255,3 @@ export async function markVideoTaskSuccess(
 
   return response.json();
 }
-

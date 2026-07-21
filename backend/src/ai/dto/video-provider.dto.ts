@@ -195,4 +195,39 @@ export class VideoProviderRequestDto {
   @IsOptional()
   @IsString()
   platformKey?: string;
+
+  @ApiProperty({ description: 'Explicit video channel tier', required: false, enum: ['default', 'vip'] })
+  @IsOptional()
+  @IsEnum(['default', 'vip'])
+  channelTier?: 'default' | 'vip';
+
+  @ApiProperty({ description: 'Client project identity for active-node gating', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  clientProjectId?: string;
+
+  @ApiProperty({ description: 'Client Flow node identity for active-node gating', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  clientNodeId?: string;
+
+  @ApiProperty({ description: 'Client run identity for diagnostics', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  clientRunId?: string;
+
+  @ApiProperty({ description: 'Client run source for diagnostics', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  runSource?: string;
+
+  @ApiProperty({ description: 'Browser tab identity for diagnostics', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  clientTabId?: string;
 }

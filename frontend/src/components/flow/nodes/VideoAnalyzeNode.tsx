@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState } from '@xyflow/react';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
@@ -61,7 +61,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       (state: ReactFlowState) => {
         const edge = state.edges.find((e) => e.target === id && e.targetHandle === 'video');
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((n) => n.id === edge.source);
+        const sourceNode = state.nodes.find((n) => n.id === edge.source);
         const videoUrl = sourceNode?.data?.videoUrl;
         return typeof videoUrl === 'string' ? videoUrl : undefined;
       },

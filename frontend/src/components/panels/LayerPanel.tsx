@@ -17,6 +17,8 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 import { useLocaleText } from '@/utils/localeText';
 import { isActivePaperEraserTrail } from '@/utils/paperEraserTrail';
+import { cn } from '@/lib/utils';
+import CanvasNodeTab from './CanvasNodeTab';
 
 interface LayerItemData {
     id: string;
@@ -31,6 +33,8 @@ interface LayerItemData {
 const LayerPanel: React.FC = () => {
     const { lt } = useLocaleText();
     const { showLayerPanel, setShowLayerPanel } = useUIStore();
+    // 画布面板双 tab:元素(flow 节点列表,聚焦/重命名/删除) / 图层(paper 图层/图元);默认元素
+    const [panelTab, setPanelTab] = useState<'layers' | 'elements'>('elements');
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
     const content = useProjectContentStore((state) => state.content);
@@ -1236,29 +1240,56 @@ const LayerPanel: React.FC = () => {
     return (
         <>
         <div
-            className={`tanva-layer-panel fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
+            className={`tanva-layer-panel fixed top-0 left-0 h-full w-80 flex flex-col bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
         >
             {/* 面板头部 */}
-            <div className="flex items-center justify-between px-4 pt-6 pb-4">
-                <h2 className="text-lg font-semibold text-gray-800">{lt('图层', 'Layers')}</h2>
+            <div className="flex shrink-0 items-center justify-between px-4 pt-6 pb-4">
+                <h2 className="text-lg font-semibold text-gray-800">{lt('画布', 'Canvas')}</h2>
                 <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 text-gray-600 hover:text-gray-800 bg-transparent"
                     onClick={handleClose}
-                    title={lt('收起图层面板', 'Collapse layer panel')}
-                    aria-label={lt('收起图层面板', 'Collapse layer panel')}
+                    title={lt('收起画布面板', 'Collapse canvas panel')}
+                    aria-label={lt('收起画布面板', 'Collapse canvas panel')}
                 >
                     <ChevronLeft className="h-4 w-4" />
                 </Button>
             </div>
 
             {/* 分隔线 */}
-            <div className="tanva-layer-divider mx-4 h-px bg-gray-200" />
+            <div className="tanva-layer-divider mx-4 h-px bg-gray-200 shrink-0" />
+
+            {/* Tabs: 图层 / 元素 */}
+            <div className="shrink-0 px-3 pt-2 pb-1">
+                <div className="flex rounded-lg bg-gray-100 p-0.5">
+                    {(['elements', 'layers'] as const).map((t) => (
+                        <button
+                            key={t}
+                            className={cn(
+                                'flex-1 rounded-md py-1 text-xs font-medium transition-colors',
+                                panelTab === t
+                                    ? 'bg-white text-gray-900 shadow-sm'
+                                    : 'text-gray-500 hover:text-gray-700'
+                            )}
+                            onClick={() => setPanelTab(t)}
+                        >
+                            {t === 'layers' ? lt('图层', 'Layers') : lt('元素', 'Elements')}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* 元素列表(flow 节点) */}
+            {panelTab === 'elements' && (
+                <div className="min-h-0 flex-1">
+                    <CanvasNodeTab />
+                </div>
+            )}
 
             {/* 图层列表 */}
-            <div className="flex-1 overflow-y-auto pb-12">
+            <div className={panelTab === 'layers' ? 'flex-1 min-h-0 overflow-y-auto pb-12' : 'hidden'}>
                 <div
                     ref={containerRef}
                     className="relative p-3 space-y-2"
@@ -1831,8 +1862,8 @@ const LayerPanel: React.FC = () => {
                 </div>
             </div>
 
-            {/* 面板底部 - 固定在最底部 */}
-            <div className="tanva-layer-footer absolute bottom-0 left-0 right-0 p-3 bg-white">
+            {/* 面板底部 - 固定在最底部(元素 tab 下由 CanvasNodeTab 自带计数) */}
+            <div className={`tanva-layer-footer absolute bottom-0 left-0 right-0 p-3 bg-white ${panelTab === 'elements' ? 'hidden' : ''}`}>
                 <div className="text-xs text-gray-500 text-center">
                     {lt(
                         `共 ${layers.length} 个图层，${Object.values(layerItems).flat().length} 个图元`,

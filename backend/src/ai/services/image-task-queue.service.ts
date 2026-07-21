@@ -77,7 +77,42 @@ export class ImageTaskQueueService implements OnModuleInit, OnModuleDestroy {
   /** Returns true if the job is still waiting/active (DB record not yet written). */
   async hasJob(taskId: string): Promise<boolean> {
     const job = await this.queue.getJob(taskId);
-    return job != null;
+    if (!job) return false;
+    // getJob 也会返回已终态的 job（removeOnComplete/Fail 各保留 200/500 个）。
+    // 已 completed/failed 却没有 DB 行的任务（如被别的环境的 worker 抢走消费）
+    // 不能再对外报 queued，否则前端永远轮询不到终态。
+    const state = await job.getState();
+    return (
+      state === 'waiting' ||
+      state === 'delayed' ||
+      state === 'prioritized' ||
+      state === 'active'
+    );
+  }
+
+  /**
+   * 移除仍在排队（未被 worker 锁定）的 job，返回其 payload 供落取消记录。
+   * job 已被 worker 接手（active/locked）、不存在、或归属用户不匹配时返回 null——此时不可取消。
+   * BullMQ 的 job.remove() 对已锁定 job 会抛错，天然保证「移除成功 = 从未执行」。
+   */
+  async removeWaitingJob(taskId: string, expectedUserId?: string): Promise<ImageTaskJobPayload | null> {
+    const job = await this.queue.getJob(taskId);
+    if (!job) return null;
+    // 归属校验必须在移除前完成，防止越权取消他人任务
+    if (expectedUserId && (job.data as ImageTaskJobPayload)?.userId !== expectedUserId) {
+      return null;
+    }
+    const state = await job.getState();
+    if (state !== 'waiting' && state !== 'delayed' && state !== 'prioritized') {
+      return null;
+    }
+    try {
+      await job.remove();
+    } catch {
+      // 竞态：检查状态后、remove 前被 worker 锁定 → 视为不可取消
+      return null;
+    }
+    return job.data as ImageTaskJobPayload;
   }
 
   async onModuleDestroy() {

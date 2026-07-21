@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position } from "@xyflow/react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";

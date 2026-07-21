@@ -1,14 +1,16 @@
 import type { ManagedPricingBook } from './model-pricing-resolver';
 
-export const SEEDANCE20_DISCOUNT_CREDITS = 600;
-export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 6.0;
+export const SEEDANCE20_DISCOUNT_CREDITS = 750;
+export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 7.5;
 
-const SEEDANCE20_DISCOUNT_RATE = 1;
+// Canvas retail pricing previously reflected cost x1.2. Raising it to x1.5
+// means scaling every existing per-second price by 1.5 / 1.2 = 1.25.
+export const SEEDANCE20_PRICE_SCALE = 1.5 / 1.2;
 
 /**
  * 限时免费活动开关。设置环境变量 SEEDANCE20_FREE=1/true/on/yes 时，
- * seedance-2.0 / seedance-2.0-fast 全分辨率一律按 0 积分计价（预览与实扣同源）。
- * 关闭/未设置时恢复原 3.5 折定价。逐请求读取，可随进程内 env 实时生效、可逆。
+ * Seedance 2.0 / Fast / Mini 全分辨率一律按 0 积分计价（预览与实扣同源）。
+ * 关闭/未设置时恢复进价 x1.5 定价。逐请求读取，可随进程内 env 实时生效、可逆。
  */
 export const isSeedance20FreeEnabled = (): boolean => {
   const raw = String(process.env.SEEDANCE20_FREE ?? '').trim().toLowerCase();
@@ -24,7 +26,7 @@ export const seedance20EffectivePriceYuan = (): number =>
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   isSeedance20FreeEnabled()
     ? 0
-    : Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
+    : Number((unitPriceYuan * SEEDANCE20_PRICE_SCALE).toFixed(4));
 
 export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook => ({
   version: 'v2',
@@ -37,6 +39,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       options: [
         { value: 'seedance-2.0', label: 'Seedance 2.0' },
         { value: 'seedance-2.0-fast', label: 'Seedance 2.0 Fast' },
+        { value: 'seed-2.0-mini', label: 'Seedance 2.0 Mini' },
       ],
     },
     {
@@ -81,6 +84,32 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       conditions: {
         all: [
           { field: 'seedanceModel', op: 'eq', value: 'seedance-2.0-fast' },
+          { field: 'resolution', op: 'eq', value: '720P' },
+        ],
+      },
+    },
+    {
+      ruleKey: 'seedance20_mini_480p',
+      label: 'Seedance 2.0 Mini 480P',
+      enabled: true,
+      priority: 120,
+      evaluatorKey: 'seedance20_fast_480p_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seed-2.0-mini' },
+          { field: 'resolution', op: 'eq', value: '480P' },
+        ],
+      },
+    },
+    {
+      ruleKey: 'seedance20_mini_720p',
+      label: 'Seedance 2.0 Mini 720P',
+      enabled: true,
+      priority: 120,
+      evaluatorKey: 'seedance20_fast_720p_eval',
+      conditions: {
+        all: [
+          { field: 'seedanceModel', op: 'eq', value: 'seed-2.0-mini' },
           { field: 'resolution', op: 'eq', value: '720P' },
         ],
       },
@@ -175,6 +204,7 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
     labels: {
       'seedanceModel.seedance-2.0': 'Seedance 2.0',
       'seedanceModel.seedance-2.0-fast': 'Seedance 2.0 Fast',
+      'seedanceModel.seed-2.0-mini': 'Seedance 2.0 Mini',
       'resolution.480P': '480P',
       'resolution.720P': '720P',
       'resolution.1080P': '1080P',
@@ -192,6 +222,8 @@ export const createSeedance20DiscountPricingTemplate = (): ManagedPricingBook =>
       { seedanceModel: 'seedance-2.0', resolution: '4K', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '480P', duration: 5 },
       { seedanceModel: 'seedance-2.0-fast', resolution: '720P', duration: 5 },
+      { seedanceModel: 'seed-2.0-mini', resolution: '480P', duration: 5 },
+      { seedanceModel: 'seed-2.0-mini', resolution: '720P', duration: 5 },
     ],
   },
 });

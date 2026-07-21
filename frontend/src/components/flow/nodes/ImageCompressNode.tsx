@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState, type Node } from '@xyflow/react';
 import SmartImage from '../../ui/SmartImage';
 import { resolveImageToBlob } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
@@ -341,7 +341,7 @@ function ImageCompressNodeInner({ id, data, selected = false }: Props) {
         );
         if (!edge) return null;
 
-        const nodeById = new Map(state.getNodes().map((n) => [n.id, n]));
+        const nodeById = new Map(state.nodes.map((n) => [n.id, n]));
 
         const resolveFromNode = (
           node: Node<Record<string, unknown>> | undefined,

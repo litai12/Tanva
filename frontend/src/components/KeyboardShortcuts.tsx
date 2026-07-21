@@ -2,13 +2,8 @@
  * Global keyboard shortcuts for undo/redo, save, and clipboard JSON helpers.
  */
 import { useCallback, useEffect } from 'react';
-import { projectApi } from '@/services/projectApi';
-import { paperSaveService } from '@/services/paperSaveService';
-import { flowSaveService } from '@/services/flowSaveService';
-import { useProjectContentStore } from '@/stores/projectContentStore';
-import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
-import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
+import { performManualSave } from '@/services/manualSaveService';
 import { clipboardJsonService } from '@/services/clipboardJsonService';
 import { clipboardService } from '@/services/clipboardService';
 import { useTranslation } from 'react-i18next';
@@ -102,59 +97,12 @@ export default function KeyboardShortcuts() {
           return;
         }
       }
-      // Ctrl/Cmd + S 保存
+      // Ctrl/Cmd + S 保存：与「保存」按钮共用 manualSaveService，
+      // 不要在这里复制保存逻辑（历史上复制过一份，分叉后漏掉写缓存与 stale 判定，
+      // 导致 Ctrl+S 后刷新必弹「内容已过期」、且服务端拒收时谎报保存成功）。
       if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
-        const storeBefore = useProjectContentStore.getState();
-        if (!storeBefore.projectId || storeBefore.saving || storeBefore.manualSaving) return;
-        try {
-          await paperSaveService.saveImmediately();
-          await flowSaveService.flushFlowNodeImageRefs();
-          const store = useProjectContentStore.getState();
-          const { projectId, content, version } = store;
-          if (!projectId || !content) return;
-          const sanitizeResult = sanitizeProjectContentForCloudSave(content);
-          const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
-          const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
-          const contentForCloudSave = sanitizeResult?.sanitized ?? content;
-          if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-            try {
-              useProjectContentStore.getState().setWarning(
-                lt(
-                  `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已阻止云端保存，请重试上传后再保存`,
-                  `Found images not uploaded to OSS (Canvas ${invalidCanvasImageIds.length}, Flow ${invalidFlowNodeIds.length}); cloud save is blocked. Please upload and retry.`
-                )
-              );
-            } catch {}
-            return;
-          } else {
-            try {
-              useProjectContentStore.getState().setWarning(null);
-            } catch {}
-          }
-          store.setManualSaving(true);
-          const result = await projectApi.saveContent(projectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
-          store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
-          try {
-            saveMonitor.push(projectId, 'kb_save_success', {
-              version: result.version,
-              updatedAt: result.updatedAt,
-              paperJsonLen: content.meta?.paperJsonLen || content.paperJson?.length || 0,
-              layerCount: content.layers.length || 0,
-            });
-          } catch {}
-        } catch (err) {
-          const raw = err instanceof Error ? err.message : String(err ?? '');
-          const msg = raw.includes('413') || raw.toLowerCase().includes('too large')
-            ? lt('保存失败：内容过大，请尝试清理或拆分项目', 'Save failed: content is too large. Try cleaning or splitting the project')
-            : (raw || lt('保存失败', 'Save failed'));
-          try { useProjectContentStore.getState().setError(msg); } catch {}
-        } finally {
-          const store = useProjectContentStore.getState();
-          if (store.projectId === storeBefore.projectId) {
-            store.setManualSaving(false);
-          }
-        }
+        await performManualSave({ origin: 'keyboard', lt });
       }
     };
     window.addEventListener('keydown', onKeyDown);

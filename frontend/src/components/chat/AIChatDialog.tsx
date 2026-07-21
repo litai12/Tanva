@@ -54,7 +54,9 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  FileType,
   Play,
+  Square,
   RotateCcw,
   Pencil,
   Lock,
@@ -76,6 +78,16 @@ import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
 import { toRenderableImageSrc } from "@/utils/imageSource";
 import {
+  DOC_MAX_TEXT_BYTES,
+  DOC_TEXT_ACCEPT,
+  DocExtractError,
+  extractTextFromDocFile,
+  fitTextToBytes,
+  isSupportedDocFile,
+  pickSupportedDocFiles,
+  textByteLength,
+} from "@/utils/documentTextExtract";
+import {
   getTencentBananaMaxReferenceImages,
   isTencentBananaAnalyzeSupported,
   isTencentStableBananaRoute,
@@ -83,6 +95,13 @@ import {
 import {
   RealtimeAsrClient,
 } from "@/services/realtimeAsrClient";
+import type { XiaotChatModel } from "@/services/agentBackendAPI";
+import {
+  XIAOT_PREFERRED_IMAGE_MODELS,
+  XIAOT_PREFERRED_VIDEO_MODELS,
+} from "@/services/agentCanvasProtocol";
+import XiaotCards from "@/components/chat/XiaotCards";
+import XiaotStyleAnchorButton from "@/components/chat/XiaotStyleAnchorButton";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -107,6 +126,13 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: "analyze", label: "Analysis", description: "图像分析模式" },
   { value: "video", label: "Video", description: "视频生成模式" },
   { value: "vector", label: "Vector", description: "矢量图形模式" },
+];
+
+// 小T大脑选项（值与 backend XIAOT_CHAT_MODELS 对齐，见 agentBackendAPI.ts）
+const XIAOT_BRAIN_OPTIONS: Array<{ label: string; value: XiaotChatModel }> = [
+  { label: "GPT 5.6 Sol", value: "xiaot-agent-gpt-5-6-sol" },
+  { label: "GPT 5.6 Terra", value: "xiaot-agent-gpt-5-6-terra" },
+  { label: "GPT 5.6 Luna", value: "xiaot-agent-gpt-5-6-luna" },
 ];
 
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）
@@ -253,6 +279,16 @@ const AIChatDialog: React.FC = () => {
     isIterativeMode,
     updateMessageStatus,
     toggleWebSearch,
+    xiaotMode,
+    toggleXiaotMode,
+    xiaotModel,
+    setXiaotModel,
+    xiaotPreferredImage,
+    setXiaotPreferredImage,
+    xiaotPreferredVideo,
+    setXiaotPreferredVideo,
+    xiaotRunning,
+    stopXiaotAgent,
     setAspectRatio,
     setImageSize,
     setThinkingLevel,
@@ -302,6 +338,15 @@ const AIChatDialog: React.FC = () => {
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+  // ingestDocFiles 定义在 handlePaste 之后，粘贴分支经此 ref 取最新实现
+  const ingestDocFilesRef = useRef<(files: FileList | File[]) => Promise<void>>(
+    async () => {}
+  );
+  // 文档拖拽：dragenter/leave 会在子元素上冒泡触发，用深度计数判定真正离开
+  const dragDepthRef = useRef(0);
+  const [isDocDragging, setIsDocDragging] = useState(false);
+  const [isExtractingDoc, setIsExtractingDoc] = useState(false);
   const ownedObjectUrlsRef = useRef<Set<string>>(new Set());
   const historyRef = useRef<HTMLDivElement>(null);
   const historyInitialHeightRef = useRef<number | null>(null);
@@ -1268,17 +1313,25 @@ const AIChatDialog: React.FC = () => {
   }, []);
 
   // 检测长时间停留在“准备中”的生成任务，自动终止以防彩雾长驻
+  // 超时按“最后活动时间”计（内容/进度/阶段任一变化即视为活跃），
+  // 而非消息创建时间——小T等多轮长任务否则必被误杀
+  const generationActivityRef = useRef(
+    new Map<string, { fingerprint: string; ts: number }>()
+  );
   useEffect(() => {
     if (messages.length === 0) return;
     const now = Date.now();
-    const STALE_MS = 45_000; // 45s 视为超时
+    const STALE_MS = 45_000; // 45s 无活动视为超时
     const STALE_PROGRESS = 10; // 只处理早期阶段的卡住任务
     const hydrationCutoff = hydrationTimestampRef.current;
+    const activity = generationActivityRef.current;
+    const liveIds = new Set<string>();
 
     messages.forEach((msg) => {
       if (msg.type !== "ai") return;
       const status = msg.generationStatus;
       if (!status?.isGenerating) return;
+      liveIds.add(msg.id);
 
       const ts =
         msg.timestamp instanceof Date
@@ -1288,10 +1341,19 @@ const AIChatDialog: React.FC = () => {
       // 刷新前的旧任务不再自动标记为“已停止”
       if (ts <= hydrationCutoff) return;
 
+      const fingerprint = `${msg.content?.length ?? 0}|${
+        status.progress ?? ""
+      }|${status.stage ?? ""}`;
+      const entry = activity.get(msg.id);
+      if (!entry || entry.fingerprint !== fingerprint) {
+        activity.set(msg.id, { fingerprint, ts: now });
+        return;
+      }
+
       const isPreparing =
         (status.stage && status.stage.includes("准备")) ||
         (status.progress ?? 0) <= STALE_PROGRESS;
-      const isStale = now - ts > STALE_MS;
+      const isStale = now - entry.ts > STALE_MS;
 
       if (isPreparing && isStale) {
         updateMessageStatus(msg.id, {
@@ -1301,6 +1363,11 @@ const AIChatDialog: React.FC = () => {
         });
       }
     });
+
+    // 已结束/移除的消息清掉活跃记录，防 Map 长驻
+    for (const id of Array.from(activity.keys())) {
+      if (!liveIds.has(id)) activity.delete(id);
+    }
   }, [messages, updateMessageStatus]);
 
   // 刷新后清理旧任务遗留的“任务已停止”提示
@@ -1463,11 +1530,24 @@ const AIChatDialog: React.FC = () => {
     sourceImagesForBlending,
   ]);
 
-  // 处理粘贴事件 - 支持从剪贴板粘贴图片
+  // 处理粘贴事件 - 支持从剪贴板粘贴图片 / 粘贴 txt·md·docx 文件
   const handlePaste = useCallback(
     (event: React.ClipboardEvent) => {
       const clipboardData = event.clipboardData;
       if (!clipboardData) return;
+
+      // 文档文件（在访达/资源管理器 Cmd+C 复制文件后粘贴）→ 抽文本进输入框。
+      // 与拖拽同一条链路；经 ref 调用是因为 ingestDocFiles 定义在本回调之后，
+      // 直接写进依赖数组会在渲染期 ReferenceError。
+      const pastedFiles = Array.from(clipboardData.files || []);
+      if (pastedFiles.length > 0) {
+        const docFiles = pastedFiles.filter(isSupportedDocFile);
+        if (docFiles.length > 0) {
+          event.preventDefault();
+          void ingestDocFilesRef.current(docFiles);
+          return;
+        }
+      }
 
       // 检查剪贴板中是否有图片
       const items = clipboardData.items;
@@ -1651,6 +1731,146 @@ const AIChatDialog: React.FC = () => {
       }
     },
     []
+  );
+
+  // ── 文档（txt/md/docx）→ 文本输入 ──
+  // 本地提取正文追加进输入框，不上传不扣费（与 PDF 的「传 OSS 做多模态分析」是两条路）。
+  // 入口三个：拖拽到输入区、上传菜单「上传文档」、以及两者共用的隐藏 input。
+  const ingestDocFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const { supported, rejected } = pickSupportedDocFiles(files);
+      if (supported.length === 0) {
+        if (rejected.length > 0) {
+          showToast(
+            lt(
+              "只支持 txt / md / docx 文档；图片和 PDF 请用上传菜单",
+              "Only txt / md / docx are supported; use the upload menu for images and PDFs"
+            ),
+            "error"
+          );
+        }
+        return;
+      }
+
+      setIsExtractingDoc(true);
+      const texts: string[] = [];
+      const okNames: string[] = [];
+      let truncatedAny = false;
+      // 多文件的总量闸门：单文件各自 ≤10MB，但一次拖 5 个就是 50MB，
+      // 故按累计字节再卡一道 10MB，超了就停止收后续文件。
+      let usedBytes = 0;
+      try {
+        for (const file of supported) {
+          if (usedBytes >= DOC_MAX_TEXT_BYTES) {
+            truncatedAny = true;
+            break;
+          }
+          try {
+            const result = await extractTextFromDocFile(file);
+            const fitted = fitTextToBytes(result.text, DOC_MAX_TEXT_BYTES - usedBytes);
+            if (!fitted.text) {
+              truncatedAny = true;
+              break;
+            }
+            usedBytes += textByteLength(fitted.text);
+            texts.push(fitted.text);
+            okNames.push(result.fileName);
+            if (result.truncated || fitted.truncated) truncatedAny = true;
+          } catch (error) {
+            // 单个文件失败不连坐其余文件
+            const message =
+              error instanceof DocExtractError
+                ? error.message
+                : `${file.name} 解析失败`;
+            showToast(message, "error");
+          }
+        }
+      } finally {
+        setIsExtractingDoc(false);
+      }
+      if (texts.length === 0) return;
+
+      // 追加而非覆盖：用户可能已经写了指令（"把这个改成15s TVC"）再拖文件进来
+      const addition = texts.join("\n\n");
+      const merged = currentInput.trim()
+        ? `${currentInput.replace(/\s+$/, "")}\n\n${addition}`
+        : addition;
+      setCurrentInput(merged);
+      // 插入后把光标移到末尾并聚焦，接着打字即可
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(merged.length, merged.length);
+        scheduleEnsureInputVisible();
+      });
+
+      const chars = addition.length.toLocaleString();
+      const limitMb = DOC_MAX_TEXT_BYTES / 1024 / 1024;
+      showToast(
+        truncatedAny
+          ? lt(
+              `已插入 ${okNames.join("、")}（超出 ${limitMb}MB 上限，已截断至 ${chars} 字）`,
+              `Inserted ${okNames.join(", ")} (over the ${limitMb}MB limit, truncated to ${chars} chars)`
+            )
+          : lt(
+              `已插入 ${okNames.join("、")}（${chars} 字）`,
+              `Inserted ${okNames.join(", ")} (${chars} chars)`
+            ),
+        "success"
+      );
+      if (rejected.length > 0) {
+        showToast(
+          lt(
+            `已忽略 ${rejected.length} 个不支持的文件`,
+            `Ignored ${rejected.length} unsupported file(s)`
+          ),
+          "error"
+        );
+      }
+    },
+    [currentInput, setCurrentInput, showToast, lt, scheduleEnsureInputVisible]
+  );
+
+  // 供 handlePaste（定义在前）取用最新实现
+  useEffect(() => {
+    ingestDocFilesRef.current = ingestDocFiles;
+  }, [ingestDocFiles]);
+
+  // 拖拽：只对「带文件的拖拽」响应，拖选中的文字/画布节点时不干扰
+  const dragHasFiles = (event: React.DragEvent): boolean =>
+    Array.from(event.dataTransfer?.types || []).includes("Files");
+
+  const handleDocDragEnter = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDocDragging(true);
+  }, []);
+
+  const handleDocDragOver = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    // 必须 preventDefault，否则浏览器不触发 drop（默认会拿文件去导航）
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleDocDragLeave = useCallback((event: React.DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDocDragging(false);
+  }, []);
+
+  const handleDocDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!dragHasFiles(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setIsDocDragging(false);
+      const files = event.dataTransfer?.files;
+      if (files && files.length > 0) void ingestDocFiles(files);
+    },
+    [ingestDocFiles]
   );
 
   const handleCopyMessage = useCallback(
@@ -2489,7 +2709,8 @@ const AIChatDialog: React.FC = () => {
       !trimmedInput ||
       generationStatus.isGenerating ||
       autoOptimizing ||
-      sendInFlightRef.current
+      sendInFlightRef.current ||
+      (xiaotMode && xiaotRunning) // 小T流式进行中：禁止再起新一轮（先停止）
     )
       return;
 
@@ -2561,6 +2782,11 @@ const AIChatDialog: React.FC = () => {
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
+      // 输入法合成中（如中文拼音选词）的回车用于上屏，不触发发送
+      // keyCode 229 兜底 Safari：确认合成的回车 isComposing 已为 false
+      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+        return;
+      }
       const isModKey = e.ctrlKey || e.metaKey;
       if (sendShortcut === "enter") {
         // Enter 直接发送；Shift+Enter 继续换行
@@ -2976,6 +3202,8 @@ const AIChatDialog: React.FC = () => {
     currentInput.trim().length > 0 &&
     !autoOptimizing &&
     (manualAIMode === "auto" || isManualModeSupported);
+  // 小T 正在流式运行：发送按钮切成「停止」，点击中断当前会话
+  const isXiaotBusy = xiaotMode && xiaotRunning;
   const hasHistoryContent = messages.length > 0 || isStreaming;
   const shouldShowHistoryPanel =
     (showHistory || isMaximized) && (hasHistoryContent || showHistory);
@@ -3089,6 +3317,12 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         data-prevent-add-panel
+        // 文档拖拽落点 = 整个对话框：用户拖文件时不会精准瞄准底部输入条，
+        // 只挂输入区会让人以为"拖了没反应"。挂根节点后对话框任意位置都能接。
+        onDragEnter={handleDocDragEnter}
+        onDragOver={handleDocDragOver}
+        onDragLeave={handleDocDragLeave}
+        onDrop={handleDocDrop}
         className={cn(
           "transition-all ease-out relative overflow-visible group ai-chat-glow-border",
           isBlackTheme && "ai-chat-theme-premium-dark",
@@ -3124,6 +3358,22 @@ const AIChatDialog: React.FC = () => {
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
+        {/* 文档拖入提示浮层：盖住整个对话框（落点即整个对话框）。
+            pointer-events-none 必须有，否则浮层自己会吃掉 dragleave/drop。 */}
+        {(isDocDragging || isExtractingDoc) && (
+          <div className='absolute inset-0 z-50 flex items-center justify-center rounded-2xl pointer-events-none bg-blue-50/70 backdrop-blur-[2px]'>
+            <div className='flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-700 border-2 border-blue-400 border-dashed rounded-xl bg-white/95 shadow-sm'>
+              <FileText className='w-4 h-4' />
+              {isExtractingDoc
+                ? lt("正在读取文档…", "Reading document…")
+                : lt(
+                    "松手插入文档文字（txt / md / docx）",
+                    "Drop to insert text (txt / md / docx)"
+                  )}
+            </div>
+          </div>
+        )}
+
         {showHistoryHoverIndicator && (
           <button
             type='button'
@@ -3225,7 +3475,7 @@ const AIChatDialog: React.FC = () => {
           <div
             ref={inputAreaRef}
             className={cn(
-              "order-2 flex-shrink-0",
+              "order-2 flex-shrink-0 relative",
               showHistory && !isMaximized && "mt-auto",
               isMaximized && "mt-auto",
               shouldShowHistoryPanel && "pt-2"
@@ -3401,6 +3651,7 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
+                {!xiaotMode && (
                 <DropdownMenu className='order-1 relative dropdown-menu-root'>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -3488,8 +3739,237 @@ const AIChatDialog: React.FC = () => {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
 
-                {!shouldHideImageParamControls && (
+                {/* 小T大脑选择器 - 小T模式下替换常规模型下拉 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("选择小T大脑", "Select XiaoT brain")}
+                      >
+                        <span className='font-medium'>
+                          {XIAOT_BRAIN_OPTIONS.find(
+                            (option) => option.value === xiaotModel
+                          )?.label ?? XIAOT_BRAIN_OPTIONS[0].label}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[160px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("小T大脑", "XiaoT brain")}
+                      </DropdownMenuLabel>
+                      {XIAOT_BRAIN_OPTIONS.map((option) => {
+                        const isActive = xiaotModel === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotModel(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* 小T优选图片模型选择器 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("优选图片模型（小T生图时优先使用）", "Preferred image model for XiaoT")}
+                      >
+                        <span className='max-w-[92px] truncate font-medium'>
+                          {lt("图", "Img")}·
+                          {XIAOT_PREFERRED_IMAGE_MODELS.find(
+                            (option) => option.value === xiaotPreferredImage
+                          )?.short ?? XIAOT_PREFERRED_IMAGE_MODELS[1].short}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 shrink-0 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[180px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("优选图片", "Preferred image")}
+                      </DropdownMenuLabel>
+                      {XIAOT_PREFERRED_IMAGE_MODELS.map((option) => {
+                        const isActive = xiaotPreferredImage === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotPreferredImage(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* 小T优选视频模型选择器 */}
+                {xiaotMode && (
+                  <DropdownMenu className='order-2 relative dropdown-menu-root'>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={false}
+                        data-dropdown-trigger='true'
+                        className={cn(
+                          "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                          !generationStatus.isGenerating
+                            ? "hover:bg-gray-100 text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                        title={lt("优选视频模型（小T生视频时优先使用）", "Preferred video model for XiaoT")}
+                      >
+                        <span className='max-w-[92px] truncate font-medium'>
+                          {lt("视", "Vid")}·
+                          {XIAOT_PREFERRED_VIDEO_MODELS.find(
+                            (option) => option.value === xiaotPreferredVideo
+                          )?.short ?? XIAOT_PREFERRED_VIDEO_MODELS[0].short}
+                        </span>
+                        <ChevronDown className='h-3.5 w-3.5 shrink-0 opacity-60' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='dropdown-menu-root min-w-[160px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        {lt("优选视频", "Preferred video")}
+                      </DropdownMenuLabel>
+                      {XIAOT_PREFERRED_VIDEO_MODELS.map((option) => {
+                        const isActive = xiaotPreferredVideo === option.value;
+                        return (
+                          <DropdownMenuItem
+                            key={option.value}
+                            onClick={(event) => {
+                              setXiaotPreferredVideo(option.value);
+                              const root = (
+                                event.currentTarget as HTMLElement
+                              ).closest(".dropdown-menu-root");
+                              const trigger = root?.querySelector(
+                                '[data-dropdown-trigger="true"]'
+                              ) as HTMLButtonElement | null;
+                              if (trigger && !trigger.disabled) {
+                                trigger.click();
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='flex-1 font-medium leading-none'>
+                              {option.label}
+                            </span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-slate-700' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* 小T风格锚定 */}
+                {xiaotMode && (
+                  <XiaotStyleAnchorButton
+                    isBlackTheme={isBlackTheme}
+                    disabled={generationStatus.isGenerating}
+                    dropdownSide={dropdownSide}
+                    lt={lt}
+                  />
+                )}
+
+                {!xiaotMode && !shouldHideImageParamControls && (
                   <DropdownMenu className='order-2 relative dropdown-menu-root'>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -3623,10 +4103,48 @@ const AIChatDialog: React.FC = () => {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
+
+                {/* 小T画布智能体模式开关 */}
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={false}
+                  onClick={toggleXiaotMode}
+                  aria-pressed={xiaotMode}
+                  className={cn(
+                    "relative order-4 h-7 px-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    xiaotMode
+                      ? isBlackTheme
+                        ? "bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : !generationStatus.isGenerating
+                      ? isBlackTheme
+                        ? "text-gray-400 border-gray-600"
+                        : "hover:bg-gray-100 text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={lt(
+                    `小T画布智能体模式: ${xiaotMode ? "开启" : "关闭"}`,
+                    `XiaoT canvas agent mode: ${xiaotMode ? "On" : "Off"}`
+                  )}
+                >
+                  <span className='font-medium'>{lt("小T", "XiaoT")}</span>
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute -top-1.5 -right-1.5 rounded-full px-1 py-px text-[9px] font-semibold leading-none",
+                      isBlackTheme
+                        ? "bg-amber-500 text-black"
+                        : "bg-amber-500 text-white"
+                    )}
+                  >
+                    beta
+                  </span>
+                </Button>
               </div>
 
               {/* 长宽比选择按钮 */}
-              {showAspectRatioControls && (
+              {!xiaotMode && showAspectRatioControls && (
                 <Button
                   ref={aspectButtonRef}
                   onClick={() => setIsAspectOpen((v) => !v)}
@@ -3729,7 +4247,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {showImageSizeControls && (
+              {!xiaotMode && showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
@@ -3758,7 +4276,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 思考级别按钮 - Gemini Pro 和 Banana API */}
-              {showThinkingLevelControls && (
+              {!xiaotMode && showThinkingLevelControls && (
                 <Button
                   ref={thinkingLevelButtonRef}
                   onClick={() => setIsThinkingLevelOpen((v) => !v)}
@@ -4033,7 +4551,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 联网搜索开关 */}
-              {!shouldHideImageParamControls && (
+              {!xiaotMode && !shouldHideImageParamControls && (
                 <Button
                   onClick={toggleWebSearch}
                   disabled={false}
@@ -4062,7 +4580,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 提示词扩写按钮：单击切换自动扩写，长按打开配置面板 */}
-              {!shouldHideImageParamControls && (
+              {!xiaotMode && !shouldHideImageParamControls && (
                 <Button
                   ref={promptButtonRef}
                   size='sm'
@@ -4101,7 +4619,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {/* +号上传按钮 - 替换原来的上传图片按钮位置 */}
+              {/* +号上传按钮 - 替换原来的上传图片按钮位置（小T模式 v1 不支持附件，先隐藏） */}
+              {!xiaotMode && (
               <DropdownMenu
                 open={isUploadMenuOpen}
                 onOpenChange={setIsUploadMenuOpen}
@@ -4149,8 +4668,18 @@ const AIChatDialog: React.FC = () => {
                     <FileText className='w-4 h-4' />
                     <span>{lt("上传PDF", "Upload PDF")}</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      docInputRef.current?.click();
+                    }}
+                    className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
+                  >
+                    <FileType className='w-4 h-4' />
+                    <span>{lt("上传文档", "Upload document")}</span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
 
               {/* 发送按钮 */}
               <Button
@@ -4184,21 +4713,36 @@ const AIChatDialog: React.FC = () => {
               </Button>
 
               <Button
-                onClick={handleSend}
-                disabled={!canSend}
+                onClick={isXiaotBusy ? stopXiaotAgent : handleSend}
+                disabled={isXiaotBusy ? false : !canSend}
                 size='sm'
                 variant='outline'
                 data-chat-primary-action='true'
-                title={sendButtonTitle}
+                title={
+                  isXiaotBusy
+                    ? lt("停止小T", "Stop assistant")
+                    : sendButtonTitle
+                }
+                aria-label={
+                  isXiaotBusy
+                    ? lt("停止小T", "Stop assistant")
+                    : lt("发送", "Send")
+                }
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  canSend
+                  isXiaotBusy
+                    ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
+                    : canSend
                     ? "hover:bg-liquid-glass-hover text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >
-                <Play className='h-3.5 w-3.5' />
+                {isXiaotBusy ? (
+                  <Square size={12} fill="currentColor" />
+                ) : (
+                  <Play className='h-3.5 w-3.5' />
+                )}
               </Button>
             </div>
 
@@ -4223,6 +4767,20 @@ const AIChatDialog: React.FC = () => {
               multiple
               style={{ display: "none" }}
               onChange={handleImageUpload}
+            />
+            {/* 文档文件输入（txt/md/docx）：本地提取文字进输入框，与拖拽同一条链路 */}
+            <input
+              ref={docInputRef}
+              type='file'
+              accept={DOC_TEXT_ACCEPT}
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) void ingestDocFiles(files);
+                // 清空 value：否则连续选同一个文件不触发 change
+                if (docInputRef.current) docInputRef.current.value = "";
+              }}
             />
             {/* PDF文件输入 */}
             <input
@@ -5085,7 +5643,12 @@ const AIChatDialog: React.FC = () => {
                                       ),
                                     }}
                                   >
-                                    {message.content}
+                                    {/* 仍在生成中：正文末尾拼「...」作打字指示，
+                                        不入库（持久化的是干净 content） */}
+                                    {generationStatus?.isGenerating &&
+                                    message.content?.trim()
+                                      ? `${message.content}...`
+                                      : message.content}
                                   </ReactMarkdown>
 
                                   {message.webSearchResult
@@ -5113,6 +5676,24 @@ const AIChatDialog: React.FC = () => {
                                       </div>
                                     </div>
                                   )}
+
+                                  {/* 小T host_ui 卡片（choices/suggestions/media）；
+                                      error 时也保留已渲染卡片 */}
+                                  <XiaotCards
+                                    cards={
+                                      (message.metadata as any)?.xiaotCards
+                                    }
+                                    suggestions={
+                                      (message.metadata as any)
+                                        ?.xiaotSuggestions
+                                    }
+                                    disabled={Boolean(
+                                      message.generationStatus?.isGenerating
+                                    )}
+                                    onSend={(text) => {
+                                      void processUserInput(text);
+                                    }}
+                                  />
                                 </div>
                               ) : null;
                               const resendInfo =

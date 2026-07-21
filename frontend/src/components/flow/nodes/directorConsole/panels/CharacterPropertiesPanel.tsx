@@ -1,111 +1,171 @@
 import React from 'react'
 import type { CharacterObj } from '../types'
-import { Section, TextField, Vec3Row, SliderField } from './Field'
-import { POSE_PRESETS, JOINT_SLIDERS, deg, toDeg, type JointRole } from '../state/pose'
+import { HexColorField, KeyframeButton, Section, TextField, Vec3Row, SliderField } from './Field'
+import type { PropertyName } from '../state/propertyTimeline'
+import { POSE_PRESETS, deg, toDeg, type JointRole, type PosePreset } from '../state/pose'
 import { getLibraryItem } from '../assets'
 
-type Props = { character: CharacterObj; onPatch: (patch: Partial<CharacterObj>) => void }
+type Props = {
+  character: CharacterObj
+  onPatch: (patch: Partial<CharacterObj>) => void
+  timelineMode?: boolean
+  timelineKeyframes?: {
+    isKeyed: (property: PropertyName, component?: 0 | 1 | 2) => boolean
+    toggle: (property: PropertyName, component?: 0 | 1 | 2) => void
+  }
+}
 
-export function CharacterPropertiesPanel({ character, onPatch }: Props) {
-  const [tab, setTab] = React.useState<'props' | 'pose'>('props')
-  // 道具（几何/家具）没有骨骼，不展示姿势页
-  const isProp = getLibraryItem(character.modelId)?.kind === 'prop'
-  const effectiveTab = isProp ? 'props' : tab
+type PoseEntry = { label: string; sourceId: string }
+
+// LibTV Director Console exposes this fixed set and order; Tanva's larger pose library is intentionally not surfaced.
+export const LIBTV_POSES: PoseEntry[] = [
+  { label: '站立', sourceId: 'arms-down' },
+  { label: 'T型', sourceId: 'tpose' },
+  { label: '行走', sourceId: 'walk' },
+  { label: '跑步', sourceId: 'run' },
+  { label: '坐姿', sourceId: 'sit' },
+  { label: '蹲下', sourceId: 'squat' },
+  { label: '单膝跪', sourceId: 'kneel' },
+  { label: '双膝跪', sourceId: 'seiza' },
+  { label: '叉腰', sourceId: 'akimbo' },
+  { label: '倚靠', sourceId: 'hands-behind' },
+  { label: '鞠躬', sourceId: 'bow' },
+  { label: '思考', sourceId: 'think' },
+  { label: '格斗', sourceId: 'horse-stance' },
+  { label: '踢球', sourceId: 'kick' },
+  { label: '投掷', sourceId: 'throw' },
+  { label: '推进', sourceId: 'push' },
+  { label: '招手', sourceId: 'wave' },
+  { label: '伸手', sourceId: 'reach' },
+  { label: '抱臂', sourceId: 'crossed' },
+  { label: '看手机', sourceId: 'phone' },
+]
+
+type Adjustment = { label: string; role: JointRole; axis: 0 | 1 | 2; min: number; max: number; side?: '左' | '右' }
+type AdjustmentGroup = { title: string; items: Adjustment[] }
+
+const GROUPS: AdjustmentGroup[] = [
+  { title: '身体', items: [
+    { label: '前倾', role: 'body', axis: 0, min: -45, max: 45 },
+    { label: '转身', role: 'body', axis: 1, min: -60, max: 60 },
+    { label: '侧倾', role: 'body', axis: 2, min: -40, max: 40 },
+  ] },
+  { title: '躯干', items: [
+    { label: '前倾', role: 'spine', axis: 0, min: -45, max: 45 },
+    { label: '扭转', role: 'spine', axis: 1, min: -60, max: 60 },
+    { label: '侧倾', role: 'spine', axis: 2, min: -40, max: 40 },
+  ] },
+  { title: '头部', items: [
+    { label: '点头', role: 'neck', axis: 0, min: -40, max: 40 },
+    { label: '转头', role: 'neck', axis: 1, min: -60, max: 60 },
+    { label: '歪头', role: 'neck', axis: 2, min: -35, max: 35 },
+  ] },
+  { title: '手臂 — 肩', items: [
+    { side: '左', label: '前举', role: 'shoulderL', axis: 0, min: -120, max: 60 },
+    { side: '左', label: '外展', role: 'shoulderL', axis: 2, min: -100, max: 140 },
+    { side: '左', label: '扭转', role: 'shoulderL', axis: 1, min: -90, max: 90 },
+    { side: '右', label: '前举', role: 'shoulderR', axis: 0, min: -120, max: 60 },
+    { side: '右', label: '外展', role: 'shoulderR', axis: 2, min: -140, max: 100 },
+    { side: '右', label: '扭转', role: 'shoulderR', axis: 1, min: -90, max: 90 },
+  ] },
+  { title: '肘部', items: [
+    { side: '左', label: '弯曲', role: 'elbowL', axis: 1, min: -140, max: 5 },
+    { side: '右', label: '弯曲', role: 'elbowR', axis: 1, min: -5, max: 140 },
+  ] },
+  { title: '腿部 — 髋', items: [
+    { side: '左', label: '前抬', role: 'hipL', axis: 0, min: -110, max: 60 },
+    { side: '左', label: '外展', role: 'hipL', axis: 2, min: -70, max: 70 },
+    { side: '左', label: '扭转', role: 'hipL', axis: 1, min: -70, max: 70 },
+    { side: '右', label: '前抬', role: 'hipR', axis: 0, min: -110, max: 60 },
+    { side: '右', label: '外展', role: 'hipR', axis: 2, min: -70, max: 70 },
+    { side: '右', label: '扭转', role: 'hipR', axis: 1, min: -70, max: 70 },
+  ] },
+  { title: '膝部', items: [
+    { side: '左', label: '弯曲', role: 'kneeL', axis: 0, min: -5, max: 140 },
+    { side: '右', label: '弯曲', role: 'kneeR', axis: 0, min: -5, max: 140 },
+  ] },
+]
+
+const presetById = new Map(POSE_PRESETS.map((preset) => [preset.id, preset]))
+
+export function CharacterPropertiesPanel({ character, onPatch, timelineMode = false, timelineKeyframes }: Props) {
+  const isProp = getLibraryItem(character.modelId)?.kind !== 'body'
+  const [tab, setTab] = React.useState<'props' | 'pose' | 'trajectory'>('props')
+  const effectiveTab = isProp || (!timelineMode && tab === 'trajectory') ? 'props' : tab
+  const trajectoryMotion = character.trajectoryMotion ?? {}
+  const patchTrajectoryMotion = (patch: Partial<NonNullable<CharacterObj['trajectoryMotion']>>) => onPatch({ trajectoryMotion: { ...trajectoryMotion, ...patch } })
+  const pose = (character.pose ?? {}) as Record<string, [number, number, number]>
+  const rotationDegrees = character.rotation.map((value) => toDeg(value)) as [number, number, number]
+
+  const applyPreset = (entry: PoseEntry) => {
+    const preset = presetById.get(entry.sourceId) as PosePreset | undefined
+    if (!preset) return
+    onPatch({ pose: { ...preset.pose }, posePresetId: entry.sourceId, motion: undefined, motionClip: undefined, motionSequence: undefined })
+  }
+
+  const setJoint = (item: Adjustment, value: number) => {
+    const current = (pose[item.role] ?? [0, 0, 0]).slice() as [number, number, number]
+    current[item.axis] = deg(value)
+    onPatch({ pose: { ...pose, [item.role]: current }, posePresetId: undefined, motion: undefined, motionClip: undefined, motionSequence: undefined })
+  }
+
+  const tabs = isProp ? [{ id: 'props', label: '属性' }] : [
+    { id: 'props', label: '属性' },
+    { id: 'pose', label: '姿势' },
+    ...(timelineMode ? [{ id: 'trajectory', label: '运动轨迹' }] : []),
+  ]
+
   return (
-    <div>
-      <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600 }}>{isProp ? '道具' : '角色'}</div>
-      <div style={{ display: 'flex', gap: 16, padding: '0 16px 8px', borderBottom: '1px solid #16181d' }}>
-        {(isProp ? (['props'] as const) : (['props', 'pose'] as const)).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, paddingBottom: 8, color: effectiveTab === t ? '#fff' : '#6b7280', borderBottom: effectiveTab === t ? '2px solid #fff' : '2px solid transparent' }}>
-            {t === 'props' ? '属性' : '姿势'}
-          </button>
+    <div style={{ paddingBottom: 16 }}>
+      <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600, color: '#f5f5f5' }}>{isProp ? '对象' : '角色'}</div>
+      <div style={{ display: 'flex', gap: 18, padding: '0 16px 8px', borderBottom: '1px solid #262626' }}>
+        {tabs.map((item) => (
+          <button key={item.id} onClick={() => setTab(item.id as typeof tab)} style={{ border: 0, borderBottom: effectiveTab === item.id ? '2px solid #f5f5f5' : '2px solid transparent', padding: '0 0 8px', background: 'transparent', color: effectiveTab === item.id ? '#f5f5f5' : '#737373', cursor: 'pointer', fontSize: 13 }}>{item.label}</button>
         ))}
       </div>
 
-      {effectiveTab === 'props' ? (
-        <>
-          <Section title="名称"><TextField value={character.name} onChange={(v) => onPatch({ name: v })} /></Section>
-          <Section title="位置"><Vec3Row value={character.position} onChange={(v) => onPatch({ position: v })} /></Section>
-          <Section title="旋转"><Vec3Row value={character.rotation} onChange={(v) => onPatch({ rotation: v })} /></Section>
-          <Section title="缩放"><Vec3Row value={character.scale} onChange={(v) => onPatch({ scale: v })} /></Section>
-          <Section title="统一缩放">
-            <SliderField value={character.uniformScale} min={0.2} max={3} step={0.01} onChange={(v) => onPatch({ uniformScale: v })} />
-          </Section>
-          <Section title="颜色">
-            <input type="color" value={character.colorHex} onChange={(e) => onPatch({ colorHex: e.target.value })}
-              style={{ width: 48, height: 32, background: 'transparent', border: '1px solid #2a2f3a', borderRadius: 6, cursor: 'pointer' }} />
-          </Section>
-        </>
-      ) : (
-        <PoseTab character={character} onPatch={onPatch} />
-      )}
+      {effectiveTab === 'props' ? <>
+        <Section title="名称"><TextField value={character.name} onChange={(value) => onPatch({ name: value })} /></Section>
+        <Section title="位置"><Vec3Row value={character.position} onChange={(value) => onPatch({ position: value })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('position', component)} onClick={() => timelineKeyframes.toggle('position', component)} /> : undefined} /></Section>
+        <Section title="旋转"><Vec3Row value={rotationDegrees} onChange={(value) => onPatch({ rotation: value.map((angle) => deg(angle)) as [number, number, number] })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('rotation', component)} onClick={() => timelineKeyframes.toggle('rotation', component)} /> : undefined} /></Section>
+        <Section title="缩放"><Vec3Row value={character.scale} onChange={(value) => onPatch({ scale: value })} renderAxisAction={timelineMode && timelineKeyframes ? (component) => <KeyframeButton keyed={timelineKeyframes.isKeyed('scale', component)} onClick={() => timelineKeyframes.toggle('scale', component)} /> : undefined} /></Section>
+        <Section title="统一缩放"><SliderField value={character.uniformScale} min={0.2} max={3} step={0.01} displayDigits={1} onChange={(value) => onPatch({ uniformScale: value })} /></Section>
+        <Section title="颜色"><HexColorField value={character.colorHex} onChange={(colorHex) => onPatch({ colorHex })} /></Section>
+      </> : effectiveTab === 'pose' ? <>
+        <Section title="姿势预设">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+            {LIBTV_POSES.map((entry) => {
+              const active = character.posePresetId === entry.sourceId
+              return <button key={entry.label} onClick={() => applyPreset(entry)} style={{ minHeight: 36, borderRadius: 6, border: `1px solid ${active ? '#e5e5e5' : '#333'}`, background: active ? '#404040' : '#242424', color: active ? '#fff' : '#bfbfbf', fontSize: 11, cursor: 'pointer' }}>{entry.label}</button>
+            })}
+          </div>
+        </Section>
+        <div style={{ padding: '12px 16px 4px', color: '#8b93a1', fontSize: 12 }}>姿势调节</div>
+        {GROUPS.map((group) => <Section key={group.title} title={group.title}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {group.items.map((item, index) => <React.Fragment key={`${item.side ?? ''}-${item.label}-${item.role}`}>
+              {item.side && (index === 0 || group.items[index - 1]?.side !== item.side) ? <div style={{ color: '#d4d4d4', fontSize: 11, fontWeight: 600 }}>{item.side}</div> : null}
+              <div>
+              <div style={{ marginBottom: 3, color: '#a3a3a3', fontSize: 11 }}>{item.label}</div>
+              <SliderField value={toDeg(pose[item.role]?.[item.axis] ?? 0)} min={item.min} max={item.max} step={1} inputLabel={`${item.label}角度`} onChange={(value) => setJoint(item, value)} />
+              </div>
+            </React.Fragment>)}
+          </div>
+        </Section>)}
+      </> : <>
+        <div style={{ padding: '12px 16px', color: '#8c8c8c', fontSize: 12, lineHeight: 1.6 }}>在下方时间轴中使用“绘制轨迹”设置路径；这里控制步态、地面接触与 IK 精度。</div>
+        <Section title="自动步态"><button aria-pressed={trajectoryMotion.autoGait !== false} onClick={() => patchTrajectoryMotion({ autoGait: trajectoryMotion.autoGait === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.autoGait !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.autoGait !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="跑步阈值 m/s"><SliderField value={trajectoryMotion.runThreshold ?? 2.2} min={0.5} max={6} step={0.1} displayDigits={1} onChange={(runThreshold) => patchTrajectoryMotion({ runThreshold })} /></Section>
+        <Section title="行走标定 m/s"><SliderField value={trajectoryMotion.walkSpeed ?? 1.4} min={0.2} max={3} step={0.05} displayDigits={2} onChange={(walkSpeed) => patchTrajectoryMotion({ walkSpeed })} /></Section>
+        <Section title="跑步标定 m/s"><SliderField value={trajectoryMotion.runSpeed ?? 3.2} min={1} max={8} step={0.1} displayDigits={1} onChange={(runSpeed) => patchTrajectoryMotion({ runSpeed })} /></Section>
+        <Section title="脚底 IK"><button aria-pressed={trajectoryMotion.ikEnabled !== false} onClick={() => patchTrajectoryMotion({ ikEnabled: trajectoryMotion.ikEnabled === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.ikEnabled !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.ikEnabled !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="IK 强度"><SliderField value={trajectoryMotion.ikWeight ?? 1} min={0} max={1} step={0.05} displayDigits={2} onChange={(ikWeight) => patchTrajectoryMotion({ ikWeight })} /></Section>
+        <Section title="脚底锁定"><button aria-pressed={trajectoryMotion.footLockEnabled !== false} onClick={() => patchTrajectoryMotion({ footLockEnabled: trajectoryMotion.footLockEnabled === false })} style={{ width: '100%', height: 30, border: '1px solid #383838', borderRadius: 6, background: trajectoryMotion.footLockEnabled !== false ? '#374151' : '#242424', color: '#ddd' }}>{trajectoryMotion.footLockEnabled !== false ? '已开启' : '已关闭'}</button></Section>
+        <Section title="接触阈值 m"><SliderField value={trajectoryMotion.footLockDistance ?? 0.055} min={0.01} max={0.2} step={0.005} displayDigits={3} onChange={(footLockDistance) => patchTrajectoryMotion({ footLockDistance })} /></Section>
+        <Section title="释放阈值 m"><SliderField value={trajectoryMotion.footReleaseDistance ?? 0.14} min={0.03} max={0.4} step={0.01} displayDigits={2} onChange={(footReleaseDistance) => patchTrajectoryMotion({ footReleaseDistance })} /></Section>
+        <Section title="脚底偏移 m"><SliderField value={trajectoryMotion.soleOffset ?? 0.01} min={-0.1} max={0.15} step={0.005} displayDigits={3} onChange={(soleOffset) => patchTrajectoryMotion({ soleOffset })} /></Section>
+        <Section title="脚掌坡面权重"><SliderField value={trajectoryMotion.footSlopeWeight ?? 1} min={0} max={1} step={0.05} displayDigits={2} onChange={(footSlopeWeight) => patchTrajectoryMotion({ footSlopeWeight })} /></Section>
+      </>}
     </div>
-  )
-}
-
-// 按 category 保序分组（POSE_PRESETS 内同类已相邻）
-const poseGroups = POSE_PRESETS.reduce<{ category: string; items: typeof POSE_PRESETS }[]>((acc, p) => {
-  const last = acc[acc.length - 1]
-  if (last && last.category === p.category) last.items.push(p)
-  else acc.push({ category: p.category, items: [p] })
-  return acc
-}, [])
-
-function PoseTab({ character, onPatch }: Props) {
-  const pose = (character.pose ?? {}) as Record<string, [number, number, number]>
-  const [jointEditEnabled, setJointEditEnabled] = React.useState(false)
-  const applyPreset = (presetId: string, p: Record<string, [number, number, number]>) => onPatch({ pose: { ...p }, posePresetId: presetId })
-  const setJoint = (role: JointRole, axis: 0 | 1 | 2, valDeg: number) => {
-    const cur = (pose[role] ?? [0, 0, 0]).slice() as [number, number, number]
-    cur[axis] = deg(valDeg)
-    onPatch({ pose: { ...pose, [role]: cur } })
-  }
-  return (
-    <>
-      <Section title="姿势预设">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {poseGroups.map((g) => (
-            <div key={g.category}>
-              <div style={{ fontSize: 11, color: '#8b93a1', marginBottom: 4 }}>{g.category}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                {g.items.map((p) => (
-                  <button key={p.id} onClick={() => applyPreset(p.id, p.pose as Record<string, [number, number, number]>)}
-                    style={{ padding: '6px 0', borderRadius: 6, background: '#1c1f26', color: '#cdd3dc', border: '1px solid #2a2f3a', cursor: 'pointer', fontSize: 12 }}>{p.name}</button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-      <Section title="逐关节调节">
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: '#cdd3dc' }}>
-          <input
-            type="checkbox"
-            checked={jointEditEnabled}
-            onChange={(e) => {
-              const enabled = e.target.checked
-              setJointEditEnabled(enabled)
-              window.dispatchEvent(new CustomEvent('director:toggleJointEditing', { detail: { characterId: character.id, enabled } }))
-            }}
-          />
-          显示关节球并启用骨骼调整
-        </label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {JOINT_SLIDERS.map((j) => {
-            const v = toDeg((pose[j.role]?.[j.axis]) ?? 0)
-            return (
-              <div key={`${j.role}-${j.axis}`}>
-                <div style={{ fontSize: 11, color: '#8b93a1', marginBottom: 2 }}>{j.label}</div>
-                <SliderField value={v} min={j.min} max={j.max} step={1} onChange={(nv) => setJoint(j.role, j.axis, nv)} />
-              </div>
-            )
-          })}
-        </div>
-      </Section>
-      <div style={{ padding: '8px 16px' }}>
-        <button onClick={() => onPatch({ pose: undefined, posePresetId: undefined })} style={{ width: '100%', padding: '7px 0', borderRadius: 8, background: '#1c1f26', color: '#9ca3af', border: '1px solid #2a2f3a', cursor: 'pointer' }}>重置姿势</button>
-      </div>
-    </>
   )
 }

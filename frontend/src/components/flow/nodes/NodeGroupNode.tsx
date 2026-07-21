@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Play, Square } from 'lucide-react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position } from '@xyflow/react';
 import { useLocaleText } from '@/utils/localeText';
 import SmartImage from '@/components/ui/SmartImage';
 

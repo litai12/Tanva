@@ -10,6 +10,7 @@ import {
   Pencil,
   Scissors,
   Search,
+  Trash2,
   Type,
   Video,
   X,
@@ -207,6 +208,20 @@ export default function CanvasNodeTab() {
     }
   }, [editingId, editValue]);
 
+  // 删除节点:复用 flow:deleteNode 通道(自带组子节点展开/轮询清理/历史提交)
+  const deleteNode = React.useCallback((node: NodeSnapshot) => {
+    if (!window.confirm(`删除节点「${nodeLabel(node)}」？此操作会同时移除其连线。`)) return;
+    // 乐观更新本地列表,避免等待快照回流
+    setNodes((prev) => prev.filter((n) => n.id !== node.id));
+    try {
+      window.dispatchEvent(
+        new CustomEvent("flow:deleteNode", { detail: { nodeId: node.id } })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const filterLabel =
     catFilter === "all" ? "全部" : CATEGORY_META[catFilter]?.label ?? "全部";
 
@@ -338,6 +353,16 @@ export default function CanvasNodeTab() {
                       }}
                     >
                       <Pencil size={12} />
+                    </button>
+                    <button
+                      className="shrink-0 rounded p-1 text-gray-400 opacity-0 hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                      title="删除"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteNode(n);
+                      }}
+                    >
+                      <Trash2 size={12} />
                     </button>
                   </>
                 )}

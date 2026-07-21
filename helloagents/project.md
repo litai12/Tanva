@@ -30,6 +30,7 @@
 ### 资源访问
 - 直连 OSS/CDN：默认禁用 `/api/assets/proxy`，使用 `VITE_ASSET_PUBLIC_BASE_URL` 将 `projects/...` 等 key 拼成可访问 URL
 - 如需重新启用代理：设置 `VITE_PROXY_ASSETS=true`
+- 导演台内置模型、纹理与地形只发布到 TOS 的 `director-assets/v1/`，不再随 `frontend/public/` 打包；运行时优先通过 `VITE_ASSET_PUBLIC_BASE_URL` 直连，未配置时使用已部署的广州 TOS 公共基址，不允许回退到本地副本。重新发布时在仓库外准备保持 glTF 相对依赖结构的目录，再运行 `cd backend && DIRECTOR_ASSET_SOURCE_DIR=/absolute/staging/path npm run upload:director-assets`。
 
 ### API 前缀与文档
 - 后端全局前缀：`/api`
@@ -42,6 +43,7 @@
 ### Flow / AI 运行约定
 - AI Chat 项目内会话只从 `Project.content.aiChatSessions` / `aiChatActiveSessionId` 水合；全局 IndexedDB/localStorage 会话只用于无项目场景，避免切换/新建项目时把旧本地历史串入当前项目。
 - 项目内容本地缓存使用 `frontend/src/services/projectCacheStore.ts` 的 IndexedDB（`tanva_project_cache`）：打开项目可先用账号隔离缓存水合，再后台校验远端 `contentVersion/updatedAt`；校验中自动/手动保存需暂停，保存成功写入与云端一致的 sanitized 内容，避免本地运行时字段或旧缓存覆盖远端。切换项目的体感性能还受 Paper `importJSON`、Raster 重建和 Flow hydrate 影响；下拉快速切换应先关闭菜单并延后一拍触发 `projectStore.open()`，Paper 项目切换路径在已提前清空时可跳过导入前的重复 `project.clear()`。
+- 同项目 Undo/Redo 只恢复内容快照并标记为未保存修改，不得恢复历史快照携带的 `contentVersion`/`lastSavedAt`，也不得重置 `dirtyCounter`、保存锁、缓存校验或 stale 保护状态；`Project.contentVersion` 是云端乐观锁基线，在同一项目会话内只能随成功保存前进。
 - AI Chat 普通文本请求默认只发送当前输入；命中“继续/调整/再试”等迭代意图，或“刚才/之前/上文/上一条/这个/那个/这两个/previous/last”等上下文指代时，才通过 `contextManager.buildContextPrompt` 拼接会话历史。迭代计数与上下文依赖检测是两条独立判定；Auto-mode Agent trace 在上下文依赖命中时也会接收同一份上下文并展示上下文读取步骤。Flow Text Chat 节点不继承这条 AI Chat 上下文注入策略。
 - AI Chat Auto/Generate 图片输出数量：底部 `1/2/4/8` 倍数是默认值；当用户输入明确包含“画/生成/做/出 + 两张/3张/多张”等输出数量时，本次请求会用语言解析出的数量覆盖默认倍数，并同步给 Agent trace 展示。不要把“用两张参考图/把两张图融合”误判为输出数量。
 - AI Chat 图片生成等待上限为前端任务轮询 15 分钟；消息错误态必须派发 `predictImagePlaceholder/remove`，画布侧 AI 预测占位框也必须带 `createdAt/expiresAt` 并由 `useQuickImageUpload` 定时扫描清理，避免 Paper.js 孤儿占位框长期停在 95%。
@@ -50,7 +52,16 @@
 - Flow Prompt 节点的 `@` 图片引用保存为结构化 `data.mentions`：新建引用可从工作流、项目库与个人库选择；工作流引用只保存 `flow` 节点/句柄引用，项目库/个人库只保存远程 URL/路径。运行时可合并到生图参考图，但不得把 inline 图片写入设计 JSON。Prompt 的“工作流”来源仅在当前 Prompt 下游节点存在已连接的图片输入时显示，并展示这些下游图片输入对应的当前工作流图片；多 `@` 匹配必须按最长 token 优先，自动候选同步不得覆盖已保存的结构化 ref，也不得在同名 token 对应多个候选时盲绑；工作流多输出必须按 `nodeId + handle` 精确匹配，避免同节点不同图串联；已选引用在 Prompt 输入区以图片 chip 区分展示，删除时应按整个 token 同步清理 mention。
 - Flow 视频节点运行时可从连接的 Prompt 节点读取仍存在于文本中的 image mentions 作为虚拟图片输入：物理图片连线优先，`@` 图片只补空位或追加到参考图列表，并在请求 prompt 中追加 token 到参考图序号的映射说明。
 - Flow `omniFlashExtVideo` follows APIMart `omni-flash-ext`: `prompt` is required; image inputs are collected only from the `image` handle; single-image mode accepts 1 image, reference mode accepts 1-3 images, and 2+ images must send `generation_type=reference`; video input is collected from the `video` handle and is limited to 1 URL; when a reference video is present, force `videoMode/generation_type=reference` and omit `duration`; valid duration choices without video are 4/6/8/10 seconds. Backend managed routing includes a default `omni-flash-ext` -> `new_api` route so credit preview/deduction does not fall through to Kling 2.6 defaults.
+- Flow 视频普通/尊享通道使用不同的已部署 new-api 入口：普通通道经 `/v1/videos` 使用后端 `NEW_API_KEY`；`vendorKey/platformKey=tencent_vod|tengxun` 的尊享通道经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。真实令牌不得下发前端；当前 new-api distributor 未部署 type=67 的腾讯 VOD 视频 channel，尊享请求不可直接送入 `/v1/videos` 的 `vip` 分组。
+- Vidu 统一节点的通道按钮必须真实写回 `vendorKey/platformKey`；普通为 `vidu_api`，尊享为 `tencent_vod`。Q2/Q3 切换必须同步 `managedModelKey=vidu-q2|vidu-q3`，后端也会按 `viduModelVariant/viduModel` 修正历史节点的矛盾托管 key，确保计费模型与 new-api 请求模型一致。
+- 视频节点同时持久化并下发显式 `channelTier=default|vip`，后端必须优先以该字段选择入口和令牌；`vendorKey/platformKey` 只作旧节点兼容，防止历史 `tencent_vod` 残留把用户明确选择的 Default 再次覆盖为 VIP。
+- Flow 新建视频节点的产品默认固定为非腾讯普通通道，即使后台托管模型的 `defaultVendor` 仍为 `tencent_vod`；腾讯 VOD 必须保留为用户显式选择的尊享项，不能作为 palette/defaultData 的隐式初始值。缺少 `channelTier` 的旧节点首次水合也按普通通道自愈。
+- 视频节点用 `channelSelectionExplicit` 区分用户选择与历史自动默认：只有用户点击通道按钮才写 `true`；缺失/false 的旧节点即使残留 `channelTier=vip` 或 `vendorKey=tencent_vod`，运行时也强制迁回普通。后端 NodeConfigService 同样为视频 defaultData 输出非腾讯 vendor + `channelTier=default`。
+- Flow 视频生成请求必须携带 `clientProjectId/clientNodeId/clientRunId`，幂等键按本次运行生成；后端在积分账户行锁事务内强制同一 `userId + clientProjectId + clientNodeId` 最多存在一个 30 分钟内的 `PENDING` 视频任务。重复请求不得再次扣费、预留团队积分或调用上游；原记录已有 `taskId` 时直接返回，尚未写回真实 taskId 时返回 `usage:${apiUsageId}` 可轮询别名，查询接口随后自动转接原任务，不能向前端返回冲突错误。视频节点收到创建响应后立即持久化 `taskId/apiUsageId/videoTaskProvider/videoTaskStartedAt`，刷新只恢复原任务轮询，不重新提交；查询暂时中断或前端轮询超时不得退款或清除任务身份。任务进入 `SUCCESS/FAILED` 后立即释放闸门，超过 30 分钟的遗留 `PENDING` 自动失效。仍在运行的旧前端可从 `vnode-${nodeId}-${timestamp}` 幂等键提取节点并进入兼容闸门；无节点身份的 AI Chat/其他旧客户端继续使用普通幂等逻辑。
 - new-api stores the internal route key as `omni-flash-ext`, but APIMart upstream is case-sensitive and must receive `model=Omni-Flash-Ext`; production PostgreSQL data repair lives in `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sql`, with a non-runner SQLite companion at `new-api/patches/2026-06-17/001-fix-omni-flash-ext-apimart-data.sqlite` for local `one-api.db`.
+- ToAPIs 视频生成统一走 `POST /v1/videos/generations`，任务查询必须走 `GET /v1/videos/generations/{id}` 并兼容 flat `generation.task` 响应；不能沿用 APIMart 的 `/v1/tasks/{id}` 或强制要求 `code=200`。ToAPIs 生成模型目录见 `new-api/docs/toapis-video-models.md`，幂等数据补丁见 `new-api/patches/2026-07-18/001-add-toapis-video-models.sql`。
+- ToAPIs Seedance 2 三个 SKU（`seedance-2`、`seedance-2-fast`、`seedance-2-mini`）统一按进价 `x1.5` 计费；当前成本倍率基数 `31.25` 对应 `ModelRatio=46.875`。计费秒数必须是显式输出 `duration` 加所有唯一参考视频的真实时长之和；参考视频统一规范为 `video_with_roles[].role=reference_video`，由 new-api 在预扣前安全下载 MP4 并探测时长，无法确认时拒绝提交，不能只按输出时长计费。为保证预扣准确，这三个 SKU 禁止 `duration=0/-1` 自动时长。默认值与生产补丁必须保持一致，补丁见 `new-api/patches/2026-07-21/001-raise-seedance2-markup-to-1-5.sql`，仅随正式部署执行。
+- Flow 画布的 `doubao-video` Seedance 2.0、Fast、Mini 与网关使用同一商业口径：原 `x1.2` 画布单价整体乘 `1.5/1.2=1.25`，Mini 复用 Fast 的 480P/720P 按秒档。画布试算和个人/团队实际预扣都使用 `billingDurationSec = outputDurationSec + inputVideoDurationSec`；前端从连接节点时长即时试算，后端在预扣前对唯一参考视频 URL 安全下载并用 `ffprobe` 重新确认，失败时不得扣分或提交上游。计费上下文的 `duration` 可替换为总计费秒数，但上游生成 DTO 的输出 `duration` 必须保持不变。
 - Flow Midjourney 节点显示名为 `Midjourney`，节点内 `modelVersion` 在 `v7/v8` 间切换；运行时分别发送 `--v 7`/`--v 8.1` 与 `midjourney-v7`/`midjourney-v8`，Niji 仍使用独立 `niji7` 节点与 `midjourney-niji-7`。new-api 托管 Youchuan 生产数据需包含 `new-api/patches/2026-06-17/002-add-midjourney-v8-youchuan.sql`。
 - Seedance 2.0 `reference_images`/全能参考模式必须把图片作为 `reference_image` 参考媒体处理，不得与 `first_frame`/`last_frame` 角色混用；若 new-api 兼容层返回首尾帧与参考媒体混用错误，后端会退回 Ark 官方 `content`/role 直连任务。
 - Seedance 1.5 Pro Flow 节点分辨率只允许 `720P`/`1080P`；前端需过滤旧 VOD/节点配置里误带的 `4K` 等不支持选项，并把历史节点上的非法分辨率回落到支持选项。
@@ -63,6 +74,10 @@
 ### 环境变量与敏感信息
 - 后端使用 `.env`（见 `backend/src/app.module.ts` 的 `envFilePath` 配置：优先 `backend/.env`，其次 `../.env`）
 - 不要提交密钥/凭据（`.gitignore` 已包含 `backend/.env` 等）
+
+### 支付与补单
+- 微信、支付宝和本地支付订单统一使用 30 分钟有效期；前端倒计时以接口返回的 `expiredAt` 为准，过期后不得继续展示旧二维码。
+- 支付成功统一通过幂等的 `processPaymentSuccess` 入账；自动对账每 5 分钟核查最近 72 小时内的 `pending/expired/cancelled/failed` 订单，详细约定见 `helloagents/wiki/payment-reconciliation.md`。
 
 ## AI Metadata 同步
 - 修改代码或文档后，在仓库根目录运行：

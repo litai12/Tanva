@@ -1,9 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildMembershipCreditLotData } from '../credits/credit-lot-grants';
 import { TransactionType } from '../credits/dto/credits.dto';
+import { findCreditAccountForUpdate } from '../credits/credit-account-lock.util';
 import { BusinessPolicyService } from '../business-policy/business-policy.service';
+import { resolvePaidUpgradePeriod } from './membership-cycle-guard';
 import type {
   ActivatePaidMembershipOrderParams,
   ActivatePaidMembershipOrderResult,
@@ -589,6 +596,7 @@ export class MembershipService {
         effectiveMode: 'immediate',
         payableAmount: Number(targetPlan.price),
         immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        cycleSwitch: false,
         remainingRatio: 1,
         targetPlan: {
           id: targetPlan.id,
@@ -618,6 +626,7 @@ export class MembershipService {
         effectiveMode: 'immediate',
         payableAmount: Number(targetPlan.price),
         immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        cycleSwitch: false,
         remainingRatio: 1,
         targetPlan: {
           id: targetPlan.id,
@@ -641,19 +650,47 @@ export class MembershipService {
       current.currentPeriodStartAt,
       current.currentPeriodEndAt,
     );
+    const currentCycle = this.normalizeBillingCycle(currentPlan.billingCycle);
+    const targetCycle = this.normalizeBillingCycle(targetPlan.billingCycle);
+
+    if (comparison < 0 && currentCycle === 'yearly' && targetCycle === 'monthly') {
+      // 年卡换月卡（即便目标档位更高）一律下周期生效：
+      // 立即生效会把一年周期塌缩成 30 天，用户已付的年费时间价值直接蒸发。
+      return {
+        actionType: 'downgrade' as const,
+        effectiveMode: 'next_cycle',
+        payableAmount: 0,
+        immediateCreditDelta: 0,
+        cycleSwitch: false,
+        remainingRatio,
+        targetPlan: {
+          id: targetPlan.id,
+          code: targetPlan.code,
+          name: targetPlan.name,
+          billingCycle: targetCycle,
+          price: Number(targetPlan.price),
+        },
+        currentPlan: {
+          id: currentPlan.id,
+          code: currentPlan.code,
+          name: currentPlan.name,
+          billingCycle: currentCycle,
+          price: Number(currentPlan.price),
+        },
+        nextEffectiveAt: current.currentPeriodEndAt,
+      };
+    }
 
     if (comparison < 0) {
-      const amountDiff = Math.max(0, Number(targetPlan.price) - Number(currentPlan.price));
-      const payableAmount = this.roundMoney(Math.max(0.01, amountDiff * remainingRatio));
-      const immediateCreditDelta = Math.max(
-        0,
-        Math.round((targetPlan.monthlyQuotaCredits - currentPlan.monthlyQuotaCredits) * remainingRatio),
-      );
+      // 升级一律不折算：展示/支付 = 目标套餐全价，积分全量到账（额度+赠送），
+      // 周期自支付时刻重开为完整目标周期（激活侧按 cycleSwitch 标记处理）。
+      // 旧套餐剩余积分不清除，激活时把旧 membership_bound 批次顺延到新周期一起用。
       return {
         actionType: 'upgrade',
         effectiveMode: 'immediate',
-        payableAmount,
-        immediateCreditDelta,
+        payableAmount: this.roundMoney(Number(targetPlan.price)),
+        immediateCreditDelta: targetPlan.monthlyQuotaCredits + targetPlan.signupBonusCredits,
+        cycleSwitch: true,
         remainingRatio,
         targetPlan: {
           id: targetPlan.id,
@@ -677,6 +714,7 @@ export class MembershipService {
       effectiveMode: 'next_cycle',
       payableAmount: 0,
       immediateCreditDelta: 0,
+      cycleSwitch: false,
       remainingRatio,
       targetPlan: {
         id: targetPlan.id,
@@ -696,64 +734,10 @@ export class MembershipService {
     };
   }
 
-  async scheduleUserDowngrade(userId: string, planCode: string) {
-    const preview = await this.getUserTransitionPreview(userId, planCode);
-    if (preview.actionType !== 'downgrade') {
-      throw new BadRequestException('仅降级套餐可走下周期生效');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const current = await tx.userMembershipSubscription.findFirst({
-        where: { userId, status: 'active' },
-        orderBy: [{ currentPeriodEndAt: 'desc' }, { createdAt: 'desc' }],
-      });
-      if (!current) {
-        throw new NotFoundException('当前用户没有生效中的订阅');
-      }
-
-      const targetPlan = await tx.membershipPlan.findFirst({
-        where: { code: planCode, isActive: true },
-      });
-      if (!targetPlan) {
-        throw new NotFoundException('目标套餐不存在');
-      }
-
-      await tx.membershipSubscriptionChange.updateMany({
-        where: { userId, status: 'scheduled' },
-        data: {
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          reason: 'replaced:user_downgrade',
-          requestedBy: userId,
-        },
-      });
-
-      const change = await tx.membershipSubscriptionChange.create({
-        data: {
-          userId,
-          currentSubscriptionId: current.id,
-          targetPlanId: targetPlan.id,
-          targetPlanCode: targetPlan.code,
-          targetBillingCycle: targetPlan.billingCycle,
-          changeType: 'downgrade',
-          effectiveMode: 'next_cycle',
-          status: 'scheduled',
-          reason: 'user_downgrade',
-          requestedBy: userId,
-          currentPeriodEndAt: current.currentPeriodEndAt,
-          effectiveAt: current.currentPeriodEndAt,
-          metadata: {
-            source: 'user',
-          },
-        },
-      });
-
-      return {
-        success: true,
-        nextChangeId: change.id,
-        effectiveAt: change.effectiveAt,
-      };
-    });
+  async scheduleUserDowngrade(_userId: string, _planCode: string): Promise<never> {
+    // 产品拍板（2026-07-17）：用户不允许降档（含年卡→月卡），只能升级/续费；
+    // 管理员侧走 adminScheduleMembershipChange，不受此限制。旧的下周期降级实现见 git 历史。
+    throw new BadRequestException('会员套餐不支持降级');
   }
 
   async adminExpireMembershipNow(userId: string, reason: string, requestedBy: string) {
@@ -875,8 +859,8 @@ export class MembershipService {
       orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }],
     });
 
-    const account = await tx.creditAccount.findUnique({
-      where: { userId: subscription.userId },
+    const account = await findCreditAccountForUpdate(tx, {
+      userId: subscription.userId,
     });
 
     let accountBalance = account?.balance ?? 0;
@@ -937,6 +921,79 @@ export class MembershipService {
       expiredLots,
       expiredCredits,
     };
+  }
+
+  /**
+   * 按 lot 自身 expiresAt 清扫已过期但仍 active 的会员积分 lot（每日兜底）。
+   * 常规路径由订阅周期结束时 expireSubscriptionLots 清扫；但跨周期换购（月卡→年卡）
+   * 会把订阅周期重开，旧月卡 lot 的到期日早于新周期结束，仅靠周期结束清扫会漏，
+   * 造成余额长期虚高（lot 消费侧已按 expiresAt 过滤，不可花但计入余额显示）。
+   */
+  async expireOverdueMembershipBoundLots(now = new Date()) {
+    const overdueLots = await this.prisma.creditLot.findMany({
+      where: {
+        validityType: 'membership_bound',
+        status: 'active',
+        expiresAt: { lte: now },
+      },
+      select: {
+        id: true,
+        accountId: true,
+        subscriptionId: true,
+      },
+      orderBy: { expiresAt: 'asc' },
+      take: 500,
+    });
+
+    let expiredLots = 0;
+    let expiredCredits = 0;
+
+    for (const overdue of overdueLots) {
+      await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { id: overdue.accountId });
+        const lot = await tx.creditLot.findUnique({
+          where: { id: overdue.id },
+          select: { remainingAmount: true, status: true },
+        });
+        if (!lot || lot.status !== 'active') return;
+
+        await tx.creditLot.update({
+          where: { id: overdue.id },
+          data: { status: 'expired', remainingAmount: 0 },
+        });
+        expiredLots += 1;
+
+        if (lot.remainingAmount <= 0) return;
+        expiredCredits += lot.remainingAmount;
+
+        if (!account) return;
+        const balanceAfter = Math.max(0, account.balance - lot.remainingAmount);
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: { balance: balanceAfter },
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            accountId: overdue.accountId,
+            type: TransactionType.EXPIRE,
+            amount: -lot.remainingAmount,
+            balanceBefore: account.balance,
+            balanceAfter,
+            description: '会员积分到期清理',
+            creditLotId: overdue.id,
+            businessType: 'membership_expire',
+            subscriptionId: overdue.subscriptionId,
+            metadata: {
+              expiredAt: now.toISOString(),
+              reason: 'lot_expires_at_elapsed',
+            },
+          },
+        });
+      });
+    }
+
+    return { expiredLots, expiredCredits };
   }
 
   async adminAdjustMembershipPeriod(
@@ -1189,8 +1246,12 @@ export class MembershipService {
           orderBy: [{ grantedAt: 'asc' }, { createdAt: 'asc' }],
         });
 
+        // 行锁 + 事务内重读：accounts 快照里的余额可能已过期，避免覆盖并发变更。
+        const lockedAccount = await findCreditAccountForUpdate(tx, { id: account.id });
+        if (!lockedAccount) continue;
+
         let remainingDecay = dailyDecayAmount;
-        let accountBalance = account.balance;
+        let accountBalance = lockedAccount.balance;
         const deductions: Array<{ lotId: string; amount: number }> = [];
 
         for (const lot of lots) {
@@ -1326,132 +1387,166 @@ export class MembershipService {
   }
 
   async refreshYearlySubscriptionQuotaLots(now = new Date()) {
-    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
-    const cycleDays = policy.membershipRefreshCycleDays;
-    return this.prisma.$transaction(async (tx) => {
-      const subscriptions = await tx.userMembershipSubscription.findMany({
-        where: {
-          status: 'active',
-          periodType: 'yearly',
-          currentPeriodEndAt: { gt: now },
+    // 产品策略（2026-07-17 确定）：年卡额度在购买时一次性全额到账（monthlyQuotaCredits
+    // 即为全年总量），周期=年，不再按月滴灌刷新。此前配置按全年总量、代码按月度刷新，
+    // 叠加导致每 30 天重复多发一整年额度（如旗舰尊享年卡每期 +720000）。
+    // 保留函数与返回形状（cron 与管理端手动触发仍指向这里），直接空转。
+    void now;
+    return {
+      refreshedSubscriptions: 0,
+      grantedCredits: 0,
+      createdLots: 0,
+      disabled: true as const,
+    };
+  }
+
+  async auditRecentPaidAnnualUpgradeInvariants(now = new Date(), lookbackHours = 48) {
+    const lookbackStart = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000);
+    const orders = await this.prisma.paymentOrder.findMany({
+      where: {
+        status: 'paid',
+        orderType: 'membership',
+        paidAt: { gte: lookbackStart, lte: now },
+      },
+      select: {
+        id: true,
+        userId: true,
+        membershipPlanId: true,
+        subscriptionId: true,
+        paidAt: true,
+        planSnapshot: true,
+        metadata: true,
+      },
+      orderBy: { paidAt: 'asc' },
+      take: 500,
+    });
+
+    const annualUpgrades = orders.filter((order) => {
+      const planSnapshot = this.asJsonObject(order.planSnapshot);
+      const metadata = this.asJsonObject(order.metadata);
+      return (
+        planSnapshot?.billingCycle === 'yearly' &&
+        metadata?.membershipTransitionType === 'upgrade'
+      );
+    });
+    if (annualUpgrades.length === 0) {
+      return { checkedOrders: 0, violations: [] };
+    }
+
+    const subscriptionIds = annualUpgrades
+      .map((order) => order.subscriptionId)
+      .filter((id): id is string => typeof id === 'string');
+    const userIds = [...new Set(annualUpgrades.map((order) => order.userId))];
+    const orderIds = annualUpgrades.map((order) => order.id);
+    const [subscriptions, entitlements, lots, policy] = await Promise.all([
+      this.prisma.userMembershipSubscription.findMany({
+        where: { id: { in: subscriptionIds } },
+      }),
+      this.prisma.membershipEntitlementSnapshot.findMany({
+        where: { userId: { in: userIds } },
+      }),
+      this.prisma.creditLot.findMany({
+        where: { orderId: { in: orderIds } },
+        select: {
+          id: true,
+          orderId: true,
+          subscriptionId: true,
+          expiresAt: true,
         },
-        orderBy: [{ currentPeriodStartAt: 'asc' }, { createdAt: 'asc' }],
-      });
+      }),
+      this.businessPolicyService.getMembershipCreditPolicy(),
+    ]);
+    const subscriptionMap = new Map(subscriptions.map((item) => [item.id, item]));
+    const entitlementMap = new Map(entitlements.map((item) => [item.userId, item]));
+    const lotsByOrder = new Map<string, typeof lots>();
+    for (const lot of lots) {
+      if (!lot.orderId) continue;
+      const orderLots = lotsByOrder.get(lot.orderId) ?? [];
+      orderLots.push(lot);
+      lotsByOrder.set(lot.orderId, orderLots);
+    }
 
-      let refreshedSubscriptions = 0;
-      let grantedCredits = 0;
-      let createdLots = 0;
+    const yearlyCycleDays = this.resolveCycleDays(
+      'yearly',
+      policy.membershipRefreshCycleDays,
+    );
+    const violations: Array<{
+      orderId: string;
+      userId: string;
+      subscriptionId: string | null;
+      reasons: string[];
+    }> = [];
 
-      for (const subscription of subscriptions) {
-        const plan = await tx.membershipPlan.findUnique({
-          where: { id: subscription.membershipPlanId },
-        });
-        if (!plan) continue;
-
-        const snapshot = this.buildPlanSnapshot(plan, subscription.snapshot);
-        const elapsedWindows = Math.floor(
-          (now.getTime() - subscription.currentPeriodStartAt.getTime()) /
-            (cycleDays * 24 * 60 * 60 * 1000),
-        );
-        if (elapsedWindows <= 0) {
-          continue;
+    for (const order of annualUpgrades) {
+      const reasons: string[] = [];
+      const orderMetadata = this.asJsonObject(order.metadata);
+      const planSnapshot = this.asJsonObject(order.planSnapshot);
+      const expectedGrantAmount = Math.max(
+        0,
+        this.toInt(orderMetadata?.immediateCreditDelta, 0),
+      );
+      const subscription = order.subscriptionId
+        ? subscriptionMap.get(order.subscriptionId)
+        : undefined;
+      if (!subscription) {
+        reasons.push('subscription_missing');
+      } else if (subscription.lastOrderId === order.id) {
+        const expectedStartAt = order.paidAt;
+        const expectedEndAt = expectedStartAt
+          ? this.addDays(expectedStartAt, yearlyCycleDays)
+          : null;
+        if (subscription.membershipPlanId !== order.membershipPlanId) {
+          reasons.push('subscription_plan_mismatch');
+        }
+        if (subscription.status !== 'active') reasons.push('subscription_not_active');
+        if (subscription.periodType !== 'yearly') reasons.push('subscription_not_yearly');
+        if (!expectedStartAt || !this.sameDate(subscription.currentPeriodStartAt, expectedStartAt)) {
+          reasons.push('subscription_start_mismatch');
+        }
+        if (!expectedEndAt || !this.sameDate(subscription.currentPeriodEndAt, expectedEndAt)) {
+          reasons.push('subscription_end_mismatch');
         }
 
-        const existingRefreshCount = await tx.creditTransaction.count({
-          where: {
-            subscriptionId: subscription.id,
-            businessType: 'membership_refresh',
-          },
-        });
-
-        const missingRefreshes = elapsedWindows - existingRefreshCount;
-        if (missingRefreshes <= 0) {
-          continue;
+        const entitlement = entitlementMap.get(order.userId);
+        if (
+          !entitlement ||
+          entitlement.currentPlanCode !== planSnapshot?.code ||
+          entitlement.membershipStatus !== 'active' ||
+          !expectedStartAt ||
+          !expectedEndAt ||
+          !this.sameDate(entitlement.currentPeriodStartAt, expectedStartAt) ||
+          !this.sameDate(entitlement.currentPeriodEndAt, expectedEndAt)
+        ) {
+          reasons.push('entitlement_period_mismatch');
         }
 
-        let account = await tx.creditAccount.findUnique({
-          where: { userId: subscription.userId },
-        });
-        if (!account) {
-          account = await tx.creditAccount.create({
-            data: {
-              userId: subscription.userId,
-              balance: 0,
-              totalEarned: 0,
-            },
-          });
-        }
-
-        let accountBalance = account.balance;
-        for (let index = 0; index < missingRefreshes; index += 1) {
-          const cycleIndex = existingRefreshCount + index + 1;
-          const cycleGrantAt = this.addDays(
-            subscription.currentPeriodStartAt,
-            cycleIndex * cycleDays,
-          );
-          if (cycleGrantAt > now || cycleGrantAt >= subscription.currentPeriodEndAt) {
-            break;
-          }
-
-          const lot = await tx.creditLot.create({
-            data: buildMembershipCreditLotData({
-              accountId: account.id,
-              amount: snapshot.monthlyQuotaCredits,
-              grantedAt: cycleGrantAt,
-              activeAt: cycleGrantAt,
-              expiresAt: subscription.currentPeriodEndAt,
-              subscriptionId: subscription.id,
-              metadata: {
-                membershipPlanId: plan.id,
-                membershipPlanCode: snapshot.code,
-                billingCycle: snapshot.billingCycle,
-                refreshCycleIndex: cycleIndex,
-                grantedBy: 'membership_yearly_refresh',
-              },
-            }),
-          });
-
-          const balanceBefore = accountBalance;
-          accountBalance += snapshot.monthlyQuotaCredits;
-          grantedCredits += snapshot.monthlyQuotaCredits;
-          createdLots += 1;
-
-          await tx.creditAccount.update({
-            where: { id: account.id },
-            data: {
-              balance: accountBalance,
-              totalEarned: { increment: snapshot.monthlyQuotaCredits },
-            },
-          });
-
-          await tx.creditTransaction.create({
-            data: {
-              accountId: account.id,
-              type: TransactionType.EARN,
-              amount: snapshot.monthlyQuotaCredits,
-              balanceBefore,
-              balanceAfter: accountBalance,
-              description: `${snapshot.name} 年费月度额度刷新`,
-              creditLotId: lot.id,
-              businessType: 'membership_refresh',
-              subscriptionId: subscription.id,
-              membershipPlanId: plan.id,
-              metadata: {
-                billingCycle: snapshot.billingCycle,
-                refreshCycleIndex: cycleIndex,
-              },
-            },
-          });
-          refreshedSubscriptions += 1;
+        const orderLots = lotsByOrder.get(order.id) ?? [];
+        if (expectedGrantAmount > 0 && orderLots.length === 0) {
+          reasons.push('credit_lot_missing');
+        } else if (
+          orderLots.length > 0 &&
+          (!expectedEndAt ||
+            orderLots.some(
+              (lot) =>
+                lot.subscriptionId !== order.subscriptionId ||
+                !this.sameDate(lot.expiresAt, expectedEndAt),
+            ))
+        ) {
+          reasons.push('credit_lot_expiry_mismatch');
         }
       }
 
-      return {
-        refreshedSubscriptions,
-        grantedCredits,
-        createdLots,
-      };
-    });
+      if (reasons.length > 0) {
+        violations.push({
+          orderId: order.id,
+          userId: order.userId,
+          subscriptionId: order.subscriptionId,
+          reasons,
+        });
+      }
+    }
+
+    return { checkedOrders: annualUpgrades.length, violations };
   }
 
   async issueDailyMembershipGiftCredits(now = new Date()) {
@@ -1506,8 +1601,8 @@ export class MembershipService {
           continue;
         }
 
-        let account = await tx.creditAccount.findUnique({
-          where: { userId: subscription.userId },
+        let account = await findCreditAccountForUpdate(tx, {
+          userId: subscription.userId,
         });
         if (!account) {
           account = await tx.creditAccount.create({
@@ -1688,8 +1783,8 @@ export class MembershipService {
       subscriptionId = createdSubscription.id;
     }
 
-    let account = await params.tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(params.tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await params.tx.creditAccount.create({
@@ -1700,6 +1795,19 @@ export class MembershipService {
         },
       });
     }
+
+    // 开通/续费开出新周期时同样不清除旧剩余积分：旧 membership_bound 活跃批次顺延到新周期结束。
+    // expiresAt > paidAt：只顺延支付时仍未到期的批次；已到期未被清扫的照旧清零，避免 cron 竞态复活。
+    await params.tx.creditLot.updateMany({
+      where: {
+        accountId: account.id,
+        validityType: 'membership_bound',
+        status: 'active',
+        remainingAmount: { gt: 0 },
+        expiresAt: { gt: paidAt, lt: currentPeriodEndAt },
+      },
+      data: { expiresAt: currentPeriodEndAt },
+    });
 
     const lot = await params.tx.creditLot.create({
       data: buildMembershipCreditLotData({
@@ -1817,6 +1925,26 @@ export class MembershipService {
       0,
       this.toInt(orderMetadata?.immediateCreditDelta, 0),
     );
+    const policy = await this.businessPolicyService.getMembershipCreditPolicy();
+    const resolvedPeriod = resolvePaidUpgradePeriod({
+      orderCycleSwitch: orderMetadata?.membershipCycleSwitch,
+      currentPeriodType: activeSubscription.periodType,
+      targetBillingCycle: snapshot.billingCycle,
+      currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
+      currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+      paidAt: params.paidAt,
+      targetCycleDays: this.resolveCycleDays(
+        snapshot.billingCycle,
+        policy.membershipRefreshCycleDays,
+      ),
+    });
+    const {
+      cycleSwitch,
+      cycleSwitchSource,
+      periodType,
+      periodStartAt,
+      periodEndAt,
+    } = resolvedPeriod;
 
     await params.tx.membershipSubscriptionChange.updateMany({
       where: { userId: params.userId, status: 'scheduled' },
@@ -1834,11 +1962,14 @@ export class MembershipService {
         membershipPlanId: persistedPlan.id,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
         lastOrderId: order.id,
+        periodType,
+        currentPeriodStartAt: periodStartAt,
+        currentPeriodEndAt: periodEndAt,
       },
     });
 
-    let account = await params.tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(params.tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await params.tx.creditAccount.create({
@@ -1850,6 +1981,20 @@ export class MembershipService {
       });
     }
 
+    // 升级不清除旧套餐剩余积分：把旧 membership_bound 活跃批次顺延到新周期结束，叠加继续用。
+    // expiresAt > paidAt：只顺延支付时仍未到期的批次；已到期未被清扫的照旧清零，避免 cron 竞态复活。
+    const carriedOverLots = await params.tx.creditLot.updateMany({
+      where: {
+        accountId: account.id,
+        validityType: 'membership_bound',
+        status: 'active',
+        remainingAmount: { gt: 0 },
+        expiresAt: { gt: params.paidAt, lt: periodEndAt },
+      },
+      data: { expiresAt: periodEndAt },
+    });
+
+    let createdLotId: string | null = null;
     if (immediateCreditDelta > 0) {
       const lot = await params.tx.creditLot.create({
         data: buildMembershipCreditLotData({
@@ -1857,7 +2002,7 @@ export class MembershipService {
           amount: immediateCreditDelta,
           grantedAt: params.paidAt,
           activeAt: params.paidAt,
-          expiresAt: activeSubscription.currentPeriodEndAt,
+          expiresAt: periodEndAt,
           orderId: order.id,
           subscriptionId: activeSubscription.id,
           metadata: {
@@ -1865,10 +2010,11 @@ export class MembershipService {
             membershipPlanCode: snapshot.code,
             membershipPlanName: snapshot.name,
             billingCycle: snapshot.billingCycle,
-            grantedBy: 'membership_upgrade_prorated',
+            grantedBy: cycleSwitch ? 'membership_cycle_switch' : 'membership_upgrade_prorated',
           },
         }),
       });
+      createdLotId = lot.id;
 
       const balanceAfter = account.balance + immediateCreditDelta;
       await params.tx.creditAccount.update({
@@ -1886,9 +2032,11 @@ export class MembershipService {
           amount: immediateCreditDelta,
           balanceBefore: account.balance,
           balanceAfter,
-          description: `${snapshot.name} 升级补发积分`,
+          description: cycleSwitch
+            ? `${snapshot.name} 换购新周期发放`
+            : `${snapshot.name} 升级补发积分`,
           creditLotId: lot.id,
-          businessType: 'membership_upgrade_prorated',
+          businessType: cycleSwitch ? 'membership_cycle_switch' : 'membership_upgrade_prorated',
           orderId: order.id,
           subscriptionId: activeSubscription.id,
           membershipPlanId: persistedPlan.id,
@@ -1912,15 +2060,15 @@ export class MembershipService {
         userId: params.userId,
         currentPlanCode: snapshot.code,
         membershipStatus: 'active',
-        currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
-        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        currentPeriodStartAt: periodStartAt,
+        currentPeriodEndAt: periodEndAt,
         pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
       },
       update: {
         currentPlanCode: snapshot.code,
         membershipStatus: 'active',
-        currentPeriodStartAt: activeSubscription.currentPeriodStartAt,
-        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        currentPeriodStartAt: periodStartAt,
+        currentPeriodEndAt: periodEndAt,
         pauseGiftDecay: Boolean(snapshotMetadata?.pauseGiftDecay),
       },
     });
@@ -1935,16 +2083,34 @@ export class MembershipService {
         changeType: 'upgrade',
         effectiveMode: 'immediate',
         status: 'applied',
-        reason: 'user_upgrade',
+        reason: cycleSwitch ? 'user_upgrade_cycle_switch' : 'user_upgrade',
         orderId: order.id,
         requestedBy: params.userId,
-        currentPeriodEndAt: activeSubscription.currentPeriodEndAt,
+        currentPeriodEndAt: periodEndAt,
         effectiveAt: params.paidAt,
         appliedAt: params.paidAt,
         metadata: {
           immediateCreditDelta,
+          cycleSwitch,
+          cycleSwitchSource,
+          carriedOverLots: carriedOverLots.count,
         },
       },
+    });
+
+    await this.assertPaidUpgradeActivationInvariant(params.tx, {
+      userId: params.userId,
+      orderId: order.id,
+      subscriptionId: activeSubscription.id,
+      membershipPlanId: persistedPlan.id,
+      planCode: snapshot.code,
+      periodType,
+      periodStartAt,
+      periodEndAt,
+      accountId: account.id,
+      paidAt: params.paidAt,
+      createdLotId,
+      expectedCreatedLotAmount: immediateCreditDelta,
     });
 
     return {
@@ -2130,8 +2296,8 @@ export class MembershipService {
       },
     });
 
-    let account = await tx.creditAccount.findUnique({
-      where: { userId: params.userId },
+    let account = await findCreditAccountForUpdate(tx, {
+      userId: params.userId,
     });
     if (!account) {
       account = await tx.creditAccount.create({
@@ -2319,6 +2485,90 @@ export class MembershipService {
 
   private normalizeBillingCycle(value: string): MembershipBillingCycle {
     return value === 'yearly' ? 'yearly' : 'monthly';
+  }
+
+  private sameDate(left: Date | null, right: Date | null): boolean {
+    return left instanceof Date && right instanceof Date && left.getTime() === right.getTime();
+  }
+
+  private async assertPaidUpgradeActivationInvariant(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      orderId: string;
+      subscriptionId: string;
+      membershipPlanId: string;
+      planCode: string;
+      periodType: MembershipBillingCycle;
+      periodStartAt: Date;
+      periodEndAt: Date;
+      accountId: string;
+      paidAt: Date;
+      createdLotId: string | null;
+      expectedCreatedLotAmount: number;
+    },
+  ): Promise<void> {
+    const [subscription, entitlement, createdLot, staleCarriedLots] = await Promise.all([
+      tx.userMembershipSubscription.findUnique({
+        where: { id: params.subscriptionId },
+      }),
+      tx.membershipEntitlementSnapshot.findUnique({
+        where: { userId: params.userId },
+      }),
+      params.createdLotId
+        ? tx.creditLot.findUnique({ where: { id: params.createdLotId } })
+        : Promise.resolve(null),
+      tx.creditLot.count({
+        where: {
+          accountId: params.accountId,
+          validityType: 'membership_bound',
+          status: 'active',
+          remainingAmount: { gt: 0 },
+          expiresAt: { gt: params.paidAt, lt: params.periodEndAt },
+        },
+      }),
+    ]);
+    const failures: string[] = [];
+
+    if (
+      !subscription ||
+      subscription.status !== 'active' ||
+      subscription.membershipPlanId !== params.membershipPlanId ||
+      subscription.lastOrderId !== params.orderId ||
+      subscription.periodType !== params.periodType ||
+      !this.sameDate(subscription.currentPeriodStartAt, params.periodStartAt) ||
+      !this.sameDate(subscription.currentPeriodEndAt, params.periodEndAt)
+    ) {
+      failures.push('subscription');
+    }
+    if (
+      !entitlement ||
+      entitlement.currentPlanCode !== params.planCode ||
+      entitlement.membershipStatus !== 'active' ||
+      !this.sameDate(entitlement.currentPeriodStartAt, params.periodStartAt) ||
+      !this.sameDate(entitlement.currentPeriodEndAt, params.periodEndAt)
+    ) {
+      failures.push('entitlement');
+    }
+    if (
+      params.createdLotId &&
+      (!createdLot ||
+        createdLot.orderId !== params.orderId ||
+        createdLot.subscriptionId !== params.subscriptionId ||
+        createdLot.status !== 'active' ||
+        createdLot.totalAmount !== params.expectedCreatedLotAmount ||
+        createdLot.remainingAmount !== params.expectedCreatedLotAmount ||
+        !this.sameDate(createdLot.expiresAt, params.periodEndAt))
+    ) {
+      failures.push('created_credit_lot');
+    }
+    if (staleCarriedLots > 0) failures.push('carried_credit_lots');
+
+    if (failures.length > 0) {
+      throw new InternalServerErrorException(
+        `会员升级入账一致性校验失败: ${failures.join(',')}`,
+      );
+    }
   }
 
   private comparePlanRank(

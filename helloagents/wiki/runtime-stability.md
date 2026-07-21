@@ -36,7 +36,7 @@
 - Current small-concurrency overload risk is write amplification: each editing client can emit whole-project saves, thumbnail generation/upload, DB metadata writes, and telemetry writes on the same interaction loop.
 - Canvas viewport writers should use the atomic guarded `useCanvasStore.getState().setViewport({ zoom, panX, panY })` path when changing zoom and pan together. Avoid back-to-back `setPan` + `setZoom` updates in gesture/wheel handlers; global pinch capture also batches viewport commits with `requestAnimationFrame`.
 - Canvas overlay and helper layers should stay out of high-frequency viewport updates unless active. Inactive image overlays rely on Paper Raster display, grid redraws are reduced at low zoom, and ReactFlow node-internals updates are skipped while nodes are dragging.
-- Flow node-local expensive updates should prefer frame-batched previews over continuous ReactFlow state writes. `ImageSplit` crop previews share image decode promises and throttle resize observations, while `TextPrompt` resize commits dimensions/position only at drag end.
+- Flow node-local expensive updates should prefer frame-batched previews where the engine contract allows it. `ImageSplit` crop previews share image decode promises and throttle resize observations. `TextPrompt` uses React Flow 12's `onResize` path so resize completion, node geometry, handle bounds, and connected edge endpoints remain coherent; its content preview and collaborative size broadcast are still RAF/throttle bounded.
 - Canvas quick image upload falls back to placing a persistable remote URL when managed re-upload of an AI result fails, so image-expand/edit results can still appear on the canvas instead of losing the placeholder with no output.
 - Canvas image expand uploads its composed red-mask input before calling edit-image and passes `sourceImageUrl`, because the new-api Gemini edit route rejects inline base64 image inputs.
 
@@ -103,3 +103,8 @@
 - Tuned stale-pending auto-refund default batch size from `200` to `100` to lower per-run DB burst pressure.
 - Added Prisma index for stale pending scan:
   - `ApiUsageRecord @@index([responseStatus, serviceType, createdAt])`
+# React / React Flow 单例
+
+- 前端当前使用 `@xyflow/react`；Vite 必须通过 `resolve.dedupe: ['react', 'react-dom']` 保证 pnpm 软链接下的 ReactFlow、Radix、R3F 等依赖共享应用根 React dispatcher。
+- 从旧 `reactflow` 迁移到 `@xyflow/react` 后，如果 `node_modules/.vite/deps` 同时残留 `reactflow.js` 与 `@xyflow_react.js`，开发态可能报 `Invalid hook call` 并在 `ReactFlowProvider` 白屏。移动/清理可再生 `.vite` 缓存后用 `vite --force` 重启。
+- 判断修复不能只看 Vite ready；应硬刷新真实 `/app` 标签并确认 React Flow 节点、MiniMap、顶栏和交互区均重新出现在浏览器结构树中。

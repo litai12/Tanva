@@ -1,5 +1,6 @@
 import React from 'react';
 import { Download, Link2 } from 'lucide-react';
+import { downloadFile } from '@/utils/downloadHelper';
 import {
   flowAudioPlayerShell,
   flowSpeechDownloadButton,
@@ -68,22 +69,10 @@ function AudioResultPanel({
       if (!url) return;
       setDownloadingId(item.id);
       try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error('download-failed');
-        }
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
         const timestamp = new Date(item.createdAt).toISOString().replace(/[:.]/g, '-');
-        anchor.download = `${downloadPrefix}-${timestamp}${downloadExt}`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      } catch {
-        window.open(url, '_blank', 'noopener,noreferrer');
+        // downloadFile 会把远程 URL 强制走同源 /api/assets/proxy:
+        // TOS 直链未配 CORS 时裸 fetch 必失败,只能退化成新标签页播放,等于没有下载。
+        await downloadFile(url, `${downloadPrefix}-${timestamp}${downloadExt}`);
       } finally {
         setDownloadingId(null);
       }
@@ -96,10 +85,35 @@ function AudioResultPanel({
   return (
     <>
       {selected?.audioUrl ? (
-        <div style={flowAudioPlayerShell(isFlowDark)}>
-          <audio key={selected.audioUrl} controls style={{ width: '100%' }}>
+        <div style={{ ...flowAudioPlayerShell(isFlowDark), display: 'flex', alignItems: 'center', gap: 6 }}>
+          <audio key={selected.audioUrl} controls style={{ width: '100%', minWidth: 0, flex: 1 }}>
             <source src={selected.audioUrl} type={audioType} />
           </audio>
+          <button
+            type="button"
+            className="nodrag"
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleDownload(selected);
+            }}
+            disabled={downloadingId === selected.id}
+            style={{
+              flexShrink: 0,
+              height: 26,
+              width: 26,
+              borderRadius: 6,
+              cursor: downloadingId === selected.id ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              ...flowSpeechDownloadButton(isFlowDark),
+            }}
+            title={lt('下载当前音频', 'Download current audio')}
+          >
+            <Download size={13} />
+          </button>
         </div>
       ) : null}
 

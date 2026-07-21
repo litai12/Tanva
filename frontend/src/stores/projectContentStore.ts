@@ -1,9 +1,19 @@
 import { create } from 'zustand';
 import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/project';
+import { restoreProjectHistoryState } from './projectContentHistoryState';
 
 type UpdateOptions = {
   markDirty?: boolean;
 };
+
+/**
+ * 画布被冻结（staleContent）的原因，决定弹窗文案。
+ * 三种触发条件不同，此前共用一句「已在其他标签页打开」，排查时严重误导。
+ * - other-tab:     同浏览器另一 tab 保存推进了版本，本 tab 落后
+ * - remote-newer:  加载时发现远端版本已领先本地缓存，且本地已基于旧缓存改动
+ * - save-rejected: 本次保存被服务端判定落后而拒收
+ */
+export type StaleReason = 'other-tab' | 'remote-newer' | 'save-rejected';
 
 type HydrateOptions = {
   preserveProjectViewReady?: boolean;
@@ -54,6 +64,8 @@ type ProjectContentState = {
   lastWarning: string | null;
   hydrated: boolean;
   cacheValidationPending: boolean;
+  staleContent: boolean;
+  staleReason: StaleReason | null;
   projectViewReady: boolean;
   setProject: (projectId: string | null) => void;
   hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null, options?: HydrateOptions) => void;
@@ -61,15 +73,17 @@ type ProjectContentState = {
   setSaving: (saving: boolean) => void;
   setManualSaving: (saving: boolean) => void;
   setCacheValidationPending: (pending: boolean) => void;
+  setStaleContent: (stale: boolean, reason?: StaleReason | null) => void;
   setProjectViewReady: (ready: boolean) => void;
   markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
+  restoreHistorySnapshot: (content: ProjectContentSnapshot) => void;
   setError: (error: string | null) => void;
   setWarning: (warning: string | null) => void;
   reset: () => void;
 };
 
 const createInitialState = (): Omit<ProjectContentState,
-  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'setCacheValidationPending' | 'setProjectViewReady' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
+  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'setManualSaving' | 'setCacheValidationPending' | 'setStaleContent' | 'setProjectViewReady' | 'markSaved' | 'restoreHistorySnapshot' | 'setError' | 'setWarning' | 'reset'> => ({
   projectId: null,
   content: null,
   version: 1,
@@ -83,6 +97,8 @@ const createInitialState = (): Omit<ProjectContentState,
   lastWarning: null,
   hydrated: false,
   cacheValidationPending: false,
+  staleContent: false,
+  staleReason: null,
   projectViewReady: false,
 });
 
@@ -108,6 +124,8 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       lastError: null,
       lastWarning: null,
       hydrated: true,
+      staleContent: false,
+      staleReason: null,
       projectViewReady: options?.preserveProjectViewReady ? state.projectViewReady : false,
     }));
   },
@@ -161,6 +179,10 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
   setSaving: (saving) => set({ saving }),
   setManualSaving: (manualSaving) => set({ manualSaving }),
   setCacheValidationPending: (cacheValidationPending) => set({ cacheValidationPending }),
+  setStaleContent: (staleContent, reason) => set({
+    staleContent,
+    staleReason: staleContent ? (reason ?? null) : null,
+  }),
   setProjectViewReady: (projectViewReady) => set({ projectViewReady }),
   markSaved: (version, savedAt, savedAtCounter?: number) => {
     set((state) => {
@@ -180,11 +202,16 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       };
     });
   },
+  restoreHistorySnapshot: (content) => {
+    set((state) => restoreProjectHistoryState(state, content));
+  },
   setError: (error) => set((state) => ({
     lastError: error,
     saving: false,
     manualSaving: false,
-    dirtySince: error ? Date.now() : state.dirtySince,
+    // 保存失败且确实有未落盘修改时,保留最早的脏起点(用于「已 X 分钟未保存」告警);
+    // 反复失败不能把计时清零;clean 状态下的错误不该污染下一轮编辑的计时。
+    dirtySince: error && state.dirty ? (state.dirtySince ?? Date.now()) : state.dirtySince,
   })),
   setWarning: (warning) => set({ lastWarning: warning }),
   reset: () => set(() => createInitialState()),

@@ -8,6 +8,7 @@ import {
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
+import { findCreditAccountForUpdate } from './credit-account-lock.util';
 import { PricingResponseDto } from './dto/credits.dto';
 import { ReferralService } from '../referral/referral.service';
 import {
@@ -64,6 +65,8 @@ const FREE_USAGE_QUOTA_DEFAULT_CUTOVER_AT = '2026-04-15T00:00:00.000Z';
 const STALE_PENDING_DEFAULT_BATCH_SIZE = 100;
 const PRE_DEDUCT_IDEMPOTENCY_DEFAULT_WINDOW_MS = 15_000;
 const PRE_DEDUCT_IDEMPOTENCY_MAX_WINDOW_MS = 120_000;
+const ACTIVE_NODE_VIDEO_GATE_WINDOW_MS = 30 * 60 * 1000;
+export const LEGACY_FLOW_VIDEO_PROJECT_SCOPE = '__legacy_flow_project__';
 const PRE_DEDUCT_TRANSACTION_TIMEOUT_MS = 30_000;
 const DAILY_REWARD_RESET_HOUR = 3;
 const FREE_TIER_BENEFITS_SETTING_KEY = 'membership_free_tier_benefits';
@@ -171,6 +174,8 @@ export interface DeductCreditsResult {
   transactionId: string;
   apiUsageId: string;
   creditsToDeduct: number;
+  duplicate: boolean;
+  duplicateReason?: 'idempotency' | 'fingerprint' | 'active-node';
 }
 
 export interface AddCreditsResult {
@@ -865,6 +870,7 @@ export class CreditsService {
     const isImageLikeService =
       serviceType.includes('image') ||
       serviceType.startsWith('midjourney') ||
+      serviceType.startsWith('doubao-seedream-') ||
       serviceType === GPT_IMAGE2_SERVICE_TYPE ||
       serviceType === 'expand-image' ||
       serviceType === 'background-removal';
@@ -1200,6 +1206,18 @@ export class CreditsService {
     // ? sound("on"/"off"/boolean) ? generateAudio(boolean) ?????? hasAudio(boolean)?
     // ???????? hasAudio ????????Kling O3?Seedance 1.5???????
     let normalized: any = requestParams;
+    const seedanceModelRaw =
+      typeof normalized.seedanceModel === 'string'
+        ? normalized.seedanceModel.trim().toLowerCase()
+        : '';
+    if (
+      seedanceModelRaw === 'seed-2.0-lite' ||
+      seedanceModelRaw === 'seedance-2.0-lite' ||
+      seedanceModelRaw === 'seed-2-0-lite' ||
+      seedanceModelRaw === '2.0-lite'
+    ) {
+      normalized = { ...normalized, seedanceModel: 'seed-2.0-mini' };
+    }
     if (normalized.hasAudio === undefined || normalized.hasAudio === null) {
       if (normalized.sound !== undefined) {
         const s = normalized.sound;
@@ -1243,6 +1261,39 @@ export class CreditsService {
             normalized.managedModelKey.trim().length > 0
           ? normalized.managedModelKey.trim().toLowerCase()
           : this.inferManagedModelKeyFromRequestParams(normalized).trim().toLowerCase();
+
+    if (modelKey === 'seedance-2.0') {
+      const outputDurationSec = Number(
+        normalized.outputDurationSec ?? normalized.durationSec ?? normalized.duration,
+      );
+      const inputVideoDurationSec = Number(normalized.inputVideoDurationSec ?? 0);
+      const explicitBillingDurationSec = Number(normalized.billingDurationSec);
+      const billingDurationSec =
+        Number.isFinite(explicitBillingDurationSec) && explicitBillingDurationSec > 0
+          ? explicitBillingDurationSec
+          : Number.isFinite(outputDurationSec) && outputDurationSec > 0
+            ? outputDurationSec +
+              (Number.isFinite(inputVideoDurationSec) && inputVideoDurationSec > 0
+                ? inputVideoDurationSec
+                : 0)
+            : 0;
+
+      if (billingDurationSec > 0) {
+        normalized = {
+          ...normalized,
+          ...(Number.isFinite(outputDurationSec) && outputDurationSec > 0
+            ? { outputDurationSec }
+            : {}),
+          inputVideoDurationSec:
+            Number.isFinite(inputVideoDurationSec) && inputVideoDurationSec > 0
+              ? inputVideoDurationSec
+              : 0,
+          billingDurationSec: Number(billingDurationSec.toFixed(3)),
+          duration: Number(billingDurationSec.toFixed(3)),
+          durationSec: Number(billingDurationSec.toFixed(3)),
+        };
+      }
+    }
 
     if (normalizedVendorKey !== 'tencent_vod' || modelKey !== 'vidu-q3') {
       return normalized;
@@ -1402,7 +1453,11 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+    if (
+      seedanceModel === 'seedance-2.0' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === 'seed-2.0-mini'
+    ) {
       return defaultCredits;
     }
 
@@ -2378,10 +2433,7 @@ export class CreditsService {
         continue;
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { id: params.accountId },
-        select: { id: true, balance: true },
-      });
+      const account = await findCreditAccountForUpdate(tx, { id: params.accountId });
       if (!account) {
         continue;
       }
@@ -2441,6 +2493,15 @@ export class CreditsService {
     const now = params.now ?? new Date();
     const policy = await this.businessPolicyService.getMembershipCreditPolicy();
     if (policy.freeUserMonthlyQuotaCredits <= 0) {
+      return false;
+    }
+
+    // 产品策略(2026-07-09)：注册不再无条件赠送初始额度，仅填写过邀请码（存在兑换记录）的用户可获得
+    const inviteRedemption = await this.prisma.invitationRedemption.findFirst({
+      where: { inviteeUserId: params.userId },
+      select: { id: true },
+    });
+    if (!inviteRedemption) {
       return false;
     }
 
@@ -3860,7 +3921,10 @@ export class CreditsService {
       if (
         key === 'idempotencyKey' ||
         key === 'requestFingerprint' ||
-        key === 'idempotencyWindowMs'
+        key === 'idempotencyWindowMs' ||
+        key === 'clientRunId' ||
+        key === 'clientTabId' ||
+        key === 'runSource'
       ) {
         continue;
       }
@@ -3939,12 +4003,17 @@ export class CreditsService {
       requestFingerprint: string | null;
       windowStartAt: Date;
     },
-  ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
+  ): Promise<{
+    apiUsageId: string;
+    transactionId: string | null;
+    reason: 'idempotency' | 'fingerprint';
+  } | null> {
     const statusFilter = {
       in: [ApiResponseStatus.PENDING, ApiResponseStatus.SUCCESS],
     };
 
     let duplicate = null as { id: string } | null;
+    let reason: 'idempotency' | 'fingerprint' = 'idempotency';
     if (params.idempotencyKey) {
       duplicate = await tx.apiUsageRecord.findFirst({
         where: {
@@ -3964,6 +4033,7 @@ export class CreditsService {
     }
 
     if (!duplicate && !params.idempotencyKey && params.requestFingerprint) {
+      reason = 'fingerprint';
       duplicate = await tx.apiUsageRecord.findFirst({
         where: {
           userId: params.userId,
@@ -3992,6 +4062,88 @@ export class CreditsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    return {
+      apiUsageId: duplicate.id,
+      transactionId: spendTransaction?.id ?? null,
+      reason,
+    };
+  }
+
+  private normalizeActiveNodeVideoScope(
+    requestParams: unknown,
+  ): { clientProjectId: string; clientNodeId: string } | null {
+    if (!requestParams || typeof requestParams !== 'object' || Array.isArray(requestParams)) {
+      return null;
+    }
+    const params = requestParams as Record<string, unknown>;
+    const clientProjectId =
+      typeof params.clientProjectId === 'string' ? params.clientProjectId.trim() : '';
+    const clientNodeId =
+      typeof params.clientNodeId === 'string' ? params.clientNodeId.trim() : '';
+    if (!clientProjectId || !clientNodeId) return null;
+    return {
+      clientProjectId: clientProjectId.slice(0, 128),
+      clientNodeId: clientNodeId.slice(0, 200),
+    };
+  }
+
+  private async findActiveNodeVideoUsage(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      clientProjectId: string;
+      clientNodeId: string;
+      windowStartAt: Date;
+    },
+  ): Promise<{ apiUsageId: string; transactionId: string | null } | null> {
+    const duplicate = await tx.apiUsageRecord.findFirst({
+      where: {
+        userId: params.userId,
+        serviceType: { in: FREE_USER_VIDEO_LIMITED_SERVICES },
+        responseStatus: ApiResponseStatus.PENDING,
+        createdAt: { gte: params.windowStartAt },
+        AND: [
+          {
+            requestParams: {
+              path: ['clientNodeId'],
+              equals: params.clientNodeId,
+            },
+          },
+          ...(params.clientProjectId === LEGACY_FLOW_VIDEO_PROJECT_SCOPE
+            ? []
+            : [
+                {
+                  OR: [
+                    {
+                      requestParams: {
+                        path: ['clientProjectId'],
+                        equals: params.clientProjectId,
+                      },
+                    },
+                    {
+                      requestParams: {
+                        path: ['clientProjectId'],
+                        equals: LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
+                      },
+                    },
+                  ],
+                },
+              ]),
+        ],
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!duplicate) return null;
+
+    const spendTransaction = await tx.creditTransaction.findFirst({
+      where: {
+        apiUsageId: duplicate.id,
+        type: TransactionType.SPEND,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
     return {
       apiUsageId: duplicate.id,
       transactionId: spendTransaction?.id ?? null,
@@ -4048,13 +4200,37 @@ export class CreditsService {
     );
 
     return await this.prisma.$transaction(async (tx) => {
-      // ???????
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      // 账户行级锁：串行化同一用户的并发预扣，兼保证下方幂等/指纹查重
+      // （先查后插）在并发下真正可见（详见 credit-account-lock.util.ts）。
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const activeNodeScope = FREE_USER_VIDEO_LIMITED_SERVICES.includes(serviceType)
+        ? this.normalizeActiveNodeVideoScope(apiUsageRequestParams)
+        : null;
+      if (activeNodeScope) {
+        const activeUsage = await this.findActiveNodeVideoUsage(tx, {
+          userId,
+          ...activeNodeScope,
+          windowStartAt: new Date(Date.now() - ACTIVE_NODE_VIDEO_GATE_WINDOW_MS),
+        });
+        if (activeUsage) {
+          this.logger.warn(
+            `[Credits] Active video node blocked user=${userId} project=${activeNodeScope.clientProjectId} node=${activeNodeScope.clientNodeId} apiUsageId=${activeUsage.apiUsageId}`,
+          );
+          return {
+            success: true,
+            newBalance: account.balance,
+            transactionId: activeUsage.transactionId || `duplicate:${activeUsage.apiUsageId}`,
+            apiUsageId: activeUsage.apiUsageId,
+            creditsToDeduct,
+            duplicate: true,
+            duplicateReason: 'active-node',
+          };
+        }
       }
 
       if (normalizedIdempotencyKey || requestFingerprint) {
@@ -4079,6 +4255,8 @@ export class CreditsService {
               duplicateUsage.transactionId || `duplicate:${duplicateUsage.apiUsageId}`,
             apiUsageId: duplicateUsage.apiUsageId,
             creditsToDeduct,
+            duplicate: true,
+            duplicateReason: duplicateUsage.reason,
           };
         }
       }
@@ -4133,6 +4311,7 @@ export class CreditsService {
           transactionId: `team:${apiUsage.id}`,
           apiUsageId: apiUsage.id,
           creditsToDeduct,
+          duplicate: false,
         };
       }
 
@@ -4280,6 +4459,7 @@ export class CreditsService {
         transactionId: transaction.id,
         apiUsageId: apiUsage.id,
         creditsToDeduct,
+        duplicate: false,
       };
     }, {
       timeout: PRE_DEDUCT_TRANSACTION_TIMEOUT_MS,
@@ -4330,7 +4510,7 @@ export class CreditsService {
       : undefined;
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({ where: { userId } });
+      const account = await findCreditAccountForUpdate(tx, { userId });
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
       }
@@ -4676,6 +4856,46 @@ export class CreditsService {
     });
   }
 
+  async getVideoTaskUsageForUser(
+    userId: string,
+    apiUsageId: string,
+  ): Promise<{
+    apiUsageId: string;
+    responseStatus: string;
+    taskId?: string;
+    provider?: string;
+    errorMessage?: string;
+  } | null> {
+    const usage = await this.prisma.apiUsageRecord.findFirst({
+      where: { id: apiUsageId, userId },
+      select: {
+        id: true,
+        provider: true,
+        responseStatus: true,
+        errorMessage: true,
+        requestParams: true,
+      },
+    });
+    if (!usage) return null;
+
+    const requestParams = this.asJsonObject(usage.requestParams) || {};
+    const taskId =
+      typeof requestParams.taskId === 'string' && requestParams.taskId.trim().length > 0
+        ? requestParams.taskId.trim()
+        : undefined;
+    const requestedProvider =
+      typeof requestParams.aiProvider === 'string' && requestParams.aiProvider.trim().length > 0
+        ? requestParams.aiProvider.trim()
+        : undefined;
+    return {
+      apiUsageId: usage.id,
+      responseStatus: usage.responseStatus,
+      taskId,
+      provider: requestedProvider || usage.provider || undefined,
+      errorMessage: usage.errorMessage || undefined,
+    };
+  }
+
   async settleSeed2TokenCreditsForUser(
     userId: string,
     apiUsageId: string,
@@ -4760,9 +4980,7 @@ export class CreditsService {
         return;
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5238,9 +5456,7 @@ export class CreditsService {
         throw new BadRequestException('只有失败的API调用才能退款');
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5396,9 +5612,7 @@ export class CreditsService {
         throw new BadRequestException('只能调整成功的API调用积分');
       }
 
-      const account = await tx.creditAccount.findUnique({
-        where: { userId: apiUsage.userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId: apiUsage.userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5761,9 +5975,7 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -5826,9 +6038,7 @@ export class CreditsService {
     }
 
     return await this.prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -6107,14 +6317,7 @@ export class CreditsService {
     tierCode?: string;
   }> {
     return await this.prisma.$transaction(async (tx) => {
-      // ALLOW_RAW_NO_TENANT: 按全局唯一 userId 取行级锁(FOR UPDATE)，userId(uuid)跨租户不撞
-      await tx.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`SELECT id FROM "CreditAccount" WHERE "userId" = ${userId} FOR UPDATE`,
-      );
-
-      const account = await tx.creditAccount.findUnique({
-        where: { userId },
-      });
+      const account = await findCreditAccountForUpdate(tx, { userId });
 
       if (!account) {
         throw new NotFoundException('用户积分账户不存在');
@@ -6376,16 +6579,13 @@ export class CreditsService {
         continue;
       }
 
-      const account = await this.prisma.creditAccount.findUnique({
-        where: { id: lot.accountId },
-      });
+      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
+      const actualDeduct = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { id: lot.accountId });
+        if (!account) return 0;
 
-      if (!account) continue;
-
-      const actualDeduct = Math.min(lot.remainingAmount, account.balance);
-
-      await this.prisma.$transaction(async (tx) => {
-        const newBalance = account.balance - actualDeduct;
+        const deduct = Math.min(lot.remainingAmount, account.balance);
+        const newBalance = account.balance - deduct;
         await tx.creditAccount.update({
           where: { id: account.id },
           data: {
@@ -6405,7 +6605,7 @@ export class CreditsService {
           data: {
             accountId: account.id,
             type: TransactionType.EXPIRE,
-            amount: -actualDeduct,
+            amount: -deduct,
             balanceBefore: account.balance,
             balanceAfter: newBalance,
             description: '签到积分过期清除',
@@ -6424,9 +6624,11 @@ export class CreditsService {
           },
           data: {
             isExpired: true,
-            expiredAmount: actualDeduct,
+            expiredAmount: deduct,
           },
         });
+
+        return deduct;
       });
 
       totalExpiredCredits += actualDeduct;
@@ -6485,56 +6687,55 @@ export class CreditsService {
 
       if (expiredAmount <= 0) continue;
 
-      // ????????
-      const account = await this.prisma.creditAccount.findUnique({
-        where: { userId },
-      });
+      // 读移入事务并加行锁：原先在事务外读余额，与并发扣费/退款互相覆盖。
+      // 返回 null=账户不存在（跳过该用户，保持原 continue 语义）；0=余额不足仅标记过期。
+      const actualDeduct = await this.prisma.$transaction(async (tx) => {
+        const account = await findCreditAccountForUpdate(tx, { userId });
+        if (!account) return null;
 
-      if (!account) continue;
+        const deduct = Math.min(expiredAmount, account.balance);
+        if (deduct <= 0) return 0;
 
-      // ???????????????
-      const actualDeduct = Math.min(expiredAmount, account.balance);
-
-      if (actualDeduct > 0) {
-        await this.prisma.$transaction(async (tx) => {
-          // ??????
-          const newBalance = account.balance - actualDeduct;
-          await tx.creditAccount.update({
-            where: { id: account.id },
-            data: { balance: newBalance },
-          });
-
-          // ????????
-          await tx.creditTransaction.create({
-            data: {
-              accountId: account.id,
-              type: TransactionType.EXPIRE,
-              amount: -actualDeduct,
-              balanceBefore: account.balance,
-              balanceAfter: newBalance,
-              description: `签到积分过期清除（${transactions.length}笔）`,
-              metadata: {
-                expiredTransactionIds: transactions.map(t => t.id),
-                originalExpiredAmount: expiredAmount,
-              },
-            },
-          });
-
-          // ????????????
-          await tx.creditTransaction.updateMany({
-            where: {
-              id: { in: transactions.map(t => t.id) },
-            },
-            data: {
-              isExpired: true,
-              expiredAmount: actualDeduct,
-            },
-          });
+        const newBalance = account.balance - deduct;
+        await tx.creditAccount.update({
+          where: { id: account.id },
+          data: { balance: newBalance },
         });
 
+        await tx.creditTransaction.create({
+          data: {
+            accountId: account.id,
+            type: TransactionType.EXPIRE,
+            amount: -deduct,
+            balanceBefore: account.balance,
+            balanceAfter: newBalance,
+            description: `签到积分过期清除（${transactions.length}笔）`,
+            metadata: {
+              expiredTransactionIds: transactions.map(t => t.id),
+              originalExpiredAmount: expiredAmount,
+            },
+          },
+        });
+
+        await tx.creditTransaction.updateMany({
+          where: {
+            id: { in: transactions.map(t => t.id) },
+          },
+          data: {
+            isExpired: true,
+            expiredAmount: deduct,
+          },
+        });
+
+        return deduct;
+      });
+
+      if (actualDeduct === null) continue;
+
+      if (actualDeduct > 0) {
         totalExpiredCredits += actualDeduct;
       } else {
-        // ???0????????
+        // 实际扣减为 0 时，仅将这些流水标记为已过期
         await this.prisma.creditTransaction.updateMany({
           where: {
             id: { in: transactions.map(t => t.id) },

@@ -22,6 +22,9 @@ import {
 interface GlobalImageHistoryPageProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Optional image-picker mode used by tools such as the 3D Director. */
+  selectionRequest?: { requestId: string; purpose?: string } | null;
+  onSelectImage?: (item: GlobalImageHistoryItem) => void;
 }
 
 // Header 子组件
@@ -302,6 +305,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({
 export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
   isOpen,
   onClose,
+  selectionRequest,
+  onSelectImage,
 }) => {
   const { i18n } = useTranslation();
   const isZh = (i18n.resolvedLanguage || i18n.language || '')
@@ -494,7 +499,13 @@ export const GlobalImageHistoryPage: React.FC<GlobalImageHistoryPageProps> = ({
         isLoading={isLoading}
         hasMore={hasMore}
         onLoadMore={handleLoadMore}
-        onSelect={setSelectedItem}
+        onSelect={(item) => {
+          if (selectionRequest && !isGlobalHistoryVideoItem(item)) {
+            onSelectImage?.(item);
+            return;
+          }
+          setSelectedItem(item);
+        }}
         onDelete={handleDelete}
         onDownload={handleDownload}
         lt={lt}

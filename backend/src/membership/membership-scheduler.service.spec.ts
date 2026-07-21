@@ -27,6 +27,14 @@ describe('MembershipSchedulerService 跨租户', () => {
         resetSnapshots: 0,
         expiredCredits: 0,
       }),
+      expireOverdueMembershipBoundLots: jest.fn().mockResolvedValue({
+        expiredLots: 0,
+        expiredCredits: 0,
+      }),
+      auditRecentPaidAnnualUpgradeInvariants: jest.fn().mockResolvedValue({
+        checkedOrders: 0,
+        violations: [],
+      }),
       applyDueScheduledChanges: jest.fn().mockResolvedValue({ appliedCount: 0 }),
       decayDailyGiftCredits: jest.fn().mockResolvedValue({
         affectedUsers: 0,
@@ -63,11 +71,11 @@ describe('MembershipSchedulerService 跨租户', () => {
   }
 
   describe('回归安全：只有 default 一个租户时每个底层调用各一次', () => {
-    it('handleFreeStarterQuotaIssue', async () => {
+    it('handleFreeStarterQuotaIssue 保持停用，不再定时赠分', async () => {
       const { svc, creditsService, tenantIteration } = build(['default']);
       await svc.handleFreeStarterQuotaIssue();
-      expect(tenantIteration.forEachTenant).toHaveBeenCalledTimes(1);
-      expect(creditsService.issueFreeUserStarterQuotaCredits).toHaveBeenCalledTimes(1);
+      expect(tenantIteration.forEachTenant).not.toHaveBeenCalled();
+      expect(creditsService.issueFreeUserStarterQuotaCredits).not.toHaveBeenCalled();
     });
 
     it('handleMembershipExpiry', async () => {
@@ -75,6 +83,18 @@ describe('MembershipSchedulerService 跨租户', () => {
       await svc.handleMembershipExpiry();
       expect(tenantIteration.forEachTenant).toHaveBeenCalledTimes(1);
       expect(membershipService.expireElapsedMemberships).toHaveBeenCalledTimes(1);
+      expect(
+        membershipService.expireOverdueMembershipBoundLots,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('handleAnnualUpgradeInvariantAudit', async () => {
+      const { svc, membershipService, tenantIteration } = build(['default']);
+      await svc.handleAnnualUpgradeInvariantAudit();
+      expect(tenantIteration.forEachTenant).toHaveBeenCalledTimes(1);
+      expect(
+        membershipService.auditRecentPaidAnnualUpgradeInvariants,
+      ).toHaveBeenCalledTimes(1);
     });
 
     it('handleScheduledMembershipChanges', async () => {
@@ -100,16 +120,27 @@ describe('MembershipSchedulerService 跨租户', () => {
   });
 
   describe('多租户：底层调用每个 active 租户各执行一次', () => {
-    it('handleFreeStarterQuotaIssue 迭代两个租户', async () => {
+    it('handleFreeStarterQuotaIssue 在多租户下仍保持停用', async () => {
       const { svc, creditsService } = build(['t_acme', 'default']);
       await svc.handleFreeStarterQuotaIssue();
-      expect(creditsService.issueFreeUserStarterQuotaCredits).toHaveBeenCalledTimes(2);
+      expect(creditsService.issueFreeUserStarterQuotaCredits).not.toHaveBeenCalled();
     });
 
     it('handleMembershipExpiry 迭代两个租户', async () => {
       const { svc, membershipService } = build(['t_acme', 'default']);
       await svc.handleMembershipExpiry();
       expect(membershipService.expireElapsedMemberships).toHaveBeenCalledTimes(2);
+      expect(
+        membershipService.expireOverdueMembershipBoundLots,
+      ).toHaveBeenCalledTimes(2);
+    });
+
+    it('handleAnnualUpgradeInvariantAudit 迭代两个租户', async () => {
+      const { svc, membershipService } = build(['t_acme', 'default']);
+      await svc.handleAnnualUpgradeInvariantAudit();
+      expect(
+        membershipService.auditRecentPaidAnnualUpgradeInvariants,
+      ).toHaveBeenCalledTimes(2);
     });
 
     it('handleScheduledMembershipChanges 迭代两个租户', async () => {

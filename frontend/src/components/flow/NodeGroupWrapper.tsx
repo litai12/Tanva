@@ -1,5 +1,5 @@
 import React from 'react';
-import { type Node } from 'reactflow';
+import { type Node } from '@xyflow/react';
 import { Send as SendIcon, Play, Plus, X, Ungroup } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { NodeGroup } from './types';

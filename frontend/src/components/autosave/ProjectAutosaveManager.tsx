@@ -17,6 +17,7 @@ import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/
 import { projectLoadDebug, waitForProjectLoadPaint } from '@/utils/projectLoadDebug';
 import { useAuthStore } from '@/stores/authStore';
 import { collabCanvasBridge } from '@/collab/collabCanvasBridge';
+import { projectVersionChannel } from '@/services/projectVersionChannel';
 
 const CANVAS_VIEW_SYNC_DELAY_MS = 160;
 
@@ -463,6 +464,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           if (hasLocalChangesAfterCache && data.version > cached.version) {
             setWarning('远端项目已有更新，且你已基于本地缓存做了修改；为避免覆盖远端版本，自动保存已暂停。请重新打开项目加载最新版本后再修改。');
             setCacheValidationPending(true);
+            useProjectContentStore.getState().setStaleContent(true, 'remote-newer');
             projectLoadDebug.end(projectId, {
               version: cached.version,
               source: 'cache',
@@ -727,6 +729,19 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     };
     window.addEventListener('tanva:adopt-merged-content', handler as EventListener);
     return () => window.removeEventListener('tanva:adopt-merged-content', handler as EventListener);
+  }, [projectId]);
+
+  // 同浏览器另一个 tab 保存推进版本后，落后的本 tab 即时冻结并强制刷新。
+  // 活跃实时协作（长连接）下运行时由 patch 收敛、不算落后，跳过。
+  useEffect(() => {
+    if (!projectId) return undefined;
+    return projectVersionChannel.onRemoteSaved(({ projectId: pid, version }) => {
+      if (collabCanvasBridge.connected) return;
+      const store = useProjectContentStore.getState();
+      if (store.projectId === pid && version > store.version) {
+        store.setStaleContent(true, 'other-tab');
+      }
+    });
   }, [projectId]);
 
   useProjectAutosave(projectId);

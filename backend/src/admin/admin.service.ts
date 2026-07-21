@@ -601,6 +601,7 @@ export class AdminService {
     tableName: string,
     columnName: string,
   ): Promise<boolean> {
+    // ALLOW_RAW_NO_TENANT: information_schema 是数据库元数据，不属于任何业务租户。
     const rows = await tx.$queryRaw<Array<{ exists: boolean }>>`
       SELECT EXISTS (
         SELECT 1
@@ -624,6 +625,7 @@ export class AdminService {
 
     if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
 
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user/account/team UUID 全局唯一。
     await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE "${columnName}" = $1`, value);
   }
 
@@ -638,6 +640,7 @@ export class AdminService {
 
     if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
 
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user UUID 全局唯一。
     await tx.$executeRawUnsafe(`UPDATE "${tableName}" SET "${columnName}" = NULL WHERE "${columnName}" = $1`, value);
   }
 
@@ -660,6 +663,7 @@ export class AdminService {
     if (existingColumns.length === 0) return;
 
     const where = existingColumns.map((columnName) => `"${columnName}" = $1`).join(' OR ');
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user UUID 全局唯一。
     await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE ${where}`, value);
   }
 
@@ -674,6 +678,7 @@ export class AdminService {
       return;
     }
 
+    // ALLOW_RAW_NO_TENANT: userId 和关联 projectId 均为全局 UUID。
     await tx.$executeRawUnsafe(
       `DELETE FROM "TeamProjectShare"
        WHERE "projectId" IN (SELECT "id" FROM "Project" WHERE "userId" = $1)`,
@@ -684,6 +689,7 @@ export class AdminService {
   private async deleteOwnedTeamsIfExists(tx: Prisma.TransactionClient, userId: string) {
     if (!(await this.tableColumnExists(tx, 'Team', 'ownerId'))) return;
 
+    // ALLOW_RAW_NO_TENANT: owner userId 为全局 UUID。
     const ownedTeams = await tx.$queryRawUnsafe<Array<{ id: string }>>(
       `SELECT "id" FROM "Team" WHERE "ownerId" = $1`,
       userId,
@@ -697,6 +703,7 @@ export class AdminService {
       await this.deleteFromTableByColumnIfExists(tx, 'TeamSeatPackage', 'teamId', team.id);
 
       if (await this.tableColumnExists(tx, 'TeamCreditAccount', 'teamId')) {
+        // ALLOW_RAW_NO_TENANT: teamId 为全局 UUID。
         const teamCreditAccounts = await tx.$queryRawUnsafe<Array<{ id: string }>>(
           `SELECT "id" FROM "TeamCreditAccount" WHERE "teamId" = $1`,
           team.id,
@@ -711,6 +718,7 @@ export class AdminService {
       }
     }
 
+    // ALLOW_RAW_NO_TENANT: owner userId 为全局 UUID。
     await tx.$executeRawUnsafe(`DELETE FROM "Team" WHERE "ownerId" = $1`, userId);
   }
 
@@ -1182,9 +1190,14 @@ export class AdminService {
   }
 
   private resolveMembershipOrderDisplayCredits(
-    order: { credits: number; planSnapshot?: unknown },
+    order: { credits: number; planSnapshot?: unknown; metadata?: unknown },
     plan: { monthlyQuotaCredits: number; signupBonusCredits: number } | null,
   ): number {
+    // 优先取订单 metadata.immediateCreditDelta：激活侧按它实发，历史折算单（如升级按比例
+    // 补发）实发≠套餐面值，直接显示面值会虚高。
+    const orderMetadata = this.asJsonObject(order.metadata);
+    const actualGranted = this.toNumber(orderMetadata?.immediateCreditDelta);
+    if (actualGranted > 0) return actualGranted;
     const snapshot = this.asJsonObject(order.planSnapshot);
     const snapshotCredits =
       this.toNumber(snapshot?.monthlyQuotaCredits) + this.toNumber(snapshot?.signupBonusCredits);
@@ -1821,6 +1834,11 @@ export class AdminService {
     if (status) distinctUserConds.push(Prisma.sql`a."responseStatus" = ${status}`);
     if (startDate) distinctUserConds.push(Prisma.sql`a."createdAt" >= ${startDate}`);
     if (endDate) distinctUserConds.push(Prisma.sql`a."createdAt" <= ${endDate}`);
+    if (!this.tenantContext.isPlatformMode()) {
+      distinctUserConds.push(
+        Prisma.sql`a."tenantId" = ${this.tenantContext.getTenantId()}`,
+      );
+    }
     const distinctUserWhere = distinctUserConds.length
       ? Prisma.sql`WHERE ${Prisma.join(distinctUserConds, ' AND ')}`
       : Prisma.empty;
@@ -1862,6 +1880,7 @@ export class AdminService {
           creditsUsed: true,
         },
       }),
+      // ALLOW_RAW_NO_TENANT: distinctUserWhere 在租户态显式包含 a."tenantId"，平台态有意跨租户。
       this.prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
         SELECT COUNT(DISTINCT a."userId")::bigint AS count
         FROM "ApiUsageRecord" a
@@ -2388,16 +2407,26 @@ export class AdminService {
     status?: string;
     paymentMethod?: string;
     orderType?: string;
+    /** 订阅类型筛选：monthly=月卡 / yearly=年卡（按会员计划的 billingCycle 匹配） */
+    billingCycle?: string;
     startDate?: Date;
     endDate?: Date;
   } = {}) {
-    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, startDate, endDate } = options;
+    const { page = 1, pageSize = 20, search, status, paymentMethod, orderType, billingCycle, startDate, endDate } = options;
 
     const where: any = {};
 
     if (status && status !== 'all') where.status = status;
     if (paymentMethod && paymentMethod !== 'all') where.paymentMethod = paymentMethod;
     if (orderType && orderType !== 'all') where.orderType = orderType;
+    if (billingCycle && billingCycle !== 'all') {
+      const cyclePlans = await this.prisma.membershipPlan.findMany({
+        where: { billingCycle },
+        select: { id: true },
+      });
+      // 无匹配计划时返回空集而非放行
+      where.membershipPlanId = { in: cyclePlans.map((p) => p.id) };
+    }
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = startDate;
@@ -2442,9 +2471,23 @@ export class AdminService {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    const planIds = [...new Set(orders.map((o) => o.membershipPlanId).filter(Boolean))] as string[];
+    const plans = planIds.length > 0
+      ? await this.prisma.membershipPlan.findMany({
+          where: { id: { in: planIds } },
+          select: { id: true, name: true, billingCycle: true },
+        })
+      : [];
+    const planMap = new Map(plans.map((p) => [p.id, p]));
+
     return {
       orders: orders.map((o) => {
         const u = userMap.get(o.userId);
+        const plan = o.membershipPlanId ? planMap.get(o.membershipPlanId) : undefined;
+        const snapshot =
+          o.planSnapshot && typeof o.planSnapshot === 'object' && !Array.isArray(o.planSnapshot)
+            ? (o.planSnapshot as Record<string, any>)
+            : null;
         return {
           id: o.id,
           orderNo: o.orderNo,
@@ -2453,6 +2496,10 @@ export class AdminService {
           userEmail: u?.email ?? null,
           userName: u?.name ?? null,
           orderType: o.orderType,
+          planName: plan?.name ?? (typeof snapshot?.name === 'string' ? snapshot.name : null),
+          billingCycle:
+            plan?.billingCycle ??
+            (typeof snapshot?.billingCycle === 'string' ? snapshot.billingCycle : null),
           amount: Number(o.amount),
           credits: o.credits,
           paymentMethod: o.paymentMethod,

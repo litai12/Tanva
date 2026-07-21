@@ -28,6 +28,8 @@ export interface ChargeHandle {
   /** true=团队出资（不动个人积分，扣团队）；false=个人出资。 */
   teamFunded: boolean;
   teamId?: string;
+  duplicate: boolean;
+  duplicateReason?: 'idempotency' | 'fingerprint' | 'active-node';
 }
 
 /**
@@ -96,9 +98,11 @@ export class CreditChargeService {
       serviceType: input.serviceType,
       teamFunded: funded,
       teamId: funded ? teamId : undefined,
+      duplicate: deduct.duplicate,
+      duplicateReason: deduct.duplicateReason,
     };
 
-    if (funded && teamId) {
+    if (funded && teamId && !deduct.duplicate) {
       const reserved = await this.ledger!.reserve({
         teamId,
         amount: handle.amount,
@@ -228,6 +232,7 @@ export class CreditChargeService {
       serviceType: rec.serviceType as ServiceType,
       teamFunded: true,
       teamId,
+      duplicate: false,
     };
   }
 

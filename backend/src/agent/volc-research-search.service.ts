@@ -382,7 +382,7 @@ export class VolcResearchSearchService {
     const model =
       this.config.get<string>('VOLC_SEARCH_SUMMARY_MODEL') ||
       this.config.get<string>('ARK_WEB_SEARCH_MODEL') ||
-      'gemini-3.1-pro';
+      'gemini-3.1-pro-preview';
     const provider = this.providerFactory.getProvider(model, 'new-api');
     const allSources = this.dedupeSources(bundles.flatMap((bundle) => bundle.sources));
     const bundleLines = bundles
@@ -505,7 +505,7 @@ export class VolcResearchSearchService {
     const model =
       this.config.get<string>('VOLC_SEARCH_SUMMARY_MODEL') ||
       this.config.get<string>('ARK_WEB_SEARCH_MODEL') ||
-      'gemini-3.1-pro';
+      'gemini-3.1-pro-preview';
     const provider = this.providerFactory.getProvider(model, 'new-api');
     const sourceLines = sources
       .slice(0, 18)

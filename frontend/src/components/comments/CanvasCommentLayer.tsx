@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useReactFlow, useViewport } from 'reactflow';
+import { useReactFlow, useViewport } from '@xyflow/react';
 import { Check } from 'lucide-react';
 import { useCanvasComments } from '@/contexts/CanvasCommentsContext';
 import { useCommentStore } from '@/stores/commentStore';

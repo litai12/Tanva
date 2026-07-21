@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="512" viewBox="0 0 1024 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#071a3d"/>
+      <stop offset="0.58" stop-color="#6bb9e8"/>
+      <stop offset="0.6" stop-color="#f5d28b"/>
+      <stop offset="1" stop-color="#26351f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="512" fill="url(#sky)"/>
+  <rect x="0" y="176" width="256" height="160" fill="#d9485f" opacity="0.8"/>
+  <rect x="256" y="176" width="256" height="160" fill="#e9b949" opacity="0.8"/>
+  <rect x="512" y="176" width="256" height="160" fill="#32a66f" opacity="0.8"/>
+  <rect x="768" y="176" width="256" height="160" fill="#5b68d8" opacity="0.8"/>
+  <g fill="#fff" font-family="Arial, sans-serif" font-size="48" font-weight="700" text-anchor="middle">
+    <text x="128" y="272">WEST</text>
+    <text x="384" y="272">NORTH</text>
+    <text x="640" y="272">EAST</text>
+    <text x="896" y="272">SOUTH</text>
+  </g>
+  <g stroke="#fff" stroke-width="8" fill="none" opacity="0.9">
+    <path d="M128 145v-70m0 0-24 30m24-30 24 30"/>
+    <path d="M384 145v-70m0 0-24 30m24-30 24 30"/>
+    <path d="M640 145v-70m0 0-24 30m24-30 24 30"/>
+    <path d="M896 145v-70m0 0-24 30m24-30 24 30"/>
+  </g>
+  <path d="M0 256h1024" stroke="#fff" stroke-width="2" stroke-dasharray="16 12" opacity="0.6"/>
+  <path d="M0 0v512M1024 0v512" stroke="#ff4fd8" stroke-width="12" opacity="0.9"/>
+</svg>

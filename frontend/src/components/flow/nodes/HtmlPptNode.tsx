@@ -6,7 +6,7 @@ import {
   useStore,
   type Node,
   type ReactFlowState,
-} from "reactflow";
+} from "@xyflow/react";
 import {
   Check,
   ChevronLeft,

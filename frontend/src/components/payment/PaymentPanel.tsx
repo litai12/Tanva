@@ -55,18 +55,30 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
   const [selectedPackage, setSelectedPackage] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("alipay");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
   const [currentOrderNo, setCurrentOrderNo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
   const [orders, setOrders] = useState<PaymentOrderRecord[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [countdown, setCountdown] = useState(300);
+  const [countdown, setCountdown] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
+  const orderExpiresAtRef = useRef<number | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   /** 递增后可使尚未完成的 createPaymentOrder 回调不再写入 state，避免套餐单与自定义单互相覆盖 */
   const orderRequestIdRef = useRef(0);
+
+  const applyOrderExpiry = useCallback((expiredAt: string) => {
+    const expiresAtMs = Date.parse(expiredAt);
+    orderExpiresAtRef.current = Number.isFinite(expiresAtMs) ? expiresAtMs : null;
+    const seconds = orderExpiresAtRef.current
+      ? Math.max(0, Math.ceil((orderExpiresAtRef.current - Date.now()) / 1000))
+      : 0;
+    setCountdown(seconds);
+    setIsExpired(seconds <= 0);
+  }, []);
 
   const isWhite = useAIChatStore((s) => s.chatTheme === "white");
   const isDark = !isWhite;
@@ -137,6 +149,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     const requestId = ++orderRequestIdRef.current;
     setIsLoading(true);
     setIsExpired(false);
+    setOrderError(null);
     try {
       const order = await createPaymentOrder({
         amount: currentPayInfo.amount,
@@ -146,10 +159,11 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       if (requestId !== orderRequestIdRef.current) return;
       setQrCodeUrl(order.qrCodeUrl);
       setCurrentOrderNo(order.orderNo);
-      setCountdown(300);
+      applyOrderExpiry(order.expiredAt);
     } catch (error: any) {
       console.error("创建订单失败:", error);
       if (requestId === orderRequestIdRef.current) {
+        setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
         showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
       }
     } finally {
@@ -157,7 +171,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         setIsLoading(false);
       }
     }
-  }, [currentPayInfo, paymentMethod, isLoading, customAmountMode]);
+  }, [currentPayInfo, paymentMethod, isLoading, customAmountMode, applyOrderExpiry]);
 
   const handlePaymentCompleted = useCallback(
     (credits: number) => {
@@ -225,13 +239,11 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
 
     // 倒计时每秒更新
     countdownRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          setIsExpired(true);
-          return 0;
-        }
-        return prev - 1;
-      });
+      const expiresAtMs = orderExpiresAtRef.current;
+      if (!expiresAtMs) return;
+      const seconds = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000));
+      setCountdown(seconds);
+      setIsExpired(seconds <= 0);
     }, 1000);
 
     return () => {
@@ -272,16 +284,18 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       const requestId = ++orderRequestIdRef.current;
       setIsLoading(true);
       setQrCodeUrl(null);
+      setOrderError(null);
       setCurrentOrderNo(null);
       setIsExpired(false);
-      setCountdown(300);
       try {
         const order = await createPaymentOrder({ amount, credits, paymentMethod });
         if (requestId !== orderRequestIdRef.current) return;
         setQrCodeUrl(order.qrCodeUrl);
         setCurrentOrderNo(order.orderNo);
+        applyOrderExpiry(order.expiredAt);
       } catch (err: any) {
         if (requestId === orderRequestIdRef.current) {
+          setOrderError(err.message || lt("创建订单失败", "Failed to create order"));
           showToast(err.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
@@ -292,7 +306,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [customAmountMode, customCreditsInput, creditsPerYuan, paymentMethod]);
+  }, [customAmountMode, customCreditsInput, creditsPerYuan, paymentMethod, applyOrderExpiry]);
   // 仅在套餐列表首次加载完成时自动下单，避免与 handlePackageSelect 在切换套餐时重复请求
   useEffect(() => {
     if (!packagesLoading && packages.length > 0 && selectedPackage !== null && (paymentMethod === "alipay" || paymentMethod === "wechat") && !showOrders && !customAmountMode) {
@@ -302,6 +316,7 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
       void (async () => {
         setIsLoading(true);
         setIsExpired(false);
+        setOrderError(null);
         try {
           const order = await createPaymentOrder({
             amount: pkg.price,
@@ -311,10 +326,11 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           if (requestId !== orderRequestIdRef.current) return;
           setQrCodeUrl(order.qrCodeUrl);
           setCurrentOrderNo(order.orderNo);
-          setCountdown(300);
+          applyOrderExpiry(order.expiredAt);
         } catch (error: any) {
           console.error("创建订单失败:", error);
           if (requestId === orderRequestIdRef.current) {
+            setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
             showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
@@ -351,9 +367,11 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     orderRequestIdRef.current += 1;
     setPaymentMethod(method);
     setQrCodeUrl(null);
+    setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
-    setCountdown(300);
+    orderExpiresAtRef.current = null;
+    setCountdown(0);
 
     if (customAmountMode) {
       // 切换支付方式后由 useEffect 自动重新生成订单
@@ -372,8 +390,10 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
         if (requestId !== orderRequestIdRef.current) return;
         setQrCodeUrl(order.qrCodeUrl);
         setCurrentOrderNo(order.orderNo);
+        applyOrderExpiry(order.expiredAt);
       } catch (error: any) {
         if (requestId === orderRequestIdRef.current) {
+          setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
           showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
         }
       } finally {
@@ -389,9 +409,11 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
     setCustomAmountMode(false);
     setSelectedPackage(index);
     setQrCodeUrl(null);
+    setOrderError(null);
     setCurrentOrderNo(null);
     setIsExpired(false);
-    setCountdown(300);
+    orderExpiresAtRef.current = null;
+    setCountdown(0);
     // 选择套餐后自动生成二维码
     if ((paymentMethod === "alipay" || paymentMethod === "wechat") && packages[index]) {
       const pkg = packages[index];
@@ -407,8 +429,10 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           if (requestId !== orderRequestIdRef.current) return;
           setQrCodeUrl(order.qrCodeUrl);
           setCurrentOrderNo(order.orderNo);
+          applyOrderExpiry(order.expiredAt);
         } catch (error: any) {
           if (requestId === orderRequestIdRef.current) {
+            setOrderError(error.message || lt("创建订单失败", "Failed to create order"));
             showToast(error.message || lt("创建订单失败", "Failed to create order"), "error");
           }
         } finally {
@@ -653,7 +677,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                         setQrCodeUrl(null);
                         setCurrentOrderNo(null);
                         setIsExpired(false);
-                        setCountdown(300);
+                        orderExpiresAtRef.current = null;
+                        setCountdown(0);
                       }}
                       className={cn(
                         "ml-auto text-xs underline",
@@ -698,7 +723,8 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
                     setCurrentOrderNo(null);
                     setIsLoading(false);
                     setIsExpired(false);
-                    setCountdown(300);
+                    orderExpiresAtRef.current = null;
+                    setCountdown(0);
                   }}
                   className={cn(
                     "flex w-full items-center justify-center gap-2 p-4 transition-colors",
@@ -759,8 +785,23 @@ const PaymentPanel = forwardRef<PaymentPanelHandle, PaymentPanelProps>(function 
           >
             {isLoading ? (
               <Loader2 className={cn("h-8 w-8 animate-spin", isWhite ? "text-slate-400" : "text-zinc-500")} />
+            ) : qrCodeUrl && isExpired ? (
+              <button
+                type="button"
+                onClick={handleCreateOrder}
+                disabled={isLoading}
+                className={cn(
+                  "flex h-full w-full flex-col items-center justify-center gap-2 text-sm",
+                  isWhite ? "text-orange-600" : "text-amber-400",
+                )}
+              >
+                <RefreshCw className="h-6 w-6" />
+                <span>{lt("付款码已过期，点击刷新", "QR code expired, click to refresh")}</span>
+              </button>
             ) : qrCodeUrl ? (
               <img src={qrCodeUrl} alt={lt("支付二维码", "Payment QR code")} className="h-full w-full object-contain" />
+            ) : orderError ? (
+              <span className="px-2 text-center text-sm text-red-500">{orderError}</span>
             ) : (
               <span className={cn("px-2 text-center text-sm", isWhite ? "text-slate-400" : "text-zinc-500")}>
                 {customAmountMode

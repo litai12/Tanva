@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useStore, type Node, type ReactFlowState } from "reactflow";
+import { Handle, Position, useStore, type Node, type ReactFlowState } from "@xyflow/react";
 import { fetchWithAuth } from "@/services/authFetch";
 import { getApiBaseUrl } from "@/utils/assetProxy";
 import { useLocaleText } from "@/utils/localeText";
@@ -99,7 +99,7 @@ function VolcEnhanceVideoNodeInner({ id, data, selected = false }: Props) {
             e.targetHandle.startsWith("video"),
         );
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((n: Node<any>) => n.id === edge.source);
+        const sourceNode = state.nodes.find((n: Node<any>) => n.id === edge.source);
         return resolveVideoUrlFromNode(sourceNode);
       },
       [id],

@@ -114,8 +114,11 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 // seedreamNamedSizes is the set of named tier values accepted by doubao-seedream.
-// "1k" is listed in docs but marked 暂不支持; only 2k/3k/4k are active.
+// Per https://www.volcengine.com/docs/82379/1824121: 5.0 Pro=1K/2K, 5.0 Lite=2K/3K/4K,
+// 4.5=2K/4K, 4.0=1K/2K/4K. Pass named tiers through as-is; ARK validates per-model
+// support itself (silently coercing here would desync billing from the actual output).
 var seedreamNamedSizes = map[string]struct{}{
+	"1k": {},
 	"2k": {},
 	"3k": {},
 	"4k": {},
@@ -209,13 +212,23 @@ func isSeedreamModel(modelName string) bool {
 	return strings.Contains(strings.ToLower(modelName), "seedream")
 }
 
+// isSeedream5ProModel reports whether the model is seedream 5.0 Pro, which does
+// NOT support 组图 (sequential_image_generation) — ARK returns InvalidParameter
+// if the param is present. 文档「组图输出」一节：Seedream 5.0 Pro 不支持该能力。
+// https://www.volcengine.com/docs/82379/1824121
+func isSeedream5ProModel(modelName string) bool {
+	lower := strings.ToLower(modelName)
+	return strings.Contains(lower, "seedream-5-0-pro") || strings.Contains(lower, "seedream-5.0-pro")
+}
+
 // normSeedreamImageField remaps reference images to the ARK API field "image"
-// (singular array) and injects sequential_image_generation params for n > 1.
+// (singular array) and, when supportsSequential, injects sequential_image_generation
+// params for n > 1.
 //
 // Input field aliases handled (all deleted from Extra after remapping):
 //   "images"     – set by hono-api task service (body.images = referenceImages)
 //   "image_urls" – set by other callers (e.g. doubao video-to-image path)
-func normSeedreamImageField(request *dto.ImageRequest) {
+func normSeedreamImageField(request *dto.ImageRequest, supportsSequential bool) {
 	var imagesRaw json.RawMessage
 	for _, key := range []string{"images", "image_urls"} {
 		if raw, ok := request.Extra[key]; ok && len(raw) > 0 {
@@ -232,6 +245,10 @@ func normSeedreamImageField(request *dto.ImageRequest) {
 		return
 	}
 	request.Image = imagesRaw
+
+	if !supportsSequential {
+		return
+	}
 
 	if _, has := request.Extra["sequential_image_generation"]; !has {
 		if v, err := json.Marshal("auto"); err == nil {
@@ -254,7 +271,13 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	case constant.RelayModeImagesGenerations:
 		if isSeedreamModel(info.UpstreamModelName) || isSeedreamModel(info.OriginModelName) {
 			request.Size = resolveSeedreamSize(request.Size, request.Extra)
-			normSeedreamImageField(&request)
+			isPro := isSeedream5ProModel(info.UpstreamModelName) || isSeedream5ProModel(info.OriginModelName)
+			if isPro {
+				// 5.0 Pro 不支持组图，客户端透传也要清掉，否则 ARK 400。
+				delete(request.Extra, "sequential_image_generation")
+				delete(request.Extra, "sequential_image_generation_options")
+			}
+			normSeedreamImageField(&request, !isPro)
 			// seedream 默认会给图片打水印（watermark 默认 true），业务侧固定去水印。
 			// 文档：https://www.volcengine.com/docs/82379/1541523
 			disableWatermark := false

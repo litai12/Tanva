@@ -2,9 +2,13 @@ package apimart
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -31,10 +35,13 @@ import (
 // which merges TaskSubmitReq.Metadata on top of the canonical fields.
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
+	ChannelType        int
+	apiKey             string
+	baseURL            string
+	videoDurationProbe func(c *gin.Context, rawURL string) (float64, error)
 }
+
+const seedance2VideoDurationCacheContextKey = "apimart_seedance2_video_duration_cache"
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
@@ -44,6 +51,99 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
 	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
+}
+
+// EstimateBillingChecked charges Seedance 2 by total processed video seconds:
+// the requested output duration plus every unique reference video's real
+// duration. RelayTaskSubmit invokes this after channel model mapping and before
+// pre-charge, so aliases cannot bypass reference-video billing.
+func (a *TaskAdaptor) EstimateBillingChecked(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, *dto.TaskError) {
+	req, err := relaycommon.GetTaskRequest(c)
+	if err != nil {
+		return nil, service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	upstreamModel := ""
+	if info.ChannelMeta != nil {
+		upstreamModel = info.ChannelMeta.UpstreamModelName
+	}
+	if !isSeedance2BillingModel(upstreamModel) && !isSeedance2BillingModel(info.OriginModelName) {
+		return nil, nil
+	}
+	if req.Duration <= 0 {
+		return nil, service.TaskErrorWrapperLocal(
+			fmt.Errorf("apimart Seedance 2 billing requires an explicit positive output duration"),
+			"invalid_duration",
+			http.StatusBadRequest,
+		)
+	}
+
+	probe := a.videoDurationProbe
+	if probe == nil {
+		probe = probeReferenceVideoDuration
+	}
+	durationCache, _ := c.Get(seedance2VideoDurationCacheContextKey)
+	cachedDurations, _ := durationCache.(map[string]float64)
+	if cachedDurations == nil {
+		cachedDurations = make(map[string]float64)
+	}
+	inputSeconds := 0.0
+	for i, rawURL := range collectSeedance2VideoURLs(&req) {
+		duration, cached := cachedDurations[rawURL]
+		var probeErr error
+		if !cached {
+			duration, probeErr = probe(c, rawURL)
+			if probeErr == nil && duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+				cachedDurations[rawURL] = duration
+			}
+		}
+		if probeErr != nil || duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+			return nil, service.TaskErrorWrapperLocal(
+				fmt.Errorf("reference video %d must be a reachable MP4 with a readable duration", i+1),
+				"invalid_reference_video_duration",
+				http.StatusBadRequest,
+			)
+		}
+		inputSeconds += duration
+	}
+	c.Set(seedance2VideoDurationCacheContextKey, cachedDurations)
+	return map[string]float64{"seconds": float64(req.Duration) + inputSeconds}, nil
+}
+
+func probeReferenceVideoDuration(c *gin.Context, rawURL string) (float64, error) {
+	resp, err := service.DoDownloadRequest(rawURL, "seedance2_billing_duration")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("reference video download returned HTTP %d", resp.StatusCode)
+	}
+
+	tmp, err := os.CreateTemp("", "new-api-seedance2-*.mp4")
+	if err != nil {
+		return 0, fmt.Errorf("create temporary reference video: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	defer tmp.Close()
+
+	maxBytes := int64(constant.MaxFileDownloadMB) * 1024 * 1024
+	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return 0, fmt.Errorf("download reference video: %w", err)
+	}
+	if written > maxBytes {
+		return 0, fmt.Errorf("reference video exceeds maximum download size of %dMB", constant.MaxFileDownloadMB)
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return 0, fmt.Errorf("seek reference video: %w", err)
+	}
+
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	return common.GetAudioDuration(ctx, tmp, ".mp4")
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
@@ -113,7 +213,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 	upstreamTaskID := sResp.TaskID()
-	if sResp.Code != 200 || upstreamTaskID == "" {
+	if !sResp.Accepted() || upstreamTaskID == "" {
 		msg := sResp.ErrorMessage()
 		if msg == "" {
 			msg = fmt.Sprintf("apimart submit non-200: %d", sResp.Code)
@@ -138,6 +238,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 	uri := baseUrl + PollPath(taskID)
+	if strings.Contains(strings.ToLower(baseUrl), "toapis.com") {
+		uri = baseUrl + FlatVideoPollPath(taskID)
+	}
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
@@ -163,18 +266,18 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 
 	info := &relaycommon.TaskInfo{Code: dResp.Code}
-	if dResp.Code != 200 || dResp.Data == nil {
+	if !dResp.Ready() {
 		info.Status = model.TaskStatusFailure
 		info.Reason = dResp.FailureReason()
 		info.Progress = taskcommon.ProgressComplete
 		return info, nil
 	}
 
-	info.Progress = clampProgress(dResp.Data.Progress)
-	switch dResp.Data.Status {
-	case StatusPending:
+	info.Progress = clampProgress(dResp.EffectiveProgress())
+	switch dResp.EffectiveStatus() {
+	case StatusPending, StatusQueued:
 		info.Status = model.TaskStatusQueued
-	case StatusProcessing:
+	case StatusProcessing, StatusInProgress:
 		info.Status = model.TaskStatusInProgress
 	case StatusCompleted:
 		info.Status = model.TaskStatusSuccess

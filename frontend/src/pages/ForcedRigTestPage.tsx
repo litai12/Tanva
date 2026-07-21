@@ -3,16 +3,17 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF } from '@react-three/drei'
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
+import { directorAssetUrl } from '@/components/flow/nodes/directorConsole/directorAssetUrl'
 
 function ForcedRigModel() {
-  const { scene } = useGLTF('/director/xbot.glb')
+  const { scene } = useGLTF(directorAssetUrl('xbot.glb'))
   const cloned = React.useMemo(() => skeletonClone(scene), [scene])
   const armRef = React.useRef<THREE.Bone | null>(null)
 
   React.useEffect(() => {
     let arm: THREE.Bone | null = null
     cloned.traverse((o) => {
-      if (o.name === 'mixamorigLeftArm' && ((o as any).isBone || o.type === 'Bone')) {
+      if (o.name === 'mixamorigLeftArm' && o.type === 'Bone') {
         arm = o as THREE.Bone
       }
     })
@@ -25,8 +26,8 @@ function ForcedRigModel() {
     arm.rotation.set(0, 0, -1.2)
     cloned.updateMatrixWorld(true)
     cloned.traverse((o) => {
-      const any = o as any
-      if (any.isSkinnedMesh) any.skeleton?.update?.()
+      const skinnedMesh = o as THREE.SkinnedMesh
+      if (skinnedMesh.isSkinnedMesh) skinnedMesh.skeleton?.update()
     })
   })
 

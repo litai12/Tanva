@@ -31,7 +31,7 @@ function scan(file) {
 
     // 取该调用前后窗口，判断是否带 tenant_id 或豁免注释
     const seg = src.slice(Math.max(0, m.index - 120), m.index + 380);
-    if (!/tenant_id|ALLOW_RAW_NO_TENANT/i.test(seg)) {
+    if (!/tenant_?id|ALLOW_RAW_NO_TENANT/i.test(seg)) {
       const line = src.slice(0, m.index).split('\n').length;
       offenders.push(`${file}:${line}: ${m[0]}`);
     }

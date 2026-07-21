@@ -4,8 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export type Seedream5ProviderType = 'doubao' | 'watcha';
 export const SEEDREAM5_PROVIDER_SETTING_KEY = 'seedream5_provider';
-export type Seedream5ModelVersion = '4.0' | '4.5' | '5.0';
+export type Seedream5ModelVersion = '4.0' | '4.5' | '5.0' | '5.0-pro';
 
+const DOUBAO_SEEDREAM_50_PRO_MODEL = 'doubao-seedream-5-0-pro-260628';
 const DOUBAO_SEEDREAM_50_MODEL = 'doubao-seedream-5-0-260128';
 const DOUBAO_SEEDREAM_45_MODEL = 'doubao-seedream-4-5-251128';
 const DOUBAO_SEEDREAM_40_MODEL = 'doubao-seedream-4-0-250828';
@@ -130,6 +131,7 @@ export class Seedream5Service {
     if (!normalized) return null;
     if (normalized === '4.0' || normalized === '4-0' || normalized === '4') return '4.0';
     if (normalized === '4.5' || normalized === '4-5') return '4.5';
+    if (normalized === '5.0-pro' || normalized === '5-0-pro' || normalized === '5.0pro') return '5.0-pro';
     if (normalized === '5.0' || normalized === '5-0' || normalized === '5') return '5.0';
     return null;
   }
@@ -138,6 +140,22 @@ export class Seedream5Service {
     requestedModel?: string;
     requestedModelVersion?: string;
   }): string {
+    // 显式 modelVersion 优先：version-only 请求时 model 会被上层自动填成默认普通版，
+    // 若 model 子串优先会与计费侧(version 优先)错配
+    const requestedModelVersion = this.normalizeDoubaoModelVersion(options?.requestedModelVersion);
+    if (requestedModelVersion === '4.0') {
+      return DOUBAO_SEEDREAM_40_MODEL;
+    }
+    if (requestedModelVersion === '4.5') {
+      return DOUBAO_SEEDREAM_45_MODEL;
+    }
+    if (requestedModelVersion === '5.0-pro') {
+      return DOUBAO_SEEDREAM_50_PRO_MODEL;
+    }
+    if (requestedModelVersion === '5.0') {
+      return DOUBAO_SEEDREAM_50_MODEL;
+    }
+
     const requestedModel = options?.requestedModel?.trim().toLowerCase() || '';
     if (requestedModel.includes('seedream-4-0') || requestedModel.includes('seedream-4.0')) {
       return DOUBAO_SEEDREAM_40_MODEL;
@@ -145,16 +163,9 @@ export class Seedream5Service {
     if (requestedModel.includes('seedream-4-5') || requestedModel.includes('seedream-4.5')) {
       return DOUBAO_SEEDREAM_45_MODEL;
     }
-    if (requestedModel.includes('seedream-5-0') || requestedModel.includes('seedream-5.0')) {
-      return DOUBAO_SEEDREAM_50_MODEL;
-    }
-
-    const requestedModelVersion = this.normalizeDoubaoModelVersion(options?.requestedModelVersion);
-    if (requestedModelVersion === '4.0') {
-      return DOUBAO_SEEDREAM_40_MODEL;
-    }
-    if (requestedModelVersion === '4.5') {
-      return DOUBAO_SEEDREAM_45_MODEL;
+    // pro 是 seedream-5-0 的超集字符串，必须先判定
+    if (requestedModel.includes('seedream-5-0-pro') || requestedModel.includes('seedream-5.0-pro')) {
+      return DOUBAO_SEEDREAM_50_PRO_MODEL;
     }
     return DOUBAO_SEEDREAM_50_MODEL;
   }
@@ -169,7 +180,14 @@ export class Seedream5Service {
       throw new Error('Seedream5: NEW_API_KEY is not configured');
     }
 
-    if (provider === 'watcha') {
+    const doubaoModel = this.resolveDoubaoModel({
+      requestedModel: options?.requestedModel,
+      requestedModelVersion: options?.requestedModelVersion,
+    });
+
+    // watcha 只提供默认 5.0(lite)；显式选择 4.x/5.0-pro 时自动改走 doubao(Ark)，
+    // 两者共用同一 new-api 网关 key，仅模型名不同，网关按模型名路由渠道
+    if (provider === 'watcha' && doubaoModel === DOUBAO_SEEDREAM_50_MODEL) {
       return {
         provider: 'watcha',
         endpoint: this.newApiBaseUrl,
@@ -183,10 +201,7 @@ export class Seedream5Service {
       provider: 'doubao',
       endpoint: this.newApiBaseUrl,
       apiKey: this.newApiKey,
-      model: this.resolveDoubaoModel({
-        requestedModel: options?.requestedModel,
-        requestedModelVersion: options?.requestedModelVersion,
-      }),
+      model: doubaoModel,
       generationPath: '/v1/images/generations',
     };
   }
@@ -228,10 +243,17 @@ export class Seedream5Service {
       requestedModel: params.model,
       requestedModelVersion: params.modelVersion,
     });
-    const normalizedSize = this.normalizeSizeForProvider(
+    let normalizedSize = this.normalizeSizeForProvider(
       providerConfig.provider,
       this.normalizeSize(params.size),
     );
+    if (
+      providerConfig.model === DOUBAO_SEEDREAM_50_PRO_MODEL &&
+      (normalizedSize === '3K' || normalizedSize === '4K')
+    ) {
+      this.logger.warn(`Seedream 5.0 Pro only supports 1K/2K, "${normalizedSize}" fallback to 2K`);
+      normalizedSize = '2K';
+    }
 
     const n =
       params.batchMode && Number.isFinite(Number(params.batchCount)) && Number(params.batchCount) > 1

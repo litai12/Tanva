@@ -5,7 +5,6 @@
  */
 
 import paper from 'paper';
-import * as THREE from 'three';
 import { BoundsCalculator, type ContentBounds } from '@/utils/BoundsCalculator';
 import { trimTransparentPng } from '@/utils/imageHelper';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';

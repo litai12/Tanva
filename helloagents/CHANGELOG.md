@@ -1,11 +1,55 @@
 # Changelog
 
+- 2026-07-21：`feature/multi-business` 合入 `main` 最新代码；冲突合并同时保留租户入口/支付配置隔离与主线 Seedance 计费、30 分钟支付订单、72 小时补单等规则。会员到期、lot 清扫和年卡升级巡检统一逐租户执行，API 用量 rollup 与去重统计补齐租户过滤，raw SQL 租户审查覆盖 Prisma 的 `tenantId` 命名。
+- 2026-07-21：ToAPIs 与 Flow 画布同步上调 Seedance 2 标准版、Fast、Mini 价格：网关倍率由进价 `x1.2` 调到 `x1.5`（`ModelRatio 37.5 -> 46.875`），画布现有单价按 `1.5/1.2` 同比例调整。两条链路均按“显式输出时长 + 所有唯一输入参考视频的真实时长”计费，例如输入 `5s`、输出 `5s` 按 `10s`；网关和画布后端都在预扣前安全探测 MP4，失败时不扣分、不提交上游。画布节点预览、个人积分和团队积分使用同一总时长口径，并补齐 Mini 的按秒价格规则（本次未操作生产数据）。
+- 2026-07-20：根治 Flow 同一视频节点并发重复建任务：前端显式下发项目/节点/运行/标签页身份，后端借助积分账户行锁实施 30 分钟 PENDING 单任务闸门；命中重复后复用原 taskId，任务创建中的短暂空窗返回可轮询的 apiUsage 别名而非前端报错，并跳过个人扣费、团队预留和上游调用。视频节点立即持久化任务身份，刷新自动恢复原任务；查询中断/超时不再误退款或丢弃仍在生成的任务。
+- 2026-07-20：修复 Prompt 节点缩放后连接端点丢失；`TextPromptNode` 改用 React Flow 12 的 `onResize` 几何更新路径，保留 RAF 预览与协作节流，缩放期间持续同步 handle bounds，并移除会裁剪边缘句柄的 `paint` containment。
+- 2026-07-19：小T大脑从 Claude 4.8/4.7/4.6 迁移到 GPT 5.6 Sol/Terra/Luna，默认 Sol；前后端白名单与选择器同步更新，preferences v2 自动清理历史 Claude 偏好，new-api 小T渠道以专属门面名和 `model_mapping` 送达 TapCanvas facade，避免裸 GPT 名绕过小T智能体链路。
+- 2026-07-19：修复导演台无全景、清空全景或全景切换瞬间 `Skybox` 把两个空 URL 误判为同一纹理，继而读取空 `state.texture/state.mode` 导致 WebGL 视口崩溃；`verify:director-panorama` 新增无全景首屏门禁，并继续覆盖图片连入、AI 生成、持久化刷新和小半径天空球渲染。
+- 2026-07-19：导演台 32 个模型、纹理、glTF bin、Gaussian 地形及许可证文件完整迁移至广州 TOS `director-assets/v1/`，50,103,802 bytes 经逐文件回读 SHA-256 校验一致；运行时与 X Bot 骨骼回归页改为远程资源，移除 `frontend/public/director` 本地副本，将 `frontend/public` 从约 65 MB 降至约 17 MB。上传脚本改为只接受仓库外的显式 staging 目录，避免素材再次进入前端包。
+- 2026-07-19：导演台相机新增 `verify:director-camera` 永久门禁，纯解析和真实 WebGL 六模式覆盖手动坐标/手动旋转/角色注视/跟随/FOV25/FOV90；修复机位视角截图读取旧 OrbitControls target 导致新机位注视点偏离所见画面，并修复轨迹红色朝向调试箭头进入机位预览和 MediaRecorder 导出，现相机/导出门禁均要求红色 helper 像素为 0。
+- 2026-07-19：导演台新增 `verify:director-persistence-io` 完整浏览器门禁：角色名称/位置/姿势与时间线时长写回后刷新逐值恢复；远程图片当前裁剪通过 `img→target` 输入边在刷新后继续作为全景运行时渲染；WebGL 截图上传远程后只保存 URL，通过 `source→img` 建图连边，刷新后截图画廊重新水合并可再次发送；真实 32-byte `.splat` 完成文件选择、presign 上传、远程入库、X 轴 pointer drag 和刷新精确恢复。所有阶段递归阻止 data:/blob:/flow-asset:/裸 base64 进入设计数据。
+- 2026-07-19：导演台动画导出新增完整浏览器永久门禁 `verify:director-export`：0.70s 轨迹导出期间证明 MediaRecorder 录制的就是实时预览 WebGL canvas，画面真实前进；Blob 经后端视频上传与资产可读性检查后派发远程视频插入，完成后播放头、编辑模式、导演视角和导出前像素帧完全恢复。
+- 2026-07-19：导演台八套素体轨迹新增真实 Chrome 平地/Gaussian 10% 坡面多时间点与回环确定性验收；修复绝对播放头 walk/run 绕过足部 IK，以及锁脚仅按垂直距离释放导致支撑脚可拖后 1.88m 的问题。锁脚改用三维距离并在求解后释放不可达缓存点；按蒙皮权重自动提取八体真实鞋底，坡地消费 `rootSlopeWeight` 并加入骨盆可达补偿。坡地最大锁脚水平/鞋底垂直/法线误差为 0.0134m/0.0492m/<0.0001°，分别受 0.02m/0.05m/1° 永久门禁约束。
+- 2026-07-18：微信/支付宝扫码支付有效期统一为 30 分钟，前端按服务端 `expiredAt` 倒计时并在到期后隐藏旧码；自动对账扩大到最近 72 小时内全部 `pending/expired/cancelled/failed` 订单并提升为每 5 分钟执行，订单列表也会主动补查，修复刷新旧码后晚付款可能不入账的问题。
+- 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
+- 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
+- 2026-07-18：导演台八套默认素体不再复用 X Bot 整体缩放，改为项目自建的八套独立参数化网格与统一关节骨架；已同屏验证八种轮廓、地面落脚和男性招手姿势驱动。
+- 2026-07-18：导演台“高斯地面吸附”从空开关升级为真实 `.splat` XYZ 解析、对象变换、XZ 高度空间索引与角色/道具移动提交吸附；确定性坡面点云浏览器回归得到 0.60/1.10/1.60 的递增高度。
+- 2026-07-19：导演台男性/女性素体替换为 Quaternius Universal Base Characters Standard 的 CC0 开源蒙皮模型，精简未使用纹理为纯色 blocking PBR 材质，并补充 Unreal Humanoid 骨名映射；真实截图验证男女同屏、落地与男性招手。其余六体仍为程序化回退，未宣称八套素材完成。
+
 All notable changes to this knowledge base will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
 ### Integration
+- Frontend/Vite：强制 React 与 ReactDOM 在 pnpm 软链接依赖中去重，并将 `@xyflow/react` 纳入同一预构建图；修复从旧 `reactflow` 缓存迁移后 ReactFlowProvider 使用第二份 React dispatcher 导致的 Invalid hook call 与全页白屏。
+- Flow canvas engine upgraded from legacy `reactflow@11.11.4` to `@xyflow/react@12.11.2`, including the v12 named export, integrated node-resizer components, public node store selectors, and `nodeLookup` migration.
+- Flow/3D Director Console：开始按 LibTV 线上导演台进行替代式重写，不再保留 Tanva 导演台额外能力。顶部采用导演/机位视角，底部采用场景编辑/动画时间轴；新建场景默认包含机位1、角色A和 LibTV 同款 3D 场景参数；节点句柄改为 `target/source`。后续继续移除旧灰模样片与镜头片段时间线，改为截图输出和属性关键帧轨道。
+- Flow/3D Director Bodies：将八套素体模型本身纳入 LibTV 1:1 验收；当前同一 X Bot 的高度/宽度缩放方案已判定不合格，后续替换为八套独立许可资产并逐套完成骨骼重定向、姿势和截图回归。
+- Flow/3D Director I/O：导演台截图输出改为确定性远程链路：截图 Blob 先上传 OSS，再创建只含远程 URL 的 Flow 图片节点，并在同一次创建流程中建立导演台 `source` 到图片节点 `img` 的边；不再把 dataURL 交给不确定的 Paper quick-upload。图片节点创建事件新增 world position、source 连接和完成回调支持。
+- Flow/3D Director Camera：导演台已切换到 LibTV 字段集的摄像机面板，只展示属性与摄像机截图；属性包含 FOV、机位切换、位置、跟随目标、旋转、注视模式/坐标，截图包含分组、删除、单张发送、全屏、清空和批量发送。旧景别/镜头/焦距/景深/路径/飞行/环绕/灰模视频入口不再进入用户界面，导演台懒加载包减少约 11KB。
+- Flow/3D Director Scene：LibTV 场景缩放/平移/旋转、天空颜色、全景球半径、地面显示/高度/透明度和角色标签已接入实时 WebGL 场景；离屏摄像机截图复用同一天空颜色、全局变换和标签开关。导演台 `target` 输入会解析上游图片或 ImageSplit 的当前裁剪结果，以运行时 object URL 显示且不把 `blob:`/base64 写入设计 JSON。
+- Flow/3D Director Character：角色栏替换为 LibTV 固定的“属性/姿势”，动画、自定义动作、自定义姿势、收藏和群演广播不再暴露；姿势页固定按 LibTV 顺序展示站立、T型、行走、跑步等 20 项，并使用身体/躯干/头部/肩肘/髋膝同名调节组。动画模式额外显示“运动轨迹”页签。
+- Flow/3D Director Timeline：旧“添加镜头/镜头片段/运镜切换/合成视频”时间线 UI 已替换为 LibTV 属性轨道壳层，提供播放、自动关键帧、循环、播放头/总时长、秒/毫秒、轨道增删、缩放、角色轨、主摄像机轨和属性关键帧行；旧 timeline 数据只作兼容读取，不再作为产品交互暴露。
+- Flow/3D Director Keyframes：新增持久化的逐属性关键帧数据模型，角色位置/旋转/缩放/统一缩放与主摄像机位置/旋转/FOV/注视点可在播放头处添加或删除关键帧；播放和 scrub 会对数值/三维向量做线性插值并直接驱动 WebGL 场景。自动关键帧已接入属性面板和视口变换提交，关键帧只保存数值，不写入运行时媒体 URL。
+- Flow/3D Director Keyframes：角色姿势/逐关节欧拉角现可作为属性轨道关键帧保存并逐关节插值；“＋轨道/－轨道”会为当前选中角色或机位真实创建/删除属性轨，“循环”开关真实决定播放到末尾时回绕或停下，非循环播放结束后再次播放会从 0 秒开始。
+- Flow/3D Director Toolbar：底栏收敛到 LibTV 顺序的移动、添加角色、全景、添加机位、画幅、截图、AI 图片识别导入、全屏、场景编辑/动画时间轴；移除可见的撤销/重做、独立旋转/缩放、九宫格、删除选中和自定义群演阵列表单。BrowserSkill 已在真实本地项目中验证打开导演台无白屏、20 个姿势与属性轨道文本可见，且旧“添加镜头/合成视频/灰模”文本不再出现。
+- Flow/3D Director Objects：添加角色菜单中的“空对象”改为真正无网格对象，不再伪装成平面；几何模型补齐圆环和棱锥并按 LibTV 隐藏旧平面入口。高斯泼溅使用独立 `.splat` 文件选择、远程上传和 Drei Splat 渲染链路。
+- Flow/3D Director Uploads：本地 GLB/GLTF 与全景图不再把短命 `blob:` object URL 写入导演台 scene；模型先上传 `director-models/`、全景先上传 `director-shots/` 后才以远程 URL 添加对象/背景，高斯文件同样先上传 `director-gaussians/`，刷新和保存后资源引用可继续解析。
+- Flow/3D Director Output：截图发送现在校验上传结果必须是可持久化远程引用，并要求每张截图都实际返回新建 Flow 图片节点 ID；监听器缺失、节点创建超时或批量数量不一致时明确失败，不再错误提示“发送成功”，发送期间会锁定按钮防止重复节点。
+- Flow/3D Director Runtime：修复导演台模态打开时 Delete/Backspace 事件穿透到底层 Flow 画布、同时删除选中机位和导演台节点的问题；对象快捷键现在在捕获阶段独占事件。真实浏览器验证已证明截图产生约 45KB JPEG dataURL、上传为可 HTTP 200 访问的 TOS 远程 JPEG，并在 Flow 中创建 `image` 节点及 Director→Image 边。
+- Flow/3D Director Environment：补齐 LibTV `3D场景` 环境控制器的真实访问和地面渲染语义：点击视口空白会取消对象选择并显示场景面板；地面开关控制半透明地面板与网格，透明度/高度进入 WebGL 和摄像机截图；网格不再被截图辅助物过滤；角色/机位 gizmo 松手时在启用网格吸附后按 0.5 场景单位吸附 X/Z。BrowserSkill 在线确认 LibTV 默认角色标签=true、网格吸附=false、高斯地面吸附=true、地面=true，Tanva 默认值已同步。
+- Flow/3D Director Panorama：全景“历史记录”不再是空按钮，现通过跨组件事件打开现有全局历史面板；“AI生成”提供真实 prompt 表单，调用后端生成严格 2:1 无缝等距全景，非远程结果先上传再写 `scene.skybox`，成功后自动应用。新增完整 LibTV Director 功能矩阵 `helloagents/wiki/director-console-libtv-parity.md`，明确所有已完成、近似和缺失项。
+- Flow/3D Director AI Import：`AI 识图导入` 不再是空按钮，新增与 LibTV 同结构的本地上传/历史、拖拽区、插入/覆盖和生成站位参考弹窗。来源图片先上传远程并创建 Flow image 节点，图片 `img` 会替换连接 Director `target`；站位参考使用参考生图生成、必要时上传远程、创建新图片节点，并以可编辑的 `站位参考层` 3D 图片平面插入场景。覆盖模式会清理当前全景/角色/机位后恢复默认机位并加入参考层。
+- new-api/ToAPIs 补齐文档索引中的 30 个视频生成 model IDs，修复 flat `generation.task` 提交响应、视频专用轮询路径和状态/结果解析，并登记 Kling v3 Omni 的 Omni 引用及音视频互斥约束。
+- Flow 视频通道现在按已部署网关能力选择正确入口与令牌：普通经 new-api `/v1/videos` 使用 `NEW_API_KEY`，尊享经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。
+- Flow Vidu 节点恢复可操作的普通/尊享通道按钮，并在 Q2/Q3 切换时同步托管模型键；后端会纠正历史节点中 Vidu 家族与 `managedModelKey` 不一致的请求，避免 VIP 渠道误查 Q2 或计费串台。
+- Flow 视频通道新增显式 `channelTier=default|vip` 端到端字段，后端优先采用该值，避免旧节点残留的 `tencent_vod` 把用户选择的 Default 误判成 VIP。
+- Flow 视频生成不再跨多次手动运行永久复用节点级幂等键，切换通道或模型后会创建新的请求记录。
+- Flow 新建 Vidu/Kling 视频节点强制以普通通道初始化，不再继承后台 `defaultVendor=tencent_vod` 成为 VIP；尊享仍保留为显式可选通道。
+- Flow 为视频通道增加显式选择标记并迁移历史自动 VIP 节点；未被用户明确选择过的通道在节点配置、画布水合和运行请求三层均强制回到 Default。
 - Library Panel: the toolbar entry now displays as `素材库`; the former global-history tab is now a real `团队库` backed by `material-library` team assets/folders, with personal-workspace team selection and current-team locking in team workspaces. `项目库` remains on project-filtered Global History.
 - Canvas/Flow: dragging Flow nodes while a drawing tool is active now bypasses the Paper canvas drawing event bus, so nodes can move directly without the drawing tool treating the action as a click and switching back to marquee/select mode.
 - Membership/Pricing: yearly membership cards now calculate and label estimated earned credits by year, using the matching monthly plan's immediate credits multiplied by 12 plus 365 daily check-ins and 52 seven-day streak bonuses; monthly cards continue to use the monthly 30-day/4-streak calculation.
@@ -122,6 +166,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Payment/Credits: removed recharge double-bonus campaign from frontend display and package policy docs; recharge packages are now fixed tiers (`25=2500`, `50=5000`, `100=10000`, `200=20000`, `500=50000`, `1000=100000`) and visible to all users without VIP gating.
 
 ### Fixed
+- Project History/Autosave: same-project Undo/Redo now restores content through a dedicated store action without rolling back `contentVersion`, `lastSavedAt`, save/cache/stale guards, or resetting `dirtyCounter`; subsequent autosave therefore keeps the latest cloud base version instead of being rejected as a stale canvas.
+- Corrected the Director shell layout: the bottom tool strip no longer consumes a full flex row and truncates both sidebars. It is now a consistently sized floating overlay constrained to the central viewport, sits 8px above the bottom in scene mode, and lifts above the expanded timeline; fixed-viewport browser assertions cover the 48px header, 240/910/320 columns, full-height sidebars, and toolbar bounds.
+- Added real playback for persisted Paper video assets: double-clicking a video item opens a native controlled video lightbox backed by its remote URL, with autoplay, Escape/backdrop/button close, and identical behavior after project hydration. A permanent browser gate serves a real VP9 WebM with byte ranges and proves playback time advances both before and after reload.
+- Added a full-Modal trajectory pointer gate: it creates a trajectory point on the WebGL ground plane, drags the actual spherical control handle with pointer down/move/up, verifies the persisted waypoint changes materially, and proves exact coordinates survive reload.
+- Corrected the Director camera-preview interaction to match LibTV: removed the top-level director/camera viewpoint toggle and inspector “switch to camera view” action, selecting a camera now activates it and renders its live WebGL view directly in the camera inspector. Capturing while a camera is selected now snapshots that preview into the same camera group instead of silently creating a new camera for every shot.
 - Global History: Flow image generation entries now store the actual request prompt separately from display titles like `Generate 22:18:44`, and legacy auto titles are no longer shown as prompts in image detail.
 - Workspace Settings: invite status now paginates referral records via `/api/referral/stats?page=&pageSize=`, so users with more than 20 invites can navigate older records.
 - AI Chat Image Count: explicit multi-image prompts such as `画三张...每张图1只` now split the batch into per-slot single-image prompts, so each parallel generation creates one independent image instead of reinterpreting the total count as a collage or multiple subjects in one image.
@@ -299,6 +348,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端右侧库面板新增双标签：`全局历史` �?`手动素材`，全局历史支持搜索、类型筛选、页码分页（`1 2 ... N`）、拖�?发送到画板；同时修复库面板内容区在部分视口下无法下滑的问题�?
 
 ### Changed
+- AI Gemini 3.1 routing: backend text/analyze defaults now use `gemini-3.1-pro-preview`; the legacy `gemini-3.1-pro` APIMart facade is mapped to the preview upstream ID by `new-api/patches/2026-07-20/001-map-gemini-31-pro-to-preview.sql`, preventing the facade name from producing repeated upstream 503 errors.
 - Membership/Payment UI: `MembershipPanel` 的积分充值入口从“仅月卡会员”调整为“任�?active 会员（含年卡）或白名单用户（`noWatermark`）可见”，并同步更新充值区提示文案（`frontend/src/components/payment/MembershipPanel.tsx`）�?
 - AI Text Model Routing: Fast/Pro/Ultra 文本模型映射更新�?`banana-2.5 -> gemini-2.5-flash`、`banana -> gemini-3-pro-preview`、`banana-3.1/nano2 -> gemini-3.1-pro-preview`；前�?`auto` 工具选择请求现在显式携带文本模型，且 Banana Ultra �?147 �?Apimart 通道统一使用 `gemini-3.1-pro-preview`�?
 - Flow/Performance: workflow 画布在大节点量场景下启用自适应性能策略：`onlyRenderVisibleElements` 默认改为开启，并在节点数较大时自动强制“仅渲染可见元素”；同时大图模式会自动关闭节点吸附对齐，减少拖拽时的全图对齐计算开销（`frontend/src/stores/flowStore.ts`, `frontend/src/components/flow/FlowOverlay.tsx`）�?
@@ -841,3 +891,78 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Project-level research search now ranks per-project web results instead of dropping results that do not exactly match the Chinese project title; known architect seeds are used only as search-entry fallbacks and still require real web sources before display.
 - Research case image lookup now remains tied to the extracted case list; when real search is disabled, fails, or returns no matching cases, the backend returns an explicit no-result summary instead of unrelated static architecture cases.
 - AI Chat research-only responses now render the bottom text from the same `research_result` payload used by the case cards, including no-result summaries.
+## [Director Console LibTV Camera Pose Unification - 2026-07-19]
+### Fixed
+- Director Console camera helper, active-camera preview and screenshot rendering now share one camera-pose resolver.
+- LibTV-style manual-coordinate, manual-rotation and character-look-at modes are mutually exclusive; manual rotation is no longer overwritten by `lookAt()`.
+- Camera follow now preserves an explicit character-relative offset, updates the rendered camera when its target moves, and recalculates the offset when position is edited.
+- Switching the camera from the inspector now also selects that camera; new/default camera rotation and FOV copy/format match the observed LibTV controls more closely.
+- Camera screenshot fullscreen now opens an in-console modal lightbox with close-button, backdrop and Escape dismissal instead of navigating to a new browser tab.
+
+### Added
+- Restored LibTV's top-level `导出到画布` as a narrowly scoped property-timeline export: it records the active camera WebGL canvas in real time, uploads a remote MP4/WebM asset, and inserts it through the existing canvas video-asset event.
+- Timeline playback now feeds the sampled `displayedScene` into the main viewport, fixing previously static preview and exported footage.
+- Global History now supports request-scoped image-picking mode. Director panorama history selection writes the selected remote image into `scene.skybox`; AI scene import history selection returns the same remote image into the dialog source preview without sending it to the canvas.
+- LibTV-style trajectory drawing now works for both characters and the main camera. Viewport control points support add/move/delete/clear plus linear/curve modes; paths persist with the property timeline and compile into arc-length-timed position keyframes, including character ground/Gaussian height resolution.
+- Replaced the six remaining procedural Director body fallbacks with independent CC0 skinned glTF assets from Quaternius Ultimate Animated Character Pack: Viking, Knight, Ninja, Elf and two Goblins. Extended pose mapping for the pack's `.L/.R` upper/lower-leg bone names and recorded the bundled CC0 license.
+- Split LibTV's body and torso controls into distinct calibrated joints: lower body/abdomen uses `body`, while upper torso/chest remains `spine`, with exact aliases across Mixamo, Universal Base and Quaternius 23-joint rigs.
+- Added an eight-body pose audit harness and completed a 20-pose batch render (160 body/pose combinations) in an independent SwiftShader WebGL browser with zero application console errors.
+- Director camera screenshots now remoteize immediately and persist as remote-only `scene.cameraShots`; reopening the console hydrates the gallery, while send-to-canvas reuses an existing remote URL instead of uploading it twice.
+- The property timeline minimize control is now functional, collapsing the 250px editor to its 42px transport bar and restoring it with an accessible expand control.
+
+### Removed
+- Physically removed the obsolete Director viewport clip-frame renderer, thumbnail renderer, free-flight recorder, legacy camera animation preview, recorded/path helper overlays and live-camera override.
+- Deleted the unused legacy shot timeline, preview-clip, clip-animation, camera-path editor, lens and shot-preset modules, along with focal-length, aperture, focus-distance, roll and legacy path fields from the Director camera contract.
+## 2026-07-19 — LibTV 导演台相机预览姿态与画幅修正
+
+- 导演视角中的机位模型现在同步共享相机解析器计算出的最终位置和四元数，跟随、手动旋转、坐标注视和角色注视不再出现“视锥正确但机位模型朝向错误”。
+- 相机视锥使用导演台当前画幅比例，不再固定为 16:9；机位预览、视锥和截图继续共享同一套相机姿态/FOV 语义。
+- 导演台 scene 写入在 React commit 前同步更新内部权威引用，修复连续相机编辑、截图新建机位与异步上传回写之间可能由旧 scene 覆盖新 scene 的竞态；外部 scene 重载时同步水合摄像机截图画廊。
+- 新增项目自有 CC0 标准 Gaussian Splat 起伏地面回归资产（4225 splats，135200 bytes）及确定性生成脚本；独立 Chromium/SwiftShader 实测 HTTP 加载、Drei 渲染零错误，XYZ 地面索引在 X=-2/0/2 返回 0.098/0.296/0.472。
+- Director Harness 新增完整 React Flow + Director Modal 持久化宿主，可记录 `flow:updateNodeData`、卸载并刷新重开；浏览器回归证明相机位置/注视模式与远程截图分组恢复，序列化数据不含 `data:`/`blob:`。场景树对象行补齐 LibTV 同等 button 语义与键盘 Enter/Space 选择。
+- 顶栏“导出到画布”改为只在动画时间轴模式显示，场景编辑模式隐藏；完整 Modal 浏览器快照已分别验证两种状态，匹配 LibTV 默认导演台/时间线快照。
+- 底部工具栏从仅 hover title 的图标条改为 LibTV 同构的“图标 + 常驻文字”，补齐 `移动 (V)`、`全景图`、`AI 识图导入` 等精确文案和 navigation 语义；添加角色一级菜单同步改为 `添加空对象`、`群众 (3x3)`，几何模型收进独立二级入口。移除 Toolbar 遗留但不可见的九宫格/删除/撤销参数接口。
+- 场景属性数值显示对齐 LibTV：缩放 `300%`、全景旋转 `0°`、透明度 `0.40`、高度 `0.0` 使用带格式文本提交，天空颜色使用 `#` + 六位 hex；XYZ 轴标签升级为可左右拖动调整的按钮。场景树补回 LibTV 快照中的常驻“搜索场景对象”标签。
+- 角色属性颜色从原生 color picker 改为 LibTV 的 hex 文本，统一缩放固定一位小数，新角色默认色对齐 `#4F8EF7`。姿势调节分组/文案重排为“手臂 — 肩”“腿部 — 髋”及独立左右小节，补齐角度文本框 aria 语义，并移除 LibTV 快照不存在的额外“重置姿势”按钮。
+- 属性时间线控件对齐 LibTV：自动帧/循环播放改为按钮，播放头和总时长使用同名文本输入，时间单位为 `s`/`ms` 单按钮，缩放改为 range；增删轨收敛为上下文“新建轨道/移除轨道”。未建轨角色不再预先列出，主轨改名“主机位”，展开属性与常驻“绘制轨迹”分离。
+- 导演台 Flow 节点补齐 LibTV 的“资产管理”按钮，复用现有 `MaterialLibraryPanel` 状态入口，真实打开个人/团队素材与画布元素管理面板；与“打开导演台”并列显示，不提供空壳交互。
+- 修复导演台默认场景仅存在于 Modal 内存兜底的问题：Flow 新建节点现在直接 seed 完整 `createDefaultDirectorConsoleData()`；历史缺 scene 节点首次打开时立即通过节点数据事件自愈写回，用户不编辑直接关闭也能保存看到的默认角色、机位、环境和地面设置。
+- 导演台输入句柄由 `any` 收紧为 `image`。对象删除现在原子清理对应属性轨/运动轨迹，删除机位额外清理其持久化截图并回落 activeCamera；“全部发送”只消费当前有效机位分组，修复已删除机位的隐藏截图仍可能被输出的问题。
+- 修复角色旋转单位与 LibTV/场景/摄像机面板不一致：角色属性输入和轴拖动现在显示/编辑角度，写入时再转换成 Three.js 弧度，保留既有 gizmo、关键帧与渲染内部单位。AI 识图生成期间关闭按钮与背景关闭不再被 busy 禁用，真正兑现“关闭不会中断识图任务”。
+- 时间线旋转插值改为最短弧：角色根旋转和姿势关节按 2π 弧度周期，摄像机按 360° 周期，修复 350°→10°、170°→-170° 等关键帧跨界时反向绕长路的问题；位置/缩放/FOV 等仍保持线性插值。
+- 属性时间线从整 Vec3 关键帧扩展为逐轴 component 轨：角色位置/旋转/缩放与机位位置/旋转/注视点可分别给 X/Y/Z 打帧，FOV 保持标量轨；时间线模式右侧面板补齐 LibTV 的“当前帧有/无关键帧”菱形按钮。旧整向量轨仍可采样并在轴按钮删除时安全清理，轨迹 position 轨会排除冲突的分量轨。
+- 加固逐轴轨兼容优先级：重新建轨会替换同属性旧整向量轨，采样时先应用旧整向量基值、再由 component 轨覆盖对应轴，避免轨道数组顺序导致结果漂移；三轴输入改为可收缩布局，新增菱形按钮后仍保持在 320px 检查器内。
+- 真实打包 `propertyTimeline.ts` 执行确定性断言时发现并修复分量 rotation 仍走标量线性插值的问题。回归现证明：仅 X 位置打帧时中点 `[5,2,3]`（Y/Z 不漂移）、摄像机 Y 轴 350°→10° 中点为 360°、旧整向量 `[1,2,3]` 与新 X=7 共存时结果为 `[7,2,3]`。
+- 新增永久属性时间线回归门禁 `npm run verify:director-timeline`，直接打包并执行真实 `propertyTimeline.ts`，严格校验 X/Y/Z 建轨、新轨为空、单轴动画不污染其他轴、350°→10° 最短弧和旧整向量/新分量轨优先级；该门禁、前端生产构建及 `git diff --check` 均已通过。
+## [Director Open-source Assets on OSS/TOS - 2026-07-19]
+
+### Changed
+- Director Console bundled CC0 glTF, texture and Gaussian Splat assets now resolve through the configured public OSS/TOS base at `director-assets/v1/open-source/`, bypassing frontend-server bandwidth while retaining a local fallback when no public base is configured.
+- Added a repeatable backend upload command that preserves glTF-relative paths and writes immutable cache metadata plus a source SHA-256 object metadata value.
+
+### Fixed
+- Director local model import now accepts a complete GLTF package instead of silently uploading only the first selected file. It parses external buffer/image URIs, rejects missing/path-escaping dependencies, preserves declared relative directories in an isolated remote package, uploads dependencies before the GLTF entry, and persists only the remote entry URL; the full-Modal browser gate verifies upload and reload with an external `buffers/model.bin` resource.
+- Director timeline playhead/duration fields now preserve incomplete editing drafts, commit on Enter/blur, cancel on Escape, convert seconds/milliseconds consistently, clamp playhead boundaries, and pull an out-of-range playhead back when duration shrinks. The permanent full-Modal browser verifier covers all of these cases.
+- Director full-Modal persistence acceptance now enters/exits the real Fullscreen API and deletes an active camera carrying a persisted screenshot, property track and trajectory, proving dependent cleanup, active-camera fallback and non-reappearance after reload.
+- Character trajectory curves, waypoint handles and pointer hit-testing now use the same scene position/rotation/scale transform as rendered characters; Gaussian-snapped curve heights use the same terrain sampler as position keyframes. Camera trajectories remain in world space at the camera's own Y level. This fixes XYZ motion drifting away from the drawn curve, including the default 3× scene scale.
+- Character trajectory commits now generate a paired `rotation.y` track from the exact same normalized path samples as the position track. The established +Z model-forward convention follows Catmull-Rom/linear tangents with shortest-arc interpolation, so the face direction stays locked to travel direction through bends.
+- Timeline playback now directly samples persisted trajectories every frame for exact curve position/tangent heading and current-XZ Gaussian height; closed Catmull-Rom paths use cyclic neighbors. Character trajectory UI adds follow/reverse/fixed facing plus degree offset controls, and legacy trajectories dynamically follow without manual migration.
+- Auto-key now has an unmistakable red recording state and explanatory toast/tooltip. During playback, inspector keyframe diamonds stop evaluating the moving ±20ms window, preventing the right property panel from flashing while the viewport continues sampling animation every frame.
+- Timeline trajectories now drive skeletal mixers from the absolute playhead. Path arc-length speed automatically selects walk/run for characters without an explicit motion and scales gait playback against 1.4 m/s walk / 3.2 m/s run reference speeds; Gaussian finite-difference gradients add heading-relative root pitch/roll on slopes.
+- Director rigs now map `footL/footR` across both bundled skeleton families (`Foot.L/R`, `foot_l/r`, Mixamo aliases). After each absolute-time Mixer sample, a four-pass CCD solve applies hip→knee→foot contact at independently sampled terrain heights and aligns each sole up-axis to the local Gaussian normal; unsupported uploaded rigs safely skip the solver.
+- Removed the legacy `widthScale` and procedural-body fallback from Director Console body rendering, so all eight LibTV body choices are now represented exclusively by their independent licensed meshes.
+- Fixed Agent/headless Director capture using the obsolete two-argument canvas-output call and reporting success before the image node existed. The runner now awaits the three-argument output API, rejects a missing node, and is covered by `npm run verify:director-output` for the remote payload, `source → img` handles, placement, and completion ordering.
+- 2026-07-19：修复导演台 AI 全景图“提示生成成功但画面不变化”：此前上游图片连线始终覆盖 `scene.skybox`，现在上传、AI 生成或历史选择代表用户明确选定的当前全景并优先渲染，清除后再回退上游连线。新增 `verify:director-panorama` 浏览器门禁，覆盖连线图→AI 新图即时应用、远程 URL 持久化以及刷新后不被旧连线反向覆盖。
+- 2026-07-19：继续修复导演台全景加入后“看不到球体、乌漆嘛黑”：2:1 等距图不再只依赖 Three.js `scene.background`，与普通图片统一渲染真实 BackSide 内视球；OSS URL、OSS key 与历史 proxy 包装复用统一图片解析链，加载错误不再静默吞掉；纹理状态绑定来源 URL，消除切换时把旧纹理误报为新图 ready 的竞态。全景浏览器门禁升级为读取 WebGL 实际像素，确认贴图真正可见而非仅状态成功。
+- 2026-07-19：修复全景球的另一条真实黑屏路径：右栏允许半径缩到 10，而默认导演相机距世界原点约 15，固定在原点的 BackSide 球会在相机位于球外时完全不可见。天空球现逐帧跟随当前导演/机位相机保持同心；新增“半径 10、相机在原球外仍有贴图像素”门禁。全景加载失败与源图片接近纯黑也会直接在导演台显示具体提示，不再只留下黑视口。
+- 2026-07-19：修复图片节点手动连接导演台会被静默拒绝：`isValidConnection` 虽允许图片来源进入 `directorConsole/target`，但 `canAcceptConnection` 遗漏导演台分支并最终返回 false；现补齐单全景入口容量规则。导演台节点同时支持 `?directorNodeId=<id>` 项目深链自动打开，便于协作验收。已将全景可见性验收截图上传 TOS，并在项目 `580085f6-0948-4ac6-8890-0a3a644f4a8a` 最新导演台左侧添加图片节点及 `img → target` 边。
+
+## [Annual Membership Cycle Guard - 2026-07-20]
+
+### Fixed
+- Paid membership upgrades no longer trust `PaymentOrder.metadata.membershipCycleSwitch` as the only cycle-reset signal. A real current/target billing-cycle mismatch always reopens the target cycle from `paidAt`, so a monthly subscription upgraded to yearly cannot retain the old monthly expiry even when the order marker is absent or false.
+- Membership upgrade activation now re-reads and validates the subscription, entitlement snapshot, newly granted credit lot and carried credit-lot expiries before the payment transaction can commit. Any mismatch rolls the whole transaction back; the guard never compensates or grants credits outside the original paid-order amount.
+
+### Added
+- Added an hourly read-only audit for paid annual upgrades from the previous 48 hours. It reports subscription, entitlement and credit-lot period violations without automatically changing membership data or credit balances.
+- Added `npm run verify:membership-cycle`, covering missing/false order markers, explicit cycle resets, retained same-cycle periods and invalid cycle durations.

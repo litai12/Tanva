@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, useStore, type ReactFlowState } from "reactflow";
+import { Handle, Position, useStore, type ReactFlowState } from "@xyflow/react";
 import { Video, Download, Share2, AlertTriangle } from "lucide-react";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";

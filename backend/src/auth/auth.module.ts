@@ -7,6 +7,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshJwtStrategy } from './strategies/refresh.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { SmsService } from './sms.service';
+import { RegisterIpLimitService } from './register-ip-limit.service';
 import { ReferralModule } from '../referral/referral.module';
 import { CreditsModule } from '../credits/credits.module';
 import { TelemetryModule } from '../telemetry/telemetry.module';
@@ -22,7 +23,7 @@ import { TeamCoreModule } from '../team-core/team-core.module';
     TelemetryModule,
     TeamCoreModule,
   ],
-  providers: [AuthService, SmsService, JwtStrategy, RefreshJwtStrategy],
+  providers: [AuthService, SmsService, RegisterIpLimitService, JwtStrategy, RefreshJwtStrategy],
   controllers: [AuthController],
   exports: [AuthService],
 })

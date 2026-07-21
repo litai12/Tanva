@@ -44,7 +44,10 @@ import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { Seed3DService } from './services/seed3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { UsersService } from '../users/users.service';
-import { CreditsService } from '../credits/credits.service';
+import {
+  CreditsService,
+  LEGACY_FLOW_VIDEO_PROJECT_SCOPE,
+} from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
@@ -54,7 +57,6 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
 import { VideoProviderService } from './services/video-provider.service';
 import { ModelRoutingService } from './services/model-routing.service';
-import { ImageReuseCacheService, type ImageReuseSignature } from './services/image-reuse-cache.service';
 import { MinimaxSpeechService } from './services/minimax-speech.service';
 import { MinimaxMusicService } from './services/minimax-music.service';
 import { TencentSpeechService } from './services/tencent-speech.service';
@@ -84,6 +86,7 @@ import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '..
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
 import { PDFParse } from 'pdf-parse';
+import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -156,30 +159,30 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro',
-    'gemini-pro': 'gemini-3.1-pro',
+    gemini: 'gemini-3.1-pro-preview',
+    'gemini-pro': 'gemini-3.1-pro-preview',
     banana: 'gemini-3.5-flash', // Pro 对话档改用 gemini-3.5-flash（仅对话能力）
     'banana-2.5': 'gemini-2.5-flash',
     'banana-3.1': 'gemini-3.1-pro-preview',
     'deepseek-v4-flash': 'deepseek-v4-flash-260425',
     'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro',
-    midjourney: 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro-preview',
+    midjourney: 'gemini-3.1-pro-preview',
     nano2: 'gemini-3.1-pro-preview',
-    seedream5: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro-preview',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro',
-    'gemini-pro': 'gemini-3.1-pro',
+    gemini: 'gemini-3.1-pro-preview',
+    'gemini-pro': 'gemini-3.1-pro-preview',
     banana: 'gemini-3-pro-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     'deepseek-v4-flash': 'deepseek-v4-flash-260425',
     'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro',
-    midjourney: 'gemini-3.1-pro',
+    runninghub: 'gemini-3.1-pro-preview',
+    midjourney: 'gemini-3.1-pro-preview',
     nano2: 'gemini-3.1-flash-image-preview',
-    seedream5: 'gemini-3.1-pro',
+    seedream5: 'gemini-3.1-pro-preview',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -516,11 +519,11 @@ export class AiController {
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
     private readonly telemetryService: OpenObserveTelemetryService,
-    private readonly imageReuseCache: ImageReuseCacheService,
     @Optional() private readonly imageTaskService?: ImageTaskService,
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
     @Optional() private readonly creditCharge?: CreditChargeService,
+    @Optional() private readonly referenceVideoDuration?: ReferenceVideoDurationService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -909,6 +912,10 @@ export class AiController {
       return 'midjourney-imagine';
     }
 
+    if (normalizedModel?.includes('seedream-5-0-pro') || normalizedModel?.includes('seedream-5.0-pro')) {
+      return 'doubao-seedream-5-0-pro-260628';
+    }
+
     if (provider === 'seedream5' || normalizedModel?.includes('seedream')) {
       return 'doubao-seedream-5-0-260128';
     }
@@ -1187,73 +1194,6 @@ export class AiController {
     };
   }
 
-  private async updateImageReuseApiUsageParams(
-    apiUsageId: string | undefined | null,
-    patch: Record<string, any>,
-  ): Promise<void> {
-    if (!apiUsageId) return;
-    try {
-      await this.creditsService.updateApiUsageRequestParams(apiUsageId, patch);
-    } catch (error) {
-      this.logger.warn(
-        `[image-reuse-cache] failed to update api usage params: ${this.summarizeError(error)}`,
-      );
-    }
-  }
-
-  private async recordGeneratedImageReuseAsset(params: {
-    userId: string | null | undefined;
-    signature: ImageReuseSignature | null;
-    result: GenerateImageUrlResult;
-    providerName: string | null;
-    model?: string;
-    serviceType: ServiceType;
-    apiUsageId?: string | null;
-  }): Promise<GenerateImageUrlResult> {
-    if (!params.userId || !params.signature || !params.result.imageUrl) {
-      return params.result;
-    }
-
-    const metadata = params.result.metadata || {};
-    const recorded = await this.imageReuseCache.recordGeneratedAsset({
-      userId: params.userId,
-      signature: params.signature,
-      imageUrl: params.result.imageUrl,
-      imageKey: typeof metadata.imageKey === 'string' ? metadata.imageKey : undefined,
-      provider: params.providerName || 'gemini',
-      model: params.model,
-      serviceType: params.serviceType,
-      textResponse: params.result.textResponse,
-      metadata,
-      apiUsageId: params.apiUsageId,
-    });
-
-    if (!recorded) return params.result;
-
-    await this.updateImageReuseApiUsageParams(params.apiUsageId, {
-      imageReuseCacheEligible: true,
-      imageReuseCacheHit: false,
-      imageReuseCacheStored: true,
-      imageReuseAssetId: recorded.id,
-      imageReuseCacheSignature: params.signature.signature,
-      imageReuseCacheVersion: params.signature.version,
-    });
-
-    return {
-      ...params.result,
-      metadata: {
-        ...metadata,
-        imageReuseCache: {
-          hit: false,
-          stored: true,
-          assetId: recorded.id,
-          signature: params.signature.signature,
-          version: params.signature.version,
-        },
-      },
-    };
-  }
-
   private async buildVideoProviderCreditParams(
     dto: VideoProviderRequestDto,
   ): Promise<Record<string, any>> {
@@ -1261,6 +1201,23 @@ export class AiController {
       aiProvider: dto.provider,
       ...this.buildRequestPromptAndImageParams(dto.prompt, dto.referenceImages),
     };
+
+    for (const key of [
+      'clientProjectId',
+      'clientNodeId',
+      'clientRunId',
+      'runSource',
+      'clientTabId',
+    ] as const) {
+      const value = dto[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        params[key] = value.trim();
+      }
+    }
+
+    if (dto.channelTier === 'default' || dto.channelTier === 'vip') {
+      params.channelTier = dto.channelTier;
+    }
 
     const preferredVendorKey =
       typeof dto.vendorKey === 'string' && dto.vendorKey.trim().length > 0
@@ -1377,7 +1334,24 @@ export class AiController {
     }
 
     const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
-    const referenceVideoCount = Array.isArray(dto.referenceVideos) ? dto.referenceVideos.length : 0;
+    const referenceVideoUrls = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(dto.referenceVideos) ? dto.referenceVideos : []),
+          dto.referenceVideo,
+        ]
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+    const isSeedance20BillingRequest =
+      dto.provider === 'doubao' && this.isSeedance20Model(dto.seedanceModel);
+    const referenceVideoCount = isSeedance20BillingRequest
+      ? referenceVideoUrls.length
+      : Array.isArray(dto.referenceVideos)
+        ? dto.referenceVideos.length
+        : 0;
     const audioCount = Array.isArray(dto.audioUrls) ? dto.audioUrls.length : 0;
     params.referenceImageCount = referenceImageCount;
     params.referenceVideoCount = referenceVideoCount;
@@ -1387,7 +1361,7 @@ export class AiController {
         ? dto.videoMode.trim().toLowerCase()
         : '';
 
-    if (referenceVideoCount > 0 || typeof dto.referenceVideo === 'string') {
+    if (referenceVideoUrls.length > 0) {
       params.inputType = 'video';
       params.referenceVideo = true;
       params.hasVideoInput = true;
@@ -1468,6 +1442,37 @@ export class AiController {
       }
     };
 
+    const finalizeSeedance20Billing = async (): Promise<Record<string, any>> => {
+      if (dto.provider !== 'doubao' || !this.isSeedance20Model(dto.seedanceModel)) {
+        return params;
+      }
+
+      const outputDurationSec = Number(params.duration ?? params.durationSec);
+      if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) {
+        throw new BadRequestException('Seedance 2.0 计费需要明确的正数输出时长');
+      }
+
+      let inputVideoDurationSec = 0;
+      if (referenceVideoUrls.length > 0) {
+        if (!this.referenceVideoDuration) {
+          throw new BadRequestException('参考视频时长探测服务不可用，请稍后重试');
+        }
+        const probed = await this.referenceVideoDuration.sumDurations(referenceVideoUrls);
+        inputVideoDurationSec = probed.totalDurationSec;
+        params.referenceVideoDurationsSec = probed.durations.map((item) => item.durationSec);
+      }
+
+      const billingDurationSec = Number((outputDurationSec + inputVideoDurationSec).toFixed(3));
+      params.outputDurationSec = outputDurationSec;
+      params.inputVideoDurationSec = inputVideoDurationSec;
+      params.billingDurationSec = billingDurationSec;
+      // Managed pricing evaluates `duration`; keep the upstream DTO untouched and only replace
+      // the credit context with the total processed video duration.
+      params.duration = billingDurationSec;
+      params.durationSec = billingDurationSec;
+      return params;
+    };
+
     const assignRouteParams = (
       route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
     ) => {
@@ -1489,7 +1494,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('omni-flash-ext', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     // kling-o3(Omni) 不能并入 kling-3.0 路由：它虽下发 klingModel='kling-v3-0'(为让 new-api
@@ -1504,7 +1509,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-3.0', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (
@@ -1514,14 +1519,14 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-2.6', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'kling-o3') {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-o3', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
@@ -1541,7 +1546,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'doubao') {
@@ -1550,12 +1555,12 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     params.routedProvider = dto.provider;
     params.providerChannel = dto.provider;
-    return params;
+    return finalizeSeedance20Billing();
   }
 
   private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {
@@ -2134,7 +2139,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro';
+      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro-preview';
     }
     return this.providerDefaultAnalyzeModels.gemini;
   }
@@ -3386,7 +3391,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro';
+      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro-preview';
     }
     return this.providerDefaultTextModels.gemini;
   }
@@ -3585,35 +3590,6 @@ export class AiController {
       dto.batchMode && Number.isFinite(Number(dto.batchCount))
         ? Math.max(1, Math.min(10, Math.floor(Number(dto.batchCount))))
         : 1;
-    const imageReuseUserId = this.getUserId(req);
-    const imageReuseSignature = imageReuseUserId
-      ? this.imageReuseCache.buildTextToImageSignature({
-          prompt: dto.prompt,
-          providerName: providerName || 'gemini',
-          model,
-          serviceType,
-          aspectRatio: dto.aspectRatio,
-          imageSize: dto.imageSize,
-          outputFormat: dto.outputFormat,
-          thinkingLevel: dto.thinkingLevel,
-          imageOnly: dto.imageOnly,
-          providerOptions: dto.providerOptions,
-          enableWebSearch: dto.enableWebSearch,
-          googleSearch: dto.googleSearch,
-          googleImageSearch: dto.googleImageSearch,
-          imageUrls: normalizedImageUrlsForProvider,
-          batchMode: dto.batchMode,
-          batchCount: dto.batchCount,
-          outputImageCount: requestedOutputImageCount,
-          officialFallback: dto.officialFallback,
-          quality: dto.quality,
-          background: dto.background,
-          moderation: dto.moderation,
-          outputCompression: dto.outputCompression,
-          maskUrl: dto.maskUrl,
-        })
-      : null;
-
     void this.telemetryService.ingestGenerationTask({
       traceId,
       parentRequestId,
@@ -3655,7 +3631,6 @@ export class AiController {
         receivedAt: new Date().toISOString(),
       });
 
-      let imageGenerationApiUsageId: string | undefined;
       const imageCreditRequestParams = this.buildCreditRequestParams(providerName, {
         imageSize: dto.imageSize,
         quality: dto.quality,
@@ -3667,65 +3642,10 @@ export class AiController {
         nodeConfigKey: dto.nodeConfigKey,
         nodeConfigNameZh: dto.nodeConfigNameZh,
         nodeConfigNameEn: dto.nodeConfigNameEn,
-        ...(imageReuseSignature
-          ? {
-              imageReuseCacheEligible: true,
-              imageReuseCacheSignature: imageReuseSignature.signature,
-              imageReuseCacheVersion: imageReuseSignature.version,
-            }
-          : {}),
         ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImageUrlsForProvider),
       }, dto.providerOptions);
 
       const result = await this.withCredits(req, serviceType, model, async () => {
-        if (imageReuseUserId && imageReuseSignature) {
-          const claimed = await this.imageReuseCache.claimNextUnusedAsset({
-            userId: imageReuseUserId,
-            signature: imageReuseSignature.signature,
-            apiUsageId: imageGenerationApiUsageId,
-          });
-          if (claimed) {
-            const presentationDelayMs =
-              await this.imageReuseCache.waitForHitPresentationDelay(claimed.presentationDelayMs);
-            await this.updateImageReuseApiUsageParams(imageGenerationApiUsageId, {
-              imageReuseCacheEligible: true,
-              imageReuseCacheHit: true,
-              imageReuseAssetId: claimed.id,
-              imageReuseCacheScope: claimed.scope,
-              imageReuseAssetOwnerIsRequester: claimed.assetOwnerIsRequester,
-              imageReuseAssetOwnerUserId: claimed.assetOwnerUserId,
-              imageReuseCacheSignature: imageReuseSignature.signature,
-              imageReuseCacheVersion: imageReuseSignature.version,
-              imageReuseCachePoolSize: claimed.poolSize,
-              imageReuseCacheAvailablePoolSize: claimed.availablePoolSize,
-              imageReuseCacheMinPoolSize: claimed.minPoolSize,
-              imageReuseCachePresentationDelayMs: presentationDelayMs,
-            });
-
-            return {
-              imageUrl: claimed.imageUrl,
-              textResponse: claimed.textResponse || '',
-              metadata: {
-                ...(claimed.metadata || {}),
-                imageUrl: claimed.imageUrl,
-                ...(claimed.imageKey ? { imageKey: claimed.imageKey } : {}),
-                imageReuseCache: {
-                  hit: true,
-                  scope: claimed.scope,
-                  assetId: claimed.id,
-                  signature: imageReuseSignature.signature,
-                  version: imageReuseSignature.version,
-                  assetOwnerIsRequester: claimed.assetOwnerIsRequester,
-                  availablePoolSize: claimed.availablePoolSize,
-                  poolSize: claimed.poolSize,
-                  minPoolSize: claimed.minPoolSize,
-                  presentationDelayMs,
-                },
-              },
-            };
-          }
-        }
-
         const maxAttempts = 3;
         const retryDelaysMs = [500, 1200];
 
@@ -3786,25 +3706,17 @@ export class AiController {
                 if (result.data.imageData) {
                   const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
                   const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
-                  return this.recordGeneratedImageReuseAsset({
-                    userId: imageReuseUserId,
-                    signature: imageReuseSignature,
-                    providerName,
-                    model,
-                    serviceType,
-                    apiUsageId: imageGenerationApiUsageId,
-                    result: {
+                  return {
+                    imageUrl: upload.url,
+                    textResponse: result.data.textResponse || '',
+                    metadata: {
+                      ...responseMetadata,
                       imageUrl: upload.url,
-                      textResponse: result.data.textResponse || '',
-                      metadata: {
-                        ...responseMetadata,
-                        imageUrl: upload.url,
-                        imageKey: upload.key,
-                        mimeType: upload.mimeType,
-                        bytes: upload.size,
-                      },
+                      imageKey: upload.key,
+                      mimeType: upload.mimeType,
+                      bytes: upload.size,
                     },
-                  });
+                  };
                 }
 
                 const providerImageUrls = this.collectProviderImageUrls(result.data);
@@ -3825,32 +3737,24 @@ export class AiController {
 
                     const primaryImageUrl = managedImageUrls[0];
                     const firstUploaded = managedResults.find((item) => item.uploaded);
-                    return this.recordGeneratedImageReuseAsset({
-                      userId: imageReuseUserId,
-                      signature: imageReuseSignature,
-                      providerName,
-                      model,
-                      serviceType,
-                      apiUsageId: imageGenerationApiUsageId,
-                      result: {
+                    return {
+                      imageUrl: primaryImageUrl,
+                      textResponse: result.data.textResponse || '',
+                      metadata: {
+                        ...responseMetadata,
                         imageUrl: primaryImageUrl,
-                        textResponse: result.data.textResponse || '',
-                        metadata: {
-                          ...responseMetadata,
-                          imageUrl: primaryImageUrl,
-                          imageUrls: managedImageUrls,
-                          sourceImageUrl: providerImageUrls[0],
-                          sourceImageUrls: providerImageUrls,
-                          ...(firstUploaded
-                            ? {
-                                imageKey: firstUploaded.key,
-                                mimeType: firstUploaded.mimeType,
-                                bytes: firstUploaded.bytes,
-                              }
-                            : {}),
-                        },
+                        imageUrls: managedImageUrls,
+                        sourceImageUrl: providerImageUrls[0],
+                        sourceImageUrls: providerImageUrls,
+                        ...(firstUploaded
+                          ? {
+                              imageKey: firstUploaded.key,
+                              mimeType: firstUploaded.mimeType,
+                              bytes: firstUploaded.bytes,
+                            }
+                          : {}),
                       },
-                    });
+                    };
                   } catch (error) {
                     this.logger.error(
                       `[generate-image] 外链图片处理失败: ${this.summarizeError(error)}`
@@ -3883,9 +3787,6 @@ export class AiController {
 
         throw new InternalServerErrorException('图片生成重试次数耗尽，请稍后重试。');
       }, 0, requestedOutputImageCount, skipCredits, imageCreditRequestParams, {
-        onApiUsageId: (apiUsageId) => {
-          imageGenerationApiUsageId = apiUsageId;
-        },
         validateSuccessResult: (payload) => ({
           ok: this.hasImagePayload(payload),
           message: 'Image generation succeeded but no image payload returned',
@@ -5621,6 +5522,38 @@ export class AiController {
     const userId = this.getUserId(req);
     const effectiveDto: VideoProviderRequestDto = { ...dto };
     this.normalizeSeed2LegacyLiteAlias(effectiveDto);
+    // Vidu 统一节点可在 Q2/Q3 间切换，历史节点可能残留另一家族的 managedModelKey。
+    // 实际上游模型以 viduModelVariant/viduModel 为准；在计费和路由前同步托管 key，
+    // 避免 managedModelKey=vidu-q3 + viduModel=q2 导致预估/实扣与请求模型串台。
+    if (effectiveDto.provider === 'vidu' || effectiveDto.provider === 'viduq3-pro') {
+      const viduVariant = String(
+        effectiveDto.viduModelVariant || effectiveDto.viduModel || '',
+      )
+        .trim()
+        .toLowerCase();
+      if (viduVariant.startsWith('q2')) {
+        effectiveDto.managedModelKey = 'vidu-q2';
+      } else if (viduVariant.startsWith('q3')) {
+        effectiveDto.managedModelKey = 'vidu-q3';
+      }
+    }
+    // channelTier 是用户本次明确选择，优先级高于旧节点残留的 vendor/platform。
+    // 同时归一请求本身，确保计费上下文与实际执行入口一致。
+    if (effectiveDto.channelTier === 'vip') {
+      effectiveDto.vendorKey = 'tencent_vod';
+      effectiveDto.platformKey = 'tencent_vod';
+    } else if (effectiveDto.channelTier === 'default') {
+      if (effectiveDto.provider === 'vidu' || effectiveDto.provider === 'viduq3-pro') {
+        effectiveDto.vendorKey = 'vidu_api';
+        effectiveDto.platformKey = 'vidu_api';
+      } else if (
+        effectiveDto.vendorKey === 'tencent_vod' ||
+        effectiveDto.platformKey === 'tencent_vod'
+      ) {
+        effectiveDto.vendorKey = undefined;
+        effectiveDto.platformKey = undefined;
+      }
+    }
     await this.assertSeedance2Entitlement(userId, effectiveDto, req);
 
     // Whitelist/admin users can skip watermark for doubao provider.
@@ -5650,6 +5583,14 @@ export class AiController {
         ? { idempotencyKey: (effectiveDto as any).idempotencyKey }
         : {}),
     });
+    if (!requestParams.clientNodeId && idempotencyKey) {
+      const legacyFlowKey = /^vnode-(.+)-(\d{13})$/.exec(idempotencyKey);
+      if (legacyFlowKey?.[1]) {
+        requestParams.clientProjectId = LEGACY_FLOW_VIDEO_PROJECT_SCOPE;
+        requestParams.clientNodeId = legacyFlowKey[1].slice(0, 200);
+        requestParams.runSource = 'flow-node-legacy';
+      }
+    }
     const billingModel =
       effectiveDto.klingModel ||
       effectiveDto.viduModelVariant ||
@@ -5673,6 +5614,29 @@ export class AiController {
     });
 
     const apiUsageId = chargeHandle.apiUsageId;
+    if (chargeHandle.duplicate) {
+      const existingTask = await this.creditsService.getVideoTaskUsageForUser(
+        userId,
+        apiUsageId,
+      );
+      const taskId = existingTask?.taskId || `usage:${apiUsageId}`;
+      this.logger.warn(
+        `Video provider request deduplicated: reason=${chargeHandle.duplicateReason}, user=${userId}, apiUsageId=${apiUsageId}, taskId=${taskId}`,
+      );
+      return {
+        taskId,
+        status:
+          existingTask?.responseStatus === ApiResponseStatus.SUCCESS
+            ? 'succeeded'
+            : existingTask?.responseStatus === ApiResponseStatus.FAILED
+              ? 'failed'
+              : 'processing',
+        apiUsageId,
+        provider: existingTask?.provider || effectiveDto.provider,
+        deduplicated: true,
+      };
+    }
+
     this.logger.debug(`Credits pre-deducted for video: ${serviceType}, apiUsageId: ${apiUsageId}, teamMode: ${chargeHandle.teamFunded}`);
 
     this.emitVideoProviderGenerationTaskLog({
@@ -5972,7 +5936,30 @@ export class AiController {
   async queryVideoTask(
     @Param('provider') provider: 'kling' | 'kling-2.6' | 'kling-o3' | 'vidu' | 'viduq3-pro' | 'doubao',
     @Param('taskId') taskId: string,
+    @Req() req: any,
   ) {
+    if (taskId.startsWith('usage:')) {
+      const userId = this.getUserId(req);
+      if (!userId) {
+        throw new BadRequestException('需要用户认证');
+      }
+      const apiUsageId = taskId.slice('usage:'.length).trim();
+      const usage = await this.creditsService.getVideoTaskUsageForUser(userId, apiUsageId);
+      if (!usage) {
+        throw new BadRequestException('视频任务不存在或无权访问');
+      }
+      if (usage.responseStatus === ApiResponseStatus.FAILED) {
+        return { status: 'failed', error: usage.errorMessage || '视频生成任务失败' };
+      }
+      if (!usage.taskId) {
+        return {
+          status:
+            usage.responseStatus === ApiResponseStatus.SUCCESS ? 'succeeded' : 'queued',
+        };
+      }
+      provider = (usage.provider || provider) as typeof provider;
+      taskId = usage.taskId;
+    }
     return this.normalizeVideoTaskResponse(
       await this.videoProviderService.queryTask(provider, taskId),
     );
@@ -7731,6 +7718,20 @@ export class AiController {
       error: (task as any).error ?? null,
       progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
     };
+  }
+
+  /**
+   * 取消排队中的图像任务（未被 worker 拾取 = 尚未扣积分，直接移除队列）。
+   * 已开始生成的任务返回 409，由 worker 的成功/失败/超时结算链路负责积分。
+   */
+  @Post('image-task/:taskId/cancel')
+  async cancelImageTask(@Param('taskId') taskId: string, @Req() req: any) {
+    if (!this.imageTaskService) {
+      throw new ServiceUnavailableException('图像任务服务未启用');
+    }
+
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
+    return this.imageTaskService.cancelTask(taskId, userId);
   }
 
   // 各非网关 mode → 后端固定计费 serviceType。

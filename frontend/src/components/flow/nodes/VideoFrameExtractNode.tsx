@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState, type Node } from '@xyflow/react';
 import SmartImage from '../../ui/SmartImage';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -136,7 +136,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
             e.targetHandle.startsWith('video')
         );
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((n: Node<any>) => n.id === edge.source);
+        const sourceNode = state.nodes.find((n: Node<any>) => n.id === edge.source);
         // 使用解析器从 source node 的 data 中提取 video url（兼容多种字段）
         return resolveVideoUrlFromNode(sourceNode);
       },

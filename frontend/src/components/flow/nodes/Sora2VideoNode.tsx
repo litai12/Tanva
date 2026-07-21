@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position } from '@xyflow/react';
 import { AlertTriangle, Video, Share2, Download, Square } from 'lucide-react';
 import SmartImage from '../../ui/SmartImage';
 import GenerationProgressBar from './GenerationProgressBar';

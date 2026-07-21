@@ -57,7 +57,9 @@ import {
   Camera,
   Pencil,
   X,
+  LayoutGrid,
 } from "lucide-react";
+import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import {
   Tooltip,
   TooltipContent,
@@ -81,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore, refreshTeams } from "@/stores/authStore";
 import { useTeamStore } from "@/stores/teamStore";
 import GlobalImageHistoryPage from "@/components/global-history/GlobalImageHistoryPage";
+import { getGlobalHistoryDownloadFileName, getGlobalHistoryMediaUrl } from "@/components/global-history/historyMedia";
 import { useGlobalImageHistoryStore } from "@/stores/globalImageHistoryStore";
 import AutosaveStatus from "@/components/autosave/AutosaveStatus";
 import WorkflowHistoryButton from "@/components/workflow-history/WorkflowHistoryButton";
@@ -815,6 +818,16 @@ const FloatingHeader: React.FC = () => {
   const [showReferralNotification, setShowReferralNotification] =
     useState(false);
   const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
+  const [globalHistorySelectionRequest, setGlobalHistorySelectionRequest] = useState<{ requestId: string; purpose?: string } | null>(null);
+  useEffect(() => {
+    const openHistory = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string; purpose?: string }>).detail;
+      setGlobalHistorySelectionRequest(detail?.requestId ? { requestId: detail.requestId, purpose: detail.purpose } : null);
+      setIsGlobalHistoryOpen(true);
+    };
+    window.addEventListener('tanva:open-global-history', openHistory);
+    return () => window.removeEventListener('tanva:open-global-history', openHistory);
+  }, []);
   // 监听网格大小变化
   useEffect(() => {
     setGridSizeInput(String(gridSize));
@@ -3073,6 +3086,31 @@ const FloatingHeader: React.FC = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <Button
+              variant='ghost'
+              size='sm'
+              disabled={!currentProject?.id}
+              className='p-0 text-gray-600 transition-all duration-200 border rounded-full h-7 w-7 bg-liquid-glass-light backdrop-blur-minimal border-liquid-glass-light hover:bg-liquid-glass-hover'
+              title={
+                i18n.language?.startsWith("zh")
+                  ? "一键整理"
+                  : "Auto arrange"
+              }
+              aria-label={
+                i18n.language?.startsWith("zh")
+                  ? "一键整理"
+                  : "Auto arrange"
+              }
+              onClick={() => {
+                if (!currentProject?.id) return;
+                try {
+                  window.dispatchEvent(new CustomEvent(FLOW_AUTO_LAYOUT_EVENT));
+                } catch {}
+              }}
+            >
+              <LayoutGrid className='w-4 h-4' />
+            </Button>
+
             <WorkflowHistoryButton projectId={currentProject?.id ?? null} />
 
             <Button
@@ -3381,7 +3419,24 @@ const FloatingHeader: React.FC = () => {
         {/* 全局图片历史页面 */}
         <GlobalImageHistoryPage
           isOpen={isGlobalHistoryOpen}
-          onClose={() => setIsGlobalHistoryOpen(false)}
+          selectionRequest={globalHistorySelectionRequest}
+          onSelectImage={(item) => {
+            if (!globalHistorySelectionRequest) return;
+            const url = getGlobalHistoryMediaUrl(item);
+            if (!url) return;
+            window.dispatchEvent(new CustomEvent('tanva:global-history-selected', {
+              detail: {
+                requestId: globalHistorySelectionRequest.requestId,
+                purpose: globalHistorySelectionRequest.purpose,
+                itemId: item.id,
+                url,
+                name: getGlobalHistoryDownloadFileName(item),
+              },
+            }));
+            setIsGlobalHistoryOpen(false);
+            setGlobalHistorySelectionRequest(null);
+          }}
+          onClose={() => { setIsGlobalHistoryOpen(false); setGlobalHistorySelectionRequest(null); }}
         />
 
         <PricingCatalogModal

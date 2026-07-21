@@ -22,7 +22,7 @@ const LayerTool: React.FC = () => {
                     : "bg-white/50 border-gray-300"
             )}
             onClick={toggleLayerPanel}
-            title={lt('图层面板', 'Layer panel')}
+            title={lt('画布面板', 'Canvas panel')}
         >
             <Layers className="w-4 h-4" />
         </Button>

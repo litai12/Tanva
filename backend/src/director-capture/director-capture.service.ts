@@ -5,6 +5,7 @@ interface CaptureEntry {
   leaseToken: string;
   status: 'claimed' | 'succeeded' | 'failed';
   imageUrl?: string;
+  videoUrl?: string;
   error?: string;
   ts: number;
 }
@@ -28,12 +29,15 @@ export class DirectorCaptureService {
     leaseToken: string,
     status: 'succeeded' | 'failed',
     imageUrl?: string,
+    videoUrl?: string,
     error?: string,
   ): boolean {
     const entry = this.store.get(captureId);
     if (!entry || entry.leaseToken !== leaseToken) return false;
     entry.status = status;
+    // 前端负责建输出节点（frontend-centric），此处仅记录 URL 作租约凭证；image 路径可无 URL。
     if (imageUrl) entry.imageUrl = imageUrl;
+    if (videoUrl) entry.videoUrl = videoUrl;
     if (error) entry.error = error;
     return true;
   }

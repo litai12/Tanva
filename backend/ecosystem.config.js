@@ -43,7 +43,7 @@ module.exports = {
         NODE_ENV: 'production',
         // Concurrency ceiling for the in-process image worker. Excess tasks
         // queue in Redis (waiting), they are not dropped. Lower if memory-bound.
-        IMAGE_TASK_MAX_CONCURRENT: '200',
+        IMAGE_TASK_MAX_CONCURRENT: '1000',
         // Per-download / per-object byte caps (defaults already baked into code;
         // listed here so they're discoverable and tunable without a rebuild).
         // OSS_MAX_OBJECT_BYTES: '67108864',        // 64MB

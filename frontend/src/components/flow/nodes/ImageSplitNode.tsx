@@ -9,7 +9,7 @@ import {
   type ReactFlowState,
   type Edge,
   type Node,
-} from 'reactflow';
+} from '@xyflow/react';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import { deleteFlowImage, parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { toRenderableImageSrc } from '@/utils/imageSource';
@@ -1288,7 +1288,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         );
         if (candidateEdges.length === 0) return undefined;
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const resolveFromNode = (
@@ -1342,7 +1342,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         );
         if (candidateEdges.length === 0) return undefined;
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const resolveFromNode = (
@@ -1402,7 +1402,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         );
         if (candidateEdges.length === 0) return null;
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const normalizeIdentityBase = (value: string): string => {
@@ -1658,7 +1658,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         );
         if (candidateEdges.length === 0) return [];
 
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const findImageGridNode = (nodeId: string, visited: Set<string>): Node<any> | undefined => {

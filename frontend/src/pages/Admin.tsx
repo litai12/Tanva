@@ -149,7 +149,7 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
 ]);
 
 const CREDITS_PER_YUAN = 100;
-const SEEDANCE20_DISCOUNT_RATE = 1;
+const SEEDANCE20_DISCOUNT_RATE = 1.5 / 1.2;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
 
@@ -2001,11 +2001,12 @@ const createWanPricingTemplate = (
 const createSeedance20PricingTemplate = () => ({
   version: "v2",
   dimensions: [
-    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast"], {
+    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast", "seed-2.0-mini"], {
       required: true,
       labels: {
         "seedance-2.0": "Seedance 2.0",
         "seedance-2.0-fast": "Seedance 2.0 Fast",
+        "seed-2.0-mini": "Seedance 2.0 Mini",
       },
     }),
     createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], {
@@ -2045,6 +2046,34 @@ const createSeedance20PricingTemplate = () => ({
       conditions: {
         all: [
           { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0-fast" },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_mini_480p",
+      label: "Seedance 2.0 Mini 480P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_480p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seed-2.0-mini" },
+          { field: "resolution", op: "eq" as const, value: "480P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_mini_720p",
+      label: "Seedance 2.0 Mini 720P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_720p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seed-2.0-mini" },
           { field: "resolution", op: "eq" as const, value: "720P" },
         ],
         any: [],
@@ -2125,6 +2154,7 @@ const createSeedance20PricingTemplate = () => ({
     labels: {
       "seedanceModel.seedance-2.0": "Seedance 2.0",
       "seedanceModel.seedance-2.0-fast": "Seedance 2.0 Fast",
+      "seedanceModel.seed-2.0-mini": "Seedance 2.0 Mini",
       "resolution.480P": "480P",
       "resolution.720P": "720P",
       "resolution.1080P": "1080P",
@@ -2140,6 +2170,8 @@ const createSeedance20PricingTemplate = () => ({
       { seedanceModel: "seedance-2.0", resolution: "1080P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "480P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "720P", duration: 5 },
+      { seedanceModel: "seed-2.0-mini", resolution: "480P", duration: 5 },
+      { seedanceModel: "seed-2.0-mini", resolution: "720P", duration: 5 },
     ],
   },
 });
@@ -8552,6 +8584,7 @@ function OrdersTab() {
   const [status, setStatus] = useState("all");
   const [paymentMethod, setPaymentMethod] = useState("all");
   const [orderType, setOrderType] = useState("all");
+  const [billingCycle, setBillingCycle] = useState("all");
   const [syncingOrderNo, setSyncingOrderNo] = useState<string | null>(null);
 
   useEffect(() => {
@@ -8566,6 +8599,7 @@ function OrdersTab() {
           status: status !== "all" ? status : undefined,
           paymentMethod: paymentMethod !== "all" ? paymentMethod : undefined,
           orderType: orderType !== "all" ? orderType : undefined,
+          billingCycle: billingCycle !== "all" ? billingCycle : undefined,
           tenantId: isPlatformAdmin ? tenantFilter : undefined,
         });
         if (!cancelled) {
@@ -8580,7 +8614,7 @@ function OrdersTab() {
     };
     void run();
     return () => { cancelled = true; };
-  }, [page, committedSearch, status, paymentMethod, orderType, isPlatformAdmin, tenantFilter]);
+  }, [page, committedSearch, status, paymentMethod, orderType, billingCycle, isPlatformAdmin, tenantFilter]);
 
   const handleSearch = () => {
     setCommittedSearch(searchInput);
@@ -8633,6 +8667,11 @@ function OrdersTab() {
     wechat: "微信",
   };
 
+  const billingCycleLabel: Record<string, string> = {
+    monthly: " · 月卡",
+    yearly: " · 年卡",
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -8674,6 +8713,15 @@ function OrdersTab() {
           <option value="membership">会员订阅</option>
           <option value="team_seat">团队座位</option>
         </select>
+        <select
+          value={billingCycle}
+          onChange={(e) => { setBillingCycle(e.target.value); setPage(1); }}
+          className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="all">全部订阅类型</option>
+          <option value="monthly">月卡</option>
+          <option value="yearly">年卡</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-lg border overflow-hidden">
@@ -8712,7 +8760,15 @@ function OrdersTab() {
                         <div className="text-gray-400">{order.userPhone ?? order.userEmail ?? order.userId.slice(0, 8)}</div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{orderTypeLabel[order.orderType] ?? order.orderType}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      <div>{orderTypeLabel[order.orderType] ?? order.orderType}</div>
+                      {order.orderType === "membership" && (
+                        <div className="text-xs text-gray-400">
+                          {(order.planName ?? "—")}
+                          {order.billingCycle ? (billingCycleLabel[order.billingCycle] ?? "") : ""}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">¥{order.amount.toFixed(2)}</td>
                     <td className="px-4 py-3 text-right text-gray-600">{order.credits.toLocaleString()}</td>
                     <td className="px-4 py-3 text-gray-600">{methodLabel[order.paymentMethod] ?? order.paymentMethod}</td>

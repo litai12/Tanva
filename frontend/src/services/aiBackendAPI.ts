@@ -105,73 +105,6 @@ const logAIImageResponse = (
   });
 };
 
-const logImageReuseCacheResult = (
-  endpoint: string,
-  result: AIImageResult
-) => {
-  const cacheMeta = result.metadata?.imageReuseCache;
-  if (!cacheMeta || typeof cacheMeta !== "object" || Array.isArray(cacheMeta)) {
-    return;
-  }
-  const cache = cacheMeta as Record<string, any>;
-  const isHit = cache.hit === true;
-  const isStored = cache.stored === true;
-  const availablePoolSize =
-    typeof cache.availablePoolSize === "number"
-      ? cache.availablePoolSize
-      : typeof cache.poolSize === "number"
-      ? cache.poolSize
-      : undefined;
-  const title = isHit
-    ? "[ImageReuseCache] SEARCH RESULT / CACHE HIT"
-    : isStored
-    ? "[ImageReuseCache] STORED FRESH GENERATION"
-    : "[ImageReuseCache] CACHE METADATA";
-  const style = isHit
-    ? "background:#065f46;color:#ecfdf5;font-size:16px;font-weight:800;padding:6px 10px;border-radius:6px;"
-    : "background:#1e40af;color:#eff6ff;font-size:14px;font-weight:700;padding:5px 9px;border-radius:6px;";
-  const details = {
-    isSearchResult: isHit,
-    hit: isHit,
-    stored: isStored,
-    scope:
-      typeof cache.scope === "string" ? cache.scope : undefined,
-    assetOwnerIsRequester:
-      typeof cache.assetOwnerIsRequester === "boolean"
-        ? cache.assetOwnerIsRequester
-        : undefined,
-    assetId:
-      typeof cache.assetId === "string" ? cache.assetId : undefined,
-    signature:
-      typeof cache.signature === "string"
-        ? cache.signature
-        : undefined,
-    version: cache.version,
-    availablePoolSize,
-    poolSize:
-      typeof cache.poolSize === "number" ? cache.poolSize : undefined,
-    minPoolSize:
-      typeof cache.minPoolSize === "number" ? cache.minPoolSize : undefined,
-    presentationDelayMs:
-      typeof cache.presentationDelayMs === "number"
-        ? cache.presentationDelayMs
-        : undefined,
-    imageUrlPreview: result.imageUrl
-      ? truncateText(result.imageUrl, 120)
-      : undefined,
-  };
-
-  console.info(`%c${title}`, style, { endpoint, ...details });
-  if (isHit) {
-    console.groupCollapsed("[ImageReuseCache] cache-hit proof");
-    console.table([details]);
-    console.info(
-      "This image was returned from GenerationImageAsset instead of calling the image provider. availablePoolSize is the unused same-signature pool before this claim; presentationDelayMs is the deliberate UI pacing delay."
-    );
-    console.groupEnd();
-  }
-};
-
 const generateUUID = () => {
   try {
     if (
@@ -631,7 +564,6 @@ async function performGenerateImageRequest(
       model: resolvedModel,
       outputFormat: requestWithRoute.outputFormat || "png",
     });
-    logImageReuseCacheResult("generate-image", mapped);
     if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
       return {
         success: false,
@@ -1054,7 +986,7 @@ export async function pollImageTaskResult(
   timeoutMs = 15 * 60 * 1000,
   ownerId?: string
 ): Promise<AIServiceResponse<AIImageResult>> {
-  const { waitForTask } = await import("@/utils/imageTaskPoller");
+  const { waitForTask, describeTaskPollError } = await import("@/utils/imageTaskPoller");
   try {
     const r = await waitForTask(taskId, timeoutMs, ownerId);
     const normalStatus = String(r.status || "").toLowerCase();
@@ -1086,6 +1018,17 @@ export async function pollImageTaskResult(
       };
     }
 
+    if (normalStatus === "cancelled") {
+      return {
+        success: false,
+        error: {
+          code: "TASK_CANCELLED",
+          message: r.error || "任务已取消，未扣除积分。",
+          timestamp: new Date(),
+        },
+      };
+    }
+
     return {
       success: false,
       error: {
@@ -1101,11 +1044,41 @@ export async function pollImageTaskResult(
       success: false,
       error: {
         code: isTimeout ? "TASK_TIMEOUT" : "TASK_FAILED",
-        message: isTimeout
-          ? "生成超时（15分钟），积分将自动返还。"
-          : (msg || "任务失败，积分将自动返还。"),
+        message: describeTaskPollError(e, "任务失败，积分将自动返还。"),
         timestamp: new Date(),
       },
+    };
+  }
+}
+
+/**
+ * 取消排队中的图像任务（尚未被 worker 拾取 = 尚未扣积分）。
+ * 已开始生成的任务后端返回 409，此处归一为 { cancelled:false, message }。
+ */
+export async function cancelImageTaskViaAPI(
+  taskId: string
+): Promise<{ cancelled: boolean; status?: string; message?: string }> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}/cancel`,
+      { method: "POST" }
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        cancelled: false,
+        message: readBackendErrorMessage(data) || `HTTP ${response.status}`,
+      };
+    }
+    return {
+      cancelled: Boolean(data?.cancelled),
+      status: typeof data?.status === "string" ? data.status : undefined,
+      message: typeof data?.message === "string" ? data.message : undefined,
+    };
+  } catch (e) {
+    return {
+      cancelled: false,
+      message: e instanceof Error ? e.message : String(e ?? ""),
     };
   }
 }

@@ -61,10 +61,23 @@ export class ProjectsController {
 
   @Put(':id/content')
   async updateContent(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProjectContentDto) {
-    return this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
-      createWorkflowHistory: dto.createWorkflowHistory,
-      workflowHistoryMeta: dto.workflowHistoryMeta,
-    }, req.user.role);
+    try {
+      return await this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
+        createWorkflowHistory: dto.createWorkflowHistory,
+        workflowHistoryMeta: dto.workflowHistoryMeta,
+        allowMerge: dto.allowMerge,
+      }, req.user.role);
+    } catch (err: any) {
+      // 保存被拒绝(鉴权/校验/存储故障)是排查「内容为什么没落库」的关键信号,必须留痕。
+      // eslint-disable-next-line no-console
+      console.warn('[ProjectSaveRejected]', JSON.stringify({
+        projectId: id,
+        userId: req.user?.sub,
+        version: dto.version,
+        message: typeof err?.message === 'string' ? err.message : String(err),
+      }));
+      throw err;
+    }
   }
 
   @Get(':id/workflow-history')

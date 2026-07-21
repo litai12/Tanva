@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from "react";
-import { Handle, Position, useReactFlow } from "reactflow";
+import { Handle, Position, useReactFlow } from "@xyflow/react";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useLocaleText } from "@/utils/localeText";
 

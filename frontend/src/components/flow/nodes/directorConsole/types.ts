@@ -1,4 +1,7 @@
+import type { PoseClip } from './state/poseClip'
+
 export type Vec3 = [number, number, number]
+export type Vec2 = [number, number] // XZ 地面坐标
 export type AspectKey = 'auto' | '21:9' | '16:9' | '4:3' | '1:1' | '3:4' | '9:16'
 
 export type CameraShot = {
@@ -21,17 +24,49 @@ export type CharacterObj = {
   colorHex: string
   hidden?: boolean
   locked?: boolean
-  /** 姿势预设 id（POSE_PRESETS）；与 pose 同存时 pose 优先 */
+  /** 群演分组：同一批阵列生成的角色共享 crowdId，场景树按组折叠、支持整组统一操作（state/crowd.ts） */
+  crowdId?: string
+  /** 群组显示名（如「群演 3×4」），组内所有成员一致 */
+  crowdLabel?: string
+  /** 姿势预设 id（POSE_PRESETS），agent 摆姿势的推荐入口；与 pose 同存时 pose 优先 */
   posePresetId?: string
   /** 关节角色 → 欧拉角(弧度)，由姿势系统写入 */
   pose?: Record<string, [number, number, number]>
+  /** 骨骼动画 clip 名（MOTION_CLIP_OPTIONS）；设了则渲染样片时该角色循环播放此动作（优先于静态 pose） */
+  motionClip?: string
+  /** 连招序列：有序的动作预设 id（MOTION_PRESETS）。非空时角色循环播放这串预设首尾相接成的连续动作，
+   *  由 CharacterObject 合成成一条 PoseClip，优先于 motionClip；与 motion 互斥（motion 设了仍优先）。 */
+  motionSequence?: string[]
+  /** 轻量动画：混合分层动作（上半身姿势关键帧 + 下半身 baked 位移 + 2D 路径根行进）。
+   *  设了则优先于 motionClip/pose；定义见 state/characterMotion.ts。 */
+  motion?: import('./state/characterMotion').CharacterMotion
+  trajectoryMotion?: {
+    autoGait?: boolean
+    walkSpeed?: number
+    runSpeed?: number
+    runThreshold?: number
+    minPlaybackRate?: number
+    maxPlaybackRate?: number
+    ikEnabled?: boolean
+    ikWeight?: number
+    footLockEnabled?: boolean
+    footLockDistance?: number
+    footReleaseDistance?: number
+    soleOffset?: number
+    rootSlopeWeight?: number
+    footSlopeWeight?: number
+  }
 }
 
 export type CameraObj = {
   id: string
   name: string
   position: Vec3
-  /** 'manual' 表示用 lookAt 坐标，否则为某个 characterId（锁定该角色） */
+  rotation?: Vec3
+  followTargetId?: string
+  /** Offset captured when follow is enabled, so target motion moves the camera without collapsing it onto the actor. */
+  followOffset?: Vec3
+  /** manual=坐标注视；rotation=欧拉角；其它字符串=角色注视。 */
   lookAtMode: 'manual' | string
   lookAt: Vec3
   fovDeg: number
@@ -44,12 +79,28 @@ export type DirectorScene = {
   cameras: CameraObj[]
   aspect: AspectKey
   activeCameraId?: string
+  /** Remote-only LibTV camera screenshot gallery; runtime data URLs are never persisted here. */
+  cameraShots?: Record<string, CameraShot[]>
   /** 等距全景图 URL，作为 3D 场景天空盒背景 */
   skybox?: string
-  /** 地平线/地面高度偏移（米）：整体上下移动网格与角色/道具，使地面与天空盒对齐。默认 0 */
-  groundY?: number
-  /** 天空盒俯仰角（度）：上下旋转全景背景，使全景图地平线落到网格地平线上（处理拍摄不水平/未居中）。默认 0 */
-  skyboxPitch?: number
+  /** 全景背景水平旋转(度, 0..360)：转动背景取景而不动机位；~2:1 走 equirect offset，非 2:1 转 backdrop 穹顶 */
+  skyboxYaw?: number
+  /** LibTV 导演台的全局场景设置。旧节点缺失时按面板默认值解释。 */
+  sceneScale?: number
+  scenePosition?: Vec3
+  sceneRotation?: Vec3
+  skyColor?: string
+  skyRadius?: number
+  showCharacterLabels?: boolean
+  gridSnap?: boolean
+  gaussianGroundSnap?: boolean
+  groundVisible?: boolean
+  groundOpacity?: number
+  groundHeight?: number
+  /** 自定义动作库（小T 生成 / 人工保存），character.motionClip 可引用其 id；与内置 clip 并存 */
+  customMotions?: PoseClip[]
+  /** LibTV-style per-property keyframe tracks. Legacy shot timeline is read-only compatibility data. */
+  propertyTimeline?: import('./state/propertyTimeline').PropertyTimeline
 }
 
 export type DirectorConsoleData = {
@@ -59,7 +110,7 @@ export type DirectorConsoleData = {
   activeViewpoint: 'director' | 'camera'
   selectedObjectId?: string
   status?: 'idle' | 'running' | 'success' | 'error'
-  // 允许画布节点临时字段与 updateNodeData(Record<string, any>) 补丁
+  // matches TaskNodeData pattern: allows ad-hoc canvas-node fields and store.updateNodeData(Record<string, any>) patches
   [key: string]: unknown
 }
 
@@ -67,8 +118,45 @@ export function createDefaultDirectorConsoleData(_legacyPanoramaUrl?: string): D
   return {
     kind: 'directorConsole',
     label: '导演台',
-    scene: { characters: [], cameras: [], aspect: 'auto' },
+    scene: {
+      characters: [{
+        id: 'default-character-1',
+        name: '角色A',
+        modelId: 'male',
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        uniformScale: 1,
+        colorHex: '#4F8EF7',
+      }],
+      cameras: [{
+        id: 'default-camera-1',
+        name: '机位1',
+        position: [0, 2.2, 10],
+        rotation: [5.71, 180, 0],
+        lookAtMode: 'manual',
+        lookAt: [0, 1.2, 0],
+        fovDeg: 50,
+      }],
+      activeCameraId: 'default-camera-1',
+      aspect: 'auto',
+      sceneScale: 3,
+      scenePosition: [0, 0, 0],
+      sceneRotation: [0, 0, 0],
+      skyColor: '#060608',
+      skyRadius: 60,
+      showCharacterLabels: true,
+      gridSnap: false,
+      gaussianGroundSnap: true,
+      groundVisible: true,
+      groundOpacity: 0.4,
+      groundHeight: 0,
+    },
     activeViewpoint: 'director',
+    // LibTV opens the inspector on the environment itself. Object selection is
+    // transient editing state; leaving it empty exposes the 3D scene/ground
+    // controls immediately instead of hiding them behind the default actor.
+    selectedObjectId: undefined,
     status: 'idle',
   }
 }

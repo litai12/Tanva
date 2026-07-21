@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow } from 'reactflow';
+import { Handle, Position, useReactFlow } from '@xyflow/react';
 import { Link } from 'lucide-react';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import useNodeInternalsSync from '../hooks/useNodeInternalsSync';

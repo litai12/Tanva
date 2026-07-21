@@ -1,5 +1,5 @@
 import React from "react";
-import { useUpdateNodeInternals } from "reactflow";
+import { useUpdateNodeInternals } from "@xyflow/react";
 
 const isFlowNodeDragging = (): boolean =>
   typeof document !== "undefined" &&

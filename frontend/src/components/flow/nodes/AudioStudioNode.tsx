@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState } from '@xyflow/react';
 import { AlertTriangle, AudioLines } from 'lucide-react';
 import GenerationProgressBar from './GenerationProgressBar';
 import RunCreditBadge from './RunCreditBadge';

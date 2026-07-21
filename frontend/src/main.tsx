@@ -1,5 +1,5 @@
 import '@/bootstrap/polyfills';
-import { StrictMode, useEffect } from 'react';
+import { StrictMode, Suspense, lazy, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import '@/i18n';
@@ -19,9 +19,10 @@ import PrivacyPolicy from '@/pages/legal/PrivacyPolicy';
 import CommunityGuidelines from '@/pages/legal/CommunityGuidelines';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
-import DirectorHarnessPage from '@/pages/DirectorHarnessPage';
-import ForcedRigTestPage from '@/pages/ForcedRigTestPage';
-import ForcedCameraTestPage from '@/pages/ForcedCameraTestPage';
+// 三个3D调试页依赖three全家桶,懒加载避免拖进主包
+const DirectorHarnessPage = lazy(() => import('@/pages/DirectorHarnessPage'));
+const ForcedRigTestPage = lazy(() => import('@/pages/ForcedRigTestPage'));
+const ForcedCameraTestPage = lazy(() => import('@/pages/ForcedCameraTestPage'));
 import { initializeRuntimeStability } from '@/bootstrap/runtimeStability';
 
 function RootRoutes() {
@@ -42,9 +43,9 @@ function RootRoutes() {
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal/community" element={<CommunityGuidelines />} />
         <Route path="/oss" element={<OSSDemo />} />
-        <Route path="/director-harness" element={<DirectorHarnessPage />} />
-        <Route path="/forced-rig-test" element={<ForcedRigTestPage />} />
-        <Route path="/forced-camera-test" element={<ForcedCameraTestPage />} />
+        <Route path="/director-harness" element={<Suspense fallback={null}><DirectorHarnessPage /></Suspense>} />
+        <Route path="/forced-rig-test" element={<Suspense fallback={null}><ForcedRigTestPage /></Suspense>} />
+        <Route path="/forced-camera-test" element={<Suspense fallback={null}><ForcedCameraTestPage /></Suspense>} />
         {/* /workspace 按租户分流：xingdou 公开访问，其余租户在 WorkspaceGate 内保持登录保护 */}
         <Route path="/workspace" element={<WorkspaceGate />} />
         <Route element={<ProtectedRoute />}>

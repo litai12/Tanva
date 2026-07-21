@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState, type Node } from '@xyflow/react';
 import SmartImage from '../../ui/SmartImage';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import {
@@ -229,7 +229,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         if (edges.length === 0) return [];
 
         const result: ImageItem[] = [];
-        const nodes = state.getNodes();
+        const nodes = state.nodes;
         const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
         const readSingleImageFromNode = (

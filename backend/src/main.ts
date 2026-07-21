@@ -100,6 +100,8 @@ async function bootstrap() {
     new FastifyAdapter({
       logger: true,
       bodyLimit: 200 * 1024 * 1024, // 200MB，放宽项目内容请求体大小
+      // 只信任 nginx 这一跳，request.ip 取 X-Forwarded-For 最右侧真实客户端 IP（防伪造）
+      trustProxy: 1,
     })
   );
 

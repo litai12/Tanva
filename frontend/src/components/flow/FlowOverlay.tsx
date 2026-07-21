@@ -10,7 +10,8 @@ import {
   clearPaperEraserTrails,
 } from "@/utils/paperEraserTrail";
 import paper from "paper";
-import ReactFlow, {
+import {
+  ReactFlow,
   MiniMap,
   Background,
   BackgroundVariant,
@@ -25,12 +26,12 @@ import ReactFlow, {
   EdgeLabelRenderer,
   getBezierPath,
   type EdgeProps,
-} from "reactflow";
-import { ReactFlowProvider } from "reactflow";
+} from "@xyflow/react";
+import { ReactFlowProvider } from "@xyflow/react";
 import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/stores";
 import { useToolStore } from "@/stores";
-import "reactflow/dist/style.css";
+import "@xyflow/react/dist/style.css";
 import "./flow.css";
 import type {
   FlowTemplate,
@@ -51,15 +52,23 @@ import {
 import TextPromptNode from "./nodes/TextPromptNode";
 import TextPromptProNode from "./nodes/TextPromptProNode";
 import TextChatNode from "./nodes/TextChatNode";
-import HtmlPptNode from "./nodes/HtmlPptNode";
 import { createDefaultHtmlPptDeck } from "@/utils/htmlPptDeck";
+import { lazyNodeComponent } from "./lazyNodeComponent";
+// 重依赖节点按需加载:three全家桶/PPT模板数据不进主包
+const HtmlPptNode = lazyNodeComponent(() => import("./nodes/HtmlPptNode"));
+const ThreeNode = lazyNodeComponent(() => import("./nodes/ThreeNode"));
+const ViewAngleNode = lazyNodeComponent(() => import("./nodes/ViewAngleNode"));
+const Seed3DNode = lazyNodeComponent(() => import("./nodes/Seed3DNode"));
+const DirectorCaptureRunner = lazyNodeComponent(() =>
+  import("./nodes/directorConsole/DirectorCaptureRunner").then((m) => ({
+    default: m.DirectorCaptureRunner,
+  })),
+);
 import ImageNode from "./nodes/ImageNode";
 import GenerateNode from "./nodes/GenerateNode";
 import Generate4Node from "./nodes/Generate4Node";
 import GenerateReferenceNode from "./nodes/GenerateReferenceNode";
-import ThreeNode from "./nodes/ThreeNode";
 import CameraNode from "./nodes/CameraNode";
-import ViewAngleNode from "./nodes/ViewAngleNode";
 import PromptOptimizeNode from "./nodes/PromptOptimizeNode";
 import AnalysisNode from "./nodes/AnalyzeNode";
 import Sora2VideoNode from "./nodes/Sora2VideoNode";
@@ -87,11 +96,12 @@ import SeedVideoNode from "./nodes/SeedVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoComposeNode from "./nodes/videoCompose/VideoComposeNode";
 import DirectorConsoleNode from "./nodes/directorConsole/DirectorConsoleNode";
-import { DirectorCaptureRunner } from "./nodes/directorConsole/DirectorCaptureRunner";
+import { createDefaultDirectorConsoleData } from "./nodes/directorConsole/types";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import {
   getManagedRouteCredits,
   getManagedRouteOption,
+  getManagedRoutesMetadata,
   resolveManagedRoutePricing,
   resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
@@ -113,7 +123,6 @@ import { getAudioStudioModeConfig, type AudioStudioMode } from "./nodes/audioStu
 import { getAudioSpecFromManagedRoute, MODE_DEFAULT_MODEL } from "./nodes/audioSpec";
 import Nano2Node from "./nodes/Nano2Node";
 import Seedream5Node from "./nodes/Seedream5Node";
-import Seed3DNode from "./nodes/Seed3DNode";
 import NodeGroupNode from "./nodes/NodeGroupNode";
 import { resolveFlowNodeSendAnchorClient } from "./utils/flowNodeSendAnchor";
 import { isImageSplitHandle } from "./utils/imageSplitHandles";
@@ -145,6 +154,10 @@ import {
   proxifyRemoteAssetUrl,
   resolvePublicAssetUrlFromKey,
 } from "@/utils/assetProxy";
+import {
+  FLOW_AUTO_LAYOUT_EVENT,
+  computeTidyByCategoryLayout,
+} from "@/utils/canvasAutoLayout";
 import {
   isAssetProxyRef,
   isBlobUrl,
@@ -182,6 +195,7 @@ import {
   queryImageTaskStatusViaAPI,
   querySora2CharacterTaskViaAPI,
   queryDashscopeTask,
+  cancelImageTaskViaAPI,
 } from "@/services/aiBackendAPI";
 import {
   generateVideoByProvider,
@@ -201,6 +215,7 @@ import {
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { uploadVolcAsset } from "@/services/volcAssetAPI";
+import { DEFAULT_NODE_HANDLES } from "@/services/agentCanvasProtocol";
 import {
   fetchNodeConfigs,
   getStatusBadge,
@@ -1085,7 +1100,7 @@ const rawNodeTypes = {
 };
 
 // nodeTypes 注册表里的全部合法 type。用于过滤无 type / "default" / 未知 type 的
-// "幽灵节点"——这些 type 不在注册表里，reactflow 会回退成内置默认节点(一个空白小方框，
+// "幽灵节点"——这些 type 不在注册表里，@xyflow/react 会回退成内置默认节点(一个空白小方框，
 // 即用户看到的"未知节点")。协作局部补丁/历史脏数据是其来源。
 const NODE_TYPE_KEYS = new Set(Object.keys(rawNodeTypes));
 
@@ -2333,7 +2348,7 @@ const FALLBACK_SOURCE_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   volcEnhanceVideo: ["video"],
   videoFrameExtract: ["images", "image", "images-range"],
   videoCompose: ["video"],
-  directorConsole: ["out-image"],
+  directorConsole: ["source"],
   audioUpload: ["audio"],
   minimaxSpeech: ["audio"],
   minimaxMusic: ["audio"],
@@ -2388,7 +2403,7 @@ const FALLBACK_TARGET_HANDLES_BY_NODE_TYPE: Record<string, string[]> = {
   videoFrameExtract: ["video"],
   videoToGif: ["video"],
   videoCompose: ["video", "audio"],
-  directorConsole: ["in-image"],
+  directorConsole: ["target"],
   audioUpload: ["audio"],
   minimaxSpeech: ["text"],
   minimaxMusic: ["text"],
@@ -7233,7 +7248,7 @@ function FlowInner() {
 
   const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => {
     // 水合时丢弃历史脏数据里无法渲染(无 type/"default"/未知 type)的"幽灵节点"，
-    // 否则它们会以 reactflow 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
+    // 否则它们会以 @xyflow/react 内置默认节点的形态(空白小方框=用户说的"未知节点")出现，
     // 且每次刷新都复现。来源为旧版协作局部补丁误建后被持久化。
     const before = ns.length;
     ns = ns.filter((n: any) => isRenderableFlowNodeType(n?.type));
@@ -11304,24 +11319,32 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "directorConsole"
+          ? {
+              ...createDefaultDirectorConsoleData(),
+              boxW: size.w,
+              boxH: size.h,
+            }
           : { boxW: size.w, boxH: size.h };
       const data = {
         ...baseData,
         ...(paletteDefaultData || {}),
         ...(paletteConfig
           ? (() => {
-              // Strip the Tencent route so new video nodes are never seeded with
-              // tencent_vod — they follow the token and new-api picks the upstream.
+              // 保留尊享为可选项，但新建节点固定从普通通道初始化。
               const metadata = sanitizeVideoManagedRoutes(
                 paletteConfig.metadata && typeof paletteConfig.metadata === "object"
                   ? (paletteConfig.metadata as Record<string, any>)
                   : undefined
               );
+              const managedRoutes = getManagedRoutesMetadata(metadata);
+              const normalManagedRoute = managedRoutes?.vendors.find(
+                (vendor) =>
+                  vendor.vendorKey !== "tencent_vod" && vendor.vendorKey !== "tengxun"
+              );
               const selectedManagedRoute = getManagedRouteOption(
                 metadata,
-                sanitizeVideoVendorKey(
-                  (paletteDefaultData as Record<string, any> | undefined)?.vendorKey
-                )
+                normalManagedRoute?.vendorKey
               );
               if (!selectedManagedRoute) {
                 // No surviving (non-Tencent) route — make sure the new node never
@@ -11337,6 +11360,8 @@ function FlowInner() {
                 vendorKey: selectedManagedRoute.vendorKey,
                 platformKey:
                   selectedManagedRoute.platformKey || selectedManagedRoute.vendorKey,
+                channelTier: "default",
+                channelSelectionExplicit: false,
                 creditsPerCall: resolveNodeConfigCreditsPerCall(paletteConfig),
               };
             })()
@@ -12287,7 +12312,7 @@ function FlowInner() {
 
       if (targetNode.type === "directorConsole") {
         // 全景背景图输入：接受任意图片源
-        if (targetHandle === "in-image") {
+        if (targetHandle === "target") {
           return isImageSource(sourceNode, sourceHandle);
         }
         return false;
@@ -12720,6 +12745,11 @@ function FlowInner() {
       }
       if (targetNode?.type === "viewAngle") {
         if (params.targetHandle === "img") return true; // 允许连接，新线会替换旧线
+      }
+      if (targetNode?.type === "directorConsole") {
+        // 单一全景输入；onConnect 会以新线替换同一 target 句柄的旧线。
+        // isValidConnection 已负责限制来源必须是图片。
+        if (params.targetHandle === "target") return true;
       }
       if (targetNode?.type === "promptOptimize") {
         if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
@@ -15010,6 +15040,113 @@ function FlowInner() {
       );
   }, [rf, setNodes, sanitizeNodeData]);
 
+  // 一键整理的补间动画句柄(卸载/重复触发时取消)
+  const tidyAnimationRef = React.useRef<number | null>(null);
+
+  // 监听「一键整理」：按节点类别分列重排（对齐 TapCanvas tidyByCategory）。
+  // 组容器(childNodeIds 模型)作为整体单元按成员类别投票归列，成员随组同 delta 平移；
+  // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
+  // 落库由 nodes effect 的 scheduleCommit 在状态更新后自动完成。
+  React.useEffect(() => {
+    const handler = () => {
+      const allNodes = (rf.getNodes?.() || []) as RFNode[];
+      if (!allNodes.length) return;
+      const positions = computeTidyByCategoryLayout(allNodes as any, {
+        getSize: (node) => {
+          const { width, height } = getNodeRenderSize(node as RFNode);
+          return { w: width, h: height };
+        },
+        lockedIds: new Set(
+          Array.from(lockedByOthersRef.current.keys(), String)
+        ),
+      });
+      if (!positions.size) return;
+
+      // 平滑过渡:rAF 补间逐帧写 position(与拖拽同一更新通道,连线实时跟随;
+      // CSS transition 方案会让边按终点即时重算而节点还在飞,故不用)。
+      // 广播/历史只在动画结束后按最终位置做一次。
+      const startPositions = new Map<string, { x: number; y: number }>();
+      for (const node of allNodes) {
+        const p = positions.get(node.id);
+        if (!p) continue;
+        const cur = node.position || { x: 0, y: 0 };
+        if (cur.x === p.x && cur.y === p.y) {
+          positions.delete(node.id);
+          continue;
+        }
+        startPositions.set(node.id, { x: cur.x, y: cur.y });
+      }
+      if (!positions.size) return;
+
+      if (tidyAnimationRef.current) {
+        cancelAnimationFrame(tidyAnimationRef.current);
+        tidyAnimationRef.current = null;
+      }
+      const DURATION = 420;
+      const t0 = performance.now();
+      const ease = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
+
+      const finish = () => {
+        tidyAnimationRef.current = null;
+        // collab: 广播最终位置，确保对端对齐（复用拖拽结束的 upsertNodes 通道）。
+        try {
+          const c0 = collabRef.current;
+          if (c0?.connected && !applyingRemoteRef.current) {
+            const upsertNodes = Array.from(positions.entries()).map(
+              ([id, position]) => ({ id, position })
+            );
+            if (upsertNodes.length > 0) c0.sendPatch({ upsertNodes });
+          }
+        } catch {}
+        try {
+          historyService.commit("flow-auto-layout").catch(() => {});
+        } catch {}
+      };
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / DURATION);
+        const k = ease(t);
+        setNodes((prev: any[]) =>
+          prev.map((node) => {
+            const target = positions.get(node.id);
+            if (!target) return node;
+            const start = startPositions.get(node.id);
+            if (!start) return node;
+            const x = t >= 1 ? target.x : start.x + (target.x - start.x) * k;
+            const y = t >= 1 ? target.y : start.y + (target.y - start.y) * k;
+            const { positionAbsolute: _pa, ...rest } = node as any;
+            return { ...rest, position: { x, y } };
+          })
+        );
+        if (t < 1) {
+          tidyAnimationRef.current = requestAnimationFrame(step);
+        } else {
+          finish();
+        }
+      };
+      tidyAnimationRef.current = requestAnimationFrame(step);
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "已整理画布布局", type: "success" },
+          })
+        );
+      } catch {}
+    };
+    window.addEventListener(FLOW_AUTO_LAYOUT_EVENT, handler as EventListener);
+    return () => {
+      window.removeEventListener(
+        FLOW_AUTO_LAYOUT_EVENT,
+        handler as EventListener
+      );
+      if (tidyAnimationRef.current) {
+        cancelAnimationFrame(tidyAnimationRef.current);
+        tidyAnimationRef.current = null;
+      }
+    };
+  }, [rf, setNodes]);
+
   // 监听节点右键菜单：添加到个人库（上传到 OSS 后写入 store）
   React.useEffect(() => {
     const normalizeSource = (value?: string): string | null => {
@@ -15273,6 +15410,15 @@ function FlowInner() {
         label?: string;
         imageName?: string;
         screenPosition?: { x?: number; y?: number };
+        worldPosition?: { x?: number; y?: number };
+        sourceNodeId?: string;
+        sourceHandle?: string;
+        targetHandle?: string;
+        connectAsSourceToNodeId?: string;
+        connectAsSourceHandle?: string;
+        connectAsTargetHandle?: string;
+        replaceIncomingForTarget?: boolean;
+        done?: (createdId: string | null) => void;
       };
       const imageUrlForNode =
         typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
@@ -15303,7 +15449,12 @@ function FlowInner() {
             60 +
             (Math.random() * 80 - 40),
       };
-      const position = rf.screenToFlowPosition(screenPosition);
+      const hasWorldPosition =
+        Number.isFinite(detail?.worldPosition?.x) &&
+        Number.isFinite(detail?.worldPosition?.y);
+      const position = hasWorldPosition
+        ? { x: Number(detail.worldPosition?.x), y: Number(detail.worldPosition?.y) }
+        : rf.screenToFlowPosition(screenPosition);
       const id = `img_${Date.now()}`;
       setNodes((ns) =>
         ns.concat([
@@ -15323,6 +15474,32 @@ function FlowInner() {
           } as any,
         ])
       );
+      if (detail.sourceNodeId) {
+        setEdges((current) => current.concat([{
+          id: `edge_${detail.sourceNodeId}_${id}_${Date.now()}`,
+          source: detail.sourceNodeId,
+          target: id,
+          sourceHandle: detail.sourceHandle || "source",
+          targetHandle: detail.targetHandle || "img",
+          type: "default",
+        } as any]));
+      }
+      if (detail.connectAsSourceToNodeId) {
+        setEdges((current) => {
+          const base = detail.replaceIncomingForTarget
+            ? current.filter((edge) => !(edge.target === detail.connectAsSourceToNodeId && edge.targetHandle === (detail.connectAsTargetHandle || "target")))
+            : current;
+          return base.concat([{
+          id: `edge_${id}_${detail.connectAsSourceToNodeId}_${Date.now()}`,
+          source: id,
+          target: detail.connectAsSourceToNodeId,
+          sourceHandle: detail.connectAsSourceHandle || "img",
+          targetHandle: detail.connectAsTargetHandle || "target",
+          type: "default",
+          } as any]);
+        });
+      }
+      try { detail.done?.(id); } catch {}
 
       // 已有远程 URL：无需再上传替换
       if (imageUrlForNode) {
@@ -15392,7 +15569,7 @@ function FlowInner() {
         "flow:createImageNode",
         handler as EventListener
       );
-  }, [rf, setNodes]);
+  }, [rf, setNodes, setEdges]);
 
   // 素材库「画布」标签：定位/聚焦某个节点（居中视口 + 选中）
   // 注意：真实视口由 useCanvasStore 驱动（ReactFlow 视口是从 canvasStore 单向同步），
@@ -15462,16 +15639,26 @@ function FlowInner() {
           imageUrl: data.imageUrl,
           videoUrl: data.videoUrl,
           audioUrl: data.audioUrl,
+          text: typeof data.text === "string" ? data.text.slice(0, 80) : undefined,
         };
       });
+    const edgesSummary = rf.getEdges().map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle ?? null,
+      targetHandle: e.targetHandle ?? null,
+    }));
     try {
       window.dispatchEvent(
-        new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+        new CustomEvent("flow:nodes-snapshot", {
+          detail: { nodes: summary, edges: edgesSummary },
+        })
       );
     } catch {
       /* ignore */
     }
-  }, [nodes]);
+  }, [nodes, rf]);
 
   // 面板打开时主动索取一次当前快照（节点未变化时不会自动广播）
   React.useEffect(() => {
@@ -15497,11 +15684,21 @@ function FlowInner() {
             imageUrl: data.imageUrl,
             videoUrl: data.videoUrl,
             audioUrl: data.audioUrl,
+            text: typeof data.text === "string" ? data.text.slice(0, 80) : undefined,
           };
         });
+      const edgesSummary = rf.getEdges().map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+      }));
       try {
         window.dispatchEvent(
-          new CustomEvent("flow:nodes-snapshot", { detail: { nodes: summary } })
+          new CustomEvent("flow:nodes-snapshot", {
+            detail: { nodes: summary, edges: edgesSummary },
+          })
         );
       } catch {
         /* ignore */
@@ -15809,11 +16006,13 @@ function FlowInner() {
   // 因此增量水合出来的 running 节点也会被各自恢复一次。
   // 非图像任务（视频等）的 /image-task 会 404 → 跳过、保持原状，避免被误判为失败。
   const recoveredTaskIdsRef = React.useRef<Set<string>>(new Set());
+  const recoveredVideoTaskIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
     const pending = nodes.filter((n) => {
       const d = n.data as any;
       return (
         d?.status === "running" &&
+        !d?.videoTaskProvider &&
         typeof d?.taskId === "string" &&
         d.taskId.trim().length > 0 &&
         !recoveredTaskIdsRef.current.has(d.taskId.trim())
@@ -15882,18 +16081,202 @@ function FlowInner() {
           const r = await waitForTask(taskId, 15 * 60 * 1000, nodeId);
           applyTerminal(nodeId, taskId, r);
         } catch (e) {
+          const { describeTaskPollError } = await import("@/utils/imageTaskPoller");
           applyTerminal(nodeId, taskId, {
             status: "failed",
-            error: e instanceof Error ? e.message : "任务恢复超时",
+            error: describeTaskPollError(e, "任务恢复超时"),
           });
         }
       })();
     }
   }, [nodes, setNodes]);
 
+  // 视频任务身份会随节点持久化。页面刷新后只查询原任务，不重新提交生成请求。
+  React.useEffect(() => {
+    const pending = nodes.filter((node) => {
+      const data = (node.data as any) || {};
+      return (
+        data.status === "running" &&
+        typeof data.taskId === "string" &&
+        data.taskId.trim().length > 0 &&
+        typeof data.videoTaskProvider === "string" &&
+        data.videoTaskProvider.trim().length > 0 &&
+        !recoveredVideoTaskIdsRef.current.has(data.taskId.trim())
+      );
+    });
+
+    for (const node of pending) {
+      const data = (node.data as any) || {};
+      const taskId = data.taskId.trim();
+      const provider = data.videoTaskProvider.trim() as VideoProvider;
+      const apiUsageId =
+        typeof data.apiUsageId === "string" && data.apiUsageId.trim()
+          ? data.apiUsageId.trim()
+          : undefined;
+      const startedAt =
+        typeof data.videoTaskStartedAt === "number" && data.videoTaskStartedAt > 0
+          ? data.videoTaskStartedAt
+          : Date.now();
+      recoveredVideoTaskIdsRef.current.add(taskId);
+
+      void (async () => {
+        let consecutiveErrors = 0;
+        for (let attempt = 0; attempt < 360; attempt += 1) {
+          const latestNode = rf.getNode(node.id);
+          const latestData = (latestNode?.data as any) || {};
+          if (latestData.status !== "running" || latestData.taskId !== taskId) return;
+
+          try {
+            const result = await queryVideoTask(provider, taskId);
+            consecutiveErrors = 0;
+            const status = String(result.status || "").toLowerCase();
+            if (status === "succeeded" || status === "success") {
+              if (apiUsageId) {
+                void markVideoTaskSuccess(
+                  apiUsageId,
+                  Math.max(0, Date.now() - startedAt),
+                  {
+                    inputTokens: result.inputTokens,
+                    outputTokens: result.outputTokens,
+                  },
+                ).catch((error) => {
+                  console.warn("[Flow] Failed to settle recovered video task", error);
+                });
+              }
+              const historyEntry = {
+                id: `video-history-${Date.now()}`,
+                videoUrl: result.videoUrl,
+                thumbnail: result.thumbnailUrl,
+                prompt:
+                  typeof latestData.pendingVideoPrompt === "string"
+                    ? latestData.pendingVideoPrompt
+                    : "",
+                createdAt: new Date().toISOString(),
+                elapsedSeconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)),
+              };
+              recordFlowVideoHistory(node.id, node.type || "video", historyEntry, {
+                provider,
+                taskId,
+                apiUsageId,
+              });
+              setNodes((current) =>
+                current.map((item) => {
+                  if (item.id !== node.id || (item.data as any)?.taskId !== taskId) return item;
+                  const previousData = (item.data as any) || {};
+                  return {
+                    ...item,
+                    data: {
+                      ...previousData,
+                      status: "succeeded",
+                      videoUrl: result.videoUrl,
+                      thumbnail: result.thumbnailUrl,
+                      error: undefined,
+                      videoVersion: Number(previousData.videoVersion || 0) + 1,
+                      history: appendVideoHistory(previousData.history, historyEntry),
+                      taskId: undefined,
+                      apiUsageId: undefined,
+                      videoTaskProvider: undefined,
+                      videoTaskStartedAt: undefined,
+                      pendingVideoPrompt: undefined,
+                    },
+                  };
+                }),
+              );
+              return;
+            }
+
+            if (status === "failed" || status === "error") {
+              if (apiUsageId) {
+                void refundVideoTask(apiUsageId).catch((error) => {
+                  console.warn("[Flow] Failed to refund recovered video task", error);
+                });
+              }
+              setNodes((current) =>
+                current.map((item) =>
+                  item.id === node.id && (item.data as any)?.taskId === taskId
+                    ? {
+                        ...item,
+                        data: {
+                          ...item.data,
+                          status: "failed",
+                          error: result.error || "视频生成任务失败",
+                          taskId: undefined,
+                          apiUsageId: undefined,
+                          videoTaskProvider: undefined,
+                          videoTaskStartedAt: undefined,
+                          pendingVideoPrompt: undefined,
+                        },
+                      }
+                    : item,
+                ),
+              );
+              return;
+            }
+          } catch (error) {
+            consecutiveErrors += 1;
+            console.warn("[Flow] Recovered video task query failed", {
+              nodeId: node.id,
+              taskId,
+              consecutiveErrors,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            if (consecutiveErrors >= 6) {
+              // 保留任务身份和 running 状态；刷新后可继续恢复，不能因查询失败退款。
+              setNodes((current) =>
+                current.map((item) =>
+                  item.id === node.id && (item.data as any)?.taskId === taskId
+                    ? {
+                        ...item,
+                        data: {
+                          ...item.data,
+                          error: "任务仍在生成，状态查询暂时中断，刷新后将继续恢复",
+                        },
+                      }
+                    : item,
+                ),
+              );
+              return;
+            }
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        }
+      })();
+    }
+  }, [appendVideoHistory, nodes, recordFlowVideoHistory, rf, setNodes]);
+
+  // 图像任务阶段同步：轮询池广播 queued/processing 时写到 node.data.taskPhase，
+  // 节点据此显示「排队中（可取消，未扣积分）/生成中」；终态清除。
+  React.useEffect(() => {
+    const onPhase = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as
+        | { taskId?: string; ownerId?: string; status?: string }
+        | undefined;
+      const ownerId = detail?.ownerId;
+      const status = detail?.status;
+      if (!ownerId || !status) return;
+      const phase = status === "queued" || status === "processing" ? status : undefined;
+      setNodes((prev: any[]) =>
+        prev.map((n) => {
+          if (n.id !== ownerId) return n;
+          const d = (n.data as any) || {};
+          if (phase && d.status !== "running") return n;
+          if (d.taskPhase === phase) return n;
+          return { ...n, data: { ...d, taskPhase: phase } };
+        })
+      );
+    };
+    window.addEventListener("image-task:phase", onPhase);
+    return () => window.removeEventListener("image-task:phase", onPhase);
+  }, [setNodes]);
+
+  // runNode 同步防重锁：runNodeInner 里 status:"running" 要等一串 await（@图解析/
+  // 音频时长/参考图上传）后才落地，期间的重复触发会各自预扣积分（2026-07-17 线上
+  // 同一节点同秒 5 次 -600 事故），这里在入口同步占位拦截。
+  const runNodeInFlightRef = React.useRef<Set<string>>(new Set());
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
-  const runNode = React.useCallback(
+  const runNodeInner = React.useCallback(
     async (nodeId: string) => {
       console.log('[runNode] 被调用, nodeId:', nodeId);
       const node = rf.getNode(nodeId);
@@ -15905,6 +16288,11 @@ function FlowInner() {
         console.log("[runNode] 节点正在运行，忽略重复触发");
         return;
       }
+      const clientProjectId = useProjectContentStore.getState().projectId || undefined;
+      const clientRunId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       console.log('[runNode] 节点类型:', node.type);
 
       const currentEdges = rf.getEdges();
@@ -16614,18 +17002,32 @@ function FlowInner() {
         return { texts, hasEdge: true };
       };
 
+      // "图N/项目图N/资产N" 这类兜底名没有语义，不值得写进映射脚注；
+      // 资产卡的角色名（如"老孟婆"）才需要随映射一起下发给模型。
+      const isGenericPromptMentionLabel = (value: string): boolean =>
+        /^(图|项目图|资产|image|project image|asset)\s*\d+$/i.test(value.trim());
+
       const resolvePromptMentionImagesForNode = async (
         targetId: string,
         limit: number
-      ): Promise<Array<{ token: string; image: string }>> => {
+      ): Promise<
+        Array<{ token: string; tokens: string[]; label?: string; image: string }>
+      > => {
         if (limit <= 0) return [];
         const textEdges = currentEdges.filter(
           (e) => e.target === targetId && e.targetHandle === "text"
         );
         if (!textEdges.length) return [];
 
-        const out: string[] = [];
-        const seen = new Set<string>();
+        // 一张图一条结果，但保留引用它的全部 token（同图可能同时被 @图N 和 @角色名 引用，
+        // 丢掉任何一个 token 都会让正文里那个 token 失去改写与映射）。limit 按唯一图片数计。
+        const out: Array<{
+          token: string;
+          tokens: string[];
+          label?: string;
+          image: string;
+        }> = [];
+        const entryIndexByImage = new Map<string, number>();
         for (const edge of textEdges) {
           const promptNode = rf.getNode(edge.source);
           if (!promptNode) continue;
@@ -16681,10 +17083,32 @@ function FlowInner() {
             }
 
             const normalized = typeof resolved === "string" ? resolved.trim() : "";
-            if (!normalized || seen.has(normalized)) continue;
-            seen.add(normalized);
-            out.push({ token: mention.token, image: normalized });
-            if (out.length >= limit) return out;
+            if (!normalized) continue;
+            const label =
+              typeof mention.label === "string" ? mention.label.trim() : "";
+            const existingIdx = entryIndexByImage.get(normalized);
+            if (existingIdx !== undefined) {
+              const entry = out[existingIdx];
+              if (!entry.tokens.includes(mention.token)) {
+                entry.tokens.push(mention.token);
+              }
+              if (
+                label &&
+                !isGenericPromptMentionLabel(label) &&
+                (!entry.label || isGenericPromptMentionLabel(entry.label))
+              ) {
+                entry.label = label;
+              }
+              continue;
+            }
+            if (out.length >= limit) continue;
+            entryIndexByImage.set(normalized, out.length);
+            out.push({
+              token: mention.token,
+              tokens: [mention.token],
+              label: label || undefined,
+              image: normalized,
+            });
           }
         }
         return out;
@@ -16702,18 +17126,77 @@ function FlowInner() {
         return out;
       };
 
-      type PromptMentionImageRef = { token: string; image: string };
+      type PromptMentionImageRef = {
+        token: string;
+        tokens?: string[];
+        label?: string;
+        image: string;
+      };
 
+      // 统一的 @ 引用规范化：把正文里的原始 token（@角色名、@旧图N 等）改写成按下发
+      // 顺序编号的 @图N，并追加映射脚注（带角色名保语义）。所有视频/图片路径共用。
       const appendPromptMentionImageMapping = (
         promptText: string,
-        mentionRefs: PromptMentionImageRef[]
+        mentionRefs: PromptMentionImageRef[],
+        // 参考图数组里 mention 图不一定从第 1 张排起（可能有连线图在前），
+        // 调用方可传入真实下标解析器；返回 <1 表示该图未随任务下发，跳过改写与映射。
+        positionOfImage?: (item: PromptMentionImageRef, index: number) => number,
+        // 追加在脚注句尾的额外说明（如图片路径的"不要按原始编号猜测"）。
+        noteSuffix?: string
       ): string => {
         const base = typeof promptText === "string" ? promptText.trim() : "";
         if (!base || mentionRefs.length === 0) return base;
-        const mappingText = mentionRefs
-          .map((item, index) => `${item.token}=第${index + 1}张参考图`)
-          .join("；");
-        return `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
+
+        const canonicalTokenByOriginal = new Map<string, string>();
+        const labelByPosition = new Map<number, string | undefined>();
+        mentionRefs.forEach((item, index) => {
+          const position = positionOfImage ? positionOfImage(item, index) : index + 1;
+          if (!Number.isFinite(position) || position < 1) return;
+          const tokens =
+            Array.isArray(item.tokens) && item.tokens.length > 0
+              ? item.tokens
+              : [item.token];
+          for (const token of tokens) {
+            if (!token || canonicalTokenByOriginal.has(token)) continue;
+            canonicalTokenByOriginal.set(token, `@图${position}`);
+          }
+          const label =
+            item.label && !isGenericPromptMentionLabel(item.label)
+              ? item.label
+              : undefined;
+          if (!labelByPosition.has(position) || (!labelByPosition.get(position) && label)) {
+            labelByPosition.set(position, label);
+          }
+        });
+        if (canonicalTokenByOriginal.size === 0) return base;
+
+        // 基于位置的单遍整体替换（防 @图1 误伤 @图10），把原始 token 改写成 @图N。
+        let rewritten = base;
+        const matches = findPromptMentionTokenMatches(
+          base,
+          Array.from(canonicalTokenByOriginal.keys())
+        );
+        if (matches.length > 0) {
+          let next = "";
+          let cursor = 0;
+          for (const m of matches) {
+            next += base.slice(cursor, m.start);
+            next += canonicalTokenByOriginal.get(m.token) ?? m.token;
+            cursor = m.end;
+          }
+          next += base.slice(cursor);
+          rewritten = next.trim() || base;
+        }
+
+        const lines = Array.from(labelByPosition.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(
+            ([position, label]) =>
+              `@图${position}=第${position}张参考图${label ? `（${label}）` : ""}`
+          );
+        return `${rewritten}\n\n引用图片映射：${lines.join(
+          "；"
+        )}。请严格按这个映射理解 @ 图片引用${noteSuffix || ""}。`;
       };
 
       const uploadPromptMentionImageToRemote = async (
@@ -17092,7 +17575,19 @@ function FlowInner() {
           ]);
           const promptTextForRequest = appendPromptMentionImageMapping(
             promptTextNormalized,
-            usedPromptMentionImages
+            usedPromptMentionImages,
+            // media 下发顺序是 first_frame 在前、last_frame 在后：
+            // 首帧位（连线或 mention）存在时，尾帧 mention 是第 2 张，否则是第 1 张。
+            (item) => {
+              if (promptMentionBySlot.get("image") === item) {
+                return firstFrameUrl ? 1 : 0;
+              }
+              if (promptMentionBySlot.get("image-2") === item) {
+                if (!lastFrameUrl) return 0;
+                return firstFrameUrl ? 2 : 1;
+              }
+              return 0;
+            }
           );
           const firstClipUrl = resolveVideoUrl(firstClipEdge);
           const audioUrlFromEdge = resolveAudioUrl(audioEdge);
@@ -17209,6 +17704,11 @@ function FlowInner() {
           if (useNewApiVideoEdit) {
             // 视频编辑模式：new-api wan2.7-videoedit，支持画幅比例。
             const providerResult = await generateVideoByProvider({
+              idempotencyKey: `vnode-${nodeId}-${clientRunId}`,
+              clientProjectId,
+              clientNodeId: nodeId,
+              clientRunId,
+              runSource: "flow-node",
               provider: "wan2.7",
               // 'wan-2.7' 复用既有 wan2.7 计费口径（serviceType=wan27-video）；
               // 后端 resolveNewApiVideoModel 仍解析为 wan2.7-videoedit。
@@ -17227,6 +17727,26 @@ function FlowInner() {
                 ? providerResult.apiUsageId.trim()
                 : undefined;
             videoUrl = providerResult.videoUrl;
+            recoveredVideoTaskIdsRef.current.add(providerResult.taskId);
+            setNodes((current) =>
+              current.map((item) =>
+                item.id === nodeId
+                  ? {
+                      ...item,
+                      data: {
+                        ...item.data,
+                        status: "running",
+                        taskId: providerResult.taskId,
+                        apiUsageId: wanApiUsageId,
+                        videoTaskProvider: providerResult.provider || "wan2.7",
+                        videoTaskStartedAt: generationStartedAt,
+                        pendingVideoPrompt: promptTextForRequest || promptText,
+                        error: undefined,
+                      },
+                    }
+                  : item,
+              ),
+            );
             pollWanTask = async (id) => {
               const q = await queryVideoTask("wan2.7", id);
               return {
@@ -17362,6 +17882,11 @@ function FlowInner() {
                         videoUrl,
                         thumbnail: undefined,
                         error: undefined,
+                        taskId: undefined,
+                        apiUsageId: undefined,
+                        videoTaskProvider: undefined,
+                        videoTaskStartedAt: undefined,
+                        pendingVideoPrompt: undefined,
                         videoVersion: Number(previousData.videoVersion || 0) + 1,
                         history: appendVideoHistory(
                           previousData.history as Array<Record<string, any>> | undefined,
@@ -17380,7 +17905,16 @@ function FlowInner() {
               n.id === nodeId
                 ? {
                     ...n,
-                    data: { ...n.data, status: "failed", error: msg },
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: msg,
+                      taskId: undefined,
+                      apiUsageId: undefined,
+                      videoTaskProvider: undefined,
+                      videoTaskStartedAt: undefined,
+                      pendingVideoPrompt: undefined,
+                    },
                   }
                 : n
             )
@@ -18005,10 +18539,8 @@ function FlowInner() {
           Math.max(0, allowedImageHandles - imageEdges.length)
         );
         const totalReferenceImageCount = imageEdges.length + promptMentionImages.length;
-        const promptTextForRequest = appendPromptMentionImageMapping(
-          promptTrimmed,
-          promptMentionImages
-        );
+        // 连线图可能解析/上传失败被静默跳过，映射序号必须等上传完成后按实际下发数组计算。
+        let promptTextForRequest = promptTrimmed;
 
         // video-edit 必须连接一个视频源
         const videoEdge =
@@ -18142,13 +18674,23 @@ function FlowInner() {
             const url = await uploadResolvedImageEdge(edge);
             if (url) referenceImageUrls.push(url);
           }
+          const mentionPositionByImage = new Map<string, number>();
           for (const mention of promptMentionImages) {
             const url = await uploadPromptMentionImageToRemote(
               mention.image,
               projectId
             );
-            if (url) referenceImageUrls.push(url);
+            if (url) {
+              referenceImageUrls.push(url);
+              mentionPositionByImage.set(mention.image, referenceImageUrls.length);
+            }
           }
+          promptTextForRequest = appendPromptMentionImageMapping(
+            promptTrimmed,
+            promptMentionImages,
+            // 按上传成功后在下发数组里的真实位置；上传失败的 mention 不改写、不写映射。
+            (item) => mentionPositionByImage.get(item.image) ?? 0
+          );
           const inputVideoUrl = resolveVideoEdgeUrl(videoEdge);
 
           if (
@@ -18967,7 +19509,9 @@ function FlowInner() {
         ]).slice(0, SORA2_MAX_REFERENCE_IMAGES);
         finalPromptText = appendPromptMentionImageMapping(
           finalPromptText,
-          promptMentionImages
+          promptMentionImages,
+          // 连线图排在前且按 url 去重过，用最终下发数组里的真实位置做映射序号。
+          (item) => referenceImages.indexOf(item.image) + 1
         );
 
         const generationStartMs = Date.now();
@@ -20180,26 +20724,52 @@ function FlowInner() {
         const referenceImages = limitedReferenceImageInputs.map((item) => item.dataUrl);
         const referenceImageSourceEdges = limitedReferenceImageInputs.map((item) => item.edge);
 
-        // 把正文里的原始 @ token（如 "@Midjourney V7 #2 10:42:01"）改写成规范的 "@图N"，
+        // 把正文里的原始 @ token（如 "@老孟婆"、"@Midjourney V7 #2 10:42:01"）改写成规范的 "@图N"，
         // N = 该图在去重后 referenceImages 中的 1-based 下标，确保与下发顺序严格一致。
         // 用 findPromptMentionTokenMatches 做基于位置的整体替换，避免 "@图1" 误伤 "@图10"。
         const canonicalTokenByOriginal = new Map<string, string>();
-        // 同一张图可能被多个 @ token 引用（重复选取），它们都要指向该图的规范下标。
+        // 资产卡角色名等有语义的 label 记到规范下标上，随映射脚注一起下发，改写后语义不丢。
+        const canonicalLabelByIndex = new Map<number, string>();
+        // 同一张图可能被多个 @ token 引用（如 @图2 与 @老孟婆 指同一张卡），全部指向该图的规范下标。
         for (const item of mergedReferenceImageInputs) {
-          const originalToken = item.mention?.token;
-          if (!originalToken || canonicalTokenByOriginal.has(originalToken)) continue;
+          const mentionRef = item.mention;
+          if (!mentionRef) continue;
           const key = typeof item.dataUrl === "string" ? item.dataUrl.trim() : "";
           const dedupedIdx = key ? referenceImageIndexByUrl.get(key) : undefined;
           if (dedupedIdx === undefined || dedupedIdx >= limitedReferenceImageInputs.length) {
             continue;
           }
-          canonicalTokenByOriginal.set(originalToken, `@图${dedupedIdx + 1}`);
+          const mentionTokens =
+            Array.isArray(mentionRef.tokens) && mentionRef.tokens.length > 0
+              ? mentionRef.tokens
+              : [mentionRef.token];
+          for (const originalToken of mentionTokens) {
+            if (!originalToken || canonicalTokenByOriginal.has(originalToken)) continue;
+            canonicalTokenByOriginal.set(originalToken, `@图${dedupedIdx + 1}`);
+          }
+          const label =
+            typeof mentionRef.label === "string" ? mentionRef.label.trim() : "";
+          if (
+            label &&
+            !isGenericPromptMentionLabel(label) &&
+            !canonicalLabelByIndex.has(dedupedIdx)
+          ) {
+            canonicalLabelByIndex.set(dedupedIdx, label);
+          }
         }
-        // 映射说明按去重后顺序、每张被 @ 引用的图一行。
-        const canonicalMentionRefs: Array<{ token: string; index: number }> = [];
+        // 映射说明按去重后顺序、每张被 @ 引用的图一行；有角色名的带上角色名。
+        const canonicalMentionRefs: Array<{
+          token: string;
+          index: number;
+          label?: string;
+        }> = [];
         limitedReferenceImageInputs.forEach((item, idx) => {
           if (!item.mention?.token) return;
-          canonicalMentionRefs.push({ token: `@图${idx + 1}`, index: idx + 1 });
+          canonicalMentionRefs.push({
+            token: `@图${idx + 1}`,
+            index: idx + 1,
+            label: canonicalLabelByIndex.get(idx),
+          });
         });
         if (canonicalTokenByOriginal.size > 0) {
           const sourceText = finalPrompt || "";
@@ -20222,7 +20792,12 @@ function FlowInner() {
           const base = (finalPrompt || "").trim();
           if (base) {
             const mappingText = canonicalMentionRefs
-              .map((ref) => `${ref.token}=第${ref.index}张参考图`)
+              .map(
+                (ref) =>
+                  `${ref.token}=第${ref.index}张参考图${
+                    ref.label ? `（${ref.label}）` : ""
+                  }`
+              )
               .join("；");
             finalPrompt = `${base}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用。`;
           }
@@ -20609,18 +21184,35 @@ function FlowInner() {
             promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
-          // Tencent route removed: never send tencent_vod for vidu/kling — the
-          // request follows the token and new-api picks the upstream per route.
-          // The Tencent-only kling-o3 分镜/storyboard feature is dropped; legacy
-          // storyboard fields on old nodes are ignored and not sent.
+          // 通道只作为后端路由提示：普通通道经 /v1/videos 使用 NEW_API_KEY，
+          // 腾讯 VOD/尊享通道经既有 proxy 链路使用 NEW_API_KEY_VIP；令牌不下发前端。
           const managedRoutePayload = {
             managedModelKey:
               typeof rawNodeData.managedModelKey === "string" &&
               rawNodeData.managedModelKey.trim().length > 0
                 ? rawNodeData.managedModelKey.trim()
                 : undefined,
-            vendorKey: sanitizeVideoVendorKey(rawNodeData.vendorKey),
-            platformKey: sanitizeVideoVendorKey(rawNodeData.platformKey),
+            vendorKey:
+              rawNodeData.channelSelectionExplicit === true
+                ? sanitizeVideoVendorKey(rawNodeData.vendorKey)
+                : provider === "vidu" || provider === "viduq3-pro"
+                ? "vidu_api"
+                : sanitizeVideoVendorKey(rawNodeData.vendorKey) === "tencent_vod"
+                ? undefined
+                : sanitizeVideoVendorKey(rawNodeData.vendorKey),
+            platformKey:
+              rawNodeData.channelSelectionExplicit === true
+                ? sanitizeVideoVendorKey(rawNodeData.platformKey)
+                : provider === "vidu" || provider === "viduq3-pro"
+                ? "vidu_api"
+                : sanitizeVideoVendorKey(rawNodeData.platformKey) === "tencent_vod"
+                ? undefined
+                : sanitizeVideoVendorKey(rawNodeData.platformKey),
+            channelTier:
+              rawNodeData.channelSelectionExplicit === true &&
+              (rawNodeData.channelTier === "default" || rawNodeData.channelTier === "vip")
+                ? rawNodeData.channelTier
+                : "default",
           };
           const normalizedKlingSound =
             rawNodeData.sound === undefined || rawNodeData.sound === null
@@ -20719,6 +21311,7 @@ function FlowInner() {
               : provider === "vidu" || provider === "viduq3-pro"
               ? {
                   ...managedRoutePayload,
+                  managedModelKey: viduModelForApi === "q3" ? "vidu-q3" : "vidu-q2",
                   prompt: finalPrompt,
                   referenceImages:
                     referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
@@ -20826,7 +21419,33 @@ function FlowInner() {
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
             ...requestPayload,
+            idempotencyKey: `vnode-${nodeId}-${clientRunId}`,
+            clientProjectId,
+            clientNodeId: nodeId,
+            clientRunId,
+            runSource: "flow-node",
           });
+          const videoTaskProvider = (createResult.provider || provider) as VideoProvider;
+          recoveredVideoTaskIdsRef.current.add(createResult.taskId);
+          setNodes((current) =>
+            current.map((item) =>
+              item.id === nodeId
+                ? {
+                    ...item,
+                    data: {
+                      ...item.data,
+                      status: "running",
+                      taskId: createResult.taskId,
+                      apiUsageId: createResult.apiUsageId,
+                      videoTaskProvider,
+                      videoTaskStartedAt: generationStartMs,
+                      pendingVideoPrompt: promptText,
+                      error: undefined,
+                    },
+                  }
+                : item,
+            ),
+          );
 
           console.log("✅ [Flow] Video task created", {
             nodeId,
@@ -20866,29 +21485,6 @@ function FlowInner() {
             try {
               if (attempts > maxAttempts) {
                 stopPolling();
-                // 超时也尝试退还积分
-                if (createResult.apiUsageId) {
-                  try {
-                    await refundVideoTask(createResult.apiUsageId);
-                    console.log("✅ [Flow] Video task credits refunded (timeout)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                    });
-                  } catch (refundError) {
-                    console.warn("❌ [Flow] Failed to refund credits (timeout)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                      error: refundError instanceof Error ? refundError.message : String(refundError),
-                    });
-                  }
-                }
-                const failureMessage = formatVideoProviderError("任务查询超时", {
-                  language,
-                  fallbackZh: "视频生成任务查询超时，请稍后重试。",
-                  fallbackEn: "Video generation query timed out. Please try again later.",
-                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -20896,8 +21492,8 @@ function FlowInner() {
                           ...n,
                           data: {
                             ...n.data,
-                            status: "failed",
-                            error: failureMessage,
+                            status: "running",
+                            error: "任务仍在生成，刷新页面后将继续查询",
                           },
                         }
                       : n
@@ -20907,7 +21503,7 @@ function FlowInner() {
               }
 
               const queryResult = await queryVideoTask(
-                provider as VideoProvider,
+                (createResult.provider || provider) as VideoProvider,
                 createResult.taskId
               );
               consecutiveQueryErrors = 0;
@@ -20967,6 +21563,11 @@ function FlowInner() {
                         videoUrl: queryResult.videoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
+                        taskId: undefined,
+                        apiUsageId: undefined,
+                        videoTaskProvider: undefined,
+                        videoTaskStartedAt: undefined,
+                        pendingVideoPrompt: undefined,
                         videoVersion:
                           Number(previousData.videoVersion || 0) + 1,
                         history: appendVideoHistory(
@@ -21015,6 +21616,11 @@ function FlowInner() {
                             ...n.data,
                             status: "failed",
                             error: failureMessage,
+                            taskId: undefined,
+                            apiUsageId: undefined,
+                            videoTaskProvider: undefined,
+                            videoTaskStartedAt: undefined,
+                            pendingVideoPrompt: undefined,
                           },
                       }
                     : n
@@ -21034,29 +21640,6 @@ function FlowInner() {
               });
               if (consecutiveQueryErrors >= maxConsecutiveQueryErrors) {
                 stopPolling();
-                // 连续查询失败时也尝试退还积分
-                if (createResult.apiUsageId) {
-                  try {
-                    await refundVideoTask(createResult.apiUsageId);
-                    console.log("✅ [Flow] Video task credits refunded (query failed)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                    });
-                  } catch (refundError) {
-                    console.warn("❌ [Flow] Failed to refund credits (query failed)", {
-                      nodeId,
-                      provider,
-                      apiUsageId: createResult.apiUsageId,
-                      error: refundError instanceof Error ? refundError.message : String(refundError),
-                    });
-                  }
-                }
-                const failureMessage = formatVideoProviderError("任务状态查询失败，请重试", {
-                  language,
-                  fallbackZh: "任务状态查询失败，请重试。",
-                  fallbackEn: "Task status query failed. Please retry.",
-                });
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
@@ -21064,8 +21647,8 @@ function FlowInner() {
                           ...n,
                           data: {
                             ...n.data,
-                            status: "failed",
-                            error: failureMessage,
+                            status: "running",
+                            error: "任务仍在生成，状态查询暂时中断，刷新后将继续恢复",
                           },
                         }
                       : n
@@ -21978,7 +22561,7 @@ function FlowInner() {
                     )
                   );
 
-                  const { waitForTask } = await import("@/utils/imageTaskPoller");
+                  const { waitForTask, describeTaskPollError } = await import("@/utils/imageTaskPoller");
                   let resolvedImageUrl = "";
                   let resolvedTextResponse = "";
                   let failureMessage = "";
@@ -21992,7 +22575,7 @@ function FlowInner() {
                       failureMessage = r.error || "GPT-Image-2 任务失败，积分将自动返还。";
                     }
                   } catch (e) {
-                    failureMessage = e instanceof Error ? e.message : "GPT-Image-2 生成超时（15分钟），积分将自动返还。";
+                    failureMessage = describeTaskPollError(e, "GPT-Image-2 生成失败，积分将自动返还。");
                   }
 
                   if (!resolvedImageUrl) {
@@ -22218,7 +22801,7 @@ function FlowInner() {
             if (!value) return "2K";
             const compact = value.replace(/\s+/g, "");
             const upper = compact.toUpperCase();
-            if (upper === "2K" || upper === "3K" || upper === "4K") return upper;
+            if (upper === "1K" || upper === "2K" || upper === "3K" || upper === "4K") return upper;
             const dimMatch = compact.match(/^(\d{3,5})[xX](\d{3,5})$/);
             if (dimMatch) return `${dimMatch[1]}x${dimMatch[2]}`;
             console.warn(`Seedream5: invalid size "${value}", fallback to 2K`);
@@ -22232,12 +22815,16 @@ function FlowInner() {
               ? "4.0"
               : (node.data as any)?.modelVersion === "4.5"
               ? "4.5"
+              : (node.data as any)?.modelVersion === "5.0-pro"
+              ? "5.0-pro"
               : "5.0";
           const seedreamModelId =
             seedreamModelVersion === "4.0"
               ? "doubao-seedream-4-0-250828"
               : seedreamModelVersion === "4.5"
               ? "doubao-seedream-4-5-251128"
+              : seedreamModelVersion === "5.0-pro"
+              ? "doubao-seedream-5-0-pro-260628"
               : "doubao-seedream-5-0-260128";
 
           const result = await generateImageViaAPI({
@@ -22508,12 +23095,13 @@ function FlowInner() {
             ...mentionImageRefs.map((item) => item.image),
             ...imageDatas,
           ]).slice(0, maxFlowReferenceImages);
-          const mappingText = mentionImageRefs
-            .map((item, index) => `${item.token}=第${index + 1}张参考图`)
-            .join("；");
-          if (mappingText) {
-            prompt = `${prompt}\n\n引用图片映射：${mappingText}。请严格按这个映射理解 @ 图片引用，不要按图片原始编号或视觉猜测重新匹配。`;
-          }
+          prompt = appendPromptMentionImageMapping(
+            prompt,
+            mentionImageRefs,
+            // 用最终下发数组里的真实位置；被 slice 截掉的图不改写、不写映射。
+            (item) => imageDatas.indexOf(item.image) + 1,
+            "，不要按图片原始编号或视觉猜测重新匹配"
+          );
         }
       }
 
@@ -22651,7 +23239,9 @@ function FlowInner() {
           if (runProvider === "banana-2.5") {
             return "gemini-2.5-flash-image-preview";
           }
-          return "gemini-3-flash-preview";
+          // banana(Pro) 默认档必须发图像模型；此前误发文本模型 gemini-3-flash-preview，
+          // 全靠后端 resolveImageModel 归一化兜底。
+          return "gemini-3-pro-image-preview";
         }
         // 其他节点（包括 generate/generate4/image 等）使用全局模型设置
         return getImageModelForProvider(runProvider);
@@ -23534,6 +24124,234 @@ function FlowInner() {
     ]
   );
 
+  const runNode = React.useCallback(
+    async (nodeId: string) => {
+      if (runNodeInFlightRef.current.has(nodeId)) {
+        console.log("[runNode] 节点触发处理中，忽略重复触发", nodeId);
+        return;
+      }
+      runNodeInFlightRef.current.add(nodeId);
+      try {
+        await runNodeInner(nodeId);
+      } finally {
+        runNodeInFlightRef.current.delete(nodeId);
+      }
+    },
+    [runNodeInner]
+  );
+
+  // 小T agent 画布桥：建节点/连线/运行（事件由 services/agentPatchApplier.ts 派发）
+  React.useEffect(() => {
+    const onAgentAddNode = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            type?: string;
+            data?: Record<string, any>;
+            position?: { x?: number; y?: number };
+            done?: (createdId: string | null) => void;
+          }
+        | undefined;
+      if (!detail?.type) {
+        try {
+          detail?.done?.(null);
+        } catch {}
+        return;
+      }
+      let createdId: string | null = null;
+      try {
+        // position 有则视为世界坐标直接用；无则取当前视口中心（照 flow:createImageNode 的算法）
+        let world: { x: number; y: number };
+        if (
+          detail.position &&
+          Number.isFinite(detail.position.x) &&
+          Number.isFinite(detail.position.y)
+        ) {
+          world = { x: Number(detail.position.x), y: Number(detail.position.y) };
+        } else {
+          const rect = containerRef.current?.getBoundingClientRect();
+          const screenPosition = {
+            x:
+              (rect?.left || 0) +
+              (rect?.width || window.innerWidth) / 2 +
+              (Math.random() * 120 - 60),
+            y:
+              (rect?.top || 0) +
+              (rect?.height || window.innerHeight) / 2 +
+              (Math.random() * 80 - 40),
+          };
+          world = rf.screenToFlowPosition(screenPosition);
+        }
+        createdId = createNodeAtWorldCenter(detail.type, world, detail.data);
+      } catch (err) {
+        console.warn("[agent-bridge] add-node failed:", err);
+        createdId = null;
+      }
+      try {
+        detail.done?.(createdId ?? null);
+      } catch {}
+    };
+
+    const onAgentConnectEdge = async (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            source?: string;
+            target?: string;
+            sourceHandle?: string | null;
+            targetHandle?: string | null;
+            done?: () => void;
+          }
+        | undefined;
+      // 通知 applier 串行队列本次连线已处理完（无论成败），让其推进到下一 op。
+      // 放在函数各返回/结束路径都触发，避免队列死等（applier 有 2s 兜底）。
+      const notifyDone = () => {
+        try {
+          detail?.done?.();
+        } catch {
+          /* ignore */
+        }
+      };
+      if (!detail?.source || !detail?.target) {
+        notifyDone();
+        return;
+      }
+      const d = {
+        source: detail.source,
+        target: detail.target,
+        sourceHandle: detail.sourceHandle ?? null,
+        targetHandle: detail.targetHandle ?? null,
+      };
+      // 小T 常常不带 handle（sourceHandle/targetHandle 都是 null），而 isValidConnection
+      // 硬要求 targetHandle → 静默拒绝。落连线前用两端真实 type 智能补全缺失 handle。
+      try {
+        const srcType = String(rf.getNode(d.source)?.type || "");
+        const tgtType = String(rf.getNode(d.target)?.type || "");
+        const srcMap = DEFAULT_NODE_HANDLES[srcType];
+        const tgtMap = DEFAULT_NODE_HANDLES[tgtType];
+        const PURE_TEXT = new Set(["textPrompt", "textChat", "textNote"]);
+        // 判定这条边"连的是什么流"：text / image / video
+        let flow: "text" | "image" | "video" | null = null;
+        if (d.sourceHandle) {
+          const h = d.sourceHandle;
+          if (h.startsWith("text") || h.startsWith("prompt")) flow = "text";
+          else if (h === "video" || h.startsWith("video")) flow = "video";
+          else flow = "image";
+        } else if (srcMap) {
+          if (PURE_TEXT.has(srcType)) flow = "text";
+          else if (srcMap.imageOut) flow = "image";
+          else if (srcMap.videoOut) flow = "video";
+          else if (srcMap.textOut) flow = "text";
+        }
+        // 补 sourceHandle
+        if (!d.sourceHandle && srcMap && flow) {
+          const picked =
+            flow === "text"
+              ? srcMap.textOut
+              : flow === "image"
+              ? srcMap.imageOut
+              : srcMap.videoOut;
+          if (picked) d.sourceHandle = picked;
+        }
+        // 补 targetHandle：按"流"接目标对应输入
+        if (!d.targetHandle && tgtMap && flow) {
+          const picked =
+            flow === "text"
+              ? tgtMap.textIn
+              : flow === "image"
+              ? tgtMap.imageIn
+              : undefined; // 视频流暂无独立 videoIn 约定
+          if (picked) d.targetHandle = picked;
+        }
+        if (d.sourceHandle !== (detail.sourceHandle ?? null) ||
+            d.targetHandle !== (detail.targetHandle ?? null)) {
+          console.debug("[xiaot] connectEdge handle 补全", {
+            srcType,
+            tgtType,
+            flow,
+            sourceHandle: d.sourceHandle,
+            targetHandle: d.targetHandle,
+          });
+        }
+      } catch (err) {
+        console.warn("[agent-bridge] handle 补全失败，保持原样:", err);
+      }
+      // 视频节点(GenericVideoNode)渲染重，addNode 后 targetHandle 可能还没注册到 DOM，
+      // isValidConnection 查不到就静默拒绝。onConnect 前轮询等两端 handle 就绪（最多 ~1.5s）。
+      const waitHandleReady = async (
+        nodeId: string,
+        handleId: string | null
+      ): Promise<void> => {
+        if (!handleId) return;
+        for (let i = 0; i < 12; i++) {
+          const ok = document.querySelector(
+            `.react-flow__node[data-id="${nodeId}"] .react-flow__handle[data-handleid="${handleId}"]`
+          );
+          if (ok) return;
+          await new Promise((r) => setTimeout(r, 120));
+        }
+      };
+      await waitHandleReady(d.target, d.targetHandle);
+      await waitHandleReady(d.source, d.sourceHandle);
+      try {
+        onConnect(d as Connection);
+      } catch (err) {
+        console.warn("[agent-bridge] connect-edge failed:", err);
+      }
+      // 连线已提交（onConnect 同步 setEdges），放行 applier 队列推进到下一 op；
+      // 下面的 350ms 落地核对仍独立进行（不阻塞队列）
+      notifyDone();
+      // isValidConnection/canAcceptConnection 静默拒绝时用户只看到"连线少了"——
+      // 等 handle 就绪 + onConnect 后再 +350ms（React 渲染+协作回声）核对边是否落进
+      // state，没有则可见化告警。放在 waitHandleReady 之后避免等待期误报。
+      window.setTimeout(() => {
+        const exists = rf
+          .getEdges()
+          .some(
+            (e) =>
+              e.source === d.source &&
+              e.target === d.target &&
+              (e.sourceHandle ?? null) === d.sourceHandle &&
+              (e.targetHandle ?? null) === d.targetHandle
+          );
+        if (exists) return;
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              type: "warning",
+              message: `小T连线未生效：${d.source}→${d.target}（handle 不匹配或节点不存在）`,
+            },
+          })
+        );
+        console.warn("[xiaot] connectEdge rejected", d);
+      }, 350);
+    };
+
+    const onAgentRunNode = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { id?: string } | undefined;
+      const nodeId = detail?.id;
+      if (!nodeId) return;
+      const node = rf.getNodes().find((n) => n.id === nodeId);
+      if (!node) return;
+      const nodeType = String(node.type || "");
+      if (FLOW_GROUP_LOCAL_RUN_TYPES.has(nodeType)) {
+        // 文本类节点自监听 flow:run-node 本地执行
+        window.dispatchEvent(
+          new CustomEvent("flow:run-node", { detail: { id: nodeId } })
+        );
+      } else {
+        void runNode(nodeId);
+      }
+    };
+
+    window.addEventListener("flow:agent-add-node", onAgentAddNode as EventListener);
+    window.addEventListener("flow:agent-connect-edge", onAgentConnectEdge as EventListener);
+    window.addEventListener("flow:agent-run-node", onAgentRunNode as EventListener);
+    return () => {
+      window.removeEventListener("flow:agent-add-node", onAgentAddNode as EventListener);
+      window.removeEventListener("flow:agent-connect-edge", onAgentConnectEdge as EventListener);
+      window.removeEventListener("flow:agent-run-node", onAgentRunNode as EventListener);
+    };
+  }, [createNodeAtWorldCenter, onConnect, runNode, rf]);
+
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback(
     async (id: string) => {
@@ -24395,14 +25213,25 @@ function FlowInner() {
       if (!node) return;
       if ((node.data as any)?.status !== "running") return;
 
-      // 取消前端轮询
-      const { cancelTask: cancelTaskFn, cancelTasksByOwner: cancelByOwner } =
-        await import("@/utils/imageTaskPoller");
-      cancelByOwner([nodeId]);
+      const {
+        cancelTask: cancelTaskFn,
+        cancelTasksByOwner: cancelByOwner,
+        getTaskIdsByOwner,
+      } = await import("@/utils/imageTaskPoller");
+
+      // 先收集该节点名下所有 taskId（多槽流程的 taskId 只在轮询池里有记录），再取消本地轮询
       const taskId = typeof (node.data as any)?.taskId === "string"
         ? (node.data as any).taskId.trim()
         : "";
+      const backendTaskIds = new Set<string>(getTaskIdsByOwner(nodeId));
+      if (taskId) backendTaskIds.add(taskId);
+
+      cancelByOwner([nodeId]);
       if (taskId) cancelTaskFn(taskId);
+
+      // 释放 runNode 防重锁：取消轮询是静默移除（promise 永不 settle），
+      // runNodeInner 会永远挂起、finally 不执行，不在这里释放则该节点无法重新生成。
+      runNodeInFlightRef.current.delete(nodeId);
 
       // 重置节点为 idle，用户可重新生成
       setNodes((ns) =>
@@ -24415,11 +25244,35 @@ function FlowInner() {
                   status: "idle",
                   error: undefined,
                   taskId: undefined,
+                  taskPhase: undefined,
                 },
               }
             : n
         )
       );
+
+      // 向后端撤下仍在排队的任务（未被 worker 拾取 = 尚未扣积分）；
+      // 已开始生成的任务后端拒绝取消，仍按最终结果结算积分。
+      if (backendTaskIds.size > 0) {
+        void (async () => {
+          const results = await Promise.all(
+            Array.from(backendTaskIds).map((id) => cancelImageTaskViaAPI(id))
+          );
+          const cancelledCount = results.filter((r) => r.cancelled).length;
+          const total = results.length;
+          const message =
+            cancelledCount === total
+              ? "已取消排队任务，未扣除积分"
+              : cancelledCount > 0
+              ? `已取消 ${cancelledCount}/${total} 个排队任务，其余已开始生成，将按最终结果结算积分`
+              : "任务已开始生成，无法取消，将按最终结果结算积分";
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: cancelledCount > 0 ? "success" : "info" },
+            })
+          );
+        })();
+      }
     },
     [rf, setNodes]
   );

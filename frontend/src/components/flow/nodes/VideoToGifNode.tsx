@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState, type Node } from '@xyflow/react';
 import SmartImage from '../../ui/SmartImage';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -77,7 +77,7 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
             e.targetHandle.startsWith('video')
         );
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((n: Node<any>) => n.id === edge.source);
+        const sourceNode = state.nodes.find((n: Node<any>) => n.id === edge.source);
         return resolveVideoUrlFromNode(sourceNode);
       },
       [id]

@@ -7,6 +7,16 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
 
+// 小T可选「大脑」模型清单。
+// 与 backend/src/agent/xiaot-agent.service.ts 的 XIAOT_CHAT_MODELS 对齐
+// （前后端不共享包，两边须手工同步；后端对未知值会回退默认模型）。
+export const XIAOT_CHAT_MODELS = [
+  "xiaot-agent-gpt-5-6-sol",
+  "xiaot-agent-gpt-5-6-terra",
+  "xiaot-agent-gpt-5-6-luna",
+] as const;
+export type XiaotChatModel = (typeof XIAOT_CHAT_MODELS)[number];
+
 export type AgentEventType =
   | "run_started"
   | "step_started"
@@ -15,6 +25,9 @@ export type AgentEventType =
   | "tool_selected"
   | "research_text"
   | "research_result"
+  | "assistant_delta"
+  | "flow_patch"
+  | "host_ui"
   | "final"
   | "error"
   | "done";
@@ -64,6 +77,17 @@ export interface CreateAgentRunRequest {
   imageCount?: number;
   enableWebSearch?: boolean;
   context?: Record<string, unknown>;
+  mode?: "research" | "canvasAgent";
+  canvasContext?: Record<string, unknown>;
+  capabilityManifest?: Record<string, unknown>;
+  generationContract?: {
+    version: "v1";
+    lockedAnchors: string[];
+    editableVariable: string | null;
+    forbiddenChanges: string[];
+    approvedKeyframeId: string | null;
+  };
+  styleReferenceUrl?: string;
 }
 
 export async function createAgentRunViaAPI(

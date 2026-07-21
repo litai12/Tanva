@@ -1984,6 +1984,10 @@ export interface AdminOrder {
   userEmail: string | null;
   userName: string | null;
   orderType: string;
+  /** 会员订单对应的计划名（非会员订单为 null） */
+  planName: string | null;
+  /** 订阅类型：monthly=月卡 / yearly=年卡（非会员订单为 null） */
+  billingCycle: string | null;
   amount: number;
   credits: number;
   paymentMethod: string;
@@ -2006,6 +2010,7 @@ export async function getAdminOrders(params?: {
   status?: string;
   paymentMethod?: string;
   orderType?: string;
+  billingCycle?: string;
   startDate?: string;
   endDate?: string;
   tenantId?: string; // 仅主站超管：租户id 或 "all"
@@ -2017,6 +2022,7 @@ export async function getAdminOrders(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.paymentMethod) searchParams.set("paymentMethod", params.paymentMethod);
   if (params?.orderType) searchParams.set("orderType", params.orderType);
+  if (params?.billingCycle) searchParams.set("billingCycle", params.billingCycle);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
   if (params?.tenantId) searchParams.set("tenantId", params.tenantId);

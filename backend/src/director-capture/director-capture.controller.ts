@@ -22,6 +22,7 @@ export class DirectorCaptureController {
       leaseToken?: string;
       status?: string;
       imageUrl?: string;
+      videoUrl?: string;
       error?: string;
     },
   ) {
@@ -29,7 +30,14 @@ export class DirectorCaptureController {
     const leaseToken = String(body?.leaseToken ?? '').trim();
     if (!captureId || !leaseToken) return { ok: false, code: 'bad_request' };
     const status = body?.status === 'succeeded' ? 'succeeded' : 'failed';
-    const ok = this.service.report(captureId, leaseToken, status, body?.imageUrl, body?.error);
+    const ok = this.service.report(
+      captureId,
+      leaseToken,
+      status,
+      body?.imageUrl,
+      body?.videoUrl,
+      body?.error,
+    );
     return { ok };
   }
 }

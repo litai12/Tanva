@@ -1,5 +1,5 @@
 import React from "react";
-import { Handle, Position, NodeResizer, useReactFlow } from "reactflow";
+import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { Send as SendIcon, Camera } from "lucide-react";
 import { AutoScreenshotService } from "@/services/AutoScreenshotService";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";

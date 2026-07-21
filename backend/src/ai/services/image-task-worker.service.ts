@@ -14,12 +14,13 @@ export class ImageTaskWorkerService implements OnModuleInit, OnModuleDestroy {
   // 固定并发：不再按内存动态夹取（旧逻辑在容器里常被夹到 1，导致任务全部卡在 queued）。
   // 也不再挂 BullMQ 限流器——并发只由这个固定值决定。
   // 兜底默认从 1000000(等于不限,一波并发任务会同时占堆→V8 堆 OOM,incident 2026-06-25)
-  // 收敛为 200。超出并发的任务在 Redis 排队,不丢不拒;只有"同时在跑"的这些占 Node 堆。
-  // 200 偏激进:大部分时间 job 在等上游(占内存少),只有结果下载+base64 那段吃堆,
-  // 风险是峰值叠加。务必配 --max-old-space-size + 看 pm2 monit,RSS 逼近 4G 就调低
+  // 收敛为 1000(2026-07-07 从 200 提高:200 在高峰会造成任务排队数分钟,前端在排队期就把
+  // 15min 表走完误报超时;OOM 真因已由缓冲字节上限治本)。
+  // 大部分时间 job 在等上游(占内存少),只有结果下载+base64 那段吃堆,风险是峰值叠加。
+  // 务必配 --max-old-space-size + 看 pm2 monit,RSS 逼近 4G 就调低
   // IMAGE_TASK_MAX_CONCURRENT(改 env 重启即可,见 ecosystem.config.js)。
   private static readonly CONCURRENCY = Number(
-    process.env.IMAGE_TASK_MAX_CONCURRENT ?? 200,
+    process.env.IMAGE_TASK_MAX_CONCURRENT ?? 1000,
   );
 
   constructor(

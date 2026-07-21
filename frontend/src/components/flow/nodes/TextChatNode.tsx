@@ -7,7 +7,7 @@ import {
   useStore,
   type ReactFlowState,
   type Edge,
-} from 'reactflow';
+} from '@xyflow/react';
 import { aiImageService } from '@/services/aiImageService';
 import { useCanvasStore } from '@/stores';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';

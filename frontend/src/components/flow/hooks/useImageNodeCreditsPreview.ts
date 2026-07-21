@@ -189,7 +189,10 @@ export const useImageNodeCreditsPreview = ({
     if (nodeType === "seedream5") {
       const modelKey = resolveManagedModelKey(nodeType, provider, managedModelKey);
       const normalizedSeedreamModelVersion =
-        modelVersion === "4.0" || modelVersion === "4.5" || modelVersion === "5.0"
+        modelVersion === "4.0" ||
+        modelVersion === "4.5" ||
+        modelVersion === "5.0" ||
+        modelVersion === "5.0-pro"
           ? modelVersion
           : "5.0";
       const seedreamModelId =
@@ -197,9 +200,14 @@ export const useImageNodeCreditsPreview = ({
           ? "doubao-seedream-4-0-250828"
           : normalizedSeedreamModelVersion === "4.5"
           ? "doubao-seedream-4-5-251128"
+          : normalizedSeedreamModelVersion === "5.0-pro"
+          ? "doubao-seedream-5-0-pro-260628"
           : "doubao-seedream-5-0-260128";
       return {
-        serviceType: "doubao-seedream-5-0-260128",
+        serviceType:
+          normalizedSeedreamModelVersion === "5.0-pro"
+            ? "doubao-seedream-5-0-pro-260628"
+            : "doubao-seedream-5-0-260128",
         model: seedreamModelId,
         requestParams: {
           aiProvider: "seedream5",

@@ -18,6 +18,9 @@ export type AgentEventType =
   | 'tool_selected'
   | 'research_text'
   | 'research_result'
+  | 'assistant_delta' // canvasAgent(小T)流式文本增量
+  | 'flow_patch' // canvasAgent(小T)画布补丁指令
+  | 'host_ui' // canvasAgent(小T)富格式卡片(协议v1.1, kind∈choices/suggestions/media)
   | 'final'
   | 'error'
   | 'done';
