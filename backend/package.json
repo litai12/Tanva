@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only -r ./src/tracing.bootstrap.ts src/main.ts",
     "lint": "echo 'no lint configured'",
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",
+    "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
     "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
   },

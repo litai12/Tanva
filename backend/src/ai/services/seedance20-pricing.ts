@@ -7,6 +7,34 @@ export const SEEDANCE20_DISCOUNT_PRICE_YUAN = 7.5;
 // means scaling every existing per-second price by 1.5 / 1.2 = 1.25.
 export const SEEDANCE20_PRICE_SCALE = 1.5 / 1.2;
 
+export const calculateSeedance20BillingDuration = (
+  outputDurationSec: number,
+  inputVideoDurationsSec: readonly number[],
+): { outputDurationSec: number; inputVideoDurationSec: number; billingDurationSec: number } => {
+  if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) {
+    throw new RangeError('Seedance 2.0 output duration must be a positive number');
+  }
+  if (
+    inputVideoDurationsSec.some(
+      (duration) => !Number.isFinite(duration) || duration <= 0,
+    )
+  ) {
+    throw new RangeError('Seedance 2.0 reference video durations must be positive numbers');
+  }
+
+  const normalizedOutputDurationSec = Number(outputDurationSec.toFixed(3));
+  const inputVideoDurationSec = Number(
+    inputVideoDurationsSec.reduce((total, duration) => total + duration, 0).toFixed(3),
+  );
+  return {
+    outputDurationSec: normalizedOutputDurationSec,
+    inputVideoDurationSec,
+    billingDurationSec: Number(
+      (normalizedOutputDurationSec + inputVideoDurationSec).toFixed(3),
+    ),
+  };
+};
+
 /**
  * 限时免费活动开关。设置环境变量 SEEDANCE20_FREE=1/true/on/yes 时，
  * Seedance 2.0 / Fast / Mini 全分辨率一律按 0 积分计价（预览与实扣同源）。

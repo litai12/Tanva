@@ -87,6 +87,7 @@ import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.serv
 import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
 import { PDFParse } from 'pdf-parse';
 import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
+import { calculateSeedance20BillingDuration } from './services/seedance20-pricing';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -1452,24 +1453,27 @@ export class AiController {
         throw new BadRequestException('Seedance 2.0 计费需要明确的正数输出时长');
       }
 
-      let inputVideoDurationSec = 0;
+      let inputVideoDurationsSec: number[] = [];
       if (referenceVideoUrls.length > 0) {
         if (!this.referenceVideoDuration) {
           throw new BadRequestException('参考视频时长探测服务不可用，请稍后重试');
         }
         const probed = await this.referenceVideoDuration.sumDurations(referenceVideoUrls);
-        inputVideoDurationSec = probed.totalDurationSec;
-        params.referenceVideoDurationsSec = probed.durations.map((item) => item.durationSec);
+        inputVideoDurationsSec = probed.durations.map((item) => item.durationSec);
+        params.referenceVideoDurationsSec = inputVideoDurationsSec;
       }
 
-      const billingDurationSec = Number((outputDurationSec + inputVideoDurationSec).toFixed(3));
-      params.outputDurationSec = outputDurationSec;
-      params.inputVideoDurationSec = inputVideoDurationSec;
-      params.billingDurationSec = billingDurationSec;
+      const billing = calculateSeedance20BillingDuration(
+        outputDurationSec,
+        inputVideoDurationsSec,
+      );
+      params.outputDurationSec = billing.outputDurationSec;
+      params.inputVideoDurationSec = billing.inputVideoDurationSec;
+      params.billingDurationSec = billing.billingDurationSec;
       // Managed pricing evaluates `duration`; keep the upstream DTO untouched and only replace
       // the credit context with the total processed video duration.
-      params.duration = billingDurationSec;
-      params.durationSec = billingDurationSec;
+      params.duration = billing.billingDurationSec;
+      params.durationSec = billing.billingDurationSec;
       return params;
     };
 
