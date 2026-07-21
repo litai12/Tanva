@@ -45,15 +45,15 @@ type ResearchKeywordExtractionSource = 'hybrid' | 'ai' | 'rule' | 'rule_fallback
 
 const RUN_TTL_MS = 60 * 60 * 1000;
 const PROVIDER_DEFAULT_TEXT_MODELS: Record<string, string> = {
-  gemini: 'gemini-3.1-pro-preview',
-  'gemini-pro': 'gemini-3.1-pro-preview',
-  banana: 'gemini-3.5-flash',
-  'banana-2.5': 'gemini-2.5-flash',
-  'banana-3.1': 'gemini-3.1-pro-preview',
-  runninghub: 'gemini-3.1-pro-preview',
-  midjourney: 'gemini-3.1-pro-preview',
-  nano2: 'gemini-3.1-pro-preview',
-  seedream5: 'gemini-3.1-pro-preview',
+  gemini: 'gpt-5.6',
+  'gemini-pro': 'gpt-5.6',
+  banana: 'gpt-5.6',
+  'banana-2.5': 'gpt-5.6',
+  'banana-3.1': 'gpt-5.6',
+  runninghub: 'gpt-5.6',
+  midjourney: 'gpt-5.6',
+  nano2: 'gpt-5.6',
+  seedream5: 'gpt-5.6',
 };
 
 @Injectable()
@@ -688,7 +688,7 @@ export class AgentRuntimeService {
     const model = requestedModel?.trim();
     if (model?.length) return model;
     if (providerName) {
-      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gemini-3.1-pro-preview';
+      return PROVIDER_DEFAULT_TEXT_MODELS[providerName] || 'gpt-5.6';
     }
     return PROVIDER_DEFAULT_TEXT_MODELS.gemini;
   }

@@ -847,6 +847,10 @@ export class CreditsService {
     requestParams: any,
     model?: string,
   ): number {
+    const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
+    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6') {
+      return currentCredits;
+    }
     const candidates = [
       model,
       requestParams?.model,
@@ -2014,6 +2018,11 @@ export class CreditsService {
     model?: string,
   ): number {
     if (serviceType !== 'gemini-text' && serviceType !== 'gemini-prompt-optimize') {
+      return defaultCredits;
+    }
+
+    const normalizedModel = String(model || requestParams?.model || '').trim().toLowerCase();
+    if (normalizedModel === 'gpt-5.4' || normalizedModel === 'gpt-5.6') {
       return defaultCredits;
     }
 

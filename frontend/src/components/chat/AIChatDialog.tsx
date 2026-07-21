@@ -657,9 +657,15 @@ const AIChatDialog: React.FC = () => {
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
     t("chat.labels.selectMode");
-  const providerButtonLabel = currentProviderOption
-    ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
-    : t("chat.labels.domesticModel");
+  const providerButtonLabel =
+    manualAIMode === "text"
+      ? "OpenAI · GPT-5.4"
+      : manualAIMode === "analyze"
+        ? "OpenAI · GPT-5.6"
+        : currentProviderOption
+          ? `${currentProviderOption.familyLabel} · ${currentProviderOption.label}`
+          : t("chat.labels.domesticModel");
+  const isFixedGptMode = manualAIMode === "text" || manualAIMode === "analyze";
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
 
@@ -3975,7 +3981,7 @@ const AIChatDialog: React.FC = () => {
                       <Button
                         size='sm'
                         variant='outline'
-                        disabled={false}
+                        disabled={generationStatus.isGenerating || isFixedGptMode}
                         data-dropdown-trigger='true'
                         className={cn(
                           "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
@@ -3984,10 +3990,16 @@ const AIChatDialog: React.FC = () => {
                             ? "hover:bg-gray-100 text-gray-700"
                             : "opacity-50 cursor-not-allowed text-gray-400"
                         )}
-                        title={t("chat.labels.quickSwitchDomesticModel")}
+                        title={
+                          isFixedGptMode
+                            ? providerButtonLabel
+                            : t("chat.labels.quickSwitchDomesticModel")
+                        }
                       >
                         <span className='font-medium'>{providerButtonLabel}</span>
-                        <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                        {!isFixedGptMode && (
+                          <ChevronDown className='h-3.5 w-3.5 opacity-60' />
+                        )}
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent

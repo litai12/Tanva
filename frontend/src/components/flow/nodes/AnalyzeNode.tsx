@@ -4,7 +4,7 @@ import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edg
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
-import { getTextModelForProvider, useAIChatStore } from '@/stores/aiChatStore';
+import { getAdvancedTextModelForProvider, useAIChatStore } from '@/stores/aiChatStore';
 import { canvasToBlob, createImageBitmapLimited, blobToDataUrl } from '@/utils/imageConcurrency';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
@@ -690,7 +690,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const analyzeBananaImageRoute: 'normal' | 'stable' =
     bananaImageRoute === 'stable' ? 'stable' : 'normal';
   const analysisModel = React.useMemo(
-    () => getTextModelForProvider(effectiveProvider),
+    () => getAdvancedTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
 

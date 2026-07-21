@@ -43,12 +43,6 @@ type Props = {
 const TEXT_CHAT_NODE_SIZE_VERSION = 2;
 const DEFAULT_TITLE = 'Text Chat';
 const MAX_TEXT_CHAT_PROMPT_LENGTH = 6000;
-const DEEPSEEK_V4_TEXT_CREDITS: Record<string, number> = {
-  'deepseek-v4-flash': 30,
-  'deepseek-v4-flash-260425': 30,
-  'deepseek-v4-pro': 60,
-  'deepseek-v4-pro-260425': 60,
-};
 type TextChatSkillId = 'custom' | 'shotSplit' | 'promptOptimize' | 'translate';
 
 type TextChatSkillOption = {
@@ -107,20 +101,6 @@ const stopFlowPanUnlessCanvasZoom = (event: React.WheelEvent<HTMLElement>) => {
   }
 };
 
-const resolveDeepSeekTextCredits = (
-  provider?: string | null,
-  model?: string | null
-): number | undefined => {
-  const candidates = [provider, model];
-  for (const candidate of candidates) {
-    const normalized = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
-    if (!normalized) continue;
-    const credits = DEEPSEEK_V4_TEXT_CREDITS[normalized];
-    if (typeof credits === 'number') return credits;
-  }
-  return undefined;
-};
-
 const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const { lt } = useLocaleText();
   const rf = useReactFlow();
@@ -136,47 +116,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     () => getTextModelForProvider(effectiveProvider),
     [effectiveProvider]
   );
-  const providerToggleOptions = React.useMemo<Array<{
-    value: FlowModelProvider;
-    label: string;
-    description: string;
-  }>>(
-    () => [
-      {
-        value: 'banana-2.5',
-        label: 'Fast',
-        description: lt('Nano Banana/Gemini 2.5', 'Nano Banana/Gemini 2.5'),
-      },
-      {
-        value: 'banana',
-        label: 'Pro',
-        description: lt('Nano Banana Pro/Gemini 3 Pro', 'Nano Banana Pro/Gemini 3 Pro'),
-      },
-      {
-        value: 'banana-3.1',
-        label: 'Ultra',
-        description: lt('Nano Banana 2/Gemini 3.1', 'Nano Banana 2/Gemini 3.1'),
-      },
-      {
-        value: 'deepseek-v4-flash',
-        label: 'DeepSeek V4 Flash',
-        description: lt('DeepSeek V4 Flash 文本模型', 'DeepSeek V4 Flash text model'),
-      },
-      {
-        value: 'deepseek-v4-pro',
-        label: 'DeepSeek V4 Pro',
-        description: lt('DeepSeek V4 Pro 文本模型', 'DeepSeek V4 Pro text model'),
-      },
-    ],
-    [lt]
-  );
   const currentProviderValue = effectiveProvider;
-  const currentProviderOption = React.useMemo(
-    () =>
-      providerToggleOptions.find((option) => option.value === currentProviderValue) ??
-      providerToggleOptions[1],
-    [currentProviderValue, providerToggleOptions]
-  );
   const themePalette = React.useMemo(() => {
     if (!isDarkTheme) {
       return {
@@ -235,8 +175,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     },
     enabled: true,
   });
-  const deepSeekCredits = resolveDeepSeekTextCredits(effectiveProvider, textModel);
-  const resolvedRunCredits = backendCredits ?? deepSeekCredits ?? data.creditsPerCall;
+  const resolvedRunCredits = backendCredits ?? data.creditsPerCall;
 
   const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
     ? data.title.trim()
@@ -712,89 +651,25 @@ Rules:
                 {title}
               </div>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  onPointerDownCapture={stopFlowPan}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  className='nodrag nopan tanva-flow-provider-mode-badge'
-                  title={lt('切换模型模式', 'Switch model mode')}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '1px 8px',
-                    borderRadius: 50,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    ...(isDarkTheme
-                      ? {
-                          color: '#ffffff',
-                          background: '#343434',
-                          border: '1px solid #4a4a4a',
-                        }
-                      : {
-                          color:
-                            currentProviderValue === 'banana-3.1'
-                              ? '#0f172a'
-                              : '#475569',
-                          background:
-                            currentProviderValue === 'banana-3.1'
-                              ? '#e2e8f0'
-                              : '#f1f5f9',
-                          border: '1px solid #e2e8f0',
-                        }),
-                  }}
-                >
-                  {currentProviderOption.label}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align='start'
-                side='bottom'
-                sideOffset={8}
-                className='min-w-[200px] rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:!border-slate-200 dark:!bg-white/95'
-              >
-                <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400 dark:!text-slate-400'>
-                  {lt('模型切换', 'Model switch')}
-                </DropdownMenuLabel>
-                {providerToggleOptions.map((option) => {
-                  const isActive = currentProviderValue === option.value;
-                  return (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (currentProviderValue !== option.value) {
-                          window.dispatchEvent(
-                            new CustomEvent('flow:updateNodeData', {
-                              detail: { id, patch: { modelProvider: option.value } },
-                            })
-                          );
-                        }
-                      }}
-                      onPointerDownCapture={stopFlowPan}
-                      className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
-                        isActive
-                          ? 'bg-gray-100 text-gray-800 dark:!bg-gray-100 dark:!text-gray-800'
-                          : 'text-slate-600 hover:bg-gray-100 dark:!text-slate-600 dark:hover:!bg-gray-100'
-                      }`}
-                    >
-                      <div className='flex-1 space-y-0.5'>
-                        <div className='font-medium leading-none'>{option.label}</div>
-                        <div className='text-[11px] leading-snug text-slate-400 dark:!text-slate-400'>{option.description}</div>
-                      </div>
-                      {isActive && <Check className='h-3.5 w-3.5 text-slate-700 dark:!text-slate-700' />}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <span
+              className='tanva-flow-provider-mode-badge'
+              title='OpenAI GPT-5.4'
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1px 8px',
+                borderRadius: 50,
+                fontSize: 11,
+                fontWeight: 600,
+                flexShrink: 0,
+                color: isDarkTheme ? '#ffffff' : '#475569',
+                background: isDarkTheme ? '#343434' : '#f1f5f9',
+                border: isDarkTheme ? '1px solid #4a4a4a' : '1px solid #e2e8f0',
+              }}
+            >
+              GPT-5.4
+            </span>
           </div>
           <button
             onClick={runChat}

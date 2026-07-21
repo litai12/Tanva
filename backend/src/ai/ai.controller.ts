@@ -160,30 +160,30 @@ export class AiController {
     seedream5: 'doubao-seedream-5-0-260128',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro-preview',
-    'gemini-pro': 'gemini-3.1-pro-preview',
-    banana: 'gemini-3.5-flash', // Pro 对话档改用 gemini-3.5-flash（仅对话能力）
-    'banana-2.5': 'gemini-2.5-flash',
-    'banana-3.1': 'gemini-3.1-pro-preview',
-    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
-    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro-preview',
-    midjourney: 'gemini-3.1-pro-preview',
-    nano2: 'gemini-3.1-pro-preview',
-    seedream5: 'gemini-3.1-pro-preview',
+    gemini: 'gpt-5.4',
+    'gemini-pro': 'gpt-5.4',
+    banana: 'gpt-5.4',
+    'banana-2.5': 'gpt-5.4',
+    'banana-3.1': 'gpt-5.4',
+    'deepseek-v4-flash': 'gpt-5.4',
+    'deepseek-v4-pro': 'gpt-5.4',
+    runninghub: 'gpt-5.4',
+    midjourney: 'gpt-5.4',
+    nano2: 'gpt-5.4',
+    seedream5: 'gpt-5.4',
   };
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
-    gemini: 'gemini-3.1-pro-preview',
-    'gemini-pro': 'gemini-3.1-pro-preview',
-    banana: 'gemini-3-pro-image-preview',
-    'banana-2.5': 'gemini-2.5-flash-image-preview',
-    'banana-3.1': 'gemini-3.1-flash-image-preview',
-    'deepseek-v4-flash': 'deepseek-v4-flash-260425',
-    'deepseek-v4-pro': 'deepseek-v4-pro-260425',
-    runninghub: 'gemini-3.1-pro-preview',
-    midjourney: 'gemini-3.1-pro-preview',
-    nano2: 'gemini-3.1-flash-image-preview',
-    seedream5: 'gemini-3.1-pro-preview',
+    gemini: 'gpt-5.6',
+    'gemini-pro': 'gpt-5.6',
+    banana: 'gpt-5.6',
+    'banana-2.5': 'gpt-5.6',
+    'banana-3.1': 'gpt-5.6',
+    'deepseek-v4-flash': 'gpt-5.6',
+    'deepseek-v4-pro': 'gpt-5.6',
+    runninghub: 'gpt-5.6',
+    midjourney: 'gpt-5.6',
+    nano2: 'gpt-5.6',
+    seedream5: 'gpt-5.6',
   };
 
   private getHttpErrorMessage(status: number): string {
@@ -997,6 +997,9 @@ export class AiController {
     providerOptions?: Record<string, any>,
   ): Record<string, any> {
     const aiProvider = providerName || 'gemini';
+    const requestModel =
+      typeof extraParams?.model === 'string' ? extraParams.model.trim().toLowerCase() : '';
+    const isTcApiTextRequest = requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6';
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
@@ -1005,7 +1008,9 @@ export class AiController {
         ? extraParams.channelHint.trim()
         : undefined;
     const channelHint =
-      bananaImageRoute === 'stable'
+      isTcApiTextRequest
+        ? 'tc-api'
+        : bananaImageRoute === 'stable'
         ? 'tencent'
         : bananaImageRoute === 'ultra'
         ? 'beqlee'
@@ -1021,7 +1026,7 @@ export class AiController {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
-      ...(bananaImageRoute ? { bananaImageRoute } : {}),
+      ...(!isTcApiTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
     };
   }
 
@@ -2143,7 +2148,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultAnalyzeModels[providerName] || 'gemini-3.1-pro-preview';
+      return this.providerDefaultAnalyzeModels[providerName] || 'gpt-5.6';
     }
     return this.providerDefaultAnalyzeModels.gemini;
   }
@@ -2170,12 +2175,12 @@ export class AiController {
 
     if (providerName) {
       return (
-        this.providerDefaultAnalyzeModels[providerName] ||
         this.providerDefaultTextModels[providerName] ||
-        this.providerDefaultAnalyzeModels.gemini
+        this.providerDefaultAnalyzeModels[providerName] ||
+        this.providerDefaultTextModels.gemini
       );
     }
-    return this.providerDefaultAnalyzeModels.gemini;
+    return this.providerDefaultTextModels.gemini;
   }
 
   private resolveGeminiVideoModel(requestedModel?: string): string {
@@ -3395,7 +3400,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-3.1-pro-preview';
+      return this.providerDefaultTextModels[providerName] || 'gpt-5.4';
     }
     return this.providerDefaultTextModels.gemini;
   }
