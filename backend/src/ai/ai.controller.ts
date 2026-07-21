@@ -86,6 +86,7 @@ import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '..
 import { TeamCreditLedgerService } from '../team-credits/team-credit-ledger.service';
 import { CreditChargeService, type ChargeHandle } from '../team-credits/credit-charge.service';
 import { PDFParse } from 'pdf-parse';
+import { ReferenceVideoDurationService } from './services/reference-video-duration.service';
 
 type GenerateImageUrlResult = {
   imageUrl: string;
@@ -522,6 +523,7 @@ export class AiController {
     @Optional() private readonly generationTaskService?: GenerationTaskService,
     @Optional() private readonly teamCreditLedger?: TeamCreditLedgerService,
     @Optional() private readonly creditCharge?: CreditChargeService,
+    @Optional() private readonly referenceVideoDuration?: ReferenceVideoDurationService,
   ) {}
 
   private extractAccessToken(req: any): string | null {
@@ -1332,7 +1334,24 @@ export class AiController {
     }
 
     const referenceImageCount = Array.isArray(dto.referenceImages) ? dto.referenceImages.length : 0;
-    const referenceVideoCount = Array.isArray(dto.referenceVideos) ? dto.referenceVideos.length : 0;
+    const referenceVideoUrls = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(dto.referenceVideos) ? dto.referenceVideos : []),
+          dto.referenceVideo,
+        ]
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+    const isSeedance20BillingRequest =
+      dto.provider === 'doubao' && this.isSeedance20Model(dto.seedanceModel);
+    const referenceVideoCount = isSeedance20BillingRequest
+      ? referenceVideoUrls.length
+      : Array.isArray(dto.referenceVideos)
+        ? dto.referenceVideos.length
+        : 0;
     const audioCount = Array.isArray(dto.audioUrls) ? dto.audioUrls.length : 0;
     params.referenceImageCount = referenceImageCount;
     params.referenceVideoCount = referenceVideoCount;
@@ -1342,7 +1361,7 @@ export class AiController {
         ? dto.videoMode.trim().toLowerCase()
         : '';
 
-    if (referenceVideoCount > 0 || typeof dto.referenceVideo === 'string') {
+    if (referenceVideoUrls.length > 0) {
       params.inputType = 'video';
       params.referenceVideo = true;
       params.hasVideoInput = true;
@@ -1423,6 +1442,37 @@ export class AiController {
       }
     };
 
+    const finalizeSeedance20Billing = async (): Promise<Record<string, any>> => {
+      if (dto.provider !== 'doubao' || !this.isSeedance20Model(dto.seedanceModel)) {
+        return params;
+      }
+
+      const outputDurationSec = Number(params.duration ?? params.durationSec);
+      if (!Number.isFinite(outputDurationSec) || outputDurationSec <= 0) {
+        throw new BadRequestException('Seedance 2.0 计费需要明确的正数输出时长');
+      }
+
+      let inputVideoDurationSec = 0;
+      if (referenceVideoUrls.length > 0) {
+        if (!this.referenceVideoDuration) {
+          throw new BadRequestException('参考视频时长探测服务不可用，请稍后重试');
+        }
+        const probed = await this.referenceVideoDuration.sumDurations(referenceVideoUrls);
+        inputVideoDurationSec = probed.totalDurationSec;
+        params.referenceVideoDurationsSec = probed.durations.map((item) => item.durationSec);
+      }
+
+      const billingDurationSec = Number((outputDurationSec + inputVideoDurationSec).toFixed(3));
+      params.outputDurationSec = outputDurationSec;
+      params.inputVideoDurationSec = inputVideoDurationSec;
+      params.billingDurationSec = billingDurationSec;
+      // Managed pricing evaluates `duration`; keep the upstream DTO untouched and only replace
+      // the credit context with the total processed video duration.
+      params.duration = billingDurationSec;
+      params.durationSec = billingDurationSec;
+      return params;
+    };
+
     const assignRouteParams = (
       route: Awaited<ReturnType<typeof this.modelRoutingService.resolveVideoModel>>,
     ) => {
@@ -1444,7 +1494,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('omni-flash-ext', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     // kling-o3(Omni) 不能并入 kling-3.0 路由：它虽下发 klingModel='kling-v3-0'(为让 new-api
@@ -1459,7 +1509,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-3.0', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (
@@ -1469,14 +1519,14 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-2.6', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'kling-o3') {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel('kling-o3', preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'vidu' || dto.provider === 'viduq3-pro') {
@@ -1496,7 +1546,7 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     if (dto.provider === 'doubao') {
@@ -1505,12 +1555,12 @@ export class AiController {
       assignRouteParams(
         await this.modelRoutingService.resolveVideoModel(modelKey, preferredVendorKey),
       );
-      return params;
+      return finalizeSeedance20Billing();
     }
 
     params.routedProvider = dto.provider;
     params.providerChannel = dto.provider;
-    return params;
+    return finalizeSeedance20Billing();
   }
 
   private resolveVideoProviderServiceType(dto: VideoProviderRequestDto): ServiceType {

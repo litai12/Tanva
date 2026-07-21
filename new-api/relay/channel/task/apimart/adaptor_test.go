@@ -208,3 +208,42 @@ func TestBuildOmniFlashExtPayload(t *testing.T) {
 		t.Fatal("expected error for 2 image_urls without reference mode")
 	}
 }
+
+func TestBuildSeedance2PayloadNormalizesReferenceVideos(t *testing.T) {
+	payload, err := BuildSubmitPayload(&relaycommon.TaskSubmitReq{
+		Model:           "seedance-2-mini",
+		Prompt:          "follow the reference motion",
+		Duration:        5,
+		ReferenceVideos: []string{"https://cdn.example/a.mp4"},
+		VideoWithRoles: []relaycommon.TaskMediaWithRole{
+			{URL: "https://cdn.example/a.mp4", Role: "reference_video"},
+		},
+		Metadata: map[string]interface{}{
+			"duration": 99,
+			"video_with_roles": []any{
+				map[string]any{"url": "https://cdn.example/b.mp4", "role": "reference_video"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Duration != 5 {
+		t.Fatalf("Duration=%d, want billed top-level duration 5", payload.Duration)
+	}
+	if len(payload.VideoWithRoles) != 2 {
+		t.Fatalf("VideoWithRoles=%v, want 2 unique references", payload.VideoWithRoles)
+	}
+	if payload.VideoWithRoles[0].URL != "https://cdn.example/a.mp4" ||
+		payload.VideoWithRoles[1].URL != "https://cdn.example/b.mp4" {
+		t.Fatalf("VideoWithRoles=%v, want normalized a.mp4 then b.mp4", payload.VideoWithRoles)
+	}
+	if payload.Extras != nil {
+		if _, ok := payload.Extras["duration"]; ok {
+			t.Fatal("metadata duration must not override the billed top-level duration")
+		}
+		if _, ok := payload.Extras["video_with_roles"]; ok {
+			t.Fatal("metadata video_with_roles must be normalized, not override canonical inputs")
+		}
+	}
+}

@@ -56,3 +56,11 @@
 | `wan2.6*` | 依输入模式 | 720p/1080p；Flash 为独立 model ID |
 
 数据库注册脚本：`patches/2026-07-18/001-add-toapis-video-models.sql`。脚本只为缺失模型写入通用参数定义，已有模型的精细 `params_def` 和价格不会被覆盖。实际开放前仍应在管理后台核对 ToAPIs 账户支持范围与商业价格。
+
+## Seedance 2 定价
+
+`seedance-2`、`seedance-2-fast`、`seedance-2-mini` 三个 SKU 统一按上游进价倍率 `x1.5` 对外计费。当前上游成本倍率基数为 `31.25`，因此 new-api `ModelRatio` 均为 `46.875`。生产数据由 `patches/2026-07-21/001-raise-seedance2-markup-to-1-5.sql` 幂等更新；该补丁只覆盖这三个键，需随正式部署执行，不应在仅验证代码时单独应用。
+
+三个 SKU 均按实际处理的视频总秒数计费：`计费秒数 = 显式输出 duration + 所有唯一参考视频的真实时长之和`。例如输入一段 `5s` 参考视频并生成 `5s`，按 `10s` 扣费。参考视频会统一转换为 ToAPIs 的 `video_with_roles[].role=reference_video` 后提交；相同 URL 只计一次。
+
+为保证预扣准确，这三个 SKU 暂不接受 `duration=0/-1` 自动输出时长，必须传正整数输出 `duration`。参考视频必须是 new-api 能通过 SSRF 防护安全下载、且可读取容器时长的 MP4 公网 URL；时长无法确认时在上游提交及扣费前返回 `invalid_reference_video_duration`，不能静默退回只按输出时长计费。

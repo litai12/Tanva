@@ -105,23 +105,24 @@ type VideoListItem struct {
 // fields so power users can pass model-specific params without the adaptor
 // needing to enumerate every variant.
 type SubmitPayload struct {
-	Model                     string                 `json:"model"`
-	Prompt                    string                 `json:"prompt,omitempty"`
-	Size                      string                 `json:"size,omitempty"`
-	Resolution                string                 `json:"resolution,omitempty"`
-	AspectRatio               string                 `json:"aspect_ratio,omitempty"`
-	Duration                  int                    `json:"duration,omitempty"`
-	N                         int                    `json:"n,omitempty"`
-	ImageUrls                 []string               `json:"image_urls,omitempty"`
-	VideoUrls                 []string               `json:"video_urls,omitempty"`
-	VideoList                 []VideoListItem        `json:"video_list,omitempty"`
-	GenerationType            string                 `json:"generation_type,omitempty"`
-	Watermark                 *bool                  `json:"watermark,omitempty"`
-	Seed                      *int64                 `json:"seed,omitempty"`
-	SequentialImageGeneration string                 `json:"sequential_image_generation,omitempty"`
-	OptimizePromptOptions     map[string]any         `json:"optimize_prompt_options,omitempty"`
-	ImageWithRoles            []map[string]any       `json:"image_with_roles,omitempty"`
-	Extras                    map[string]any         `json:"-"`
+	Model                     string                          `json:"model"`
+	Prompt                    string                          `json:"prompt,omitempty"`
+	Size                      string                          `json:"size,omitempty"`
+	Resolution                string                          `json:"resolution,omitempty"`
+	AspectRatio               string                          `json:"aspect_ratio,omitempty"`
+	Duration                  int                             `json:"duration,omitempty"`
+	N                         int                             `json:"n,omitempty"`
+	ImageUrls                 []string                        `json:"image_urls,omitempty"`
+	VideoUrls                 []string                        `json:"video_urls,omitempty"`
+	VideoList                 []VideoListItem                 `json:"video_list,omitempty"`
+	GenerationType            string                          `json:"generation_type,omitempty"`
+	Watermark                 *bool                           `json:"watermark,omitempty"`
+	Seed                      *int64                          `json:"seed,omitempty"`
+	SequentialImageGeneration string                          `json:"sequential_image_generation,omitempty"`
+	OptimizePromptOptions     map[string]any                  `json:"optimize_prompt_options,omitempty"`
+	ImageWithRoles            []map[string]any                `json:"image_with_roles,omitempty"`
+	VideoWithRoles            []relaycommon.TaskMediaWithRole `json:"video_with_roles,omitempty"`
+	Extras                    map[string]any                  `json:"-"`
 }
 
 // internalMetadataKeys are fields set by the gateway for routing/billing
@@ -174,12 +175,12 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 		return buildOmniFlashExtPayload(req)
 	}
 	p := &SubmitPayload{
-		Model:      req.Model,
-		Prompt:     req.Prompt,
-		Size:       req.Size,
+		Model:       req.Model,
+		Prompt:      req.Prompt,
+		Size:        req.Size,
 		AspectRatio: aspectRatioToken(req),
-		Duration:   req.Duration,
-		Resolution: req.Resolution,
+		Duration:    req.Duration,
+		Resolution:  req.Resolution,
 	}
 	if len(req.Images) > 0 {
 		p.ImageUrls = append(p.ImageUrls, req.Images...)
@@ -233,6 +234,24 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 			}
 		}
 	}
+	if isSeedance2BillingModel(req.Model) {
+		// Seedance 2 has one canonical reference-video field. Normalize the
+		// gateway aliases into it so the billed inputs exactly match the inputs
+		// sent upstream, and prevent metadata from overriding billed duration.
+		p.VideoList = nil
+		for _, rawURL := range collectSeedance2VideoURLs(req) {
+			p.VideoWithRoles = append(p.VideoWithRoles, relaycommon.TaskMediaWithRole{
+				URL:  rawURL,
+				Role: "reference_video",
+			})
+		}
+		for _, key := range []string{"duration", "video_url", "video_urls", "video_with_roles"} {
+			delete(p.Extras, key)
+		}
+		if len(p.Extras) == 0 {
+			p.Extras = nil
+		}
+	}
 	// Forward the top-level `mode` (e.g. kling-v2-6 std/pro). normalizeTaskSubmitReq
 	// copies resolution/aspect_ratio into metadata but not mode, and the generic
 	// payload struct has no Mode field, so surface it via Extras (set after the
@@ -247,6 +266,65 @@ func BuildSubmitPayload(req *relaycommon.TaskSubmitReq) (*SubmitPayload, error) 
 	}
 	p.ImageUrls = uniqueStrings(p.ImageUrls)
 	return p, nil
+}
+
+func isSeedance2BillingModel(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "seedance-2", "seedance-2-fast", "seedance-2-mini":
+		return true
+	default:
+		return false
+	}
+}
+
+func collectSeedance2VideoURLs(req *relaycommon.TaskSubmitReq) []string {
+	if req == nil {
+		return nil
+	}
+	urls := append([]string(nil), req.ReferenceVideos...)
+	for _, media := range req.VideoWithRoles {
+		if strings.TrimSpace(media.URL) != "" {
+			urls = append(urls, media.URL)
+		}
+	}
+	if md := req.Metadata; md != nil {
+		urls = append(urls, stringsFromAny(md["video_urls"])...)
+		if rawURL := stringFromMetadata(md, "video_url"); rawURL != "" {
+			urls = append(urls, rawURL)
+		}
+		urls = append(urls, mediaRoleURLsFromAny(md["video_with_roles"])...)
+		_, contentVideos := collectMetadataContentUrls(md)
+		urls = append(urls, contentVideos...)
+	}
+	return uniqueStrings(urls)
+}
+
+func mediaRoleURLsFromAny(value any) []string {
+	var urls []string
+	appendURL := func(item map[string]any) {
+		if rawURL, ok := item["url"].(string); ok && strings.TrimSpace(rawURL) != "" {
+			urls = append(urls, rawURL)
+		}
+	}
+	switch items := value.(type) {
+	case []any:
+		for _, item := range items {
+			if media, ok := item.(map[string]any); ok {
+				appendURL(media)
+			}
+		}
+	case []map[string]any:
+		for _, media := range items {
+			appendURL(media)
+		}
+	case []relaycommon.TaskMediaWithRole:
+		for _, media := range items {
+			if strings.TrimSpace(media.URL) != "" {
+				urls = append(urls, media.URL)
+			}
+		}
+	}
+	return uniqueStrings(urls)
 }
 
 func stringFromMetadata(md map[string]interface{}, keys ...string) string {
@@ -298,20 +376,28 @@ func collectMetadataContentUrls(md map[string]interface{}) (images []string, vid
 		typ, _ := m["type"].(string)
 		switch typ {
 		case "image_url":
-			if iu, ok := m["image_url"].(map[string]any); ok {
-				if u, _ := iu["url"].(string); strings.TrimSpace(u) != "" {
-					images = append(images, strings.TrimSpace(u))
-				}
+			if rawURL := nestedMediaURL(m["image_url"]); rawURL != "" {
+				images = append(images, rawURL)
 			}
 		case "video_url":
-			if vu, ok := m["video_url"].(map[string]any); ok {
-				if u, _ := vu["url"].(string); strings.TrimSpace(u) != "" {
-					videos = append(videos, strings.TrimSpace(u))
-				}
+			if rawURL := nestedMediaURL(m["video_url"]); rawURL != "" {
+				videos = append(videos, rawURL)
 			}
 		}
 	}
 	return images, videos
+}
+
+func nestedMediaURL(value any) string {
+	switch media := value.(type) {
+	case string:
+		return strings.TrimSpace(media)
+	case map[string]any:
+		rawURL, _ := media["url"].(string)
+		return strings.TrimSpace(rawURL)
+	default:
+		return ""
+	}
 }
 
 // buildOmniFlashExtPayload constructs APIMart omni-flash-ext requests.

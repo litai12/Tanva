@@ -134,6 +134,8 @@ type ConnectionStats = {
   imageInputCount: number;
   hasImage2Input: boolean;
   hasVideoInput: boolean;
+  videoInputCount: number;
+  inputVideoDurationSec: number;
   audioInputCount: number;
 };
 
@@ -142,6 +144,8 @@ const EMPTY_CONNECTION_STATS: ConnectionStats = {
   imageInputCount: 0,
   hasImage2Input: false,
   hasVideoInput: false,
+  videoInputCount: 0,
+  inputVideoDurationSec: 0,
   audioInputCount: 0,
 };
 
@@ -153,6 +157,8 @@ const areConnectionStatsEqual = (
   a.imageInputCount === b.imageInputCount &&
   a.hasImage2Input === b.hasImage2Input &&
   a.hasVideoInput === b.hasVideoInput &&
+  a.videoInputCount === b.videoInputCount &&
+  a.inputVideoDurationSec === b.inputVideoDurationSec &&
   a.audioInputCount === b.audioInputCount;
 
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
@@ -471,6 +477,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     imageInputCount,
     hasImage2Input,
     hasVideoInput,
+    videoInputCount,
+    inputVideoDurationSec,
     audioInputCount,
   } = useStore(
     React.useCallback((state): ConnectionStats => {
@@ -479,8 +487,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
       let nextImageInputCount = 0;
       let nextHasImage2Input = false;
-      let nextHasVideoInput = false;
+      let nextVideoInputCount = 0;
+      let nextInputVideoDurationSec = 0;
       let nextAudioInputCount = 0;
+      const seenVideoInputs = new Set<string>();
+      const nodes = Array.isArray(state?.nodes) ? state.nodes : [];
 
       for (let i = 0; i < edges.length; i += 1) {
         const edge = edges[i];
@@ -492,7 +503,30 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
           continue;
         }
         if (targetHandle === "video") {
-          nextHasVideoInput = true;
+          const sourceNode = nodes.find((node) => node.id === edge.source);
+          const sourceData = (sourceNode?.data || {}) as Record<string, unknown>;
+          const sourceMetadata =
+            sourceData.metadata &&
+            typeof sourceData.metadata === "object" &&
+            !Array.isArray(sourceData.metadata)
+              ? (sourceData.metadata as Record<string, unknown>)
+              : undefined;
+          const rawUrl = sourceData.videoUrl ?? sourceData.url ?? sourceData.src;
+          const dedupeKey =
+            typeof rawUrl === "string" && rawUrl.trim() ? rawUrl.trim() : edge.source;
+          if (seenVideoInputs.has(dedupeKey)) continue;
+          seenVideoInputs.add(dedupeKey);
+          nextVideoInputCount += 1;
+
+          const rawDuration =
+            sourceData.duration ??
+            sourceData.clipDuration ??
+            sourceData.videoDuration ??
+            sourceMetadata?.duration;
+          const duration = Number(rawDuration);
+          if (Number.isFinite(duration) && duration > 0) {
+            nextInputVideoDurationSec += duration;
+          }
           continue;
         }
         if (targetHandle === "audio") {
@@ -503,7 +537,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       if (
         nextImageInputCount === 0 &&
         !nextHasImage2Input &&
-        !nextHasVideoInput &&
+        nextVideoInputCount === 0 &&
         nextAudioInputCount === 0
       ) {
         return EMPTY_CONNECTION_STATS;
@@ -513,7 +547,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         hasImageInput: nextImageInputCount > 0,
         imageInputCount: nextImageInputCount,
         hasImage2Input: nextHasImage2Input,
-        hasVideoInput: nextHasVideoInput,
+        hasVideoInput: nextVideoInputCount > 0,
+        videoInputCount: nextVideoInputCount,
+        inputVideoDurationSec: Number(nextInputVideoDurationSec.toFixed(3)),
         audioInputCount: nextAudioInputCount,
       };
     }, [id]),
@@ -740,6 +776,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         : 5;
     context.duration = duration;
     context.durationSec = duration;
+    if (isSeedance20Model) {
+      const billingDurationSec = Number((duration + inputVideoDurationSec).toFixed(3));
+      context.outputDurationSec = duration;
+      context.inputVideoDurationSec = inputVideoDurationSec;
+      context.billingDurationSec = billingDurationSec;
+      context.duration = billingDurationSec;
+      context.durationSec = billingDurationSec;
+    }
 
     if (typeof data.resolution === "string" && data.resolution.trim()) {
       context.resolution = data.resolution.trim().toUpperCase();
@@ -840,7 +884,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     data.watermark,
     hasVideoInput,
     imageInputCount,
+    inputVideoDurationSec,
     isSeedanceModel,
+    isSeedance20Model,
     isViduNode,
     normalizedViduModelVariant,
     previewVideoMode,
@@ -877,14 +923,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       viduModelVariant: normalizedViduModelVariant,
       seedanceModel: data.seedanceModel,
       seed2InputTier: (data as any).seed2InputTier,
-      // duration/durationSec 由 pricingContext 提供（clipDuration 未设置时默认 5s），
-      // 不再用 undefined 覆盖，确保 Kling 等节点能正确进行按秒动态定价
-      ...(typeof data.clipDuration === "number" && Number.isFinite(data.clipDuration)
-        ? {
-            duration: Math.round(data.clipDuration),
-            durationSec: Math.round(data.clipDuration),
-          }
-        : {}),
+      // duration/durationSec 由 pricingContext 提供；Seedance 2.0 会在其中使用
+      // 输入参考视频总时长 + 输出时长，其他模型仍只使用输出时长。
       resolution:
         typeof data.resolution === "string" && data.resolution.trim()
           ? data.resolution.trim().toUpperCase()
@@ -896,7 +936,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       watermark: data.watermark,
       offPeak: data.offPeak,
       referenceImageCount: imageInputCount,
-      referenceVideoCount: hasVideoInput ? 1 : 0,
+      referenceVideoCount: isSeedance20Model ? videoInputCount : hasVideoInput ? 1 : 0,
       audioInputCount,
       referenceVideoType: (data as any).referenceVideoType,
     }),
@@ -910,12 +950,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       data.offPeak,
       data.provider,
       data.resolution,
-    data.seedanceModel,
-    (data as any).seed2InputTier,
+      data.seedanceModel,
+      (data as any).seed2InputTier,
       sanitizedVendorKey,
       data.watermark,
       hasVideoInput,
       imageInputCount,
+      isSeedance20Model,
+      videoInputCount,
       normalizedViduModelVariant,
       pricingContext,
       previewVideoMode,
@@ -943,7 +985,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
       ? data.creditsPerCall
       : getManagedRouteCredits(nodeConfigMetadata, sanitizedVendorKey);
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
-  const showRunCredits = hasRunCredits && !isSeed2FamilyNode;
+  const showRunCredits = hasRunCredits;
   const vodAspectOptions = React.useMemo(() => {
     if (!Array.isArray(vodConfig?.outputConfig?.aspectRatios)) return [];
     return [

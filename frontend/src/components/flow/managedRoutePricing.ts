@@ -328,12 +328,18 @@ export const resolveSeedance20DiscountCredits = (
       ? "seedance-2.0"
       : model === "2.0-fast"
       ? "seedance-2.0-fast"
+      : model === "seedance-2.0-mini" || model === "2.0-mini" || model === "seed-2.0-lite"
+      ? "seed-2.0-mini"
       : model;
-  if (normalizedModel !== "seedance-2.0" && normalizedModel !== "seedance-2.0-fast") {
+  if (
+    normalizedModel !== "seedance-2.0" &&
+    normalizedModel !== "seedance-2.0-fast" &&
+    normalizedModel !== "seed-2.0-mini"
+  ) {
     return undefined;
   }
 
-  // 限时免费活动：开启时 seedance-2.0 / seedance-2.0-fast 全分辨率均为 0 积分。
+  // 限时免费活动：开启时 Seedance 2.0 / Fast / Mini 全分辨率均为 0 积分。
   // 与后端 SEEDANCE20_FREE 同步，实扣以后端为准。
   if (isSeedance20FreeEnabled()) {
     return 0;
@@ -343,21 +349,21 @@ export const resolveSeedance20DiscountCredits = (
     .trim()
     .toUpperCase();
   const duration = toFiniteNumber(
-    pricingContext.duration ?? pricingContext.durationSec
+    pricingContext.billingDurationSec ?? pricingContext.duration ?? pricingContext.durationSec
   );
   if (duration === undefined || duration <= 0) return undefined;
 
   const unitPriceYuanByResolution =
-    normalizedModel === "seedance-2.0-fast"
+    normalizedModel === "seedance-2.0-fast" || normalizedModel === "seed-2.0-mini"
       ? {
-          "480P": 0.806,
-          "720P": 0.966,
+          "480P": 1.0075,
+          "720P": 1.2075,
         }
       : {
-          "480P": 1.0,
-          "720P": 1.2,
-          "1080P": 3.0,
-          "4K": 6.0,
+          "480P": 1.25,
+          "720P": 1.5,
+          "1080P": 3.75,
+          "4K": 7.5,
         };
   const unitPriceYuan =
     unitPriceYuanByResolution[resolution as keyof typeof unitPriceYuanByResolution];

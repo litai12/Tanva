@@ -1206,6 +1206,18 @@ export class CreditsService {
     // ? sound("on"/"off"/boolean) ? generateAudio(boolean) ?????? hasAudio(boolean)?
     // ???????? hasAudio ????????Kling O3?Seedance 1.5???????
     let normalized: any = requestParams;
+    const seedanceModelRaw =
+      typeof normalized.seedanceModel === 'string'
+        ? normalized.seedanceModel.trim().toLowerCase()
+        : '';
+    if (
+      seedanceModelRaw === 'seed-2.0-lite' ||
+      seedanceModelRaw === 'seedance-2.0-lite' ||
+      seedanceModelRaw === 'seed-2-0-lite' ||
+      seedanceModelRaw === '2.0-lite'
+    ) {
+      normalized = { ...normalized, seedanceModel: 'seed-2.0-mini' };
+    }
     if (normalized.hasAudio === undefined || normalized.hasAudio === null) {
       if (normalized.sound !== undefined) {
         const s = normalized.sound;
@@ -1249,6 +1261,39 @@ export class CreditsService {
             normalized.managedModelKey.trim().length > 0
           ? normalized.managedModelKey.trim().toLowerCase()
           : this.inferManagedModelKeyFromRequestParams(normalized).trim().toLowerCase();
+
+    if (modelKey === 'seedance-2.0') {
+      const outputDurationSec = Number(
+        normalized.outputDurationSec ?? normalized.durationSec ?? normalized.duration,
+      );
+      const inputVideoDurationSec = Number(normalized.inputVideoDurationSec ?? 0);
+      const explicitBillingDurationSec = Number(normalized.billingDurationSec);
+      const billingDurationSec =
+        Number.isFinite(explicitBillingDurationSec) && explicitBillingDurationSec > 0
+          ? explicitBillingDurationSec
+          : Number.isFinite(outputDurationSec) && outputDurationSec > 0
+            ? outputDurationSec +
+              (Number.isFinite(inputVideoDurationSec) && inputVideoDurationSec > 0
+                ? inputVideoDurationSec
+                : 0)
+            : 0;
+
+      if (billingDurationSec > 0) {
+        normalized = {
+          ...normalized,
+          ...(Number.isFinite(outputDurationSec) && outputDurationSec > 0
+            ? { outputDurationSec }
+            : {}),
+          inputVideoDurationSec:
+            Number.isFinite(inputVideoDurationSec) && inputVideoDurationSec > 0
+              ? inputVideoDurationSec
+              : 0,
+          billingDurationSec: Number(billingDurationSec.toFixed(3)),
+          duration: Number(billingDurationSec.toFixed(3)),
+          durationSec: Number(billingDurationSec.toFixed(3)),
+        };
+      }
+    }
 
     if (normalizedVendorKey !== 'tencent_vod' || modelKey !== 'vidu-q3') {
       return normalized;
@@ -1408,7 +1453,11 @@ export class CreditsService {
       return defaultCredits;
     }
 
-    if (seedanceModel === 'seedance-2.0' || seedanceModel === 'seedance-2.0-fast') {
+    if (
+      seedanceModel === 'seedance-2.0' ||
+      seedanceModel === 'seedance-2.0-fast' ||
+      seedanceModel === 'seed-2.0-mini'
+    ) {
       return defaultCredits;
     }
 

@@ -683,6 +683,10 @@ type TaskSubmitReq struct {
 	// otherwise drops unknown top-level keys (callers previously had to smuggle videos
 	// through metadata.content).
 	ReferenceVideos []string `json:"reference_videos,omitempty"`
+	// VideoWithRoles is the provider-neutral representation of role-tagged video
+	// inputs. ToAPIs Seedance 2 accepts reference videos through this top-level
+	// field; keeping it typed prevents the generic task parser from dropping it.
+	VideoWithRoles []TaskMediaWithRole `json:"video_with_roles,omitempty"`
 	// LastFrame is the tail keyframe for first/last-frame (首尾帧) generation. It is
 	// kept OUT of the Images merge in normalizeTaskSubmitReq so the doubao adaptor can
 	// emit it with role="last_frame" instead of folding it into the reference_image set.
@@ -694,6 +698,11 @@ type TaskSubmitReq struct {
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type TaskMediaWithRole struct {
+	URL  string `json:"url"`
+	Role string `json:"role,omitempty"`
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {

@@ -116,14 +116,18 @@ var defaultModelRatio = map[string]float64{
 	"text-curie-001":         1,
 	//"text-davinci-002":               10,
 	//"text-davinci-003":               10,
-	"text-davinci-edit-001":                     10,
-	"code-davinci-edit-001":                     10,
-	"whisper-1":                                 15,  // $0.006 / minute -> $0.006 / 150 words -> $0.006 / 200 tokens -> $0.03 / 1k tokens
-	"tts-1":                                     7.5, // 1k characters -> $0.015
+	"text-davinci-edit-001": 10,
+	"code-davinci-edit-001": 10,
+	"whisper-1":             15,  // $0.006 / minute -> $0.006 / 150 words -> $0.006 / 200 tokens -> $0.03 / 1k tokens
+	"tts-1":                 7.5, // 1k characters -> $0.015
 	// doubao-seed-audio：用户侧积分以响应头 X-NewApi-Consumed-Credits 为唯一口径
 	// （按 original_duration 秒 × SEED_AUDIO_CREDITS_PER_SECOND）。此处仅为网关内部
 	// 共享 token 记账兜底，避免未定价模型报错；不影响后端单轨扣费。
-	"doubao-seed-audio-1-0":                     7.5,
+	"doubao-seed-audio-1-0": 7.5,
+	// ToAPIs Seedance 2: upstream cost ratio 31.25 with a 1.5x retail markup.
+	"seedance-2":                                46.875,
+	"seedance-2-fast":                           46.875,
+	"seedance-2-mini":                           46.875,
 	"tts-1-1106":                                7.5, // 1k characters -> $0.015
 	"tts-1-hd":                                  15,  // 1k characters -> $0.03
 	"tts-1-hd-1106":                             15,  // 1k characters -> $0.03
@@ -410,12 +414,12 @@ var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
 
 var defaultCompletionRatio = map[string]float64{
-	"gpt-4-gizmo-*":    2,
-	"gpt-4o-gizmo-*":   3,
-	"gpt-4-all":        2,
-	"gpt-image-1":      8,
-	"gpt-4o-image":     8, // 参考 gpt-image-1
-	"gemini-3.5-flash": 6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
+	"gpt-4-gizmo-*":            2,
+	"gpt-4o-gizmo-*":           3,
+	"gpt-4-all":                2,
+	"gpt-image-1":              8,
+	"gpt-4o-image":             8, // 参考 gpt-image-1
+	"gemini-3.5-flash":         6, // APIMart 输出 $7.2 / 输入 $1.2 = 6
 	"deepseek-v4-flash-260425": 2,
 	"deepseek-v4-pro-260425":   2,
 	// Doubao Seed 2.0 completion ratio = output/input

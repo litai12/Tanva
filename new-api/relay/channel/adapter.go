@@ -7,9 +7,9 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
-	"github.com/QuantumNous/new-api/types"
 )
 
 type Adaptor interface {
@@ -39,7 +39,7 @@ type TaskAdaptor interface {
 	// ── Billing ──────────────────────────────────────────────────────
 
 	// EstimateBilling returns OtherRatios for pre-charge based on user request.
-	// Called after ValidateRequestAndSetAction, before price calculation.
+	// Called after model mapping and base price calculation, before pre-charge.
 	// Adaptors should extract duration, resolution, etc. from the parsed request
 	// and return them as ratio multipliers (e.g. {"seconds": 5, "size": 1.666}).
 	// Return nil to use the base model price without extra ratios.
@@ -76,6 +76,14 @@ type TaskAdaptor interface {
 
 	FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error)
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
+}
+
+// CheckedTaskBillingEstimator is an optional task billing extension for
+// adaptors whose estimate requires fallible I/O or validation. It runs after
+// model mapping and before pre-charge, so an error can reject the request
+// without consuming quota or submitting an upstream task.
+type CheckedTaskBillingEstimator interface {
+	EstimateBillingChecked(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, *dto.TaskError)
 }
 
 type OpenAIVideoConverter interface {

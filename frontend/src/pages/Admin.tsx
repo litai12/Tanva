@@ -145,7 +145,7 @@ const NORMAL_ADMIN_ALLOWED_TABS = new Set<AdminTabKey>([
 ]);
 
 const CREDITS_PER_YUAN = 100;
-const SEEDANCE20_DISCOUNT_RATE = 1;
+const SEEDANCE20_DISCOUNT_RATE = 1.5 / 1.2;
 const applySeedance20Discount = (unitPriceYuan: number): number =>
   Number((unitPriceYuan * SEEDANCE20_DISCOUNT_RATE).toFixed(4));
 
@@ -1997,11 +1997,12 @@ const createWanPricingTemplate = (
 const createSeedance20PricingTemplate = () => ({
   version: "v2",
   dimensions: [
-    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast"], {
+    createEnumDimension("seedanceModel", "Seedance 型号", ["seedance-2.0", "seedance-2.0-fast", "seed-2.0-mini"], {
       required: true,
       labels: {
         "seedance-2.0": "Seedance 2.0",
         "seedance-2.0-fast": "Seedance 2.0 Fast",
+        "seed-2.0-mini": "Seedance 2.0 Mini",
       },
     }),
     createEnumDimension("resolution", "分辨率", ["480P", "720P", "1080P"], {
@@ -2041,6 +2042,34 @@ const createSeedance20PricingTemplate = () => ({
       conditions: {
         all: [
           { field: "seedanceModel", op: "eq" as const, value: "seedance-2.0-fast" },
+          { field: "resolution", op: "eq" as const, value: "720P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_mini_480p",
+      label: "Seedance 2.0 Mini 480P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_480p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seed-2.0-mini" },
+          { field: "resolution", op: "eq" as const, value: "480P" },
+        ],
+        any: [],
+      },
+    },
+    {
+      ruleKey: "seedance20_mini_720p",
+      label: "Seedance 2.0 Mini 720P",
+      enabled: true,
+      priority: 120,
+      evaluatorKey: "seedance20_fast_720p_eval",
+      conditions: {
+        all: [
+          { field: "seedanceModel", op: "eq" as const, value: "seed-2.0-mini" },
           { field: "resolution", op: "eq" as const, value: "720P" },
         ],
         any: [],
@@ -2121,6 +2150,7 @@ const createSeedance20PricingTemplate = () => ({
     labels: {
       "seedanceModel.seedance-2.0": "Seedance 2.0",
       "seedanceModel.seedance-2.0-fast": "Seedance 2.0 Fast",
+      "seedanceModel.seed-2.0-mini": "Seedance 2.0 Mini",
       "resolution.480P": "480P",
       "resolution.720P": "720P",
       "resolution.1080P": "1080P",
@@ -2136,6 +2166,8 @@ const createSeedance20PricingTemplate = () => ({
       { seedanceModel: "seedance-2.0", resolution: "1080P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "480P", duration: 5 },
       { seedanceModel: "seedance-2.0-fast", resolution: "720P", duration: 5 },
+      { seedanceModel: "seed-2.0-mini", resolution: "480P", duration: 5 },
+      { seedanceModel: "seed-2.0-mini", resolution: "720P", duration: 5 },
     ],
   },
 });
