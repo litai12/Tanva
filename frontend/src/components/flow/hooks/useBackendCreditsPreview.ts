@@ -58,7 +58,7 @@ export const useBackendCreditsPreview = ({
           setCredits(data.credits);
         }
       } catch {
-        // silently ignore — network errors or auth failures fall back to static config
+        // Callers must leave the quote empty; static fallbacks would create a second price source.
       }
     }, 300);
 

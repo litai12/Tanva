@@ -103,7 +103,6 @@ import {
   getManagedRouteOption,
   getManagedRoutesMetadata,
   resolveManagedRoutePricing,
-  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "./managedRoutePricing";
@@ -3471,7 +3470,6 @@ const resolveStableRouteCredits = (params: {
     const vendorKey = sanitizeVideoVendorKey(nodeData?.vendorKey);
     const pricingContext = buildVideoPricingContext(normalizedType, nodeData);
     const managedPricing = resolveManagedRoutePricing(metadata, vendorKey, pricingContext);
-    const seedance20DiscountCredits = resolveSeedance20DiscountCredits(pricingContext);
 
     const klingCredits = resolveKlingDynamicCredits(normalizedType, nodeData);
     if (typeof klingCredits === "number" && Number.isFinite(klingCredits)) {
@@ -3488,12 +3486,6 @@ const resolveStableRouteCredits = (params: {
       resolvedCredits = managedPricing.credits;
     }
 
-    if (
-      typeof seedance20DiscountCredits === "number" &&
-      Number.isFinite(seedance20DiscountCredits)
-    ) {
-      resolvedCredits = seedance20DiscountCredits;
-    }
   }
 
   return resolvedCredits;
@@ -20930,7 +20922,17 @@ function FlowInner() {
             n.id === nodeId
               ? {
                   ...n,
-                  data: { ...n.data, status: "running", error: undefined },
+                  data: {
+                    ...n.data,
+                    status: "running",
+                    error: undefined,
+                    taskId: undefined,
+                    apiUsageId: undefined,
+                    videoTaskProvider: undefined,
+                    videoTaskStartedAt: undefined,
+                    pendingVideoPrompt: undefined,
+                    taskPhase: undefined,
+                  },
                 }
               : n
           )
@@ -21425,8 +21427,12 @@ function FlowInner() {
             clientRunId,
             runSource: "flow-node",
           });
+          const createdTaskId = createResult.taskId.trim();
+          if (!createdTaskId) {
+            throw new Error("视频任务创建失败：未返回有效任务 ID");
+          }
           const videoTaskProvider = (createResult.provider || provider) as VideoProvider;
-          recoveredVideoTaskIdsRef.current.add(createResult.taskId);
+          recoveredVideoTaskIdsRef.current.add(createdTaskId);
           setNodes((current) =>
             current.map((item) =>
               item.id === nodeId
@@ -21435,7 +21441,7 @@ function FlowInner() {
                     data: {
                       ...item.data,
                       status: "running",
-                      taskId: createResult.taskId,
+                      taskId: createdTaskId,
                       apiUsageId: createResult.apiUsageId,
                       videoTaskProvider,
                       videoTaskStartedAt: generationStartMs,
@@ -21450,7 +21456,7 @@ function FlowInner() {
           console.log("✅ [Flow] Video task created", {
             nodeId,
             provider,
-            taskId: createResult.taskId,
+            taskId: createdTaskId,
           });
 
           // 开始轮询查询任务状态
@@ -21621,6 +21627,7 @@ function FlowInner() {
                             videoTaskProvider: undefined,
                             videoTaskStartedAt: undefined,
                             pendingVideoPrompt: undefined,
+                            taskPhase: undefined,
                           },
                       }
                     : n
@@ -21707,7 +21714,20 @@ function FlowInner() {
           setNodes((ns) =>
             ns.map((n) =>
               n.id === nodeId
-                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: msg,
+                      taskId: undefined,
+                      apiUsageId: undefined,
+                      videoTaskProvider: undefined,
+                      videoTaskStartedAt: undefined,
+                      pendingVideoPrompt: undefined,
+                      taskPhase: undefined,
+                    },
+                  }
                 : n
             )
           );

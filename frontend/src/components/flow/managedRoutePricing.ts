@@ -1,5 +1,3 @@
-import { isSeedance20FreeEnabled } from "@/utils/seedanceFree";
-
 export interface ManagedRouteOption {
   vendorKey: string;
   platformKey?: string;
@@ -313,63 +311,6 @@ const toFiniteNumber = (value: unknown): number | undefined => {
 const toCreditsByPriceYuan = (priceYuan: number | undefined): number | undefined => {
   if (!Number.isFinite(Number(priceYuan))) return undefined;
   return Math.ceil(Number(priceYuan) * CREDITS_PER_YUAN);
-};
-
-export const resolveSeedance20DiscountCredits = (
-  pricingContext?: Record<string, any> | null
-): number | undefined => {
-  if (!pricingContext || typeof pricingContext !== "object") return undefined;
-
-  const model = String(pricingContext.seedanceModel || "")
-    .trim()
-    .toLowerCase();
-  const normalizedModel =
-    model === "2.0"
-      ? "seedance-2.0"
-      : model === "2.0-fast"
-      ? "seedance-2.0-fast"
-      : model === "seedance-2.0-mini" || model === "2.0-mini" || model === "seed-2.0-lite"
-      ? "seed-2.0-mini"
-      : model;
-  if (
-    normalizedModel !== "seedance-2.0" &&
-    normalizedModel !== "seedance-2.0-fast" &&
-    normalizedModel !== "seed-2.0-mini"
-  ) {
-    return undefined;
-  }
-
-  // 限时免费活动：开启时 Seedance 2.0 / Fast / Mini 全分辨率均为 0 积分。
-  // 与后端 SEEDANCE20_FREE 同步，实扣以后端为准。
-  if (isSeedance20FreeEnabled()) {
-    return 0;
-  }
-
-  const resolution = String(pricingContext.resolution || "720P")
-    .trim()
-    .toUpperCase();
-  const duration = toFiniteNumber(
-    pricingContext.billingDurationSec ?? pricingContext.duration ?? pricingContext.durationSec
-  );
-  if (duration === undefined || duration <= 0) return undefined;
-
-  const unitPriceYuanByResolution =
-    normalizedModel === "seedance-2.0-fast" || normalizedModel === "seed-2.0-mini"
-      ? {
-          "480P": 1.0075,
-          "720P": 1.2075,
-        }
-      : {
-          "480P": 1.25,
-          "720P": 1.5,
-          "1080P": 3.75,
-          "4K": 7.5,
-        };
-  const unitPriceYuan =
-    unitPriceYuanByResolution[resolution as keyof typeof unitPriceYuanByResolution];
-  if (unitPriceYuan === undefined) return undefined;
-
-  return toCreditsByPriceYuan(Number((unitPriceYuan * duration).toFixed(3)));
 };
 
 const matchesCondition = (

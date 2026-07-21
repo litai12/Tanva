@@ -1,3 +1,11 @@
+## 2026-07-21 Backend-only Video Credit Display
+- Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.
+- The frontend still assembles model, resolution, output duration, and connected input-video duration as quote parameters; all price rules and the final credit amount remain backend-owned and share the actual deduction resolver.
+
+## 2026-07-21 Video Creation Failure State
+- Video creation responses are validated before Flow registers polling: HTTP errors, explicit failure payloads, and responses without a valid `taskId` immediately end in `failed` and show the specific backend error.
+- Starting a new video submission clears any previous task identity. Creation failure also clears `taskId`, usage/provider/start metadata, pending prompt, and task phase atomically, preventing refresh recovery or an old poller from restoring a false `running` state.
+
 ## 2026-07-20 Prompt Resize Endpoint Stability
 - `TextPromptNode` must let React Flow 12 process resize frames through `onResize`; returning `false` from `shouldResize` suppresses both the geometry change and `onResizeEnd`, leaving local resize state stuck.
 - Prompt content previews remain RAF-batched, but `useNodeInternalsSync` stays active during resize so handle bounds and connected edge endpoints follow the node dimensions. Do not apply `paint` containment to the Prompt resize root because connection handles intentionally overflow the node boundary.

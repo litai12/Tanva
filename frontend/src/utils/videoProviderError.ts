@@ -69,6 +69,23 @@ export const formatVideoProviderError = (
     );
   }
 
+  if (
+    lower.includes("prompt too long") ||
+    lower.includes("prompt is too long") ||
+    lower.includes("prompt exceeds") ||
+    lower.includes("maximum prompt length") ||
+    lower.includes("prompt length limit") ||
+    lower.includes("input is too long") ||
+    normalized.includes("提示词过长") ||
+    normalized.includes("提示词长度超")
+  ) {
+    return pickLocaleText(
+      "提示词过长，请缩短后重试。",
+      "The prompt is too long. Shorten it and try again.",
+      language
+    );
+  }
+
   if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("429")) {
     return pickLocaleText(
       "上游请求过于频繁，请稍后重试。",

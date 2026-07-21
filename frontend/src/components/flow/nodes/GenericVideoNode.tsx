@@ -32,11 +32,8 @@ import {
   type ViduModelValue,
 } from "@/services/videoProviderParams";
 import {
-  getManagedRouteCredits,
   getManagedRouteOption,
   getManagedRoutesMetadata,
-  resolveManagedRoutePricing,
-  resolveSeedance20DiscountCredits,
   sanitizeVideoManagedRoutes,
   sanitizeVideoVendorKey,
 } from "../managedRoutePricing";
@@ -897,14 +894,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     klingSoundEnabled,
     (data as any).mode,
   ]);
-  const resolvedManagedPricing = React.useMemo(
-    () => resolveManagedRoutePricing(nodeConfigMetadata, sanitizedVendorKey, pricingContext),
-    [sanitizedVendorKey, nodeConfigMetadata, pricingContext]
-  );
-  const seedance20DiscountCredits = React.useMemo(
-    () => resolveSeedance20DiscountCredits(pricingContext),
-    [pricingContext]
-  );
   const previewRequestParams = React.useMemo(
     () => ({
       ...pricingContext,
@@ -974,16 +963,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     requestParams: previewRequestParams,
     enabled: true,
   });
-  const selectedCredits =
-    typeof seedance20DiscountCredits === "number"
-      ? seedance20DiscountCredits
-      : typeof backendCredits === "number"
-      ? backendCredits
-      : typeof resolvedManagedPricing?.credits === "number"
-      ? resolvedManagedPricing.credits
-      : typeof data.creditsPerCall === "number" && !managedRoutesMetadata
-      ? data.creditsPerCall
-      : getManagedRouteCredits(nodeConfigMetadata, sanitizedVendorKey);
+  // The backend preview uses the same quote resolver as the actual deduction.
+  // Keep the badge empty on preview failure instead of showing stale node/config prices.
+  const selectedCredits = backendCredits;
   const hasRunCredits = typeof selectedCredits === "number" && selectedCredits > 0;
   const showRunCredits = hasRunCredits;
   const vodAspectOptions = React.useMemo(() => {
@@ -1682,10 +1664,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             platformKey: desiredPlatform,
             channelTier: desiredChannelTier,
             channelSelectionExplicit: data.channelSelectionExplicit === true,
-            creditsPerCall:
-              typeof selectedManagedRoute.creditsPerCall === "number"
-                ? selectedManagedRoute.creditsPerCall
-                : undefined,
           },
         },
       })
@@ -2053,10 +2031,6 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
               platformKey: targetPlatform,
               channelTier: targetTier,
               channelSelectionExplicit: true,
-              creditsPerCall:
-                typeof target.creditsPerCall === "number"
-                  ? target.creditsPerCall
-                  : undefined,
             },
           },
         })
