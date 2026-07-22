@@ -1214,11 +1214,17 @@ function ImageNodeInner({ id, data, selected }: Props) {
         ...(r.status === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
       });
     } catch (err: any) {
+      const message = err?.message || "图片审核失败，请稍后重试。";
       patchNode({
         volcAssetId: undefined,
         volcAssetStatus: "failed",
-        volcAssetError: err?.message || "上传失败",
+        volcAssetError: message,
       });
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message, type: "error" },
+        })
+      );
     }
   }, [data.imageUrl, effectiveVolcStatus, patchNode]);
 

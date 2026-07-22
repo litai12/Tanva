@@ -15,6 +15,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { VolcAssetService } from './volc-asset.service';
 import { UploadAssetDto } from './volc-asset.dto';
+import { toVolcAssetClientError } from './volc-asset-error.util';
 
 @ApiTags('volc-asset')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -41,7 +42,17 @@ export class VolcAssetController {
         this.svc.invalidateTodayGroup();
       }
       this.logger.error(`upload failed for user ${userId}: ${msg}`);
-      throw new BadGatewayException(msg);
+      const clientError = toVolcAssetClientError(err);
+      const payload = {
+        message: clientError.message,
+        code: clientError.code,
+        ...(clientError.upstreamCode ? { upstreamCode: clientError.upstreamCode } : {}),
+        ...(clientError.requestId ? { requestId: clientError.requestId } : {}),
+      };
+      if (clientError.statusCode === 400) {
+        throw new BadRequestException(payload);
+      }
+      throw new BadGatewayException(payload);
     }
   }
 

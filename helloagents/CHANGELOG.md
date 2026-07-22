@@ -970,3 +970,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Added
 - Added an hourly read-only audit for paid annual upgrades from the previous 48 hours. It reports subscription, entitlement and credit-lot period violations without automatically changing membership data or credit balances.
 - Added `npm run verify:membership-cycle`, covering missing/false order markers, explicit cycle resets, retained same-cycle periods and invalid cycle durations.
+## [Volc Asset Review Error Feedback - 2026-07-22]
+
+### Fixed
+- Ark `CreateAsset` image-dimension validation failures now return actionable HTTP 400 messages instead of truncated raw upstream payloads wrapped as 502.
+- Ark asset polling content-review rejections now return a replace-image instruction as HTTP 400 instead of a generic gateway failure.
+- Volc asset review responses retain the upstream error code and request ID for diagnosis without exposing raw upstream details to users.
+- Manual and connection-triggered image review failures now show an immediate error toast while keeping the same message on the image node.
+- Added `npm run verify:volc-asset-errors` to cover Ark response parsing and user-facing error mapping without making a paid upstream request.

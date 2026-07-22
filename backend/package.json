@@ -11,6 +11,7 @@
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
     "verify:async-3d": "ts-node --transpile-only scripts/verify-async-3d.ts",
+    "verify:volc-asset-errors": "ts-node --transpile-only scripts/verify-volc-asset-errors.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
     "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
   },

@@ -13790,11 +13790,17 @@ function FlowInner() {
                 ...(finalStatus === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
               });
             } catch (err: any) {
+              const message = err?.message || "图片审核失败，请稍后重试。";
               patchSrcNode({
                 volcAssetId: undefined,
                 volcAssetStatus: "failed",
-                volcAssetError: err?.message || "审核失败",
+                volcAssetError: message,
               });
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: { message, type: "error" },
+                })
+              );
             }
           })();
         } catch {}

@@ -4,6 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { signVolcRequest } from './volc-sign.util';
 import type { VolcAssetStatus } from './volc-asset.dto';
+import {
+  VolcAssetReviewRejectedError,
+  VolcAssetUpstreamError,
+} from './volc-asset-error.util';
 
 @Injectable()
 export class VolcAssetService implements OnModuleInit {
@@ -183,7 +187,13 @@ export class VolcAssetService implements OnModuleInit {
       });
       const status = this.normalizeStatus((result as any)?.Status);
       if (status === 'active') return;
-      if (status === 'failed') throw new Error(`asset ${assetId} 内容审核未通过`);
+      if (status === 'failed') {
+        throw new VolcAssetReviewRejectedError(
+          typeof (result as any)?.AuditMessage === 'string'
+            ? (result as any).AuditMessage
+            : undefined,
+        );
+      }
       await sleep(3000);
     }
     throw new Error(`asset ${assetId} 上传超时`);
@@ -217,21 +227,41 @@ export class VolcAssetService implements OnModuleInit {
       body: jsonBody,
     });
     const text = await resp.text();
-
-    if (!resp.ok) {
-      throw new Error(`${action}: client error ${resp.status}: ${text.slice(0, 200)}`);
-    }
-
     let parsed: any;
     try {
       parsed = JSON.parse(text);
     } catch {
+      if (!resp.ok) {
+        throw new VolcAssetUpstreamError(
+          action,
+          resp.status,
+          undefined,
+          text.slice(0, 200) || `HTTP ${resp.status}`,
+        );
+      }
       throw new Error(`${action}: invalid JSON response: ${text.slice(0, 200)}`);
     }
 
+    const metadata = parsed?.ResponseMetadata;
     const err = parsed?.ResponseMetadata?.Error;
     if (err?.Code) {
-      throw new Error(`${action}: [${err.Code}] ${err.Message || ''}`);
+      throw new VolcAssetUpstreamError(
+        action,
+        resp.status,
+        String(err.Code),
+        typeof err.Message === 'string' ? err.Message : undefined,
+        typeof metadata?.RequestId === 'string' ? metadata.RequestId : undefined,
+      );
+    }
+
+    if (!resp.ok) {
+      throw new VolcAssetUpstreamError(
+        action,
+        resp.status,
+        undefined,
+        `HTTP ${resp.status}`,
+        typeof metadata?.RequestId === 'string' ? metadata.RequestId : undefined,
+      );
     }
 
     return parsed?.Result ?? parsed;
