@@ -10,8 +10,12 @@ type CapturedRequest = {
 
 const captured: CapturedRequest[] = [];
 const originalFetch = globalThis.fetch;
-const originalTcApiKey = process.env.TC_API_KEY;
-const originalTapCanvasApiKey = process.env.TAPCANVAS_API_KEY;
+const originalEnv = {
+  NEW_API_KEY: process.env.NEW_API_KEY,
+  NEW_API_TOKEN: process.env.NEW_API_TOKEN,
+  TC_API_KEY: process.env.TC_API_KEY,
+  TAPCANVAS_API_KEY: process.env.TAPCANVAS_API_KEY,
+};
 
 globalThis.fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
@@ -26,13 +30,20 @@ globalThis.fetch = async (input, init) => {
   );
 };
 
+const restoreEnv = (key: keyof typeof originalEnv): void => {
+  const value = originalEnv[key];
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+};
+
 async function main(): Promise<void> {
+  process.env.TC_API_KEY = 'must-not-be-used';
+  process.env.TAPCANVAS_API_KEY = 'must-not-be-used';
+
   const provider = new NewApiProvider(
     new ConfigService({
       NEW_API_BASE_URL: 'https://new-api.test',
       NEW_API_KEY: 'new-api-key',
-      TC_API_BASE_URL: 'https://tc-api.test',
-      TC_API_KEY: 'tc-api-key',
     }),
   );
   await provider.initialize();
@@ -46,9 +57,9 @@ async function main(): Promise<void> {
     imageUrls: ['https://assets.test/reference.png'],
   });
   assert.equal(textResult.success, true);
-  assert.equal(textResult.data?.metadata?.provider, 'tc-api');
-  assert.equal(captured[0]?.url, 'https://tc-api.test/agents/llm/v1/chat/completions');
-  assert.equal(captured[0]?.authorization, 'Bearer tc-api-key');
+  assert.equal(textResult.data?.metadata?.provider, 'new-api');
+  assert.equal(captured[0]?.url, 'https://new-api.test/v1/chat/completions');
+  assert.equal(captured[0]?.authorization, 'Bearer new-api-key');
   assert.equal(captured[0]?.body.model, 'gpt-5.4');
   assert.deepEqual(captured[0]?.body.tools, [{ type: 'web_search_preview' }]);
   assert.equal(captured[0]?.body.thinking_level, 'high');
@@ -65,37 +76,36 @@ async function main(): Promise<void> {
   });
   assert.equal(analysisResult.success, true);
   assert.equal(captured[1]?.body.model, 'gpt-5.6');
-  assert.equal(captured[1]?.url, 'https://tc-api.test/agents/llm/v1/chat/completions');
+  assert.equal(captured[1]?.url, 'https://new-api.test/v1/chat/completions');
+  assert.equal(captured[1]?.authorization, 'Bearer new-api-key');
 
   const legacyResult = await provider.generateText({
-    prompt: 'legacy route remains isolated',
+    prompt: 'legacy model uses the same gateway',
     model: 'gemini-3.1-pro-preview',
   });
   assert.equal(legacyResult.success, true);
   assert.equal(captured[2]?.url, 'https://new-api.test/v1/chat/completions');
   assert.equal(captured[2]?.authorization, 'Bearer new-api-key');
 
-  delete process.env.TC_API_KEY;
-  delete process.env.TAPCANVAS_API_KEY;
-  const missingKeyProvider = new NewApiProvider(
-    new ConfigService({ NEW_API_KEY: 'new-api-key' }),
-  );
+  delete process.env.NEW_API_KEY;
+  delete process.env.NEW_API_TOKEN;
+  const missingKeyProvider = new NewApiProvider(new ConfigService({}));
   await missingKeyProvider.initialize();
   const missingKeyResult = await missingKeyProvider.generateText({ prompt: 'must fail' });
   assert.equal(missingKeyResult.success, false);
-  assert.equal(missingKeyResult.error?.code, 'TC_API_TEXT_GENERATION_FAILED');
-  assert.match(missingKeyResult.error?.message || '', /TC_API_KEY \/ TAPCANVAS_API_KEY/);
+  assert.equal(missingKeyResult.error?.code, 'TEXT_GENERATION_FAILED');
+  assert.match(missingKeyResult.error?.message || '', /NEW_API_KEY/);
 
-  console.log('tc-api GPT text routing verification passed');
+  console.log('new-api GPT text routing verification passed');
 }
 
 main()
   .finally(() => {
     globalThis.fetch = originalFetch;
-    if (originalTcApiKey === undefined) delete process.env.TC_API_KEY;
-    else process.env.TC_API_KEY = originalTcApiKey;
-    if (originalTapCanvasApiKey === undefined) delete process.env.TAPCANVAS_API_KEY;
-    else process.env.TAPCANVAS_API_KEY = originalTapCanvasApiKey;
+    restoreEnv('NEW_API_KEY');
+    restoreEnv('NEW_API_TOKEN');
+    restoreEnv('TC_API_KEY');
+    restoreEnv('TAPCANVAS_API_KEY');
   })
   .catch((error) => {
     console.error(error);

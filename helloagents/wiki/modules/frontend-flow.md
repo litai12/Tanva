@@ -1,3 +1,6 @@
+## 2026-07-22 GPT Text Model Display
+- Flow Text Chat and Prompt Optimizer continue to execute with `gpt-5.4` through new-api. Their visible badges show `GPT-5.4`, and the model tooltip identifies the managed route as `new-api · GPT-5.4`; they no longer claim a direct OpenAI route.
+
 ## 2026-07-21 Backend-only Video Credit Display
 - Generic video Run badges display only the authenticated `/api/credits/preview` quote. They do not persist route prices or fall back to historical node `creditsPerCall`, managed-route browser evaluation, or a frontend Seedance price table when the quote is loading or unavailable.
 - The frontend still assembles model, resolution, output duration, and connected input-video duration as quote parameters; all price rules and the final credit amount remain backend-owned and share the actual deduction resolver.
