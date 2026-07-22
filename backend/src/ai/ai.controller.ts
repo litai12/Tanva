@@ -999,7 +999,7 @@ export class AiController {
     const aiProvider = providerName || 'gemini';
     const requestModel =
       typeof extraParams?.model === 'string' ? extraParams.model.trim().toLowerCase() : '';
-    const isTcApiTextRequest = requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6';
+    const isGatewayGptTextRequest = requestModel === 'gpt-5.4' || requestModel === 'gpt-5.6';
     const bananaImageRoute = this.resolveBananaImageRouteFromProviderOptions(
       providerOptions,
     );
@@ -1008,8 +1008,8 @@ export class AiController {
         ? extraParams.channelHint.trim()
         : undefined;
     const channelHint =
-      isTcApiTextRequest
-        ? 'tc-api'
+      isGatewayGptTextRequest
+        ? 'new-api'
         : bananaImageRoute === 'stable'
         ? 'tencent'
         : bananaImageRoute === 'ultra'
@@ -1026,7 +1026,7 @@ export class AiController {
       ...(extraParams || {}),
       aiProvider,
       channelHint,
-      ...(!isTcApiTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
+      ...(!isGatewayGptTextRequest && bananaImageRoute ? { bananaImageRoute } : {}),
     };
   }
 

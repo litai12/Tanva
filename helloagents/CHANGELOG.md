@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Changelog
 
 - 2026-07-21：非小T AI 对话硬切 tc-api GPT 路由：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 分析统一使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究统一使用 `gpt-5.6`。移除活动链路中的 `gemini-3.5-flash` / `gpt-5.4-mini` 与误导性的旧文本模型选择，视频分析继续走 Gemini、小T继续走专属 GPT-5.6 facade。后端新增独立 tc-api base URL/key、缺 key 显式失败与 mock 路由验证，积分展示元数据同步标记为 tc-api，现有 Tanva 固定积分价格保持不变。
@@ -20,6 +21,31 @@
 - 2026-07-18：导演台八套默认素体不再复用 X Bot 整体缩放，改为项目自建的八套独立参数化网格与统一关节骨架；已同屏验证八种轮廓、地面落脚和男性招手姿势驱动。
 - 2026-07-18：导演台“高斯地面吸附”从空开关升级为真实 `.splat` XYZ 解析、对象变换、XZ 高度空间索引与角色/道具移动提交吸附；确定性坡面点云浏览器回归得到 0.60/1.10/1.60 的递增高度。
 - 2026-07-19：导演台男性/女性素体替换为 Quaternius Universal Base Characters Standard 的 CC0 开源蒙皮模型，精简未使用纹理为纯色 blocking PBR 材质，并补充 Unreal Humanoid 骨名映射；真实截图验证男女同屏、落地与男性招手。其余六体仍为程序化回退，未宣称八套素材完成。
+=======
+# Changelog
+
+- 2026-07-22：撤销 Tanva 后端直连 tc-api 的 GPT 硬路由，普通对话、Flow Text Chat、提示词优化、工具选择、PDF/图像分析、HTML PPT、Paper.js 与普通 Agent 文本现统一使用 `NEW_API_BASE_URL` / `NEW_API_KEY` 调用 new-api `/v1/chat/completions`，tc-api 地址和 `tc_sk` 仅由 new-api 渠道集中管理。积分 provider、API usage channel 与成功 metadata 同步更正为 `new-api`；AI 对话框外显 `new-api · GPT-5.4/5.6`，Text Chat 与 Prompt Optimizer 外显实际 `GPT-5.4`。新增反向 mock 门禁，确保存在 tc-api key 也不会绕过 new-api。
+- 2026-07-21：非小T AI 对话硬切 tc-api GPT 路由：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 分析统一使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究统一使用 `gpt-5.6`。移除活动链路中的 `gemini-3.5-flash` / `gpt-5.4-mini` 与误导性的旧文本模型选择，视频分析继续走 Gemini、小T继续走专属 GPT-5.6 facade。后端新增独立 tc-api base URL/key、缺 key 显式失败与 mock 路由验证，积分展示元数据同步标记为 tc-api，现有 Tanva 固定积分价格保持不变。
+- 2026-07-21：修复 Flow 视频输入节点上传/加载视频后未持久化真实 `duration`，导致连接 Seedance 2.0/Fast/Mini 时试算始终只按输出时长显示固定积分的问题。视频输入节点现在在本地上传阶段读取媒体时长，并在已有远程视频元数据加载后自动补齐或校正；Seedance 下游还会直接探测所有已连接远程成片（包括画布内生成与合成视频）的实际媒体时长，节点请求时长只作探测失败兜底。试算随总输入时长重新请求，实际生成前仍由后端 `ffprobe` 复核；后端实际预扣链路复用可测试的总时长函数，并新增 `npm run verify:seedance-billing` 门禁。
+- 2026-07-21：Flow 通用视频节点的 Run 积分展示改为只消费后端 `/api/credits/preview` 试算结果；删除前端 Seedance 2.0/Fast/Mini 硬编码单价和节点配置静态兜底。模型、分辨率、输出时长及输入视频总时长仍由前端作为试算参数提交，但价格规则、最终积分和实际预扣统一由后端同一报价解析器负责；接口未返回时不展示可能过期的积分数。
+- 2026-07-21：修复 Seedance 2.0 等 Flow 视频节点在提示词过长、上游同步 4xx、创建响应明确失败或缺少有效 `taskId` 时仍显示 `running` 的历史问题。前端现在先校验创建响应再注册轮询，保留并展示后端具体错误，并将英文 prompt-length 错误明确显示为“提示词过长”；提交开始及失败时原子清理旧任务、积分记录、供应商和恢复轮询字段，避免旧轮询覆盖失败态。后端既有创建失败回滚逻辑不变，未成功创建的任务不扣积分。
+- 2026-07-21：ToAPIs 与 Flow 画布同步上调 Seedance 2 标准版、Fast、Mini 价格：网关倍率由进价 `x1.2` 调到 `x1.5`（`ModelRatio 37.5 -> 46.875`），画布现有单价按 `1.5/1.2` 同比例调整。两条链路均按“显式输出时长 + 所有唯一输入参考视频的真实时长”计费，例如输入 `5s`、输出 `5s` 按 `10s`；网关和画布后端都在预扣前安全探测 MP4，失败时不扣分、不提交上游。画布节点预览、个人积分和团队积分使用同一总时长口径，并补齐 Mini 的按秒价格规则（本次未操作生产数据）。
+- 2026-07-20：根治 Flow 同一视频节点并发重复建任务：前端显式下发项目/节点/运行/标签页身份，后端借助积分账户行锁实施 30 分钟 PENDING 单任务闸门；命中重复后复用原 taskId，任务创建中的短暂空窗返回可轮询的 apiUsage 别名而非前端报错，并跳过个人扣费、团队预留和上游调用。视频节点立即持久化任务身份，刷新自动恢复原任务；查询中断/超时不再误退款或丢弃仍在生成的任务。
+- 2026-07-20：修复 Prompt 节点缩放后连接端点丢失；`TextPromptNode` 改用 React Flow 12 的 `onResize` 几何更新路径，保留 RAF 预览与协作节流，缩放期间持续同步 handle bounds，并移除会裁剪边缘句柄的 `paint` containment。
+- 2026-07-19：小T大脑从 Claude 4.8/4.7/4.6 迁移到 GPT 5.6 Sol/Terra/Luna，默认 Sol；前后端白名单与选择器同步更新，preferences v2 自动清理历史 Claude 偏好，new-api 小T渠道以专属门面名和 `model_mapping` 送达 TapCanvas facade，避免裸 GPT 名绕过小T智能体链路。
+- 2026-07-19：修复导演台无全景、清空全景或全景切换瞬间 `Skybox` 把两个空 URL 误判为同一纹理，继而读取空 `state.texture/state.mode` 导致 WebGL 视口崩溃；`verify:director-panorama` 新增无全景首屏门禁，并继续覆盖图片连入、AI 生成、持久化刷新和小半径天空球渲染。
+- 2026-07-19：导演台 32 个模型、纹理、glTF bin、Gaussian 地形及许可证文件完整迁移至广州 TOS `director-assets/v1/`，50,103,802 bytes 经逐文件回读 SHA-256 校验一致；运行时与 X Bot 骨骼回归页改为远程资源，移除 `frontend/public/director` 本地副本，将 `frontend/public` 从约 65 MB 降至约 17 MB。上传脚本改为只接受仓库外的显式 staging 目录，避免素材再次进入前端包。
+- 2026-07-19：导演台相机新增 `verify:director-camera` 永久门禁，纯解析和真实 WebGL 六模式覆盖手动坐标/手动旋转/角色注视/跟随/FOV25/FOV90；修复机位视角截图读取旧 OrbitControls target 导致新机位注视点偏离所见画面，并修复轨迹红色朝向调试箭头进入机位预览和 MediaRecorder 导出，现相机/导出门禁均要求红色 helper 像素为 0。
+- 2026-07-19：导演台新增 `verify:director-persistence-io` 完整浏览器门禁：角色名称/位置/姿势与时间线时长写回后刷新逐值恢复；远程图片当前裁剪通过 `img→target` 输入边在刷新后继续作为全景运行时渲染；WebGL 截图上传远程后只保存 URL，通过 `source→img` 建图连边，刷新后截图画廊重新水合并可再次发送；真实 32-byte `.splat` 完成文件选择、presign 上传、远程入库、X 轴 pointer drag 和刷新精确恢复。所有阶段递归阻止 data:/blob:/flow-asset:/裸 base64 进入设计数据。
+- 2026-07-19：导演台动画导出新增完整浏览器永久门禁 `verify:director-export`：0.70s 轨迹导出期间证明 MediaRecorder 录制的就是实时预览 WebGL canvas，画面真实前进；Blob 经后端视频上传与资产可读性检查后派发远程视频插入，完成后播放头、编辑模式、导演视角和导出前像素帧完全恢复。
+- 2026-07-19：导演台八套素体轨迹新增真实 Chrome 平地/Gaussian 10% 坡面多时间点与回环确定性验收；修复绝对播放头 walk/run 绕过足部 IK，以及锁脚仅按垂直距离释放导致支撑脚可拖后 1.88m 的问题。锁脚改用三维距离并在求解后释放不可达缓存点；按蒙皮权重自动提取八体真实鞋底，坡地消费 `rootSlopeWeight` 并加入骨盆可达补偿。坡地最大锁脚水平/鞋底垂直/法线误差为 0.0134m/0.0492m/<0.0001°，分别受 0.02m/0.05m/1° 永久门禁约束。
+- 2026-07-18：微信/支付宝扫码支付有效期统一为 30 分钟，前端按服务端 `expiredAt` 倒计时并在到期后隐藏旧码；自动对账扩大到最近 72 小时内全部 `pending/expired/cancelled/failed` 订单并提升为每 5 分钟执行，订单列表也会主动补查，修复刷新旧码后晚付款可能不入账的问题。
+- 2026-07-18：LibTV 导演台新节点默认进入 `3D场景` 环境/地面检查器；对象选中时可按 Esc 返回环境控制，并让远程上传/AI 生成的场景全景正确显示为已连接。
+- 2026-07-18：导演台主模态物理移除 Tanva 灰模 MP4、视频节点输出、长片拆分、旧 shot timeline、环绕预览、飞行录制与群演广播执行链；后台 capture runner 也不再接受 clip 视频任务，输出收敛为 LibTV 摄像机截图图片。生产 chunk 由约 78.77 kB 降至 63.12 kB。
+- 2026-07-18：导演台八套默认素体不再复用 X Bot 整体缩放，改为项目自建的八套独立参数化网格与统一关节骨架；已同屏验证八种轮廓、地面落脚和男性招手姿势驱动。
+- 2026-07-18：导演台“高斯地面吸附”从空开关升级为真实 `.splat` XYZ 解析、对象变换、XZ 高度空间索引与角色/道具移动提交吸附；确定性坡面点云浏览器回归得到 0.60/1.10/1.60 的递增高度。
+- 2026-07-19：导演台男性/女性素体替换为 Quaternius Universal Base Characters Standard 的 CC0 开源蒙皮模型，精简未使用纹理为纯色 blocking PBR 材质，并补充 Unreal Humanoid 骨名映射；真实截图验证男女同屏、落地与男性招手。其余六体仍为程序化回退，未宣称八套素材完成。
+>>>>>>> main
 
 All notable changes to this knowledge base will be documented in this file.
 

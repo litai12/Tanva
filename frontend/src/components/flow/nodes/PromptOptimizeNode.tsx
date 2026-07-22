@@ -278,7 +278,7 @@ function PromptOptimizeNodeInner({ id, data, selected }: Props) {
           <span className='tanva-flow-node-title'>Prompt Optimizer</span>
           <span
             className='tanva-flow-provider-mode-badge'
-            title='OpenAI GPT-5.4'
+            title='new-api · GPT-5.4'
             style={{
               display: 'inline-flex',
               alignItems: 'center',

@@ -29,7 +29,6 @@ const LONG_RUNNING_TIMEOUT_MS = 20 * 60 * 1000;
 const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 const IMAGE_MAX_RETRIES = 2;
 const IMAGE_RETRY_DELAYS = [5_000, 15_000];
-const TC_API_TEXT_MODELS = new Set(['gpt-5.4', 'gpt-5.6']);
 const GEMINI_BASE_IMAGE_ASPECT_RATIOS = [
   '1:1',
   '2:3',
@@ -64,8 +63,6 @@ export class NewApiProvider implements IAIProvider {
   private apiKey = '';
   private vipApiKey = '';
   private svipApiKey = '';
-  private tcApiBaseUrl = 'https://tc-api.tanvas.cn';
-  private tcApiKey = '';
 
   constructor(
     private readonly config: ConfigService,
@@ -92,25 +89,9 @@ export class NewApiProvider implements IAIProvider {
       this.config.get<string>('NEW_API_KEY_SVIP') ||
       process.env.NEW_API_KEY_SVIP ||
       '';
-    this.tcApiBaseUrl = this.normalizeBaseUrl(
-      this.config.get<string>('TC_API_BASE_URL') ||
-        process.env.TC_API_BASE_URL ||
-        this.config.get<string>('TAPCANVAS_API_BASE_URL') ||
-        process.env.TAPCANVAS_API_BASE_URL ||
-        'https://tc-api.tanvas.cn',
-    );
-    this.tcApiKey =
-      this.config.get<string>('TC_API_KEY') ||
-      process.env.TC_API_KEY ||
-      this.config.get<string>('TAPCANVAS_API_KEY') ||
-      process.env.TAPCANVAS_API_KEY ||
-      '';
-    this.available = !!(this.apiKey || this.tcApiKey);
+    this.available = !!this.apiKey;
     this.logger.log(
-      `new-api route initialized: ${this.apiKey ? 'available' : 'unavailable'} (${this.baseUrl})`,
-    );
-    this.logger.log(
-      `tc-api GPT text route initialized: ${this.tcApiKey ? 'available' : 'unavailable'} (${this.tcApiBaseUrl})`,
+      `new-api provider initialized: ${this.available ? 'available' : 'unavailable'} (${this.baseUrl})`,
     );
   }
 
@@ -605,9 +586,6 @@ export class NewApiProvider implements IAIProvider {
       if (typeof payload.model === 'string') {
         payload = { ...payload, model: this.normalizeUpstreamModel(payload.model) };
       }
-      if (this.isTcApiTextModel(payload.model)) {
-        return this.tcApiChat(payload);
-      }
       if (this.isDeepSeekArkModel(payload.model)) {
         return this.responses(payload, providerOptions);
       }
@@ -634,40 +612,6 @@ export class NewApiProvider implements IAIProvider {
       };
     } catch (error) {
       return this.errorResponse('TEXT_GENERATION_FAILED', error);
-    }
-  }
-
-  private async tcApiChat(
-    payload: Record<string, unknown>,
-  ): Promise<AIProviderResponse<TextResult>> {
-    try {
-      const result = await this.requestJson(
-        '/agents/llm/v1/chat/completions',
-        {
-          method: 'POST',
-          body: JSON.stringify(
-            this.stripUndefined(
-              this.stripUnsupportedTextPayloadFields({ ...payload, stream: false }),
-            ),
-          ),
-        },
-        this.tcApiKey,
-        this.tcApiBaseUrl,
-        'TC_API_KEY / TAPCANVAS_API_KEY',
-      );
-      return {
-        success: true,
-        data: {
-          text: this.extractText(result),
-          metadata: {
-            provider: 'tc-api',
-            model: payload.model,
-            raw: result,
-          },
-        },
-      };
-    } catch (error) {
-      return this.errorResponse('TC_API_TEXT_GENERATION_FAILED', error);
     }
   }
 
@@ -708,10 +652,6 @@ export class NewApiProvider implements IAIProvider {
       normalized === 'deepseek-v4-flash-260425' ||
       normalized === 'deepseek-v4-pro-260425'
     );
-  }
-
-  private isTcApiTextModel(model: unknown): boolean {
-    return TC_API_TEXT_MODELS.has(String(model || '').trim().toLowerCase());
   }
 
   private toResponsesPayload(payload: Record<string, unknown>): Record<string, unknown> {
@@ -786,15 +726,13 @@ export class NewApiProvider implements IAIProvider {
     path: string,
     init: RequestInit,
     apiKey?: string,
-    baseUrl: string = this.baseUrl,
-    missingKeyLabel: string = 'NEW_API_KEY',
   ): Promise<any> {
-    const key = apiKey === undefined ? this.apiKey : apiKey;
+    const key = apiKey || this.apiKey;
     if (!key) {
-      throw new Error(`${missingKeyLabel} 未配置`);
+      throw new Error('NEW_API_KEY 未配置');
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       // @ts-expect-error undici 在 Node fetch 上扩展了 dispatcher 字段
       dispatcher: this.httpDispatcher,
@@ -808,13 +746,13 @@ export class NewApiProvider implements IAIProvider {
     const text = await response.text();
     if (!text || !text.trim()) {
       this.logger.warn(
-        `AI upstream empty response body: status=${response.status} url=${baseUrl}${path} content-type=${response.headers.get('content-type') ?? 'none'}`,
+        `new-api empty response body: status=${response.status} url=${this.baseUrl}${path} content-type=${response.headers.get('content-type') ?? 'none'}`,
       );
     }
     const data = text ? this.parseJsonObject(text) || text : {};
     if (response.ok && typeof data === 'string') {
       this.logger.warn(
-        `AI upstream response not JSON: status=${response.status} url=${baseUrl}${path} preview=${String(data).slice(0, 200)}`,
+        `new-api response not JSON: status=${response.status} url=${this.baseUrl}${path} preview=${String(data).slice(0, 200)}`,
       );
     }
     if (!response.ok) {
