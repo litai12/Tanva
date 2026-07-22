@@ -653,6 +653,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const setOperationInProgress = useCanvasStore(
     (state) => state.setOperationInProgress
   );
+  const convert2Dto3DRequestIdRef = useRef<string | null>(null);
   const expandOperationLockRef = useRef(false);
   const releaseExpandOperationLock = useCallback(() => {
     if (!expandOperationLockRef.current) return;
@@ -2746,14 +2747,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(`无效的图片URL: ${imageUrl}`);
           }
 
+          const requestStorageKey = `tanva:2d-to-3d:${projectId || "personal"}:${imageData.id}`;
+          let clientRequestId = convert2Dto3DRequestIdRef.current;
+          if (!clientRequestId) {
+            try {
+              clientRequestId = window.sessionStorage.getItem(requestStorageKey);
+            } catch {
+              // sessionStorage may be unavailable in privacy-restricted contexts.
+            }
+          }
+          if (!clientRequestId) {
+            const randomPart =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            clientRequestId = `canvas-2d3d-${randomPart}`;
+          }
+          convert2Dto3DRequestIdRef.current = clientRequestId;
+          try {
+            window.sessionStorage.setItem(requestStorageKey, clientRequestId);
+          } catch {
+            // The in-memory ref still protects retries during this component lifetime.
+          }
+
+          const clearRequestIdentity = () => {
+            convert2Dto3DRequestIdRef.current = null;
+            try {
+              window.sessionStorage.removeItem(requestStorageKey);
+            } catch {
+              // Ignore storage cleanup failures.
+            }
+          };
+
           const convertResult = await convert2Dto3D({
             imageUrl,
             projectId: projectId ?? undefined,
+            nodeId: imageData.id,
+            model: "3.1",
+            clientRequestId,
           });
 
           if (!convertResult.success || !convertResult.modelUrl) {
+            if (convertResult.terminal) clearRequestIdentity();
             throw new Error(convertResult.error || "2D转3D失败");
           }
+          clearRequestIdentity();
 
           const modelUrl = convertResult.modelUrl;
           const fileName =

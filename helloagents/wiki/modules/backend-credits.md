@@ -64,6 +64,7 @@
   - `FREE_USER_MONTHLY_VIDEO_LIMIT`
 
 ## 渠道与模型追踪（图像分析）
+- 通用 2D 转 3D 固定记录为 `provider=hunyuan-3d`、`model=3.1`；历史配置中的 `runninghub` 仅为旧错误标记，不代表真实执行渠道。异步任务以 `clientRequestId` 同时约束任务创建和积分预扣，恢复轮询不得产生第二笔用量记录。
 - `POST /api/ai/analyze-image` 的计费请求参数会写入 `aiProvider/channelHint`，用于在积分流水中识别执行渠道。
 - 流水列表前端可直接展示“渠道 + 模型”，用于核对“使用了哪个渠道、哪个模型”。
 - 视频模型管理线路若在 `model_provider_mapping_v2.models[].vendors[]` 配置了 `creditsPerCall`，后端预扣积分会优先使用该线路价格，而不是节点管理/静态服务价。

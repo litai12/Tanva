@@ -10,6 +10,7 @@
     "verify:membership-cycle": "ts-node --transpile-only scripts/verify-membership-cycle-guard.ts",
     "verify:seedance-billing": "ts-node --transpile-only scripts/verify-seedance-billing.ts",
     "verify:new-api-text-routing": "ts-node --transpile-only scripts/verify-new-api-text-routing.ts",
+    "verify:async-3d": "ts-node --transpile-only scripts/verify-async-3d.ts",
     "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts",
     "upload:director-assets": "ts-node scripts/upload-director-assets.ts"
   },

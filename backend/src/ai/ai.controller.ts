@@ -4678,7 +4678,8 @@ export class AiController {
   async convert2Dto3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
     this.logger.log('🎨 2D to 3D conversion request received');
 
-    return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
+    const model = dto.model ?? '3.1';
+    return this.withCredits(req, 'convert-2d-to-3d', model, async () => {
       const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
       const normalizedImageUrl = dto.imageUrl
         ? this.normalizeImageUrlForUpstream(dto.imageUrl)
@@ -4686,7 +4687,7 @@ export class AiController {
       const result = await this.convert2Dto3DService.convert2Dto3D({
         imageUrl: normalizedImageUrl,
         prompt: dto.prompt,
-        model: dto.model as '3.0' | '3.1' | undefined,
+        model,
         lowPoly: dto.lowPoly,
         sketch: dto.sketch,
         projectId: dto.projectId,
@@ -4699,7 +4700,91 @@ export class AiController {
         promptId: result.promptId,
         modelKey: result.modelKey,
       };
-    }, 1, 1);
+    }, 1, 1, undefined, this.buildCreditRequestParams('hunyuan-3d', {
+      nodeType: '2d-to-3d',
+      provider: 'hunyuan-3d',
+      model,
+    }));
+  }
+
+  @Post('convert-2d-to-3d-async')
+  async convert2Dto3DAsync(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
+    this.logger.log('🎨 Hunyuan 3D async conversion request received');
+
+    const ownerId = this.getAsync3DTaskOwner(req);
+    const clientRequestId = dto.clientRequestId?.trim() || crypto.randomUUID();
+    const taskId = this.buildAsync3DTaskId('hunyuan3d', ownerId, clientRequestId);
+
+    if (this.generationTaskService) {
+      const existing = await this.generationTaskService.findVideoTaskById(taskId);
+      if (existing) {
+        this.assertAsync3DTaskAccess(existing, ownerId, 'hunyuan3d');
+        return {
+          success: true,
+          taskId,
+          status: this.toAsync3DPublicStatus(existing.status),
+          deduplicated: true,
+          message: 'Hunyuan 3D task already exists, continue polling with taskId',
+        };
+      }
+
+      try {
+        await this.generationTaskService.createVideoTask({
+          taskId,
+          userId: ownerId,
+          nodeId: dto.nodeId,
+          taskType: 'hunyuan3d',
+          prompt: dto.prompt,
+          projectId: dto.projectId,
+          supersedePrevious: false,
+          metadata: {
+            clientRequestId,
+            provider: 'hunyuan-3d',
+            model: dto.model ?? '3.1',
+          },
+        });
+      } catch (error) {
+        if (!this.isPrismaUniqueConstraintError(error)) throw error;
+        const racedTask = await this.generationTaskService.findVideoTaskById(taskId);
+        if (!racedTask) throw error;
+        this.assertAsync3DTaskAccess(racedTask, ownerId, 'hunyuan3d');
+        return {
+          success: true,
+          taskId,
+          status: this.toAsync3DPublicStatus(racedTask.status),
+          deduplicated: true,
+          message: 'Hunyuan 3D task already exists, continue polling with taskId',
+        };
+      }
+    } else {
+      if (getAsyncTaskResult(taskId)) {
+        return {
+          success: true,
+          taskId,
+          status: 'processing',
+          deduplicated: true,
+        };
+      }
+      createAsyncTask(taskId);
+    }
+
+    this.executeHunyuan3DTaskAsync(taskId, { ...dto, clientRequestId }, req);
+
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      deduplicated: false,
+      message: 'Hunyuan 3D task submitted, poll with taskId',
+    };
+  }
+
+  @Get('convert-2d-to-3d/task/:taskId')
+  async queryConvert2Dto3DAsyncTask(
+    @Param('taskId') taskId: string,
+    @Req() req: any,
+  ) {
+    return this.queryAsync3DTask(taskId, req, 'hunyuan3d', '混元 3D 生成失败');
   }
 
   @Post('convert-seed3d')
@@ -4742,7 +4827,7 @@ export class AiController {
     if (this.generationTaskService) {
       await this.generationTaskService.createVideoTask({
         taskId,
-        userId: this.getUserId(req) ?? 'anonymous',
+        userId: this.getAsync3DTaskOwner(req),
         nodeId: dto.nodeId,
         taskType: 'seed3d',
         prompt: dto.prompt,
@@ -4762,47 +4847,210 @@ export class AiController {
   }
 
   @Get('seed3d/task/:taskId')
-  async querySeed3DAsyncTask(@Param('taskId') taskId: string) {
-    if (!taskId || !taskId.trim()) {
+  async querySeed3DAsyncTask(@Param('taskId') taskId: string, @Req() req: any) {
+    return this.queryAsync3DTask(taskId, req, 'seed3d', 'Seed3D 生成失败');
+  }
+
+  private getAsync3DTaskOwner(req: any): string {
+    const userId = this.getUserId(req);
+    if (userId) return userId;
+    const apiClientId =
+      typeof req?.apiClient?.id === 'string' ? req.apiClient.id.trim() : '';
+    if (apiClientId) return `api-client:${apiClientId}`;
+    const apiClientKey =
+      typeof req?.apiClient?.apiKey === 'string' ? req.apiClient.apiKey.trim() : '';
+    if (apiClientKey) {
+      const keyDigest = crypto.createHash('sha256').update(apiClientKey).digest('hex').slice(0, 24);
+      return `api-client:${keyDigest}`;
+    }
+    return 'api-client';
+  }
+
+  private buildAsync3DTaskId(
+    taskType: 'hunyuan3d' | 'seed3d',
+    ownerId: string,
+    clientRequestId: string,
+  ): string {
+    const digest = crypto
+      .createHash('sha256')
+      .update(`${taskType}\u0000${ownerId}\u0000${clientRequestId}`)
+      .digest('hex')
+      .slice(0, 32);
+    return `async-${taskType}-${digest}`;
+  }
+
+  private isPrismaUniqueConstraintError(error: unknown): boolean {
+    return Boolean(error && typeof error === 'object' && (error as any).code === 'P2002');
+  }
+
+  private assertAsync3DTaskAccess(
+    task: { userId: string; taskType: string },
+    ownerId: string,
+    expectedTaskType: 'hunyuan3d' | 'seed3d',
+  ): void {
+    if (task.userId !== ownerId) {
+      throw new ForbiddenException('无权访问该任务');
+    }
+    if (task.taskType !== expectedTaskType) {
+      throw new BadRequestException('任务类型不匹配');
+    }
+  }
+
+  private toAsync3DPublicStatus(status: string): 'pending' | 'processing' | 'succeeded' | 'failed' {
+    if (status === 'succeeded') return 'succeeded';
+    if (status === 'failed') return 'failed';
+    if (status === 'processing') return 'processing';
+    return 'pending';
+  }
+
+  private async queryAsync3DTask(
+    rawTaskId: string,
+    req: any,
+    expectedTaskType: 'hunyuan3d' | 'seed3d',
+    defaultFailureMessage: string,
+  ) {
+    if (!rawTaskId || !rawTaskId.trim()) {
       throw new BadRequestException('taskId 不能为空');
     }
 
-    const asyncTask = getAsyncTaskResult(taskId.trim());
-    if (!asyncTask) {
+    const taskId = rawTaskId.trim();
+    const ownerId = this.getAsync3DTaskOwner(req);
+    const persistedTask = this.generationTaskService
+      ? await this.generationTaskService.findVideoTaskById(taskId)
+      : null;
+    if (persistedTask) {
+      this.assertAsync3DTaskAccess(persistedTask, ownerId, expectedTaskType);
+    }
+
+    const asyncTask = getAsyncTaskResult(taskId);
+    if (!persistedTask && !asyncTask) {
       return {
         success: false,
-        taskId: taskId.trim(),
+        taskId,
         status: 'failed',
         error: '任务不存在或已过期，请重新提交',
       };
     }
 
-    if (asyncTask.status === 'completed' && asyncTask.result) {
+    const persistedResult =
+      persistedTask?.result && typeof persistedTask.result === 'object'
+        ? persistedTask.result as Record<string, any>
+        : undefined;
+    const completedResult =
+      asyncTask?.status === 'completed' && asyncTask.result
+        ? asyncTask.result
+        : persistedTask?.status === 'succeeded'
+          ? persistedResult
+          : undefined;
+    if (completedResult) {
       return {
         success: true,
-        taskId: taskId.trim(),
+        taskId,
         status: 'succeeded',
-        modelUrl: asyncTask.result.modelUrl,
-        promptId: asyncTask.result.promptId,
-        modelKey: asyncTask.result.modelKey,
+        modelUrl: completedResult.modelUrl,
+        promptId: completedResult.promptId,
+        modelKey: completedResult.modelKey,
       };
     }
 
-    if (asyncTask.status === 'failed') {
+    if (persistedTask?.status === 'failed' || asyncTask?.status === 'failed') {
       return {
         success: false,
-        taskId: taskId.trim(),
+        taskId,
         status: 'failed',
-        error: asyncTask.error || 'Seed3D 生成失败',
+        error: persistedTask?.error || asyncTask?.error || defaultFailureMessage,
       };
     }
 
+    const isProcessing =
+      persistedTask?.status === 'processing' || asyncTask?.status === 'processing';
     return {
       success: true,
-      taskId: taskId.trim(),
-      status: asyncTask.status === 'processing' ? 'processing' : 'pending',
-      progress: asyncTask.status === 'processing' ? 50 : 10,
+      taskId,
+      status: isProcessing ? 'processing' : 'pending',
+      progress: isProcessing ? 50 : 10,
     };
+  }
+
+  private executeHunyuan3DTaskAsync(
+    taskId: string,
+    dto: Convert2Dto3DDto,
+    req: any,
+  ): void {
+    void this.processHunyuan3DTaskAsync(taskId, dto, req).catch(async (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      updateAsyncTask(taskId, { status: 'failed', error: message });
+      await this.generationTaskService?.updateVideoTask(taskId, {
+        status: 'failed',
+        error: message,
+        completedAt: new Date(),
+      });
+      this.logger.error(`[Async] Hunyuan 3D task failed: taskId=${taskId}, error=${message}`);
+    });
+  }
+
+  private async processHunyuan3DTaskAsync(
+    taskId: string,
+    dto: Convert2Dto3DDto,
+    req: any,
+  ): Promise<void> {
+    updateAsyncTask(taskId, { status: 'processing' });
+    await this.generationTaskService?.updateVideoTask(taskId, { status: 'processing' });
+
+    const model = dto.model ?? '3.1';
+    const requestParams = this.buildCreditRequestParams('hunyuan-3d', {
+      nodeType: '2d-to-3d',
+      provider: 'hunyuan-3d',
+      model,
+      idempotencyKey: dto.clientRequestId,
+      clientProjectId: dto.projectId,
+      clientNodeId: dto.nodeId,
+    });
+    const result = await this.withCredits(
+      req,
+      'convert-2d-to-3d',
+      model,
+      async () => {
+        const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+        const normalizedImageUrl = dto.imageUrl
+          ? this.normalizeImageUrlForUpstream(dto.imageUrl)
+          : undefined;
+        const converted = await this.convert2Dto3DService.convert2Dto3D({
+          imageUrl: normalizedImageUrl,
+          prompt: dto.prompt,
+          model,
+          lowPoly: dto.lowPoly,
+          sketch: dto.sketch,
+          projectId: dto.projectId,
+          userId: typeof userId === 'string' ? userId : undefined,
+        });
+        return {
+          success: true,
+          modelUrl: converted.modelUrl,
+          promptId: converted.promptId,
+          modelKey: converted.modelKey,
+        };
+      },
+      1,
+      1,
+      undefined,
+      requestParams,
+    );
+
+    const taskResult = {
+      modelUrl: (result as any)?.modelUrl,
+      promptId: (result as any)?.promptId,
+      modelKey: (result as any)?.modelKey,
+    };
+    updateAsyncTask(taskId, {
+      status: 'completed',
+      result: { status: 'succeeded', taskId, ...taskResult },
+    });
+    await this.generationTaskService?.updateVideoTask(taskId, {
+      status: 'succeeded',
+      result: taskResult,
+      completedAt: new Date(),
+    });
   }
 
   private executeSeed3DTaskAsync(taskId: string, dto: Convert2Dto3DDto, req: any): void {

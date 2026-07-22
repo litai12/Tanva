@@ -18,7 +18,7 @@
 - `POST edit-image` / `blend-images`
 - `POST analyze-image` / `text-chat`
 - `POST remove-background`（含 public 变体�? `GET background-removal-info`
-- `POST convert-2d-to-3d` / `expand-image`
+- `POST convert-2d-to-3d`（兼容同步接口）/ `POST convert-2d-to-3d-async` / `GET convert-2d-to-3d/task/:taskId` / `expand-image`
 - `POST generate-video` / `generate-video-provider` / `GET video-task/:provider/:taskId`
 - `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成�?失败回写�?
 - `POST generate-paperjs` / `img2vector`
@@ -27,6 +27,11 @@
 - `POST analyze-video`
 - `POST minimax-speech` / `POST minimax-music`
 - `GET banana-route-success-rates`：按客户端时区统计当天 Banana `normal/stable` 路线成功率，返回成功/失败/处理中调用数，供工作区顶部路线切换展示
+
+## 2026-07-22 Hunyuan 3D Async Conversion
+- 通用 2D 转 3D 的真实上游是腾讯混元 3D 3.1，不经过 GPT/new-api，也不是 RunningHub。异步提交立即返回确定性 `taskId`，后台继续提交、轮询混元任务并把 GLB/GLTF 持久化到 OSS。
+- 客户端为一次画布操作生成稳定的 `clientRequestId`；后端按 `userId + taskType + clientRequestId` 计算 `VideoTask.id`，数据库主键负责并发原子去重。只有首次创建成功的请求启动后台生成，同一请求重试只返回原任务。
+- 状态查询先校验 `VideoTask.userId`，再合并内存状态与持久化结果；即使内存状态已过期或进程重启，已落库的成功/失败结果仍可查询。计费层使用同一个幂等键，记录 `provider=hunyuan-3d`、`model=3.1`。
 
 ## 2026-07-22 new-api GPT Text Routing
 - 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6`。
