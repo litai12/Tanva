@@ -121,6 +121,7 @@ const zhCN = {
       wechatBindIncomplete: "请输入手机号和验证码",
       wechatBindFailed: "手机号验证失败，请稍后重试",
       wechatLoadFailed: "微信登录二维码加载失败",
+      wechatPollFailed: "登录状态查询失败，请点击二维码重试",
     },
     register: {
       title: "注册账号",

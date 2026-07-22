@@ -25,7 +25,11 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 3 * 60 * 1000;
 // （旧的 3 分钟会把同步图像任务掐断，造成「扣费却拿不到图」）。
 export const IMAGE_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
-let refreshPromise: Promise<boolean> | null = null;
+// 刷新结果三态：ok=刷新成功；invalid=refresh token 确已失效（401/403）；
+// transient=网络错误或 5xx 等瞬时故障，不能据此判定登录态失效。
+type RefreshResult = "ok" | "invalid" | "transient";
+
+let refreshPromise: Promise<RefreshResult> | null = null;
 let creditsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const CREDITS_REFRESH_EVENT = "refresh-credits";
@@ -104,30 +108,30 @@ const refreshUrl =
     ? `${import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")}/api/auth/refresh`
     : "/api/auth/refresh";
 
-async function ensureRefresh(): Promise<boolean> {
+async function ensureRefresh(): Promise<RefreshResult> {
   if (!refreshPromise) {
     refreshPromise = fetch(refreshUrl, {
       method: 'POST',
       credentials: 'include',
       headers: { ...getRefreshAuthHeader() },
     })
-      .then((res) => {
+      .then((res): Promise<RefreshResult> | RefreshResult => {
         if (res.ok) {
           return res
             .json()
             .catch(() => null)
-            .then((data) => {
+            .then((data): RefreshResult => {
               if (data?.tokens) {
                 setTokens(data.tokens);
               }
               // 刷新成功，通知 tokenRefreshManager
               tokenRefreshManager.onLoginSuccess();
-              return true;
+              return "ok";
             });
         }
-        return res.ok;
+        return res.status === 401 || res.status === 403 ? "invalid" : "transient";
       })
-      .catch(() => false)
+      .catch((): RefreshResult => "transient")
       .finally(() => {
         refreshPromise = null;
       });
@@ -250,12 +254,13 @@ export async function fetchWithAuth(
   }
 
   if (!allowRefresh) {
-    triggerAuthExpired();
+    // 禁用刷新的调用（图片预览/下载等批量请求）拿到 401 直接返回，
+    // 不强制登出：登录态是否真失效由允许刷新的请求路径判定。
     return response;
   }
 
   const refreshed = await ensureRefresh();
-  if (refreshed) {
+  if (refreshed === "ok") {
     const retryNormalized = normalizeInit({ ...rest, auth });
     const { signal: retrySignal, cleanup: retryCleanup } = createTimeoutSignal(
       retryNormalized.signal,
@@ -279,6 +284,10 @@ export async function fetchWithAuth(
     return retryResponse;
   }
 
-  triggerAuthExpired();
+  // 只有 refresh 接口明确返回 401/403（refresh token 失效）才强制登出；
+  // 网络错误/5xx 等瞬时故障不能把有效登录态踢下线。
+  if (refreshed === "invalid") {
+    triggerAuthExpired();
+  }
   return response;
 }

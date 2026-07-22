@@ -6,7 +6,10 @@ const httpBase =
   import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
     : 'http://localhost:4000';
-const wsBase = httpBase.replace(/^http/i, 'ws'); // http->ws, https->wss
+// VITE_API_BASE_URL=/（同源部署，多租户子站共用构建）时 httpBase 为空串，回落当前页面 origin
+const wsOrigin =
+  httpBase || (typeof window !== 'undefined' && window.location?.origin) || 'http://localhost:4000';
+const wsBase = wsOrigin.replace(/^http/i, 'ws'); // http->ws, https->wss
 
 const MAX_BACKOFF_MS = 30_000;
 

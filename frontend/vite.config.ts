@@ -76,6 +76,7 @@ export default defineConfig({
       '.trycloudflare.com',  // 允许所有 trycloudflare.com 的子域名
       '.tanvas.cn',          // 允许所有 tanvas.cn 的子域名（Cloudflare Tunnel）
       'rhyuvfgbjqxc.sealoshzh.site',
+      '.localhost',          // 多租户本地演示：允许 a.localhost / b.localhost 等子域
       'localhost',
       '127.0.0.1',
       '0.0.0.0',
@@ -84,10 +85,20 @@ export default defineConfig({
     proxy: {
       '/api': {
         // 后端服务器地址
-        // 后端服务器地址
         // 本地开发时使用 localhost, 其他PC访问时自动转发到 0.0.0.0:4000
         target: 'http://localhost:4000',
         changeOrigin: true,
+        // 多租户本地演示：设 DEV_TENANT_HOST=a.localhost 启动时，把代理到后端的
+        // Host/X-Forwarded-Host 改写成该域名，后端即按其解析租户。
+        // 不设则行为不变（普通 npm run dev 不受影响）。配合 VITE_API_BASE_URL=/ 让前端走代理。
+        configure: (proxy) => {
+          const devHost = process.env.DEV_TENANT_HOST;
+          if (!devHost) return;
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('host', devHost);
+            proxyReq.setHeader('x-forwarded-host', devHost);
+          });
+        },
       },
     },
   },

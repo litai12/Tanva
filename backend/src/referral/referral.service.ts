@@ -125,6 +125,7 @@ export class ReferralService {
     const retryDelayMs = 50;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      // ALLOW_RAW_NO_TENANT: 咨询锁，不查表数据
       const [row] = await tx.$queryRaw<{ locked: boolean }[]>`
         SELECT pg_try_advisory_xact_lock(hashtext(${lockKey}), 0) AS locked
       `;

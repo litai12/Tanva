@@ -38,7 +38,7 @@ export class AuthController {
     );
     this.auth.setAuthCookies(res, tokens, req);
     return {
-      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role, tenantId: (user as any).tenantId },
       tokens,
     };
   }
@@ -210,7 +210,7 @@ export class AuthController {
     });
     this.auth.setAuthCookies(res, tokens, req);
     return {
-      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role, tenantId: (user as any).tenantId },
       tokens,
     };
   }

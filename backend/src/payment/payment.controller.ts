@@ -89,15 +89,26 @@ export class PaymentController {
   }
 
   /**
-   * 支付宝异步回调通知
+   * 支付宝异步回调通知。
+   * - `notify`            旧全局路由（在途旧订单 / 主站）
+   * - `notify/:tenantId`  租户级商户：下单时把 tenantId 写进 notify_url 末段
    */
   @Post('notify')
   async alipayNotify(
     @Body() notifyData: Record<string, string>,
     @Res() res: FastifyReply,
   ) {
+    return this.alipayNotifyTenant(undefined, notifyData, res);
+  }
+
+  @Post('notify/:tenantId')
+  async alipayNotifyTenant(
+    @Param('tenantId') tenantId: string | undefined,
+    @Body() notifyData: Record<string, string>,
+    @Res() res: FastifyReply,
+  ) {
     try {
-      const result = await this.paymentService.handleAlipayNotify(notifyData);
+      const result = await this.paymentService.handleAlipayNotify(notifyData, tenantId);
       // 支付宝要求返回 'success' 字符串表示接收成功
       res.send(result ? 'success' : 'fail');
     } catch (error) {
@@ -107,7 +118,9 @@ export class PaymentController {
   }
 
   /**
-   * 微信支付异步回调通知
+   * 微信支付异步回调通知。
+   * - `wechat-notify`            旧全局路由（在途旧订单 / 主站）
+   * - `wechat-notify/:tenantId`  租户级商户：用该租户 APIv3 key 解密
    */
   @Post('wechat-notify')
   async wechatNotify(
@@ -115,10 +128,21 @@ export class PaymentController {
     @Body() notifyData: Record<string, any>,
     @Res() res: FastifyReply,
   ) {
+    return this.wechatNotifyTenant(req, undefined, notifyData, res);
+  }
+
+  @Post('wechat-notify/:tenantId')
+  async wechatNotifyTenant(
+    @Request() req: any,
+    @Param('tenantId') tenantId: string | undefined,
+    @Body() notifyData: Record<string, any>,
+    @Res() res: FastifyReply,
+  ) {
     try {
       const result = await this.paymentService.handleWechatNotify(
         notifyData,
         (req?.headers || {}) as Record<string, string | string[] | undefined>,
+        tenantId,
       );
       // 微信支付要求返回成功响应
       res.send(result ? { code: 'SUCCESS', message: '成功' } : { code: 'FAIL', message: '失败' });
@@ -137,7 +161,17 @@ export class PaymentController {
     @Body() notifyData: Record<string, any>,
     @Res() res: FastifyReply,
   ) {
-    return this.wechatNotify(req, notifyData, res);
+    return this.wechatNotifyTenant(req, undefined, notifyData, res);
+  }
+
+  @Post('wechat/notify/:tenantId')
+  async wechatNotifyCompatTenant(
+    @Request() req: any,
+    @Param('tenantId') tenantId: string | undefined,
+    @Body() notifyData: Record<string, any>,
+    @Res() res: FastifyReply,
+  ) {
+    return this.wechatNotifyTenant(req, tenantId, notifyData, res);
   }
 
   /**

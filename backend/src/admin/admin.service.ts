@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException,
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantContextService } from '../tenancy/tenant-context.service';
 import { ApiResponseStatus, TransactionType } from '../credits/dto/credits.dto';
 import { TeamCreditsPublisher } from '../team-collab/team-credits-publisher.service';
 import { CreditsService } from '../credits/credits.service';
@@ -35,6 +36,8 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  tenantId: string;
+  tenantName: string;
   wechatBound: boolean;
   createdAt: Date;
   lastLoginAt: Date | null;
@@ -235,6 +238,7 @@ export interface CreditChangeRecord {
 export class AdminService {
   constructor(
     private prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
     private readonly creditsService: CreditsService,
     private readonly teamCoreService: TeamCoreService,
     private readonly apiUsageRollupService: ApiUsageRollupService,
@@ -597,6 +601,7 @@ export class AdminService {
     tableName: string,
     columnName: string,
   ): Promise<boolean> {
+    // ALLOW_RAW_NO_TENANT: information_schema 是数据库元数据，不属于任何业务租户。
     const rows = await tx.$queryRaw<Array<{ exists: boolean }>>`
       SELECT EXISTS (
         SELECT 1
@@ -620,6 +625,7 @@ export class AdminService {
 
     if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
 
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user/account/team UUID 全局唯一。
     await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE "${columnName}" = $1`, value);
   }
 
@@ -634,6 +640,7 @@ export class AdminService {
 
     if (!(await this.tableColumnExists(tx, tableName, columnName))) return;
 
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user UUID 全局唯一。
     await tx.$executeRawUnsafe(`UPDATE "${tableName}" SET "${columnName}" = NULL WHERE "${columnName}" = $1`, value);
   }
 
@@ -656,6 +663,7 @@ export class AdminService {
     if (existingColumns.length === 0) return;
 
     const where = existingColumns.map((columnName) => `"${columnName}" = $1`).join(' OR ');
+    // ALLOW_RAW_NO_TENANT: 删除用户流程传入的 user UUID 全局唯一。
     await tx.$executeRawUnsafe(`DELETE FROM "${tableName}" WHERE ${where}`, value);
   }
 
@@ -670,6 +678,7 @@ export class AdminService {
       return;
     }
 
+    // ALLOW_RAW_NO_TENANT: userId 和关联 projectId 均为全局 UUID。
     await tx.$executeRawUnsafe(
       `DELETE FROM "TeamProjectShare"
        WHERE "projectId" IN (SELECT "id" FROM "Project" WHERE "userId" = $1)`,
@@ -680,6 +689,7 @@ export class AdminService {
   private async deleteOwnedTeamsIfExists(tx: Prisma.TransactionClient, userId: string) {
     if (!(await this.tableColumnExists(tx, 'Team', 'ownerId'))) return;
 
+    // ALLOW_RAW_NO_TENANT: owner userId 为全局 UUID。
     const ownedTeams = await tx.$queryRawUnsafe<Array<{ id: string }>>(
       `SELECT "id" FROM "Team" WHERE "ownerId" = $1`,
       userId,
@@ -693,6 +703,7 @@ export class AdminService {
       await this.deleteFromTableByColumnIfExists(tx, 'TeamSeatPackage', 'teamId', team.id);
 
       if (await this.tableColumnExists(tx, 'TeamCreditAccount', 'teamId')) {
+        // ALLOW_RAW_NO_TENANT: teamId 为全局 UUID。
         const teamCreditAccounts = await tx.$queryRawUnsafe<Array<{ id: string }>>(
           `SELECT "id" FROM "TeamCreditAccount" WHERE "teamId" = $1`,
           team.id,
@@ -707,6 +718,7 @@ export class AdminService {
       }
     }
 
+    // ALLOW_RAW_NO_TENANT: owner userId 为全局 UUID。
     await tx.$executeRawUnsafe(`DELETE FROM "Team" WHERE "ownerId" = $1`, userId);
   }
 
@@ -725,6 +737,26 @@ export class AdminService {
       d.setDate(trendStart.getDate() + idx);
       return d;
     });
+
+    // 活跃用户(按 RefreshToken 去重 userId)。裸 SQL 绕过租户注入，需手动作用域：
+    //  - 平台态(选「全部租户」)→ 不过滤，跨租户统计；
+    //  - 租户态(选主站/某子站，或普通租户管理员)→ 按当前作用域租户过滤；
+    // 与上面 prisma 计数(随 runAsTenant/runAsPlatform 自动作用域)保持一致。
+    const platformMode = this.tenantContext.isPlatformMode();
+    const scopedTenantId = this.tenantContext.getTenantId();
+    const activeUserCount = (from: Date, to: Date) =>
+      platformMode
+        ? this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+            SELECT COUNT(DISTINCT "userId")::bigint AS count
+            FROM "RefreshToken"
+            WHERE "createdAt" >= ${from} AND "createdAt" < ${to}
+          `
+        : this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+            SELECT COUNT(DISTINCT "userId")::bigint AS count
+            FROM "RefreshToken"
+            WHERE "createdAt" >= ${from} AND "createdAt" < ${to}
+              AND "tenantId" = ${scopedTenantId}
+          `;
 
     const [
       totalUsers,
@@ -761,12 +793,7 @@ export class AdminService {
           },
         },
       }),
-      this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-        SELECT COUNT(DISTINCT "userId")::bigint AS count
-        FROM "RefreshToken"
-        WHERE "createdAt" >= ${startOfToday}
-          AND "createdAt" < ${endOfToday}
-      `,
+      activeUserCount(startOfToday, endOfToday),
       this.prisma.creditAccount.aggregate({
         _sum: {
           balance: true,
@@ -790,12 +817,7 @@ export class AdminService {
                 },
               },
             }),
-            this.prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
-              SELECT COUNT(DISTINCT "userId")::bigint AS count
-              FROM "RefreshToken"
-              WHERE "createdAt" >= ${dayStart}
-                AND "createdAt" < ${dayEnd}
-            `,
+            activeUserCount(dayStart, dayEnd),
           ]);
           return {
             date: this.formatDayLabel(dayStart),
@@ -845,8 +867,10 @@ export class AdminService {
     search?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    // 主站超管专用：'all' 跨所有租户；具体 tenantId 仅看该租户；undefined=按当前 CLS 租户（普通租户管理员）
+    tenantScope?: string;
   } = {}): Promise<{ users: UserWithCredits[]; pagination: any }> {
-    const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+    const { page = 1, pageSize = 10, search, sortBy = 'createdAt', sortOrder = 'desc', tenantScope } = options;
 
     const where: any = {};
     if (search) {
@@ -857,21 +881,36 @@ export class AdminService {
       ];
     }
 
-    const [users, total] = await Promise.all([
-      this.prisma.user.findMany({
-        where,
-        include: {
-          creditAccount: true,
-          _count: {
-            select: { apiUsageRecords: true },
+    // 根据 tenantScope 决定查询上下文：
+    //  - 'all'   → 平台态（跨所有租户）
+    //  - <id>    → 在该租户上下文
+    //  - undefined → 维持当前 CLS（租户管理员只看本租户）
+    const run = <T>(fn: () => Promise<T>): Promise<T> => {
+      if (tenantScope === 'all') return this.tenantContext.runAsPlatform(fn);
+      if (tenantScope) return this.tenantContext.runAsTenant(tenantScope, fn);
+      return fn();
+    };
+
+    const [users, total, tenantList] = await run(() =>
+      Promise.all([
+        this.prisma.user.findMany({
+          where,
+          include: {
+            creditAccount: true,
+            _count: { select: { apiUsageRecords: true } },
           },
-        },
-        orderBy: { [sortBy]: sortOrder },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.user.count({ where }),
-    ]);
+          orderBy: { [sortBy]: sortOrder },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.user.count({ where }),
+        // 租户名映射（平台态读全局白名单表 Tenant）
+        (this.prisma as any).tenant.findMany({ select: { id: true, name: true } }),
+      ]),
+    );
+    const tenantNameMap = new Map<string, string>(
+      (tenantList as Array<{ id: string; name: string }>).map((t) => [t.id, t.name]),
+    );
 
     const usersWithCredits: UserWithCredits[] = users.map((user: any) => ({
       id: user.id,
@@ -880,6 +919,8 @@ export class AdminService {
       name: user.name,
       role: user.role,
       status: user.status,
+      tenantId: user.tenantId,
+      tenantName: tenantNameMap.get(user.tenantId) ?? user.tenantId,
       wechatBound: Boolean(user.wechatOfficialOpenId || user.wechatUnionId),
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
@@ -933,18 +974,19 @@ export class AdminService {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const existsByPhone = await tx.user.findUnique({ where: { phone } });
+      // 租户隔离后 phone/email 非全局唯一；用 findFirst，租户扩展会自动补 tenantId 过滤
+      const existsByPhone = await tx.user.findFirst({ where: { phone } });
       if (existsByPhone) {
         throw new BadRequestException('手机号已注册');
       }
 
-      const existsPhoneMatchedByName = await tx.user.findUnique({ where: { phone: name } });
+      const existsPhoneMatchedByName = await tx.user.findFirst({ where: { phone: name } });
       if (existsPhoneMatchedByName) {
         throw new BadRequestException('昵称不能与手机号相同');
       }
 
       if (email) {
-        const existsByEmail = await tx.user.findUnique({ where: { email } });
+        const existsByEmail = await tx.user.findFirst({ where: { email } });
         if (existsByEmail) {
           throw new BadRequestException('邮箱已存在');
         }
@@ -984,6 +1026,11 @@ export class AdminService {
       where: { userId: user.id },
     });
 
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { name: true },
+    });
+
     return {
       id: user.id,
       email: user.email,
@@ -998,6 +1045,8 @@ export class AdminService {
       totalSpent: account?.totalSpent || 0,
       totalEarned: account?.totalEarned || 0,
       apiCallCount: user._count.apiUsageRecords,
+      tenantId: user.tenantId,
+      tenantName: tenant?.name ?? user.tenantId,
     };
   }
 
@@ -1458,12 +1507,17 @@ export class AdminService {
     const requestedModelNode = this.asNonEmptyString(options.modelNode)?.toLowerCase();
     const requestedChannel = this.asNonEmptyString(options.channel)?.toUpperCase();
 
-    const where: Prisma.ApiUsageRecordWhereInput = {};
-    if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = startDate;
-      if (endDate) where.createdAt.lte = endDate;
-    }
+    // 查询窗口最多回溯15天，避免全表扫描
+    const maxLookbackDays = 15;
+    const minStartDate = new Date();
+    minStartDate.setHours(0, 0, 0, 0);
+    minStartDate.setDate(minStartDate.getDate() - (maxLookbackDays - 1));
+    const effectiveStartDate =
+      startDate && startDate > minStartDate ? startDate : minStartDate;
+
+    const where: Prisma.ApiUsageRecordWhereInput = {
+      createdAt: { gte: effectiveStartDate, ...(endDate ? { lte: endDate } : {}) },
+    };
 
     const records = await this.prisma.apiUsageRecord.findMany({
       where,
@@ -1780,6 +1834,11 @@ export class AdminService {
     if (status) distinctUserConds.push(Prisma.sql`a."responseStatus" = ${status}`);
     if (startDate) distinctUserConds.push(Prisma.sql`a."createdAt" >= ${startDate}`);
     if (endDate) distinctUserConds.push(Prisma.sql`a."createdAt" <= ${endDate}`);
+    if (!this.tenantContext.isPlatformMode()) {
+      distinctUserConds.push(
+        Prisma.sql`a."tenantId" = ${this.tenantContext.getTenantId()}`,
+      );
+    }
     const distinctUserWhere = distinctUserConds.length
       ? Prisma.sql`WHERE ${Prisma.join(distinctUserConds, ' AND ')}`
       : Prisma.empty;
@@ -1821,6 +1880,7 @@ export class AdminService {
           creditsUsed: true,
         },
       }),
+      // ALLOW_RAW_NO_TENANT: distinctUserWhere 在租户态显式包含 a."tenantId"，平台态有意跨租户。
       this.prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
         SELECT COUNT(DISTINCT a."userId")::bigint AS count
         FROM "ApiUsageRecord" a

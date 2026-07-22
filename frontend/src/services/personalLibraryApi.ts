@@ -26,7 +26,8 @@ export const personalLibraryApi = {
     type?: PersonalAssetType,
     init?: AuthFetchInit
   ): Promise<PersonalLibraryAsset[]> {
-    const url = new URL(`${base}/api/personal-library/assets`);
+    // base 为空串（同源部署）时相对路径需按当前 origin 解析
+    const url = new URL(`${base}/api/personal-library/assets`, window.location.origin);
     if (type) url.searchParams.set("type", type);
     const res = await fetchWithAuth(url.toString(), init);
     return json<PersonalLibraryAsset[]>(res);

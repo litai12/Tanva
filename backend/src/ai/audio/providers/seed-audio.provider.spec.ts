@@ -41,7 +41,6 @@ describe('SeedAudioProvider', () => {
         'X-NewApi-Audio-Duration': '3.50',
       }),
     });
-    // @ts-expect-error override global fetch for the test
     global.fetch = fetchMock;
   });
 

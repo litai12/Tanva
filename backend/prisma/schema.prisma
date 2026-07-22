@@ -8,12 +8,13 @@ datasource db {
 }
 
 model User {
+  tenantId String @default("default")
   id                         String                 @id @default(uuid())
-  email                      String?                @unique
-  watchaUserId               String?                @unique
-  wechatOfficialOpenId       String?                @unique
-  wechatUnionId              String?                @unique
-  phone                      String                 @unique
+  email                      String?
+  watchaUserId               String?
+  wechatOfficialOpenId       String?
+  wechatUnionId              String?
+  phone                      String
   passwordHash               String
   name                       String?
   avatarUrl                  String?
@@ -49,7 +50,15 @@ model User {
   authoredComments           CanvasComment[]        @relation("CommentAuthor")
   resolvedCommentThreads     CanvasCommentThread[]  @relation("ThreadResolver")
 
+  // 租户隔离唯一约束（替代原单列全局唯一）
+  @@unique([tenantId, phone])
+  @@unique([tenantId, email])
+  @@unique([tenantId, watchaUserId])
+  @@unique([tenantId, wechatOfficialOpenId])
+  @@unique([tenantId, wechatUnionId])
+
   // 索引优化：加速用户验证和查找
+  @@index([tenantId, phone, status]) // 租户内手机号登录优化
   @@index([phone, status])  // 手机号登录优化
   @@index([email, status])  // 邮箱登录优化（如果支持）
   @@index([role, status])   // 角色筛选优化
@@ -57,6 +66,7 @@ model User {
 }
 
 model WechatLoginSession {
+  tenantId String @default("default")
   id         String    @id @default(uuid())
   sceneKey   String    @unique
   status     String    @default("pending")
@@ -81,6 +91,7 @@ model WechatLoginSession {
 }
 
 model UserTemplate {
+  tenantId String @default("default")
   id           String   @id
   userId       String
   name         String
@@ -98,6 +109,7 @@ model UserTemplate {
 }
 
 model RefreshToken {
+  tenantId String @default("default")
   id        String   @id @default(uuid())
   userId    String
   tokenHash String
@@ -115,6 +127,7 @@ model RefreshToken {
 }
 
 model Project {
+  tenantId String @default("default")
   id             String   @id @default(uuid())
   userId         String
   name           String
@@ -182,6 +195,7 @@ model CanvasComment {
 }
 
 model WorkflowHistory {
+  tenantId String @default("default")
   userId                String
   projectId             String
   /// 业务语义上的“更新时间/保存时间”（作为排序键），不使用 @updatedAt
@@ -205,6 +219,7 @@ model WorkflowHistory {
 }
 
 model CreditAccount {
+  tenantId String @default("default")
   id                String              @id @default(uuid())
   userId            String              @unique
   balance           Int                 @default(0)
@@ -223,6 +238,7 @@ model CreditAccount {
 }
 
 model CreditTransaction {
+  tenantId String @default("default")
   id            String        @id @default(uuid())
   accountId     String
   type          String
@@ -257,6 +273,7 @@ model CreditTransaction {
 }
 
 model CreditLot {
+  tenantId String @default("default")
   id              String              @id @default(uuid())
   accountId       String
   sourceType      String
@@ -305,6 +322,7 @@ model CreditConsumePolicy {
 }
 
 model CreditAnomalyRecord {
+  tenantId String @default("default")
   id                 String        @id @default(uuid())
   accountId          String
   userId             String
@@ -329,6 +347,7 @@ model CreditAnomalyRecord {
 }
 
 model ApiUsageRecord {
+  tenantId String @default("default")
   id               String   @id @default(uuid())
   userId           String
   serviceType      String
@@ -410,8 +429,9 @@ model CreditPackage {
 }
 
 model MembershipPlan {
+  tenantId            String   @default("default")
   id                  String   @id @default(uuid())
-  code                String   @unique
+  code                String
   name                String
   billingCycle        String
   price               Decimal  @db.Decimal(10, 2)
@@ -424,10 +444,12 @@ model MembershipPlan {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@index([isActive, sortOrder])
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive, sortOrder])
 }
 
 model UserMembershipSubscription {
+  tenantId String @default("default")
   id                   String   @id @default(uuid())
   userId               String
   membershipPlanId     String
@@ -450,6 +472,7 @@ model UserMembershipSubscription {
 }
 
 model MembershipSubscriptionChange {
+  tenantId String @default("default")
   id                    String   @id @default(uuid())
   userId                String
   currentSubscriptionId String?
@@ -476,6 +499,7 @@ model MembershipSubscriptionChange {
 }
 
 model MembershipEntitlementSnapshot {
+  tenantId String @default("default")
   userId               String   @id
   currentPlanCode      String   @default("free")
   membershipStatus     String   @default("inactive")
@@ -487,6 +511,7 @@ model MembershipEntitlementSnapshot {
 }
 
 model InvitationCode {
+  tenantId String @default("default")
   id            String                 @id @default(uuid())
   code          String                 @unique
   status        String                 @default("active")
@@ -503,6 +528,7 @@ model InvitationCode {
 }
 
 model InvitationRedemption {
+  tenantId String @default("default")
   id            String         @id @default(uuid())
   codeId        String
   inviteeUserId String
@@ -522,6 +548,7 @@ model InvitationRedemption {
 }
 
 model GlobalImageHistory {
+  tenantId String @default("default")
   id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   userId            String
   imageUrl          String
@@ -638,6 +665,7 @@ model NodeConfig {
 }
 
 model PaymentOrder {
+  tenantId String @default("default")
   id            String   @id @default(uuid())
   orderNo       String   @unique
   userId        String
@@ -666,6 +694,7 @@ model PaymentOrder {
 }
 
 model ImageTask {
+  tenantId String @default("default")
   id           String    @id @default(uuid())
   userId       String
   type         String    // generate, edit, blend, expand
@@ -689,6 +718,7 @@ model ImageTask {
 }
 
 model VideoTask {
+  tenantId String @default("default")
   id          String    @id
   userId      String
   nodeId      String?
@@ -708,6 +738,7 @@ model VideoTask {
 }
 
 model VolcReviewGroup {
+  tenantId String @default("default")
   id        String   @id @default(uuid())
   date      String   @unique
   groupId   String   @unique
@@ -715,6 +746,7 @@ model VolcReviewGroup {
 }
 
 model BioAuthGroup {
+  tenantId String @default("default")
   id        String   @id @default(uuid())
   userId    String
   groupId   String   @unique
@@ -761,6 +793,7 @@ model postgres_log {
 // ─── 团队模块 ────────────────────────────────────────────────
 
 model Team {
+  tenantId String @default("default")
   id          String   @id @default(uuid())
   name        String
   ownerId     String
@@ -782,6 +815,7 @@ model Team {
 }
 
 model TeamMembership {
+  tenantId String @default("default")
   teamId              String
   userId              String
   role                String   @default("member")
@@ -801,6 +835,7 @@ model TeamMembership {
 }
 
 model TeamInvite {
+  tenantId String @default("default")
   id             String    @id @default(uuid())
   teamId         String
   code           String    @unique
@@ -820,6 +855,7 @@ model TeamInvite {
 }
 
 model TeamProjectShare {
+  tenantId String @default("default")
   projectId      String
   teamId         String
   access         String   @default("edit")
@@ -835,6 +871,7 @@ model TeamProjectShare {
 }
 
 model TeamCreditAccount {
+  tenantId String @default("default")
   id            String   @id @default(uuid())
   teamId        String   @unique
   balance       Int      @default(0)
@@ -850,6 +887,7 @@ model TeamCreditAccount {
 }
 
 model TeamCreditLot {
+  tenantId String @default("default")
   id              String    @id @default(uuid())
   teamCreditAccId String
   amount          Int
@@ -865,6 +903,7 @@ model TeamCreditLot {
 }
 
 model TeamCreditLedger {
+  tenantId String @default("default")
   id               String    @id @default(uuid())
   teamAccId        String
   entryType        String
@@ -883,6 +922,7 @@ model TeamCreditLedger {
 }
 
 model TeamSeatPackage {
+  tenantId String @default("default")
   id             String   @id @default(uuid())
   teamId         String
   paymentOrderId String?  @unique
@@ -901,6 +941,7 @@ model TeamSeatPackage {
 }
 
 model TeamSubscriptionPlan {
+  tenantId String @default("default")
   id                     String   @id @default(uuid())
   name                   String
   tier                   String
@@ -919,6 +960,7 @@ model TeamSubscriptionPlan {
 }
 
 model TeamSubscription {
+  tenantId String @default("default")
   id                  String    @id @default(uuid())
   teamId              String
   planId              String
@@ -939,6 +981,49 @@ model TeamSubscription {
 
   @@index([nextCreditRenewalAt, status])
   @@index([teamId, status])
+}
+
+model Tenant {
+  id         String         @id @default(uuid())
+  slug       String         @unique
+  name       String
+  status     String         @default("active")
+  isPlatform Boolean        @default(false)
+  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页
+  homepage   String         @default("default")
+  // 子租户独立 new-api 三组 key（空则回落平台 env key）。MVP 明文存储。
+  newApiKey     String?
+  newApiKeyVip  String?
+  newApiKeySvip String?
+  // 子租户独立支付商户配置（空则逐渠道回落平台 env）。
+  // 明文(非密)：商户号 / appid / 证书序列号
+  wechatAppId          String?
+  wechatMchId          String?
+  wechatSerialNo       String?
+  alipayAppId          String?
+  // 密文(AES-256-GCM，见 utils/secret-crypto)：私钥 / 证书 / APIv3 key
+  wechatPrivateKeyEnc  String?
+  wechatCertificateEnc String?
+  wechatApiV3KeyEnc    String?
+  alipayPrivateKeyEnc  String?
+  alipayPublicKeyEnc   String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  domains    TenantDomain[]
+
+  @@index([status])
+}
+
+model TenantDomain {
+  id        String   @id @default(uuid())
+  tenantId  String
+  host      String   @unique
+  isPrimary Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 // ── 素材库 / Material Library（个人 + 团队资产，从 TapCanvas-pro 移植）────────────

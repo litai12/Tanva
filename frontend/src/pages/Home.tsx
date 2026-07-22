@@ -23,7 +23,7 @@ const WeChatFloatingButton = () => {
   useEffect(() => {
     const fetchQrCodes = async () => {
       try {
-        const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000';
+        const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:4000').replace(/\/+$/, '');
         const response = await fetch(`${API_BASE}/api/settings/wechat-qrcodes`);
         if (response.ok) {
           const data = await response.json();
@@ -211,7 +211,7 @@ export default function Home() {
               onClick={() => navigate("/")}
             >
               <img
-                src='/LogoText.svg'
+                src='https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/LogoText.svg'
                 alt='Tanvas'
                 draggable='false'
                 className='brightness-0 invert'
@@ -334,14 +334,14 @@ export default function Home() {
             playsInline
             className='absolute inset-0 w-full h-full object-cover z-[1]'
           >
-            <source src='/OpenVideo.mp4' type='video/mp4' />
+            <source src='https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/OpenVideo.mp4' type='video/mp4' />
             {t("home.videoUnsupported")}
           </video>
 
           <div className='text-center relative z-10'>
             <h1 className='mb-10'>
               <img
-                src='/TanvasText.png'
+                src='https://tanvas-ai.tos-cn-guangzhou.volces.com/static/landing/TanvasText.png'
                 alt={t("home.hero.logoAlt")}
                 draggable='false'
                 className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'

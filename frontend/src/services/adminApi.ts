@@ -50,6 +50,8 @@ export interface UserWithCredits {
   name: string | null;
   role: string;
   status: string;
+  tenantId?: string;
+  tenantName?: string;
   wechatBound: boolean;
   createdAt: string;
   lastLoginAt: string | null;
@@ -264,8 +266,9 @@ export interface PaginatedResponse<T> {
 
 
 // 获取管理后台统计数据
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await request("/api/admin/dashboard");
+export async function getDashboardStats(params?: { tenantId?: string }): Promise<DashboardStats> {
+  const qs = params?.tenantId ? `?tenantId=${encodeURIComponent(params.tenantId)}` : "";
+  const response = await request(`/api/admin/dashboard${qs}`);
   return response.json();
 }
 
@@ -378,6 +381,7 @@ export async function getUsers(params: {
   search?: string;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ users: UserWithCredits[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
@@ -385,8 +389,158 @@ export async function getUsers(params: {
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  if (params.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/users?${searchParams}`);
+  return response.json();
+}
+
+// ===== 租户管理（仅主站超管）=====
+export interface TenantDomainInfo {
+  id: string;
+  host: string;
+  isPrimary: boolean;
+  verified: boolean;
+}
+export interface TenantInfo {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  isPlatform: boolean;
+  // 首页模板：default = 平台默认首页；newway = NewWay 官网宣发页；xingdou = 星斗传媒官网
+  homepage: "default" | "newway" | "xingdou";
+  createdAt: string;
+  userCount: number;
+  // 是否已配置各档 new-api key（不含明文）
+  apiKeys?: { normal: boolean; vip: boolean; svip: boolean };
+  // 各支付渠道是否已配置独立商户（否则回落主站）
+  payment?: { wechat: boolean; alipay: boolean };
+  domains: TenantDomainInfo[];
+}
+
+// 支付配置：商户号/appid/序列号明文回显；私钥/证书/APIv3 key 仅布尔
+export interface TenantPaymentConfig {
+  wechat: {
+    appId: string | null;
+    mchId: string | null;
+    serialNo: string | null;
+    privateKey: boolean;
+    certificate: boolean;
+    apiV3Key: boolean;
+  };
+  alipay: {
+    appId: string | null;
+    privateKey: boolean;
+    publicKey: boolean;
+  };
+}
+
+// 提交支付配置：传字符串=设置(空串=清除)，不传=不变
+export interface SetTenantPaymentConfigBody {
+  wechatAppId?: string;
+  wechatMchId?: string;
+  wechatSerialNo?: string;
+  wechatPrivateKey?: string;
+  wechatCertificate?: string;
+  wechatApiV3Key?: string;
+  alipayAppId?: string;
+  alipayPrivateKey?: string;
+  alipayPublicKey?: string;
+}
+
+// 分租户经营统计（下单/消耗走平台主账号，但数据按 tenantId 分开统计）
+export interface TenantStat {
+  tenantId: string;
+  name: string;
+  slug: string | null;
+  isPlatform: boolean;
+  known: boolean; // false=仅在统计里出现、无 Tenant 记录的孤儿 tenantId
+  paidOrderCount: number;
+  revenueYuan: number;
+  creditsSold: number;
+  creditsConsumed: number;
+  apiCallCount: number;
+}
+export interface TenantStatsResponse {
+  tenants: TenantStat[];
+  generatedAt: string;
+}
+
+export async function getTenants(): Promise<TenantInfo[]> {
+  const response = await request(`/api/admin/tenants`);
+  return response.json();
+}
+export async function getTenantStats(): Promise<TenantStatsResponse> {
+  const response = await request(`/api/admin/tenants/stats`);
+  return response.json();
+}
+export async function createTenant(body: {
+  name: string;
+  slug: string;
+  host?: string;
+}): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function updateTenant(
+  id: string,
+  body: { name?: string; status?: "active" | "suspended"; homepage?: "default" | "newway" | "xingdou" },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function addTenantDomain(
+  id: string,
+  body: { host: string; isPrimary?: boolean },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/domains`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+export async function removeTenantDomain(id: string, domainId: string): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/domains/${domainId}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+export async function setTenantApiKeys(
+  id: string,
+  body: { newApiKey?: string; newApiKeyVip?: string; newApiKeySvip?: string },
+): Promise<TenantInfo> {
+  const response = await request(`/api/admin/tenants/${id}/api-keys`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
+export async function getTenantPaymentConfig(id: string): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`);
+  return response.json();
+}
+
+export async function setTenantPaymentConfig(
+  id: string,
+  body: SetTenantPaymentConfigBody,
+): Promise<TenantPaymentConfig> {
+  const response = await request(`/api/admin/tenants/${id}/payment-config`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
   return response.json();
 }
 
@@ -415,12 +569,12 @@ export async function updateUserStatus(userId: string, status: string) {
   return response.json();
 }
 
-// 更新用户角色
-export async function updateUserRole(userId: string, role: string) {
+// 更新用户角色（tenantId：仅主站超管跨租户给子站用户设/取消管理员时传目标用户所属租户）
+export async function updateUserRole(userId: string, role: string, tenantId?: string) {
   const response = await request(`/api/admin/users/${userId}/role`, {
     method: "PATCH",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ role }),
+    body: JSON.stringify(tenantId ? { role, tenantId } : { role }),
   });
   return response.json();
 }
@@ -517,10 +671,12 @@ export async function getAdminUserCreditTransactions(
 export async function getApiUsageStats(params?: {
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<ApiUsageStats[]> {
   const searchParams = new URLSearchParams();
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/api-usage/stats?${searchParams}`);
   return response.json();
@@ -554,6 +710,7 @@ export async function getApiUsageRecords(params: {
   status?: string;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ records: ApiUsageRecord[]; summary: ApiUsageRecordsSummary; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params.page) searchParams.set("page", String(params.page));
@@ -566,6 +723,7 @@ export async function getApiUsageRecords(params: {
   if (params.status) searchParams.set("status", params.status);
   if (params.startDate) searchParams.set("startDate", params.startDate);
   if (params.endDate) searchParams.set("endDate", params.endDate);
+  if (params.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(
     `/api/admin/api-usage/records?${searchParams}`
@@ -1096,30 +1254,34 @@ export interface AdminMembershipPlan {
   updatedAt: string;
 }
 
-export async function getAdminMembershipPlans(): Promise<AdminMembershipPlan[]> {
-  const response = await request("/api/admin/membership-plans");
+// 套餐已按租户隔离：tenantId 仅主站超管传（代管指定子站的套餐），子站管理员不传（后端按 Host 租户）
+export async function getAdminMembershipPlans(tenantId?: string): Promise<AdminMembershipPlan[]> {
+  const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+  const response = await request(`/api/admin/membership-plans${qs}`);
   return response.json();
 }
 
 export async function createAdminMembershipPlan(
-  data: Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price"> & { price: number }
+  data: Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price"> & { price: number },
+  tenantId?: string
 ): Promise<AdminMembershipPlan> {
   const response = await request("/api/admin/membership-plans", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify(data),
+    body: JSON.stringify(tenantId ? { ...data, tenantId } : data),
   });
   return response.json();
 }
 
 export async function updateAdminMembershipPlan(
   id: string,
-  data: Partial<Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price">> & { price?: number }
+  data: Partial<Omit<AdminMembershipPlan, "id" | "createdAt" | "updatedAt" | "price">> & { price?: number },
+  tenantId?: string
 ): Promise<AdminMembershipPlan> {
   const response = await request(`/api/admin/membership-plans/${id}`, {
     method: "PATCH",
     headers: JSON_HEADERS,
-    body: JSON.stringify(data),
+    body: JSON.stringify(tenantId ? { ...data, tenantId } : data),
   });
   return response.json();
 }
@@ -1545,11 +1707,13 @@ export async function getWatermarkWhitelist(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  tenantId?: string;
 }): Promise<{ users: WatermarkWhitelistUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
   if (params?.search) searchParams.set("search", params.search);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/watermark-whitelist?${searchParams}`);
   return response.json();
@@ -1600,6 +1764,7 @@ export async function getPaidUsers(params?: {
   search?: string;
   sortBy?: PaidUsersSortBy;
   sortOrder?: "asc" | "desc";
+  tenantId?: string;
 }): Promise<{ users: PaidUser[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1607,6 +1772,7 @@ export async function getPaidUsers(params?: {
   if (params?.search) searchParams.set("search", params.search);
   if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
   if (params?.sortOrder) searchParams.set("sortOrder", params.sortOrder);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/paid-users?${searchParams}`);
   return response.json();
@@ -1657,6 +1823,7 @@ export async function getCreditChangeRecords(params?: {
   source?: CreditRecordFilterSource;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ records: CreditChangeRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1666,6 +1833,7 @@ export async function getCreditChangeRecords(params?: {
   if (params?.source) searchParams.set("source", params.source);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/credit-change-records?${searchParams}`);
   return response.json();
@@ -1709,6 +1877,7 @@ export async function getCreditAnomalyRecords(params?: {
   severity?: CreditAnomalySeverity;
   startDate?: string;
   endDate?: string;
+  tenantId?: string;
 }): Promise<{ records: CreditAnomalyRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1718,6 +1887,7 @@ export async function getCreditAnomalyRecords(params?: {
   if (params?.severity) searchParams.set("severity", params.severity);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
 
   const response = await request(`/api/admin/credit-anomalies?${searchParams}`);
   return response.json();
@@ -1843,6 +2013,7 @@ export async function getAdminOrders(params?: {
   billingCycle?: string;
   startDate?: string;
   endDate?: string;
+  tenantId?: string; // 仅主站超管：租户id 或 "all"
 }): Promise<{ orders: AdminOrder[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", String(params.page));
@@ -1854,6 +2025,7 @@ export async function getAdminOrders(params?: {
   if (params?.billingCycle) searchParams.set("billingCycle", params.billingCycle);
   if (params?.startDate) searchParams.set("startDate", params.startDate);
   if (params?.endDate) searchParams.set("endDate", params.endDate);
+  if (params?.tenantId) searchParams.set("tenantId", params.tenantId);
   const response = await request(`/api/admin/orders?${searchParams}`);
   return response.json();
 }

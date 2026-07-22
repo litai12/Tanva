@@ -18,10 +18,12 @@ export async function findCreditAccountForUpdate(
   tx: Prisma.TransactionClient,
   where: { userId: string } | { id: string },
 ): Promise<CreditAccount | null> {
+  // ALLOW_RAW_NO_TENANT: userId 与 account id 都是全局唯一 UUID；锁后读取仍经过租户扩展。
   if ('userId' in where) {
     await tx.$queryRaw`SELECT id FROM "CreditAccount" WHERE "userId" = ${where.userId} FOR UPDATE`;
     return tx.creditAccount.findUnique({ where: { userId: where.userId } });
   }
+  // ALLOW_RAW_NO_TENANT: account id 是全局唯一 UUID；锁后读取仍经过租户扩展。
   await tx.$queryRaw`SELECT id FROM "CreditAccount" WHERE "id" = ${where.id} FOR UPDATE`;
   return tx.creditAccount.findUnique({ where: { id: where.id } });
 }

@@ -69,7 +69,7 @@ const headers = { "Content-Type": "application/json" } as const;
 export async function listMaterialAssets(params?: {
   kind?: MaterialKindDto;
 }): Promise<MaterialAssetDto[]> {
-  const url = new URL(`${base}/api/material-library/assets`);
+  const url = new URL(`${base}/api/material-library/assets`, window.location.origin);
   if (params?.kind) url.searchParams.set("kind", params.kind);
   return json(await fetchWithAuth(url.toString()));
 }
@@ -122,7 +122,7 @@ export async function listTeamMaterialAssets(params: {
   teamId: string;
   kind?: MaterialKindDto;
 }): Promise<MaterialAssetDto[]> {
-  const url = new URL(`${base}/api/material-library/team-assets`);
+  const url = new URL(`${base}/api/material-library/team-assets`, window.location.origin);
   url.searchParams.set("teamId", params.teamId);
   if (params.kind) url.searchParams.set("kind", params.kind);
   return json(await fetchWithAuth(url.toString()));
@@ -176,7 +176,7 @@ export async function deleteTeamMaterialAsset(assetId: string): Promise<void> {
 export async function listMaterialFolders(params?: {
   teamId?: string;
 }): Promise<MaterialFolderDto[]> {
-  const url = new URL(`${base}/api/material-library/folders`);
+  const url = new URL(`${base}/api/material-library/folders`, window.location.origin);
   if (params?.teamId) url.searchParams.set("teamId", params.teamId);
   return json(await fetchWithAuth(url.toString()));
 }

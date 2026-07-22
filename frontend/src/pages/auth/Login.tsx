@@ -42,6 +42,26 @@ export default function LoginPage() {
     }
   }, [user, navigate]);
 
+  // 已有登录态（cookie/本地缓存）时静默探测并直接跳转项目页。
+  // 不用 authStore.init()：它失败时会写入 error，会把「加载失败」渲染进登录表单。
+  const probedRef = useRef(false);
+  useEffect(() => {
+    if (probedRef.current || useAuthStore.getState().user) return;
+    probedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { user: me, source } = await authApi.meDetailed();
+        if (!cancelled && me) setAuthenticatedUser(me, source || "server");
+      } catch {
+        // 未登录/探测失败：停留在登录页即可
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setAuthenticatedUser]);
+
   useEffect(() => {
     if (!watchaError) return;
     window.dispatchEvent(
@@ -60,10 +80,15 @@ export default function LoginPage() {
 
     const poll = async () => {
       if (!wechatSession?.id || wechatConsumingRef.current) return;
+
+      let failed = false;
+      let stopped = false;
+
       try {
         const next = await authApi.getWechatOfficialSessionStatus(wechatSession.id);
         if (cancelled) return;
         setWechatSession(next);
+        setWechatError(null);
 
         if (next.status === "authorized") {
           wechatConsumingRef.current = true;
@@ -75,17 +100,21 @@ export default function LoginPage() {
           return;
         }
         if (next.status === "expired") {
+          // 二维码已过期，停止轮询，等待用户手动刷新
+          stopped = true;
           return;
         }
       } catch (err: any) {
         if (cancelled) return;
+        failed = true;
         wechatConsumingRef.current = false;
         setWechatConsuming(false);
-        setWechatError(err?.message || t("auth.login.wechatLoadFailed"));
+        setWechatError(t("auth.login.wechatPollFailed"));
       } finally {
-        if (!cancelled && wechatSession?.id && !wechatConsumingRef.current) {
+        if (!cancelled && !stopped && !failed && wechatSession?.id && !wechatConsumingRef.current) {
           timer = window.setTimeout(poll, 2000);
         }
+        // 接口失败不自动重试，停止轮询，由用户点击二维码手动重试
       }
     };
 
@@ -245,9 +274,10 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (tab !== "wechat" || wechatSession || wechatLoading || wechatConsuming) return;
+    // wechatError 存在时不自动重建会话（避免接口失败无限重试），由用户点击二维码手动重试
+    if (tab !== "wechat" || wechatSession || wechatLoading || wechatConsuming || wechatError) return;
     void loadWechatSession();
-  }, [tab, wechatSession, wechatLoading, wechatConsuming]);
+  }, [tab, wechatSession, wechatLoading, wechatConsuming, wechatError]);
 
   // 发送验证码的冷却（秒）
   const [sendCooldown, setSendCooldown] = useState(0);

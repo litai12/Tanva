@@ -16,11 +16,13 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    // 租户隔离后 email 非全局唯一；用 findFirst，租户扩展会自动补 tenantId 过滤
+    return this.prisma.user.findFirst({ where: { email: email.toLowerCase() } });
   }
 
   async findByPhone(phone: string) {
-    return this.prisma.user.findUnique({ where: { phone } });
+    // 租户隔离后 phone 非全局唯一；用 findFirst，租户扩展会自动补 tenantId 过滤
+    return this.prisma.user.findFirst({ where: { phone } });
   }
 
   async findById(id: string) {
