@@ -67,6 +67,9 @@ services:
         all_proxy: ""
     container_name: tanva-new-api
     restart: unless-stopped
+    # The tc-api-gpt channel reaches the co-located TapCanvas facade through the host port.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       new-api-postgres:
         condition: service_healthy

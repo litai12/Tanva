@@ -32,6 +32,8 @@
 - 非小T文本请求统一经 `NewApiProvider` 发送到 new-api `/v1/chat/completions`：普通对话、提示词优化、工具选择和 PDF 分析默认 `gpt-5.4`；图像分析、HTML PPT、Paper.js、图像转矢量与普通 Agent 研究默认 `gpt-5.6`。
 - Tanva 后端只持有 `NEW_API_BASE_URL` / `NEW_API_KEY`。tc-api 的地址、`tc_sk` 和上游模型映射由 new-api 渠道集中管理；后端不再读取 `TC_API_BASE_URL`、`TC_API_KEY`、`TAPCANVAS_API_BASE_URL` 或 `TAPCANVAS_API_KEY`。
 - new-api 的 `default` 分组必须存在已启用的普通 `gpt-5.4`、`gpt-5.6` abilities；小T专属 `xiaot-agent-gpt-5-6-*` facade 不能承载这些普通文本请求。网关缺 ability 时在 new-api 管理后台补渠道、上游 base URL 与 key，不在 Tanva 后端增加直连凭据或 fallback。
+- 生产渠道名为 `tc-api-gpt`，由 `new-api/patches/2026-07-22/001-add-tc-api-gpt-channel.sql` 幂等注册；它在 `default` 分组将普通 GPT-5.4/5.6 请求送到同机 TapCanvas facade `http://host.docker.internal:8788/agents/llm`。`backend/docker-compose.yml` 必须保留 `host.docker.internal:host-gateway`，避免写死容器或 bridge IP。`tc-api.tanvas.cn` 根域返回网页 HTML，不能作为 OpenAI channel base URL。
+- new-api 对 GPT-5.4 completion ratio 硬锁为 `6`，对其余 GPT-5（包括 GPT-5.6）硬锁为 `8`；生产补丁中的 option 值应与该运行时规则一致。Tanva 对用户收取的固定积分仍由自身 `credits.config.ts` 管理，不从该网关 token ratio 推导。
 - `image_url`、`web_search_preview` 与 `thinking_level` 继续按 OpenAI-compatible Chat payload 交给 new-api，由网关负责上游适配。积分配置、API usage `channelHint` 与成功响应 metadata 都标记为 `new-api`。
 - 视频分析仍由 `resolveGeminiVideoModel` 选择 Gemini 视频理解模型；小T仍走独立 `xiaot-agent-gpt-5-6-*` facade。遗留的 `gemini-*` serviceType 仅作为积分/接口兼容标识，不代表实际通用文本上游。
 - 无真实调用验证：`npm run verify:new-api-text-routing` mock `fetch`，覆盖 GPT-5.4 文本、联网工具与 thinking 字段、GPT-5.6 图像分析、统一 new-api URL/鉴权，以及只有 tc-api key 但缺少 `NEW_API_KEY` 时显式失败。

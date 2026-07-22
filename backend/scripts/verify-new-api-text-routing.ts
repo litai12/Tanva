@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ConfigService } from '@nestjs/config';
 import { NewApiProvider } from '../src/ai/providers/new-api.provider';
+import type { NewApiKeyResolver } from '../src/tenancy/new-api-key-resolver.service';
 
 type CapturedRequest = {
   url: string;
@@ -9,6 +10,9 @@ type CapturedRequest = {
 };
 
 const captured: CapturedRequest[] = [];
+const keyResolver = {
+  resolve: async (_tier: unknown, envFallback: string) => envFallback,
+} as NewApiKeyResolver;
 const originalFetch = globalThis.fetch;
 const originalEnv = {
   NEW_API_KEY: process.env.NEW_API_KEY,
@@ -45,6 +49,7 @@ async function main(): Promise<void> {
       NEW_API_BASE_URL: 'https://new-api.test',
       NEW_API_KEY: 'new-api-key',
     }),
+    keyResolver,
   );
   await provider.initialize();
 
@@ -89,7 +94,7 @@ async function main(): Promise<void> {
 
   delete process.env.NEW_API_KEY;
   delete process.env.NEW_API_TOKEN;
-  const missingKeyProvider = new NewApiProvider(new ConfigService({}));
+  const missingKeyProvider = new NewApiProvider(new ConfigService({}), keyResolver);
   await missingKeyProvider.initialize();
   const missingKeyResult = await missingKeyProvider.generateText({ prompt: 'must fail' });
   assert.equal(missingKeyResult.success, false);
