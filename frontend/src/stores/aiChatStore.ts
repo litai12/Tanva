@@ -55,6 +55,8 @@ import {
   flushAgentPatchQueue,
   resolveAgentNodeId,
 } from "@/services/agentPatchApplier";
+import { XiaotImagePatchContract } from "@/services/xiaotImagePatchContract";
+import { FLOW_AUTO_LAYOUT_EVENT } from "@/utils/canvasAutoLayout";
 import { cancelTasksByOwner } from "@/utils/imageTaskPoller";
 import {
   generateVideoByProvider,
@@ -130,8 +132,8 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 const IDB_SESSIONS_KEY = "local_sessions";
 const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 const AI_CHAT_VIDEO_CACHE_STORE_NAME = STORE_NAMES.AI_CHAT_VIDEO_CACHE;
-const AI_CHAT_PREFERENCES_VERSION = 2;
-const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-6-sol";
+const AI_CHAT_PREFERENCES_VERSION = 3;
+const DEFAULT_XIAOT_CHAT_MODEL: XiaotChatModel = "xiaot-agent-gpt-5-4";
 const AI_CHAT_SEEDANCE_MODEL = "seedance-1.5-pro" as const;
 const AI_CHAT_VIDEO_DURATION_OPTIONS = [3, 4, 5, 6, 8, 10] as const;
 
@@ -3643,7 +3645,7 @@ export const useAIChatStore = create<AIChatState>()(
         expandedPanelStyle: "transparent", // 默认透明样式
         chatTheme: "white",
         xiaotMode: false, // 小T画布智能体模式默认关闭
-        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.6 Sol
+        xiaotModel: DEFAULT_XIAOT_CHAT_MODEL, // 小T大脑默认 GPT 5.4
         xiaotPreferredImage: "banana-pro", // 优选图片默认 Nano Banana Pro
         xiaotPreferredVideo: "seedance20Video", // 优选视频默认 Seedance 2.0
         xiaotStyleAnchor: null, // 小T风格锚定默认无
@@ -8448,6 +8450,14 @@ export const useAIChatStore = create<AIChatState>()(
         // 🤖 小T画布智能体：采集画布快照 → createAgentRun(mode: canvasAgent) → SSE 增量渲染 + flow_patch 落画布
         runXiaotAgent: async (input: string) => {
           const state = get();
+          const imageOutputCount = state.autoModeMultiplier;
+          const imagePatchContract = new XiaotImagePatchContract(imageOutputCount);
+          const timingStartedAt = performance.now();
+          let snapshotReadyAt: number | null = null;
+          let runCreatedAt: number | null = null;
+          let firstStreamEventAt: number | null = null;
+          let firstImageNodeAt: number | null = null;
+          let firstRunNodeAt: number | null = null;
 
           // 中断句柄：本轮开始即置入模块级 controller，并标记运行中
           //（发送按钮据 xiaotRunning 在「发送 ↔ 停止」间切换）。
@@ -8500,6 +8510,7 @@ export const useAIChatStore = create<AIChatState>()(
               new CustomEvent("flow:request-nodes-snapshot")
             );
           });
+          snapshotReadyAt = performance.now();
 
           // 2️⃣ 用户消息 + 占位 AI 消息（复用 processUserInput 的消息创建方式）
           get().addMessage({
@@ -8527,6 +8538,10 @@ export const useAIChatStore = create<AIChatState>()(
           let streamErrored = false;
           let videoRewriteToasted = false;
           let imageRewriteToasted = false;
+          const pendingXiaotMediaCards: Array<{
+            kind: string;
+            payload: unknown;
+          }> = [];
           // 打字机流式渲染：小T facade 常把整段回复一次性大块下发（assistant_delta
           // 不是逐 token），直接写 content 会「唰」地整段冒出、毫无流式感。这里把
           // 「真值文本 typeTarget」与「已显示字符数 typeShown」解耦，用 rAF 每帧按
@@ -8605,6 +8620,7 @@ export const useAIChatStore = create<AIChatState>()(
               ) ?? XIAOT_PREFERRED_VIDEO_MODELS[0];
             const capabilityManifest = {
               ...TANVA_CAPABILITY_MANIFEST,
+              imageOutputCount,
               notes: [
                 ...TANVA_CAPABILITY_MANIFEST.notes,
                 `【用户优选·必须遵守】未明确要求其他模型时：图片生成一律用 ${preferredImage.nodeType}${
@@ -8689,8 +8705,10 @@ export const useAIChatStore = create<AIChatState>()(
               ...(generationContract ? { generationContract } : {}),
               ...(styleReferenceUrl ? { styleReferenceUrl } : {}),
             });
+            runCreatedAt = performance.now();
 
             await streamAgentRunEvents(run.id, (event) => {
+              firstStreamEventAt ??= performance.now();
               if (event.type === "assistant_delta") {
                 const delta =
                   typeof event.data?.delta === "string" ? event.data.delta : "";
@@ -8824,32 +8842,46 @@ export const useAIChatStore = create<AIChatState>()(
                   );
                 }
                 for (const onePatch of expandedPatches) {
-                  // 缺图对账：用最终 patch 记录本轮纯图生视频节点 / 图边目标
                   const oneParsed = parseAgentFlowPatch(onePatch);
-                  if (
-                    oneParsed?.op === "addNode" &&
-                    oneParsed.node &&
-                    VIDEO_TYPES_REQUIRE_IMAGE.has(oneParsed.node.type)
-                  ) {
-                    const nodeData = (oneParsed.node.data || {}) as Record<
-                      string,
-                      unknown
-                    >;
-                    const label =
-                      (typeof nodeData.label === "string" && nodeData.label) ||
-                      oneParsed.node.type;
-                    addedImageVideoNodes.set(oneParsed.node.id, {
-                      type: oneParsed.node.type,
-                      label,
-                    });
-                  }
-                  if (oneParsed?.op === "connectEdge" && oneParsed.target) {
-                    const th = (oneParsed.targetHandle || "").toLowerCase();
-                    if (th.includes("image") || th.includes("img")) {
-                      imageEdgeTargets.add(oneParsed.target);
+                  if (!oneParsed) continue;
+                  for (const admittedPatch of imagePatchContract.accept(oneParsed)) {
+                    // 缺图对账只记录最终真正获准落画布的节点和边。
+                    if (
+                      admittedPatch.op === "addNode" &&
+                      admittedPatch.node &&
+                      VIDEO_TYPES_REQUIRE_IMAGE.has(admittedPatch.node.type)
+                    ) {
+                      const nodeData = (admittedPatch.node.data || {}) as Record<
+                        string,
+                        unknown
+                      >;
+                      const label =
+                        (typeof nodeData.label === "string" && nodeData.label) ||
+                        admittedPatch.node.type;
+                      addedImageVideoNodes.set(admittedPatch.node.id, {
+                        type: admittedPatch.node.type,
+                        label,
+                      });
                     }
-                  }
-                  if (applyAgentPatch(onePatch)) {
+                    if (admittedPatch.op === "connectEdge" && admittedPatch.target) {
+                      const th = (admittedPatch.targetHandle || "").toLowerCase();
+                      if (th.includes("image") || th.includes("img")) {
+                        imageEdgeTargets.add(admittedPatch.target);
+                      }
+                    }
+                    if (
+                      admittedPatch.op === "addNode" &&
+                      admittedPatch.node &&
+                      imagePatchContract
+                        .getAcceptedImageIds()
+                        .includes(admittedPatch.node.id)
+                    ) {
+                      firstImageNodeAt ??= performance.now();
+                    }
+                    if (admittedPatch.op === "runNode") {
+                      firstRunNodeAt ??= performance.now();
+                    }
+                    if (!applyAgentPatch(admittedPatch)) continue;
                     patchCount += 1;
                     get().updateMessage(aiMessage.id, (msg) => ({
                       ...msg,
@@ -8892,6 +8924,10 @@ export const useAIChatStore = create<AIChatState>()(
                         xiaotSuggestions: items,
                       },
                     }));
+                  } else if (kind === "media") {
+                    // host=Tanva 时图片生成结果以画布节点为唯一真源。先缓冲 media，
+                    // 流结束确认本轮没有画布生图节点时才显示，避免两边数量不一致。
+                    pendingXiaotMediaCards.push({ kind, payload });
                   } else {
                     get().updateMessage(aiMessage.id, (msg) => {
                       const prevCards = Array.isArray(msg.metadata?.xiaotCards)
@@ -8945,13 +8981,99 @@ export const useAIChatStore = create<AIChatState>()(
               }
             }, { signal: controller.signal });
 
+            // 与生成节点无关的尾部提示词仍可落画布；属于超量图片工作流的
+            // prompt 会由契约丢弃，避免留下孤儿 prompt 节点。
+            for (const remainingPatch of imagePatchContract.finish()) {
+              if (applyAgentPatch(remainingPatch)) patchCount += 1;
+            }
+
+            const imageContractStats = imagePatchContract.getStats();
+            const acceptedImageAgentIds = imagePatchContract.getAcceptedImageIds();
+            await flushAgentPatchQueue();
+            const firstAcceptedImageId = acceptedImageAgentIds[0]
+              ? resolveAgentNodeId(acceptedImageAgentIds[0])
+              : null;
+            if (
+              imageContractStats.acceptedImageNodes === 0 &&
+              pendingXiaotMediaCards.length > 0
+            ) {
+              get().updateMessage(aiMessage.id, (msg) => {
+                const previousCards = Array.isArray(msg.metadata?.xiaotCards)
+                  ? (msg.metadata.xiaotCards as Array<{
+                      kind: string;
+                      payload: unknown;
+                    }>)
+                  : [];
+                return {
+                  ...msg,
+                  metadata: {
+                    ...(msg.metadata || {}),
+                    xiaotCards: [...previousCards, ...pendingXiaotMediaCards],
+                  },
+                };
+              });
+            }
+            if (patchCount > 0) {
+              window.dispatchEvent(
+                new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
+                  detail: {
+                    source: "xiaot",
+                    focusNodeId: firstAcceptedImageId,
+                  },
+                })
+              );
+            }
+            if (imageContractStats.suppressedImageNodes > 0) {
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: {
+                    type: "warning",
+                    message: `小T返回了 ${imageContractStats.suppressedImageNodes} 个额外生图任务，已按 ${imageOutputCount}× 设置拦截`,
+                  },
+                })
+              );
+            }
+            const patchesFlushedAt = performance.now();
+            get().updateMessage(aiMessage.id, (msg) => ({
+              ...msg,
+              metadata: {
+                ...(msg.metadata || {}),
+                agentPatchCount: patchCount,
+                xiaotImageOutputCount: imageOutputCount,
+                xiaotAcceptedImageNodes: imageContractStats.acceptedImageNodes,
+                xiaotSuppressedImageNodes: imageContractStats.suppressedImageNodes,
+                xiaotSuppressedPromptNodes: imageContractStats.suppressedPromptNodes,
+                xiaotSuppressedMediaCards:
+                  imageContractStats.acceptedImageNodes > 0
+                    ? pendingXiaotMediaCards.length
+                    : 0,
+                xiaotTimingMs: {
+                  snapshot: Math.round(
+                    (snapshotReadyAt ?? patchesFlushedAt) - timingStartedAt
+                  ),
+                  createRun: Math.round(
+                    (runCreatedAt ?? patchesFlushedAt) - timingStartedAt
+                  ),
+                  firstStreamEvent: Math.round(
+                    (firstStreamEventAt ?? patchesFlushedAt) - timingStartedAt
+                  ),
+                  firstImageNode: firstImageNodeAt
+                    ? Math.round(firstImageNodeAt - timingStartedAt)
+                    : null,
+                  firstRunNode: firstRunNodeAt
+                    ? Math.round(firstRunNodeAt - timingStartedAt)
+                    : null,
+                  patchesFlushed: Math.round(patchesFlushedAt - timingStartedAt),
+                },
+              },
+            }));
+
             // 缺图对账（确定性）：本轮新建的纯图生视频节点若无图边连入，
             // 说明小T选了图生模式却没给图（会报错）。这些类型无纯文生模式，
             // 无法切模式，只能提示用户连图/让小T先出图。队列 drain 后对账，
             // 确保 addNode/connectEdge 都已落地。
             if (!streamErrored && addedImageVideoNodes.size > 0) {
               try {
-                await flushAgentPatchQueue();
                 for (const [agentId, info] of addedImageVideoNodes) {
                   if (imageEdgeTargets.has(agentId)) continue;
                   const realNodeId = resolveAgentNodeId(agentId);
@@ -10131,7 +10253,7 @@ export const useAIChatStore = create<AIChatState>()(
           )
             ? (state.bananaImageRoute as AIChatState["bananaImageRoute"])
             : "normal",
-          // v2: 小T大脑从 Claude 三档迁到 GPT 5.6。旧值或未知值统一回落 Sol，
+          // v3: 小T大脑只保留 GPT 5.4 / 5.5。旧值或未知值统一回落 5.4，
           // 避免持久化偏好继续覆盖新的产品默认模型。
           xiaotModel: validXiaotModels.includes(String(state.xiaotModel))
             ? (state.xiaotModel as XiaotChatModel)

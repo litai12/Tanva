@@ -156,6 +156,7 @@ import {
 import {
   FLOW_AUTO_LAYOUT_EVENT,
   computeTidyByCategoryLayout,
+  resolveNodeLayoutSize,
 } from "@/utils/canvasAutoLayout";
 import {
   isAssetProxyRef,
@@ -690,26 +691,8 @@ const getNodeRenderSize = (node: RFNode): { width: number; height: number } => {
     w: 220,
     h: 160,
   };
-
-  const styleW = Number((node as any)?.style?.width);
-  const styleH = Number((node as any)?.style?.height);
-  const width = Number(
-    node.width ??
-      node.data?.boxW ??
-      (Number.isFinite(styleW) ? styleW : undefined) ??
-      fallback.w
-  );
-  const height = Number(
-    node.height ??
-      node.data?.boxH ??
-      (Number.isFinite(styleH) ? styleH : undefined) ??
-      fallback.h
-  );
-
-  return {
-    width: Number.isFinite(width) && width > 0 ? width : fallback.w,
-    height: Number.isFinite(height) && height > 0 ? height : fallback.h,
-  };
+  const size = resolveNodeLayoutSize(node, fallback);
+  return { width: size.w, height: size.h };
 };
 
 const FLOW_SNAP_BASE_THRESHOLD = 8;
@@ -15046,9 +15029,27 @@ function FlowInner() {
   // 被协作端锁定的单元整体不动。整理后广播协作 + 进撤销历史；
   // 落库由 nodes effect 的 scheduleCommit 在状态更新后自动完成。
   React.useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { source?: string; focusNodeId?: string | null }
+        | undefined;
+      const focusAfterLayout = () => {
+        if (!detail?.focusNodeId) return;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent("flow:focus-node", {
+                detail: { id: detail.focusNodeId },
+              })
+            );
+          });
+        });
+      };
       const allNodes = (rf.getNodes?.() || []) as RFNode[];
-      if (!allNodes.length) return;
+      if (!allNodes.length) {
+        focusAfterLayout();
+        return;
+      }
       const positions = computeTidyByCategoryLayout(allNodes as any, {
         getSize: (node) => {
           const { width, height } = getNodeRenderSize(node as RFNode);
@@ -15058,7 +15059,10 @@ function FlowInner() {
           Array.from(lockedByOthersRef.current.keys(), String)
         ),
       });
-      if (!positions.size) return;
+      if (!positions.size) {
+        focusAfterLayout();
+        return;
+      }
 
       // 平滑过渡:rAF 补间逐帧写 position(与拖拽同一更新通道,连线实时跟随;
       // CSS transition 方案会让边按终点即时重算而节点还在飞,故不用)。
@@ -15074,7 +15078,10 @@ function FlowInner() {
         }
         startPositions.set(node.id, { x: cur.x, y: cur.y });
       }
-      if (!positions.size) return;
+      if (!positions.size) {
+        focusAfterLayout();
+        return;
+      }
 
       if (tidyAnimationRef.current) {
         cancelAnimationFrame(tidyAnimationRef.current);
@@ -15099,6 +15106,7 @@ function FlowInner() {
         try {
           historyService.commit("flow-auto-layout").catch(() => {});
         } catch {}
+        focusAfterLayout();
       };
 
       const step = (now: number) => {
@@ -15124,13 +15132,15 @@ function FlowInner() {
       };
       tidyAnimationRef.current = requestAnimationFrame(step);
 
-      try {
-        window.dispatchEvent(
-          new CustomEvent("toast", {
-            detail: { message: "已整理画布布局", type: "success" },
-          })
-        );
-      } catch {}
+      if (detail?.source !== "xiaot") {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "已整理画布布局", type: "success" },
+            })
+          );
+        } catch {}
+      }
     };
     window.addEventListener(FLOW_AUTO_LAYOUT_EVENT, handler as EventListener);
     return () => {
@@ -15578,16 +15588,7 @@ function FlowInner() {
       if (!id) return;
       const node = rf.getNode(id);
       if (!node) return;
-      const width =
-        (node.width as number | undefined) ??
-        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
-          ?.w ??
-        240;
-      const height =
-        (node.height as number | undefined) ??
-        FLOW_NODE_DEFAULT_SIZE[node.type as keyof typeof FLOW_NODE_DEFAULT_SIZE]
-          ?.h ??
-        160;
+      const { width, height } = getNodeRenderSize(node as RFNode);
       const cx = (node.position?.x ?? 0) + width / 2;
       const cy = (node.position?.y ?? 0) + height / 2;
       try {
@@ -24185,28 +24186,18 @@ function FlowInner() {
       }
       let createdId: string | null = null;
       try {
-        // position 有则视为世界坐标直接用；无则取当前视口中心（照 flow:createImageNode 的算法）
-        let world: { x: number; y: number };
-        if (
-          detail.position &&
-          Number.isFinite(detail.position.x) &&
-          Number.isFinite(detail.position.y)
-        ) {
-          world = { x: Number(detail.position.x), y: Number(detail.position.y) };
-        } else {
-          const rect = containerRef.current?.getBoundingClientRect();
-          const screenPosition = {
-            x:
-              (rect?.left || 0) +
-              (rect?.width || window.innerWidth) / 2 +
-              (Math.random() * 120 - 60),
-            y:
-              (rect?.top || 0) +
-              (rect?.height || window.innerHeight) / 2 +
-              (Math.random() * 80 - 40),
-          };
-          world = rf.screenToFlowPosition(screenPosition);
-        }
+        // 小T给出的坐标来自独立画布语境，不作为 Tanva 世界坐标使用。先把节点
+        // 放到当前视口附近，整轮完成后再统一走与“一键整理”完全相同的布局。
+        const rect = containerRef.current?.getBoundingClientRect();
+        const screenPosition = {
+          x:
+            (rect?.left || 0) +
+            (rect?.width || window.innerWidth) / 2,
+          y:
+            (rect?.top || 0) +
+            (rect?.height || window.innerHeight) / 2,
+        };
+        const world = rf.screenToFlowPosition(screenPosition);
         createdId = createNodeAtWorldCenter(detail.type, world, detail.data);
       } catch (err) {
         console.warn("[agent-bridge] add-node failed:", err);
@@ -24215,6 +24206,17 @@ function FlowInner() {
       try {
         detail.done?.(createdId ?? null);
       } catch {}
+      if (createdId) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent(FLOW_AUTO_LAYOUT_EVENT, {
+                detail: { source: "xiaot" },
+              })
+            );
+          });
+        });
+      }
     };
 
     const onAgentConnectEdge = async (event: Event) => {

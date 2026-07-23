@@ -19,9 +19,8 @@ type ToolCallAccumulator = { id: string; name: string; args: string };
 
 /** 前端可透传的小T对话模型白名单（前端选择器将来对齐此常量）。 */
 export const XIAOT_CHAT_MODELS = [
-  'xiaot-agent-gpt-5-6-sol',
-  'xiaot-agent-gpt-5-6-terra',
-  'xiaot-agent-gpt-5-6-luna',
+  'xiaot-agent-gpt-5-4',
+  'xiaot-agent-gpt-5-5',
 ] as const;
 const DEFAULT_XIAOT_CHAT_MODEL = XIAOT_CHAT_MODELS[0];
 
