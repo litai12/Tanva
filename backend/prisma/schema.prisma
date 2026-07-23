@@ -714,6 +714,20 @@ model VolcReviewGroup {
   createdAt DateTime @default(now())
 }
 
+model VolcTaskAssetGroup {
+  id        String    @id @default(uuid())
+  groupId   String    @unique
+  taskId    String?   @unique
+  status    String    @default("preparing")
+  expiresAt DateTime
+  lastError String?   @db.Text
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, expiresAt])
+}
+
 model BioAuthGroup {
   id        String   @id @default(uuid())
   userId    String

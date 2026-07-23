@@ -8,12 +8,11 @@
  * 2. 公开调用 (无需认证): /api/public/ai/generate
  */
 
-import { v4 as uuidv4 } from "uuid";
 import { tokenRefreshManager } from "./tokenRefreshManager";
 import { getRefreshAuthHeader } from "./authTokenStorage";
 import { triggerAuthExpired } from "./authEvents";
 import { fetchWithAuth } from "./authFetch";
-import { ossUploadService, dataURLToBlobAsync } from "./ossUploadService";
+import { imageUploadService } from "./imageUploadService";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -186,6 +185,16 @@ class AIImageService {
     // 关键操作前确保 token 有效
     await tokenRefreshManager.ensureValidToken();
 
+    if (request.imageUrls?.length) {
+      const imageUrls = await Promise.all(
+        request.imageUrls.map((value) => this.ensureRemoteImageRef(value))
+      );
+      if (imageUrls.some((value) => !value || !this.isHttpUrl(value))) {
+        return this.assetUploadFailure("参考图上传失败，无法创建生成任务");
+      }
+      request = { ...request, imageUrls: imageUrls as string[] };
+    }
+
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/generate-image`,
       request,
@@ -206,12 +215,14 @@ class AIImageService {
 
     // 上游图像编辑（toapis / new-api 等）只接受可访问的 URL，base64 会被拒绝
     // （"base64 image is not allowed"）。统一在此把 base64/blob 源图先上传 OSS
-    // 换成 URL，覆盖所有编辑入口。失败时回退原值（尽力而为，保持原行为）。
-    if (request.sourceImage && !this.isHttpUrl(request.sourceImage)) {
-      const remote = await this.ensureRemoteImageRef(request.sourceImage);
-      if (remote && this.isHttpUrl(remote)) {
-        request = { ...request, sourceImage: remote };
+    // 换成 URL，覆盖所有编辑入口。上传失败必须停止，不能把临时数据交给后端。
+    const editSource = request.sourceImageUrl || request.sourceImage;
+    if (editSource) {
+      const remote = await this.ensureRemoteImageRef(editSource);
+      if (!remote || !this.isHttpUrl(remote)) {
+        return this.assetUploadFailure("源图上传失败，无法创建编辑任务");
       }
+      request = { ...request, sourceImage: undefined, sourceImageUrl: remote };
     }
 
     const response = await this.callAPI<AIImageResult>(
@@ -232,40 +243,37 @@ class AIImageService {
 
   /**
    * 确保图片引用是远程 URL：http(s) 原样返回；data:/blob:/纯 base64 则上传 OSS
-   * 换取 URL。上传失败返回原值，由上游/后端做最终处理。
+   * 换取 URL。上传失败返回 undefined，由调用方阻止生成任务。
    */
   private async ensureRemoteImageRef(
     value: string | undefined
   ): Promise<string | undefined> {
     const trimmed = typeof value === "string" ? value.trim() : "";
     if (!trimmed) return value;
-    if (this.isHttpUrl(trimmed)) return trimmed;
-
     try {
-      let blob: Blob | null = null;
-      if (trimmed.startsWith("data:")) {
-        blob = await dataURLToBlobAsync(trimmed);
-      } else if (trimmed.startsWith("blob:")) {
-        blob = await (await fetch(trimmed)).blob();
-      } else {
-        // 纯 base64（无 data 前缀），按 png 兜底封装
-        blob = await dataURLToBlobAsync(`data:image/png;base64,${trimmed}`);
-      }
-      if (!blob) return value;
-
-      const result = await ossUploadService.uploadToOSS(blob, {
-        dir: "ai-edit-images/",
-        fileName: `ai-edit-${Date.now()}.png`,
-        contentType: blob.type || "image/png",
+      const result = await imageUploadService.uploadImageSource(trimmed, {
+        dir: "uploads/ai-inputs/",
+        fileName: `ai-input-${Date.now()}.png`,
       });
-      if (result.success && result.url) {
-        return result.url;
+      if (result.success && result.asset?.url && this.isHttpUrl(result.asset.url)) {
+        return result.asset.url;
       }
-      console.warn("⚠️ [aiImageService] 源图上传 OSS 失败，回退原始数据", result.error);
+      console.warn("⚠️ [aiImageService] 图片上传失败，已阻止生成任务", result.error);
     } catch (error) {
-      console.warn("⚠️ [aiImageService] 源图转换/上传异常，回退原始数据", error);
+      console.warn("⚠️ [aiImageService] 图片转换/上传异常，已阻止生成任务", error);
     }
-    return value;
+    return undefined;
+  }
+
+  private assetUploadFailure<T>(message: string): AIServiceResponse<T> {
+    return {
+      success: false,
+      error: {
+        code: "ASSET_UPLOAD_FAILED",
+        message,
+        timestamp: new Date(),
+      } as AIError,
+    };
   }
 
   /**
@@ -278,16 +286,20 @@ class AIImageService {
     await tokenRefreshManager.ensureValidToken();
 
     // 同 editImage：把 base64/blob 源图统一换成 OSS URL，避免上游拒绝 base64。
-    if (
-      Array.isArray(request.sourceImages) &&
-      request.sourceImages.some((img) => img && !this.isHttpUrl(img))
-    ) {
+    const blendSources = request.sourceImageUrls?.length
+      ? request.sourceImageUrls
+      : request.sourceImages;
+    if (Array.isArray(blendSources) && blendSources.length > 0) {
       const converted = await Promise.all(
-        request.sourceImages.map((img) => this.ensureRemoteImageRef(img))
+        blendSources.map((img) => this.ensureRemoteImageRef(img))
       );
+      if (converted.some((value) => !value || !this.isHttpUrl(value))) {
+        return this.assetUploadFailure("融合图片上传失败，无法创建生成任务");
+      }
       request = {
         ...request,
-        sourceImages: converted.filter((v): v is string => !!v),
+        sourceImages: undefined,
+        sourceImageUrls: converted as string[],
       };
     }
 

@@ -2565,6 +2565,19 @@ export class AiController {
     return normalized;
   }
 
+  private requireRemoteImageForGenerationTask(
+    value: unknown,
+    fieldName: string,
+  ): string {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!/^https?:\/\//i.test(trimmed)) {
+      throw new BadRequestException(
+        `${fieldName} 必须先上传并使用远程 http(s) URL，禁止 data:/blob:/base64 进入生成任务`,
+      );
+    }
+    return this.resolveImageUrlForUpstream(trimmed);
+  }
+
   private normalizeImageUrlsForUpstream(urls: string[]): string[] {
     const out: string[] = [];
     for (const value of urls) {
@@ -3568,6 +3581,9 @@ export class AiController {
         ? 'gpt-image-2'
         : dto.model;
     const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    const normalizedImageUrlsForProvider = (dto.imageUrls || []).map((value, index) =>
+      this.requireRemoteImageForGenerationTask(value, `imageUrls[${index}]`),
+    );
 
     // seedream5 始终走 async 任务轮询链路，避免同步等待超时
     if (providerName === 'seedream5' && this.imageTaskService) {
@@ -3575,7 +3591,7 @@ export class AiController {
         userId,
         'generate',
         dto.prompt,
-        { ...dto, model },
+        { ...dto, imageUrls: normalizedImageUrlsForProvider, model },
         providerName,
         { traceId, parentRequestId },
         dto.nodeId,
@@ -3585,13 +3601,6 @@ export class AiController {
     }
 
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
-    const normalizedImageUrlsForProvider = this.normalizeImageUrlsForUpstream(
-      (dto.imageUrls || []).filter(
-        (url): url is string =>
-          typeof url === 'string' && url.trim().length > 0,
-      ),
-    );
-
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = null;
     const skipCredits = false;
@@ -3859,6 +3868,10 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const remoteSourceImage = this.requireRemoteImageForGenerationTask(
+      dto.sourceImageUrl || dto.sourceImage,
+      'sourceImageUrl',
+    );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = null;
@@ -3947,34 +3960,9 @@ export class AiController {
             this.logger.warn(`[edit-image] 重试编辑第 ${attempt}/${maxAttempts} 次`);
           }
 
-          const fallbackUrl =
-            !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
-              ? dto.sourceImage
-              : dto.sourceImageUrl;
-
           // MJ 支持直接使用 URL，不需要转换为 base64
           const isMidjourney = providerName === 'midjourney';
-
-          let sourceImage: string | undefined;
-          if (tencentForcedBanana) {
-            if (dto.sourceImage && !fallbackUrl) {
-              sourceImage = dto.sourceImage;
-            } else if (fallbackUrl) {
-              sourceImage = fallbackUrl;
-            }
-          } else if (isMidjourney && fallbackUrl) {
-            // MJ: 直接使用 URL（仍走规范化 + SSRF 白名单校验，不下载）
-            sourceImage = this.resolveImageUrlForUpstream(fallbackUrl);
-          } else if (dto.sourceImage && !fallbackUrl) {
-            sourceImage = dto.sourceImage;
-          } else if (fallbackUrl) {
-            // 不再下载成 base64，直接把 URL 透传给上游（new-api 自己 fetch+缓存）
-            sourceImage = this.resolveImageUrlForUpstream(fallbackUrl);
-          }
-
-          if (!sourceImage) {
-            throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
-          }
+          let sourceImage = remoteSourceImage;
 
           if (tencentForcedBanana) {
             sourceImage = await this.normalizeSourceImageForTencentForced(
@@ -4123,6 +4111,15 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const requestedSourceImages = dto.sourceImageUrls?.length
+      ? dto.sourceImageUrls
+      : dto.sourceImages || [];
+    if (requestedSourceImages.length === 0) {
+      throw new BadRequestException('融合图片接口至少需要一张已上传的远程图片');
+    }
+    const remoteSourceImages = requestedSourceImages.map((value, index) =>
+      this.requireRemoteImageForGenerationTask(value, `sourceImageUrls[${index}]`),
+    );
 
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
     const customApiKey = null;
@@ -4206,27 +4203,9 @@ export class AiController {
             this.logger.warn(`[blend-images] 重试融合第 ${attempt}/${maxAttempts} 次`);
           }
 
-          const sourceImages = tencentForcedBanana
-            ? dto.sourceImages?.length
-              ? dto.sourceImages
-              : dto.sourceImageUrls?.length
-              ? dto.sourceImageUrls
-              : []
-            : dto.sourceImages?.length
-            ? dto.sourceImages.map((value) =>
-                /^https?:\/\//i.test(value) ? this.resolveImageUrlForUpstream(value) : value,
-              )
-            : dto.sourceImageUrls?.length
-            ? dto.sourceImageUrls.map((url) => this.resolveImageUrlForUpstream(url))
-            : [];
-
-          if (!sourceImages.length) {
-            throw new BadRequestException('融合图片接口需要提供 sourceImages 或 sourceImageUrls（至少两张）');
-          }
-
           const normalizedSourceImages = tencentForcedBanana
             ? await Promise.all(
-                sourceImages.map((value, index) =>
+                remoteSourceImages.map((value, index) =>
                   this.normalizeSourceImageForTencentForced(
                     value,
                     requestUserId,
@@ -4234,7 +4213,7 @@ export class AiController {
                   ),
                 ),
               )
-            : sourceImages;
+            : remoteSourceImages;
 
           {
             const provider = this.factory.getProvider(dto.model, providerName || 'new-api');
@@ -7860,13 +7839,18 @@ export class AiController {
         ? 'gpt-image-2'
         : dto.model;
     const model = this.resolveImageModel(providerName, inferredRequestedModel);
+    const imageUrls = Array.isArray(dto.imageUrls)
+      ? dto.imageUrls.map((value, index) =>
+          this.requireRemoteImageForGenerationTask(value, `imageUrls[${index}]`),
+        )
+      : undefined;
 
     // 创建任务
     const task = await this.imageTaskService.createTask(
       userId,
       'generate',
       dto.prompt,
-      { ...dto, model },
+      { ...dto, imageUrls, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
@@ -7894,17 +7878,16 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 提供 URL 时直接透传（不下载成 base64），避免把大 base64 塞进 BullMQ/DB
-    let sourceImage = dto.sourceImage;
-    if (dto.sourceImageUrl && !sourceImage) {
-      sourceImage = this.resolveImageUrlForUpstream(dto.sourceImageUrl);
-    }
+    const sourceImage = this.requireRemoteImageForGenerationTask(
+      dto.sourceImageUrl || dto.sourceImage,
+      'sourceImageUrl',
+    );
 
     const task = await this.imageTaskService.createTask(
       userId,
       'edit',
       dto.prompt,
-      { ...dto, sourceImage, model },
+      { ...dto, sourceImage: sourceImage, sourceImageUrl: sourceImage, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,
@@ -7932,17 +7915,18 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 提供 URL 时直接透传（不下载成 base64），避免把大 base64 塞进 BullMQ/DB
-    let sourceImages = dto.sourceImages || [];
-    if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
-      sourceImages = dto.sourceImageUrls.map((url) => this.resolveImageUrlForUpstream(url));
-    }
+    const requestedImages = dto.sourceImageUrls?.length
+      ? dto.sourceImageUrls
+      : dto.sourceImages || [];
+    const sourceImages = requestedImages.map((value, index) =>
+      this.requireRemoteImageForGenerationTask(value, `sourceImageUrls[${index}]`),
+    );
 
     const task = await this.imageTaskService.createTask(
       userId,
       'blend',
       dto.prompt,
-      { ...dto, sourceImages, model },
+      { ...dto, sourceImages, sourceImageUrls: sourceImages, model },
       providerName || 'gemini',
       { traceId, parentRequestId },
       dto.nodeId,

@@ -139,12 +139,13 @@ export interface AIImageGenerateRequest {
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
   nodeId?: string;
+  projectId?: string;
 }
 
 // AI鍥惧儚缂栬緫璇锋眰鍙傛暟
 export interface AIImageEditRequest {
   prompt: string;
-  sourceImage?: string; // base64 encoded image
+  sourceImage?: string; // runtime-only input; API boundary uploads it before submission
   sourceImageUrl?: string; // remote URL to be handled by backend
   model?: string;
   aiProvider?: SupportedAIProvider;
@@ -180,12 +181,13 @@ export interface AIImageEditRequest {
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
   nodeId?: string;
+  projectId?: string;
 }
 
 // AI鍥惧儚铻嶅悎璇锋眰鍙傛暟
 export interface AIImageBlendRequest {
   prompt: string;
-  sourceImages?: string[]; // base64 encoded images
+  sourceImages?: string[]; // runtime-only inputs; API boundary uploads them before submission
   sourceImageUrls?: string[]; // remote URLs to be handled by backend
   model?: string;
   aiProvider?: SupportedAIProvider;
@@ -221,6 +223,7 @@ export interface AIImageBlendRequest {
   billingModeName?: string;
   billingTitleSource?: 'dialog' | 'node';
   nodeId?: string;
+  projectId?: string;
 }
 
 // AI鐢熸垚缁撴灉

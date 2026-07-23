@@ -1,4 +1,4 @@
-import { BadGatewayException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ImageTaskQueueService, type ImageTaskJobPayload } from './image-task-queue.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation.service';
@@ -84,6 +84,38 @@ function normalizeBananaRoute(
 export class ImageTaskService {
   private readonly logger = new Logger(ImageTaskService.name);
   private static readonly TASK_TIMEOUT_ERROR_MESSAGE = '生成超时（15分钟），积分将自动返还。';
+
+  private assertRemoteInputAssets(
+    taskType: ImageTaskType,
+    requestData: Record<string, any>,
+  ): void {
+    const assertRemote = (value: unknown, fieldName: string) => {
+      const trimmed = typeof value === 'string' ? value.trim() : '';
+      if (!/^https?:\/\//i.test(trimmed)) {
+        throw new BadRequestException(
+          `${fieldName} 必须是已上传的远程 http(s) URL，禁止内联图片进入任务队列`,
+        );
+      }
+    };
+
+    if (taskType === 'edit') {
+      assertRemote(requestData?.sourceImage, 'sourceImage');
+    } else if (taskType === 'blend') {
+      const values = Array.isArray(requestData?.sourceImages)
+        ? requestData.sourceImages
+        : [];
+      if (values.length === 0) {
+        throw new BadRequestException('sourceImages 至少需要一张已上传的远程图片');
+      }
+      values.forEach((value: unknown, index: number) =>
+        assertRemote(value, `sourceImages[${index}]`),
+      );
+    } else if (taskType === 'generate' && Array.isArray(requestData?.imageUrls)) {
+      requestData.imageUrls.forEach((value: unknown, index: number) =>
+        assertRemote(value, `imageUrls[${index}]`),
+      );
+    }
+  }
 
   // 单个图像任务最大执行时长，超过即判定卡死并标记失败（默认 15 分钟，可用环境变量覆盖）
   private static readonly TASK_MAX_DURATION_MS = Number(
@@ -532,6 +564,7 @@ export class ImageTaskService {
     nodeId?: string,
     teamId?: string,
   ) {
+    this.assertRemoteInputAssets(type, requestData || {});
     const persistedTraceContext = captureTraceContext(traceContext);
     const requestPayload = {
       ...(requestData || {}),

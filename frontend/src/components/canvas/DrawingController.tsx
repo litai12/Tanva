@@ -71,7 +71,6 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   isAssetKeyRef,
   isPersistableImageRef,
@@ -81,7 +80,7 @@ import {
   resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
-import { blobToDataUrl, canvasToBlob, fileToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
+import { canvasToBlob, responseToBlob } from "@/utils/imageConcurrency";
 import { projectLoadDebug } from "@/utils/projectLoadDebug";
 import {
   usePersonalLibraryStore,
@@ -91,7 +90,6 @@ import {
 } from "@/stores/personalLibraryStore";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { imageUploadService } from "@/services/imageUploadService";
-import { generateOssKey } from "@/services/ossUploadService";
 import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { collabCanvasBridge } from "@/collab/collabCanvasBridge";
 
@@ -1133,13 +1131,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      const localPreview = await fileToDataUrl(file);
-      createFlowImageNode({
-        imageData: localPreview,
-        imageName: file.name,
-        label: file.name || "Image",
-        screenPosition,
-      });
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "图片上传失败，未创建图片节点", type: "error" },
+        })
+      );
     },
     [createFlowImageNode, projectId]
   );
@@ -1152,21 +1148,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     [imageInputTarget, uploadFileToFlowImageNode]
   );
   const routeExternalImageUrl = useCallback(
-    (
+    async (
       imageUrl: string,
       imageName?: string,
       screenPosition?: { x: number; y: number }
     ) => {
       if (imageInputTarget !== "node") return false;
-      createFlowImageNode({
-        imageUrl,
-        imageName,
-        label: imageName || "Image",
-        screenPosition,
+      const uploadDir = projectId
+        ? `projects/${projectId}/images/`
+        : "uploads/images/";
+      const uploadResult = await imageUploadService.uploadImageSource(imageUrl, {
+        projectId,
+        dir: uploadDir,
+        fileName: imageName || `flow-image-${Date.now()}.png`,
       });
+      if (uploadResult.success && uploadResult.asset?.url) {
+        createFlowImageNode({
+          imageUrl: uploadResult.asset.url,
+          imageName: uploadResult.asset.fileName || imageName,
+          label: uploadResult.asset.fileName || imageName || "Image",
+          screenPosition,
+        });
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "图片上传失败，未创建图片节点", type: "error" },
+          })
+        );
+      }
       return true;
     },
-    [createFlowImageNode, imageInputTarget]
+    [createFlowImageNode, imageInputTarget, projectId]
   );
   // ========== 监听drawMode变化，处理快速上传 ==========
   useEffect(() => {
@@ -1430,20 +1442,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     skipInitialStoreUpdate: true,
                   });
                 } else {
-                  // fallback: runtime-only data URL preview, persistence still uses remote key/url
-                  const localPreview = await fileToDataUrl(file);
-                  await uploadImageToCanvas?.(
-                    {
-                      id: `local_img_${Date.now()}_${Math.random()
-                        .toString(36)
-                        .slice(2, 8)}`,
-                      url: localPreview,
-                      src: localPreview,
-                      fileName: file.name,
-                      pendingUpload: true,
-                      localDataUrl: localPreview,
-                    },
-                    file.name
+                  window.dispatchEvent(
+                    new CustomEvent("toast", {
+                      detail: { message: "图片上传失败，未添加到画布", type: "error" },
+                    })
                   );
                 }
               } catch (err) {
@@ -1459,7 +1461,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             e.preventDefault();
             try {
               const payload = await fetchImagePayload(text);
-              if (routeExternalImageUrl(payload)) return;
+              if (await routeExternalImageUrl(payload)) return;
               await uploadImageToCanvas?.(payload, undefined);
             } catch (err) {
               console.error("粘贴URL处理失败:", err);
@@ -1680,7 +1682,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               event.stopPropagation();
               logger.upload("🖼️ 从资源库拖拽 2D 图片:", parsed);
               if (
-                routeExternalImageUrl(
+                await routeExternalImageUrl(
                   parsed.url,
                   parsed.fileName || parsed.name,
                   { x: event.clientX, y: event.clientY }
@@ -1735,75 +1737,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ? `projects/${projectId}/images/`
               : "uploads/images/";
 
-            // 1) use runtime preview immediately, keep pendingUpload until remote asset is ready
-            const localPreview = await fileToDataUrl(file);
-            const imageId = `local_img_${Date.now()}_${Math.random()
-              .toString(36)
-              .slice(2, 8)}`;
-            const { key } = generateOssKey({
+            const uploadResult = await imageUploadService.uploadImageFile(file, {
               projectId,
               dir: uploadDir,
               fileName: file.name,
-              contentType: file.type,
             });
-            const localAsset = {
-              id: imageId,
-              url: key,
-              key,
-              src: key,
-              fileName: file.name,
-              contentType: file.type,
-              pendingUpload: true,
-              localDataUrl: localPreview,
-            };
-
+            if (!uploadResult.success || !uploadResult.asset?.url) {
+              window.dispatchEvent(
+                new CustomEvent("toast", {
+                  detail: { message: "图片上传失败，未添加到画布", type: "error" },
+                })
+              );
+              return;
+            }
             await uploadImageToCanvas?.(
-              localAsset as any,
-              file.name,
+              {
+                ...uploadResult.asset,
+                src: uploadResult.asset.url,
+              },
+              uploadResult.asset.fileName || file.name,
               undefined,
               { x: projectPoint.x, y: projectPoint.y },
               "manual"
             );
-
-            // 2) 后台上传：成功后回写并清理本地临时 blob
-            void imageUploadService
-              .uploadImageFile(file, {
-                projectId,
-                dir: uploadDir,
-                fileName: file.name,
-                key,
-              })
-              .then((uploadResult) => {
-                if (!uploadResult.success || !uploadResult.asset?.url) {
-                  logger.upload?.("⚠️ [CanvasDrop] 图片上传失败，已保留本地副本", {
-                    error: uploadResult.error,
-                  });
-                  return;
-                }
-                try {
-                  window.dispatchEvent(
-                    new CustomEvent("tanva:upgradeImageSource", {
-                      detail: {
-                        placeholderId: imageId,
-                        key: uploadResult.asset.key || key,
-                        remoteUrl: uploadResult.asset.url,
-                      },
-                    })
-                  );
-                } catch {}
-                void recordImageHistoryEntry({
-                  remoteUrl: uploadResult.asset.url,
-                  title: file.name,
-                  fileName: file.name,
-                  nodeId: "canvas",
-                  nodeType: "image",
-                  projectId,
-                  skipInitialStoreUpdate: true,
-                });
-              })
-              .catch((err) => {
-                logger.upload?.("⚠️ [CanvasDrop] 图片上传异常，已保留本地副本", { err });
-              });
+            void recordImageHistoryEntry({
+              remoteUrl: uploadResult.asset.url,
+              title: uploadResult.asset.fileName || file.name,
+              fileName: uploadResult.asset.fileName || file.name,
+              nodeId: "canvas",
+              nodeType: "image",
+              projectId,
+              skipInitialStoreUpdate: true,
+            });
           } catch (err) {
             console.error("处理拖拽图片失败:", err);
           }
@@ -1820,7 +1785,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         try {
           const payload = await fetchImagePayload(text);
           if (
-            routeExternalImageUrl(payload, undefined, {
+            await routeExternalImageUrl(payload, undefined, {
               x: event.clientX,
               y: event.clientY,
             })
@@ -3616,100 +3581,64 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         type: "image/png",
         quality: 0.92,
       });
-      const previewDataUrl = await blobToDataUrl(mergedBlob);
       const uploadDir = projectId
         ? `projects/${projectId}/images/`
         : "uploads/images/";
-      const { key: plannedKey } = generateOssKey({
-        projectId,
-        dir: uploadDir,
-        fileName: target.fileName,
-        contentType: "image/png",
-      });
+      const uploadResult = await imageUploadService.uploadImageSource(
+        mergedBlob,
+        {
+          projectId,
+          dir: uploadDir,
+          fileName: target.fileName,
+          contentType: "image/png",
+        }
+      );
+
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        logger.warn("画笔融合后图片上传失败，原图未修改", {
+          imageId: target.imageId,
+          error: uploadResult.error,
+        });
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "图片上传失败，画笔尚未合并", type: "error" },
+          })
+        );
+        return false;
+      }
+
+      const normalizedKey = normalizePersistableImageRef(
+        uploadResult.asset.key || ""
+      );
+      const normalizedRemoteUrl =
+        normalizePersistableImageRef(uploadResult.asset.url) ||
+        uploadResult.asset.url;
+      if (!isRemoteUrl(normalizedRemoteUrl)) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "上传未返回远程链接，画笔尚未合并", type: "error" },
+          })
+        );
+        return false;
+      }
 
       window.dispatchEvent(
         new CustomEvent("canvas:replace-image-source", {
           detail: {
             imageId: target.imageId,
-            source: previewDataUrl,
+            source: normalizedRemoteUrl,
             bounds: target.imageBounds,
             contentType: "image/png",
             fileName: target.fileName,
-            key: plannedKey,
-            clearRemoteUrl: true,
+            key: normalizedKey || undefined,
+            remoteUrl: normalizedRemoteUrl,
             width: pixelWidth,
             height: pixelHeight,
-            historyLabel: "merge-brush-into-image",
-            pendingUpload: true,
+            historyLabel: "merge-brush-oss",
+            pendingUpload: false,
           },
         })
       );
-
-      void (async () => {
-        try {
-          const uploadResult = await imageUploadService.uploadImageSource(
-            mergedBlob,
-            {
-              projectId,
-              dir: uploadDir,
-              fileName: target.fileName,
-              contentType: "image/png",
-              key: plannedKey,
-            }
-          );
-
-          if (!uploadResult.success || !uploadResult.asset?.url) {
-            logger.warn("画笔融合后图片上传失败，保留本地预览等待后续补传", {
-              imageId: target.imageId,
-              error: uploadResult.error,
-            });
-            return;
-          }
-
-          const normalizedKey = normalizePersistableImageRef(
-            uploadResult.asset.key || ""
-          );
-          const normalizedRemoteUrl =
-            normalizePersistableImageRef(uploadResult.asset.url) ||
-            uploadResult.asset.url;
-
-          const persistedSource = normalizedRemoteUrl || normalizedKey;
-          if (persistedSource) {
-            window.dispatchEvent(
-              new CustomEvent("canvas:replace-image-source", {
-                detail: {
-                  imageId: target.imageId,
-                  source: persistedSource,
-                  bounds: target.imageBounds,
-                  contentType: "image/png",
-                  fileName: target.fileName,
-                  key: normalizedKey || undefined,
-                  remoteUrl: normalizedRemoteUrl || undefined,
-                  width: pixelWidth,
-                  height: pixelHeight,
-                  historyLabel: "merge-brush-oss",
-                  pendingUpload: false,
-                },
-              })
-            );
-          }
-
-          window.dispatchEvent(
-            new CustomEvent("tanva:upgradeImageSource", {
-              detail: {
-                placeholderId: target.imageId,
-                key: normalizedKey || undefined,
-                remoteUrl: normalizedRemoteUrl || undefined,
-              },
-            })
-          );
-        } catch (error) {
-          logger.warn("画笔融合后图片上传异常，保留本地预览等待后续补传", {
-            imageId: target.imageId,
-            error,
-          });
-        }
-      })();
 
       return true;
     },
@@ -6144,26 +6073,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
         .filter((img) => selectedImageIdsSet.has(img.id))
         .map((img) => {
-          const source =
-            img.imageData.localDataUrl ||
-            img.imageData.src ||
-            img.imageData.url;
+          if (img.imageData.pendingUpload) {
+            console.warn("图片仍在上传，已跳过复制", img.id);
+            return null;
+          }
+          const source = [
+            img.imageData.remoteUrl,
+            img.imageData.url,
+            img.imageData.src,
+            img.imageData.key,
+          ]
+            .map((value) => normalizePersistableImageRef(value))
+            .map((value) => (isRemoteUrl(value) ? value : toRenderableImageSrc(value)))
+            .find((value) => typeof value === "string" && isRemoteUrl(value));
           if (!source) {
-            console.warn("图片缺少可复制的资源，已跳过", img.id);
+            console.warn("图片缺少远程资源，已跳过复制", img.id);
             return null;
           }
           return {
             id: img.id,
-            url: img.imageData.url || source,
-            src: img.imageData.src || source,
+            url: source,
+            src: source,
             key: img.imageData.key,
-            remoteUrl: img.imageData.remoteUrl,
+            remoteUrl: source,
             fileName: img.imageData.fileName,
             width: img.imageData.width ?? img.bounds.width,
             height: img.imageData.height ?? img.bounds.height,
             contentType: img.imageData.contentType,
-            pendingUpload: img.imageData.pendingUpload,
-            localDataUrl: img.imageData.localDataUrl,
+            pendingUpload: false,
             locked: img.locked ?? img.imageData.locked,
             bounds: { ...img.bounds },
             layerId: img.layerId ?? null,
@@ -6351,13 +6288,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const newImageIds: string[] = [];
     const imageIdMap = new Map<string, string>();
+    let skippedInlineImages = 0;
     payload.images.forEach((snapshot) => {
-      const id = createImageFromSnapshot?.(snapshot, { offset });
+      const remoteSource = [snapshot.remoteUrl, snapshot.url, snapshot.src]
+        .map((value) => normalizePersistableImageRef(value))
+        .map((value) => (isRemoteUrl(value) ? value : toRenderableImageSrc(value)))
+        .find((value) => typeof value === "string" && isRemoteUrl(value));
+      if (!remoteSource) {
+        skippedInlineImages += 1;
+        return;
+      }
+      const id = createImageFromSnapshot?.(
+        {
+          ...snapshot,
+          url: remoteSource,
+          src: remoteSource,
+          remoteUrl: remoteSource,
+          pendingUpload: false,
+          localDataUrl: undefined,
+        },
+        { offset }
+      );
       if (id) {
         newImageIds.push(id);
         imageIdMap.set(snapshot.id, id);
       }
     });
+    if (skippedInlineImages > 0) {
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: {
+            message: "部分图片尚无远程链接，已阻止粘贴",
+            type: "warning",
+          },
+        })
+      );
+    }
 
     const newGroupBlocks: paper.Path[] = [];
     (payload.imageGroups ?? []).forEach((snapshot) => {

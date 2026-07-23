@@ -7,6 +7,7 @@ import { VolcAssetService } from './volc-asset.service';
 export class VolcAssetSchedulerService {
   private readonly logger = new Logger(VolcAssetSchedulerService.name);
   private cleanupRunning = false;
+  private taskCleanupRunning = false;
 
   constructor(private readonly volcAssetService: VolcAssetService) {}
 
@@ -28,6 +29,22 @@ export class VolcAssetSchedulerService {
       this.logger.error('素材组清理失败:', err);
     } finally {
       this.cleanupRunning = false;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleExpiredTaskGroupCleanup() {
+    if (this.taskCleanupRunning) return;
+    this.taskCleanupRunning = true;
+    try {
+      const result = await this.volcAssetService.cleanupExpiredTaskAssetGroups();
+      if (result.deleted || result.failed) {
+        this.logger.log(`一次性素材组兜底清理: deleted=${result.deleted}, failed=${result.failed}`);
+      }
+    } catch (err: any) {
+      this.logger.error('一次性素材组兜底清理失败:', err);
+    } finally {
+      this.taskCleanupRunning = false;
     }
   }
 }

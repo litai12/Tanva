@@ -126,7 +126,9 @@ export class NewApiProvider implements IAIProvider {
       n: this.resolveImageCount(request),
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
-      image_urls: request.imageUrls,
+      image_urls: request.imageUrls?.map((item, index) =>
+        this.requireRemoteImageReference(item, `image_urls[${index}]`),
+      ),
       quality: request.quality,
       background: request.background,
       moderation: request.moderation,
@@ -151,7 +153,7 @@ export class NewApiProvider implements IAIProvider {
       n: 1,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
-      image_urls: [this.toImageReference(request.sourceImage)],
+      image_urls: [this.requireRemoteImageReference(request.sourceImage, 'image_urls[0]')],
       output_format: request.outputFormat,
     };
 
@@ -169,7 +171,9 @@ export class NewApiProvider implements IAIProvider {
       n: 1,
       size: this.resolveImageSizeParam(request.aspectRatio, model),
       resolution: this.normalizeResolution(request.imageSize),
-      image_urls: request.sourceImages.map((item) => this.toImageReference(item)),
+      image_urls: request.sourceImages.map((item, index) =>
+        this.requireRemoteImageReference(item, `image_urls[${index}]`),
+      ),
       output_format: request.outputFormat,
     };
 
@@ -855,6 +859,16 @@ export class NewApiProvider implements IAIProvider {
     if (!trimmed) return trimmed;
     if (/^(https?:|data:|blob:)/i.test(trimmed)) return trimmed;
     return `data:image/png;base64,${trimmed.replace(/^data:image\/[^;]+;base64,/i, '')}`;
+  }
+
+  private requireRemoteImageReference(value: string, fieldName: string): string {
+    const trimmed = String(value || '').trim();
+    if (!/^https?:\/\//i.test(trimmed)) {
+      throw new Error(
+        `${fieldName} must be an uploaded remote http(s) URL; inline base64/blob images are forbidden`,
+      );
+    }
+    return trimmed;
   }
 
   private isPdfReference(value: string): boolean {

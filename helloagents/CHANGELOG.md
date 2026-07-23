@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-07-23：Seedance 2.0 普通参考图改为每次生成重新审核。后端为每次任务创建隔离的 Ark 一次性素材组，忽略旧项目普通 `volcAssetId`，任务终态后删除；同步失败立即回收，服务重启或未轮询遗留组由数据库记录每小时兜底清理。刚创建的句柄若异常 not found，会在同一计费请求内删组、重审并重试一次。前端移除连线预审核、Run 前缓存复用和误导性的手动审核按钮；活体认证句柄作为用户授权凭据保留，失效时明确要求重新认证。
+- 2026-07-23：Canvas/Flow 图片正式资产改为“先上传、后创建”，文件选择、粘贴、拖放、快速生成及外部图片不再以本地 base64/blob 或未托管外链兜底。AI 生图、编辑、融合与高清放大统一在前端提交边界上传当前渲染输入；后端 Controller、BullMQ 入队服务和 `NewApiProvider` 逐层只接受 HTTP(S) 图片 URL，阻止内联图片进入任务 `requestData`、Redis 或 new-api `image_urls`。
 - 2026-07-23：小T大脑改为 GPT-5.4 / GPT-5.5 两档并默认 GPT-5.4；生图数量以底部 `1/2/4/8` 倍数为唯一权威，通过结构化 manifest 传递并在宿主执行层拦截额外图片、prompt、连线和运行任务。`gptImage2` manifest 显式声明单图片输出，使异步 `runNode` 可被 facade 按图片交付证据验收。小T新增节点自动复用一键整理并聚焦首个生图节点；一键整理改为优先使用持久化 `boxW/boxH`，修复放大图片节点相互覆盖。
 - 2026-07-23：修复 Safari 15.6 调用小T后白屏：`remark-gfm` 的自动链接解析器会在渲染回复时动态创建后行断言正则，旧 Safari 抛出 `Invalid regular expression: invalid group specifier name`。前端现按正则能力启用 GFM，旧浏览器回退到基础 Markdown；同时为小T对话、Flow 画布和应用根节点增加分级错误边界，局部回复/节点异常不再卸载整页。
 - 2026-07-22：撤销 Tanva 后端直连 tc-api 的 GPT 硬路由，普通对话、Flow Text Chat、提示词优化、工具选择、PDF/图像分析、HTML PPT、Paper.js 与普通 Agent 文本现统一使用 `NEW_API_BASE_URL` / `NEW_API_KEY` 调用 new-api `/v1/chat/completions`，tc-api 地址和 `tc_sk` 仅由 new-api 渠道集中管理。积分 provider、API usage channel 与成功 metadata 同步更正为 `new-api`；AI 对话框外显 `new-api · GPT-5.4/5.6`，Text Chat 与 Prompt Optimizer 外显实际 `GPT-5.4`。新增反向 mock 门禁，确保存在 tc-api key 也不会绕过 new-api。

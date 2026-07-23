@@ -39,6 +39,8 @@
 ### 设计 JSON（强约束）
 - `Project.contentJson` / `PublicTemplate.templateData` 只允许保存远程 URL/路径引用；禁止 `data:`/`blob:`/base64 图片等内联内容进入 DB/OSS。
 - UI 渲染（画板/图层/缩略图等）：避免直接用 `data:image/*`/裸 base64 做渲染；优先转为 `blob:`（objectURL）或走 `canvas`（参考 `frontend/src/components/ui/SmartImage.tsx`、`frontend/src/hooks/useNonBase64ImageSrc.ts`）。
+- Canvas/Flow 正式图片资产必须先完成托管上传并取得远程 URL，再创建节点或图元；上传失败时阻止创建，不得以 `data:`、`blob:`、裸 base64 或未托管外链作为正式资产兜底。裁剪、蒙版、画笔等组件内部可短暂使用 Blob/object URL 预览，但保存、替换正式资产或提交 AI 生成前必须上传。
+- AI 图片生成、编辑、融合的输入边界只接受远程 HTTP(S) URL：前端统一上传，后端 Controller 与 BullMQ 入队前再次校验，`NewApiProvider` 发送 `image_urls` 前最终校验。任何一层无法取得远程 URL 都必须失败关闭，禁止内联图片进入任务 `requestData`、Redis/BullMQ 或 new-api。
 
 ### Flow / AI 运行约定
 - 非小T的 AI 文本能力统一经 new-api `POST /v1/chat/completions` 调用 GPT：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 文本分析使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究使用 `gpt-5.6`。不得回退到 `gpt-5.4-mini`、`gemini-3.5-flash` 或旧 provider 档位。视频理解继续使用 Gemini 专用链路；小T使用 `xiaot-agent-gpt-5-4|5-5` facade，默认 GPT-5.4。
@@ -56,7 +58,7 @@
 - Flow Prompt 节点的 `@` 图片引用保存为结构化 `data.mentions`：新建引用可从工作流、项目库与个人库选择；工作流引用只保存 `flow` 节点/句柄引用，项目库/个人库只保存远程 URL/路径。运行时可合并到生图参考图，但不得把 inline 图片写入设计 JSON。Prompt 的“工作流”来源仅在当前 Prompt 下游节点存在已连接的图片输入时显示，并展示这些下游图片输入对应的当前工作流图片；多 `@` 匹配必须按最长 token 优先，自动候选同步不得覆盖已保存的结构化 ref，也不得在同名 token 对应多个候选时盲绑；工作流多输出必须按 `nodeId + handle` 精确匹配，避免同节点不同图串联；已选引用在 Prompt 输入区以图片 chip 区分展示，删除时应按整个 token 同步清理 mention。
 - Flow 视频节点运行时可从连接的 Prompt 节点读取仍存在于文本中的 image mentions 作为虚拟图片输入：物理图片连线优先，`@` 图片只补空位或追加到参考图列表，并在请求 prompt 中追加 token 到参考图序号的映射说明。
 - Flow 视频任务只有在创建响应为非失败态且包含有效 `taskId` 后才能注册轮询。提交开始时必须清除旧任务身份；同步 4xx、`200 + failed` 或缺少 `taskId` 时，节点应原子进入 `failed`、展示后端具体错误并清空全部轮询字段，避免旧任务恢复逻辑覆盖失败态。
-- Seedance 参考图送入火山 Ark 素材审核时，后端必须解析 `ResponseMetadata.Error`，将图片宽高过小/过大等 `InvalidParameter.*` 和内容审核拒绝返回为可操作的 HTTP 400 中文提示，并保留 `upstreamCode/requestId` 供排障；只有真实上游不可用才返回 502。前端手动送审和自动送审都必须即时展示该提示，不能只把原始 `CreateAsset` 响应写入节点状态。
+- Seedance 2.0 每次带普通参考图生成都由后端创建独立的一次性火山 Ark 素材组，对本次当前渲染图重新审核；前端不得预审核、复用或下发项目中残留的普通 `volcAssetId`。活体认证资产是唯一例外：它代表用户授权，只能显式标记为 `bio-auth` 后使用，失效时要求重新认证，不得静默替换成普通审核资产。创建成功后一次性组与真实 `taskId` 绑定，任务查询进入成功/失败终态时异步删除；同步提交失败立即删除，未轮询/服务重启遗留组由 `VolcTaskAssetGroup` 和每小时任务在默认 24 小时后兜底清理。若本次新建 `assetId` 在提交瞬间返回 not found，只允许内部删组、重审并重试一次，不能让用户手动重试或重复扣费。`CreateAsset` 的尺寸/审核错误仍需返回可操作的 HTTP 400 中文提示并保留 `upstreamCode/requestId`。
 - Flow `omniFlashExtVideo` follows APIMart `omni-flash-ext`: `prompt` is required; image inputs are collected only from the `image` handle; single-image mode accepts 1 image, reference mode accepts 1-3 images, and 2+ images must send `generation_type=reference`; video input is collected from the `video` handle and is limited to 1 URL; when a reference video is present, force `videoMode/generation_type=reference` and omit `duration`; valid duration choices without video are 4/6/8/10 seconds. Backend managed routing includes a default `omni-flash-ext` -> `new_api` route so credit preview/deduction does not fall through to Kling 2.6 defaults.
 - Flow 视频普通/尊享通道使用不同的已部署 new-api 入口：普通通道经 `/v1/videos` 使用后端 `NEW_API_KEY`；`vendorKey/platformKey=tencent_vod|tengxun` 的尊享通道经腾讯 VOD proxy 使用 `NEW_API_KEY_VIP`。真实令牌不得下发前端；当前 new-api distributor 未部署 type=67 的腾讯 VOD 视频 channel，尊享请求不可直接送入 `/v1/videos` 的 `vip` 分组。
 - Vidu 统一节点的通道按钮必须真实写回 `vendorKey/platformKey`；普通为 `vidu_api`，尊享为 `tencent_vod`。Q2/Q3 切换必须同步 `managedModelKey=vidu-q2|vidu-q3`，后端也会按 `viduModelVariant/viduModel` 修正历史节点的矛盾托管 key，确保计费模型与 new-api 请求模型一致。

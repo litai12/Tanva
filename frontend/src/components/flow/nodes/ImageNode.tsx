@@ -3,7 +3,7 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "@xyflow/react";
 import { NodeResizeControl } from "@xyflow/react";
-import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
+import { Send as SendIcon, ShieldAlert, Loader2, UserRound, Paintbrush } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import ImageAnnotationModal, {
   type ImageAnnotationHistoryItem,
@@ -36,7 +36,6 @@ import { getImageSplitHandleIndex, getImageSplitPrimaryHandleId } from "../utils
 import { useFlowRenderMode } from "../FlowRenderModeContext";
 import { flowLetterboxBackground, useFlowNodeDarkTheme } from "./flowNodeDarkTheme";
 import { loadSharedImage } from "../utils/sharedImageLoad";
-import { uploadVolcAsset, type VolcAssetStatus } from "@/services/volcAssetAPI";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
 import type { BioAuthStatus } from "@/services/bioAuthAPI";
 import { BioAuthModal } from "./BioAuthModal";
@@ -1153,21 +1152,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
     ]
   );
 
-  // ── Volc Asset Library audit state ──────────────────────────────────────────
+  // Legacy audit fields remain readable so old projects and bio-auth state can be cleaned up.
+  // Seedance generation no longer reuses these provider-side asset IDs.
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
-  const volcAssetStatus: VolcAssetStatus | undefined = (data as any)?.volcAssetStatus;
+  const volcAssetStatus: "processing" | "active" | "failed" | undefined = (data as any)?.volcAssetStatus;
   const volcAssetError: string | undefined = (data as any)?.volcAssetError;
   const volcReviewDate: string | undefined = (data as any)?.volcReviewDate;
 
-  const REVIEW_VALID_DAYS = 3;
-  const isReviewExpired = React.useMemo(() => {
-    if (volcAssetStatus !== "active" || !volcReviewDate) return false;
-    const expiresAt = new Date(volcReviewDate).getTime() + REVIEW_VALID_DAYS * 24 * 60 * 60 * 1000;
-    return Date.now() > expiresAt;
-  }, [volcAssetStatus, volcReviewDate]);
-
-  // Effective status: expired active → treat as unreviewed
-  const effectiveVolcStatus: VolcAssetStatus | undefined = isReviewExpired ? undefined : volcAssetStatus;
 
   const patchNode = React.useCallback((patch: Record<string, any>) => {
     window.dispatchEvent(
@@ -1177,56 +1168,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
     );
   }, [id]);
 
-  // Recover stuck "processing" state with no assetId — means the upload request
-  // was interrupted (refresh / crash / network drop) before the server replied.
-  // Runs once on mount; in-flight uploads set state AFTER mount so won't trigger.
-  React.useEffect(() => {
-    if (volcAssetStatus === "processing" && !volcAssetId) {
-      patchNode({
-        volcAssetStatus: "failed",
-        volcAssetError: "上传中断，请重试",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleReviewClick = React.useCallback(async () => {
-    // Use data.imageUrl — the persistable OSS URL (primary source field for this node)
-    const sourceUrl: string | undefined = typeof data.imageUrl === "string" && data.imageUrl.trim()
-      ? data.imageUrl.trim()
-      : undefined;
-    if (!sourceUrl) {
-      window.dispatchEvent(
-        new CustomEvent("toast", {
-          detail: { message: "请先上传图片再送审", type: "warning" },
-        })
-      );
-      return;
-    }
-    if (effectiveVolcStatus === "processing") return;
-    patchNode({ volcAssetStatus: "processing", volcAssetError: undefined, volcReviewDate: undefined });
-    try {
-      const r = await uploadVolcAsset(sourceUrl);
-      patchNode({
-        volcAssetId: r.assetId,
-        volcAssetStatus: r.status,
-        volcAssetError: r.errorMessage,
-        ...(r.status === "active" ? { volcReviewDate: new Date().toISOString() } : {}),
-      });
-    } catch (err: any) {
-      const message = err?.message || "图片审核失败，请稍后重试。";
-      patchNode({
-        volcAssetId: undefined,
-        volcAssetStatus: "failed",
-        volcAssetError: message,
-      });
-      window.dispatchEvent(
-        new CustomEvent("toast", {
-          detail: { message, type: "error" },
-        })
-      );
-    }
-  }, [data.imageUrl, effectiveVolcStatus, patchNode]);
 
   // ── Bio Auth state ────────────────────────────────────────────────────────
   const bioAuthId: string | undefined = (data as any)?.bioAuthId;
@@ -1277,12 +1218,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Source image changed (regenerate / replace / rollback / clear) → discard audit state.
-  // The Volc asset (and bio-auth) is strongly bound to the image it was reviewed against,
-  // so a cached "active" volcAssetId from the OLD image must not survive an image swap —
-  // otherwise the next Seedance 2.0 generation would reuse the stale asset:// upstream
-  // while the raw URL points at the NEW image (image mismatch). Centralized here so every
-  // image-write path is covered, rather than clearing at each call site. The previous-url
+  // Source image changed (regenerate / replace / rollback / clear) → discard legacy audit
+  // and bio-auth state because both remain bound to the reviewed image. Centralized here so
+  // every image-write path is covered, rather than clearing at each call site. The previous-url
   // ref skips the first observed value, so audit state persisted in a saved project survives
   // load; clearing only happens on an actual change.
   const prevReviewedImageUrlRef = React.useRef<string | null>(null);
@@ -2240,37 +2178,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
           </div>
         )}
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          {(() => {
-            const reviewTitle =
-              isReviewExpired ? "审核已过期，点击重新审核"
-              : effectiveVolcStatus === "active" ? "已通过审核，sd2 将使用 asset://（点击可重新审核）"
-              : effectiveVolcStatus === "processing" ? "审核中…"
-              : effectiveVolcStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
-              : "审核通过可用于sd2";
-            return (
-          <button
-            type="button"
-            onClick={handleReviewClick}
-            title={reviewTitle}
-            aria-label={reviewTitle}
-            disabled={effectiveVolcStatus === "processing"}
-            style={{
-              fontSize: 12,
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              cursor: effectiveVolcStatus === "processing" ? "not-allowed" : "pointer",
-            }}
-          >
-            {isReviewExpired ? <ShieldAlert size={14} className="text-orange-400" />
-             : effectiveVolcStatus === "active" ? <ShieldCheck size={14} className="text-green-600" />
-             : effectiveVolcStatus === "processing" ? <Loader2 size={14} className="animate-spin text-amber-500" />
-             : effectiveVolcStatus === "failed" ? <ShieldAlert size={14} className="text-red-500" />
-             : <Shield size={14} className="text-gray-400" />}
-          </button>
-            );
-          })()}
           {/* Bio Auth Badge */}
           {(() => {
             const bioTitle =
