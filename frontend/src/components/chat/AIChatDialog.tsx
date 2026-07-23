@@ -66,7 +66,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { compatibleRemarkPlugins } from "@/utils/markdownCompatibility";
 import type {
   AIStreamProgressEvent,
   MidjourneyMetadata,
@@ -5205,7 +5205,7 @@ const AIChatDialog: React.FC = () => {
                               "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
                             )}
                           >
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            <ReactMarkdown remarkPlugins={compatibleRemarkPlugins}>
                               {userMessage.content}
                             </ReactMarkdown>
                             {userActionButtons}
@@ -5578,7 +5578,7 @@ const AIChatDialog: React.FC = () => {
                                     );
                                   })()}
                                   <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
+                                    remarkPlugins={compatibleRemarkPlugins}
                                     components={{
                                       p: ({ children }) => (
                                         <p className='mb-1 text-sm'>
@@ -6273,7 +6273,7 @@ const AIChatDialog: React.FC = () => {
                                           <div className='flex-1 min-w-0'>
                                             <div className='text-sm leading-relaxed text-black break-words markdown-content'>
                                               <ReactMarkdown
-                                                remarkPlugins={[remarkGfm]}
+                                                remarkPlugins={compatibleRemarkPlugins}
                                                 components={{
                                                   p: ({ children }) => (
                                                     <p className='mb-1 text-sm'>
@@ -6381,7 +6381,7 @@ const AIChatDialog: React.FC = () => {
                                       )}
                                     >
                                       <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
+                                        remarkPlugins={compatibleRemarkPlugins}
                                         components={{
                                           p: ({ children }) => (
                                             <p className='mb-1 text-sm'>
@@ -6505,7 +6505,7 @@ const AIChatDialog: React.FC = () => {
                       </span>
                     </div>
                     <div className='text-sm leading-relaxed text-black break-words markdown-content'>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={compatibleRemarkPlugins}>
                         {streamingText}
                       </ReactMarkdown>
                     </div>

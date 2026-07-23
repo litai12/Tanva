@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-23：修复 Safari 15.6 调用小T后白屏：`remark-gfm` 的自动链接解析器会在渲染回复时动态创建后行断言正则，旧 Safari 抛出 `Invalid regular expression: invalid group specifier name`。前端现按正则能力启用 GFM，旧浏览器回退到基础 Markdown；同时为小T对话、Flow 画布和应用根节点增加分级错误边界，局部回复/节点异常不再卸载整页。
 - 2026-07-22：撤销 Tanva 后端直连 tc-api 的 GPT 硬路由，普通对话、Flow Text Chat、提示词优化、工具选择、PDF/图像分析、HTML PPT、Paper.js 与普通 Agent 文本现统一使用 `NEW_API_BASE_URL` / `NEW_API_KEY` 调用 new-api `/v1/chat/completions`，tc-api 地址和 `tc_sk` 仅由 new-api 渠道集中管理。积分 provider、API usage channel 与成功 metadata 同步更正为 `new-api`；AI 对话框外显 `new-api · GPT-5.4/5.6`，Text Chat 与 Prompt Optimizer 外显实际 `GPT-5.4`。新增反向 mock 门禁，确保存在 tc-api key 也不会绕过 new-api。
 - 2026-07-21：非小T AI 对话硬切 tc-api GPT 路由：普通文字对话、Flow Text Chat、提示词优化、工具选择与 PDF 分析统一使用 `gpt-5.4`；图像理解、HTML PPT、Paper.js、图像转矢量和普通 Agent 规划/研究统一使用 `gpt-5.6`。移除活动链路中的 `gemini-3.5-flash` / `gpt-5.4-mini` 与误导性的旧文本模型选择，视频分析继续走 Gemini、小T继续走专属 GPT-5.6 facade。后端新增独立 tc-api base URL/key、缺 key 显式失败与 mock 路由验证，积分展示元数据同步标记为 tc-api，现有 Tanva 固定积分价格保持不变。
 - 2026-07-21：修复 Flow 视频输入节点上传/加载视频后未持久化真实 `duration`，导致连接 Seedance 2.0/Fast/Mini 时试算始终只按输出时长显示固定积分的问题。视频输入节点现在在本地上传阶段读取媒体时长，并在已有远程视频元数据加载后自动补齐或校正；Seedance 下游还会直接探测所有已连接远程成片（包括画布内生成与合成视频）的实际媒体时长，节点请求时长只作探测失败兜底。试算随总输入时长重新请求，实际生成前仍由后端 `ffprobe` 复核；后端实际预扣链路复用可测试的总时长函数，并新增 `npm run verify:seedance-billing` 门禁。

@@ -14,6 +14,8 @@
   - `unhandledrejection`
   - static resource load errors
 - Added structured frontend error reporting to backend endpoint `/api/telemetry/frontend-error`.
+- Markdown rendering checks RegExp lookbehind support before enabling `remark-gfm`. Safari 15 falls back to base Markdown because the GFM autolink plugin dynamically creates a lookbehind expression that the browser cannot compile.
+- Runtime error boundaries isolate AI Chat and Flow rendering failures, with a root-level reload fallback so an uncaught React render error cannot leave a blank page.
 - Autosave keeps 5s debounce, plus a 15s minimum persisted save interval to avoid write amplification under burst edits.
 
 ## Backend changes
